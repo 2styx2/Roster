@@ -205,6 +205,7 @@ def test_vsphere_session_login_call_logout(capsys, esxi):
     assert [c[0] for c in FakeVsphere.calls] == ["RetrieveServiceContent", "Login", "RetrieveProperties", "Logout"]
     call = FakeVsphere.calls[2]
     assert call[1] == "urn:vim25/8.0.3.0" and call[2] == FakeVsphere.COOKIE    # SOAPAction added, session sent
+    assert call[3].count(":Envelope") == 2 and 'xmlns:urn="urn:vim25"' in call[3]   # bare body wrapped once
     assert SECRET not in out + err and "sess-abc123" not in out + err and out.count("********") == 2
 
 

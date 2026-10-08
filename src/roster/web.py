@@ -144,6 +144,8 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
     url = target_url(s["url"], path)
     if data is not None and data.startswith("@"):
         data = Path(data[1:]).expanduser().read_text()
+    if s["login"] == "vsphere" and data and urlparse(url).path.startswith("/sdk") and ":Envelope" not in data:
+        data = SOAP.format(data.strip())             # bare <urn:Call>...</urn:Call> -> full SOAP request
     req = urllib.request.Request(url, method=method, data=None if data is None else data.encode())
     for hd in headers:
         k, sep, v = hd.partition(":")
