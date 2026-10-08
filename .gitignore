@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# your real inventory and generated files stay out of git unless you decide otherwise
+/roster.yml
+/roster.yml.bak
+/roster.yml.new
+/ROSTER.md
+/CLAUDE.md
+/.claude/
