@@ -38,8 +38,9 @@
 #     services:
 #       https: { port: 443, user: webadmin, auth: "bw:Orion web" }   # web UI with its own account
 #       postgres: 5432               # short form: uses the default login
-#   Long-form services also take url (derived from ip + port if missing) and verify: false for
-#   self-signed certificates. ssh: and services: work in defaults and groups too.
+#   Long-form services also take url (derived from ip + port if missing), verify: false for
+#   self-signed certificates, and login: basic|bearer|none for `roster web HOST [SERVICE] GET /path`.
+#   ssh: and services: work in defaults and groups too.
 #
 # Bitwarden: run `bw login` once on the box (or set BW_CLIENTID / BW_CLIENTSECRET). A locked
 #   vault is unlocked once per run (master password prompt, BW_PASSWORD, or existing BW_SESSION).

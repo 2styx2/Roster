@@ -17,7 +17,8 @@ TEXT_FIELDS = ("title", "description", "type", "product")
 GROUP_ONLY = ("hosts", "title", "description")   # describe the group itself, not copied onto hosts
 LOGIN = ("user", "auth")
 SSH_KEYS = ("port", "user", "auth")
-SERVICE_KEYS = ("port", "url", "scheme", "user", "auth", "verify")
+SERVICE_KEYS = ("port", "url", "scheme", "user", "auth", "verify", "login")
+WEB_LOGINS = ("basic", "bearer", "none")          # how `roster web` sends the service's credentials
 SERVICE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 HTTPS_PORTS, HTTP_PORTS = (443, 8443), (80, 8000, 8008, 8080, 8888)
 
@@ -183,8 +184,14 @@ def normalize_service(where, name, e, m):
     return {"port": port, "url": url, "scheme": scheme,
             "user": as_user(e.get("user", m["login"]["user"])),
             "auth": as_auth(e["auth"] if "auth" in e else m["login"]["auth"]),
-            "verify": bool(e.get("verify", True)),
+            "verify": bool(e.get("verify", True)), "login": web_login(where, e.get("login", "basic")),
             "override": any(k in e for k in LOGIN)}       # False = inherits the host's default login
+
+
+def web_login(where, v):
+    if str(v) not in WEB_LOGINS:
+        die(f"{where}: login: {v!r} - use one of {', '.join(WEB_LOGINS)}")
+    return str(v)
 
 
 def service_credentials(h, name):

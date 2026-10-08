@@ -26,6 +26,7 @@ from .sshops import (
     ssh_ok,
     write_ssh_config,
 )
+from .web import cmd_web
 
 # ---------------------------------------------------------------- commands
 
@@ -332,6 +333,13 @@ def _main(argv=None):
     sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
     s = sub.add_parser("auth-check", help="test each group's password source, print nothing secret")
     s.add_argument("--only")
+    s = sub.add_parser("web", help="HTTP request to a host's web service, logged in with its stored credentials")
+    s.add_argument("request", nargs="+", metavar="HOST [SERVICE] METHOD PATH",
+                   help="e.g. esxi GET /folder  or  orion3 https GET /api/status")
+    s.add_argument("-d", "--data", help="request body (@FILE reads a file)")
+    s.add_argument("-H", "--header", action="append", help="extra header 'Name: value' (repeatable)")
+    s.add_argument("-k", "--insecure", action="store_true", help="don't verify the TLS certificate")
+    s.add_argument("--timeout", type=float, default=30)
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only")
     s.add_argument("-y", "--yes", action="store_true")
@@ -351,4 +359,4 @@ def _main(argv=None):
     cfg = load_config(find_config(args.config))
     setup_providers(cfg)
     return {"setup": cmd_setup, "sync": cmd_sync, "check": cmd_check, "hosts": cmd_hosts, "info": cmd_info,
-            "run": cmd_run, "revoke": cmd_revoke, "auth-check": cmd_auth_check}[args.cmd](cfg, args)
+            "run": cmd_run, "revoke": cmd_revoke, "auth-check": cmd_auth_check, "web": cmd_web}[args.cmd](cfg, args)

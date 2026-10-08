@@ -39,8 +39,10 @@ def write_claude_files(cfg):
           "- **access = unreviewed**: found by a network scan, not set up yet. Don't try to log in; "
           "tell the user it needs reviewing in roster.yml.",
           "- Web UIs: open the URL in the browser. If it shows a login page, ask the user to sign in.",
-          "- A service marked **(login)** has its own stored login in the user's password manager. "
-          "Don't ask the user for it and don't try to fetch it; ask them to sign in where one is needed.", "",
+          "- A service marked **(login)** has a stored login. For its web API use "
+          f"`{run} web <name> [service] GET /path` (`-d BODY` for POST/PUT): roster sends the credentials, "
+          "you only see the response. Never ask the user for the login or try to fetch it, and ask before "
+          "any request that changes something (POST, PUT, PATCH, DELETE).", "",
           "## Rules",
           "- Never read, print or copy private keys (`~/.ssh/`) and never try to retrieve passwords "
           "(don't run `bw`, `op` or any other password-manager command yourself).",

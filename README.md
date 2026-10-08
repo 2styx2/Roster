@@ -125,6 +125,16 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 - A service accepts `port`, `url`, `scheme`, `user`, `auth` and `verify`. `web: "https://..."` still works and becomes a service named `web`.
 - `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:Orion web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
 
+### Web APIs with stored logins: `roster web`
+
+`roster web esxi GET /folder` or `roster web orion3 https GET /api/status` sends a request to that service, logged in with its `user`/`auth`. Without SERVICE it uses the host's web UI. The response status goes to stderr and the body to stdout.
+
+- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Form and cookie logins aren't supported.
+- Only paths are accepted, and redirects are reported, not followed, so the credentials never go anywhere but the service's own address.
+- The password, the token and the Authorization header are never printed. If a response happens to contain the password, it is masked.
+- `verify: false` on the service (or `-k`) accepts a self-signed certificate.
+- Hosts with `reviewed: false` are refused.
+
 **Naming tip:** use `<product>-<role>-<nn>` (`orion-web-01`, `net-sw-core-01`). A product's boxes then sort together, and `ssh orion-<Tab>` shows only that product.
 
 ## Password providers
@@ -187,6 +197,7 @@ Let your security team know before scanning big ranges.
 | `hosts [--find TEXT]` | List or search hosts |
 | `info HOST` | Everything about one host; fuzzy names work (`roster info core switch`) |
 | `run HOST -- CMD` | Run a command; password-only hosts get their password from the provider |
+| `web HOST [SERVICE] METHOD PATH` | HTTP request to a host's web service, logged in with its stored credentials (`-d BODY`, `-H 'Name: value'`, `-k`) |
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
 | `auth-check` | Test every password source in use (SSH and services) without printing anything secret |
 | `revoke` | Remove this box's key from every host |

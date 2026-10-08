@@ -73,7 +73,7 @@ def test_service_override_beats_host_default_beats_group(write_config):
 def test_short_form_inherits_host_default(write_config):
     pg = load_config(write_config(ORION3))["hosts"]["orion3"]["services"]["postgres"]
     assert pg == {"port": 5432, "url": None, "scheme": None, "user": "webadmin", "auth": "env:ORION3_PW",
-                  "verify": True, "override": False}
+                  "verify": True, "login": "basic", "override": False}
 
 
 def test_web_string_becomes_web_service(write_config):
