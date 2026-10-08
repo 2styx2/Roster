@@ -3,7 +3,7 @@
 import json
 import os
 
-from ..common import say
+from ..common import say, user_config_dir
 from . import SecretError, errtext, register, split_field
 
 # ---- built-in: Bitwarden
@@ -12,9 +12,29 @@ def _bw(ctx, *args, env=None):
     return ctx.run(["bw", *args, "--nointeraction"], env=env)
 
 
+def session_file():
+    return user_config_dir() / "bw-session"
+
+
+def _load_session_file():
+    """BW_SESSION from ~/.config/roster/bw-session, so sessions without your shell's env (background jobs,
+    other terminals) can use an unlocked vault. Ignored unless only you can read it."""
+    f = session_file()
+    if os.environ.get("BW_SESSION") or not f.is_file():
+        return False
+    if f.stat().st_mode & 0o077:
+        say(f"warning      {f} is readable by others - ignored (chmod 600 {f})")
+        return False
+    key = f.read_text().strip()
+    if key:
+        os.environ["BW_SESSION"] = key                     # this process only
+    return bool(key)
+
+
 def _bw_ready(ctx):
     if ctx.state.get("ready"):
         return
+    from_file = _load_session_file()
     try:
         status = json.loads(_bw(ctx, "status").stdout or "{}").get("status")
     except json.JSONDecodeError:
@@ -26,6 +46,11 @@ def _bw_ready(ctx):
         if _bw(ctx, "login", "--apikey").returncode != 0:
             raise SecretError("`bw login --apikey` failed - check BW_CLIENTID / BW_CLIENTSECRET")
         status = "locked"
+    if status == "locked" and from_file:
+        os.environ.pop("BW_SESSION", None)
+        if not (os.environ.get("BW_PASSWORD") or ctx.interactive):
+            raise SecretError(f"the Bitwarden session in {session_file()} has expired (vault locked) - refresh it: "
+                              f"(umask 077; bw unlock --raw > {session_file()})")
     if status == "locked":
         if os.environ.get("BW_PASSWORD"):
             r = _bw(ctx, "unlock", "--raw", "--passwordenv", "BW_PASSWORD")
@@ -34,7 +59,8 @@ def _bw_ready(ctx):
                     env={"ROSTER_BW_MASTER": ctx.ask("Bitwarden master password: ")})
         else:
             raise SecretError("Bitwarden vault is locked and there's no terminal to unlock it. In the shell "
-                              "you start Claude (or roster) from, run:  export BW_SESSION=$(bw unlock --raw)")
+                              "you start Claude (or roster) from, run:  export BW_SESSION=$(bw unlock --raw)  "
+                              f"- or, for every session on this box:  (umask 077; bw unlock --raw > {session_file()})")
         if r.returncode != 0 or not r.stdout.strip():
             raise SecretError("Bitwarden unlock failed (wrong master password?)")
         os.environ["BW_SESSION"] = r.stdout.strip()       # this process only

@@ -129,7 +129,8 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 
 `roster web esxi GET /folder` or `roster web orion3 https GET /api/status` sends a request to that service, logged in with its `user`/`auth`. Without SERVICE it uses the host's web UI. The response status goes to stderr and the body to stdout.
 
-- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Form and cookie logins aren't supported.
+- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Form logins aren't supported.
+- `login: vsphere` (ESXi, vCenter) logs in through the SOAP API, sends the request with the session cookie, then logs out. Send SOAP bodies to `/sdk`, e.g. `roster web esxi POST /sdk -d @call.xml`. The right `SOAPAction` header is added for you.
 - Only paths are accepted, and redirects are reported, not followed, so the credentials never go anywhere but the service's own address.
 - The password, the token and the Authorization header are never printed. If a response happens to contain the password, it is masked.
 - `verify: false` on the service (or `-k`) accepts a self-signed certificate.
@@ -217,6 +218,8 @@ Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then
   - leave unreviewed hosts alone.
 - **`CLAUDE.md`** gets an `@ROSTER.md` line added, and its existing content is kept.
 - **`.claude/settings.json`** gets deny rules for reading and editing `~/.ssh`. These are a guardrail, not a wall.
+
+For Bitwarden, `(umask 077; bw unlock --raw > ~/.config/roster/bw-session)` lets every roster run on this box use the unlocked vault, including Claude sessions that don't inherit your shell's environment. roster ignores the file unless only you can read it. `bw lock` ends the session, and the file goes stale with it.
 
 For password-only gear, start Claude from a shell where your password manager is unlocked, for example `export BW_SESSION=$(bw unlock --raw)`. `roster run` can then fetch the password without Claude ever seeing it.
 

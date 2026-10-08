@@ -146,3 +146,71 @@ def test_bad_login_setting(write_config):
                  "        services: {gui: {port: 443, login: form}}\n")
     with pytest.raises(SystemExit, match="login: 'form'"):
         main(["hosts"])
+
+
+class FakeVsphere(http.server.BaseHTTPRequestHandler):
+    """Just enough of the ESXi SOAP API: versions, service content, Login/Logout, one call."""
+    calls = []
+    COOKIE = 'vmware_soap_session="sess-abc123"'
+
+    def do_GET(self):  # noqa: N802
+        self.reply(200, "<namespaces><namespace><name>urn:vim25</name><version>8.0.3.0</version></namespace>"
+                        "</namespaces>")
+
+    def do_POST(self):  # noqa: N802
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+        op = next((o for o in ("RetrieveServiceContent", "Login", "Logout", "RetrieveProperties")
+                   if f"<urn:{o}" in body), "?")
+        FakeVsphere.calls.append((op, self.headers.get("SOAPAction"), self.headers.get("Cookie"), body))
+        if op == "RetrieveServiceContent":
+            return self.reply(200, '<returnval><sessionManager type="SessionManager">ha-sessionmgr</sessionManager>'
+                                   "</returnval>")
+        if op == "Login":
+            if f"<urn:password>{SECRET}</urn:password>" not in body or "<urn:userName>root</urn:userName>" not in body:
+                return self.reply(500, "<faultstring>Cannot complete login due to an incorrect user name or "
+                                       "password.</faultstring>")
+            return self.reply(200, "<returnval><userName>root</userName></returnval>",
+                              {"Set-Cookie": self.COOKIE + "; Path=/; HttpOnly; Secure"})
+        if self.headers.get("Cookie") != self.COOKIE:
+            return self.reply(500, "<faultstring>The session is not authenticated.</faultstring>")
+        self.reply(200, f"<returnval>{op} ok, echo {SECRET} sess-abc123</returnval>")
+
+    def reply(self, code, text, headers=None):
+        self.send_response(code)
+        self.send_header("Content-Type", "text/xml")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture
+def esxi(write_config, monkeypatch):
+    FakeVsphere.calls = []
+    srv = http.server.HTTPServer(("127.0.0.1", 0), FakeVsphere)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("ESXI_PW", SECRET)
+    write_config("groups:\n  g:\n    user: root\n    auth: env:ESXI_PW\n    hosts:\n      esxi:\n        ip: 127.0.0.1\n"
+                 f"        services: {{https: {{url: 'http://127.0.0.1:{srv.server_address[1]}', login: vsphere}}}}\n")
+    yield
+    srv.shutdown()
+
+
+def test_vsphere_session_login_call_logout(capsys, esxi):
+    rc, out, err = run(capsys, "esxi", "POST", "/sdk", "-d", "<urn:RetrieveProperties>x</urn:RetrieveProperties>")
+    assert rc == 0 and "RetrieveProperties ok" in out
+    assert [c[0] for c in FakeVsphere.calls] == ["RetrieveServiceContent", "Login", "RetrieveProperties", "Logout"]
+    call = FakeVsphere.calls[2]
+    assert call[1] == "urn:vim25/8.0.3.0" and call[2] == FakeVsphere.COOKIE    # SOAPAction added, session sent
+    assert SECRET not in out + err and "sess-abc123" not in out + err and out.count("********") == 2
+
+
+def test_vsphere_wrong_password_names_fault_not_value(esxi, monkeypatch):
+    monkeypatch.setenv("ESXI_PW", "wrong-" + SECRET)
+    with pytest.raises(SystemExit, match="vSphere login refused: Cannot complete login") as e:
+        main(["web", "esxi", "POST", "/sdk", "-d", "<x/>"])
+    assert SECRET not in str(e.value)
+    assert [c[0] for c in FakeVsphere.calls] == ["RetrieveServiceContent", "Login"]

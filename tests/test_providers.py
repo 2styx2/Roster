@@ -154,3 +154,29 @@ def test_secret_values_are_cached_per_run(monkeypatch, tmp_path):
     assert get_secret(ref, "a") == "v"
     assert get_secret(ref, "b") == "v"
     assert counter.read_text().count("x") == 1
+
+
+def _session_file(isolated, text, mode=0o600):
+    f = isolated["home"] / ".config" / "roster" / "bw-session"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    f.chmod(mode)
+    return f
+
+
+def test_bw_session_file_unlocks_without_terminal(isolated, fakes):
+    _session_file(isolated, "fake-session-key\n")
+    assert get_secret("bw:Network gear", "g") == "pw-netops"
+
+
+def test_bw_session_file_readable_by_others_is_ignored(isolated, fakes, capsys):
+    _session_file(isolated, "fake-session-key\n", mode=0o644)
+    with pytest.raises(SecretError, match="locked"):
+        get_secret("bw:Network gear", "g")
+    assert "readable by others" in capsys.readouterr().out
+
+
+def test_bw_expired_session_file_says_refresh(isolated, fakes):
+    _session_file(isolated, "stale-key\n")
+    with pytest.raises(SecretError, match="has expired.*bw unlock --raw >"):
+        get_secret("bw:Network gear", "g")

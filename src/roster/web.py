@@ -1,12 +1,15 @@
 """`roster web`: HTTP requests to a host's web service, logged in with the service's stored credentials."""
 
 import base64
+import re
 import ssl
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from xml.sax.saxutils import escape as xml_escape
+from xml.sax.saxutils import unescape as xml_unescape
 
 from .common import die
 from .providers import get_secret
@@ -46,22 +49,81 @@ def target_url(base, path):
     return url
 
 
-def credentials_header(h, name, s):
-    """(header value, strings to mask in output). Errors name the auth reference, never a value."""
+def service_secret(h, name, s):
+    """The service's password/token, or None. Errors name the auth reference, never a value."""
     if s["login"] == "none" or s["auth"] is None:
-        return None, []
+        return None
     try:
         secret = get_secret(s["auth"], h["group"])
     except RuntimeError as e:
         die(f"{h['name']} {name}: {e}")
-    if secret is None:
-        return None, []
+    if secret is not None and s["login"] != "bearer" and not s["user"]:
+        die(f"{h['name']} {name}: {s['login']} login needs a user (set user: on the service or host)")
+    return secret
+
+
+def auth_header(s, secret):
+    """(Authorization value, strings to mask in output) for basic / bearer logins."""
     if s["login"] == "bearer":
         return f"Bearer {secret}", [secret]
-    if not s["user"]:
-        die(f"{h['name']} {name}: basic login needs a user (set user: on the service or host)")
     token = base64.b64encode(f"{s['user']}:{secret}".encode()).decode()
     return f"Basic {token}", [secret, token]
+
+
+# ---- vSphere (ESXi / vCenter) SOAP sessions
+
+SOAP = ('<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope '
+        'xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:vim25">'
+        '<soapenv:Body>{}</soapenv:Body></soapenv:Envelope>')
+
+
+def _open(opener, req, timeout):
+    try:
+        return opener.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        return e
+
+
+def soap_action(opener, base, timeout):
+    """'urn:vim25/8.0.3.0' - the newest API version the server speaks (no login needed)."""
+    with _open(opener, urllib.request.Request(base + "/sdk/vimServiceVersions.xml"), timeout) as r:
+        m = re.search(r"<name>urn:vim25</name>\s*<version>([^<]+)</version>", r.read().decode(errors="replace"))
+    return f"urn:vim25/{m.group(1)}" if m else "urn:vim25"
+
+
+def soap(opener, base, action, body, timeout, cookie=None):
+    req = urllib.request.Request(base + "/sdk", method="POST", data=SOAP.format(body).encode(),
+                                 headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": action})
+    if cookie:
+        req.add_unredirected_header("Cookie", cookie)
+    with _open(opener, req, timeout) as r:
+        return r.status, r.read().decode(errors="replace"), r.headers.get_all("Set-Cookie") or []
+
+
+def soap_fault(text):
+    m = re.search(r"<faultstring>([^<]*)</faultstring>", text)
+    return xml_unescape(m.group(1)) if m else text.strip()[:200]
+
+
+def vsphere_login(opener, base, user, secret, timeout):
+    """Log in through the SOAP API; returns (cookie header, SOAPAction, logout function)."""
+    action = soap_action(opener, base, timeout)
+    _, text, _ = soap(opener, base, action, '<urn:RetrieveServiceContent><urn:_this type="ServiceInstance">'
+                      'ServiceInstance</urn:_this></urn:RetrieveServiceContent>', timeout)
+    m = re.search(r'<sessionManager type="SessionManager">([^<]+)</sessionManager>', text)
+    if not m:
+        raise RuntimeError("no vSphere API at /sdk (is this ESXi or vCenter?)")
+    mgr = f'<urn:_this type="SessionManager">{xml_escape(m.group(1))}</urn:_this>'
+    status, text, cookies = soap(opener, base, action, f"<urn:Login>{mgr}<urn:userName>{xml_escape(user)}"
+                                 f"</urn:userName><urn:password>{xml_escape(secret)}</urn:password></urn:Login>",
+                                 timeout)
+    cookie = next((c.split(";")[0] for c in cookies if c.startswith("vmware_soap_session=")), None)
+    if status != 200 or not cookie:
+        raise RuntimeError(f"vSphere login refused: {soap_fault(text)}")
+
+    def logout():
+        soap(opener, base, action, f"<urn:Logout>{mgr}</urn:Logout>", timeout, cookie)
+    return cookie, action, logout
 
 
 def mask(text, secrets):
@@ -91,28 +153,43 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
             die("don't pass Authorization - roster adds the service's credentials itself")
         req.add_header(k.strip(), v.strip())
     if data is not None and not req.has_header("Content-type"):
-        req.add_header("Content-Type", "application/json" if data.lstrip()[:1] in "{[" else
-                       "application/x-www-form-urlencoded")
-    auth, secrets = credentials_header(h, name, s)
-    if auth:
-        req.add_unredirected_header("Authorization", auth)
+        first = data.lstrip()[:1]
+        req.add_header("Content-Type", "application/json" if first in ("{", "[") else
+                       "text/xml; charset=utf-8" if first == "<" else "application/x-www-form-urlencoded")
     ctx = ssl.create_default_context()
     if insecure or not s["verify"]:
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
     opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+    secret = service_secret(h, name, s)
+    secrets, logout = [secret], None
     try:
-        resp = opener.open(req, timeout=timeout)
-    except urllib.error.HTTPError as e:            # 4xx/5xx and unfollowed 3xx still have a body worth showing
-        resp = e
-    except (urllib.error.URLError, OSError) as e:
+        if secret is not None and s["login"] == "vsphere":
+            u = urlparse(s["url"])
+            cookie, action, logout = vsphere_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
+            secrets.append(cookie.split("=", 1)[1].strip('"'))
+            req.add_unredirected_header("Cookie", cookie)
+            if urlparse(url).path.startswith("/sdk") and not req.has_header("Soapaction"):
+                req.add_header("SOAPAction", action)
+        elif secret is not None:
+            auth, secrets = auth_header(s, secret)
+            req.add_unredirected_header("Authorization", auth)
+        resp = _open(opener, req, timeout)           # 4xx/5xx and unfollowed 3xx still have a body worth showing
+        with resp:
+            body = resp.read().decode(errors="replace")
+            status, reason = resp.status, resp.reason
+            ctype, location = resp.headers.get("Content-Type", ""), resp.headers.get("Location")
+    except (urllib.error.URLError, OSError, RuntimeError) as e:
         reason = getattr(e, "reason", e)
         hint = " (self-signed? set verify: false on the service, or pass --insecure)" if "CERTIFICATE" in str(
             reason) else ""
-        die(f"{h['name']} {name}: can't reach {url}: {mask(str(reason), secrets)}{hint}")
-    with resp:
-        body = resp.read().decode(errors="replace")
-        status, reason = resp.status, resp.reason
-        ctype, location = resp.headers.get("Content-Type", ""), resp.headers.get("Location")
+        die(f"{h['name']} {name}: can't reach {url}: {mask(str(reason), secrets)}{hint}"
+            if not isinstance(e, RuntimeError) else f"{h['name']} {name}: {mask(str(e), secrets)}")
+    finally:
+        if logout:
+            try:
+                logout()
+            except (urllib.error.URLError, OSError):
+                pass
     if location:
         reason = f"{reason} -> {mask(location, secrets)} (not followed)"
     return status, reason, ctype, mask(body, secrets)
