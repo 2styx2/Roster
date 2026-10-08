@@ -111,12 +111,9 @@ def cmd_check(cfg, args):
     hosts = selected(cfg, args.only)
 
     def check(h):
-        res = {"ssh": ssh_ok(h["name"]) if h["enroll"] else tcp_ok(h["ip"], h["port"])}
-        if h["web"]:
-            u = urlparse(h["web"] if "://" in h["web"] else "https://" + h["web"])
-            res["web"] = tcp_ok(u.hostname, u.port or (443 if u.scheme == "https" else 80))
-        for svc, port in h["services"].items():
-            res[str(svc)] = tcp_ok(h["ip"], port)
+        res = {"ssh": ssh_ok(h["name"]) if h["enroll"] else tcp_ok(h["ip"], h["ssh"]["port"])}
+        for name, s in h["services"].items():
+            res[name] = tcp_ok(urlparse(s["url"]).hostname if s["url"] else h["ip"], s["port"])
         return h, res
 
     bad = 0
@@ -171,11 +168,27 @@ def cmd_info(cfg, args):
               ("access", "not set up yet (reviewed: false)" if not h["reviewed"] else
                "key: ssh " + h["name"] if h["enroll"] else f"password: roster run {h['name']} -- CMD"),
               ("mac", h["mac"]),
-              ("web UI", h["web"]), ("services", ", ".join(f"{k}:{v}" for k, v in h["services"].items()))]
+              ("ssh login", login_label(h["ssh"])),
+              ("login", login_label(h["login"]) + " (default for services)" if any(h["login"].values()) else ""),
+              ("web UI", h["web"])]
     for k, v in fields:
         if v:
             say(f"{k:<12} {v}")
+    rows = [(name, str(s["port"]), s["url"] or "-",
+             login_label(s) + (" (own login)" if s["override"] else " (host default)" if s["auth"] or s["user"]
+                               else "")) for name, s in h["services"].items()]
+    widths = [max(len(r[i]) for r in rows) for i in range(3)] if rows else []
+    for i, r in enumerate(rows):
+        say(f"{'services' if i == 0 else '':<12} " + "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=False))
+            + "  " + r[-1])
     return 0
+
+
+def login_label(s):
+    """Who logs in and where the password comes from - the reference only, never a value."""
+    if not s.get("user") and not s.get("auth"):
+        return "no login"
+    return f"{s.get('user') or '(no user)'}, auth {s.get('auth') or 'none'}"
 
 
 def cmd_run(cfg, args):
@@ -189,7 +202,7 @@ def cmd_run(cfg, args):
     if h["enroll"]:
         os.execvp("ssh", ["ssh", "-o", "BatchMode=yes", h["name"], command])
     try:
-        rc, out, err = password_exec(h, command, get_secret(h["auth"], h["group"]))
+        rc, out, err = password_exec(h, command, get_secret(h["ssh"]["auth"], h["group"]))
     except RuntimeError as e:
         die(f"{h['name']}: {e}")
     sys.stdout.write(out)
@@ -225,8 +238,8 @@ def cmd_providers(cfg, args):
     import shutil
     used = {}
     for h in (cfg or {}).get("hosts", {}).values():
-        if h["auth"]:
-            used.setdefault(str(h["auth"]).split(":", 1)[0], set()).add(h["group"])
+        for ref in {h["ssh"]["auth"], *(s["auth"] for s in h["services"].values())} - {None}:
+            used.setdefault(ref.split(":", 1)[0], set()).add(h["group"])
     say("password providers (use as  auth: NAME:SPEC  in roster.yml):\n")
     for name in sorted(PROVIDERS):
         p = PROVIDERS[name]
@@ -243,11 +256,15 @@ def cmd_providers(cfg, args):
 
 
 def cmd_auth_check(cfg, args):
-    refs = sorted({(h["auth"], h["group"]) for h in selected(cfg, args.only)}, key=lambda t: (t[1], str(t[0])))
+    uses = {}                                    # (ref, group) -> [(service, host, user)]
+    for h in selected(cfg, args.only):
+        for svc, s in [("ssh", h["ssh"]), *h["services"].items()]:
+            if svc == "ssh" or s["auth"] is not None:
+                uses.setdefault((s["auth"], h["group"]), []).append((svc, h["name"], s["user"]))
     bad = 0
-    for ref, group in refs:
-        users = sorted({h["user"] for h in cfg["hosts"].values() if h["group"] == group and h["auth"] == ref})
-        label = f"{group:<16} {str(ref):<36} users: {', '.join(users)}"
+    for ref, group in sorted(uses, key=lambda t: (t[1], str(t[0]))):
+        users = sorted({u for _, _, u in uses[ref, group] if u})
+        label = f"{group:<16} {str(ref):<36} users: {', '.join(users) or '-'}  for: {used_for(uses[ref, group])}"
         if ref == "prompt":
             say(f"  ask   {label}  (asked when setup runs)")
             continue
@@ -259,6 +276,14 @@ def cmd_auth_check(cfg, args):
             say(f"  FAIL  {label}\n        {e}")
     say("\nok = a value was found. It is not tested against any host here; `setup` does that.")
     return 1 if bad else 0
+
+
+def used_for(uses):
+    """'ssh (12 hosts), https (orion3)' - which services on which hosts use one password source."""
+    by_svc = {}
+    for svc, host, _ in uses:
+        by_svc.setdefault(svc, []).append(host)
+    return ", ".join(f"{svc} ({hs[0] if len(hs) == 1 else f'{len(hs)} hosts'})" for svc, hs in by_svc.items())
 
 
 def main(argv=None):

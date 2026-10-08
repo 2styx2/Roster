@@ -32,6 +32,18 @@ EXAMPLE_CONFIG = """\
 #   cmd:COMMAND            any command that prints the password
 #   YOURS:WHAT             any provider you add under `providers:` below or as a plugin
 #
+# user + auth are the box's DEFAULT login, for SSH and for every service on it. Override per service:
+#   orion3:
+#     ip: 10.19.1.211
+#     user: admin                    # default login
+#     auth: bw:Orion3
+#     ssh: { user: sshuser, auth: "bw:Orion3 SSH" }     # SSH only (also takes port)
+#     services:
+#       https: { port: 443, user: webadmin, auth: "bw:Orion web" }   # web UI with its own account
+#       postgres: 5432               # short form: uses the default login
+#   Long-form services also take url (derived from ip + port if missing) and verify: false for
+#   self-signed certificates. ssh: and services: work in defaults and groups too.
+#
 # Bitwarden: run `bw login` once on the box (or set BW_CLIENTID / BW_CLIENTSECRET). A locked
 #   vault is unlocked once per run (master password prompt, BW_PASSWORD, or existing BW_SESSION).
 # 1Password: turn on the 1Password app integration, or set OP_SERVICE_ACCOUNT_TOKEN on

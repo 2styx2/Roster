@@ -30,7 +30,7 @@ def public_key_line(cfg):
 
 
 def hk_name(h):
-    return h["ip"] if h["port"] == 22 else f"[{h['ip']}]:{h['port']}"
+    return h["ip"] if h["ssh"]["port"] == 22 else f"[{h['ip']}]:{h['ssh']['port']}"
 
 
 def known_names():
@@ -54,7 +54,7 @@ def record_fingerprints(cfg, hosts):
 
     def scan(h):
         try:
-            r = subprocess.run(["ssh-keyscan", "-T", "5", "-p", str(h["port"]), h["ip"]],
+            r = subprocess.run(["ssh-keyscan", "-T", "5", "-p", str(h["ssh"]["port"]), h["ip"]],
                                capture_output=True, text=True, timeout=30)
             return h, [ln for ln in r.stdout.splitlines() if ln.strip() and not ln.startswith("#")]
         except subprocess.TimeoutExpired:
@@ -93,8 +93,8 @@ def write_ssh_config(cfg):
             out.append(f"# {h['description']}")
         out += [f"Host {name}",
                 f"    HostName {h['ip']}",
-                f"    User {h['user']}",
-                f"    Port {h['port']}",
+                f"    User {h['ssh']['user']}",
+                f"    Port {h['ssh']['port']}",
                 f"    UserKnownHostsFile {q(known_hosts_file())}",
                 "    StrictHostKeyChecking accept-new",
                 "    ConnectTimeout 10",
@@ -141,7 +141,7 @@ def password_exec(h, command, password, timeout=15):
     c.set_missing_host_key_policy(paramiko.RejectPolicy())
     use_pw = password is not None
     try:
-        c.connect(h["ip"], port=h["port"], username=h["user"], password=password,
+        c.connect(h["ip"], port=h["ssh"]["port"], username=h["ssh"]["user"], password=password,
                   allow_agent=not use_pw, look_for_keys=not use_pw,
                   timeout=timeout, auth_timeout=timeout, banner_timeout=timeout)
         _, stdout, stderr = c.exec_command(command, timeout=120)
@@ -176,7 +176,7 @@ def remove_key_script(tag_re):
 
 
 def enroll(h, pub, tag_re):
-    pw = get_secret(h["auth"], h["group"])
+    pw = get_secret(h["ssh"]["auth"], h["group"])
     _, out, err = password_exec(h, "sh -c " + shlex.quote(add_key_script(pub, tag_re)), pw)
     if "ROSTER_OK" not in out:
         raise RuntimeError("couldn't write authorized_keys: " + (err or out).strip()[:200])

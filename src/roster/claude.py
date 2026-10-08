@@ -4,8 +4,13 @@ import json
 
 from .common import roster_command, say
 from .config import access_label
+from .providers import NO_PASSWORD
 
 # ---------------------------------------------------------------- Claude files
+
+def stored_login(s):
+    return bool(s["auth"]) and s["auth"] not in ("prompt", *NO_PASSWORD)
+
 
 def write_claude_files(cfg):
     proj = cfg["path"].parent
@@ -33,7 +38,9 @@ def write_claude_files(cfg):
           f"\"the core switch\"). Look it up: `{run} hosts --find orion`, then `{run} info <name>`.",
           "- **access = unreviewed**: found by a network scan, not set up yet. Don't try to log in; "
           "tell the user it needs reviewing in roster.yml.",
-          "- Web UIs: open the URL in the browser. If it shows a login page, ask the user to sign in.", "",
+          "- Web UIs: open the URL in the browser. If it shows a login page, ask the user to sign in.",
+          "- A service marked **(login)** has its own stored login in the user's password manager. "
+          "Don't ask the user for it and don't try to fetch it; ask them to sign in where one is needed.", "",
           "## Rules",
           "- Never read, print or copy private keys (`~/.ssh/`) and never try to retrieve passwords "
           "(don't run `bw`, `op` or any other password-manager command yourself).",
@@ -53,7 +60,8 @@ def write_claude_files(cfg):
         md += ["## Hosts", "| name | title | type | product | address | access | web UI | services | description |",
                "|---|---|---|---|---|---|---|---|---|"]
         for h in hosts:
-            svc = ", ".join(f"{k}:{v}" for k, v in h["services"].items())
+            svc = ", ".join(f"{k}:{s['port']}" + (" (login)" if stored_login(s) else "")
+                            for k, s in h["services"].items() if k != "web" or s["override"])
             md.append(f"| {h['name']} | {cell(h['title'])} | {cell(h['type'])} | {cell(h['product'])} | "
                       f"{h['user']}@{h['ip']}:{h['port']} | {access_label(h)} | "
                       f"{cell(h['web'])} | {cell(svc)} | {cell(h['description'])} |")

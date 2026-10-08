@@ -91,13 +91,39 @@ groups:
 
 | Field | Meaning |
 |---|---|
-| `ip`, `port`, `user` | How to reach it over SSH (port defaults to 22) |
+| `ip`, `port`, `user` | How to reach it over SSH (port defaults to 22). `user` is also the box's default login |
 | `title`, `description`, `type`, `product` | Who the box is; searchable with `roster hosts --find` |
 | `web` | Web UI URL; listed for Claude and checked by `roster check` |
-| `services` | Other ports to know about and check, e.g. `{ postgres: 5432 }` |
-| `auth` | Where the password comes from (see below) |
+| `services` | Other ports to know about and check, e.g. `{ postgres: 5432 }`, or long form with its own login (below) |
+| `auth` | Where the password comes from (see below); the default for every service on the box |
+| `ssh` | Optional `{ port, user, auth }` that override the defaults for SSH only |
 | `enroll` | `true` installs a key (default); `false` for gear that only takes passwords |
 | `reviewed` | `false` on scanned hosts; `setup` skips them until you flip it |
+
+### One login per box, overrides per service
+
+A host's `user` + `auth` are its default login for everything on it. An `ssh:` block or a long-form service entry can override them. This is useful when a web UI uses a different account from SSH:
+
+```yaml
+      orion3:
+        ip: 10.19.1.211
+        user: admin                  # default login for every service on this box
+        auth: bw:Orion3
+        ssh: { user: sshuser, auth: "bw:Orion3 SSH" }      # SSH only; port defaults to 22
+        services:
+          https:
+            port: 443                # url is derived (https://10.19.1.211) unless you give one
+            user: webadmin
+            auth: "bw:Orion web"
+            # verify: false          # self-signed certificate
+          postgres: 5432             # short form: inherits admin / bw:Orion3
+```
+
+- For SSH, the first match wins: the host's `ssh:` block, then the host's `port`/`user`/`auth`, then the group's `ssh:` block, then the group's keys, then `defaults:` in the same order.
+- A service uses its own `user`/`auth` if it sets them, otherwise the host's default login.
+- `ssh:` and `services:` work at host, group and `defaults:` level. Service entries with the same name merge field by field, so a group can define `modbus: { port: 502, user: mb }` and one host can override just its `auth`.
+- A service accepts `port`, `url`, `scheme`, `user`, `auth` and `verify`. `web: "https://..."` still works and becomes a service named `web`.
+- `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:Orion web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
 
 **Naming tip:** use `<product>-<role>-<nn>` (`orion-web-01`, `net-sw-core-01`). A product's boxes then sort together, and `ssh orion-<Tab>` shows only that product.
 
@@ -162,7 +188,7 @@ Let your security team know before scanning big ranges.
 | `info HOST` | Everything about one host; fuzzy names work (`roster info core switch`) |
 | `run HOST -- CMD` | Run a command; password-only hosts get their password from the provider |
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
-| `auth-check` | Test every group's password source without printing anything secret |
+| `auth-check` | Test every password source in use (SSH and services) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
