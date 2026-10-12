@@ -93,7 +93,7 @@ What the errors mean:
 
 ## Limits to know about
 
-- **Form logins aren't supported by `roster web`.** That includes UniFi OS (`/api/auth/login` takes JSON) and most appliance web UIs. Use a browser for those, or test the login with a small script that reads the vault item and prints only the HTTP status.
+- **Generic form logins aren't supported by `roster web`.** Most appliance web UIs fall in this group, so use a browser for those. Supported: HTTP Basic, bearer tokens, `login: vsphere` (ESXi, vCenter) and `login: unifi` (UniFi OS consoles: `services: { web: { url: "https://IP", verify: false, login: unifi } }`).
 - **Old network gear** that offers SSH protocol 1.99 or old key exchange algorithms may need legacy options. Gear with telnet only can't be reached through roster.
 - **Unreviewed hosts are refused** by `run`, `web` and `setup`, on purpose.
 

@@ -1,6 +1,7 @@
 """`roster web`: HTTP requests to a host's web service, logged in with the service's stored credentials."""
 
 import base64
+import json
 import re
 import ssl
 import sys
@@ -126,6 +127,33 @@ def vsphere_login(opener, base, user, secret, timeout):
     return cookie, action, logout
 
 
+# ---- UniFi OS (UDM, Cloud Key, UniFi OS Server) sessions
+
+def unifi_login(opener, base, user, secret, timeout):
+    """Log in through /api/auth/login; returns (cookie header, CSRF token, logout function)."""
+    req = urllib.request.Request(base + "/api/auth/login", method="POST",
+                                 data=json.dumps({"username": user, "password": secret, "rememberMe": False}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with _open(opener, req, timeout) as r:
+        status, text = r.status, r.read().decode(errors="replace")
+        cookies, csrf = r.headers.get_all("Set-Cookie") or [], r.headers.get("X-CSRF-Token")
+    cookie = next((c.split(";")[0] for c in cookies if c.startswith("TOKEN=")), None)
+    if status != 200 or not cookie:
+        try:
+            why = json.loads(text).get("message") or text
+        except (ValueError, AttributeError):
+            why = text
+        raise RuntimeError(f"UniFi login refused (HTTP {status}): {str(why).strip()[:200]}")
+
+    def logout():
+        out = urllib.request.Request(base + "/api/auth/logout", method="POST", data=b"")
+        out.add_unredirected_header("Cookie", cookie)
+        if csrf:
+            out.add_header("X-CSRF-Token", csrf)
+        _open(opener, out, timeout).close()
+    return cookie, csrf, logout
+
+
 def mask(text, secrets):
     for v in secrets:
         if v:
@@ -172,6 +200,13 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
             req.add_unredirected_header("Cookie", cookie)
             if urlparse(url).path.startswith("/sdk") and not req.has_header("Soapaction"):
                 req.add_header("SOAPAction", action)
+        elif secret is not None and s["login"] == "unifi":
+            u = urlparse(s["url"])
+            cookie, csrf, logout = unifi_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
+            secrets += [cookie.split("=", 1)[1], csrf]
+            req.add_unredirected_header("Cookie", cookie)
+            if csrf:
+                req.add_header("X-CSRF-Token", csrf)          # UniFi needs it on every request that changes state
         elif secret is not None:
             auth, secrets = auth_header(s, secret)
             req.add_unredirected_header("Authorization", auth)

@@ -2,6 +2,7 @@
 
 import base64
 import http.server
+import json
 import threading
 
 import pytest
@@ -207,6 +208,72 @@ def test_vsphere_session_login_call_logout(capsys, esxi):
     assert call[1] == "urn:vim25/8.0.3.0" and call[2] == FakeVsphere.COOKIE    # SOAPAction added, session sent
     assert call[3].count(":Envelope") == 2 and 'xmlns:urn="urn:vim25"' in call[3]   # bare body wrapped once
     assert SECRET not in out + err and "sess-abc123" not in out + err and out.count("********") == 2
+
+
+class FakeUnifi(http.server.BaseHTTPRequestHandler):
+    """Just enough of UniFi OS: JSON login -> TOKEN cookie + CSRF header, one API call, logout."""
+    calls = []
+    TOKEN, CSRF = "tok-xyz789", "csrf-456"
+
+    def do_GET(self):  # noqa: N802
+        self.handle_call("GET", b"")
+
+    def do_POST(self):  # noqa: N802
+        self.handle_call("POST", self.rfile.read(int(self.headers.get("Content-Length", 0))))
+
+    def handle_call(self, method, body):
+        FakeUnifi.calls.append((method, self.path, self.headers.get("Cookie"), self.headers.get("X-CSRF-Token")))
+        if self.path == "/api/auth/login":
+            creds = json.loads(body)
+            if creds != {"username": "admin", "password": SECRET, "rememberMe": False}:
+                return self.reply(403, '{"code":"AUTHENTICATION_FAILED_INVALID_CREDENTIALS",'
+                                       '"message":"Invalid username or password"}')
+            return self.reply(200, '{"username":"admin"}', {"Set-Cookie": f"TOKEN={self.TOKEN}; path=/; secure",
+                                                             "X-CSRF-Token": self.CSRF})
+        if self.headers.get("Cookie") != f"TOKEN={self.TOKEN}":
+            return self.reply(401, '{"error":{"code":401,"message":"Unauthorized"}}')
+        self.reply(200, f'{{"data":"{method} {self.path} ok, echo {SECRET} {self.TOKEN}"}}')
+
+    def reply(self, code, text, headers=None):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture
+def unifi(write_config, monkeypatch):
+    FakeUnifi.calls = []
+    srv = http.server.HTTPServer(("127.0.0.1", 0), FakeUnifi)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("UNIFI_PW", SECRET)
+    write_config("groups:\n  g:\n    user: admin\n    auth: env:UNIFI_PW\n    hosts:\n      udm:\n        ip: 127.0.0.1\n"
+                 f"        services: {{web: {{url: 'http://127.0.0.1:{srv.server_address[1]}', login: unifi}}}}\n")
+    yield
+    srv.shutdown()
+
+
+def test_unifi_session_login_call_logout(capsys, unifi):
+    rc, out, err = run(capsys, "udm", "POST", "/proxy/network/api/s/default/stat/health", "-d", "{}")
+    assert rc == 0 and "POST /proxy/network/api/s/default/stat/health ok" in out
+    assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login", "/proxy/network/api/s/default/stat/health",
+                                               "/api/auth/logout"]
+    for call in FakeUnifi.calls[1:]:                                   # the call and the logout use the session
+        assert call[2] == f"TOKEN={FakeUnifi.TOKEN}" and call[3] == FakeUnifi.CSRF
+    assert SECRET not in out + err and FakeUnifi.TOKEN not in out + err and out.count("********") == 2
+
+
+def test_unifi_wrong_password_names_reason_not_value(unifi, monkeypatch):
+    monkeypatch.setenv("UNIFI_PW", "wrong-" + SECRET)
+    with pytest.raises(SystemExit, match=r"UniFi login refused \(HTTP 403\): Invalid username or password") as e:
+        main(["web", "udm", "GET", "/api/users/self"])
+    assert SECRET not in str(e.value)
+    assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login"]
 
 
 def test_vsphere_wrong_password_names_fault_not_value(esxi, monkeypatch):
