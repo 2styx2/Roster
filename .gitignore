@@ -7,6 +7,10 @@ dist/
 build/
 *.egg-info/
 
+# CI cache and reports
+.cache/
+report.xml
+
 # your real inventory and generated files stay out of git unless you decide otherwise
 /roster.yml
 /roster.yml.bak
