@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+# Test stand-in for the Bitwarden CLI (bw). Logged in, locked; master password "hunter2".
+# Stand-in for the Bitwarden CLI: logged in, locked, master password "hunter2".
+import json, os, sys
+a = [x for x in sys.argv[1:] if x != "--nointeraction"]
+SESSION = "fake-session-key"
+items = [
+ {"id": "11111111-aaaa", "name": "Orion servers", "login": {"username": "deploy", "password": "pw-deploy"},
+  "fields": [{"name": "dbadmin", "value": "pw-dbadmin"}]},
+ {"id": "22222222-bbbb", "name": "Network gear", "login": {"username": "netops", "password": "pw-netops"}},
+ {"id": "33333333-cccc", "name": "Network gear (old)", "login": {"password": "stale"}},
+ {"id": "44444444-dddd", "name": "Empty one", "login": {}},
+]
+unlocked = os.environ.get("BW_SESSION") == SESSION
+os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("bw " + " ".join(a[:2]) + "\n")
+if a[0] == "status":
+    print(json.dumps({"status": "unlocked" if unlocked else "locked"})); sys.exit()
+if a[0] == "unlock":
+    pw = os.environ.get(a[a.index("--passwordenv") + 1])
+    if pw == "hunter2": print(SESSION); sys.exit()
+    print("Invalid master password.", file=sys.stderr); sys.exit(1)
+if not unlocked: print("Vault is locked.", file=sys.stderr); sys.exit(1)
+if a[0] == "sync": print("Syncing complete."); sys.exit()
+q = a[2]
+if a[:2] == ["list", "items"]:
+    print(json.dumps([i for i in items if a[3].lower() in i["name"].lower()])); sys.exit()
+if a[:2] == ["get", "item"]:
+    hits = [i for i in items if i["id"] == q] or [i for i in items if q.lower() in i["name"].lower()]
+    if not hits: print("Not found.", file=sys.stderr); sys.exit(1)
+    if len(hits) > 1: print("More than one result was found. Try getting a specific object by `id` instead.", file=sys.stderr); sys.exit(1)
+    print(json.dumps(hits[0])); sys.exit()
+sys.exit(2)

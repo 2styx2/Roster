@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+# Test stand-in for the 1Password CLI (op). Signed out until `op signin`. OLD_OP=1 mimics a version without --reveal.
+# Stand-in for 1Password CLI v2: signed out until `op signin`; item "Network gear" in vault Infra.
+import json, os, sys
+a = sys.argv[1:]
+if a[:1] == ["--account"]: a = a[2:]
+signed = os.environ.get("OP_SESSION_test") == "tok" or os.environ.get("OP_SERVICE_ACCOUNT_TOKEN")
+os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("op " + " ".join(a[:2]) + "\n")
+if a[0] == "whoami":
+    sys.exit(0 if signed else 1)
+if a[0] == "signin":
+    print('export OP_SESSION_test="tok"\n# This command is meant to be used with your shell\'s eval function.'); sys.exit()
+if not signed: print("[ERROR] 2026/10/07 account is not signed in", file=sys.stderr); sys.exit(1)
+items = {("Infra", "Network gear"): {"password": "pw-netops", "enable": "en-secret"},
+         ("Infra", "Orion servers"): {"password": "pw-deploy"}}
+if a[0] == "read":
+    _, vault, item, field = a[1].split("/", 3)[0], *a[1][5:].split("/")
+    v = items.get((vault, item), {}).get(field)
+    if v is None: print(f'[ERROR] could not read secret {a[1]}', file=sys.stderr); sys.exit(1)
+    print(v); sys.exit()
+if os.environ.get("OLD_OP") and "--reveal" in a: print("[ERROR] unknown flag: --reveal", file=sys.stderr); sys.exit(1)
+if a[:2] == ["item", "get"]:
+    item = a[2]; field = a[a.index("--fields") + 1].split("=", 1)[1]
+    vault = a[a.index("--vault") + 1] if "--vault" in a else None
+    hits = [v for (vv, n), v in items.items() if n == item and (vault is None or vv == vault)]
+    if not hits: print(f'[ERROR] "{item}" isn\'t an item. Specify the item with its UUID, name, or domain.', file=sys.stderr); sys.exit(1)
+    if field not in hits[0]: print(f'[ERROR] could not find field {field}', file=sys.stderr); sys.exit(1)
+    print(json.dumps({"id": "x", "label": field, "value": hits[0][field]})); sys.exit()
+sys.exit(2)

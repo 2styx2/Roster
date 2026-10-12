@@ -1,0 +1,4 @@
+#!/bin/sh
+# Test stand-in for pass (passwordstore.org).
+[ "$1" = show ] && [ "$2" = infra/orion ] && printf 'pw-deploy\ndbadmin: pw-dbadmin\nurl: x\n' && exit 0
+echo "Error: $2 is not in the password store." >&2; exit 1
