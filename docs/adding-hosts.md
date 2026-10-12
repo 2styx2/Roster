@@ -99,4 +99,4 @@ What the errors mean:
 
 ## 6. Share it
 
-Commit the updated `roster.yml` wherever your team keeps it. Teammates copy it in and run `roster sync` and `roster setup`. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.
+Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com/yourteam/infra). Every box picks it up with `~/infra/bin/roster-pull`; add `--setup` to install keys on new key hosts. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.

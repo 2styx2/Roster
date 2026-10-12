@@ -5,7 +5,7 @@ Use this to give another machine (your laptop, a teammate's box, a jump host, a 
 You need three things:
 
 1. **roster itself**: this repository.
-2. **The team's `roster.yml`**: the host list. It holds hosts, users and vault item names, but no passwords. Get it from wherever your team keeps it (an infra repo, a shared drive, or a teammate).
+2. **The team's `roster.yml`**: the host list. It holds hosts, users and vault item names, but no passwords. It lives in [yourteam/infra](https://example.com/yourteam/infra).
 3. **Access to the vault** the `roster.yml` points at, with the same items (`bw:...`, `op:...`).
 
 ## 1. Prerequisites
@@ -32,11 +32,14 @@ No git access on that box? Use `git archive --format=zip -o roster.zip HEAD` on 
 
 ## 3. Put the host list in place
 
+The team's map lives in the [infra repo](https://example.com/yourteam/infra):
+
 ```bash
-mkdir -p ~/infra
-cp /path/to/roster.yml ~/infra/
+git clone git@example.com:yourteam/infra.git ~/infra
 cd ~/infra                 # roster reads ./roster.yml; run roster commands from here
 ```
+
+No git access? Copy `roster.yml` into `~/infra/` by hand instead. You'll then need to copy it again whenever it changes.
 
 roster looks for its config in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml`.
 
@@ -111,7 +114,7 @@ cd ~/infra && claude
 
 ```bash
 cd ~/roster && git pull && uv tool install --force .     # new roster version
-cp /path/to/updated/roster.yml ~/infra/ && roster sync   # new host list
+~/infra/bin/roster-pull                                  # new host list (git pull + roster sync)
 roster setup                                             # new key hosts get this box's key
 ```
 
