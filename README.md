@@ -1,39 +1,68 @@
 # Roster
 
-Give a box, and Claude running on it, access to every host on your network from one YAML file.
+**Your password manager knows the secrets. Roster knows your network: every host, what it is, how to reach it, and which login goes with which service.**
 
-You describe your network once in `roster.yml`: hosts, what they are, how to reach them, and where their passwords live. Running `roster setup` on a box then does the following:
+A password manager holds an item like `ESXI web`, but it doesn't know that the item opens both SSH and the SOAP API on one ESXi host. It doesn't know that two boxes with the same web title are different machines, or that one address is really a second interface of a box you already have. It doesn't know that the core switch only takes a password over SSH. That knowledge usually lives in someone's head, a stale wiki page, or a dozen `~/.ssh/config` files that all differ.
 
-1. Creates an SSH key for that box.
-2. Records every host's fingerprint.
-3. Installs the key on each host, using a password from your password manager one time.
-4. Writes SSH config entries so `ssh orion-dev-01` just works.
-5. Writes instructions telling Claude which hosts exist and how to reach them.
+Roster keeps it in one file, `roster.yml`:
 
-No password is ever written to disk, and Claude never sees one.
+- **Hosts and what they are:** name, address, type, product, title, description.
+- **How to reach them:** SSH port and user, whether the box takes a key or only a password, web UIs and other services.
+- **Which login goes where:** each host's default login, plus SSH-only or per-service overrides. These point at password-manager items (`bw:ESXI web`, `op:Network gear`) and never contain a password.
+
+From that one file, any box (a laptop, a jump host, a box where Claude runs) gets the same access:
 
 ```
 roster discover 10.0.1.0/24 --write     # scan the network into roster.yml
-roster setup                            # one time on each box
-roster hosts --find orion              # what's there
-roster run net-sw-core-01 -- show ver   # password-only gear, password fetched for you
+roster setup                            # one time on each box: key, fingerprints, ssh config
+roster hosts --find orion              # what's out there
+ssh orion-dev-01 uptime                # key login just works
+roster run net-sw-core-01 -- show ver   # password-only gear; the password is fetched for you
+roster web esxi api POST /sdk -d @q.xml # web API call made with the service's stored login
 ```
+
+### Why it exists
+
+- **One source of truth for the team.** The host list lives in git and the logins live in the shared vault. Adding a host takes one change to `roster.yml`, and rotating a password takes one vault edit. Every box picks the change up.
+- **No passwords on disk.** Passwords are fetched from Bitwarden, 1Password, `pass`, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
+- **Claude works on the network without seeing secrets.** `roster setup` writes `ROSTER.md`, which tells Claude which hosts exist and how to reach them. Claude uses `ssh`, `roster run` and `roster web`: roster supplies the credentials and Claude sees only the output.
+- **Scans become inventory safely.** `roster discover` turns an nmap sweep into `roster.yml` entries marked `reviewed: false`. Nothing logs in to them until a person has reviewed them.
+
+### What `roster setup` does on a box
+
+1. Creates an SSH key for that box, tagged with the box's name.
+2. Records every host's fingerprint.
+3. Installs the key on each host that accepts keys, using the password from your password manager once.
+4. Writes SSH config entries, so `ssh orion-dev-01` just works.
+5. Writes `ROSTER.md`, so Claude knows which hosts exist and how to reach them.
+
+## Documentation
+
+| Doc | For |
+|---|---|
+| This README | Concepts, `roster.yml` reference, providers, commands, security model |
+| [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
+| [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, and testing the logins |
+| [examples/roster.example.yml](examples/roster.example.yml) | Fully commented `roster.yml` (also produced by `roster init`) |
 
 ## Install
 
-Requires Python 3.10+, the OpenSSH client, and [uv](https://docs.astral.sh/uv/). nmap is optional but recommended for `discover`.
+Requires Python 3.10+, the OpenSSH client, and [uv](https://docs.astral.sh/uv/). nmap is optional but recommended for `discover`. You also need your password manager's CLI (`bw` or `op`).
 
 ```bash
-# try it from the project folder
-uv sync
-uv run roster --help
+git clone git@github.com:2styx2/roster.git
+cd roster
 
-# or install the `roster` command for your user (recommended on boxes Claude uses)
+# install the `roster` command for your user (recommended, especially on boxes Claude uses)
 uv tool install .
 roster --help
+
+# or try it from the project folder without installing
+uv sync
+uv run roster --help
 ```
 
-If you don't install it as a tool, Claude's instructions automatically use the full path to the project's Python, so Claude can still run it.
+If you don't install it as a tool, Claude's instructions automatically use the full path to the project's Python, so Claude can still run it. To update later, run `git pull && uv tool install --force .`.
 
 ## Quick start
 
@@ -238,7 +267,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 53 tests, no network or SSH server needed
+uv run pytest            # 98 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
@@ -255,6 +284,7 @@ src/roster/
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
 examples/           commented roster.yml, plugin template
+docs/               team guides: setting up a new box, adding hosts
 tests/              pytest suite + fake password-manager CLIs
 ```
 
