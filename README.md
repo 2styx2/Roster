@@ -18,6 +18,7 @@ roster setup                            # one time on each box: key, fingerprint
 roster hosts --find orion              # what's out there
 ssh orion-dev-01 uptime                # key login just works
 roster run net-sw-core-01 -- show ver   # password-only gear; the password is fetched for you
+roster run --sudo orion-dev-01 -- id  # as root; sudo gets the stored password
 roster web esxi api POST /sdk -d @q.xml # web API call made with the service's stored login
 ```
 
@@ -226,7 +227,7 @@ Let your security team know before scanning big ranges.
 | `check` | Reachability of SSH, web UIs and services |
 | `hosts [--find TEXT]` | List or search hosts |
 | `info HOST` | Everything about one host; fuzzy names work (`roster info core switch`) |
-| `run HOST -- CMD` | Run a command; password-only hosts get their password from the provider |
+| `run [--sudo] HOST -- CMD` | Run a command; password-only hosts get their password from the provider. `--sudo` runs it as root, handing sudo the login's password (never shown) |
 | `web HOST [SERVICE] METHOD PATH` | HTTP request to a host's web service, logged in with its stored credentials (`-d BODY`, `-H 'Name: value'`, `-k`) |
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
 | `auth-check` | Test every password source in use (SSH and services) without printing anything secret |
