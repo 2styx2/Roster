@@ -1,0 +1,66 @@
+# roster pipeline
+#   MR, push to main/dev, tags: lint + tests on every supported Python + build the wheel
+#   Runs on the instance runner "self-hosted runner", which only takes jobs tagged docker.
+#   Tests need no network, SSH server or password manager (stand-in bw/op/pass in tests/fakes).
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+stages: [lint, test, build]
+
+default:
+  image: python:3.12-slim
+  tags: [docker]
+  interruptible: true
+
+variables:
+  UV_VERSION: "0.12.23"
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  UV_PYTHON_DOWNLOADS: "never"       # use the image's Python, never fetch one
+  UV_LINK_MODE: "copy"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+.uv:
+  cache:
+    key:
+      files: [uv.lock]
+      prefix: uv-$CI_JOB_IMAGE
+    paths: [.cache/uv]
+  before_script:
+    - pip install -q "uv==$UV_VERSION"
+    - uv sync --frozen --python python3
+
+lint:
+  stage: lint
+  extends: .uv
+  script:
+    - uv run ruff check src tests
+
+test:
+  stage: test
+  extends: .uv
+  image: python:$PYTHON-slim
+  parallel:
+    matrix:
+      - PYTHON: ["3.10", "3.12", "3.13"]   # requires-python >= 3.10
+  script:
+    - uv run pytest --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 1 week
+
+build:
+  stage: build
+  extends: .uv
+  script:
+    - uv build
+    - ls -l dist/
+  artifacts:
+    paths: [dist/]
+    expire_in: 4 weeks
