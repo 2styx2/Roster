@@ -68,7 +68,7 @@ For each host you're bringing in, set its login and mark it reviewed:
           admin: { port: 8443, user: webadmin, auth: "bw:Some web item" }        # its own login
 ```
 
-- Rename hosts to something people will search for (`hub3`, `esxi-02`), set a real `title`, and fix the guessed `type`. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
+- Rename hosts to something people will search for, ideally the box's real hostname (`lab-hub3`, `esxi-02`). Set a real `title` and fix the guessed `type`. Don't shorten names: `hub2` and `lab-hub2` are different machines. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
 
 ## 5. Test every login
 
