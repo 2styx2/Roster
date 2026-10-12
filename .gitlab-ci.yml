@@ -20,7 +20,8 @@ default:
 variables:
   UV_VERSION: "0.12.23"
   UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
-  UV_PYTHON_DOWNLOADS: "never"       # use the image's Python, never fetch one
+  UV_PYTHON: "python3"               # the image's Python - overrides .python-version for every uv command
+  UV_PYTHON_DOWNLOADS: "never"       # never fetch a different one
   UV_LINK_MODE: "copy"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
@@ -32,7 +33,7 @@ variables:
     paths: [.cache/uv]
   before_script:
     - pip install -q "uv==$UV_VERSION"
-    - uv sync --frozen --python python3
+    - uv sync --frozen
 
 lint:
   stage: lint
