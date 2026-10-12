@@ -290,7 +290,7 @@ def cmd_discover(args):
     while group in existing_groups:
         group, n = f"{base}-{n}", n + 1
     note = f"Found by scanning {', '.join(targets)} on {today} - rename, fill in titles, then set reviewed: true"
-    needs_user = not (cfg and any(h["user"] for h in cfg["hosts"].values())) and not _defaults_user(cfg_path)
+    needs_user = not _defaults_user(cfg_path)   # the new group inherits only from defaults
 
     if not args.write:
         say("\n# preview - nothing written. Re-run with --write to add this to roster.yml:\ngroups:")
