@@ -159,8 +159,9 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 
 `roster web esxi GET /folder` or `roster web orion3 https GET /api/status` sends a request to that service, logged in with its `user`/`auth`. Without SERVICE it uses the host's web UI. The response status goes to stderr and the body to stdout.
 
-- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Form logins aren't supported.
+- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Generic HTML form logins aren't supported.
 - `login: vsphere` (ESXi, vCenter) logs in through the SOAP API, sends the request with the session cookie, then logs out. Send SOAP bodies to `/sdk`, e.g. `roster web esxi POST /sdk -d @call.xml`. The right `SOAPAction` header is added for you.
+- `login: unifi` (UniFi OS consoles: UDM, Cloud Key, UniFi OS Server) logs in through `/api/auth/login`, sends the request with the session cookie and CSRF token, then logs out. Paths: `/api/...` for UniFi OS, `/proxy/network/api/s/default/...` for the Network app, e.g. `roster web unifi GET /proxy/network/api/s/default/stat/health`.
 - Only paths are accepted, and redirects are reported, not followed, so the credentials never go anywhere but the service's own address.
 - The password, the token and the Authorization header are never printed. If a response happens to contain the password, it is masked.
 - `verify: false` on the service (or `-k`) accepts a self-signed certificate.
