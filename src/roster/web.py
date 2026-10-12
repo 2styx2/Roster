@@ -154,6 +154,28 @@ def unifi_login(opener, base, user, secret, timeout):
     return cookie, csrf, logout
 
 
+# ---- OpenVPN Access Server admin API
+
+def openvpnas_login(opener, base, user, secret, timeout):
+    """Log in through /api/auth/login/userpassword; returns the auth token for X-OpenVPN-As-AuthToken.
+    Access Server has no logout call - the token simply expires."""
+    req = urllib.request.Request(base + "/api/auth/login/userpassword", method="POST",
+                                 data=json.dumps({"username": user, "password": secret,
+                                                  "request_admin": True}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with _open(opener, req, timeout) as r:
+        status, text = r.status, r.read().decode(errors="replace")
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = {}
+    token = data.get("auth_token") if isinstance(data, dict) else None
+    if status != 200 or not token:
+        why = data.get("detail") if isinstance(data, dict) and data.get("detail") else text
+        raise RuntimeError(f"Access Server login refused (HTTP {status}): {str(why).strip()[:200]}")
+    return token
+
+
 def mask(text, secrets):
     for v in secrets:
         if v:
@@ -207,6 +229,11 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
             req.add_unredirected_header("Cookie", cookie)
             if csrf:
                 req.add_header("X-CSRF-Token", csrf)          # UniFi needs it on every request that changes state
+        elif secret is not None and s["login"] == "openvpnas":
+            u = urlparse(s["url"])
+            token = openvpnas_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
+            secrets.append(token)
+            req.add_unredirected_header("X-OpenVPN-As-AuthToken", token)
         elif secret is not None:
             auth, secrets = auth_header(s, secret)
             req.add_unredirected_header("Authorization", auth)
