@@ -130,8 +130,15 @@ def ssh_ok(name, timeout=10):
     except subprocess.TimeoutExpired:
         return False
 
-def password_exec(h, command, password, timeout=15):
-    """Run a command over SSH with a password (or agent key). Host key must already be recorded."""
+def sudo_wrap(command):
+    """Run COMMAND as root via `sudo -S`, which reads the login password from stdin. The command
+    itself gets /dev/null as stdin, so it can never read that password, even if sudo didn't ask for it."""
+    return "sudo -S -p '' -- sh -c " + shlex.quote("exec </dev/null; " + command)
+
+
+def password_exec(h, command, password, timeout=15, stdin=None):
+    """Run a command over SSH with a password (or agent key). Host key must already be recorded.
+    STDIN, if given, is written to the command's stdin (used to hand sudo its password)."""
     try:
         import paramiko
     except ImportError:
@@ -144,7 +151,10 @@ def password_exec(h, command, password, timeout=15):
         c.connect(h["ip"], port=h["ssh"]["port"], username=h["ssh"]["user"], password=password,
                   allow_agent=not use_pw, look_for_keys=not use_pw,
                   timeout=timeout, auth_timeout=timeout, banner_timeout=timeout)
-        _, stdout, stderr = c.exec_command(command, timeout=120)
+        stdin_f, stdout, stderr = c.exec_command(command, timeout=120)
+        if stdin is not None:
+            stdin_f.write(stdin)
+            stdin_f.channel.shutdown_write()
         out = stdout.read().decode(errors="replace")
         err = stderr.read().decode(errors="replace")
         return stdout.channel.recv_exit_status(), out, err

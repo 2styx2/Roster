@@ -92,6 +92,7 @@ Hosts with `reviewed: false` are skipped. If a host fails (no answer, wrong pass
 roster check                              # SSH, web UIs and service ports on every host
 ssh <key-host> hostname                   # key login
 roster run <password-host> -- hostname    # password login (switches, ESXi, appliances)
+roster run --sudo <host> -- id            # as root: prints uid=0(root)
 roster web <host> [service] GET /path     # web API with the service's stored login
 ```
 

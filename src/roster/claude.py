@@ -32,6 +32,8 @@ def write_claude_files(cfg):
           "`scp`/`rsync` use the same names.",
           f"- **access = password** (switches, appliances): `{run} run <name> -- <command>`. "
           "The tool fetches the password itself.",
+          f"- **As root**: `{run} run --sudo <name> -- <command>` (key or password hosts). roster hands sudo "
+          "the login's password; don't put `sudo` in the command yourself, and never ask for the password.",
           f"- List / filter hosts: `{run} hosts` (e.g. `{run} hosts | grep db-`). "
           f"Health check: `{run} check` (add `--only <name or group>`).",
           f"- The user will often name a box by product, role or description (\"the orion dev box\", "

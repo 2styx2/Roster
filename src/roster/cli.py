@@ -24,9 +24,10 @@ from .sshops import (
     record_fingerprints,
     remove_key_script,
     ssh_ok,
+    sudo_wrap,
     write_ssh_config,
 )
-from .web import cmd_web
+from .web import cmd_web, mask
 
 # ---------------------------------------------------------------- commands
 
@@ -200,6 +201,10 @@ def cmd_run(cfg, args):
     if not words:
         die("nothing to run: roster run HOST -- COMMAND")
     command = " ".join(words)
+    if not h["reviewed"]:
+        die(f"{h['name']} is not reviewed yet (reviewed: false in roster.yml) - not logging in")
+    if args.sudo:
+        return run_sudo(h, command)
     if h["enroll"]:
         os.execvp("ssh", ["ssh", "-o", "BatchMode=yes", h["name"], command])
     try:
@@ -208,6 +213,36 @@ def cmd_run(cfg, args):
         die(f"{h['name']}: {e}")
     sys.stdout.write(out)
     sys.stderr.write(err)
+    if words[0] == "sudo" and rc != 0 and ("password is required" in err or "terminal is required" in err):
+        print(f"hint: sudo wants a password - use  roster run --sudo {h['name']} -- {' '.join(words[1:])}",
+              file=sys.stderr)
+    return rc if rc >= 0 else 1
+
+
+def run_sudo(h, command):
+    """Run COMMAND as root: sudo gets the host's login password on stdin, never on screen."""
+    try:
+        secret = get_secret(h["ssh"]["auth"], h["group"])
+    except RuntimeError as e:
+        die(f"{h['name']}: {e}")
+    if not secret:
+        die(f"{h['name']}: --sudo needs the login's password, but its auth is {h['ssh']['auth']!r} "
+            "(set auth: to the vault item that holds the password)")
+    wrapped = sudo_wrap(command)
+    if h["enroll"]:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", h["name"], wrapped], input=secret + "\n",
+                           capture_output=True, text=True)
+        rc, out, err = r.returncode, r.stdout, r.stderr
+    else:
+        try:
+            rc, out, err = password_exec(h, wrapped, secret, stdin=secret + "\n")
+        except RuntimeError as e:
+            die(f"{h['name']}: {mask(str(e), [secret])}")
+    sys.stdout.write(mask(out, [secret]))
+    sys.stderr.write(mask(err, [secret]))
+    if "incorrect password" in err or "no password was provided" in err:
+        print(f"{h['name']}: sudo refused the password from {h['ssh']['auth']} - "
+              f"is {h['ssh']['user']} allowed to sudo there?", file=sys.stderr)
     return rc if rc >= 0 else 1
 
 
@@ -316,6 +351,8 @@ def _main(argv=None):
     s = sub.add_parser("info", help="show everything about one host")
     s.add_argument("host", nargs="+")
     s = sub.add_parser("run", help="run a command on a host")
+    s.add_argument("--sudo", action="store_true",
+                   help="run it as root with sudo; roster gives sudo the login's password (never shown)")
     s.add_argument("host")
     s.add_argument("command", nargs=argparse.REMAINDER)
     s = sub.add_parser("discover", help="scan networks (nmap if installed) and add what's found to roster.yml")
