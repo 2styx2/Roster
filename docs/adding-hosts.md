@@ -68,7 +68,7 @@ For each host you're bringing in, set its login and mark it reviewed:
           admin: { port: 8443, user: webadmin, auth: "bw:Some web item" }        # its own login
 ```
 
-- Rename hosts to something people will search for (`hub3`, `esxi-02`), set a real `title`, and fix the guessed `type`. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
+- Rename hosts to something people will search for, ideally the box's real hostname (`lab-hub3`, `esxi-02`). Set a real `title` and fix the guessed `type`. Don't shorten names: `hub2` and `lab-hub2` are different machines. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
 
 ## 5. Test every login
 
@@ -99,4 +99,4 @@ What the errors mean:
 
 ## 6. Share it
 
-Commit the updated `roster.yml` wherever your team keeps it. Teammates copy it in and run `roster sync` and `roster setup`. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.
+Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com/yourteam/infra). Every box picks it up with `~/infra/bin/roster-pull`; add `--setup` to install keys on new key hosts. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.
