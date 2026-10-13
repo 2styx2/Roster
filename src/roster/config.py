@@ -18,7 +18,7 @@ GROUP_ONLY = ("hosts", "title", "description")   # describe the group itself, no
 LOGIN = ("user", "auth")
 SSH_KEYS = ("port", "user", "auth")
 SERVICE_KEYS = ("port", "url", "scheme", "user", "auth", "verify", "login")
-WEB_LOGINS = ("basic", "bearer", "vsphere", "unifi", "none")          # how `roster web` sends the service's credentials
+WEB_LOGINS = ("basic", "bearer", "vsphere", "unifi", "openvpnas", "none")          # how `roster web` sends the service's credentials
 SERVICE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 HTTPS_PORTS, HTTP_PORTS = (443, 8443), (80, 8000, 8008, 8080, 8888)
 

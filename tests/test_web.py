@@ -276,6 +276,67 @@ def test_unifi_wrong_password_names_reason_not_value(unifi, monkeypatch):
     assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login"]
 
 
+class FakeOpenvpnAs(http.server.BaseHTTPRequestHandler):
+    """Just enough of OpenVPN Access Server's admin API: token login, one call that needs the token."""
+    calls = []
+    TOKEN = "astok-123456"
+
+    def do_GET(self):  # noqa: N802
+        self.handle_call("GET", b"")
+
+    def do_POST(self):  # noqa: N802
+        self.handle_call("POST", self.rfile.read(int(self.headers.get("Content-Length", 0))))
+
+    def handle_call(self, method, body):
+        FakeOpenvpnAs.calls.append((method, self.path, self.headers.get("X-OpenVPN-As-AuthToken")))
+        if self.path == "/api/auth/login/userpassword":
+            creds = json.loads(body)
+            if (creds.get("username"), creds.get("password")) != ("openvpn", SECRET):
+                return self.reply(401, '{"detail":"Invalid credentials"}')
+            return self.reply(200, f'{{"auth_token":"{self.TOKEN}","expires_after":"2026-10-13T00:00:00Z"}}')
+        if self.headers.get("X-OpenVPN-As-AuthToken") != self.TOKEN:
+            return self.reply(400, '{"detail":"Missing auth token"}')
+        self.reply(200, f'{{"version":"3.2.2","echo":"{SECRET} {self.TOKEN}"}}')
+
+    def reply(self, code, text):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture
+def openvpnas(write_config, monkeypatch):
+    FakeOpenvpnAs.calls = []
+    srv = http.server.HTTPServer(("127.0.0.1", 0), FakeOpenvpnAs)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OVPN_PW", SECRET)
+    write_config("groups:\n  g:\n    user: openvpn\n    auth: env:OVPN_PW\n    hosts:\n      vpn:\n        ip: 127.0.0.1\n"
+                 f"        services: {{admin: {{url: 'http://127.0.0.1:{srv.server_address[1]}', login: openvpnas}}}}\n")
+    yield
+    srv.shutdown()
+
+
+def test_openvpnas_token_login_then_call(capsys, openvpnas):
+    rc, out, err = run(capsys, "vpn", "admin", "GET", "/api/server/info")
+    assert rc == 0 and '"version":"3.2.2"' in out
+    assert [c[:2] for c in FakeOpenvpnAs.calls] == [("POST", "/api/auth/login/userpassword"),
+                                                    ("GET", "/api/server/info")]
+    assert FakeOpenvpnAs.calls[1][2] == FakeOpenvpnAs.TOKEN                     # token sent on the call
+    assert SECRET not in out + err and FakeOpenvpnAs.TOKEN not in out + err and out.count("********") == 2
+
+
+def test_openvpnas_wrong_password_names_reason_not_value(openvpnas, monkeypatch):
+    monkeypatch.setenv("OVPN_PW", "wrong-" + SECRET)
+    with pytest.raises(SystemExit, match=r"Access Server login refused \(HTTP 401\): Invalid credentials") as e:
+        main(["web", "vpn", "admin", "GET", "/api/server/info"])
+    assert SECRET not in str(e.value)
+    assert [c[1] for c in FakeOpenvpnAs.calls] == ["/api/auth/login/userpassword"]
+
+
 def test_vsphere_wrong_password_names_fault_not_value(esxi, monkeypatch):
     monkeypatch.setenv("ESXI_PW", "wrong-" + SECRET)
     with pytest.raises(SystemExit, match="vSphere login refused: Cannot complete login") as e:
