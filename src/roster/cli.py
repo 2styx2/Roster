@@ -16,6 +16,7 @@ from .config import access_label, find_config, load_config, matches, selected
 from .discover import DEFAULT_SCAN_PORTS, cmd_discover
 from .example import EXAMPLE_CONFIG
 from .providers import NO_PASSWORD, PROVIDERS, get_secret, setup_providers
+from .resources import TYPES, fields, login, summary, wifi_uri
 from .sshops import (
     enroll,
     ensure_key,
@@ -148,20 +149,82 @@ def cmd_hosts(cfg, args):
     return 0
 
 
-def find_host(cfg, words):
+def find_host(cfg, words, resources=False):
+    """The host (or, with resources=True, the resource) named by words: exact name, else the one match."""
     name = " ".join(words)
-    h = cfg["hosts"].get(name)
-    found = [x for x in cfg["hosts"].values() if matches(x, name)]
+    pool = {**cfg["hosts"], **(cfg["resources"] if resources else {})}
+    h = pool.get(name)
+    found = [x for x in pool.values() if (matches if "ip" in x else resource_matches)(x, name)]
     if not h and len(found) == 1:
         h = found[0]                       # "info core switch" -> the one host that matches
     if not h:
         found = [x["name"] for x in found]
-        die(f"unknown host {name!r}" + (f" - did you mean: {', '.join(found[:10])}" if found else ""))
+        what = "host or resource" if resources else "host"
+        die(f"unknown {what} {name!r}" + (f" - did you mean: {', '.join(found[:10])}" if found else ""))
     return h
 
 
+def resource_matches(r, text):
+    """Every word appears in one of the resource's fields: 'guest wifi', 'lab'."""
+    hay = " ".join(str(v) for _, v in fields(r)).lower()
+    words = [w for w in text.lower().replace("_", " ").replace("-", " ").split() if w]
+    return bool(words) and all(w in hay for w in words)
+
+
+def cmd_resources(cfg, args):
+    rs = sorted(cfg["resources"].values(), key=lambda r: (r["type"], r["name"]))
+    if args.only:
+        wanted = {s.strip() for s in args.only.split(",") if s.strip()}
+        rs = [r for r in rs if wanted & {r["name"], r["type"], r["group"]}]     # unlike hosts, no match isn't fatal
+    if args.find:
+        rs = [r for r in rs if resource_matches(r, args.find)]
+    if not rs:
+        if cfg["resources"]:
+            say("no resource matches")
+            return 1
+        say("no resources in roster.yml. Types you can add under `resources:`:")
+        for kind, spec in TYPES.items():
+            say(f"  {kind:<8} {spec['help']}")
+        return 0
+    rows = [("NAME", "TYPE", "GROUP", "DETAILS", "LOGIN", "TITLE")]
+    rows += [(r["name"], r["type"], r["group"] or "-", summary(r) or "-", login(r), r["title"] or r["description"])
+             for r in rs]
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
+    for r in rows:
+        say("  ".join(c.ljust(w) for c, w in zip(r, widths, strict=False)) + "  " + r[-1])
+    return 0
+
+
+def show_resource(cfg, r):
+    for label, v in fields(r):
+        if label == "group" and v:
+            g = cfg["groups"].get(v, {})
+            v += f" ({g['title']})" if g.get("title") else ""
+        say(f"{label:<12} {v if v != '' else '-'}")
+    say(f"{'secret':<12} " + (f"roster reveal {r['name']}" if r["auth"] else "none"))
+    return 0
+
+
+def cmd_reveal(cfg, args):
+    r = cfg["resources"].get(args.name)
+    if not r:
+        die(f"unknown resource {args.name!r} (see `roster resources`)")
+    if args.wifi and r["type"] != "wifi":
+        die(f"{r['name']} is a {r['type']}, not wifi")
+    secret = ""
+    if r["auth"]:
+        try:
+            secret = get_secret(r["auth"], r["group"] or "resources")
+        except RuntimeError as e:
+            die(f"{r['name']}: {e}")
+    say(wifi_uri(r, secret) if args.wifi else secret)
+    return 0
+
+
 def cmd_info(cfg, args):
-    h = find_host(cfg, args.host)
+    h = find_host(cfg, args.host, resources=True)
+    if "ip" not in h:
+        return show_resource(cfg, h)
     g = cfg["groups"].get(h["group"], {})
     fields = [("name", h["name"]), ("title", h["title"]), ("description", h["description"]),
               ("type", h["type"]), ("product", h["product"]),
@@ -276,6 +339,9 @@ def cmd_providers(cfg, args):
     for h in (cfg or {}).get("hosts", {}).values():
         for ref in {h["ssh"]["auth"], *(s["auth"] for s in h["services"].values())} - {None}:
             used.setdefault(ref.split(":", 1)[0], set()).add(h["group"])
+    for r in (cfg or {}).get("resources", {}).values():
+        if r["auth"]:
+            used.setdefault(r["auth"].split(":", 1)[0], set()).add(r["group"] or "resources")
     say("password providers (use as  auth: NAME:SPEC  in roster.yml):\n")
     for name in sorted(PROVIDERS):
         p = PROVIDERS[name]
@@ -293,10 +359,14 @@ def cmd_providers(cfg, args):
 
 def cmd_auth_check(cfg, args):
     uses = {}                                    # (ref, group) -> [(service, host, user)]
-    for h in selected(cfg, args.only):
+    hosts, resources = selected(cfg, args.only, resources=True)
+    for h in hosts:
         for svc, s in [("ssh", h["ssh"]), *h["services"].items()]:
             if svc == "ssh" or s["auth"] is not None:
                 uses.setdefault((s["auth"], h["group"]), []).append((svc, h["name"], s["user"]))
+    for r in resources:
+        if r["auth"]:
+            uses.setdefault((r["auth"], r["group"] or "resources"), []).append((r["type"], r["name"], r["user"]))
     bad = 0
     for ref, group in sorted(uses, key=lambda t: (t[1], str(t[0]))):
         users = sorted({u for _, _, u in uses[ref, group] if u})
@@ -348,7 +418,13 @@ def _main(argv=None):
     s = sub.add_parser("hosts", help="list hosts")
     s.add_argument("--only")
     s.add_argument("--find", help="search name, title, description, type, product, group, ip")
-    s = sub.add_parser("info", help="show everything about one host")
+    s = sub.add_parser("resources", help="list Wi-Fi networks, accounts and secrets that aren't hosts")
+    s.add_argument("--only", help="resource names, types or groups")
+    s.add_argument("--find", help="search every field")
+    s = sub.add_parser("reveal", help="print a resource's secret (e.g. a Wi-Fi password) - for people, not Claude")
+    s.add_argument("name")
+    s.add_argument("--wifi", action="store_true", help="print a WIFI:... string for a QR code instead")
+    s = sub.add_parser("info", help="show everything about one host or resource")
     s.add_argument("host", nargs="+")
     s = sub.add_parser("run", help="run a command on a host")
     s.add_argument("--sudo", action="store_true",
@@ -396,4 +472,4 @@ def _main(argv=None):
     cfg = load_config(find_config(args.config))
     setup_providers(cfg)
     return {"setup": cmd_setup, "sync": cmd_sync, "check": cmd_check, "hosts": cmd_hosts, "info": cmd_info,
-            "run": cmd_run, "revoke": cmd_revoke, "auth-check": cmd_auth_check, "web": cmd_web}[args.cmd](cfg, args)
+            "run": cmd_run, "revoke": cmd_revoke, "resources": cmd_resources, "reveal": cmd_reveal, "auth-check": cmd_auth_check, "web": cmd_web}[args.cmd](cfg, args)

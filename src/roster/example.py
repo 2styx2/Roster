@@ -127,4 +127,25 @@ groups:
         type: router
         title: Edge router / internet gateway
         web: "https://10.0.0.1"
+
+# Things with a secret but no address to connect to. Each type has a fixed set of fields:
+#   every type   title, description, group (one of the groups above), user, auth
+#   wifi         ssid (required), security (wpa2 | wpa3 | wpa | wep | open | wpa2-enterprise | wpa3-enterprise,
+#                default wpa2), hidden (true/false)
+#   account      url (required) - a website, portal or SaaS login
+#   secret       nothing extra - an API key, license key, PSK
+# `roster resources` lists them, `roster reveal NAME` prints the secret for a person to use.
+resources:
+  office-wifi:
+    type: wifi
+    ssid: Orion-Office
+    auth: "bw:Office Wi-Fi"
+    group: network
+    title: Office Wi-Fi
+  registrar:
+    type: account
+    url: https://dash.example-registrar.com
+    user: it@example.com
+    auth: "op:Domain registrar"
+    title: Domain registrar (orion.example)
 """

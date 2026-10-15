@@ -171,6 +171,34 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 
 **Naming tip:** use `<product>-<role>-<nn>` (`orion-web-01`, `net-sw-core-01`). A product's boxes then sort together, and `ssh orion-<Tab>` shows only that product.
 
+## Resources: secrets with no address
+
+Some things need a secret but aren't hosts: a Wi-Fi network, a vendor portal, an API key. List them under `resources:` (next to `groups:`). Like everything else in `roster.yml`, they hold vault references, never values.
+
+```yaml
+resources:
+  lab-guest:
+    type: wifi
+    ssid: Lab-Guest
+    auth: "bw:Lab-Guest(Wifi)"
+    group: subnet-42
+    title: Contoso guest Wi-Fi
+```
+
+Every resource has the same fields, plus the fixed fields of its type. Anything else is an error, so every resource of a type looks the same in every view.
+
+| Type | Its own fields | Use for |
+|---|---|---|
+| (every type) | `title`, `description`, `group` (an existing group), `user`, `auth` | |
+| `wifi` | `ssid` (required), `security` (`wpa2` default, `wpa3`, `wpa`, `wep`, `open`, `wpa2-enterprise`, `wpa3-enterprise`), `hidden` | Wi-Fi networks; `auth` is the password (not needed for `open`) |
+| `account` | `url` (required) | Website, portal or SaaS logins |
+| `secret` | none | API keys, license keys, PSKs |
+
+- `roster resources` lists them (`--only NAME,TYPE,GROUP`, `--find TEXT`), and `roster info NAME` shows every field. Both show where the secret comes from, never the secret itself.
+- `roster reveal NAME` prints the secret, for a person to type in. `roster reveal NAME --wifi` prints a `WIFI:T:WPA;S:…;P:…;;` string instead; pipe it to `qrencode -t ansiutf8` and phones can join by scanning it.
+- `roster auth-check` checks resource references too, and ROSTER.md lists resources for Claude. Claude is told never to run `reveal` and to send the user to it instead.
+- Old roster versions ignore `resources:`, so you can add it to a shared map before every box has upgraded.
+
 ## Password providers
 
 `auth:` takes the form `PROVIDER:WHAT`. Passwords are fetched only when needed, kept in memory for that run, and never printed.
@@ -229,11 +257,13 @@ Let your security team know before scanning big ranges.
 | `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
 | `check` | Reachability of SSH, web UIs and services |
 | `hosts [--find TEXT]` | List or search hosts |
-| `info HOST` | Everything about one host; fuzzy names work (`roster info core switch`) |
+| `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
+| `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
+| `reveal NAME [--wifi]` | Print a resource's secret for a person to use (`--wifi`: a QR-ready `WIFI:` string) |
 | `run [--sudo] HOST -- CMD` | Run a command; password-only hosts get their password from the provider. `--sudo` runs it as root, handing sudo the login's password (never shown) |
 | `web HOST [SERVICE] METHOD PATH` | HTTP request to a host's web service, logged in with its stored credentials (`-d BODY`, `-H 'Name: value'`, `-k`) |
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
-| `auth-check` | Test every password source in use (SSH and services) without printing anything secret |
+| `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
@@ -271,7 +301,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 98 tests, no network or SSH server needed
+uv run pytest            # 133 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
@@ -284,6 +314,7 @@ src/roster/
   config.py         loading/validating roster.yml, search, --only
   example.py        the `roster init` template
   sshops.py         keys, fingerprints, ssh config, key install/removal, password logins
+  resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
