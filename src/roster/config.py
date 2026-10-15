@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import yaml
 
 from .common import KEY_TAG, LEGACY_KEY_TAGS, NAME_RE, die, oneline, user_config_dir
+from .resources import load_resources
 
 HOST_DEFAULTS = {"user": None, "port": 22, "enroll": True, "auth": "prompt",
                  "web": None, "services": {}, "notes": "",
@@ -87,6 +88,7 @@ def load_config(path):
     return {"path": path, "box": box, "tag": f"{KEY_TAG}:{box}", "tag_re": tag_re, "key": key,
             "pub": Path(str(key) + ".pub"), "workers": int(raw.get("workers") or 32),
             "inline_limit": int(raw.get("claude_inline_limit") or 60), "hosts": hosts, "groups": groups,
+            "resources": load_resources(raw, groups, hosts),
             "providers": providers_conf(raw), "provider_dirs": list(raw.get("provider_dirs") or [])}
 
 
@@ -221,12 +223,13 @@ def matches(h, text):
     return bool(words) and all(w in hay for w in words)
 
 
-def selected(cfg, only):
-    hosts = list(cfg["hosts"].values())
-    if not only:
-        return hosts
-    wanted = {s.strip() for s in only.split(",") if s.strip()}
-    picked = [h for h in hosts if wanted & {h["name"], h["group"], h["type"], h["product"]}]
-    if not picked:
-        die(f"--only {only!r} matched no host, group, type or product")
-    return picked
+def selected(cfg, only, resources=False):
+    """Hosts picked by --only; with resources=True, (hosts, resources), and a match on either is enough."""
+    hosts, rs = list(cfg["hosts"].values()), list(cfg["resources"].values()) if resources else []
+    if only:
+        wanted = {s.strip() for s in only.split(",") if s.strip()}
+        hosts = [h for h in hosts if wanted & {h["name"], h["group"], h["type"], h["product"]}]
+        rs = [r for r in rs if wanted & {r["name"], r["group"], r["type"]}]
+        if not hosts and not rs:
+            die(f"--only {only!r} matched no host, group, type or product" + (" or resource" if resources else ""))
+    return (hosts, rs) if resources else hosts

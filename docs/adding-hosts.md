@@ -100,3 +100,7 @@ What the errors mean:
 ## 6. Share it
 
 Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com/yourteam/infra). Every box picks it up with `~/infra/bin/roster-pull`; add `--setup` to install keys on new key hosts. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.
+
+## Things that aren't hosts
+
+A Wi-Fi network, a vendor portal or an API key goes under `resources:` instead of a group. It gets a fixed set of fields per type (`wifi`, `account`, `secret`) and an `auth:` vault reference, just like a host. See "Resources" in the README. Check it with `roster auth-check --only <name>` and `roster info <name>`.

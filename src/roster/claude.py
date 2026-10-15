@@ -5,6 +5,7 @@ import json
 from .common import roster_command, say
 from .config import access_label
 from .providers import NO_PASSWORD
+from .resources import login, summary
 
 # ---------------------------------------------------------------- Claude files
 
@@ -44,7 +45,10 @@ def write_claude_files(cfg):
           "- A service marked **(login)** has a stored login. For its web API use "
           f"`{run} web <name> [service] GET /path` (`-d BODY` for POST/PUT): roster sends the credentials, "
           "you only see the response. Never ask the user for the login or try to fetch it, and ask before "
-          "any request that changes something (POST, PUT, PATCH, DELETE).", "",
+          "any request that changes something (POST, PUT, PATCH, DELETE).",
+          f"- **Resources** (Wi-Fi networks, accounts, secrets) have no address: they're listed below and in "
+          f"`{run} resources`; `{run} info <name>` shows one. Never run `{run} reveal` yourself. If the user "
+          f"needs a value (e.g. a Wi-Fi password), tell them to run `{run} reveal <name>` in their own shell.", "",
           "## Rules",
           "- Never read, print or copy private keys (`~/.ssh/`) and never try to retrieve passwords "
           "(don't run `bw`, `op` or any other password-manager command yourself).",
@@ -77,6 +81,12 @@ def write_claude_files(cfg):
             return ", ".join(f"{k} ({v})" for k, v in sorted(c.items()))
         md += [f"{len(hosts)} hosts - too many to list here. Search with `{run} hosts --find <text>`.",
                f"- Products: {counts('product')}", f"- Types: {counts('type')}"]
+    resources = sorted(cfg["resources"].values(), key=lambda r: (r["type"], r["name"]))
+    if resources:
+        md += ["", "## Resources", "| name | type | group | details | login | title | description |",
+               "|---|---|---|---|---|---|---|"]
+        md += [f"| {r['name']} | {r['type']} | {cell(r['group'])} | {cell(summary(r))} | {cell(login(r))} | "
+               f"{cell(r['title'])} | {cell(r['description'])} |" for r in resources]
     (proj / "ROSTER.md").write_text("\n".join(md) + "\n")
 
     claude_md = proj / "CLAUDE.md"
