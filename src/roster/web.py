@@ -176,6 +176,27 @@ def openvpnas_login(opener, base, user, secret, timeout):
     return token
 
 
+# ---- Hub web API
+
+def hub_login(opener, base, user, secret, timeout):
+    """Log in through /api/auth/login; returns the bearer access token. The token expires after an hour,
+    and there is no logout call. Send JSON: a form body makes HUB echo the password back in its 422 error."""
+    req = urllib.request.Request(base + "/api/auth/login", method="POST",
+                                 data=json.dumps({"username": user, "password": secret}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with _open(opener, req, timeout) as r:
+        status, text = r.status, r.read().decode(errors="replace")
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = {}
+    token = data.get("access_token") if isinstance(data, dict) else None
+    if status != 200 or not token:
+        why = data.get("detail") if isinstance(data, dict) and isinstance(data.get("detail"), str) else text
+        raise RuntimeError(f"HUB login refused (HTTP {status}): {mask(str(why).strip()[:200], [secret])}")
+    return token
+
+
 def mask(text, secrets):
     for v in secrets:
         if v:
@@ -234,6 +255,11 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
             token = openvpnas_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
             secrets.append(token)
             req.add_unredirected_header("X-OpenVPN-As-AuthToken", token)
+        elif secret is not None and s["login"] == "hub":
+            u = urlparse(s["url"])
+            token = hub_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
+            secrets.append(token)
+            req.add_unredirected_header("Authorization", f"Bearer {token}")
         elif secret is not None:
             auth, secrets = auth_header(s, secret)
             req.add_unredirected_header("Authorization", auth)
