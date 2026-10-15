@@ -93,7 +93,7 @@ What the errors mean:
 
 ## Limits to know about
 
-- **Generic form logins aren't supported by `roster web`.** Most appliance web UIs fall in this group, so use a browser for those. Supported: HTTP Basic, bearer tokens, `login: vsphere` (ESXi, vCenter), `login: openvpnas` (OpenVPN Access Server admin) and `login: unifi` (UniFi OS consoles: `services: { web: { url: "https://IP", verify: false, login: unifi } }`).
+- **Generic form logins aren't supported by `roster web`.** Most appliance web UIs fall in this group, so use a browser for those. Supported: HTTP Basic, bearer tokens, `login: vsphere` (ESXi, vCenter), `login: openvpnas` (OpenVPN Access Server admin), `login: hub` (Hub web UI) and `login: unifi` (UniFi OS consoles: `services: { web: { url: "https://IP", verify: false, login: unifi } }`).
 - **Old network gear** that offers SSH protocol 1.99 or old key exchange algorithms may need legacy options. Gear with telnet only can't be reached through roster.
 - **Unreviewed hosts are refused** by `run`, `web` and `setup`, on purpose.
 

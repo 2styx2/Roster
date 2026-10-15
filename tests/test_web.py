@@ -337,6 +337,69 @@ def test_openvpnas_wrong_password_names_reason_not_value(openvpnas, monkeypatch)
     assert [c[1] for c in FakeOpenvpnAs.calls] == ["/api/auth/login/userpassword"]
 
 
+class FakeHub(http.server.BaseHTTPRequestHandler):
+    """Just enough of the HUB web API: JSON login returning a bearer token, one call that needs it."""
+    calls = []
+    TOKEN = "hubtok-123456"
+
+    def do_GET(self):  # noqa: N802
+        self.handle_call("GET", b"")
+
+    def do_POST(self):  # noqa: N802
+        self.handle_call("POST", self.rfile.read(int(self.headers.get("Content-Length", 0))))
+
+    def handle_call(self, method, body):
+        FakeHub.calls.append((method, self.path, self.headers.get("Authorization"), self.headers.get("Content-Type")))
+        if self.path == "/api/auth/login":
+            creds = json.loads(body)
+            if (creds.get("username"), creds.get("password")) != ("admin", SECRET):
+                return self.reply(401, '{"detail":"Incorrect username or password"}')
+            return self.reply(200, f'{{"access_token":"{self.TOKEN}","token_type":"bearer","expires_in":3600}}')
+        if self.headers.get("Authorization") != f"Bearer {self.TOKEN}":
+            return self.reply(401, '{"detail":"Not authenticated"}')
+        self.reply(200, f'{{"username":"admin","role":"ADMIN","echo":"{SECRET} {self.TOKEN}"}}')
+
+    def reply(self, code, text):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def log_message(self, *a):
+        pass
+
+
+@pytest.fixture
+def hub(write_config, monkeypatch):
+    FakeHub.calls = []
+    srv = http.server.HTTPServer(("127.0.0.1", 0), FakeHub)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("HUB_PW", SECRET)
+    write_config("groups:\n  g:\n    user: ops\n    auth: env:NOT_USED_FOR_WEB\n    hosts:\n      mini:\n"
+                 "        ip: 127.0.0.1\n        services:\n"
+                 f"          web: {{url: 'http://127.0.0.1:{srv.server_address[1]}', login: hub, user: admin,"
+                 " auth: env:HUB_PW}\n")
+    yield
+    srv.shutdown()
+
+
+def test_hub_json_login_then_bearer_call(capsys, hub):
+    rc, out, err = run(capsys, "mini", "GET", "/api/auth/me")
+    assert rc == 0 and '"role":"ADMIN"' in out
+    assert [c[:2] for c in FakeHub.calls] == [("POST", "/api/auth/login"), ("GET", "/api/auth/me")]
+    assert FakeHub.calls[0][3] == "application/json"                           # never a form body
+    assert FakeHub.calls[1][2] == f"Bearer {FakeHub.TOKEN}"
+    assert SECRET not in out + err and FakeHub.TOKEN not in out + err and out.count("********") == 2
+
+
+def test_hub_wrong_password_names_reason_not_value(hub, monkeypatch):
+    monkeypatch.setenv("HUB_PW", "wrong-" + SECRET)
+    with pytest.raises(SystemExit, match=r"HUB login refused \(HTTP 401\): Incorrect username or password") as e:
+        main(["web", "mini", "GET", "/api/auth/me"])
+    assert SECRET not in str(e.value)
+    assert [c[1] for c in FakeHub.calls] == ["/api/auth/login"]
+
+
 def test_vsphere_wrong_password_names_fault_not_value(esxi, monkeypatch):
     monkeypatch.setenv("ESXI_PW", "wrong-" + SECRET)
     with pytest.raises(SystemExit, match="vSphere login refused: Cannot complete login") as e:
