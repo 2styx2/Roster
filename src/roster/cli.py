@@ -131,22 +131,62 @@ def cmd_check(cfg, args):
     return 1 if bad else 0
 
 
+def logins_label(h):
+    """What a person can use on a host, short: 'ssh (key), web (admin), api'."""
+    if not h["reviewed"]:
+        return "unreviewed"
+    no_ssh = h["ssh"]["user"] in ("", "CHANGE-ME")    # discover's placeholder: no SSH login set yet
+    parts, seen = [] if no_ssh else [f"ssh ({access_label(h)})"], set()
+    for name, s in h["services"].items():
+        if not s["url"]:
+            continue                                   # a bare port: nothing to log in to
+        own = s["override"] or s["login"] not in ("basic", "none")
+        label = name if own else "web"
+        if label in seen or (label == "web" and any(x.startswith("web") for x in seen)):
+            continue
+        seen.add(label)
+        user = s["user"] if s["user"] not in ("", "CHANGE-ME", h["ssh"]["user"]) else ""
+        parts.append(f"{label} ({user})" if user else label)
+    return ", ".join(parts)
+
+
 def cmd_hosts(cfg, args):
-    hosts = selected(cfg, args.only)
+    hosts, rs = selected(cfg, args.only, resources=True)
     if args.find:
         hosts = [h for h in hosts if matches(h, args.find)]
-        if not hosts:
+        rs = [r for r in rs if resource_matches(r, args.find)]
+        if not hosts and not rs:
             say(f"no host matches {args.find!r} (searched name, title, description, type, product, group, ip)")
             return 1
-    rows = [("NAME", "TITLE", "TYPE", "PRODUCT", "ADDRESS", "ACCESS", "WEB", "DESCRIPTION")]
-    for h in sorted(hosts, key=lambda h: (h["group"], h["name"])):
-        rows.append((h["name"], h["title"] or "-", h["type"] or "-", h["product"] or "-",
-                     f"{h['user']}@{h['ip']}:{h['port']}", access_label(h),
-                     h["web"] or "-", h["description"]))
+    hosts = sorted(hosts, key=lambda h: (h["group"], h["name"]))
+    if args.long:
+        rows = [("NAME", "TITLE", "TYPE", "PRODUCT", "ADDRESS", "ACCESS", "WEB", "DESCRIPTION")]
+        rows += [(h["name"], h["title"] or "-", h["type"] or "-", h["product"] or "-",
+                  f"{h['user']}@{h['ip']}:{h['port']}", access_label(h), h["web"] or "-", h["description"])
+                 for h in hosts]
+        _table(rows)
+        return 0
+    hidden = []
+    if not (args.all or args.find or args.only):
+        hidden = [h for h in hosts if not h["reviewed"]]
+        hosts = [h for h in hosts if h["reviewed"]]
+    rows = [("NAME", "IP", "USER", "LOGINS", "TITLE")]
+    rows += [(h["name"], h["ip"] if h["ssh"]["port"] == 22 else f"{h['ip']}:{h['ssh']['port']}",
+              h["ssh"]["user"] if h["ssh"]["user"] not in ("", "CHANGE-ME") else "-",
+              logins_label(h) or "-", h["title"] or "-") for h in hosts]
+    rows += [(r["name"], "-", r["user"] or "-", r["type"], r["title"] or "-")
+             for r in sorted(rs, key=lambda r: (r["type"], r["name"]))]
+    _table(rows)
+    if hidden:
+        say(f"\n{len(hidden)} unreviewed hosts not shown (roster hosts --all). "
+            "roster hosts --long shows type, web URL and description.")
+    return 0
+
+
+def _table(rows):
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
     for r in rows:
         say("  ".join(c.ljust(w) for c, w in zip(r, widths, strict=False)) + "  " + r[-1])
-    return 0
 
 
 def find_host(cfg, words, resources=False):
@@ -418,6 +458,8 @@ def _main(argv=None):
     s = sub.add_parser("hosts", help="list hosts")
     s.add_argument("--only")
     s.add_argument("--find", help="search name, title, description, type, product, group, ip")
+    s.add_argument("--all", action="store_true", help="include unreviewed (scanned) hosts")
+    s.add_argument("--long", action="store_true", help="full table: type, product, web URL, description")
     s = sub.add_parser("resources", help="list Wi-Fi networks, accounts and secrets that aren't hosts")
     s.add_argument("--only", help="resource names, types or groups")
     s.add_argument("--find", help="search every field")
