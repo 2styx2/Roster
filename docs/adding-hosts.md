@@ -23,13 +23,33 @@ Tell your security team before scanning big ranges.
 
 ## 2. Add the logins to the vault
 
-Make one vault item per distinct login, with the username in the item's username field. Name it after the box or role so it's easy to match later, for example `ESXI web(10.19.77.206)` or `UNIFI web (10.19.77.1)`. Put the address in the name when two boxes share a role. Several hosts can point at the same item.
+Make one vault item per distinct login. Several hosts can point at the same item.
+
+**Name it `<roster host name> <what it opens>`**, so the item name and the host in `roster.yml` match:
+
+| Login | Item name | Example |
+|---|---|---|
+| SSH | `<host> ssh` | `orion3 ssh` |
+| Web UI | `<host> web` | `vpn-02 web` |
+| API or another service | `<host> <service key>` | `esxi-02 api` |
+| One password for several things | join them with `+` | `esxi-02 ssh+web` |
+| Shared by several boxes | `shared <role> <what>` | `shared hub web` |
+| Resource (Wi-Fi, account, secret) | `<type> <name>` | `wifi lab-guest` |
+
+- **Use the host name exactly as `roster.yml` spells it**: lowercase, not shortened. `hub2 ssh` and `lab-hub2 ssh` are different machines. If you rename a host, rename its items too.
+- **Put the address in the item's URI field, not in its name.** Names then stay put when an address changes, and you can still look up the IP.
+- **Put the username in the item's username field.** roster reads it as `#username`.
+- **Names must be unique.** roster looks items up by exact name, so two items with the same name make both logins fail with `several Bitwarden items match`.
 
 To see what's in the vault without exposing passwords (Bitwarden):
 
 ```bash
-bw list items | jq -r '.[] | [.revisionDate[0:16], .name, (.login.username // "-")] | @tsv' | sort -r | head -20
+bw sync
+bw list items | jq -r '.[] | [.revisionDate[0:16], .name, (.login.username // "-"), ([.login.uris[]?.uri] | join(" "))] | @tsv' | sort -r | head -20
+bw get item "esxi-02 ssh+web" | jq -r '.login.uris[].uri'      # one item's address
 ```
+
+Going the other way, `roster info HOST` shows a host's address and which item each of its logins uses.
 
 ## 3. Work out which box is which
 
@@ -51,7 +71,7 @@ For each host you're bringing in, set its login and mark it reviewed:
       server-10-19-77-202:
         reviewed: true
         user: ops
-        auth: "bw:lab-hub3"
+        auth: "bw:lab-hub3 ssh"
         enroll: false            # password logins for now; true = setup installs the key
         ip: "10.19.77.202"
         ...
@@ -65,7 +85,7 @@ For each host you're bringing in, set its login and mark it reviewed:
         services:
           https: { url: "https://10.19.77.206", verify: false }
           api:   { url: "https://10.19.77.206", verify: false, login: vsphere }   # ESXi / vCenter SOAP API
-          admin: { port: 8443, user: webadmin, auth: "bw:Some web item" }        # its own login
+          admin: { port: 8443, user: webadmin, auth: "bw:esxi-02 admin" }        # its own login
 ```
 
 - Rename hosts to something people will search for, ideally the box's real hostname (`lab-hub3`, `esxi-02`). Set a real `title` and fix the guessed `type`. Don't shorten names: `hub2` and `lab-hub2` are different machines. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
@@ -100,6 +120,14 @@ What the errors mean:
 ## 6. Share it
 
 Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com/yourteam/infra). Every box picks it up with `~/infra/bin/roster-pull`; add `--setup` to install keys on new key hosts. Vault items need to be shared with them (a shared Bitwarden collection or 1Password vault), or `auth-check` will fail on their box.
+
+## Adding a login to a host that's already on the map
+
+1. Create the vault item (named as in step 2, address in its URI field) in the shared collection.
+2. Find the host by address: `grep -n "10.19.77.XX" ~/infra/roster.yml`.
+3. Set `auth: "bw:<item>"` on the host, on its `ssh:` block, or on one service. A scanned host also gets its real name and `reviewed: true` (step 4).
+4. `roster auth-check --only HOST`, then `roster run HOST -- hostname` (step 5).
+5. Commit and push (step 6).
 
 ## Things that aren't hosts
 

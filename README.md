@@ -8,7 +8,7 @@ Roster keeps it in one file, `roster.yml`:
 
 - **Hosts and what they are:** name, address, type, product, title, description.
 - **How to reach them:** SSH port and user, whether the box takes a key or only a password, web UIs and other services.
-- **Which login goes where:** each host's default login, plus SSH-only or per-service overrides. These point at password-manager items (`bw:ESXI web`, `op:Network gear`) and never contain a password.
+- **Which login goes where:** each host's default login, plus SSH-only or per-service overrides. These point at password-manager items (`bw:esxi-02 ssh+web`, `op:Network gear`) and never contain a password.
 
 From that one file, any box (a laptop, a jump host, a box where Claude runs) gets the same access:
 
@@ -138,22 +138,22 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
       orion3:
         ip: 10.19.1.211
         user: admin                  # default login for every service on this box
-        auth: bw:Orion3
-        ssh: { user: sshuser, auth: "bw:Orion3 SSH" }      # SSH only; port defaults to 22
+        auth: "bw:orion3 db"
+        ssh: { user: sshuser, auth: "bw:orion3 ssh" }      # SSH only; port defaults to 22
         services:
           https:
             port: 443                # url is derived (https://10.19.1.211) unless you give one
             user: webadmin
-            auth: "bw:Orion web"
+            auth: "bw:orion3 web"
             # verify: false          # self-signed certificate
-          postgres: 5432             # short form: inherits admin / bw:Orion3
+          postgres: 5432             # short form: inherits admin / bw:orion3 db
 ```
 
 - For SSH, the first match wins: the host's `ssh:` block, then the host's `port`/`user`/`auth`, then the group's `ssh:` block, then the group's keys, then `defaults:` in the same order.
 - A service uses its own `user`/`auth` if it sets them, otherwise the host's default login.
 - `ssh:` and `services:` work at host, group and `defaults:` level. Service entries with the same name merge field by field, so a group can define `modbus: { port: 502, user: mb }` and one host can override just its `auth`.
 - A service accepts `port`, `url`, `scheme`, `user`, `auth` and `verify`. `web: "https://..."` still works and becomes a service named `web`.
-- `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:Orion web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
+- `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:orion3 web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
 
 ### Web APIs with stored logins: `roster web`
 
@@ -180,7 +180,7 @@ resources:
   lab-guest:
     type: wifi
     ssid: Lab-Guest
-    auth: "bw:Lab-Guest(Wifi)"
+    auth: "bw:wifi lab-guest"
     group: subnet-42
     title: Contoso guest Wi-Fi
 ```
@@ -211,6 +211,8 @@ Every resource has the same fields, plus the fixed fields of its type. Anything 
 | `cmd:COMMAND` | Any command that prints the password |
 | `bw:ITEM`, `bw:ITEM#FIELD` | Bitwarden CLI (login password, custom field, `#username`, `#notes`) |
 | `op:ITEM`, `op:VAULT/ITEM#FIELD`, `op:op://…` | 1Password CLI |
+
+**Naming vault items:** name each item `<roster host name> <what it opens>` (`orion3 ssh`, `esxi-02 ssh+web`, `shared hub web`, `wifi lab-guest`), and put the address in the item's URI field. The full convention is in [docs/adding-hosts.md](docs/adding-hosts.md#2-add-the-logins-to-the-vault).
 
 **Bitwarden:** run `bw login` once. A locked vault is unlocked once per run, using a master password prompt, `BW_PASSWORD`, or an existing `BW_SESSION`. For headless boxes, set `BW_CLIENTID`/`BW_CLIENTSECRET`.
 
