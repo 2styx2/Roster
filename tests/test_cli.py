@@ -30,6 +30,54 @@ def test_init_hosts_info(capsys, isolated):
         main(["info", "orion"])
 
 
+HOSTS_YML = """\
+groups:
+  lab:
+    user: ops
+    auth: env:PW
+    hosts:
+      box: {ip: 10.0.0.5, title: Lab box, web: "https://10.0.0.5"}
+      esx:
+        ip: 10.0.0.6
+        user: root
+        enroll: false
+        services:
+          https: {url: "https://10.0.0.6"}
+          api: {url: "https://10.0.0.6", login: vsphere}
+          admin: {url: "https://10.0.0.6:943", user: webadmin, auth: env:WEB}
+          rpc: 111
+  found:
+    reviewed: false
+    user: CHANGE-ME
+    hosts:
+      server-10-0-0-9: {ip: 10.0.0.9, port: 2222}
+resources:
+  guest: {type: wifi, ssid: Guest, auth: env:WIFI, title: Guest Wi-Fi}
+"""
+
+
+def test_hosts_short_listing(capsys, write_config):
+    write_config(HOSTS_YML)
+    rc, out = run(capsys, "hosts")
+    lines = {ln.split()[0]: ln for ln in out.splitlines() if ln.strip()}
+    assert rc == 0 and lines["NAME"].split() == ["NAME", "IP", "USER", "LOGINS", "TITLE"]
+    assert "ops" in lines["box"] and "ssh (key), web" in lines["box"] and "Lab box" in lines["box"]
+    assert "ssh (password), web, api, admin (webadmin)" in lines["esx"] and "rpc" not in lines["esx"]
+    assert "wifi" in lines["guest"] and "Guest Wi-Fi" in lines["guest"]
+    assert "server-10-0-0-9" not in lines and "1 unreviewed hosts not shown" in out
+
+
+def test_hosts_all_find_and_long(capsys, write_config):
+    write_config(HOSTS_YML)
+    out = run(capsys, "hosts", "--all")[1]
+    row = next(ln for ln in out.splitlines() if ln.startswith("server-10-0-0-9"))
+    assert "10.0.0.9:2222" in row and "unreviewed" in row and "CHANGE-ME" not in row
+    assert "server-10-0-0-9" in run(capsys, "hosts", "--find", "10.0.0.9")[1]
+    out = run(capsys, "hosts", "--long")[1]
+    assert out.split()[:8] == ["NAME", "TITLE", "TYPE", "PRODUCT", "ADDRESS", "ACCESS", "WEB", "DESCRIPTION"]
+    assert "ops@10.0.0.5:22" in out
+
+
 def test_setup_skips_unreviewed_hosts(capsys, write_config):
     write_config("groups:\n  found:\n    reviewed: false\n    user: u\n    hosts:\n      h1: 10.9.9.9\n")
     rc, out = run(capsys, "setup")

@@ -8,6 +8,8 @@ You need three things:
 2. **The team's `roster.yml`**: the host list. It holds hosts, users and vault item names, but no passwords. It lives in [yourteam/infra](https://example.com/yourteam/infra).
 3. **Access to the vault** the `roster.yml` points at, with the same items (`bw:...`, `op:...`).
 
+**Shortcut:** `./install.sh` in the roster checkout does steps 1–6 for you, plus `ROSTER_CONFIG` and an auto-update cron job. It asks before each stage. The rest of this page is what it does, done by hand.
+
 ## 1. Prerequisites
 
 - Linux, macOS or WSL with Python 3.10 or newer
@@ -41,7 +43,11 @@ cd ~/infra                 # roster reads ./roster.yml; run roster commands from
 
 No git access? Copy `roster.yml` into `~/infra/` by hand instead. You'll then need to copy it again whenever it changes.
 
-roster looks for its config in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml`.
+roster looks for its config in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml`. To run roster from any directory, add this to `~/.bashrc` (and `~/.zshrc` if you use zsh):
+
+```bash
+export ROSTER_CONFIG="$HOME/infra/roster.yml"
+```
 
 ## 4. Unlock the vault
 
@@ -89,6 +95,7 @@ Hosts with `reviewed: false` are skipped. If a host fails (no answer, wrong pass
 ## 7. Test
 
 ```bash
+roster hosts                              # what you can reach: name, IP, user, logins
 roster check                              # SSH, web UIs and service ports on every host
 ssh <key-host> hostname                   # key login
 roster run <password-host> -- hostname    # password login (switches, ESXi, appliances)

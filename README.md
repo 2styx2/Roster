@@ -50,6 +50,30 @@ roster web esxi api POST /sdk -d @q.xml # web API call made with the service's s
 
 Requires Python 3.10+, the OpenSSH client, and [uv](https://docs.astral.sh/uv/). nmap is optional but recommended for `discover`. You also need your password manager's CLI (`bw` or `op`).
 
+**The easy way: the installer.** It walks through each stage, asks before every change and shows its progress. The stages are:
+
+1. Prerequisites
+2. uv
+3. roster
+4. the Bitwarden CLI
+5. the config folder (clones [yourteam/infra](https://example.com/yourteam/infra) into `~/infra`)
+6. making roster work from any directory
+7. unlocking the vault
+8. `roster setup`
+9. auto-updates from cron
+
+```bash
+git clone git@github.com:2styx2/roster.git
+cd roster
+./install.sh              # interactive; safe to re-run
+./install.sh --dry-run    # show what it would do, change nothing
+./install.sh --yes        # take every default (skips steps that need you, like bw login)
+```
+
+Each step's output goes to `~/.cache/roster/install.log`, and is shown only if the step fails.
+
+**By hand:**
+
 ```bash
 git clone git@github.com:2styx2/roster.git
 cd roster
@@ -64,6 +88,14 @@ uv run roster --help
 ```
 
 If you don't install it as a tool, Claude's instructions automatically use the full path to the project's Python, so Claude can still run it. To update later, run `git pull && uv tool install --force .`.
+
+To run roster commands from any directory, point `ROSTER_CONFIG` at your map in `~/.bashrc` (the installer does this for you):
+
+```bash
+export ROSTER_CONFIG="$HOME/infra/roster.yml"
+```
+
+Use the variable, not a symlink. roster writes `ROSTER.md` and the Claude files next to the config's path, so they stay in `~/infra`.
 
 ## Quick start
 
@@ -258,7 +290,7 @@ Let your security team know before scanning big ranges.
 | `setup` | One-time per box: key, fingerprints, key install, SSH config, Claude files (`--only`, `--dry-run`) |
 | `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
 | `check` | Reachability of SSH, web UIs and services |
-| `hosts [--find TEXT]` | List or search hosts |
+| `hosts [--find TEXT] [--all] [--long]` | The hosts and resources you can use: name, IP, user, logins (`ssh (key), web (admin), api`, `wifi`) and title. Unreviewed scanned hosts are hidden unless you pass `--all`, `--find` or `--only`. `--long` shows the full table (type, product, web URL, scan description) |
 | `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
 | `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
 | `reveal NAME [--wifi]` | Print a resource's secret for a person to use (`--wifi`: a QR-ready `WIFI:` string) |
