@@ -36,10 +36,10 @@ EXAMPLE_CONFIG = """\
 #   orion3:
 #     ip: 10.19.1.211
 #     user: admin                    # default login
-#     auth: bw:Orion3
-#     ssh: { user: sshuser, auth: "bw:Orion3 SSH" }     # SSH only (also takes port)
+#     auth: "bw:orion3 db"
+#     ssh: { user: sshuser, auth: "bw:orion3 ssh" }     # SSH only (also takes port)
 #     services:
-#       https: { port: 443, user: webadmin, auth: "bw:Orion web" }   # web UI with its own account
+#       https: { port: 443, user: webadmin, auth: "bw:orion3 web" }   # web UI with its own account
 #       postgres: 5432               # short form: uses the default login
 #   Long-form services also take url (derived from ip + port if missing), verify: false for
 #   self-signed certificates, and login: basic|bearer|none for `roster web HOST [SERVICE] GET /path`.
