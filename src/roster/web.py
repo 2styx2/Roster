@@ -1,10 +1,13 @@
 """`roster web`: HTTP requests to a host's web service, logged in with the service's stored credentials."""
 
 import base64
+import hashlib
 import json
+import os
 import re
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -130,7 +133,7 @@ def vsphere_login(opener, base, user, secret, timeout):
 # ---- UniFi OS (UDM, Cloud Key, UniFi OS Server) sessions
 
 def unifi_login(opener, base, user, secret, timeout):
-    """Log in through /api/auth/login; returns (cookie header, CSRF token, logout function)."""
+    """Log in through /api/auth/login; returns (cookie header, CSRF token)."""
     req = urllib.request.Request(base + "/api/auth/login", method="POST",
                                  data=json.dumps({"username": user, "password": secret, "rememberMe": False}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -144,14 +147,67 @@ def unifi_login(opener, base, user, secret, timeout):
         except (ValueError, AttributeError):
             why = text
         raise RuntimeError(f"UniFi login refused (HTTP {status}): {str(why).strip()[:200]}")
+    return cookie, csrf
 
-    def logout():
-        out = urllib.request.Request(base + "/api/auth/logout", method="POST", data=b"")
-        out.add_unredirected_header("Cookie", cookie)
-        if csrf:
-            out.add_header("X-CSRF-Token", csrf)
-        _open(opener, out, timeout).close()
-    return cookie, csrf, logout
+
+# ---- login session cache: reuse a login for a few minutes, so a loop of calls doesn't trip a console's
+#      login rate limit (UniFi OS answers HTTP 429 after a handful of logins in quick succession)
+
+SESSION_TTL = 600
+
+
+def session_file(h, name, s):
+    """Per-user file for one service's session; $XDG_RUNTIME_DIR is tmpfs and goes away at logout."""
+    base = Path(os.environ.get("XDG_RUNTIME_DIR") or Path.home() / ".cache")
+    key = hashlib.sha256(f"{h['name']}|{name}|{s['url']}|{s['user']}".encode()).hexdigest()[:16]
+    return base / "roster" / "sessions" / f"{h['name']}-{name}-{key}.json"
+
+
+def load_session(path):
+    try:
+        sess = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return sess if isinstance(sess, dict) and sess.get("expires", 0) > time.time() else None
+
+
+def save_session(path, sess):
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(sess, f)
+    except OSError:
+        pass                                          # no cache: the next call just logs in again
+
+
+def drop_session(path):
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def jwt_expiry(token):
+    """The exp claim of a JWT, or None if it isn't one."""
+    try:
+        payload = token.split(".")[1]
+        return float(json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["exp"])
+    except (IndexError, ValueError, KeyError, TypeError):
+        return None
+
+
+def unifi_session(opener, base, h, name, s, secret, timeout, fresh=False):
+    """(cookie, csrf, came from cache) - a cached UniFi session if one is still good, else a new login.
+    Cached sessions aren't logged out; the console expires them."""
+    path = session_file(h, name, s)
+    sess = None if fresh else load_session(path)
+    if sess:
+        return sess["cookie"], sess["csrf"], True
+    cookie, csrf = unifi_login(opener, base, s["user"], secret, timeout)
+    expires = min(time.time() + SESSION_TTL, (jwt_expiry(cookie.split("=", 1)[1]) or float("inf")) - 30)
+    save_session(path, {"cookie": cookie, "csrf": csrf, "expires": expires})
+    return cookie, csrf, False
 
 
 # ---- OpenVPN Access Server admin API
@@ -234,7 +290,7 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
     opener = urllib.request.build_opener(NoRedirect, urllib.request.HTTPSHandler(context=ctx))
     secret = service_secret(h, name, s)
-    secrets, logout = [secret], None
+    secrets, logout, relogin = [secret], None, None
     try:
         if secret is not None and s["login"] == "vsphere":
             u = urlparse(s["url"])
@@ -245,11 +301,17 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
                 req.add_header("SOAPAction", action)
         elif secret is not None and s["login"] == "unifi":
             u = urlparse(s["url"])
-            cookie, csrf, logout = unifi_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
-            secrets += [cookie.split("=", 1)[1], csrf]
-            req.add_unredirected_header("Cookie", cookie)
-            if csrf:
-                req.add_header("X-CSRF-Token", csrf)          # UniFi needs it on every request that changes state
+
+            def use_unifi(fresh=False):
+                cookie, csrf, cached = unifi_session(opener, f"{u.scheme}://{u.netloc}", h, name, s, secret,
+                                                     timeout, fresh)
+                secrets.extend([cookie.split("=", 1)[1], csrf])
+                req.add_unredirected_header("Cookie", cookie)
+                if csrf:
+                    req.add_header("X-CSRF-Token", csrf)      # UniFi needs it on every request that changes state
+                return cached
+            if use_unifi():                                   # a cached session may have been logged out
+                relogin = lambda: use_unifi(fresh=True)  # noqa: E731
         elif secret is not None and s["login"] == "openvpnas":
             u = urlparse(s["url"])
             token = openvpnas_login(opener, f"{u.scheme}://{u.netloc}", s["user"], secret, timeout)
@@ -264,6 +326,10 @@ def request(h, service, method, path, data=None, headers=(), insecure=False, tim
             auth, secrets = auth_header(s, secret)
             req.add_unredirected_header("Authorization", auth)
         resp = _open(opener, req, timeout)           # 4xx/5xx and unfollowed 3xx still have a body worth showing
+        if resp.status == 401 and relogin:
+            resp.close()
+            relogin()
+            resp = _open(opener, req, timeout)
         with resp:
             body = resp.read().decode(errors="replace")
             status, reason = resp.status, resp.reason
