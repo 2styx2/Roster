@@ -17,7 +17,9 @@ report.xml
 /roster.yml.new
 /ROSTER.md
 /CLAUDE.md
-/.claude/
+/.claude/*
+# agent notes for working on roster itself (the generated CLAUDE.md above is per box)
+!/.claude/CLAUDE.md
 
 # Playwright MCP snapshots
 .playwright-mcp/

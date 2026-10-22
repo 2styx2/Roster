@@ -432,6 +432,22 @@ def used_for(uses):
     return ", ".join(f"{svc} ({hs[0] if len(hs) == 1 else f'{len(hs)} hosts'})" for svc, hs in by_svc.items())
 
 
+def cmd_bw(args):
+    """The Bitwarden CLI with this box's vault session (~/.config/roster/bw-session), so scripts and
+    Claude sessions don't each carry BW_SESSION around. Never prompts: --nointeraction is added."""
+    from .providers.bitwarden import load_session_file
+    argv = args.args[1:] if args.args[:1] == ["--"] else list(args.args)
+    if not argv:
+        die("usage: roster bw <bw arguments>   e.g.  roster bw list items --search proxmox")
+    load_session_file()
+    if "--nointeraction" not in argv:
+        argv.append("--nointeraction")
+    try:
+        return subprocess.run(["bw", *argv]).returncode
+    except FileNotFoundError:
+        die("bw (the Bitwarden CLI) isn't installed")
+
+
 def main(argv=None):
     try:
         return _main(argv) or 0
@@ -485,6 +501,8 @@ def _main(argv=None):
     s.add_argument("--builtin", action="store_true", help="use the built-in scanner even if nmap is installed")
     s.add_argument("--timeout", type=float, default=0.5, help="built-in scanner connect timeout (s)")
     s.add_argument("--force", action="store_true", help="allow scanning more than 4096 addresses")
+    s = sub.add_parser("bw", help="run the Bitwarden CLI with this box's vault session (bw-session file)")
+    s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS")
     sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
     s = sub.add_parser("auth-check", help="test each group's password source, print nothing secret")
     s.add_argument("--only")
@@ -504,6 +522,8 @@ def _main(argv=None):
         return cmd_init(args)
     if args.cmd == "discover":
         return cmd_discover(args)
+    if args.cmd == "bw":
+        return cmd_bw(args)
     if args.cmd == "providers":
         try:
             cfg = load_config(find_config(args.config))
