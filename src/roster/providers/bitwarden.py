@@ -16,7 +16,7 @@ def session_file():
     return user_config_dir() / "bw-session"
 
 
-def _load_session_file():
+def load_session_file():
     """BW_SESSION from ~/.config/roster/bw-session, so sessions without your shell's env (background jobs,
     other terminals) can use an unlocked vault. Ignored unless only you can read it."""
     f = session_file()
@@ -34,7 +34,7 @@ def _load_session_file():
 def _bw_ready(ctx):
     if ctx.state.get("ready"):
         return
-    from_file = _load_session_file()
+    from_file = load_session_file()
     try:
         status = json.loads(_bw(ctx, "status").stdout or "{}").get("status")
     except json.JSONDecodeError:

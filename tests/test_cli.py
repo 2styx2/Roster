@@ -172,3 +172,26 @@ def test_run_hints_at_sudo_flag(capsys, write_config, monkeypatch):
     monkeypatch.setattr(cli, "password_exec", lambda *a, **k: (1, "", "sudo: a password is required\n"))
     assert main(["run", "pw-host", "--", "sudo", "id"]) == 1
     assert "roster run --sudo pw-host -- id" in capsys.readouterr().err
+
+
+def _bw_session_file(isolated, text="fake-session-key\n"):
+    f = isolated["home"] / ".config" / "roster" / "bw-session"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    f.chmod(0o600)
+
+
+def test_bw_uses_the_session_file_without_a_roster_yml(capfd, isolated, fakes):
+    _bw_session_file(isolated)
+    assert main(["bw", "sync"]) == 0
+    assert "Syncing complete." in capfd.readouterr().out
+
+
+def test_bw_without_a_session_reports_the_locked_vault(capfd, isolated, fakes):
+    assert main(["bw", "sync"]) == 1
+    assert "Vault is locked." in capfd.readouterr().err
+
+
+def test_bw_needs_arguments(isolated):
+    with pytest.raises(SystemExit, match="usage: roster bw"):
+        main(["bw"])
