@@ -211,7 +211,7 @@ def test_vsphere_session_login_call_logout(capsys, esxi):
 
 
 class FakeUnifi(http.server.BaseHTTPRequestHandler):
-    """Just enough of UniFi OS: JSON login -> TOKEN cookie + CSRF header, one API call, logout."""
+    """Just enough of UniFi OS: JSON login -> TOKEN cookie + CSRF header, API calls with that session."""
     calls = []
     TOKEN, CSRF = "tok-xyz789", "csrf-456"
 
@@ -258,22 +258,69 @@ def unifi(write_config, monkeypatch):
     srv.shutdown()
 
 
-def test_unifi_session_login_call_logout(capsys, unifi):
+def unifi_logins():
+    return sum(c[1] == "/api/auth/login" for c in FakeUnifi.calls)
+
+
+def unifi_cache(isolated):
+    files = list((isolated["home"].parent / "run" / "roster" / "sessions").glob("udm-web-*.json"))
+    assert len(files) == 1
+    return files[0]
+
+
+def test_unifi_session_login_then_call(capsys, unifi):
     rc, out, err = run(capsys, "udm", "POST", "/proxy/network/api/s/default/stat/health", "-d", "{}")
     assert rc == 0 and "POST /proxy/network/api/s/default/stat/health ok" in out
-    assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login", "/proxy/network/api/s/default/stat/health",
-                                               "/api/auth/logout"]
-    for call in FakeUnifi.calls[1:]:                                   # the call and the logout use the session
-        assert call[2] == f"TOKEN={FakeUnifi.TOKEN}" and call[3] == FakeUnifi.CSRF
+    assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login", "/proxy/network/api/s/default/stat/health"]
+    call = FakeUnifi.calls[1]
+    assert call[2] == f"TOKEN={FakeUnifi.TOKEN}" and call[3] == FakeUnifi.CSRF
     assert SECRET not in out + err and FakeUnifi.TOKEN not in out + err and out.count("********") == 2
 
 
-def test_unifi_wrong_password_names_reason_not_value(unifi, monkeypatch):
+def test_unifi_session_reused_across_calls(capsys, unifi, isolated):
+    for _ in range(5):
+        rc, out, err = run(capsys, "udm", "GET", "/proxy/network/api/s/default/rest/networkconf")
+        assert rc == 0 and FakeUnifi.TOKEN not in out + err
+    assert unifi_logins() == 1 and len(FakeUnifi.calls) == 6           # one login, no logouts
+    cache = unifi_cache(isolated)
+    assert cache.stat().st_mode & 0o777 == 0o600 and cache.parent.stat().st_mode & 0o777 == 0o700
+    assert SECRET not in cache.read_text()                              # the session, never the password
+
+
+def test_unifi_expired_session_logs_in_again(capsys, unifi, isolated):
+    run(capsys, "udm", "GET", "/api/users/self")
+    cache = unifi_cache(isolated)
+    cache.write_text(json.dumps({**json.loads(cache.read_text()), "expires": 0}))
+    rc, *_ = run(capsys, "udm", "GET", "/api/users/self")
+    assert rc == 0 and unifi_logins() == 2
+
+
+def test_unifi_rejected_session_logs_in_again_once(capsys, unifi, isolated):
+    run(capsys, "udm", "GET", "/api/users/self")
+    cache = unifi_cache(isolated)
+    cache.write_text(json.dumps({**json.loads(cache.read_text()), "cookie": "TOKEN=logged-out"}))
+    rc, out, _ = run(capsys, "udm", "POST", "/proxy/network/api/s/default/rest/networkconf", "-d", "{}")
+    assert rc == 0 and "POST /proxy/network/api/s/default/rest/networkconf ok" in out
+    assert [c[1] for c in FakeUnifi.calls[1:]] == ["/api/users/self", "/proxy/network/api/s/default/rest/networkconf",
+                                                   "/api/auth/login", "/proxy/network/api/s/default/rest/networkconf"]
+    assert json.loads(cache.read_text())["cookie"] == f"TOKEN={FakeUnifi.TOKEN}"
+
+
+def test_unifi_session_ends_before_the_token_does(capsys, unifi, isolated, monkeypatch):
+    exp = int(__import__("time").time()) + 120
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
+    monkeypatch.setattr(FakeUnifi, "TOKEN", f"eyJhbGciOiJIUzI1NiJ9.{payload}.sig")
+    run(capsys, "udm", "GET", "/api/users/self")
+    assert json.loads(unifi_cache(isolated).read_text())["expires"] == exp - 30
+
+
+def test_unifi_wrong_password_names_reason_not_value(unifi, monkeypatch, isolated):
     monkeypatch.setenv("UNIFI_PW", "wrong-" + SECRET)
     with pytest.raises(SystemExit, match=r"UniFi login refused \(HTTP 403\): Invalid username or password") as e:
         main(["web", "udm", "GET", "/api/users/self"])
     assert SECRET not in str(e.value)
     assert [c[1] for c in FakeUnifi.calls] == ["/api/auth/login"]
+    assert not (isolated["home"].parent / "run" / "roster").exists()   # nothing cached for a refused login
 
 
 class FakeOpenvpnAs(http.server.BaseHTTPRequestHandler):

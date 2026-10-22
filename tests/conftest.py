@@ -21,6 +21,7 @@ def isolated(tmp_path, monkeypatch):
     saved_env = dict(os.environ)
     saved_providers = dict(providers.PROVIDERS)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     for var in ("BW_SESSION", "BW_PASSWORD", "BW_CLIENTID", "BW_CLIENTSECRET", "OP_SERVICE_ACCOUNT_TOKEN",
                 "OP_SESSION_test", "ROSTER_CONFIG", "OLD_OP"):
         monkeypatch.delenv(var, raising=False)
