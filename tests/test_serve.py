@@ -210,7 +210,7 @@ def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, wr
     with pytest.raises(SystemExit) as run:
         main(["run", "server-10-0-0-9", "--", "uptime"])
     err = serve().call("session.prepare", {"host": "server-10-0-0-9"})["error"]
-    assert err == {"code": 10, "message": "server-10-0-0-9 is not reviewed yet (reviewed: false in roster.yml) "
+    assert err == {"code": 20, "message": "server-10-0-0-9 is not reviewed yet (reviewed: false in roster.yml) "
                                           "- not logging in"}
     assert run.value.code == f"error: {err['message']}"
 
@@ -220,7 +220,7 @@ def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, wr
     synced(write_config, capsys)
     s = serve()
     err = s.call("session.prepare", {"host": "esx"})["error"]
-    assert err["code"] == 12 and "password" in err["message"] and "esx" in err["message"]
+    assert err["code"] == 22 and "password" in err["message"] and "esx" in err["message"]
     assert s.call("session.prepare", {"host": "nope"})["error"] == {"code": 2, "message": "unknown host 'nope'"}
     assert s.call("session.prepare", {})["error"]["code"] == -32602
     assert s.close()[0] == 0
@@ -230,20 +230,20 @@ def test_session_prepare_needs_this_boxs_ssh_config(serve, write_config, capsys,
     """No falling back to user@ip: without roster's ssh config there's no key, known_hosts or port for ssh."""
     write_config(INVENTORY)                                     # `roster setup` / `sync` never ran here
     err = serve().call("session.prepare", {"host": "box"})["error"]
-    assert err["code"] == 11 and "roster sync" in err["message"] and "roster setup" in err["message"]
+    assert err["code"] == 21 and "roster sync" in err["message"] and "roster setup" in err["message"]
 
     synced(write_config, capsys)
     write_config(INVENTORY.replace("      esx:", "      box2: {ip: 10.0.0.7}\n      esx:"))   # added since sync
     s = serve()
-    assert s.call("session.prepare", {"host": "box2"})["error"]["code"] == 11
+    assert s.call("session.prepare", {"host": "box2"})["error"]["code"] == 21
     assert s.call("session.prepare", {"host": "box"})["result"]["argv"][-1] == "box"
 
     (isolated["home"] / ".ssh" / "config").write_text("Host *\n    ServerAliveInterval 5\n")  # Include removed
-    assert serve().call("session.prepare", {"host": "box"})["error"]["code"] == 11
+    assert serve().call("session.prepare", {"host": "box"})["error"]["code"] == 21
 
 
 def test_session_prepare_without_an_ssh_client(serve, write_config, capsys, isolated, monkeypatch):
     synced(write_config, capsys)
     monkeypatch.setenv("PATH", str(isolated["work"]))           # serve itself starts from sys.executable
     err = serve().call("session.prepare", {"host": "box"})["error"]
-    assert err == {"code": 11, "message": "no ssh client on this box's PATH - install OpenSSH (openssh-client)"}
+    assert err == {"code": 21, "message": "no ssh client on this box's PATH - install OpenSSH (openssh-client)"}

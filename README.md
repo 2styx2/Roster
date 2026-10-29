@@ -328,9 +328,9 @@ A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth
 
 `session.prepare` tells the app what to start in a PTY to open a Session to a key-enrolled Host. It holds no secret. The app runs `argv` exactly as given, with `env` added (on WSL: `wsl.exe -d DISTRO --cd ~ --exec env K=V ... ARGV...`). `argv[0]` is an absolute path, because PATH under `wsl.exe --exec` is minimal.
 
-The command is the same one `roster run` uses: `ssh -o BatchMode=yes NAME`, where `NAME` is the `Host` alias that `roster setup` / `roster sync` write to `~/.ssh/config.d/roster`. The key, user, port, `known_hosts` and connection sharing all come from that config, so a Session behaves exactly like `ssh NAME` in a terminal (ADR 0002). There's no fallback to `-i KEY -p PORT user@ip`. Without roster's config there's no recorded host key and no installed key either, so `session.prepare` refuses with code `11` and says to run `roster sync`, or `roster setup` on a box that isn't set up yet. A failed login after that (host down, key not installed) is ssh's own message in the tab.
+The command is the same one `roster run` uses: `ssh -o BatchMode=yes NAME`, where `NAME` is the `Host` alias that `roster setup` / `roster sync` write to `~/.ssh/config.d/roster`. The key, user, port, `known_hosts` and connection sharing all come from that config, so a Session behaves exactly like `ssh NAME` in a terminal (ADR 0002). There's no fallback to `-i KEY -p PORT user@ip`. Without roster's config there's no recorded host key and no installed key either, so `session.prepare` refuses with code `21` and says to run `roster sync`, or `roster setup` on a box that isn't set up yet. A failed login after that (host down, key not installed) is ssh's own message in the tab.
 
-It refuses unreviewed Hosts with the same message as `roster run`. Hosts that only take a password (`enroll: false`) get code `12` for now, until the askpass channel exists.
+It refuses unreviewed Hosts with the same message as `roster run`. Hosts that only take a password (`enroll: false`) get code `22` for now, until the askpass channel exists.
 
 `api_version` is currently 1. It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
@@ -341,9 +341,9 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `1` | The Inventory didn't load: no `roster.yml`, or it's invalid. Every method that needs it returns this, and `serve` keeps running. `data` has `path` (or `null`), `roster_version` and `api_version`. |
 | `2` | Unknown host (`host.get`, `session.prepare`) |
 | `3` | Any other refusal roster would print as `error: ...` on the command line |
-| `10` | `session.prepare`: the Host isn't reviewed (`reviewed: false`); same message as `roster run` |
-| `11` | `session.prepare`: this box can't run `ssh NAME` yet. Either there's no `ssh` on PATH, or the Host isn't in roster's ssh config (run `roster sync`, or `roster setup`) |
-| `12` | `session.prepare`: the Host only takes a password (`enroll: false`). Password Sessions aren't supported yet |
+| `20` | `session.prepare`: the Host isn't reviewed (`reviewed: false`); same message as `roster run` |
+| `21` | `session.prepare`: this box can't run `ssh NAME` yet. Either there's no `ssh` on PATH, or the Host isn't in roster's ssh config (run `roster sync`, or `roster setup`) |
+| `22` | `session.prepare`: the Host only takes a password (`enroll: false`). Password Sessions aren't supported yet |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |

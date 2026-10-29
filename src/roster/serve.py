@@ -91,10 +91,10 @@ def text_param(params, key):
 
 # ---------------------------------------------------------------- sessions (ticket 05; ADR 0002)
 
-# session.* error codes live in 10-19
-NOT_REVIEWED = 10           # the Host came from discover and has reviewed: false; same wording as `roster run`
-NOT_SET_UP = 11             # this box can't run `ssh NAME` yet: no ssh client, or the Host isn't in roster's ssh config
-PASSWORD_SESSION = 12       # a password-only Host (enroll: false): needs the askpass channel, not built yet (ticket 06)
+# session.* error codes live in 20-29 (vault.* has 10-19)
+NOT_REVIEWED = 20           # the Host came from discover and has reviewed: false; same wording as `roster run`
+NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh client, or the Host isn't in roster's ssh config
+PASSWORD_SESSION = 22       # a password-only Host (enroll: false): needs the askpass channel, not built yet (ticket 06)
 
 def session_prepare(state, params):
     """What the app runs in a PTY to open a Session: the system ssh, never a secret.
