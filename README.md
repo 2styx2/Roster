@@ -34,13 +34,19 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
                       start-up and API-version check (backend.rs), error kinds (error.rs), Sessions:
-                      session.prepare → command (wsl --exec env K=V …) and the PTY manager (session.rs)
+                      session.prepare → command (wsl --exec env K=V …) and the PTY manager (session.rs),
+                      the State file (state.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
-                      session_open/write/resize/close (output over an ipc Channel as raw bytes)
+                      session_open/write/resize/close (output over an ipc Channel as raw bytes),
+                      state_load/state_save, platform_info; clipboard-manager plugin
 src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
-src/session/          Session tabs: tabs.ts (store: open/close/replay/resize, outside React), Sessions.tsx
-src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM), keys.ts (Leader filter), StubTerminal (tests)
+src/platform/         State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
+src/state/            appState.ts: the State's shape (recent Hosts), parsed leniently
+src/session/          Session tabs: tabs.ts (store: open/close/reconnect/replay/resize, outside React), Sessions.tsx
+src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
+                      options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
+                      keys.ts (Leader filter), StubTerminal (tests)
 src/App.tsx           connect → error screen or empty state; Leader handling. keymap.ts = keys/options as data
 scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
 ```
