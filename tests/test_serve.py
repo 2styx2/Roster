@@ -16,11 +16,13 @@ class Serve:
         self.p = subprocess.Popen([sys.executable, "-m", "roster", *args, "serve"], stdin=subprocess.PIPE,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.next_id = 0
+        self.responses = []             # every line serve wrote to stdout, as read
 
     def send(self, line):
         self.p.stdin.write(line + "\n")
         self.p.stdin.flush()
-        return json.loads(self.p.stdout.readline())
+        self.responses.append(self.p.stdout.readline())
+        return json.loads(self.responses[-1])
 
     def call(self, method, params=None):
         self.next_id += 1
@@ -183,3 +185,110 @@ def test_config_path_from_flag_or_environment(serve, write_config, monkeypatch):
     assert serve("--config", str(other)).call("inventory.info")["result"]["path"] == str(other)
     monkeypatch.setenv("ROSTER_CONFIG", str(other))
     assert serve().call("inventory.info")["result"]["host_count"] == 3
+
+
+# ---- vault.status / vault.unlock / vault.lock (the lock screen)
+
+def test_vault_status_names_the_inventorys_vault(serve, write_config, fakes):
+    """bw is what the Host Logins use; env and prompt (the unreviewed group's default) can't be locked."""
+    write_config(INVENTORY)
+    assert serve().call("vault.status")["result"] == {
+        "provider": "bw", "status": "locked",
+        "providers": [{"provider": "bw", "status": "locked"}, {"provider": "env", "status": "unsupported"},
+                      {"provider": "prompt", "status": "unsupported"}]}
+
+
+def test_vault_unlock_wrong_then_right_password_never_echoes_either(serve, write_config, fakes):
+    write_config(INVENTORY)
+    s = serve()
+    err = s.call("vault.unlock", {"password": "not-it-xyzzy"})["error"]
+    assert err == {"code": 10, "message": "Bitwarden unlock failed (wrong master password?)"}
+    assert s.call("vault.status")["result"]["status"] == "locked"
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"] == {"provider": "bw", "status": "unlocked"}
+    assert s.call("vault.status")["result"]["status"] == "unlocked"
+    assert s.call("vault.unlock", {})["error"]["code"] == -32602
+    code, out, err = s.close()
+    assert code == 0 and out == "" and err == ""
+    transcript = json.dumps(s.responses) + out + err
+    for secret in ("xyzzy", "hunter2", "fake-session-key"):
+        assert secret not in transcript
+
+
+def test_vault_not_logged_in_or_not_installed_says_what_to_do(serve, write_config, fakes, monkeypatch, tmp_path):
+    write_config(INVENTORY)
+    monkeypatch.setenv("FAKE_BW_LOGGED_OUT", "1")
+    s = serve()
+    logged_out = "Bitwarden CLI isn't logged in on this box - run `bw login` once"
+    status = s.call("vault.status")["result"]
+    assert (status["provider"], status["status"], status["message"]) == ("bw", "not-logged-in", logged_out)
+    assert s.call("vault.unlock", {"password": "hunter2"})["error"] == {"code": 11, "message": logged_out}
+    s.close()
+
+    monkeypatch.setenv("PATH", str(tmp_path))                    # no bw anywhere
+    s = serve()
+    status = s.call("vault.status")["result"]
+    assert status["status"] == "missing-cli" and status["message"].startswith("`bw` is not installed on this box")
+    err = s.call("vault.unlock", {"password": "hunter2"})["error"]
+    assert err["code"] == 12 and err["message"] == status["message"]
+    assert s.call("vault.lock")["result"] == {"locked": ["bw"]}  # nothing to run, still forgets
+    code, out, err = s.close()
+    assert code == 0 and "hunter2" not in "".join(s.responses) + out + err
+
+
+def test_vault_unlock_of_a_provider_without_master_password(serve, write_config, fakes):
+    write_config(INVENTORY)
+    s = serve()
+    err = s.call("vault.unlock", {"password": "x", "provider": "env"})["error"]
+    assert err == {"code": 13, "message": "provider 'env' can't be unlocked with a master password"}
+    assert s.call("vault.unlock", {"password": "x", "provider": "keeper"})["error"]["code"] == -32602
+    write_config("groups:\n  lab:\n    user: ops\n    auth: env:PW\n    hosts:\n      box: {ip: 10.0.0.5}\n")
+    s = serve()
+    assert s.call("vault.status")["result"] == {"provider": None, "status": "unsupported",
+                                                "providers": [{"provider": "env", "status": "unsupported"}]}
+    assert s.call("vault.unlock", {"password": "x"})["error"]["code"] == 13
+
+
+def bw_session_file(isolated, key="fake-session-key"):
+    f = isolated["home"] / ".config" / "roster" / "bw-session"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(key + "\n")
+    f.chmod(0o600)
+
+
+def test_only_vault_unlock_unlocks_and_vault_lock_locks(serve, write_config, fakes, isolated, monkeypatch, tmp_path):
+    """BW_PASSWORD and a valid bw-session file would unlock the CLI by themselves; serve ignores both."""
+    write_config(INVENTORY)
+    bw_session_file(isolated)
+    monkeypatch.setenv("BW_PASSWORD", "hunter2")
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_LOG", str(log))
+    s = serve()
+    assert s.call("vault.status")["result"]["status"] == "locked"
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    assert s.call("vault.lock")["result"] == {"locked": ["bw"]}
+    assert "bw lock" in log.read_text().splitlines()
+    assert s.call("vault.status")["result"]["status"] == "locked"
+    code, out, err = s.close()
+    assert code == 0 and out == "" and err == ""
+    for secret in ("hunter2", "fake-session-key"):
+        assert secret not in "".join(s.responses)
+
+
+def test_a_lookup_after_vault_lock_reports_locked(write_config, fakes, isolated, monkeypatch):
+    """In-process, so a secret lookup (what session.prepare and askpass do) can follow the calls."""
+    from roster import providers, serve
+    write_config(INVENTORY)
+    bw_session_file(isolated)
+    monkeypatch.setenv("BW_PASSWORD", "hunter2")
+    state = serve.State(None)
+
+    def call(method, params=None):
+        return serve.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}))
+
+    with pytest.raises(providers.VaultLocked, match="locked"):
+        providers.get_secret("bw:Network gear", "lab")              # neither BW_PASSWORD nor the file unlocked it
+    assert call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    assert providers.get_secret("bw:Network gear", "lab") == "pw-netops"
+    assert call("vault.lock")["result"] == {"locked": ["bw"]}
+    with pytest.raises(providers.VaultLocked, match="locked"):
+        providers.get_secret("bw:Network gear", "lab")              # the cached value went too

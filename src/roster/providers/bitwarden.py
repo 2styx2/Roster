@@ -5,12 +5,25 @@ import os
 import shutil
 
 from ..common import say, user_config_dir
-from . import PROVIDERS, SecretError, errtext, register, split_field
+from . import (
+    PROVIDERS,
+    NotLoggedIn,
+    SecretError,
+    VaultLocked,
+    WrongPassword,
+    errtext,
+    manual_unlock,
+    register,
+    split_field,
+)
 
 # ---- built-in: Bitwarden
 
 def _bw(ctx, *args, env=None):
     return ctx.run(["bw", *args, "--nointeraction"], env=env)
+
+
+NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login` once"
 
 
 def session_file():
@@ -42,11 +55,11 @@ def _bw_status(ctx):
 def _bw_ready(ctx):
     if ctx.state.get("ready"):
         return
-    from_file = load_session_file()
+    from_file = False if manual_unlock() else load_session_file()
     status = _bw_status(ctx)
     if status == "unauthenticated":
         if not (os.environ.get("BW_CLIENTID") and os.environ.get("BW_CLIENTSECRET")):
-            raise SecretError("Bitwarden CLI isn't logged in on this box - run `bw login` once "
+            raise NotLoggedIn(f"{NOT_LOGGED_IN} "
                               "(or set BW_CLIENTID and BW_CLIENTSECRET to use an API key)")
         if _bw(ctx, "login", "--apikey").returncode != 0:
             raise SecretError("`bw login --apikey` failed - check BW_CLIENTID / BW_CLIENTSECRET")
@@ -56,6 +69,8 @@ def _bw_ready(ctx):
         if not (os.environ.get("BW_PASSWORD") or ctx.interactive):
             raise SecretError(f"the Bitwarden session in {session_file()} has expired (vault locked) - refresh it: "
                               f"(umask 077; bw unlock --raw > {session_file()})")
+    if status == "locked" and manual_unlock():
+        raise VaultLocked("Bitwarden vault is locked - unlock it first")
     if status == "locked":
         if os.environ.get("BW_PASSWORD"):
             r = _bw(ctx, "unlock", "--raw", "--passwordenv", "BW_PASSWORD")
@@ -67,7 +82,7 @@ def _bw_ready(ctx):
                               "you start Claude (or roster) from, run:  export BW_SESSION=$(bw unlock --raw)  "
                               f"- or, for every session on this box:  (umask 077; bw unlock --raw > {session_file()})")
         if r.returncode != 0 or not r.stdout.strip():
-            raise SecretError("Bitwarden unlock failed (wrong master password?)")
+            raise WrongPassword("Bitwarden unlock failed (wrong master password?)")
         os.environ["BW_SESSION"] = r.stdout.strip()       # this process only
     if ctx.settings.get("sync", True) and _bw(ctx, "sync").returncode != 0:
         say("warning      `bw sync` failed - using the vault as last synced")
@@ -77,10 +92,10 @@ def _bw_ready(ctx):
 def _bw_unlock(password, ctx):
     """Unlock with a master password given as a value (from `roster serve`), via the env-var path."""
     if _bw_status(ctx) == "unauthenticated":
-        raise SecretError("Bitwarden CLI isn't logged in on this box - run `bw login` once")
+        raise NotLoggedIn(NOT_LOGGED_IN)
     r = _bw(ctx, "unlock", "--raw", "--passwordenv", "ROSTER_BW_MASTER", env={"ROSTER_BW_MASTER": password})
     if r.returncode != 0 or not r.stdout.strip():
-        raise SecretError("Bitwarden unlock failed (wrong master password?)")
+        raise WrongPassword("Bitwarden unlock failed (wrong master password?)")
     os.environ["BW_SESSION"] = r.stdout.strip()           # this process only
 
 
@@ -139,4 +154,4 @@ def _bitwarden(spec, ctx):
     return val
 
 
-PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status)
+PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status, not_logged_in=NOT_LOGGED_IN)

@@ -7,9 +7,10 @@ Add a method by writing a function (state, params) -> result and listing it in M
 """
 
 import json
+import os
 import sys
 
-from . import __version__
+from . import __version__, providers
 from .config import find_config, load_config
 from .providers import PROVIDERS, setup_providers
 
@@ -40,6 +41,8 @@ class State:
 
     def __init__(self, config_arg):
         self.cfg, self.path, self.error = None, None, None
+        self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
+        only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
             self.cfg = load_config(self.path)
@@ -92,6 +95,113 @@ METHODS = {
     "hosts.list": hosts_list,
     "host.get": host_get,
 }
+
+
+# ---------------------------------------------------------------- vault: the lock screen
+
+# error codes (10+, clear of the codes above and of other method groups)
+WRONG_PASSWORD = 10         # the master password didn't unlock the vault
+NOT_LOGGED_IN = 11          # the vault CLI isn't logged in on this box; the message says what to run
+CLI_MISSING = 12            # the vault CLI isn't installed
+UNSUPPORTED = 13            # the provider has no master password (env, prompt, ...), or no Host Login uses one
+VAULT_LOCKED = 14           # a secret was needed but the vault is locked: unlock first
+VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: NOT_LOGGED_IN,
+                providers.CliMissing: CLI_MISSING, providers.Unsupported: UNSUPPORTED,
+                providers.VaultLocked: VAULT_LOCKED}
+STATUS_WORDS = {"unauthenticated": "not-logged-in", "missing": "missing-cli"}   # providers' word -> the API's
+
+
+def secret_error(e):
+    """A provider's SecretError as the RpcError to answer with (its message is already safe to show)."""
+    return RpcError(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
+
+
+def referenced_providers(cfg):
+    """Providers the Inventory's Host Logins use (ssh and services), most used first, known ones only."""
+    counts = {}
+    for h in cfg["hosts"].values():
+        for login in (h["ssh"], h["login"], *h["services"].values()):
+            name = str(login.get("auth") or "").partition(":")[0].strip()
+            if name and name not in providers.NO_PASSWORD and name in PROVIDERS:
+                counts[name] = counts.get(name, 0) + 1
+    return sorted(counts, key=lambda n: (-counts[n], n))
+
+
+def provider_status(name):
+    try:
+        status = providers.vault_status(name)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    result = {"provider": name, "status": STATUS_WORDS.get(status, status)}
+    message = providers.status_message(name, status)
+    return result | ({"message": message} if message else {})
+
+
+def vault_status(state, params):
+    """The vault to unlock (the most used provider that has a master password) and where every provider
+    the Inventory uses stands."""
+    names = referenced_providers(state.inventory())
+    lockable = [n for n in names if PROVIDERS[n].get("unlock")]
+    main = provider_status(lockable[0]) if lockable else {"provider": None, "status": "unsupported"}
+    return {**main, "providers": [main if n == main["provider"] else provider_status(n) for n in sorted(names)]}
+
+
+def only_vault_unlock_unlocks():
+    """The app opens locked and only its lock screen unlocks: forget a BW_PASSWORD / BW_SESSION this process
+    inherited, and tell providers not to unlock by themselves (no bw-session file, no prompt)."""
+    for var in ("BW_PASSWORD", "BW_SESSION"):
+        os.environ.pop(var, None)
+    providers.MANUAL_UNLOCK = True
+
+
+def vault_provider(state, params):
+    """params.provider, or the Inventory's vault (vault.status's "provider")."""
+    name = params.get("provider")
+    if name is None:
+        name = vault_status(state, params)["provider"]
+        if name is None:
+            raise RpcError(UNSUPPORTED, "no Host Login uses a vault with a master password")
+    if not isinstance(name, str) or name not in PROVIDERS:
+        raise RpcError(INVALID_PARAMS, f"params.provider must be one of: {', '.join(sorted(PROVIDERS))}")
+    return name
+
+
+def vault_unlock(state, params):
+    """Unlock with the master password. It goes to the provider through an environment variable; the
+    session key stays in this process's memory and is never written to the bw-session file."""
+    password = text_param(params, "password")
+    name = vault_provider(state, params)
+    try:
+        providers.unlock(name, password)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    except Exception as e:                      # never let the generic handler log text that might hold it
+        raise RpcError(INTERNAL_ERROR, f"unlocking {name} failed: {type(e).__name__}") from None
+    state.unlocked.add(name)
+    return provider_status(name)
+
+
+ON_VAULT_LOCK = []          # fn(state) run by vault.lock: whatever else holds secrets (askpass tokens) forgets them
+
+
+def vault_lock(state, params):
+    """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
+    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails."""
+    names = set(state.unlocked) | (set(referenced_providers(state.cfg)) if state.cfg else set())
+    for forget in ON_VAULT_LOCK:
+        forget(state)
+    for name in sorted(names):
+        try:
+            providers.lock(name)
+        except providers.SecretError as e:
+            print(f"serve: warning: locking {name}: {e}", file=sys.stderr, flush=True)
+    state.unlocked.clear()
+    return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+
+
+METHODS["vault.status"] = vault_status
+METHODS["vault.unlock"] = vault_unlock
+METHODS["vault.lock"] = vault_lock
 
 
 # ---------------------------------------------------------------- the loop

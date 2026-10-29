@@ -27,6 +27,7 @@ def isolated(tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.chdir(work)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+    monkeypatch.setattr(providers, "MANUAL_UNLOCK", False)         # an in-process serve test sets it
     providers._secrets.clear()
     providers.PROVIDER_STATE.clear()
     providers.PROVIDER_SETTINGS.clear()
