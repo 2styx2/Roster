@@ -516,6 +516,7 @@ def _main(argv=None):
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only")
     s.add_argument("-y", "--yes", action="store_true")
+    sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see README)")
     args = p.parse_args(argv)
 
     if args.cmd == "init":
@@ -524,6 +525,9 @@ def _main(argv=None):
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
+    if args.cmd == "serve":
+        from .serve import serve
+        return serve(args.config)            # loads roster.yml itself, so a bad one becomes an API error
     if args.cmd == "providers":
         try:
             cfg = load_config(find_config(args.config))

@@ -300,10 +300,42 @@ Let your security team know before scanning big ranges.
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
 | `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
+| `serve` | The JSON-RPC API the desktop app talks to, on stdin/stdout (see [`roster serve` API](#roster-serve-api)) |
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
 
 Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then `~/.config/roster/roster.yml`.
+
+## `roster serve` API
+
+`roster serve` is the backend for the desktop app (roster-desk). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+
+Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
+
+| Method | Params | Result |
+|---|---|---|
+| `inventory.info` | none | `{path, box, host_count, providers: [names], roster_version, api_version}` |
+| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}}`, hosts in `roster.yml` order |
+| `host.get` | `{name}` (exact Host name) | one Host |
+
+A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}`, `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
+
+`api_version` is currently 1. It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording and is ready to show to a person.
+
+| Code | Meaning |
+|---|---|
+| `1` | The Inventory didn't load: no `roster.yml`, or it's invalid. Every method that needs it returns this, and `serve` keeps running. `data` has `path` (or `null`), `roster_version` and `api_version`. |
+| `2` | Unknown host (`host.get`) |
+| `3` | Any other refusal roster would print as `error: ...` on the command line |
+| `-32700` | Not valid JSON |
+| `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
+| `-32601` | Unknown method |
+| `-32602` | Bad params, e.g. `host.get` without a `name` |
+| `-32603` | Unexpected failure inside roster; details go to stderr |
+
+Requests without an `id` (notifications) run but get no reply.
 
 ## How Claude uses it
 
@@ -336,7 +368,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 138 tests, no network or SSH server needed
+uv run pytest            # 156 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
@@ -352,6 +384,7 @@ src/roster/
   resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
+  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, error codes
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
 examples/           commented roster.yml, plugin template
 docs/               team guides: setting up a new box, adding hosts
