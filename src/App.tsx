@@ -99,7 +99,7 @@ export function App({
       e.preventDefault();
       e.stopPropagation();
       setLeader(false);
-      if (keymap.leader[chord] === "picker.open") openPicker();
+      if (keymap.leader[chord]?.action === "picker.open") openPicker();
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

@@ -135,3 +135,37 @@ describe("Tabs", () => {
     expect(screen(next)).toContain("(fake, 132x43)");
   });
 });
+
+describe("Tabs selection by order (ticket 07)", () => {
+  function three() {
+    const tabs = new Tabs(fakeBackend({ hosts }));
+    const ids = reviewed.slice(0, 3).map((h) => tabs.open(h));
+    return { tabs, ids, active: () => tabs.snapshot().active };
+  }
+
+  it("moves to the next and previous tab, wrapping around", () => {
+    const { tabs, ids, active } = three();
+    expect(active()).toBe(ids[2]);
+    tabs.selectRelative(1);
+    expect(active()).toBe(ids[0]);
+    tabs.selectRelative(-1);
+    expect(active()).toBe(ids[2]);
+    tabs.selectRelative(-1);
+    expect(active()).toBe(ids[1]);
+  });
+
+  it("goes to the Nth tab, counting from 1, and ignores a number past the end", () => {
+    const { tabs, ids, active } = three();
+    tabs.selectNth(1);
+    expect(active()).toBe(ids[0]);
+    tabs.selectNth(9);
+    expect(active()).toBe(ids[0]);
+  });
+
+  it("does nothing with no tabs", () => {
+    const tabs = new Tabs(fakeBackend({ hosts }));
+    tabs.selectRelative(1);
+    tabs.selectNth(1);
+    expect(tabs.snapshot().active).toBeNull();
+  });
+});
