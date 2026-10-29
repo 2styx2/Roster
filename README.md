@@ -13,6 +13,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/security.md](docs/security.md) | Where secrets go and where they never go, and how locking works |
 | [docs/keyboard.md](docs/keyboard.md) | The leader key, the two focus modes, and the default bindings |
 | [docs/roadmap.md](docs/roadmap.md) | The iterations and what "done" means for each |
+| [docs/dev/](docs/dev/) | Researched, tested notes: Windows build loop from WSL, PTY and wsl.exe, xterm.js setup, test layout |
 | [docs/decisions.md](docs/decisions.md) | Every design question we asked (Q1–Q22) and the answer |
 | [docs/adr/](docs/adr/) | Architecture decisions for roster-desk. roster's own ADRs live in `../roster/docs/adr/` |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch model: Work branches → `dev` → `main`, the same as roster and Orion |

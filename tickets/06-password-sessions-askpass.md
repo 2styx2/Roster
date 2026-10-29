@@ -13,3 +13,5 @@
 - [ ] pytest: the channel's socket and directory can only be accessed by the user.
 - [ ] No serve stdout and no app log contains the password. The tests check both.
 - [ ] Manual check on Windows: a real password-only Host opens to a shell without you typing anything. A wrong vault password shows a clear failure in the tab.
+
+**Note from research:** `SSH_ASKPASS` must be an absolute path. ssh runs it without your login PATH, and `roster` lives in `~/.local/bin`.

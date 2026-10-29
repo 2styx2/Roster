@@ -15,3 +15,5 @@
 - [ ] Vitest and Testing Library tests use the fake backend to cover filtering, ranking, keyboard navigation and Esc.
 - [ ] `tsc --noEmit`, the linter, Vitest and `cargo test` all pass. The README says how to run each.
 - [ ] Every library and version choice that lands matches `docs/adr/0001-tauri-over-electron.md`, or a new ADR explains why not.
+
+**Build loop and layout:** follow `docs/dev/windows-build-loop.md` (rsync to `%LOCALAPPDATA%\roster-desk-dev\src`, then `npm ci` and `tauri dev` through cmd.exe) and `docs/dev/testing.md` (a Cargo workspace with a Tauri-free `desk-core` crate, Vitest with jsdom, and a fake backend whenever `isTauri()` is false). For development, the roster command can be overridden with the environment variable `ROSTER_DESK_ROSTER` until the Lua Config (ticket 21) exists, for example `uv run --project ~/work/roster roster`.

@@ -1,0 +1,48 @@
+# Windows build loop from the WSL checkout (verified 2026-10-29)
+
+Verified with a throwaway `create-tauri-app@4.7.5 --template react-ts` probe (tauri 2.12.5, @tauri-apps/cli 2.12.4, vite 8.3.5) on Windows 10.0.26200, cargo 1.96 msvc, node 26.3 / npm 11.16. The probe dir has been deleted. Nothing was installed globally. Side effects: crates are cached in `C:\Users\you\.cargo\registry` (~350 MB, the normal cargo cache), and the WSL npm cache.
+
+## Recipe
+
+Source of truth: `~/work/roster-desk` (WSL). Build copy: `%LOCALAPPDATA%\roster-desk-dev\src` = `/mnt/c/Users/you/AppData/Local/roster-desk-dev/src`.
+
+```bash
+# 1. one-way sync (rsync is in WSL; ~0.7 s for a small tree)
+rsync -a --delete \
+  --exclude .git --exclude node_modules --exclude target --exclude dist \
+  --exclude src-tauri/gen \
+  ~/work/roster-desk/ /mnt/c/Users/you/AppData/Local/roster-desk-dev/src/
+
+# 2. run Windows tools; ALWAYS cd to /mnt/c first (see gotchas)
+cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm ci'
+cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm run tauri dev'      # long-running
+cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm run tauri build -- --no-bundle'
+```
+
+## Measured timings
+
+| Step | Time |
+|---|---|
+| `npm install` (scaffold deps) on Windows-local dir | 22 s |
+| `tauri dev` cold (349 crates) until the window opens | 1 m 21 s |
+| `tauri dev` warm restart | Vite 0.2 s, cargo ~7 s |
+| Edit `src/*.tsx` in WSL → rsync → Vite HMR in the window | ~1 s (HMR fires on the rsync write) |
+| Edit `src-tauri/src/*.rs` in WSL → rsync → auto rebuild and relaunch | 6.8 s compile |
+| `tauri build --no-bundle` (release, lto, codegen-units=1) cold | 2 m 20 s, 4.4 MB exe |
+| `tauri build --debug --no-bundle`, workspace layout (see testing.md) | 59 s cold |
+
+## Gotchas (all observed)
+
+- **The UNC cwd breaks cmd.exe.** If bash's cwd is under `/home` or `/tmp`, cmd.exe prints "UNC paths are not supported. Defaulting to Windows directory." and runs in `C:\Windows`. So `cd /mnt/c &&` first, then `cd /d %LOCALAPPDATA%\...` inside the cmd string. Don't build on `\\wsl.localhost\...`: npm scripts run via cmd.exe can't take a UNC cwd, and file I/O over 9p is slow.
+- **PATH is fine.** `cmd.exe /c` from WSL inherits the Windows user PATH: `cargo`, `node`, `npm` resolve to `C:\Users\you\.cargo\bin` and `C:\Program Files\nodejs`. No vcvars is needed; cargo finds MSVC itself.
+- **Killing the WSL-side command orphans the Windows processes.** After stopping the bash/cmd.exe job, `node.exe` (vite and the tauri CLI) and the app exe kept running and held port 1420, so the next `tauri dev` would fail with `strictPort`. Stop them by path:
+  ```bash
+  cd /mnt/c && powershell.exe -NoProfile -Command '$d="$env:LOCALAPPDATA\roster-desk-dev"; Get-CimInstance Win32_Process | ? { $_.CommandLine -like "*$d*" -or $_.ExecutablePath -like "$d*" } | % { Stop-Process -Id $_.ProcessId -Force }'
+  ```
+  Put this in a `scripts/win-stop.sh`. Closing the app window ends `tauri dev` cleanly (exit 0).
+- **`tauri dev` can be launched from WSL and keeps running.** Run it as a background job (agents: `run_in_background`, then poll the log for `Running \`target\debug\...exe\``). Its stdout is cargo progress full of `\r`; filter it with `tr '\r' '\n' | grep -v Building`.
+- **File watching works across the sync.** rsync writes to the NTFS dir and Windows raises native change events: Vite HMR and the tauri CLI's `src-tauri` watcher both fired. `--verbose` shows "File src-tauri\src\lib.rs changed. Rebuilding application...". Just re-run rsync, or loop it with `inotifywait -r -e close_write` in WSL.
+- **Files that only exist on the Windows side.** Builds create `src-tauri/gen/` and `Cargo.lock`. `--delete` would wipe them, so exclude `src-tauri/gen`, and **commit `Cargo.lock` and `package-lock.json` in WSL** so they sync in. Use `npm ci` on Windows so it never rewrites the lockfile, because changes made on the Windows side are lost on the next sync. A package-lock made by npm in WSL works on Windows because it records the win32 optional packages.
+- **Line endings.** rsync copies LF bytes as they are. Vite, tsc and cargo don't care. Add `.gitattributes` with `* text=auto eol=lf` so a future Windows git clone can't introduce CRLF.
+- **The window pops up on the developer's desktop.** `tauri dev` opens a real window on the Windows session, so warn the user before an agent launches it.
+- **Bundling** (`tauri build` without `--no-bundle`) downloads WiX/NSIS on first use. This wasn't tested. Use `--no-bundle` for the dev loop.
