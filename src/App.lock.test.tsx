@@ -19,7 +19,7 @@ async function start(scenario: FakeScenario = { hosts: makeHosts(12) }) {
 }
 
 const lockScreen = () => screen.queryByRole("dialog", { name: /locked/i });
-const sessions = () => screen.queryByRole("main", { name: /sessions/i });
+const sessions = () => screen.queryByRole("main", { name: /workspace/i });
 const passwordField = () => screen.getByLabelText<HTMLInputElement>(/master password/i);
 
 async function unlock(user: ReturnType<typeof userEvent.setup>, password = FAKE_PASSWORD) {
@@ -40,7 +40,7 @@ describe("the Lock", () => {
     const field = await screen.findByLabelText<HTMLInputElement>(/master password/i);
     await user.type(field, `${FAKE_PASSWORD}{Enter}`);
     expect(field.value).toBe("");
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
     expect(lockScreen()).toBeNull();
     expect((await backend.vaultStatus()).status).toBe("unlocked");
   });
@@ -54,7 +54,7 @@ describe("the Lock", () => {
     expect(lockScreen()).not.toBeNull();
     expect((await backend.vaultStatus()).status).toBe("locked");
     await unlock(user);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
   });
 
   it("ignores the Leader while locked", async () => {
@@ -81,7 +81,7 @@ describe("the Lock", () => {
 
   it("skips the lock screen when no Login uses a vault with a master password", async () => {
     const { user } = await start(fixtures["no-vault"]);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
     expect(lockScreen()).toBeNull();
     await user.keyboard("{Control>} {/Control}L");
     expect(lockScreen()).toBeNull();
@@ -97,19 +97,19 @@ describe("the Lock", () => {
   it("locks on <leader> L, and the master password unlocks again", async () => {
     const { user, backend } = await start();
     await unlock(user);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
     await user.keyboard("{Control>} {/Control}L");
     expect(await screen.findByRole("dialog", { name: /locked/i })).toBeInTheDocument();
     expect(sessions()).toBeNull();
     expect((await backend.vaultStatus()).status).toBe("locked");
     await unlock(user);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
   });
 
   it("locks after 15 minutes without input, counting from the last input", async () => {
     const { user, clock, backend } = await start();
     await unlock(user);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
     act(() => clock.advance(10 * MIN));
     await user.pointer({ target: document.body, keys: "[MouseLeft]" });
     act(() => clock.advance(14 * MIN));
@@ -128,7 +128,7 @@ describe("the Lock", () => {
     const user = userEvent.setup();
     render(<App backend={backend} clock={clock} options={{ leader: "Ctrl+Space", vim: true, idleLockMinutes: 2 }} />);
     await unlock(user);
-    await screen.findByRole("main", { name: /sessions/i });
+    await screen.findByRole("main", { name: /workspace/i });
     act(() => clock.advance(2 * MIN));
     expect(await screen.findByRole("dialog", { name: /locked/i })).toBeInTheDocument();
   });

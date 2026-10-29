@@ -16,3 +16,8 @@ desk-core = { path = "../crates/desk-core" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Turning off WebView2's browser shortcuts (src/lib.rs); same versions tauri itself uses.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = "0.62"

@@ -11,6 +11,10 @@ import {
   type VaultStatus,
   type VaultStatusWord,
   VaultError,
+  type SessionEvents,
+  type SessionHandle,
+  type TermSize,
+  SessionRefusal,
 } from "./types";
 
 export interface FakeScenario {
@@ -22,6 +26,8 @@ export interface FakeScenario {
   delay?: number;
   /** Where the vault starts (default: locked, like a fresh `roster serve`). */
   vault?: { status: VaultStatusWord };
+  /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
+  sessionRefusal?: { code: number; message: string };
 }
 
 /** The fake vault's master password (type it on the lock screen in a plain browser). */
@@ -100,6 +106,14 @@ export const fixtures: Record<string, FakeScenario> = {
   "not-logged-in": { hosts: makeHosts(12), vault: { status: "not-logged-in" } },
   "missing-cli": { hosts: makeHosts(12), vault: { status: "missing-cli" } },
   "no-vault": { hosts: makeHosts(12), vault: { status: "unsupported" } },
+  "not-set-up": {
+    hosts: makeHosts(12),
+    sessionRefusal: {
+      code: SessionRefusal.notSetUp,
+      message:
+        "linux-1-000 isn't in this box's ssh config (~/.ssh/config.d/roster) - run `roster sync`, or `roster setup` if this box isn't set up yet",
+    },
+  },
   "no-wsl": {
     hosts: makeHosts(0),
     startProblem: problem("no-wsl", "No WSL distro was found.", "Install WSL and a Linux distro with roster in it."),
@@ -109,6 +123,44 @@ export const fixtures: Record<string, FakeScenario> = {
 export function fixtureFromUrl(search: string = globalThis.location?.search ?? ""): FakeScenario {
   const name = new URLSearchParams(search).get("fixture") ?? "many-hosts";
   return fixtures[name] ?? { hosts: makeHosts(300) };
+}
+
+const encode = (s: string) => new TextEncoder().encode(s);
+
+/** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
+function fakeSession(id: number, host: string, size: TermSize, events: SessionEvents): SessionHandle {
+  let line = "";
+  let ended = false;
+  const end = (code: number | null, closed: boolean) => {
+    if (ended) return;
+    ended = true;
+    setTimeout(() => events.exit({ code, closed }), 0);
+  };
+  const prompt = `${host}$ `;
+  setTimeout(() => events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`)), 0);
+  return {
+    id,
+    async write(data) {
+      if (ended) throw new BackendCallError(`session ${id} isn't open`);
+      for (const ch of data) {
+        if (ch === "\r") {
+          events.output(encode("\r\n"));
+          if (line.trim() === "exit") return end(0, false);
+          line = "";
+          events.output(encode(prompt));
+        } else {
+          line += ch;
+          events.output(encode(ch === "\x1b" ? "^[" : ch));
+        }
+      }
+    },
+    async resize(s) {
+      if (!ended) events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+    },
+    async close() {
+      end(null, true);
+    },
+  };
 }
 
 export function fakeBackend(scenario: FakeScenario): Backend {
@@ -122,6 +174,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
     const main = { provider, status: vault, ...(message ? { message } : {}) };
     return { ...main, providers: provider ? [{ ...main, provider }] : [] };
   };
+  let sessions = 0;
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   return {
     async connect(): Promise<BackendInfo> {
@@ -172,6 +225,21 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
       vault = "locked";
       return { locked: ["bw"] };
+    },
+    async openSession(host, size, events) {
+      await wait();
+      const h = scenario.hosts.hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
+      if (!h.reviewed) {
+        throw new BackendCallError(
+          `${host} is not reviewed yet (reviewed: false in roster.yml) - not logging in`,
+          SessionRefusal.notReviewed,
+        );
+      }
+      if (scenario.sessionRefusal) {
+        throw new BackendCallError(scenario.sessionRefusal.message, scenario.sessionRefusal.code);
+      }
+      return fakeSession(++sessions, host, size, events);
     },
   };
 }

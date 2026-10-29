@@ -13,8 +13,22 @@ v1 options:
 - idle lock timeout
 - roster command, for development
 - backend (used by ticket 19)
+- **themes**: pick a bundled theme or define one as a Lua table of color tokens, and override any single token
+- **layout, per view mode** (decisions Q33 and Q39):
+  ```lua
+  modes = {
+    standard = { titlebar = true, sidebar = { side = "left", sections = { "sessions", "folders", "inventory" } }, statusbar = { "backend", "hosts" } },
+    focus = { sessionbar = "bottom", statusbar = false },
+  }
+  ```
+  - Pieces: the title bar, the Sidebar and its sections, the session bar, the status bar and its segments.
+  - Sessions can be shown as `sidebar` or as `tabs`.
+  - Any piece can be turned off in any mode.
+- **Folders**: personal Folders defined in Lua, merged with the ones made in the app
 
 Saving the file reloads it live. An error, whether a Lua error or a schema error, shows a toast with the file and line, and the last good Config stays active. An example `init.lua` documenting every option ships in the repo. There's no Settings screen.
+
+Build the Config loader as the first user of the registries that ticket 23 will expose to Plugins (ADR 0004). Config values go *through* the registries, never around them.
 
 **Blocked by:** 09
 

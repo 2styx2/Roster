@@ -111,7 +111,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 ### Native feel and design
 
-44. As the user, I want the app to use the OS window frame, title bar and controls, so that it fits in on Windows and Linux.
+44. As the user, I want a custom title bar like Slack's, holding the app icon, tabs, Host search and my own minimize, maximize and close buttons, and still able to drag, snap and resize, so that the window looks like one designed app rather than a web page in a frame.
 45. As the user, I want shortcuts to follow each platform's habits (Ctrl on Windows and Linux, ⌘ on macOS), so that muscle memory carries over.
 46. As the user, I want the UI to follow the OS light/dark setting, so that it matches the rest of my desktop.
 47. As the user, I want UI text in the system font and a configurable monospace font in the terminal, so that it reads like a native app.
@@ -164,6 +164,22 @@ We build it in iterations. Each one is tested by hand before the next starts:
 85. As the user, I want a mistake in `init.lua` to show the file and line, while the last good config stays active, so that a typo never breaks the app.
 86. As the user, I want to use Lua logic, such as picking a font by OS or a theme by time of day, so that one file works on all my machines.
 87. As the user, I want a documented example `init.lua` covering every option, so that I can discover what's configurable.
+
+### Sidebar, Folders and a configurable shell (decisions Q29–Q35)
+
+88. As the user, I want open Sessions listed in a left Sidebar, the way SecureCRT's Session Manager or an editor's file tree does it, so that I see everything that's open at a glance instead of squinting at tabs.
+89. As the user, I want the Session on screen marked with a raised highlight (lighter fill, thin outline) rather than an underline, so that the selection is clear but quiet.
+90. As the user, I want to put Hosts into my own Folders, such as "Lab ESXi" or "Daily", kept on my Box and never pushed to the team, so that I can organise my day without touching the Inventory.
+91. As the user, I want a bare title bar with just the logo and minimize, maximize and close, so that the window is calm and everything else lives in the Sidebar.
+92. As the user, I want to hide the status bar and the helper key hints, and see every key binding in one panel that reads from my Config, so that the screen stays clean and I can still look things up.
+93. As the user, I want every default (theme colours, fonts, Sidebar or tabs, status bar, title bar contents, keys) to be changeable from `init.lua`, so that the app is as configurable as my editor.
+
+94. As the user, I want two view modes toggled with `␣ m`: Standard (the default, with the Sidebar), and Focus (true fullscreen, with Neovim-style Leader keys and Telescope-like fuzzy finders for Sessions (`␣ b`) and Hosts (`␣ f`), and an optional tmux-style session bar). That way I can live in the terminal when I want to, without losing anything roster can do.
+95. As the user, I want my own shell config (`.bashrc`, prompt, `LS_COLORS`, vim and truecolor colour schemes) to render exactly as it does in any good terminal, so that roster-desk never fights my setup.
+
+96. As the user, I want to install Packages (Plugins from git repos) by listing them in `init.lua`, pinned to a commit, the way lazy.nvim does it, so that I can add features other people wrote.
+97. As a Plugin author, I want a Lua API to add commands, key bindings, themes, Sidebar sections, finder sources, status segments and event hooks, the same registries the built-in features use, so that a Plugin can do anything the app does.
+98. As the user, I want Plugins never to see passwords, and never to Publish Inventory changes without me, so that installing a Package can't leak secrets or change the team's Inventory behind my back.
 
 ### Host details and web services
 
@@ -277,7 +293,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 - Merge requests instead of a direct push on Publish
 - Vim-style editing inside form fields
 - A Settings screen (the Config file is the only way to configure; ADR 0002)
-- Lua event hooks, custom commands and Picker sources (v1 Config is values plus key bindings)
+- Lua event hooks, custom commands and Picker sources in the *Config itself* (v1 Config is values plus key bindings). These arrive with the Plugin API in iteration 7 (ADR 0004).
+- Plugin-supplied HTML/JS panels (ADR 0004)
 - Mobile
 - Sync or accounts of our own
 - Packaging, installers, auto-update and distribution to the team

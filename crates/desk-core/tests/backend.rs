@@ -57,3 +57,23 @@ fn a_command_that_cannot_start_is_a_failure_naming_it() {
     assert_eq!(e.kind, ErrorKind::Failed);
     assert!(e.detail.unwrap().contains("/nonexistent/roster"));
 }
+
+#[test]
+fn a_session_command_comes_from_session_prepare_with_term_set() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    let cmd = b.session_command("esxi-02").unwrap();
+    assert_eq!(cmd.argv, ["/usr/bin/ssh", "-o", "BatchMode=yes", "esxi-02"]);
+    assert!(cmd.env.contains(&("TERM".into(), "xterm-256color".into())));
+}
+
+#[test]
+fn session_prepare_refusals_keep_roster_code_and_wording() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    match b.session_command("scan-1").err().unwrap() {
+        desk_core::rpc::CallError::Rpc { code, message, .. } => {
+            assert_eq!(code, 20);
+            assert!(message.contains("is not reviewed yet"), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+}

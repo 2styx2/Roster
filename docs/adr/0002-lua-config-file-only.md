@@ -9,6 +9,8 @@ roster-desk is configured by one `init.lua` in the user config directory. It wor
 
 ## Consequences
 
+- **Everything visible is a default the Config can change** (decision Q33): color tokens and themes, fonts, the keymap, and layout pieces such as the sidebar, Sessions as a sidebar or as tabs, the status bar and the title bar contents. Build each of these as data read from the resolved Config, never hard-coded.
+
 - The Lua code runs in the Rust core, which never holds secrets (ADR 0001 in roster), so a config can't read a password.
 - The frontend never runs Lua. It gets a checked, typed Config object from the core.
 - Window size, recent Hosts and similar things are **State**, kept in a separate app-managed file, never in `init.lua`.

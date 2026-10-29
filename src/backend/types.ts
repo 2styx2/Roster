@@ -102,6 +102,44 @@ export const VaultError = {
   locked: 14,
 } as const;
 
+/** A terminal size in character cells. */
+export interface TermSize {
+  cols: number;
+  rows: number;
+}
+
+/** How a Session ended. */
+export interface SessionExit {
+  /** The exit code (ssh's 255 when it couldn't connect); null when a signal ended it. */
+  code: number | null;
+  /** True when the app closed it; the code then means nothing. */
+  closed: boolean;
+}
+
+/** Where a Session's output goes: bytes in order, then exactly one exit. */
+export interface SessionEvents {
+  output(data: Uint8Array): void;
+  exit(exit: SessionExit): void;
+}
+
+/** A running Session (a PTY with ssh in it), as the core names it. */
+export interface SessionHandle {
+  readonly id: number;
+  /** Keystrokes or pasted text, as xterm's onData gives them. */
+  write(data: string): Promise<void>;
+  resize(size: TermSize): Promise<void>;
+  /** Ends it (kills ssh). The exit event still follows, with `closed: true`. */
+  close(): Promise<void>;
+}
+
+/** `session.prepare`'s error codes (roster README): the message is roster's, ready to show. */
+export const SessionRefusal = {
+  unknownHost: 2,
+  notReviewed: 20,
+  notSetUp: 21,
+  noAskpass: 22,
+} as const;
+
 export interface Backend {
   /** Find and start the Backend, or return the running one. Rejects with BackendStartError. */
   connect(options?: { restart?: boolean }): Promise<BackendInfo>;
@@ -115,4 +153,7 @@ export interface Backend {
   unlockVault(password: string): Promise<ProviderStatus>;
   /** Forget every secret and lock the vault. Never rejects for a vault reason. */
   lockVault(): Promise<{ locked: string[] }>;
+  /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
+   * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output. */
+  openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
 }
