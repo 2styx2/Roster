@@ -16,3 +16,5 @@
 - [ ] pytest: discard puts the file back as it was.
 - [ ] The pull fails cleanly on a diverged or dirty repo.
 - [ ] UI tests cover the edit form, the Pending changes count and the diff view.
+
+**Note from ticket 02:** `serve` loads the Inventory once at startup. `inventory.pull` and every write must reload it, so `hosts.list` reflects the new file.

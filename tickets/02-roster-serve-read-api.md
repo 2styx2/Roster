@@ -6,12 +6,12 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (roster 3661f5b)
 
-- [ ] pytest starts `roster serve` as a subprocess against an example Inventory and gets `inventory.info`: path, Box, host count, providers, roster version, API version.
-- [ ] `hosts.list` returns every Host and group. It agrees with `roster hosts` on names, addresses, groups and the reviewed flag.
-- [ ] `host.get` for an unknown name returns an error, not a crash.
-- [ ] Malformed JSON and unknown methods return proper JSON-RPC errors, and the server keeps running.
-- [ ] Nothing but JSON-RPC responses is written to stdout.
-- [ ] Closing stdin ends the process with exit code 0.
-- [ ] The API methods are documented in the README.
+- [x] pytest starts `roster serve` as a subprocess against an example Inventory and gets `inventory.info`: path, Box, host count, providers, roster version, API version.
+- [x] `hosts.list` returns every Host and group. It agrees with `roster hosts` on names, addresses, groups and the reviewed flag.
+- [x] `host.get` for an unknown name returns an error, not a crash.
+- [x] Malformed JSON and unknown methods return proper JSON-RPC errors, and the server keeps running.
+- [x] Nothing but JSON-RPC responses is written to stdout.
+- [x] Closing stdin ends the process with exit code 0.
+- [x] The API methods are documented in the README.
