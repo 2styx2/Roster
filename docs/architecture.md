@@ -11,7 +11,7 @@ Decisions: roster ADR 0001 (`roster serve`) and ADR 0002 (system ssh and askpass
 │  Rust core                                           │
 │   ├─ backend runner ── stdin/stdout JSON-RPC ──┐     │
 │   ├─ session manager ── PTY per Session ──┐    │     │
-│   └─ idle-lock timer, settings            │    │     │
+│   └─ idle-lock timer, Config (init.lua)   │    │     │
 └───────────────────────────────────────────┼────┼─────┘
               (on the WSL backend, both run through wsl.exe)
                                             │    │
@@ -59,6 +59,17 @@ The askpass socket is the one deliberate exception to stdio-only. If it grows be
 | WSL: <distro> | Windows | the WSL distro (auto-detected when roster and `~/infra` are there) |
 | Local | Windows | Windows (iteration 6: roster ported, built-in OpenSSH, named-pipe askpass) |
 | Local | Linux (X11, Wayland, WSLg) | Linux |
+
+## Config (`init.lua`)
+
+This follows WezTerm's model (roster-desk ADR 0002):
+- `~/.config/roster-desk/init.lua` (`%APPDATA%\roster-desk\init.lua` on Windows) returns a table, and the Rust core runs it with mlua (Lua 5.4 built in).
+- It's layered: built-in defaults, then `init.lua`. There's no Settings screen.
+- Saving the file reloads it. An error shows a toast with the file and line, and the last good Config stays active.
+- The core checks the result against a schema and sends a plain typed object to the frontend, which never runs Lua.
+- **v1 covers values only:** fonts, colors and theme tokens, leader key, keymap (key → action name), vim on/off, idle timeout, backend, roster command.
+- **Later:** event hooks (`on_session_open`), custom `:` commands, and extra Picker sources.
+- **State** (window size, recent Hosts, open panels) is saved separately by the app and never put in `init.lua`.
 
 ## Inventory writes
 

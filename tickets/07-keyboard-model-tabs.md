@@ -11,7 +11,7 @@ All bindings live in one keymap table:
 - the `:` command line, with completion of commands and Host names (`:connect HOST`, `:lock`, `:close`)
 - `<leader> ?` opens a help overlay generated from the keymap
 
-Settings can change the leader key and turn vim bindings off. A thin tab strip shows each Session's Host name and state. Click focuses a tab, middle-click closes it and drag reorders. Every action can also be reached from a menu or button.
+The keymap and the options (leader key, vim on/off) are plain data tables with defaults, which ticket 21's `init.lua` will override. Until then they can be changed in one defaults file in the code, and there is no Settings screen. A thin tab strip shows each Session's Host name and state. Click focuses a tab, middle-click closes it and drag reorders. Every action can also be reached from a menu or button.
 
 **Blocked by:** 05
 
