@@ -177,6 +177,10 @@ We build it in iterations. Each one is tested by hand before the next starts:
 94. As the user, I want two view modes toggled with `␣ m`: Standard (the default, with the Sidebar), and Focus (true fullscreen, with Neovim-style Leader keys and Telescope-like fuzzy finders for Sessions (`␣ b`) and Hosts (`␣ f`), and an optional tmux-style session bar). That way I can live in the terminal when I want to, without losing anything roster can do.
 95. As the user, I want my own shell config (`.bashrc`, prompt, `LS_COLORS`, vim and truecolor colour schemes) to render exactly as it does in any good terminal, so that roster-desk never fights my setup.
 
+96. As the user, I want to install Packages (Plugins from git repos) by listing them in `init.lua`, pinned to a commit, the way lazy.nvim does it, so that I can add features other people wrote.
+97. As a Plugin author, I want a Lua API to add commands, key bindings, themes, Sidebar sections, finder sources, status segments and event hooks, the same registries the built-in features use, so that a Plugin can do anything the app does.
+98. As the user, I want Plugins never to see passwords, and never to Publish Inventory changes without me, so that installing a Package can't leak secrets or change the team's Inventory behind my back.
+
 ### Host details and web services
 
 78. As the user, I want a toggleable side panel with the host tree grouped like the Inventory, folded with `h`/`l`, so that I can browse when I don't know what I'm looking for.
@@ -289,7 +293,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 - Merge requests instead of a direct push on Publish
 - Vim-style editing inside form fields
 - A Settings screen (the Config file is the only way to configure; ADR 0002)
-- Lua event hooks, custom commands and Picker sources (v1 Config is values plus key bindings)
+- Lua event hooks, custom commands and Picker sources in the *Config itself* (v1 Config is values plus key bindings). These arrive with the Plugin API in iteration 7 (ADR 0004).
+- Plugin-supplied HTML/JS panels (ADR 0004)
 - Mobile
 - Sync or accounts of our own
 - Packaging, installers, auto-update and distribution to the team

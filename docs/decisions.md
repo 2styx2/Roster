@@ -46,4 +46,12 @@ These came from a grilling session in which each question was asked with a recom
 
 **Every mode keeps all of roster:** the Picker, `:` command line, Quick Connect, Host details, the Key bindings panel, Lock, Inventory edits and Publish all work in every mode. Modes change how things are shown, never what you can do. What the Sidebar shows in Standard is reached through overlays and finders in Tmux and Focus. Prototype: `prototype-shell.html?mode=standard|focus`. Focus can optionally show the thin tmux-style session bar (`[box] 0:esxi-02* 1:…`): off by default, turned on with `focus.status_line = true` in `init.lua`. The Tmux mode, Compact rail and Mini window ideas were dropped. Split panes are still out of scope. |
 | Q37 | Your terminal config wins | **The terminal never fights the user's own setup.** Remote `.bashrc`, prompt, `LS_COLORS`, vim colour schemes and truecolor themes must render exactly as they do in any good terminal. The app sets `TERM=xterm-256color` and `COLORTERM=truecolor`, injects nothing else (no PS1, no sourced files, no output rewriting), and passes every escape sequence through. The 16-colour ANSI palette defaults to a neutral, standard one rather than the app accent. Themes and `init.lua` can change it, and a theme can say "leave the ANSI palette alone". |
+| Q38 | Plugins and packages | **Neovim-style extensibility:**
+- **Plugins** are Lua, run in the same runtime as the Config. They add commands, keys, themes, Sidebar sections, finder sources, status segments and event hooks.
+- **Packages** are Plugins from git repos, listed in `init.lua` and pinned in `roster-desk.lock` (lazy.nvim-style).
+- The built-in features use the same registries.
+- Plugins never see secrets, and their Inventory writes only become Pending changes.
+- No plugin HTML/JS in v1.
+
+See [ADR 0004](adr/0004-lua-plugins-and-packages.md). Tickets 23–24, iteration 7. |
 | Q22 | Build order | A thin slice first, then test it, then the next iteration. See [roadmap.md](roadmap.md). |

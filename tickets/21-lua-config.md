@@ -19,6 +19,8 @@ v1 options:
 
 Saving the file reloads it live. An error, whether a Lua error or a schema error, shows a toast with the file and line, and the last good Config stays active. An example `init.lua` documenting every option ships in the repo. There's no Settings screen.
 
+Build the Config loader as the first user of the registries that ticket 23 will expose to Plugins (ADR 0004). Config values go *through* the registries, never around them.
+
 **Blocked by:** 09
 
 **Status:** ready-for-agent

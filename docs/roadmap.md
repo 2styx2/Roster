@@ -10,5 +10,6 @@ We work in iterations. Each one ends with a hands-on check on the Windows machin
 | 4 | **Quick Connect + "Save to vault"** | 13–16 | A new box reached by IP and password becomes a Vault item plus a Host |
 | 5 | **Host details** | 18 | Detail panel, opening web services |
 | 6 | **Other platforms** | 19–20 | Native Windows backend; Linux under X11, Wayland and WSLg |
+| 7 | **Plugins and Packages** | 23–24 | A Package from a git URL adds a command, a key and a theme. Built-in Folders run as an internal Plugin. Plugins can't reach secrets. |
 
-Later, not planned yet: split panes, broadcast input, SFTP, port forwarding, discover from the app, writing to other providers, MRs instead of pushing, macOS, packaging and distribution, open-sourcing.
+Later, not planned yet: plugin HTML panels, split panes, broadcast input, SFTP, port forwarding, discover from the app, writing to other providers, MRs instead of pushing, macOS, packaging and distribution, open-sourcing.
