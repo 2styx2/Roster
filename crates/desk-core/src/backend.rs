@@ -1,0 +1,128 @@
+//! A running Backend: `roster serve` started from a detected [`Candidate`], checked once at start
+//! (`inventory.info` answers and its `api_version` is new enough), then used for calls.
+
+use crate::detect::{Candidate, OVERRIDE_VAR};
+use crate::error::{BackendError, ErrorKind};
+use crate::rpc::{CallError, RpcClient};
+use serde::Serialize;
+use serde_json::{Value, json};
+use std::process::Command;
+
+/// The oldest `roster serve` API this app understands.
+pub const REQUIRED_API_VERSION: i64 = 1;
+
+/// roster's own error codes (roster/src/roster/serve.py).
+pub const INVENTORY_ERROR: i64 = 1;
+const METHOD_NOT_FOUND: i64 = -32601;
+
+/// What the UI learns about the Backend once it's up.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackendInfo {
+    /// "Local" or "WSL: <distro>".
+    pub backend: String,
+    /// The command line that runs serve.
+    pub command: Vec<String>,
+    /// The `inventory.info` result as roster sent it.
+    pub inventory: Value,
+}
+
+pub struct Backend {
+    client: RpcClient,
+    pub info: BackendInfo,
+}
+
+impl Backend {
+    pub fn start(c: &Candidate) -> Result<Backend, BackendError> {
+        let shown = c.serve_argv.join(" ");
+        let mut cmd = Command::new(&c.serve_argv[0]);
+        cmd.args(&c.serve_argv[1..]);
+        let client = RpcClient::spawn(cmd).map_err(|e| {
+            BackendError::new(
+                ErrorKind::Failed,
+                "The backend couldn't be started.",
+                "Check that the command exists.",
+            )
+            .with_detail(format!("{shown}: {e}"))
+        })?;
+        let inventory = client
+            .call("inventory.info", json!({}))
+            .map_err(|e| classify(e, &shown))?;
+        let api = inventory.get("api_version").and_then(Value::as_i64).unwrap_or(0);
+        if api < REQUIRED_API_VERSION {
+            return Err(too_old(format!(
+                "roster speaks API version {api}; roster-desk needs {REQUIRED_API_VERSION} or newer."
+            ))
+            .with_detail(shown));
+        }
+        Ok(Backend {
+            client,
+            info: BackendInfo {
+                backend: c.target.label(),
+                command: c.serve_argv.clone(),
+                inventory,
+            },
+        })
+    }
+
+    pub fn call(&self, method: &str, params: Value) -> Result<Value, CallError> {
+        self.client.call(method, params)
+    }
+
+    /// False once serve has exited; the app then has to start a new one.
+    pub fn is_alive(&self) -> bool {
+        !self.client.is_dead()
+    }
+}
+
+fn too_old(message: String) -> BackendError {
+    BackendError::new(
+        ErrorKind::RosterTooOld,
+        message,
+        format!(
+            "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point \
+             {OVERRIDE_VAR} at a newer one, e.g. `uv run --project ~/work/roster roster`."
+        ),
+    )
+}
+
+/// A failure of the first call, as the error the user sees.
+fn classify(e: CallError, shown: &str) -> BackendError {
+    match e {
+        CallError::Exited { stderr, code } => {
+            if stderr.contains("invalid choice") && stderr.contains("serve") {
+                too_old("This roster has no `serve` command (it predates roster-desk).".into()).with_detail(stderr)
+            } else {
+                BackendError::new(
+                    ErrorKind::Failed,
+                    format!(
+                        "roster serve exited before answering (exit code {}).",
+                        code.map_or("?".into(), |c| c.to_string())
+                    ),
+                    "Run the command below in a terminal to see what's wrong.",
+                )
+                .with_detail(format!("{shown}\n{stderr}"))
+            }
+        }
+        CallError::Rpc {
+            code: INVENTORY_ERROR,
+            message,
+            ..
+        } => BackendError::new(
+            ErrorKind::InventoryNotFound,
+            format!("roster couldn't load the Inventory: {message}"),
+            "Clone the infra repo to ~/infra (or set ROSTER_CONFIG in ~/.profile), then retry.",
+        )
+        .with_detail(shown),
+        CallError::Rpc {
+            code: METHOD_NOT_FOUND,
+            message,
+            ..
+        } => too_old(format!("This roster doesn't know inventory.info ({message}).")).with_detail(shown),
+        other => BackendError::new(
+            ErrorKind::Failed,
+            format!("The backend didn't start properly: {other}"),
+            "Run the command below in a terminal to see what's wrong.",
+        )
+        .with_detail(shown),
+    }
+}
