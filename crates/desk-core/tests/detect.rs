@@ -206,3 +206,45 @@ fn the_override_is_split_on_whitespace_and_blank_means_roster() {
     assert_eq!(roster_command(Some("  ")), s(&["roster"]));
     assert_eq!(roster_command(Some(" uv  run roster ")), s(&["uv", "run", "roster"]));
 }
+
+/// `wsl.exe --exec` starts serve with a bare PATH (no `~/.local/bin`), so roster couldn't find the
+/// vault CLI (`bw` from npm or `~/.local/bin`) and the lock screen said "not installed".
+#[test]
+fn serve_gets_the_login_shells_path_so_it_finds_the_vault_cli() {
+    let found = format!("{FOUND}path=/home/u/.local/bin:/usr/local/bin:/usr/bin:/bin\n");
+    let r = Scripted {
+        distros: Some("FedoraLinux-44\n".into()),
+        probes: HashMap::from([("FedoraLinux-44".into(), found)]),
+        ..Default::default()
+    };
+    let c = detect(&r, Platform::Windows, &s(&["roster"])).unwrap();
+    assert_eq!(
+        c.serve_argv,
+        s(&[
+            "wsl.exe",
+            "-d",
+            "FedoraLinux-44",
+            "--cd",
+            "~",
+            "--exec",
+            "/usr/bin/env",
+            "PATH=/home/u/.local/bin:/usr/local/bin:/usr/bin:/bin",
+            "/home/u/.local/bin/roster",
+            "-c",
+            "/home/u/infra/roster.yml",
+            "serve"
+        ])
+    );
+}
+
+#[test]
+fn the_probe_reports_the_login_path() {
+    let r = Scripted {
+        distros: Some("FedoraLinux-44\n".into()),
+        probes: HashMap::from([("FedoraLinux-44".into(), FOUND.into())]),
+        ..Default::default()
+    };
+    detect(&r, Platform::Windows, &s(&["roster"])).unwrap();
+    let script = r.calls.borrow()[1][8].clone();
+    assert!(script.contains(r#"echo "path=$PATH""#), "{script}");
+}
