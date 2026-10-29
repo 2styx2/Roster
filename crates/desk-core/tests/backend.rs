@@ -17,7 +17,7 @@ fn fake(mode: &str) -> Candidate {
 fn a_current_roster_starts_and_reports_its_inventory() {
     let b = Backend::start(&fake("ok")).unwrap();
     assert_eq!(b.info.backend, "Local");
-    assert_eq!(b.info.inventory["host_count"], 2);
+    assert_eq!(b.info.inventory["host_count"], 3);
     assert_eq!(
         b.call("hosts.list", serde_json::json!({})).unwrap()["hosts"][1]["name"],
         "scan-1"
@@ -76,4 +76,59 @@ fn session_prepare_refusals_keep_roster_code_and_wording() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// How fake_serve.py's one-time askpass tokens start (a counter follows).
+const TOKEN: &str = "tok-3b1f9e2a7c";
+
+fn token(cmd: &desk_core::session::SessionCommand) -> String {
+    cmd.env
+        .iter()
+        .find(|(k, _)| k == "ROSTER_ASKPASS_TOKEN")
+        .unwrap()
+        .1
+        .clone()
+}
+
+#[test]
+fn a_password_host_gets_ssh_with_the_askpass_env_and_says_so() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    let cmd = b.session_command("sw-core").unwrap();
+    assert_eq!(cmd.auth, "password");
+    assert_eq!(cmd.argv[1..3], ["-o", "NumberOfPasswordPrompts=1"]);
+    let names: Vec<&str> = cmd.env.iter().map(|(k, _)| k.as_str()).collect();
+    for var in [
+        "SSH_ASKPASS",
+        "SSH_ASKPASS_REQUIRE",
+        "ROSTER_ASKPASS_SOCKET",
+        "ROSTER_ASKPASS_TOKEN",
+    ] {
+        assert!(names.contains(&var), "{var} missing from {names:?}");
+    }
+    assert!(!format!("{cmd:?}").contains(TOKEN));
+}
+
+#[test]
+fn a_key_host_says_key() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    assert_eq!(b.session_command("esxi-02").unwrap().auth, "key");
+}
+
+#[test]
+fn a_locked_vault_keeps_code_14_for_the_lock_screen() {
+    let b = Backend::start(&fake("locked")).unwrap();
+    match b.session_command("sw-core").err().unwrap() {
+        desk_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 14),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn every_session_command_asks_for_a_fresh_token() {
+    // Tokens live 60 s and are spent once: opening (or reconnecting) must never reuse one.
+    let b = Backend::start(&fake("ok")).unwrap();
+    let first = token(&b.session_command("sw-core").unwrap());
+    let second = token(&b.session_command("sw-core").unwrap());
+    assert!(first.starts_with(TOKEN));
+    assert_ne!(first, second);
 }

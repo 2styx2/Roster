@@ -95,9 +95,18 @@ fn session_error(e: SessionError) -> CallError {
     CallError::Io { message: e.to_string() }
 }
 
+/// A Session that's started: its id and how it logs in ("key" or "password").
+#[derive(serde::Serialize)]
+struct OpenedSession {
+    id: SessionId,
+    auth: String,
+}
+
 /// Open a Session to `host`: `session.prepare`, then the command in a PTY of `cols`×`rows`.
 /// `events` gets the output as raw bytes, then one JSON message `{"exit": {code, closed}}`.
-/// Refusals keep roster's code (2 unknown, 20 not reviewed, 21 box not set up).
+/// Refusals keep roster's code (2 unknown, 20 not reviewed, 21 box not set up, 11/12/14 the
+/// password Host's vault). prepare runs right before the spawn: a password Session's askpass
+/// token lives 60 s, so every open (and every reconnect) gets a fresh one.
 #[tauri::command]
 async fn session_open(
     state: tauri::State<'_, Arc<BackendState>>,
@@ -106,12 +115,12 @@ async fn session_open(
     cols: u16,
     rows: u16,
     events: Channel<InvokeResponseBody>,
-) -> Result<SessionId, CallError> {
+) -> Result<OpenedSession, CallError> {
     let backend = state.get()?;
     let sessions = Arc::clone(&sessions);
     blocking(move || {
         let cmd = backend.session_command(&host)?;
-        sessions
+        let id = sessions
             .open(&cmd, Size { cols, rows }, move |event| {
                 let body = match event {
                     SessionEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
@@ -119,7 +128,8 @@ async fn session_open(
                 };
                 let _ = events.send(body);
             })
-            .map_err(session_error)
+            .map_err(session_error)?;
+        Ok(OpenedSession { id, auth: cmd.auth })
     })
     .await
 }

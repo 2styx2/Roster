@@ -50,6 +50,8 @@ pub struct SessionCommand {
     pub argv: Vec<String>,
     /// Set on the process itself (only on the Local target; on WSL it's inside `argv`).
     pub env: Vec<(String, String)>,
+    /// How the Session logs in, as `session.prepare` said: "key" or "password" (shown on the tab).
+    pub auth: String,
     /// Names of the variables carried in `argv` as `K=V`, so Debug can hide their values.
     hidden: Vec<String>,
 }
@@ -60,8 +62,34 @@ impl SessionCommand {
         SessionCommand {
             argv,
             env,
+            auth: "key".into(),
             hidden: Vec::new(),
         }
+    }
+
+    /// The env this command adds, wherever it travels (on the process, or as `K=V` in `argv`).
+    fn env_pairs(&self) -> impl Iterator<Item = (&str, &str)> {
+        let in_argv = self
+            .argv
+            .iter()
+            .filter_map(|a| a.split_once('=').filter(|(k, _)| self.hidden.iter().any(|h| h == k)));
+        let on_process = self.env.iter().map(|(k, v)| (k.as_str(), v.as_str()));
+        in_argv.chain(on_process)
+    }
+
+    /// `text` (an error about this command) with every env value replaced by `…`, so a message
+    /// that quotes the command line (ConPTY's spawn failure does) can't show an askpass token.
+    pub fn redact(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for (k, v) in self.env_pairs() {
+            out = out.replace(&format!("{k}={v}"), &format!("{k}=…"));
+        }
+        for (_, v) in self.env_pairs() {
+            if v.len() >= 6 {
+                out = out.replace(v, "…");
+            }
+        }
+        out
     }
 }
 
@@ -79,6 +107,7 @@ impl std::fmt::Debug for SessionCommand {
         f.debug_struct("SessionCommand")
             .field("argv", &argv)
             .field("env", &env)
+            .field("auth", &self.auth)
             .finish()
     }
 }
@@ -91,6 +120,7 @@ pub fn session_command(target: &Target, prepared: &Prepared) -> SessionCommand {
         Target::Local => SessionCommand {
             argv: prepared.argv.clone(),
             env,
+            auth: prepared.auth.clone(),
             hidden: Vec::new(),
         },
         Target::Wsl { .. } => {
@@ -100,6 +130,7 @@ pub fn session_command(target: &Target, prepared: &Prepared) -> SessionCommand {
             SessionCommand {
                 argv: target.wrap(&inner),
                 env: Vec::new(),
+                auth: prepared.auth.clone(),
                 hidden: env.into_iter().map(|(k, _)| k).collect(),
             }
         }
@@ -218,7 +249,10 @@ impl SessionManager {
         for (k, v) in &cmd.env {
             builder.env(k, v);
         }
-        let mut child = pair.slave.spawn_command(builder).map_err(io)?;
+        let mut child = pair
+            .slave
+            .spawn_command(builder)
+            .map_err(|e| SessionError::Io(cmd.redact(&e.to_string())))?;
         drop(pair.slave);
         let reader = pair.master.try_clone_reader().map_err(io)?;
         let writer = pair.master.take_writer().map_err(io)?;

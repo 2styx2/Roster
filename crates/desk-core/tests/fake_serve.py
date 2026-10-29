@@ -7,6 +7,7 @@ The first argument picks a behaviour:
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
   reverse            holds two requests, then answers them in reverse order
   die-on-hosts       exits without answering hosts.list
+  locked             session.prepare for a password Host refuses with 14 (vault locked)
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
 """
 import json
@@ -23,7 +24,14 @@ HOSTS = [
      "reviewed": True},
     {"name": "scan-1", "ip": "10.19.77.99", "group": "lab", "type": "linux", "product": "", "title": "",
      "reviewed": False},
+    {"name": "sw-core", "ip": "10.19.1.2", "group": "lab", "type": "switch", "product": "", "title": "",
+     "reviewed": True, "password": True},
 ]
+
+# A password Session's token: a new one per session.prepare, like roster's (tests check it never
+# shows up in Debug or errors, and that every open asks for a fresh one).
+TOKEN = "tok-3b1f9e2a7c-"
+minted = 0
 
 
 def answer(req):
@@ -51,6 +59,18 @@ def answer(req):
             return {"error": {"code": 2, "message": f"unknown host {name!r}"}}
         if not h["reviewed"]:
             return {"error": {"code": 20, "message": f"{name} is not reviewed yet (reviewed: false in roster.yml) - not logging in"}}
+        if h.get("password"):
+            if mode == "locked":
+                return {"error": {"code": 14, "message": "Bitwarden vault is locked - unlock it first"}}
+            global minted
+            minted += 1
+            return {"result": {
+                "argv": ["/usr/bin/ssh", "-o", "NumberOfPasswordPrompts=1",
+                         "-o", "PreferredAuthentications=password,keyboard-interactive", name],
+                "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass", "SSH_ASKPASS_REQUIRE": "force",
+                        "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
+                        "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"},
+                "host": name, "auth": "password"}}
         return {"result": {"argv": ["/usr/bin/ssh", "-o", "BatchMode=yes", name], "env": {}, "host": name,
                            "auth": "key"}}
     return {"error": {"code": -32601, "message": f"unknown method {m!r}"}}
