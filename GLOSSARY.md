@@ -49,5 +49,5 @@ A named set of colour tokens. The Config can pick one, change any token, or defi
 _Avoid_: skin, colour scheme
 
 **View mode**:
-How much of the app shows around the terminal: **Standard** (Sidebar and title bar), **Tmux** (terminal plus a thin status sliver) or **Focus** (fullscreen, with fuzzy finders and nothing else).
+How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
