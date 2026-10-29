@@ -9,6 +9,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | Path | What's in it |
 |---|---|
 | [docs/vision.md](docs/vision.md) | Why this exists, how it compares with SecureCRT, Termius, Tabby and XPipe, and what makes it different |
+| [docs/competitors.md](docs/competitors.md) | Sourced competitor analysis (XPipe, Termix, Termius, RDM, Tabby, WezTerm and more): matrix, config and plugins, secrets model, positioning |
 | [docs/architecture.md](docs/architecture.md) | The processes, the `roster serve` API, how Sessions connect, and the backends |
 | [docs/security.md](docs/security.md) | Where secrets go and where they never go, and how locking works |
 | [docs/keyboard.md](docs/keyboard.md) | The leader key, the two focus modes, and the default bindings |

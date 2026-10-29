@@ -12,12 +12,16 @@ It's a personal tool first. If it gets good enough, and does something the other
 
 ## What already exists (checked 2026-10-29)
 
-| Tool | What it is | How we differ |
+Full, sourced comparison of 15 tools plus adjacent ones: [competitors.md](competitors.md). In short:
+
+| Tool | Closest overlap | How we differ |
 |---|---|---|
-| **XPipe** | A cross-platform connection hub, open core plus a paid Pro tier. It reads passwords from Bitwarden through the `bw` CLI, and since v22 it also uses the SSH agents built into password managers. | Closest rival. Its Hosts are a personal list, with no team Inventory in git and no review gate. |
-| **Termius** | A polished terminal that syncs hosts through its own vault, on desktop and mobile. Pro is about $10/month. | Its vault and hosts are its own, not your team's vault and your git Inventory. |
-| **Tabby** | A free, open-source Electron terminal with SSH, SFTP and serial. | No Inventory, and no password manager integration in the same sense. |
-| **SecureCRT, MobaXterm, Royal TS, Devolutions RDM** | Older session managers. | Saved sessions per person, a dated feel. |
+| **XPipe** | Git vault sync (free), team vaults with RBAC (Pro), 15 password managers through their CLIs, MCP server | Its repo holds encrypted app files, not a readable Inventory. No review gate, no per-service Logins, no `pass`, GUI-only settings, no plugin API. |
+| **Termix** | Self-hosted. A hosts file kept in git, `op://` and `bw://` references, and an AI that never sees passwords | Runs as a server that resolves secrets. No `pass` or KeePassXC, no per-service Logins, no review gate, no per-Box keys. Plugins are TypeScript. |
+| **Termius** | A polished client on desktop and mobile | Its own cloud vault (no password-manager integration); no git Inventory. |
+| **Devolutions RDM, Royal TS** | Password-manager integrations (RDM: 31, Team edition only; Royal TS: scripts), per-connection credentials, RDM's MCP and AI | Enterprise or shared-document models; no git Inventory or review gate. |
+| **Tabby, Wave, Warp, WezTerm** | Modern terminals with text configs; Tabby has npm plugins, WezTerm has Lua plugins | No Inventory or vault model. WezTerm plugins aren't pinned. |
+| **SecureCRT, MobaXterm, mRemoteNG, Ásbrú, Remmina, Electerm** | Session managers; mRemoteNG has `op://`, Ásbrú has KeePassXC | Per-person sessions, or shared files without review; an older feel. |
 
 ## What makes it different (protect these)
 
