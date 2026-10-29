@@ -16,6 +16,8 @@ desk-core = { path = "../crates/desk-core" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Copy and paste in the terminal: WebView2 only lets the page read the clipboard through this.
+tauri-plugin-clipboard-manager = "2.5.0"
 
 # Turning off WebView2's browser shortcuts (src/lib.rs); same versions tauri itself uses.
 [target.'cfg(windows)'.dependencies]
