@@ -28,6 +28,7 @@ Verified behaviour:
 - **Windows env vars don't reach Linux** unless they're listed in `WSLENV` (`FOO` was empty, then `FOO=bar` with `WSLENV=FOO`). For the env that `session.prepare` returns (SSH_ASKPASS…), use `--exec env K=V … ssh …`, which was verified. `TERM` is always forced to `xterm-256color`.
 - **The cwd defaults to the Windows cwd translated** (`/mnt/c`). Pass `--cd ~`.
 - **PATH under `--exec`, and even `bash -lc`, lacks `~/.local/bin`**, and that's where `roster` lives (`~/.local/bin/roster`). Fedora's `.bashrc` returns early when non-interactive. Only `bash -ic` found it. So: at detection time, resolve the absolute path once (`--exec bash -lc 'PATH=$HOME/.local/bin:$PATH; command -v roster'`) and spawn `--exec /abs/roster serve`. **roster side:** `session.prepare` must put an absolute path in `SSH_ASKPASS`.
+- **`ROSTER_CONFIG` from `~/.profile` never reaches `--exec` children either** (Fedora's `bash -l` reads `~/.bash_profile`, not `~/.profile`). So detection also finds the `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`, `~/.config/roster/roster.yml`, `~/infra/roster.yml`) and starts `<roster> -c <path> serve` (ticket 03, `crates/desk-core/src/detect.rs`).
 - **`wsl.exe -l -q` prints UTF-16LE.** Set `WSL_UTF8=1` in the Command's env and it prints UTF-8 (verified), or decode it with `String::from_utf16`.
 
 ## 3. `roster serve`: long-lived child, piped stdio, no console flash

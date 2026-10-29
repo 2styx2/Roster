@@ -6,14 +6,16 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The app builds and starts on Windows. It finds your WSL distro without any configuration.
-- [ ] If roster is missing, too old, or the Inventory isn't found, the app shows a clear message saying what to fix.
-- [ ] The picker lists the real Inventory and filters as you type, without noticeable delay with hundreds of Hosts.
-- [ ] Unreviewed Hosts are visibly marked.
-- [ ] Vitest and Testing Library tests use the fake backend to cover filtering, ranking, keyboard navigation and Esc.
-- [ ] `tsc --noEmit`, the linter, Vitest and `cargo test` all pass. The README says how to run each.
-- [ ] Every library and version choice that lands matches `docs/adr/0001-tauri-over-electron.md`, or a new ADR explains why not.
+- [x] The app builds and starts on Windows. It finds your WSL distro without any configuration.
+- [x] If roster is missing, too old, or the Inventory isn't found, the app shows a clear message saying what to fix.
+- [x] The picker lists the real Inventory and filters as you type, without noticeable delay with hundreds of Hosts.
+- [x] Unreviewed Hosts are visibly marked.
+- [x] Vitest and Testing Library tests use the fake backend to cover filtering, ranking, keyboard navigation and Esc.
+- [x] `tsc --noEmit`, the linter, Vitest and `cargo test` all pass. The README says how to run each.
+- [x] Every library and version choice that lands matches `docs/adr/0001-tauri-over-electron.md`, or a new ADR explains why not.
 
 **Build loop and layout:** follow `docs/dev/windows-build-loop.md` (rsync to `%LOCALAPPDATA%\roster-desk-dev\src`, then `npm ci` and `tauri dev` through cmd.exe) and `docs/dev/testing.md` (a Cargo workspace with a Tauri-free `desk-core` crate, Vitest with jsdom, and a fake backend whenever `isTauri()` is false). For development, the roster command can be overridden with the environment variable `ROSTER_DESK_ROSTER` until the Lua Config (ticket 21) exists, for example `uv run --project ~/work/roster roster`.
+
+**Notes (done 2026-10-29):** Verified on Windows with `scripts/win-dev.sh`. Detection picked `WSL: FedoraLinux-44` with no configuration, the status bar showed `devbox · 91 hosts`, the Leader then `f` opened the Picker, typing filtered and the arrows moved. The installed uv-tool roster predates `serve`, so it shows "roster is too old" (also checked headless on Windows). It runs with `ROSTER_DESK_ROSTER="uv run --project ~/work/roster roster"` until roster is reinstalled. Enter on a reviewed Host only shows a placeholder until ticket 05. Recent use is in memory only until the State file exists. Toolchain versions: ADR 0003.
