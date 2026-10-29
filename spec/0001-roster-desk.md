@@ -111,7 +111,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 ### Native feel and design
 
-44. As the user, I want the app to use the OS window frame, title bar and controls, so that it fits in on Windows and Linux.
+44. As the user, I want a custom title bar like Slack's, holding the app icon, tabs, Host search and my own minimize, maximize and close buttons, and still able to drag, snap and resize, so that the window looks like one designed app rather than a web page in a frame.
 45. As the user, I want shortcuts to follow each platform's habits (Ctrl on Windows and Linux, ⌘ on macOS), so that muscle memory carries over.
 46. As the user, I want the UI to follow the OS light/dark setting, so that it matches the rest of my desktop.
 47. As the user, I want UI text in the system font and a configurable monospace font in the terminal, so that it reads like a native app.
