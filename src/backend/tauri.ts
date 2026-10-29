@@ -9,6 +9,8 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type ProviderStatus,
+  type VaultStatus,
   type SessionEvents,
   type SessionExit,
   type SessionHandle,
@@ -87,6 +89,9 @@ export function tauriBackend(): Backend {
     },
     listHosts: () => call<HostList>("hosts_list"),
     getHost: (name) => call<Host>("host_get", { name }),
+    vaultStatus: () => call<VaultStatus>("vault_status"),
+    unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
+    lockVault: () => call<{ locked: string[] }>("vault_lock"),
     openSession,
   };
 }

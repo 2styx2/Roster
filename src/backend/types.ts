@@ -75,6 +75,33 @@ export class BackendCallError extends Error {
   }
 }
 
+/** Where a vault provider stands (`vault.status`). */
+export type VaultStatusWord = "locked" | "unlocked" | "not-logged-in" | "missing-cli" | "unsupported";
+
+export interface ProviderStatus {
+  provider: string;
+  status: VaultStatusWord;
+  /** For not-logged-in and missing-cli: what to run or install (backticks around commands). */
+  message?: string;
+}
+
+/** `vault.status`: the vault the lock screen unlocks (`provider` is null when none has a master password). */
+export interface VaultStatus {
+  provider: string | null;
+  status: VaultStatusWord;
+  message?: string;
+  providers: ProviderStatus[];
+}
+
+/** roster's `vault.*` error codes (BackendCallError.code). */
+export const VaultError = {
+  wrongPassword: 10,
+  notLoggedIn: 11,
+  cliMissing: 12,
+  unsupported: 13,
+  locked: 14,
+} as const;
+
 /** A terminal size in character cells. */
 export interface TermSize {
   cols: number;
@@ -120,6 +147,12 @@ export interface Backend {
   listHosts(): Promise<HostList>;
   /** One Host by exact name. */
   getHost(name: string): Promise<Host>;
+  /** Where the vault stands. */
+  vaultStatus(): Promise<VaultStatus>;
+  /** Unlock the vault with its master password. Rejects with BackendCallError (VaultError codes). */
+  unlockVault(password: string): Promise<ProviderStatus>;
+  /** Forget every secret and lock the vault. Never rejects for a vault reason. */
+  lockVault(): Promise<{ locked: string[] }>;
   /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output. */
   openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;

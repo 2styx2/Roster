@@ -38,7 +38,8 @@ crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster se
                       the State file (state.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      state_load/state_save, platform_info; clipboard-manager plugin
+                      state_load/state_save, platform_info, vault_status/unlock/lock;
+                      clipboard-manager plugin
 src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
 src/platform/         State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
@@ -47,6 +48,7 @@ src/session/          Session tabs: tabs.ts (store: open/close/reconnect/replay/
 src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
                       options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
+src/lock/             the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 src/App.tsx           connect → error screen or empty state; Leader handling. keymap.ts = keys/options as data
 scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
 ```
@@ -63,7 +65,8 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 
 **UI in a plain browser** (fake Backend, no Tauri): `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
-`roster-missing`, `inventory-missing`, `no-wsl`.
+`roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
+`correct horse`. Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
 
 **The real app on Windows** (from the WSL checkout; see `docs/dev/windows-build-loop.md`):
 
@@ -76,10 +79,14 @@ scripts/win-stop.sh         # stop node, the tauri CLI and the app (killing the 
 Parallel worktrees each get their own Windows copy with `ROSTER_DESK_WIN_DIR=roster-desk-dev-NN` (default
 `roster-desk-dev`) on all three scripts; only one `tauri dev` can hold port 1420 at a time.
 
-**Which roster runs.** On Windows the app probes each WSL distro in `wsl -l` order (the default first) with
-`bash -lc` for roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,
+**Which roster runs.** On Windows the app probes the default WSL distro first, then only distros that are
+already Running (`wsl -l -v`); it never starts a stopped non-default distro, because booting one can break WSL
+interop for every distro (OracleLinux_9's systemd-binfmt removed `WSLInterop`, see `docs/dev/tauri-pty-wsl.md`).
+To use a stopped distro, set `ROSTER_DESK_WSL_DISTRO=<name>`: only that distro is probed, and started if needed
+(`scripts/win-dev.sh` passes it through `WSLENV`). Each probe runs `bash -lc` to find
+roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,
 `~/.config/roster/roster.yml`, `~/infra/roster.yml`), then starts
-`wsl.exe -d <distro> --cd ~ --exec <roster> -c <roster.yml> serve` with no console window. On Linux it starts
+`wsl.exe -d <distro> --cd ~ --exec /usr/bin/env PATH=<login PATH> <roster> -c <roster.yml> serve` with no console window (the login PATH so roster finds `bw` in `~/.local/bin`). On Linux it starts
 roster locally the same way. To use another roster command (until the Lua Config, ticket 21), set
 `ROSTER_DESK_ROSTER`, split on spaces:
 

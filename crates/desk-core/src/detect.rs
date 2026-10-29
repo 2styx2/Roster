@@ -1,13 +1,17 @@
 //! Finding the Backend: where roster lives and the argv that starts `roster serve` there.
 //!
-//! On Windows each WSL distro is probed in `wsl.exe -l` order (the default distro first) until one
-//! has both roster and an Inventory. On Linux roster runs locally. The probe is one login-shell
+//! On Windows the default WSL distro is probed first, then every other distro that's already
+//! Running (`wsl.exe -l -v`), until one has both roster and an Inventory. A stopped distro other
+//! than the default is never probed, because probing would boot it (see [`list_distros`]);
+//! `ROSTER_DESK_WSL_DISTRO=<name>` picks one distro explicitly, starting it if needed. On Linux roster runs locally. The probe is one login-shell
 //! script per target; it resolves the roster program to an absolute path (`~/.local/bin` is only
 //! on PATH in interactive shells on some distros) and finds `roster.yml` the way roster would,
 //! plus `~/infra/roster.yml`. `serve` then gets `-c <path>` because it isn't started from a login
-//! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it.
+//! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it. For the same
+//! reason it gets the login shell's PATH (`env PATH=...`): `wsl.exe --exec` has no `~/.local/bin`,
+//! and roster finds the vault CLI (`bw`) and `ssh` on PATH.
 
-pub use crate::error::{BackendError, ErrorKind, OVERRIDE_VAR};
+pub use crate::error::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR};
 use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,10 +112,11 @@ pub fn roster_command(override_value: Option<&str>) -> Vec<String> {
 }
 
 /// Run with `bash -lc PROBE probe <program>`. Prints `roster=<abs path>` if the program resolves,
-/// then `inventory=<path>` (empty when there's none).
+/// then `path=<the login PATH>` and `inventory=<path>` (empty when there's none).
 const PROBE: &str = r#"PATH="$HOME/.local/bin:$PATH"
 p=$(command -v -- "$1") || exit 0
 echo "roster=$p"
+echo "path=$PATH"
 for f in "$ROSTER_CONFIG" "$HOME/roster.yml" "$HOME/.config/roster/roster.yml" "$HOME/infra/roster.yml"; do
   if [ -n "$f" ] && [ -e "${f/#\~/$HOME}" ]; then echo "inventory=${f/#\~/$HOME}"; exit 0; fi
 done
@@ -122,6 +127,7 @@ echo "inventory="
 struct Probe {
     roster: Option<String>,
     inventory: Option<String>,
+    path: Option<String>,
 }
 
 fn parse_probe(stdout: &str) -> Probe {
@@ -132,6 +138,8 @@ fn parse_probe(stdout: &str) -> Probe {
             p.roster = Some(v.to_string());
         } else if let Some(v) = line.strip_prefix("inventory=").filter(|v| !v.is_empty()) {
             p.inventory = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("path=").filter(|v| !v.is_empty()) {
+            p.path = Some(v.to_string());
         }
     }
     p
@@ -145,8 +153,34 @@ fn probe(runner: &dyn Runner, target: &Target, program: &str) -> Probe {
     }
 }
 
-/// `wsl.exe -l -q`, read as UTF-8 thanks to WSL_UTF8=1 (and cleaned of UTF-16 leftovers anyway).
-fn list_distros(runner: &dyn Runner) -> Result<Vec<String>, BackendError> {
+/// The distros detection may probe, in order, and the ones it left alone because they're stopped.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Distros {
+    probe: Vec<String>,
+    stopped: Vec<String>,
+}
+
+/// One row of `wsl.exe -l -v`: `[*] NAME STATE VERSION`. The header (localized) and blank lines
+/// give `None`: a row ends in the WSL version number. STATE may be localized and contain spaces.
+fn parse_list_row(line: &str) -> Option<(bool, String, String)> {
+    let mut words: Vec<&str> = line.split_whitespace().collect();
+    let is_default = words.first() == Some(&"*");
+    if is_default {
+        words.remove(0);
+    }
+    if words.len() < 3 || words.last()?.parse::<u8>().is_err() {
+        return None;
+    }
+    let state = words[1..words.len() - 1].join(" ");
+    Some((is_default, words[0].to_string(), state))
+}
+
+/// `wsl.exe -l -v`, read as UTF-8 thanks to WSL_UTF8=1 (and cleaned of UTF-16 leftovers anyway).
+/// Probing runs `bash` in the distro, which boots it if it's stopped, and booting a distro can
+/// have side effects for the whole WSL VM (OracleLinux_9's systemd-binfmt unregistered
+/// WSLInterop, so every distro lost cmd.exe/wsl.exe). So only the default distro (the user's
+/// main one) may be started; any other distro is probed only if it's already Running.
+fn list_distros(runner: &dyn Runner) -> Result<Distros, BackendError> {
     let no_wsl = || {
         BackendError::new(
             ErrorKind::NoWsl,
@@ -155,25 +189,39 @@ fn list_distros(runner: &dyn Runner) -> Result<Vec<String>, BackendError> {
         )
     };
     let out = runner
-        .run(&["wsl.exe", "-l", "-q"].map(String::from), &[("WSL_UTF8", "1")])
-        .map_err(|e| no_wsl().with_detail(format!("wsl.exe -l -q: {e}")))?;
-    let distros: Vec<String> = out
+        .run(&["wsl.exe", "-l", "-v"].map(String::from), &[("WSL_UTF8", "1")])
+        .map_err(|e| no_wsl().with_detail(format!("wsl.exe -l -v: {e}")))?;
+    let rows: Vec<(bool, String, String)> = out
         .stdout
         .replace(['\0', '\u{feff}'], "")
         .lines()
-        .map(str::trim)
-        .filter(|d| !d.is_empty() && !d.starts_with("docker-desktop"))
-        .map(String::from)
+        .filter_map(parse_list_row)
+        .filter(|(_, name, _)| !name.starts_with("docker-desktop"))
         .collect();
-    if distros.is_empty() {
-        Err(no_wsl().with_detail(out.stderr))
-    } else {
-        Ok(distros)
+    if rows.is_empty() {
+        return Err(no_wsl().with_detail(out.stderr));
     }
+    let mut d = Distros::default();
+    d.probe.extend(rows.iter().filter(|r| r.0).map(|r| r.1.clone()));
+    for (is_default, name, state) in rows {
+        if is_default {
+            continue;
+        }
+        if state == "Running" {
+            d.probe.push(name);
+        } else {
+            d.stopped.push(name);
+        }
+    }
+    Ok(d)
 }
 
 fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
-    let mut argv = vec![p.roster.clone().unwrap_or_default()];
+    let mut argv = match &p.path {
+        Some(path) => vec!["/usr/bin/env".into(), format!("PATH={path}")],
+        None => vec![],
+    };
+    argv.push(p.roster.clone().unwrap_or_default());
     argv.extend_from_slice(&roster_cmd[1..]);
     if let Some(inv) = &p.inventory {
         argv.extend(["-c".into(), inv.clone()]);
@@ -186,15 +234,25 @@ fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
     }
 }
 
-/// Find the Backend for `roster_cmd` (see [`roster_command`]).
-pub fn detect(runner: &dyn Runner, platform: Platform, roster_cmd: &[String]) -> Result<Candidate, BackendError> {
+/// Find the Backend for `roster_cmd` (see [`roster_command`]). On Windows, `distro` is the value of
+/// [`DISTRO_VAR`]: when it's set (not blank), only that distro is probed, and started if needed.
+pub fn detect(
+    runner: &dyn Runner,
+    platform: Platform,
+    roster_cmd: &[String],
+    distro: Option<&str>,
+) -> Result<Candidate, BackendError> {
     let program = &roster_cmd[0];
-    let targets = match platform {
-        Platform::Linux => vec![Target::Local],
-        Platform::Windows => list_distros(runner)?
-            .into_iter()
-            .map(|distro| Target::Wsl { distro })
-            .collect(),
+    let chosen = distro.map(str::trim).filter(|d| !d.is_empty());
+    let mut stopped = Vec::new();
+    let targets = match (platform, chosen) {
+        (Platform::Linux, _) => vec![Target::Local],
+        (Platform::Windows, Some(d)) => vec![Target::Wsl { distro: d.to_string() }],
+        (Platform::Windows, None) => {
+            let d = list_distros(runner)?;
+            stopped = d.stopped;
+            d.probe.into_iter().map(|distro| Target::Wsl { distro }).collect()
+        }
     };
     let mut fallback = None;
     for t in &targets {
@@ -208,28 +266,37 @@ pub fn detect(runner: &dyn Runner, platform: Platform, roster_cmd: &[String]) ->
         fallback.get_or_insert_with(|| candidate(t.clone(), roster_cmd, &p));
     }
     fallback.ok_or_else(|| {
-        let where_ = match platform {
-            Platform::Linux => "on this machine".to_string(),
-            Platform::Windows => format!(
-                "in any WSL distro (searched: {})",
-                targets
-                    .iter()
-                    .map(|t| match t {
-                        Target::Wsl { distro } => distro.as_str(),
-                        Target::Local => "local",
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+        let names = |ts: &[Target]| {
+            ts.iter()
+                .map(|t| match t {
+                    Target::Wsl { distro } => distro.as_str(),
+                    Target::Local => "local",
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         };
+        let mut where_ = match (platform, chosen) {
+            (Platform::Linux, _) => "on this machine".to_string(),
+            (Platform::Windows, Some(d)) => format!("in WSL distro {d} (chosen with {DISTRO_VAR})"),
+            (Platform::Windows, None) => format!("in any WSL distro (searched: {})", names(&targets)),
+        };
+        let mut hint = format!(
+            "Install roster (`uv tool install roster` from the roster repo) so it's on PATH, \
+             or set {OVERRIDE_VAR} to the command that runs it, e.g. \
+             `uv run --project ~/work/roster roster`."
+        );
+        if !stopped.is_empty() {
+            where_ += &format!("; skipped because they're stopped: {}", stopped.join(", "));
+            hint += &format!(
+                " To use a stopped distro, start it yourself or set {DISTRO_VAR}={} \
+                 (the app then probes only that distro, starting it if needed).",
+                stopped[0]
+            );
+        }
         BackendError::new(
             ErrorKind::RosterMissing,
             format!("`{program}` wasn't found {where_}."),
-            format!(
-                "Install roster (`uv tool install roster` from the roster repo) so it's on PATH, \
-                 or set {OVERRIDE_VAR} to the command that runs it, e.g. \
-                 `uv run --project ~/work/roster roster`."
-            ),
+            hint,
         )
     })
 }

@@ -82,6 +82,32 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 }
 .picker-footer [role="status"] { color: var(--warn); }
 
+/* The Lock: covers the window at once (no fade: hiding Sessions must not lag, and it's often a key). */
+.lock-gate { height: 100%; }
+.lock-gate[data-locked] { visibility: hidden; }
+.lock {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.lock-panel { width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px; }
+.lock-panel h1 { font-size: 20px; margin: 0; }
+.lock-panel p { margin: 0; }
+.lock-form { display: flex; flex-direction: column; gap: 8px; }
+.lock-form label { color: var(--muted); font-size: 12px; }
+.lock-row { display: flex; gap: 8px; }
+.lock-row input {
+  flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid #3a3f4b; border-radius: 6px; padding: 6px 10px; outline: none;
+}
+.lock-row input:focus-visible { border-color: var(--accent); }
+.lock-row input[aria-invalid] { border-color: var(--error); }
+.lock-error { color: var(--error); }
+.lock-problem { color: var(--warn); }
+.lock-problem code, .lock-error code { font-family: var(--mono); color: var(--text); }
+.lock-panel button { align-self: flex-start; transition: transform 120ms ease-out; }
+.lock-panel button:active { transform: scale(0.97); }
+.lock-hint { font-size: 12px; }
+
 /* Session tabs (minimal; the full tab model is ticket 07). */
 .workspace:has(.sessions) { align-items: stretch; justify-content: stretch; min-height: 0; }
 .sessions { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
