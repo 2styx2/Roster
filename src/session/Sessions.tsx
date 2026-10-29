@@ -11,6 +11,16 @@ export interface SessionsProps {
   terminalView: TerminalViewComponent;
 }
 
+/** The tab's state dot (as in the prototype): filled for a key login, hollow for a password one,
+ * grey once the Session has ended or was refused. */
+function StateDot({ tab }: { tab: Tab }) {
+  const done = tab.status.state === "ended" || tab.status.state === "failed";
+  const auth = tab.auth;
+  const cls = ["st", auth === "password" ? "pw" : "", done ? "ended" : "", auth === null && !done ? "pending" : ""];
+  const label = auth ? `${auth} login` : "not connected";
+  return <span className={cls.filter(Boolean).join(" ")} role="img" aria-label={label} />;
+}
+
 function statusText(tab: Tab): string {
   const s = tab.status;
   switch (s.state) {
@@ -44,6 +54,7 @@ export function Sessions({ tabs, snapshot, leader, terminalView: TerminalView }:
                 tabIndex={-1}
                 onClick={() => tabs.select(tab.id)}
               >
+                <StateDot tab={tab} />
                 <span className="tab-host">{tab.host}</span>
                 {status && <span className="tab-status"> {status}</span>}
               </button>

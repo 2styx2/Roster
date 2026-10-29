@@ -8,10 +8,12 @@ const unreviewed = hosts.hosts.find((h) => !h.reviewed)!.name;
 
 const text = (chunks: Uint8Array[]) => chunks.map((c) => new TextDecoder().decode(c)).join("");
 const settle = () => new Promise((r) => setTimeout(r, 10));
+/** serve's vault unlocked, as behind an unlocked lock screen (password Hosts need it). */
+const unlocked = { vault: { status: "unlocked" } } as const;
 
 /** The fake Backend, noting which Hosts' Sessions were closed. */
 function recordingCloses(scenario: FakeScenario) {
-  const backend = fakeBackend(scenario);
+  const backend = fakeBackend({ ...unlocked, ...scenario });
   const closed: string[] = [];
   const open = backend.openSession.bind(backend);
   backend.openSession = async (host, size, events) => {
@@ -23,7 +25,7 @@ function recordingCloses(scenario: FakeScenario) {
 
 /** Store plus a way to see a tab's terminal output. */
 function setup() {
-  const tabs = new Tabs(fakeBackend({ hosts }));
+  const tabs = new Tabs(fakeBackend({ ...unlocked, hosts }));
   const screens = new Map<number, Uint8Array[]>();
   const attach = (id: number) => {
     const seen: Uint8Array[] = [];

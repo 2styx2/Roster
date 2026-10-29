@@ -11,6 +11,7 @@ import {
   type HostList,
   type ProviderStatus,
   type VaultStatus,
+  type SessionAuth,
   type SessionEvents,
   type SessionExit,
   type SessionHandle,
@@ -68,9 +69,15 @@ function sessionChannel(events: SessionEvents): Channel<SessionMessage> {
 }
 
 async function openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle> {
-  const id = await call<number>("session_open", { host, cols: size.cols, rows: size.rows, events: sessionChannel(events) });
+  const { id, auth } = await call<{ id: number; auth: SessionAuth }>("session_open", {
+    host,
+    cols: size.cols,
+    rows: size.rows,
+    events: sessionChannel(events),
+  });
   return {
     id,
+    auth,
     write: (data) => call("session_write", { id, data }),
     resize: ({ cols, rows }) => call("session_resize", { id, cols, rows }),
     close: () => call("session_close", { id }),

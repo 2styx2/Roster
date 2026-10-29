@@ -11,6 +11,7 @@ import {
   type VaultStatus,
   type VaultStatusWord,
   VaultError,
+  type SessionAuth,
   type SessionEvents,
   type SessionHandle,
   type TermSize,
@@ -28,6 +29,11 @@ export interface FakeScenario {
   vault?: { status: VaultStatusWord };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
   sessionRefusal?: { code: number; message: string };
+  /** Sessions to password-only Hosts are refused with this (their vault: 11, 12 or 14). */
+  passwordRefusal?: { code: number; message: string };
+  /** The vault locks itself again this many ms after each unlock (bw's own timeout, another
+   * roster command), so the next password Session meets code 14. */
+  relockAfterMs?: number;
 }
 
 /** The fake vault's master password (type it on the lock screen in a plain browser). */
@@ -37,6 +43,12 @@ export const FAKE_PASSWORD = "correct horse";
 const NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login` once";
 const MISSING_CLI = "`bw` is not installed on this box (install the Bitwarden CLI, e.g. `npm install -g @bitwarden/cli`)";
 const WRONG_PASSWORD = "Bitwarden unlock failed (wrong master password?)";
+const VAULT_LOCKED = "Bitwarden vault is locked - unlock it first";
+
+/** Like roster: a Host that doesn't enroll a key and whose ssh Login is a vault reference. */
+export function authOf(h: Host): SessionAuth {
+  return !h.enroll && !["agent", "key", "none"].includes(h.ssh.auth) ? "password" : "key";
+}
 
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
 const PRODUCTS = ["", "", "ALPHA", "HUB", "BRAVO", "UniFi"];
@@ -114,6 +126,7 @@ export const fixtures: Record<string, FakeScenario> = {
         "linux-1-000 isn't in this box's ssh config (~/.ssh/config.d/roster) - run `roster sync`, or `roster setup` if this box isn't set up yet",
     },
   },
+  "vault-relocks": { hosts: makeHosts(12), relockAfterMs: 5000 },
   "no-wsl": {
     hosts: makeHosts(0),
     startProblem: problem("no-wsl", "No WSL distro was found.", "Install WSL and a Linux distro with roster in it."),
@@ -128,7 +141,7 @@ export function fixtureFromUrl(search: string = globalThis.location?.search ?? "
 const encode = (s: string) => new TextEncoder().encode(s);
 
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
-function fakeSession(id: number, host: string, size: TermSize, events: SessionEvents): SessionHandle {
+function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize, events: SessionEvents): SessionHandle {
   let line = "";
   let ended = false;
   const end = (code: number | null, closed: boolean) => {
@@ -140,6 +153,7 @@ function fakeSession(id: number, host: string, size: TermSize, events: SessionEv
   setTimeout(() => events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`)), 0);
   return {
     id,
+    auth,
     async write(data) {
       if (ended) throw new BackendCallError(`session ${id} isn't open`);
       for (const ch of data) {
@@ -218,6 +232,11 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
       if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
       vault = "unlocked";
+      if (scenario.relockAfterMs !== undefined) {
+        setTimeout(() => {
+          if (vault === "unlocked") vault = "locked";
+        }, scenario.relockAfterMs);
+      }
       return { provider: "bw", status: vault };
     },
     async lockVault() {
@@ -239,7 +258,14 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       if (scenario.sessionRefusal) {
         throw new BackendCallError(scenario.sessionRefusal.message, scenario.sessionRefusal.code);
       }
-      return fakeSession(++sessions, host, size, events);
+      const auth = authOf(h);
+      if (auth === "password") {
+        if (scenario.passwordRefusal) {
+          throw new BackendCallError(scenario.passwordRefusal.message, scenario.passwordRefusal.code);
+        }
+        if (vault === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
+      }
+      return fakeSession(++sessions, host, auth, size, events);
     },
   };
 }
