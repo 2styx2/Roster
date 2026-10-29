@@ -72,7 +72,7 @@ fn session_prepare_refusals_keep_roster_code_and_wording() {
     match b.session_command("scan-1").err().unwrap() {
         desk_core::rpc::CallError::Rpc { code, message, .. } => {
             assert_eq!(code, 20);
-            assert!(message.contains("isn't reviewed"), "{message}");
+            assert!(message.contains("is not reviewed yet"), "{message}");
         }
         other => panic!("{other:?}"),
     }

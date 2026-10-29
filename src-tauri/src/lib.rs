@@ -1,11 +1,14 @@
-//! The Tauri shell: window setup and thin `#[tauri::command]` wrappers over desk-core.
+//! The Tauri shell: window setup and thin `#[tauri::command]` wrappers over desk-core (Backend
+//! calls, Sessions).
 //! All logic lives in desk-core so it can be tested without Tauri (docs/dev/testing.md).
 
 use desk_core::backend::{Backend, BackendInfo};
 use desk_core::detect::{BackendError, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use desk_core::rpc::CallError;
+use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
+use tauri::ipc::{Channel, InvokeResponseBody};
 
 /// The one `roster serve` for this app launch, once started.
 #[derive(Default)]
@@ -70,11 +73,109 @@ async fn host_get(state: tauri::State<'_, Arc<BackendState>>, name: String) -> R
     call(&state, "host.get", json!({ "name": name })).await
 }
 
+fn session_error(e: SessionError) -> CallError {
+    CallError::Io { message: e.to_string() }
+}
+
+/// Open a Session to `host`: `session.prepare`, then the command in a PTY of `cols`×`rows`.
+/// `events` gets the output as raw bytes, then one JSON message `{"exit": {code, closed}}`.
+/// Refusals keep roster's code (2 unknown, 20 not reviewed, 21 box not set up).
+#[tauri::command]
+async fn session_open(
+    state: tauri::State<'_, Arc<BackendState>>,
+    sessions: tauri::State<'_, Arc<SessionManager>>,
+    host: String,
+    cols: u16,
+    rows: u16,
+    events: Channel<InvokeResponseBody>,
+) -> Result<SessionId, CallError> {
+    let backend = state.get()?;
+    let sessions = Arc::clone(&sessions);
+    blocking(move || {
+        let cmd = backend.session_command(&host)?;
+        sessions
+            .open(&cmd, Size { cols, rows }, move |event| {
+                let body = match event {
+                    SessionEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
+                    SessionEvent::Exit(exit) => InvokeResponseBody::Json(json!({ "exit": exit }).to_string()),
+                };
+                let _ = events.send(body);
+            })
+            .map_err(session_error)
+    })
+    .await
+}
+
+/// Keystrokes or pasted text for a Session.
+#[tauri::command]
+fn session_write(
+    sessions: tauri::State<'_, Arc<SessionManager>>,
+    id: SessionId,
+    data: String,
+) -> Result<(), CallError> {
+    sessions.write(id, data.as_bytes()).map_err(session_error)
+}
+
+#[tauri::command]
+fn session_resize(
+    sessions: tauri::State<'_, Arc<SessionManager>>,
+    id: SessionId,
+    cols: u16,
+    rows: u16,
+) -> Result<(), CallError> {
+    sessions.resize(id, Size { cols, rows }).map_err(session_error)
+}
+
+/// Ends a Session (kills ssh); its exit message still arrives, with `closed: true`.
+#[tauri::command]
+fn session_close(sessions: tauri::State<'_, Arc<SessionManager>>, id: SessionId) -> Result<(), CallError> {
+    sessions.close(id).map_err(session_error)
+}
+
+/// WebView2's own shortcuts (Ctrl+F find, Ctrl+R reload, Ctrl+P print, F12…) would take keys
+/// meant for the shell; tauri doesn't expose wry's switch, so set it on the WebView2 settings.
+#[cfg(windows)]
+fn disable_browser_accelerators(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|w| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+        use windows::core::Interface;
+        let Ok(core) = w.controller().CoreWebView2() else {
+            return;
+        };
+        let Ok(settings) = core.Settings() else { return };
+        if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false.into());
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let sessions = Arc::new(SessionManager::new());
     tauri::Builder::default()
         .manage(Arc::new(BackendState::default()))
-        .invoke_handler(tauri::generate_handler![backend_connect, hosts_list, host_get])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .manage(Arc::clone(&sessions))
+        .setup(|_app| {
+            #[cfg(windows)]
+            if let Some(w) = tauri::Manager::get_webview_window(_app, "main") {
+                disable_browser_accelerators(&w);
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            backend_connect,
+            hosts_list,
+            host_get,
+            session_open,
+            session_write,
+            session_resize,
+            session_close
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(move |_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                sessions.close_all();
+            }
+        });
 }

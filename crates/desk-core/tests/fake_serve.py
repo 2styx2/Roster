@@ -50,7 +50,7 @@ def answer(req):
         if h is None:
             return {"error": {"code": 2, "message": f"unknown host {name!r}"}}
         if not h["reviewed"]:
-            return {"error": {"code": 20, "message": f"{name} isn't reviewed yet: run `roster review {name}`"}}
+            return {"error": {"code": 20, "message": f"{name} is not reviewed yet (reviewed: false in roster.yml) - not logging in"}}
         return {"result": {"argv": ["/usr/bin/ssh", "-o", "BatchMode=yes", name], "env": {}, "host": name,
                            "auth": "key"}}
     return {"error": {"code": -32601, "message": f"unknown method {m!r}"}}

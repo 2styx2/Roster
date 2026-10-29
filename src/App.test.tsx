@@ -3,11 +3,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { fakeBackend, fixtures, makeHosts } from "./backend/fake";
+import { StubTerminal } from "./terminal/StubTerminal";
 
 async function ready(scenario = { hosts: makeHosts(12) }) {
   const backend = fakeBackend(scenario);
   const user = userEvent.setup();
-  render(<App backend={backend} />);
+  render(<App backend={backend} terminalView={StubTerminal} />);
   await screen.findByText(/12 hosts/i);
   return { user, backend };
 }
@@ -58,7 +59,7 @@ describe("App", () => {
     const target = screen.getAllByRole("option")[5]!.dataset.host!;
     await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
     expect(pickerOpen()).toBe(false);
-    expect(screen.getByText(new RegExp(target))).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: new RegExp(target) })).toBeInTheDocument();
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(target);
   });
