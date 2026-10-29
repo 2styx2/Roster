@@ -11,7 +11,7 @@ roster-desk keeps roster's promise: **secrets are fetched when needed, kept in m
 | Private askpass socket, one-time token | yes, in transit, once |
 | `roster askpass` → `ssh` | yes, in transit |
 | Rust core | **never** |
-| Frontend, app state, settings, logs | **never** |
+| Frontend, app State, Config, logs | **never** |
 | Terminal output and scrollback | **never** (ssh reads the password itself) |
 
 Two exceptions are typed by you and leave the UI straight away:
@@ -31,6 +31,10 @@ Two exceptions are typed by you and leave the UI straight away:
 - Key-enrolled Hosts use `BatchMode=yes`, so a broken key fails instead of falling back to a password prompt.
 - Host keys come from what `roster setup` recorded. The askpass helper refuses host-key prompts, so a mismatch stops the connection.
 - Quick Connect shows the scanned fingerprint and asks you to confirm before connecting.
+
+## Config
+
+`init.lua` is the user's own code. It runs in the Rust core, which never holds a secret, with no access to `roster serve`'s vault. It can choose a Login *reference* or a Host, never read a password.
 
 ## Writes
 

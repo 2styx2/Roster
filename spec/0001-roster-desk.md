@@ -52,7 +52,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 2. As the user, I want to see a clear message when the master password is wrong, without a stack trace, so that I just try again.
 3. As the user, I want to see what's wrong when the vault CLI isn't installed or isn't logged in on this Box, and the exact command to fix it, so that I'm never stuck on a blank screen.
 4. As the user, I want the app to lock itself after 15 minutes idle, so that walking away from my desk doesn't leave the vault open.
-5. As the user, I want to set the idle timeout, so that I can match it to how I work.
+5. As the user, I want to set the idle timeout in my Config, so that I can match it to how I work.
 6. As the user, I want locking to really forget the vault session and every cached secret, so that "locked" means locked, not just hidden.
 7. As the user, I want to lock the app on demand with a key or command, so that I can lock it before screen sharing.
 8. As the user, I want my open Sessions to keep running while the app is locked, with their content hidden, so that locking doesn't kill long jobs.
@@ -104,8 +104,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 37. As the user, I want to click a tab to focus it, middle-click to close it and drag to reorder it, so that the mouse works as I'd expect.
 38. As the user, I want a command line on `<leader> :`, with commands like `:connect HOST`, `:lock`, `:publish` and `:info`, so that every action is reachable by typing.
 39. As the user, I want completion for commands and Host names in the command line, so that I don't have to remember exact names.
-40. As the user, I want to change the leader key, so that it doesn't clash with anything I use.
-41. As the user, I want to turn vim bindings off, so that the app also suits teammates who don't use vim.
+40. As the user, I want to change the leader key in my Config, so that it doesn't clash with anything I use.
+41. As the user, I want to turn vim bindings off in my Config, so that the app also suits teammates who don't use vim.
 42. As the user, I want every app action to also work from a menu or button, so that the mouse is a full alternative.
 43. As the user, I want a key-binding help overlay on `<leader> ?`, so that I can discover shortcuts.
 
@@ -121,7 +121,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 ### Backends
 
 50. As the user on Windows, I want the app to detect that roster and `~/infra` live in my WSL distro and use them, so that it works with no setup.
-51. As the user, I want to switch the Backend in Settings between Local and WSL: <distro>, so that I can use whichever install I trust.
+51. As the user, I want to set the Backend in my Config to Local or WSL: <distro>, so that I can use whichever install I trust.
 52. As the user, I want a Session on the WSL backend to run `ssh` inside WSL, so that it uses the same ssh config, known_hosts and key that `roster setup` wrote there.
 53. As the user, I want a clear message if the Backend can't start, for example roster missing or too old, or the Inventory not found, so that I know what to install or fix.
 54. As the user on Linux, I want the same app to run under X11, Wayland or WSLg, so that I can use it anywhere with a display.
@@ -154,6 +154,16 @@ We build it in iterations. Each one is tested by hand before the next starts:
 75. As the user, I want a clear error, and no Pending change, if a Vault item with that name already exists, so that I never create the duplicate that breaks lookups.
 76. As the user, I want the same "Save to vault" checkbox when an existing Host with `auth: prompt` asks for a password, so that I can fill in placeholder Logins as I go.
 77. As the user, I want "Save to vault" to appear only when the Inventory's provider can write, which is Bitwarden in v1, so that the app never offers what it can't do.
+
+### Config (`init.lua`)
+
+81. As the user, I want to configure the app in a Lua file, `init.lua`, the way I configure WezTerm or Neovim, so that my setup is code I can keep in my dotfiles.
+82. As the user, I want to set the terminal and UI fonts, font size, colors and theme from `init.lua`, so that the app looks the way I like.
+83. As the user, I want to rebind any key to any app action in `init.lua`, so that the keymap fits my habits.
+84. As the user, I want saving `init.lua` to apply the change straight away without a restart, so that tweaking is fast.
+85. As the user, I want a mistake in `init.lua` to show the file and line, while the last good config stays active, so that a typo never breaks the app.
+86. As the user, I want to use Lua logic, such as picking a font by OS or a theme by time of day, so that one file works on all my machines.
+87. As the user, I want a documented example `init.lua` covering every option, so that I can discover what's configurable.
 
 ### Host details and web services
 
@@ -203,10 +213,10 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 **roster-desk Rust core**
 - **Backend runner:** starts `roster serve` (natively, or as `wsl.exe -d <distro> -- roster serve`), handles JSON-RPC calls from the frontend, and restarts or reports a dead backend.
-- **Backend detection on Windows:** use a WSL distro if roster is on its PATH there and its Inventory resolves. Otherwise fall back to native roster. Settings can override this.
+- **Backend detection on Windows:** use a WSL distro if roster is on its PATH there and its Inventory resolves. Otherwise fall back to native roster. The Config can override this.
 - **Session manager:** opens a PTY (ConPTY on Windows) running the ssh command from `session.prepare`, wrapped in `wsl.exe` on the WSL backend. It streams output to and input from the frontend, handles resize, closes cleanly, and reports exit status. One PTY per Session, with Session IDs owned by the core.
 - **Idle lock timer:** counts input across all windows and Sessions. On timeout it calls `vault.lock` and tells the frontend to show the lock screen. Session PTYs keep running.
-- **Settings:** stored in the OS app-config directory. Never secrets.
+- **Config:** `init.lua` in the user config dir, run with mlua, with no Settings screen (ADR 0002, ticket 21). **State** (window, recent Hosts) is a separate app-managed file. Neither ever holds secrets.
 
 **roster-desk frontend**
 - React + TypeScript, built with Vite.
@@ -216,9 +226,9 @@ We build it in iterations. Each one is tested by hand before the next starts:
   - *Terminal mode* sends every key to the PTY except the leader chord.
   - *App mode* (after the leader, or when the picker, a panel or the command line has focus) applies vim bindings.
 
-  The bindings live in one keymap table that Settings can change: leader key, and vim on or off.
-- **App state** is a small store: Sessions, tabs, picker, lock state, settings. It holds no secrets. The master password field clears as soon as the unlock call returns.
-- **Picker:** a client-side fuzzy match over the `hosts.list` result. Recent-use order is kept in settings.
+  The bindings live in one keymap table, with options for the leader key and vim on or off, that the Config overrides.
+- **App state** is a small store: Sessions, tabs, picker, lock state, and the resolved Config. It holds no secrets. The master password field clears as soon as the unlock call returns.
+- **Picker:** a client-side fuzzy match over the `hosts.list` result. Recent-use order is kept in the State file.
 - **Visual design and motion:** come from the design pass in iteration 2, using `/emil-design-eng` and `/animate`. Iteration 1 uses plain, tidy defaults.
 
 **Inventory writes** (iteration 3)
@@ -266,6 +276,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 - Creating Vault items other than Quick Connect's `<host> ssh`
 - Merge requests instead of a direct push on Publish
 - Vim-style editing inside form fields
+- A Settings screen (the Config file is the only way to configure; ADR 0002)
+- Lua event hooks, custom commands and Picker sources (v1 Config is values plus key bindings)
 - Mobile
 - Sync or accounts of our own
 - Packaging, installers, auto-update and distribution to the team

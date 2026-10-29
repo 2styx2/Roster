@@ -8,7 +8,7 @@
 - Windows' built-in OpenSSH.
 - The askpass channel as a named pipe that only the user can open.
 
-Add the Settings switch between Local and WSL: <distro>, keeping auto-detection as the default.
+Add `backend = "local" | "wsl:<distro>"` to the Config (ticket 21), keeping auto-detection as the default.
 
 **Blocked by:** 06
 
@@ -16,4 +16,4 @@ Add the Settings switch between Local and WSL: <distro>, keeping auto-detection 
 
 - [ ] The roster test suite passes on Windows in CI, or at least locally.
 - [ ] The app connects with native roster to both an enrolled Host and a password-only Host.
-- [ ] Switching the Backend in Settings restarts `serve` and works both ways.
+- [ ] Changing `backend` in `init.lua` reloads, restarts `serve`, and works both ways.

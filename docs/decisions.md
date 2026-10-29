@@ -21,10 +21,13 @@ These came from a grilling session in which each question was asked with a recom
 | Q14 | Backends | All three: native Windows, the Windows app with roster in WSL, and Linux. Auto-detected per machine. |
 | Q15 | Name and location | `roster-desk` in `~/work/roster-desk`. |
 | — | Keyboard | Vim keys, mostly keyboard, mouse fully supported. |
-| Q16 | Backend setting | Settings choice between Local and WSL: <distro>. The Windows default is auto-detected. |
+| Q16 | Backend setting | Local or WSL: <distro>. The Windows default is auto-detected, and the Config can override it (`backend =`). Originally a Settings screen option, then replaced by Q24. |
 | Q17 | Layout | Terminal first: the Picker overlay is the main way to find Hosts, side panels are closed by default, and there's one thin tab strip. |
 | Q18 | Leader | Ctrl+Space, configurable. |
 | Q19 | Vim scope | Vim keys in the app everywhere except the terminal. Can be turned off. Form fields stay ordinary inputs. |
 | Q20 | Quick Connect | "Save to vault" saves only after the login succeeds. It creates the Vault item `<host> ssh` and the Host (reviewed, not enrolled) as a Pending change. The same checkbox appears for `auth: prompt` Hosts. |
 | Q21 | Vault writes | Bitwarden only. Other providers come later, when needed. |
+| Q23 | Config language | **Lua**: `init.lua` in the user config dir, run with mlua (Lua 5.4 built in). See [ADR 0002](adr/0002-lua-config-file-only.md). |
+| Q24 | Settings screen | **None. The config file is the only place to change settings**, as in WezTerm and Neovim. Remembered things like window size and recent Hosts are State, not Config. |
+| Q25 | When | **Iteration 2**, with the design pass (ticket 21). In iteration 1 the keymap and options are built as data tables with defaults, ready for the Config to override. |
 | Q22 | Build order | A thin slice first, then test it, then the next iteration. See [roadmap.md](roadmap.md). |

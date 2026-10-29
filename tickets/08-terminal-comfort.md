@@ -9,7 +9,7 @@
 - When a Session ends, its tab shows "ended" and one key reconnects it.
 - Several Sessions to the same Host at once.
 - A picker key that connects in the current tab when that tab's Session has ended.
-- The picker ranks equal matches by recent use, remembered in settings.
+- The picker ranks equal matches by recent use, remembered in the app's State file. That's State, not Config.
 
 **Blocked by:** 05
 

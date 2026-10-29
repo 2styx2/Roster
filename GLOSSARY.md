@@ -27,3 +27,11 @@ _Avoid_: normal mode, command mode
 **Lock**:
 The state where the vault is forgotten and every Session's content is hidden. The vault master password ends it.
 _Avoid_: logout, sleep
+
+**Config**:
+The user's `init.lua`: code that sets fonts, colors, keys and options, layered over the built-in defaults.
+_Avoid_: settings, preferences, profile
+
+**State**:
+What the app remembers on its own between runs, such as window size, open panels and recently used Hosts. It's never written in the Config.
+_Avoid_: settings, cache

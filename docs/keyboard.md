@@ -1,6 +1,6 @@
 # Keyboard
 
-Keyboard first, with vim keys and full mouse support. Every binding lives in one keymap. Settings can change the Leader and turn vim bindings off.
+Keyboard first, with vim keys and full mouse support. Every binding lives in one keymap. Your `init.lua` (ticket 21) can change the Leader, rebind any key to an action, and turn vim bindings off.
 
 ## Two modes
 
