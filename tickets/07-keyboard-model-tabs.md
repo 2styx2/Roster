@@ -24,7 +24,7 @@
 - `j`/`k` move, Enter switches, and the mouse works throughout.
 - The Inventory tree and Folders sections come in ticket 17. Leave room for them.
 
-The layout options (Sidebar on/off and side, Sessions as Sidebar or tabs, status bar on/off) are read from the options table, so ticket 21 can expose them in the Config.
+Build every action as an entry in one mode-independent command table, used by keys, the `:` command line and buttons alike. Ticket 22's view modes then only change how actions are presented, never which ones exist (decision Q36). The layout options (Sidebar on/off and side, Sessions as Sidebar or tabs, status bar on/off) are read from the options table, so ticket 21 can expose them in the Config.
 
 **Blocked by:** 05
 

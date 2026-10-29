@@ -16,10 +16,13 @@
 
 The prototype is `prototype-shell.html?mode=focus` on branch `prototype/logos`. The starting mode can be set in `init.lua` (`default_mode`). Split panes stay out of scope.
 
+**Every mode keeps all of roster** (decision Q36): a mode changes only presentation. Everything the Sidebar offers in Standard is reachable in Tmux and Focus through overlays and finders: the Folders and Inventory tree as a fuzzy finder (`␣ e` opens the tree as an overlay), Host details, the command line, Quick Connect, the Key bindings panel, Lock, and later Inventory edits and Publish. Build every action as a mode-independent command (the `:` command table), and have each mode only decide how it's presented.
+
 **Blocked by:** 07, 17
 
 **Status:** ready-for-agent
 
 - [ ] UI tests: `␣ m` cycles Standard → Tmux → Focus and keeps the active Session. Tmux's sliver lists Sessions in order with the current and previous ones marked. In Focus, `␣ b` fuzzy-finds Sessions and `␣ f` fuzzy-finds Hosts, Enter switches and Esc closes. Every Session key works in all three modes.
+- [ ] A test walks the full command table and checks that every action can be invoked in all three modes, by key and by `:` command.
 - [ ] The terminal's cols and rows are recalculated on entering and leaving, and the remote side sees the new size (`stty size`).
 - [ ] Manual check on Windows: fullscreen with F11, then switch Sessions, open the Picker and close a Session, all without leaving Focus.
