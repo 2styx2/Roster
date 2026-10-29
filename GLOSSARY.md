@@ -47,3 +47,7 @@ _Avoid_: group (that's the Inventory's own grouping, shared by the team), favori
 **Theme**:
 A named set of colour tokens. The Config can pick one, change any token, or define a new one.
 _Avoid_: skin, colour scheme
+
+**View mode**:
+How much of the app shows around the terminal. **Standard** shows the Sidebar, the title bar and the status bar. **Focus** shows a fullscreen terminal with a tmux-style status line.
+_Avoid_: layout, zen mode, presentation mode
