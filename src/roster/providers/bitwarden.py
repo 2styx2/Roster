@@ -2,9 +2,10 @@
 
 import json
 import os
+import shutil
 
 from ..common import say, user_config_dir
-from . import SecretError, errtext, register, split_field
+from . import PROVIDERS, SecretError, errtext, register, split_field
 
 # ---- built-in: Bitwarden
 
@@ -31,14 +32,18 @@ def load_session_file():
     return bool(key)
 
 
+def _bw_status(ctx):
+    try:
+        return json.loads(_bw(ctx, "status").stdout or "{}").get("status")
+    except json.JSONDecodeError:
+        raise SecretError("couldn't read `bw status` output")
+
+
 def _bw_ready(ctx):
     if ctx.state.get("ready"):
         return
     from_file = load_session_file()
-    try:
-        status = json.loads(_bw(ctx, "status").stdout or "{}").get("status")
-    except json.JSONDecodeError:
-        raise SecretError("couldn't read `bw status` output")
+    status = _bw_status(ctx)
     if status == "unauthenticated":
         if not (os.environ.get("BW_CLIENTID") and os.environ.get("BW_CLIENTSECRET")):
             raise SecretError("Bitwarden CLI isn't logged in on this box - run `bw login` once "
@@ -67,6 +72,28 @@ def _bw_ready(ctx):
     if ctx.settings.get("sync", True) and _bw(ctx, "sync").returncode != 0:
         say("warning      `bw sync` failed - using the vault as last synced")
     ctx.state["ready"] = True
+
+
+def _bw_unlock(password, ctx):
+    """Unlock with a master password given as a value (from `roster serve`), via the env-var path."""
+    if _bw_status(ctx) == "unauthenticated":
+        raise SecretError("Bitwarden CLI isn't logged in on this box - run `bw login` once")
+    r = _bw(ctx, "unlock", "--raw", "--passwordenv", "ROSTER_BW_MASTER", env={"ROSTER_BW_MASTER": password})
+    if r.returncode != 0 or not r.stdout.strip():
+        raise SecretError("Bitwarden unlock failed (wrong master password?)")
+    os.environ["BW_SESSION"] = r.stdout.strip()           # this process only
+
+
+def _bw_vault_status(ctx):
+    """`bw status` as-is (BW_SESSION from this process only, never the session file); "missing" if no bw."""
+    return _bw_status(ctx) if shutil.which("bw") else "missing"
+
+
+def _bw_lock(ctx):
+    try:
+        _bw(ctx, "lock")
+    finally:
+        os.environ.pop("BW_SESSION", None)
 
 
 def _bw_item(ctx, ref):
@@ -110,3 +137,6 @@ def _bitwarden(spec, ctx):
         what = field if field in ("password", "username", "notes") else f"field '{field}'"
         raise SecretError(f"Bitwarden item '{item.get('name', name)}' has no {what} set")
     return val
+
+
+PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status)

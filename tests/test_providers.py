@@ -1,3 +1,4 @@
+import os
 import shutil
 
 import pytest
@@ -123,6 +124,62 @@ def test_bitwarden_errors(fakes, monkeypatch):
 def test_bitwarden_existing_session_needs_no_password(fakes, monkeypatch):
     monkeypatch.setenv("BW_SESSION", "fake-session-key")
     assert get_secret("bw:Network gear", "g") == "pw-netops"
+
+
+# ---- unlock / lock without a terminal (what `roster serve` calls)
+
+def test_unlock_with_master_password_needs_no_terminal_or_session_file(isolated, fakes):
+    providers.unlock("bw", "hunter2")
+    assert get_secret("bw:Network gear", "g") == "pw-netops"
+    assert not (isolated["home"] / ".config" / "roster" / "bw-session").exists()
+
+
+def test_unlock_with_wrong_master_password_says_so_without_echoing_it(fakes):
+    with pytest.raises(SecretError, match="wrong master password") as e:
+        providers.unlock("bw", "not-the-password-xyzzy")
+    assert "xyzzy" not in str(e.value)
+    with pytest.raises(SecretError, match="locked"):
+        get_secret("bw:Network gear", "g")
+
+
+def test_lock_forgets_session_cache_and_state_and_runs_bw_lock(fakes, monkeypatch, tmp_path):
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_LOG", str(log))
+    providers.unlock("bw", "hunter2")
+    assert get_secret("bw:Network gear", "g") == "pw-netops"
+    providers.lock("bw")
+    assert "BW_SESSION" not in os.environ
+    assert "bw lock" in log.read_text().splitlines()
+    with pytest.raises(SecretError, match="locked"):           # cached value and "ready" are gone too
+        get_secret("bw:Network gear", "g")
+
+
+def test_vault_status_tells_missing_cli_from_logged_out(fakes, monkeypatch, tmp_path):
+    assert providers.vault_status("bw") == "locked"
+    providers.unlock("bw", "hunter2")
+    assert providers.vault_status("bw") == "unlocked"
+    providers.lock("bw")
+    monkeypatch.setenv("FAKE_BW_LOGGED_OUT", "1")
+    assert providers.vault_status("bw") == "unauthenticated"
+    with pytest.raises(SecretError, match="isn't logged in"):
+        providers.unlock("bw", "hunter2")
+    monkeypatch.setenv("PATH", str(tmp_path))                  # no bw anywhere
+    assert providers.vault_status("bw") == "missing"
+    with pytest.raises(SecretError, match="not installed"):
+        providers.unlock("bw", "hunter2")
+
+
+def test_providers_without_unlock_degrade(monkeypatch):
+    assert providers.vault_status("env") == "unsupported"
+    with pytest.raises(SecretError, match="can't be unlocked"):
+        providers.unlock("env", "x")
+    monkeypatch.setenv("SOME_PW", "s3cret")
+    assert get_secret("env:SOME_PW", "g") == "s3cret"
+    providers.lock("env")                                       # still forgets cached values
+    monkeypatch.setenv("SOME_PW", "changed")
+    assert get_secret("env:SOME_PW", "g") == "changed"
+    with pytest.raises(SecretError, match="unknown password source"):
+        providers.lock("keeper")
 
 
 # ---- 1Password (fake op: signed out until signin; items live in vault "Infra")
