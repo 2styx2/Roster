@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
-import { fakeBackend, makeHosts } from "./backend/fake";
+import { FAKE_PASSWORD, fakeBackend, makeHosts } from "./backend/fake";
 import { defaultOptions, registerBindings, type KeymapOverrides, type Options } from "./keymap";
 import { builtinRegistries } from "./registries";
 import { CONFIG } from "./registry";
@@ -14,6 +14,12 @@ const hosts = makeHosts(12);
 const reviewed = hosts.hosts.filter((h) => h.reviewed).map((h) => h.name);
 const [h0, h1, h2] = reviewed as [string, string, string];
 const LEADER = "{Control>} {/Control}";
+
+/** The app opens locked (ticket 04). */
+async function unlock(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+  await screen.findByRole("main", { name: /workspace/i });
+}
 
 async function ready(props: { options?: Partial<Options>; bindings?: KeymapOverrides } = {}) {
   const user = userEvent.setup();
@@ -28,6 +34,7 @@ async function ready(props: { options?: Partial<Options>; bindings?: KeymapOverr
     />,
   );
   await screen.findByText(/12 hosts/i);
+  await unlock(user);
   return user;
 }
 
@@ -180,6 +187,7 @@ describe("The status bar", () => {
   });
 
   it("starts hidden when the options say so", async () => {
+    const user = userEvent.setup();
     render(
       <App
         backend={fakeBackend({ hosts })}
@@ -187,6 +195,7 @@ describe("The status bar", () => {
         options={{ ...defaultOptions, statusBar: { visible: false } }}
       />,
     );
+    await unlock(user);
     expect(await screen.findByRole("navigation", { name: "Sidebar" })).toBeInTheDocument();
     expect(screen.queryByRole("contentinfo")).toBeNull();
   });
@@ -246,6 +255,23 @@ describe("The command line", () => {
   });
 });
 
+describe("Lock, by every path (one command)", () => {
+  const locked = () => screen.findByRole("dialog", { name: /locked/i });
+
+  it.each([
+    ["␣ L", (user: ReturnType<typeof userEvent.setup>) => user.keyboard(`${LEADER}L`)],
+    [":lock", (user: ReturnType<typeof userEvent.setup>) => user.keyboard(`${LEADER}:lock{Enter}`)],
+    ["the Sidebar's button", (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("button", { name: "Lock" }))],
+  ])("locks with %s", async (_, how) => {
+    const user = await ready();
+    await connect(user, h0);
+    await how(user);
+    expect(await locked()).toBeInTheDocument();
+    await unlock(user);
+    expect(current()).toHaveAccessibleName(new RegExp(`^${h0}`));
+  });
+});
+
 describe("The Key bindings panel", () => {
   const panel = () => screen.getByRole("complementary", { name: "Key bindings" });
   const rowOf = (label: string) =>
@@ -296,6 +322,7 @@ describe("Registries (ADR 0004)", () => {
       build: () => ({ id: "pinned", title: "Pinned", rows: [{ id: "pin-0", label: h2, command: `connect ${h2}` }] }),
     });
     render(<App backend={fakeBackend({ hosts })} terminalView={StubTerminal} registries={registries} />);
+    await unlock(user);
     const pinned = await screen.findByRole("region", { name: "Pinned" });
     await user.click(within(pinned).getByRole("button", { name: h2 }));
     expect(await within(output()).findByText(new RegExp(`Connected to ${h2}`))).toBeInTheDocument();
@@ -313,7 +340,7 @@ describe("Registries (ADR 0004)", () => {
     });
     registerBindings(registries.keymap, { leader: { h: "home" } }, CONFIG);
     render(<App backend={fakeBackend({ hosts })} terminalView={StubTerminal} registries={registries} />);
-    await screen.findByText(/12 hosts/i);
+    await unlock(user);
     await user.keyboard(`${LEADER}h`);
     expect(await within(output()).findByText(new RegExp(`Connected to ${h0}`))).toBeInTheDocument();
     await user.keyboard(`${LEADER}:home{Enter}`);

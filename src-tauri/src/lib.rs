@@ -3,7 +3,7 @@
 //! All logic lives in desk-core so it can be tested without Tauri (docs/dev/testing.md).
 
 use desk_core::backend::{Backend, BackendInfo};
-use desk_core::detect::{BackendError, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
+use desk_core::detect::{BackendError, DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use desk_core::rpc::CallError;
 use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use serde_json::{Value, json};
@@ -26,7 +26,8 @@ impl BackendState {
         }
         slot.take();
         let cmd = roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref());
-        let candidate = detect(&SystemRunner, Platform::current(), &cmd)?;
+        let distro = std::env::var(DISTRO_VAR).ok();
+        let candidate = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref())?;
         let backend = Backend::start(&candidate)?;
         let info = backend.info.clone();
         *slot = Some(Arc::new(backend));
@@ -71,6 +72,23 @@ async fn hosts_list(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
 #[tauri::command]
 async fn host_get(state: tauri::State<'_, Arc<BackendState>>, name: String) -> Result<Value, CallError> {
     call(&state, "host.get", json!({ "name": name })).await
+}
+
+#[tauri::command]
+async fn vault_status(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.status", json!({})).await
+}
+
+/// The master password passes through here once, on its way to serve's stdin. It's moved into the
+/// request and dropped with it: never logged, stored or put in an error.
+#[tauri::command]
+async fn vault_unlock(state: tauri::State<'_, Arc<BackendState>>, password: String) -> Result<Value, CallError> {
+    call(&state, "vault.unlock", json!({ "password": password })).await
+}
+
+#[tauri::command]
+async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.lock", json!({})).await
 }
 
 fn session_error(e: SessionError) -> CallError {
@@ -169,7 +187,10 @@ pub fn run() {
             session_open,
             session_write,
             session_resize,
-            session_close
+            session_close,
+            vault_status,
+            vault_unlock,
+            vault_lock
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

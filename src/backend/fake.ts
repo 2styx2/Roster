@@ -8,6 +8,9 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type VaultStatus,
+  type VaultStatusWord,
+  VaultError,
   type SessionEvents,
   type SessionHandle,
   type TermSize,
@@ -21,9 +24,19 @@ export interface FakeScenario {
   failOnce?: boolean;
   /** Milliseconds every call waits, to see loading states. */
   delay?: number;
+  /** Where the vault starts (default: locked, like a fresh `roster serve`). */
+  vault?: { status: VaultStatusWord };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
   sessionRefusal?: { code: number; message: string };
 }
+
+/** The fake vault's master password (type it on the lock screen in a plain browser). */
+export const FAKE_PASSWORD = "correct horse";
+
+// roster's own wording (roster/src/roster/providers).
+const NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login` once";
+const MISSING_CLI = "`bw` is not installed on this box (install the Bitwarden CLI, e.g. `npm install -g @bitwarden/cli`)";
+const WRONG_PASSWORD = "Bitwarden unlock failed (wrong master password?)";
 
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
 const PRODUCTS = ["", "", "ALPHA", "HUB", "BRAVO", "UniFi"];
@@ -89,6 +102,10 @@ export const fixtures: Record<string, FakeScenario> = {
       "Clone the infra repo to ~/infra (or set ROSTER_CONFIG in ~/.profile), then retry.",
     ),
   },
+  locked: { hosts: makeHosts(12) },
+  "not-logged-in": { hosts: makeHosts(12), vault: { status: "not-logged-in" } },
+  "missing-cli": { hosts: makeHosts(12), vault: { status: "missing-cli" } },
+  "no-vault": { hosts: makeHosts(12), vault: { status: "unsupported" } },
   "not-set-up": {
     hosts: makeHosts(12),
     sessionRefusal: {
@@ -148,6 +165,15 @@ function fakeSession(id: number, host: string, size: TermSize, events: SessionEv
 
 export function fakeBackend(scenario: FakeScenario): Backend {
   let failures = 0;
+  let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
+  const vaultMessage = () =>
+    vault === "not-logged-in" ? NOT_LOGGED_IN : vault === "missing-cli" ? MISSING_CLI : undefined;
+  const vaultStatus = (): VaultStatus => {
+    const provider = vault === "unsupported" ? null : "bw";
+    const message = vaultMessage();
+    const main = { provider, status: vault, ...(message ? { message } : {}) };
+    return { ...main, providers: provider ? [{ ...main, provider }] : [] };
+  };
   let sessions = 0;
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   return {
@@ -179,6 +205,26 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       const h = scenario.hosts.hosts.find((x) => x.name === name);
       if (!h) throw new BackendCallError(`unknown host '${name}'`, 2);
       return h;
+    },
+    async vaultStatus() {
+      await wait();
+      return vaultStatus();
+    },
+    async unlockVault(password: string) {
+      await wait();
+      if (vault === "not-logged-in") throw new BackendCallError(NOT_LOGGED_IN, VaultError.notLoggedIn);
+      if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
+      if (vault === "unsupported")
+        throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
+      if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
+      vault = "unlocked";
+      return { provider: "bw", status: vault };
+    },
+    async lockVault() {
+      await wait();
+      if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
+      vault = "locked";
+      return { locked: ["bw"] };
     },
     async openSession(host, size, events) {
       await wait();

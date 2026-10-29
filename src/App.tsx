@@ -22,6 +22,9 @@ import { ErrorScreen } from "./ErrorScreen";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
+import type { Clock } from "./lock/idle";
+import { LockGate } from "./lock/LockScreen";
+import { useVault } from "./lock/useVault";
 import { chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
 import { builtinRegistries, type Registries } from "./registries";
@@ -59,11 +62,19 @@ export interface AppProps {
   options?: Options;
   /** Commands, keymap and Sidebar sections; the built-ins unless a test (or ticket 21) passes its own. */
   registries?: Registries;
+  /** For the idle lock; tests pass a manual one. */
+  clock?: Clock;
   /** The terminal each Session draws in (tests pass a stub; xterm needs a real browser). */
   terminalView?: TerminalViewComponent;
 }
 
-export function App({ backend, options = defaultOptions, registries: given, terminalView = TerminalView }: AppProps) {
+export function App({
+  backend,
+  options = defaultOptions,
+  registries: given,
+  clock,
+  terminalView = TerminalView,
+}: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
@@ -88,6 +99,7 @@ export function App({ backend, options = defaultOptions, registries: given, term
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
+  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
@@ -118,8 +130,8 @@ export function App({ backend, options = defaultOptions, registries: given, term
   }, [connect]);
 
   useEffect(() => {
-    if (conn.state === "ready") mainRef.current?.focus();
-  }, [conn.state]);
+    if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
+  }, [conn.state, vault.locked]);
 
   // With the last Session closed, the keys need somewhere to go.
   const noSessions = sessions.tabs.length === 0;
@@ -188,7 +200,9 @@ export function App({ backend, options = defaultOptions, registries: given, term
       rememberFocus();
       setKeysOpen(true);
     },
-    lock: () => setMessage("Lock isn't built yet (ticket 04)."),
+    lock: () => {
+      if (!vault.lock()) setMessage("Nothing to lock: no Host Login uses a vault with a master password.");
+    },
     toTerminal: () => setMode(terminalMode),
     list: (move) => {
       if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
@@ -224,8 +238,9 @@ export function App({ backend, options = defaultOptions, registries: given, term
     if (r.action) run(r.action);
   });
 
-  // Caught before anything else sees it, the terminal included (capture phase on window).
-  const ready = conn.state === "ready";
+  // Caught before anything else sees it, the terminal included (capture phase on window). While
+  // locked, keys belong to the lock screen alone.
+  const ready = conn.state === "ready" && !vault.locked;
   useEffect(() => {
     if (!ready) return;
     const handler = (e: KeyboardEvent) => onKey(e);
@@ -252,7 +267,7 @@ export function App({ backend, options = defaultOptions, registries: given, term
     [hintFor(keymap, "statusbar"), "hide this bar"],
   ].filter(([k]) => k);
 
-  return (
+  const shell = (
     <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`}>
       <div className={`body sidebar-${options.sidebar.side}`}>
         {sidebarShown && (
@@ -329,7 +344,7 @@ export function App({ backend, options = defaultOptions, registries: given, term
           )}
         </footer>
       )}
-      {overlay === "picker" && (
+      {overlay === "picker" && !vault.locked && (
         <Picker
           hosts={conn.hosts}
           recent={recent}
@@ -343,5 +358,22 @@ export function App({ backend, options = defaultOptions, registries: given, term
         />
       )}
     </div>
+  );
+  const lockKey = hintFor(keymap, "lock");
+  const lockHint = (
+    <>
+      Locks after {options.idleLockMinutes} minutes idle.
+      {lockKey && (
+        <>
+          {" "}
+          <kbd>{options.leader}</kbd> then <kbd>{lockKey.slice(2)}</kbd> locks now.
+        </>
+      )}
+    </>
+  );
+  return (
+    <LockGate vault={vault} hint={lockHint}>
+      {shell}
+    </LockGate>
   );
 }

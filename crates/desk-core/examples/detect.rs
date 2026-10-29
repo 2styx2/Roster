@@ -1,8 +1,8 @@
 //! Detect and start the Backend on this machine, then print what it reports:
 //! `cargo run --example detect [-- <roster command>]`. Without arguments it uses
-//! ROSTER_DESK_ROSTER, then `roster`.
+//! ROSTER_DESK_ROSTER, then `roster`; ROSTER_DESK_WSL_DISTRO picks the WSL distro.
 use desk_core::backend::Backend;
-use desk_core::detect::{OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
+use desk_core::detect::{DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use serde_json::json;
 
 fn main() {
@@ -12,7 +12,8 @@ fn main() {
     } else {
         args
     };
-    let started = detect(&SystemRunner, Platform::current(), &cmd).and_then(|c| {
+    let distro = std::env::var(DISTRO_VAR).ok();
+    let started = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref()).and_then(|c| {
         println!("{} -> {:?}", c.target.label(), c.serve_argv);
         Backend::start(&c)
     });

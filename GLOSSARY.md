@@ -49,5 +49,17 @@ A named set of colour tokens. The Config can pick one, change any token, or defi
 _Avoid_: skin, colour scheme
 
 **View mode**:
-How much of the app shows around the terminal. **Standard** shows the Sidebar, the title bar and the status bar. **Focus** shows a fullscreen terminal with a tmux-style status line.
+How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
+
+**Plugin**:
+Lua code that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks). It never sees secrets.
+_Avoid_: extension, addon, mod
+
+**Package**:
+A Plugin fetched from a git repo, named in the Config and pinned to a commit in the lock file.
+_Avoid_: bundle, module
+
+**Provider**:
+The password manager a Login's reference points into (Bitwarden, 1Password, `pass`, KeePassXC, …). roster asks it for one secret at a time and never keeps a vault of its own.
+_Avoid_: vault (the provider's own store), backend (that's the roster install the app drives)

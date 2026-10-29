@@ -57,6 +57,8 @@ export interface Options {
   sessions: "sidebar" | "tabs";
   /** The status bar, shown at start. `␣ s` toggles it. */
   statusBar: { visible: boolean };
+  /** Lock after this many minutes without input (docs/security.md). */
+  idleLockMinutes: number;
 }
 
 export const defaultOptions: Options = {
@@ -65,6 +67,7 @@ export const defaultOptions: Options = {
   sidebar: { visible: true, side: "left" },
   sessions: "sidebar",
   statusBar: { visible: true },
+  idleLockMinutes: 15,
 };
 
 const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];

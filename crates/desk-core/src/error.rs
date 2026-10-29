@@ -5,6 +5,9 @@ use serde::Serialize;
 /// The env var that overrides the roster command line (until the Lua Config, ticket 21).
 pub const OVERRIDE_VAR: &str = "ROSTER_DESK_ROSTER";
 
+/// The env var that names the one WSL distro to use (and start, if it's stopped).
+pub const DISTRO_VAR: &str = "ROSTER_DESK_WSL_DISTRO";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ErrorKind {

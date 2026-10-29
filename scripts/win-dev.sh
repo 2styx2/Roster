@@ -9,7 +9,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 if [ "${1:-}" = "--ci" ]; then
   wincmd "cd /d %LOCALAPPDATA%\\${WIN_DIR}\\src && npm ci"
 fi
-export WSLENV="${WSLENV:+$WSLENV:}ROSTER_DESK_ROSTER"
+export WSLENV="${WSLENV:+$WSLENV:}ROSTER_DESK_ROSTER:ROSTER_DESK_WSL_DISTRO"
 # ROSTER_DESK_WIN_PORT: run Vite on another port than 1420, so two worktrees can run side by side.
 extra=""
 if [ -n "${ROSTER_DESK_WIN_PORT:-}" ]; then
