@@ -220,7 +220,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 **roster-desk frontend**
 - React + TypeScript, built with Vite.
-- **The terminal:** xterm.js with the WebGL renderer, falling back to canvas when WebGL is missing (likely on WebKitGTK and WSLg).
+- **The terminal:** xterm.js with the WebGL renderer, falling back to xterm 6's DOM renderer when WebGL is missing (xterm 6 dropped the canvas renderer) (likely on WebKitGTK and WSLg).
 - **One typed backend interface:** a TypeScript client wraps every Tauri command and event (backend calls, Session I/O, lock events). All UI code goes through it, and it's the seam the UI tests fake.
 - **Keyboard model:** two focus modes.
   - *Terminal mode* sends every key to the PTY except the leader chord.

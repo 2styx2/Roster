@@ -4,7 +4,7 @@ roster-desk is a Tauri app: a Rust core with the system webview, using WebView2 
 
 ## Consequences
 
-- On Linux the UI runs in WebKitGTK, which is slower than Chromium, and xterm.js's WebGL renderer may need its canvas fallback under X11 or WSLg. Ticket 20 measures this. If typing latency on Linux is unacceptable, revisiting this ADR is the escape hatch.
+- On Linux the UI runs in WebKitGTK, which is slower than Chromium, and xterm.js's WebGL renderer may need its DOM-renderer fallback (xterm 6 has no canvas renderer) under X11 or WSLg. Ticket 20 measures this. If typing latency on Linux is unacceptable, revisiting this ADR is the escape hatch.
 - Rendering differs slightly between platforms. Test both before calling a design done.
 
 ## Considered Options
