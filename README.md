@@ -15,6 +15,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/roadmap.md](docs/roadmap.md) | The iterations and what "done" means for each |
 | [docs/decisions.md](docs/decisions.md) | Every design question we asked (Q1–Q22) and the answer |
 | [docs/adr/](docs/adr/) | Architecture decisions for roster-desk. roster's own ADRs live in `../roster/docs/adr/` |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch model: Work branches → `dev` → `main`, the same as roster and Orion |
 | [GLOSSARY.md](GLOSSARY.md) | roster-desk terms. Shared terms (Host, Session, Login…) live in roster's `GLOSSARY.md` |
 | [spec/](spec/) | Product specs. Start with [0001](spec/0001-roster-desk.md) |
 | [tickets/](tickets/) | Vertical-slice tickets with their blockers. [tickets/README.md](tickets/README.md) is the board |

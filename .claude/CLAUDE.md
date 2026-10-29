@@ -7,3 +7,4 @@
 - TypeScript is strict and required. UI tests go through the typed backend client with a fake backend.
 - UI and motion work uses the `/emil-design-eng` and `/animate` skills.
 - The repo is local only while experimenting: don't add a remote or push.
+- Branch workflow (same as roster and Orion): `CONTRIBUTING.md`. Work only on `feat/NN-slug` Work branches. While the repo is a local prototype, finished branches are merged `--no-ff` into `dev` (and `dev` into `main` at a Release) without an MR.
