@@ -18,7 +18,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] UI tests cover the ended state, reconnect, and recent-use ranking.
 - [ ] Truecolor and 256-colour test scripts render correctly. `ls --color`, a coloured PS1 from the user's real `.bashrc`, and a vim colourscheme all look the same as in Windows Terminal against the same Host.
