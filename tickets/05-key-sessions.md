@@ -19,3 +19,5 @@
 - `roster` is on PATH only in interactive shells. Resolve its absolute path once at startup, and have `session.prepare` return absolute paths.
 - ConPTY asks for the cursor position (`ESC[6n`) and waits for an answer. xterm.js answers it, but a bare Rust test must write `\x1b[1;1R` first or it hangs.
 - The xterm.js key handler must swallow Ctrl+Space (otherwise NUL goes to the shell). WebView2's own browser shortcuts (Ctrl+F, Ctrl+R…) need turning off through `with_webview`.
+
+**Roster side is done** (roster MR !14): `session.prepare {host}` returns `{argv: [<abs ssh>, -o, BatchMode=yes, <alias>], env: {}, host, auth: "key"}`. Codes: 2 for an unknown Host, 20 for an unreviewed Host, 21 when this Box's ssh config isn't set up. Set `TERM=xterm-256color` on the app side.
