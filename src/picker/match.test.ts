@@ -54,6 +54,16 @@ describe("searchHosts", () => {
     expect(names(list, "proxmox")).toEqual(["proxmox-2", "gw"]);
   });
 
+  it("doesn't match a group's title, only its name", () => {
+    const list = { hosts: [host("unifi", { group: "core" }), host("esxi-1")], groups };
+    expect(names(list, "servers")).toEqual([]);
+  });
+
+  it("matches scattered letters only in short fields, not in prose titles", () => {
+    const list = { hosts: [host("gw", { title: "edge switch near xi rack" }), host("e-s-x-i")], groups };
+    expect(names(list, "esxi")).toEqual(["e-s-x-i"]);
+  });
+
   it("needs every word of the query to match somewhere", () => {
     const list = { hosts: [host("esxi-1", { group: "core" }), host("esxi-2"), host("pve", { group: "core" })], groups };
     expect(names(list, "core esxi")).toEqual(["esxi-1"]);

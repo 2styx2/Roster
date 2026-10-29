@@ -7,15 +7,18 @@ export interface Ranked {
   score: number;
 }
 
-/** How much a match in each field counts: what you're likeliest to remember counts most. */
-const FIELDS: readonly [weight: number, get: (h: Host, l: HostList) => string | undefined][] = [
-  [3, (h) => h.name],
-  [2, (h) => h.ip],
-  [1.5, (h) => h.type],
-  [1.5, (h) => h.product],
-  [1.5, (h) => h.group],
-  [1, (h) => h.title],
-  [1, (h, l) => l.groups[h.group]?.title],
+/**
+ * How much a match in each field counts (what you're likeliest to remember counts most), and
+ * whether scattered letters may match it. Titles are prose: letters in order turn up in most of
+ * them, so they only match as substrings.
+ */
+const FIELDS: readonly [weight: number, scattered: boolean, get: (h: Host) => string][] = [
+  [3, true, (h) => h.name],
+  [2, true, (h) => h.ip],
+  [1.5, true, (h) => h.type],
+  [1.5, true, (h) => h.product],
+  [1.5, true, (h) => h.group],
+  [1, false, (h) => h.title],
 ];
 
 const EXACT = 1000, PREFIX = 800, WORD = 600, INSIDE = 400, SCATTERED = 100;
@@ -25,7 +28,7 @@ function isWordChar(c: string | undefined): boolean {
 }
 
 /** How well `term` (lower case) matches `value`: 0 for no match, higher is better. */
-export function fieldScore(term: string, value: string): number {
+export function fieldScore(term: string, value: string, scattered = true): number {
   const v = value.toLowerCase();
   if (v === term) return EXACT;
   if (v.startsWith(term)) return PREFIX;
@@ -36,6 +39,7 @@ export function fieldScore(term: string, value: string): number {
     }
     return INSIDE;
   }
+  if (!scattered) return 0;
   // letters in order, scattered: the tighter the better, but always below a real substring
   at = -1;
   let first = -1;
@@ -61,9 +65,9 @@ export function searchHosts(list: HostList, query: string, recent: readonly stri
     let score = 0;
     for (const term of terms) {
       let best = 0;
-      for (const [weight, get] of FIELDS) {
-        const value = get(host, list);
-        if (value) best = Math.max(best, fieldScore(term, value) * weight);
+      for (const [weight, scattered, get] of FIELDS) {
+        const value = get(host);
+        if (value) best = Math.max(best, fieldScore(term, value, scattered) * weight);
       }
       if (best === 0) return;
       score += best;
