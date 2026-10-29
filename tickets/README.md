@@ -12,7 +12,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 06 | [Sessions to password-only Hosts (askpass)](06-password-sessions-askpass.md) | 1 | 04, 05 | ready |
 | 07 | [Keyboard model and the Session Sidebar](07-keyboard-model-tabs.md) | 1 | 05 | ready |
 | 17 | [Inventory tree and Folders in the Sidebar](17-host-tree-panel.md) | 1 | 07 | ready |
-| 08 | [Terminal comfort](08-terminal-comfort.md) | 1 | 05 | ready |
+| 08 | [Terminal comfort](08-terminal-comfort.md) | 1 | 05 | done |
 | 09 | [Design pass](09-design-pass.md) | 2 | 07, 08, 17 | ready |
 | 21 | [Lua config (`init.lua`)](21-lua-config.md) | 2 | 09 | ready |
 | 22 | [Focus mode](22-focus-mode.md) | 2 | 07, 17 | ready |
@@ -30,4 +30,4 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
 
-**Current frontier:** 06, 07, 08, then 17 (needs 07). Iterations run in order.
+**Current frontier:** 06, 07, then 17 (needs 07). Iterations run in order.

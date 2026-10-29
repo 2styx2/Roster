@@ -36,7 +36,7 @@ try {
 new ResizeObserver(() => fit.fit()).observe(el);   // then send term.cols/rows to session_resize (debounce ~50ms)
 term.onResize(({ cols, rows }) => resizeSession(id, cols, rows));
 ```
-Load WebGL **after** `open()`. Show `renderer` in `:info` so ticket 20 can measure it. Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. Get the build number from Rust (`RtlGetVersion`, or parse `cmd /c ver`: 10.0.**26200** here).
+Load WebGL **after** `open()`. Show `renderer` in `:info` so ticket 20 can measure it. Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. The build number comes from Rust: `desk_core::platform::windows_build()` (`RtlGetVersion`) through the `platform_info` command, 10.0.**26200** here (ticket 08).
 
 ## Keys: everything goes to the shell except the leader
 
@@ -60,7 +60,7 @@ term.attachCustomKeyEventHandler((ev) => {
 ```
 - Match on `ev.code`, not `ev.key`. `key` for Ctrl+Space varies with keyboard layout and IME.
 - While in leader/app mode, call `term.blur()` or give a hidden element focus so the next key (`f`) doesn't reach the PTY. Put focus back with `term.focus()` on Esc.
-- **WebView2 browser accelerators** (Ctrl+F, Ctrl+P, Ctrl+R/F5, Ctrl+±, F12/Ctrl+Shift+C, Back/Forward) are on by default. wry 0.57 has `with_browser_accelerator_keys(false)`, but **tauri 2.12.5 doesn't expose it** (grepped tauri, tauri-runtime-wry and tauri-utils). Turn it off in `setup` through `webview.with_webview(|w| …controller().CoreWebView2()?.Settings()?.cast::<ICoreWebView2Settings3>()?.SetAreBrowserAcceleratorKeysEnabled(false))` (needs the `webview2-com` / `windows` crates). That leaves Ctrl+C/V/X/A/Z, which xterm already sends to the PTY because it preventDefaults them. Not checked in a live window: whether xterm's preventDefault alone stops Ctrl+F/Ctrl+R in WebView2. Test that with ticket 05's manual check.
+- **WebView2 browser accelerators** (Ctrl+F, Ctrl+P, Ctrl+R/F5, Ctrl+±, F12/Ctrl+Shift+C, Back/Forward) are on by default. wry 0.57 has `with_browser_accelerator_keys(false)`, but **tauri 2.12.5 doesn't expose it** (grepped tauri, tauri-runtime-wry and tauri-utils). Turn it off in `setup` through `webview.with_webview(|w| …controller().CoreWebView2()?.Settings()?.cast::<ICoreWebView2Settings3>()?.SetAreBrowserAcceleratorKeysEnabled(false))` (needs the `webview2-com` / `windows` crates). That leaves Ctrl+C/V/X/A/Z, which xterm already sends to the PTY because it preventDefaults them. Checked with real keys in ticket 08 (SendKeys after a real click into the window; CDP's `Input.dispatchKeyEvent` skips the browser's accelerator handling, so it proves nothing here): Ctrl+R reaches bash, F5 doesn't reload, Ctrl+F opens no find bar, Ctrl+Shift+C opens no devtools, and Ctrl+= reaches the app's zoom. Page zoom is off by default in tauri (`zoomHotkeysEnabled: false` → WebView2's `IsZoomControlEnabled`).
 
 ## Clipboard in WebView2 (tauri 2.12.5 source)
 
@@ -71,4 +71,4 @@ term.attachCustomKeyEventHandler((ev) => {
 
 ## Search
 
-`const search = new SearchAddon(); term.loadAddon(search); search.findNext(q, { incremental: true, decorations: {...} })`. `decorations` needs `allowProposedApi: true`.
+`const search = new SearchAddon(); term.loadAddon(search); search.findNext(q, { incremental: true, decorations: {...} })`. `decorations` needs `allowProposedApi: true`. `incremental` only affects `findNext`. roster-desk searches upwards (`findPrevious`), as Windows Terminal does, and clears the selection on each keystroke, so typing always shows the newest match (`@xterm/addon-search` 0.16.0, ticket 08).

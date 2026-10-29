@@ -1,6 +1,7 @@
 // Keys and options as plain data tables, so the Lua Config (ADR 0002, ticket 21) can override
 // them later without code changes. Chords are written as chordOf() names them: modifiers in the
 // order Ctrl, Alt, Meta, Shift, then the key ("Ctrl+Space", "Ctrl+n", "j", "G", "ArrowDown").
+import { terminalKeys, type TerminalKeysAction } from "./terminal/keymap";
 
 export type Action =
   | "picker.open"
@@ -8,7 +9,8 @@ export type Action =
   | "picker.up"
   | "picker.choose"
   | "picker.close"
-  | "app.lock";
+  | "app.lock"
+  | TerminalKeysAction;
 
 export interface Options {
   /** The chord that takes the keyboard back from a terminal (GLOSSARY: Leader). */
@@ -26,12 +28,14 @@ export interface Keymap {
   picker: Record<string, Action>;
   /** In the Picker's result list, when vim keys are on. */
   pickerVim: Record<string, Action>;
+  /** In a terminal, before the shell sees the key. */
+  terminal: Record<string, Action>;
 }
 
 export const defaultOptions: Options = { leader: "Ctrl+Space", vim: true, idleLockMinutes: 15 };
 
 export const defaultKeymap: Keymap = {
-  leader: { f: "picker.open", L: "app.lock" },
+  leader: { f: "picker.open", L: "app.lock", ...terminalKeys.leader },
   picker: {
     ArrowDown: "picker.down",
     ArrowUp: "picker.up",
@@ -39,8 +43,10 @@ export const defaultKeymap: Keymap = {
     "Ctrl+p": "picker.up",
     Enter: "picker.choose",
     Escape: "picker.close",
+    ...terminalKeys.picker,
   },
   pickerVim: { j: "picker.down", k: "picker.up" },
+  terminal: terminalKeys.terminal,
 };
 
 export interface KeyLike {

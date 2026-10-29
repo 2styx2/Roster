@@ -1,7 +1,7 @@
 // The Session tabs: a minimal tab strip (see, switch, close; the full tab and keyboard model is
 // ticket 07) over one terminal per tab. Inactive terminals stay mounted, just hidden, so their
 // screens survive switching.
-import type { TerminalViewComponent } from "../terminal/TerminalView";
+import type { TerminalEnv, TerminalViewComponent } from "../terminal/TerminalView";
 import type { Tab, Tabs, TabsSnapshot } from "./tabs";
 
 export interface SessionsProps {
@@ -9,6 +9,10 @@ export interface SessionsProps {
   snapshot: TabsSnapshot;
   leader: string;
   terminalView: TerminalViewComponent;
+  /** Shared by every terminal (options, keys, clipboard). */
+  terminalEnv: TerminalEnv;
+  /** The keys that reconnect an ended tab ("Ctrl+Space r"), if the keymap has them. */
+  reconnectKeys: string | null;
 }
 
 function statusText(tab: Tab): string {
@@ -26,7 +30,14 @@ function statusText(tab: Tab): string {
   }
 }
 
-export function Sessions({ tabs, snapshot, leader, terminalView: TerminalView }: SessionsProps) {
+export function Sessions({
+  tabs,
+  snapshot,
+  leader,
+  terminalView: TerminalView,
+  terminalEnv,
+  reconnectKeys,
+}: SessionsProps) {
   return (
     <div className="sessions">
       <div className="tabstrip" role="tablist" aria-label="Sessions">
@@ -44,7 +55,7 @@ export function Sessions({ tabs, snapshot, leader, terminalView: TerminalView }:
                 tabIndex={-1}
                 onClick={() => tabs.select(tab.id)}
               >
-                <span className="tab-host">{tab.host}</span>
+                <span className="tab-host">{tab.label}</span>
                 {status && <span className="tab-status"> {status}</span>}
               </button>
               <button
@@ -78,12 +89,28 @@ export function Sessions({ tabs, snapshot, leader, terminalView: TerminalView }:
                 <div className="session-error" role="alert">
                   <p>Couldn't open a Session to {tab.host}:</p>
                   <p className="session-error-message">{s.message}</p>
+                  <button type="button" onClick={() => tabs.reconnect(tab.id)}>
+                    Retry
+                  </button>
                 </div>
               ) : (
-                wiring && <TerminalView active={active} leader={leader} {...wiring} />
+                wiring && <TerminalView active={active} leader={leader} {...wiring} env={terminalEnv} />
               )}
               {s.state === "connecting" && <div className="session-note">Connecting to {tab.host}…</div>}
-              {s.state === "ended" && <div className="session-note ended">{statusText(tab)}</div>}
+              {s.state === "ended" && (
+                <div className="session-note ended">
+                  <span>{statusText(tab)}</span>
+                  {reconnectKeys && (
+                    <span className="muted">
+                      {" "}
+                      · <kbd>{reconnectKeys}</kbd> or
+                    </span>
+                  )}{" "}
+                  <button type="button" className="reconnect" onClick={() => tabs.reconnect(tab.id)}>
+                    Reconnect
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
