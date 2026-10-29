@@ -1,5 +1,7 @@
 """`roster serve`: the backend API for the desktop app (roster-desk). JSON-RPC 2.0 over stdin/stdout,
 one JSON object per line. Only responses go to stdout; anything else roster prints goes to stderr.
+The one other channel is askpass (roster/askpass.py): a private Unix socket, open while serve runs, that
+hands a password Session's ssh its password.
 It answers with the Host, group and resource objects load_config already builds - no new schema.
 Logins come back as references (bw:ITEM), never as values. Requests are handled one at a time.
 
@@ -9,9 +11,10 @@ Add a method by writing a function (state, params) -> result and listing it in M
 import json
 import os
 import shutil
+import signal
 import sys
 
-from . import __version__, providers
+from . import __version__, askpass, providers
 from .common import not_reviewed, ssh_config_file, ssh_dir
 from .config import find_config, load_config
 from .providers import PROVIDERS, setup_providers
@@ -44,6 +47,7 @@ class State:
     def __init__(self, config_arg):
         self.cfg, self.path, self.error = None, None, None
         self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
+        self.askpass = None                 # the askpass Channel, while serve() runs
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -97,7 +101,7 @@ def text_param(params, key):
 # session.* error codes live in 20-29 (vault.* has 10-19)
 NOT_REVIEWED = 20           # the Host came from discover and has reviewed: false; same wording as `roster run`
 NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh client, or the Host isn't in roster's ssh config
-PASSWORD_SESSION = 22       # a password-only Host (enroll: false): needs the askpass channel, not built yet (ticket 06)
+NO_ASKPASS = 22             # a password Session, but this process has no askpass channel open (in-process use only)
 
 def session_prepare(state, params):
     """What the app runs in a PTY to open a Session: the system ssh, never a secret.
@@ -109,17 +113,61 @@ def session_prepare(state, params):
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
     if not h["reviewed"]:
         raise RpcError(NOT_REVIEWED, not_reviewed(h))
-    if not h["enroll"]:
-        raise RpcError(PASSWORD_SESSION, f"{h['name']} takes a password (enroll: false) - "
-                                         "password sessions aren't supported yet")
     ssh = shutil.which("ssh")         # absolute: the app spawns it with `wsl.exe --exec`, where PATH is thin
     if ssh is None:
         raise RpcError(NOT_SET_UP, "no ssh client on this box's PATH - install OpenSSH (openssh-client)")
     if not in_ssh_config(h["name"]):
         raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
+    if not h["enroll"] and password_login(h):
+        return password_session(state, h, ssh)
     return {"argv": [ssh, "-o", "BatchMode=yes", h["name"]], "env": {},
             "host": h["name"], "auth": "key"}
+
+
+def password_login(h):
+    """The Host's ssh Login, if it's a password one (a vault reference, not agent/key/none)."""
+    auth = h["ssh"].get("auth")
+    return None if auth in (None, "") or auth in providers.NO_PASSWORD else h["ssh"]
+
+
+def password_session(state, h, ssh):
+    """ssh that asks `roster askpass` for the password: the env carries a one-time token, never the
+    password. Nothing is looked up yet - that happens when ssh prompts - but a vault that can't answer is
+    reported now (14 locked, 11 not logged in, 12 no CLI) instead of as a failed login in the terminal."""
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
+                                   "need `roster serve`")
+    auth = password_login(h)["auth"]
+    check_vault_answers(str(auth).partition(":")[0].strip())
+    token = state.askpass.mint((auth, h["group"]), h["name"])
+    return {"argv": [ssh, "-o", "NumberOfPasswordPrompts=1",
+                     "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
+            "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
+
+
+def check_vault_answers(name):
+    """Refuse now if provider NAME can't hand out a password (env, prompt etc. have no status: let them try)."""
+    if name not in PROVIDERS:
+        raise RpcError(ROSTER_ERROR, f"unknown password source {name!r} - see `roster providers`")
+    try:
+        status = providers.vault_status(name)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    error = {"locked": providers.VaultLocked, "unauthenticated": providers.NotLoggedIn,
+             "missing": providers.CliMissing}.get(status)
+    if error:
+        message = providers.status_message(name, status) or f"{name} vault is locked - unlock it first"
+        raise secret_error(error(message))
+
+
+def askpass_lookup(login):
+    """The askpass channel's lookup. It runs on the channel's threads; get_secret takes the providers' lock."""
+    ref, group = login
+    try:
+        return providers.get_secret(ref, group)
+    except providers.SecretError as e:
+        raise askpass.Refused(str(e)) from None
 
 
 def in_ssh_config(name):
@@ -225,6 +273,14 @@ def vault_unlock(state, params):
 ON_VAULT_LOCK = []          # fn(state) run by vault.lock: whatever else holds secrets (askpass tokens) forgets them
 
 
+def forget_askpass_tokens(state):
+    if state.askpass is not None:
+        state.askpass.forget()
+
+
+ON_VAULT_LOCK.append(forget_askpass_tokens)
+
+
 def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
     opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails."""
@@ -282,15 +338,21 @@ def error_response(rid, e):
     return {"jsonrpc": "2.0", "id": rid, "error": err}
 
 
+def log_line(msg):
+    print(f"serve: {msg}", file=sys.stderr, flush=True)
+
+
 def serve(config_arg):
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed
     state = State(config_arg)
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        response = handle(state, line)
-        if response is not None:
-            out.write(json.dumps(response, default=str) + "\n")
-            out.flush()
+    with askpass.Channel(askpass_lookup, log=log_line) as state.askpass:
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            response = handle(state, line)
+            if response is not None:
+                out.write(json.dumps(response, default=str) + "\n")
+                out.flush()
     return 0

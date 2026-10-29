@@ -3,8 +3,10 @@
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import time
 
 import pytest
 from conftest import EXAMPLES
@@ -324,12 +326,41 @@ def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, wr
     assert run.value.code == f"error: {err['message']}"
 
 
-def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, write_config, capsys):
-    """Password sessions need the askpass channel (ticket 06); until then, a clear refusal."""
-    synced(write_config, capsys)
+# ---------------------------------------------------------------- password Sessions: the askpass channel (ticket 06)
+
+PW_INVENTORY = INVENTORY.replace("        enroll: false\n", "        enroll: false\n        auth: bw:Network gear\n")
+PASSWORD = "pw-netops"                  # what the fake bw holds for "Network gear"
+
+
+def unlocked_serve(serve, write_config, capsys, *args):
+    synced(write_config, capsys, PW_INVENTORY)
+    s = serve(*args)
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    return s
+
+
+def test_session_prepare_for_a_password_host_hands_out_a_token_not_a_password(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    env = spec["env"]
+    assert spec["argv"] == [shutil.which("ssh"), "-o", "NumberOfPasswordPrompts=1",
+                            "-o", "PreferredAuthentications=password,keyboard-interactive", "esx"]
+    assert (spec["host"], spec["auth"]) == ("esx", "password")
+    assert set(env) == {"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "ROSTER_ASKPASS_SOCKET", "ROSTER_ASKPASS_TOKEN"}
+    assert env["SSH_ASKPASS_REQUIRE"] == "force"
+    assert os.path.isabs(env["SSH_ASKPASS"]) and os.access(env["SSH_ASKPASS"], os.X_OK)
+    assert os.path.isabs(env["ROSTER_ASKPASS_SOCKET"]) and len(env["ROSTER_ASKPASS_TOKEN"]) >= 32
+    assert PASSWORD not in json.dumps(spec)
+    other = s.call("session.prepare", {"host": "esx"})["result"]["env"]["ROSTER_ASKPASS_TOKEN"]
+    assert other != env["ROSTER_ASKPASS_TOKEN"]                     # one token per Session
+
+
+def test_session_prepare_for_a_password_host_while_locked(serve, write_config, capsys, fakes):
+    """A token minted now could only fail at ssh's prompt; say "unlock first" instead, as vault.* does."""
+    synced(write_config, capsys, PW_INVENTORY)
     s = serve()
     err = s.call("session.prepare", {"host": "esx"})["error"]
-    assert err["code"] == 22 and "password" in err["message"] and "esx" in err["message"]
+    assert err == {"code": 14, "message": "bw vault is locked - unlock it first"}
     assert s.call("session.prepare", {"host": "nope"})["error"] == {"code": 2, "message": "unknown host 'nope'"}
     assert s.call("session.prepare", {})["error"]["code"] == -32602
     assert s.close()[0] == 0
@@ -356,3 +387,133 @@ def test_session_prepare_without_an_ssh_client(serve, write_config, capsys, isol
     monkeypatch.setenv("PATH", str(isolated["work"]))           # serve itself starts from sys.executable
     err = serve().call("session.prepare", {"host": "box"})["error"]
     assert err == {"code": 21, "message": "no ssh client on this box's PATH - install OpenSSH (openssh-client)"}
+
+
+# ---- the askpass helper, run as ssh runs it
+
+def run_askpass(spec, prompt="root@10.0.0.6's password: ", **extra_env):
+    """Run SSH_ASKPASS exactly as ssh does: the absolute path, the prompt as argv[1], the Session's env."""
+    env = {**os.environ, **spec["env"], **extra_env}
+    return subprocess.run([spec["env"]["SSH_ASKPASS"], prompt], env=env, capture_output=True, text=True,
+                          timeout=30, cwd="/")
+
+
+def test_the_askpass_helper_gets_the_password_once(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    first = run_askpass(spec)
+    assert (first.returncode, first.stdout) == (0, PASSWORD + "\n")
+    again = run_askpass(spec)
+    assert (again.returncode, again.stdout) == (1, "")
+    assert "used up, expired or cleared" in again.stderr        # what ssh's terminal shows, no secret
+
+
+def test_the_helper_answers_the_password_prompts_ssh_and_pam_show(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    for prompt in ("root@10.0.0.6's password: ", "Password: ", "(root@10.0.0.6) Password:",
+                   "Password for root@esx: ", "PASSWORD:"):
+        spec = s.call("session.prepare", {"host": "esx"})["result"]
+        assert run_askpass(spec, prompt).stdout == PASSWORD + "\n", prompt
+
+
+REFUSED_PROMPTS = (
+    "The authenticity of host '10.0.0.6 (10.0.0.6)' can't be established.\n"
+    "ED25519 key fingerprint is SHA256:abc.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ",
+    "Please type 'yes', 'no' or the fingerprint: ",
+    "Enter passphrase for key '/home/u/.ssh/id_ed25519': ",
+    "Verification code: ",
+    "(current) UNIX password: ",
+    "(current) Password: ",
+    "Bad passphrase, try again for x's password: ",
+    "New password: ",
+    "Retype new password: ",
+    "Warning: password expires soon. Password:",
+    "",
+)
+
+
+def test_the_helper_refuses_every_other_prompt_without_contacting_serve(tmp_path):
+    """A socket that would record any connection: a refused prompt must never reach it (or spend a token)."""
+    import socket
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(tmp_path / "s"))
+    listener.listen(1)
+    listener.settimeout(0.5)
+    env = {**os.environ, "ROSTER_ASKPASS_SOCKET": str(tmp_path / "s"), "ROSTER_ASKPASS_TOKEN": "t" * 43}
+    for prompt in REFUSED_PROMPTS:
+        r = subprocess.run([sys.executable, "-I", "-m", "roster.askpass", prompt], env=env,
+                           capture_output=True, text=True, timeout=30)
+        assert (r.returncode, r.stdout) == (1, ""), prompt
+    with pytest.raises(TimeoutError):
+        listener.accept()
+    listener.close()
+
+
+def test_the_cli_has_roster_askpass(capsys):
+    """`roster askpass PROMPT` is the same helper (the generated SSH_ASKPASS script skips the CLI's imports)."""
+    assert main(["askpass", "Are you sure you want to continue connecting (yes/no/[fingerprint])? "]) == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_a_token_expires(serve, write_config, capsys, fakes, monkeypatch):
+    monkeypatch.setenv("ROSTER_ASKPASS_TTL", "0.2")              # shortens the 60 s; it can't lengthen it
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    time.sleep(0.5)
+    r = run_askpass(spec)
+    assert (r.returncode, r.stdout) == (1, "")
+
+
+def test_vault_lock_clears_tokens(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    assert s.call("vault.lock")["result"] == {"locked": ["bw"]}
+    r = run_askpass(spec)
+    assert (r.returncode, r.stdout) == (1, "")
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    r = run_askpass(spec)                                        # unlocking again doesn't bring it back
+    assert (r.returncode, r.stdout) == (1, "")
+
+
+def test_a_wrong_token_gets_nothing(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    r = run_askpass(spec, ROSTER_ASKPASS_TOKEN="x" + spec["env"]["ROSTER_ASKPASS_TOKEN"][1:])
+    assert (r.returncode, r.stdout) == (1, "")
+    assert run_askpass(spec).stdout == PASSWORD + "\n"           # a guess doesn't spend the real one
+
+
+def test_the_askpass_socket_is_the_users_alone_and_goes_away(serve, write_config, capsys, fakes, isolated):
+    run = isolated["home"].parent / "run"
+    run.mkdir(mode=0o700)                                        # $XDG_RUNTIME_DIR, as systemd/WSL make it
+    s = unlocked_serve(serve, write_config, capsys)
+    env = s.call("session.prepare", {"host": "esx"})["result"]["env"]
+    sock, helper = env["ROSTER_ASKPASS_SOCKET"], env["SSH_ASKPASS"]
+    folder = os.path.dirname(sock)
+    assert os.path.dirname(folder) == str(run) and os.path.dirname(helper) == folder
+    modes = [os.stat(p).st_mode & 0o777 for p in (folder, sock, helper)]
+    assert modes == [0o700, 0o600, 0o700]
+    assert stat.S_ISSOCK(os.stat(sock).st_mode)
+    assert s.close()[0] == 0
+    assert not os.path.exists(folder)
+
+
+def test_the_password_never_reaches_serves_output(serve, write_config, capsys, fakes):
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
+    assert run_askpass(spec).returncode == 0
+    run_askpass(spec)
+    s.call("vault.lock")
+    code, out, err = s.close()
+    assert code == 0 and out == ""
+    assert "esx: password handed to ssh" in err                  # it does log that it happened
+    assert PASSWORD not in "".join(s.responses) + out + err
+
+
+def test_a_lookup_that_fails_says_why_in_the_terminal(serve, write_config, capsys, fakes):
+    """The Login's vault item is missing: the helper prints the provider's (safe) message, ssh fails."""
+    synced(write_config, capsys, PW_INVENTORY.replace("auth: bw:Network gear", "auth: bw:No such item"))
+    s = serve()
+    s.call("vault.unlock", {"password": "hunter2"})
+    r = run_askpass(s.call("session.prepare", {"host": "esx"})["result"])
+    assert r.returncode == 1 and r.stdout == "" and r.stderr.startswith("roster askpass: ")

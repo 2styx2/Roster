@@ -301,6 +301,7 @@ Let your security team know before scanning big ranges.
 | `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
 | `serve` | The JSON-RPC API the desktop app talks to, on stdin/stdout (see [`roster serve` API](#roster-serve-api)) |
+| `askpass PROMPT` | The `SSH_ASKPASS` helper for a `serve` password Session. ssh runs it, not you |
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
 
@@ -308,7 +309,7 @@ Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then
 
 ## `roster serve` API
 
-`roster serve` is the backend for the desktop app (roster-desk). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+`roster serve` is the backend for the desktop app (roster-desk). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
 
 Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
 
@@ -324,13 +325,33 @@ A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth
 
 | Method | Params | Result |
 |---|---|---|
-| `session.prepare` | `{host}` (exact Host name) | `{argv: [/abs/path/ssh, "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}` |
+| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}`<br>password-only: `{argv: [/abs/path/ssh, "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}` |
 
-`session.prepare` tells the app what to start in a PTY to open a Session to a key-enrolled Host. It holds no secret. The app runs `argv` exactly as given, with `env` added (on WSL: `wsl.exe -d DISTRO --cd ~ --exec env K=V ... ARGV...`). `argv[0]` is an absolute path, because PATH under `wsl.exe --exec` is minimal.
+`session.prepare` tells the app what to start in a PTY to open a Session. It never holds a secret. The app runs `argv` exactly as given, with `env` added (on WSL: `wsl.exe -d DISTRO --cd ~ --exec env K=V ... ARGV...`). `argv[0]` is an absolute path, because PATH under `wsl.exe --exec` is minimal.
 
 The command is the same one `roster run` uses: `ssh -o BatchMode=yes NAME`, where `NAME` is the `Host` alias that `roster setup` / `roster sync` write to `~/.ssh/config.d/roster`. The key, user, port, `known_hosts` and connection sharing all come from that config, so a Session behaves exactly like `ssh NAME` in a terminal (ADR 0002). There's no fallback to `-i KEY -p PORT user@ip`. Without roster's config there's no recorded host key and no installed key either, so `session.prepare` refuses with code `21` and says to run `roster sync`, or `roster setup` on a box that isn't set up yet. A failed login after that (host down, key not installed) is ssh's own message in the tab.
 
-It refuses unreviewed Hosts with the same message as `roster run`. Hosts that only take a password (`enroll: false`) get code `22` for now, until the askpass channel exists.
+It refuses unreviewed Hosts with the same message as `roster run`.
+
+#### Password Sessions: the askpass channel
+
+A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`key`/`none`) gets a password Session. The password goes from the provider to `serve`, over a private socket, to `roster askpass`, and into `ssh`. It never passes through the app.
+
+- While `serve` runs, it listens on a Unix socket in a fresh directory: `$XDG_RUNTIME_DIR/roster-askpass-XXXX/` (or the temp dir if there's no runtime dir). The directory is `0700` and the socket is `0600`. `serve` also checks that the peer's uid is its own, and removes the directory when it exits (stdin closed or SIGTERM). Next to the socket is `askpass`, a `0700` two-line script that runs `<serve's python> -I -m roster.askpass`. `SSH_ASKPASS` has to be one absolute executable, because ssh runs it without a shell or your login PATH.
+- `session.prepare` looks nothing up. It mints a random one-time token tied to that Host's ssh Login. The token is spent on first use (even if the lookup then fails), and it expires after 60 seconds or on `vault.lock`. Unlocking again doesn't bring it back, so open the Session again. If the Login's vault can't answer right now, `session.prepare` refuses with the vault error (`14` locked, `11` not logged in, `12` no CLI) instead of handing out a token that could only fail at ssh's prompt.
+- The `env` to add to the ssh command:
+
+  | Variable | Value |
+  |---|---|
+  | `SSH_ASKPASS` | absolute path of the `askpass` script |
+  | `SSH_ASKPASS_REQUIRE` | `force`: use the helper even with a terminal and no `DISPLAY` (OpenSSH 8.4+; `DISPLAY` isn't needed) |
+  | `ROSTER_ASKPASS_SOCKET` | the socket's path |
+  | `ROSTER_ASKPASS_TOKEN` | the one-time token |
+
+- When ssh prompts, it runs `roster askpass PROMPT`. The helper answers only these prompts, compared whole and ignoring case and extra spaces: `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for user@host:`. Every other prompt is refused without contacting the socket: host-key `yes/no`, key passphrases, verification codes, and `New password:` / `(current) UNIX password:` from an expired-password change. The helper exits 1 and prints nothing, so ssh fails. For an allowed prompt, the helper sends the token and prints the password to ssh. If `serve` refuses the token (used, expired, locked, or the vault item lookup failed), the helper writes a one-line reason starting `roster askpass:` to the terminal and exits 1. With `NumberOfPasswordPrompts=1`, ssh then stops with its own `Permission denied`.
+- `serve`'s stderr records each use (`askpass: esx: password handed to ssh`, or why it refused), never the password.
+- The protocol is one exchange per connection. The helper sends `TOKEN\n`. `serve` replies `ok\nPASSWORD` or `no\nREASON` and closes the connection.
+- `ROSTER_ASKPASS_TTL` (seconds, given to `serve`) can shorten the 60-second lifetime, for tests. It can't lengthen it.
 
 `api_version` is currently 1. It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
@@ -343,7 +364,8 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `3` | Any other refusal roster would print as `error: ...` on the command line |
 | `20` | `session.prepare`: the Host isn't reviewed (`reviewed: false`); same message as `roster run` |
 | `21` | `session.prepare`: this box can't run `ssh NAME` yet. Either there's no `ssh` on PATH, or the Host isn't in roster's ssh config (run `roster sync`, or `roster setup`) |
-| `22` | `session.prepare`: the Host only takes a password (`enroll: false`). Password Sessions aren't supported yet |
+| `22` | `session.prepare`: a password Session, but the process has no askpass channel. Only seen when serve's code is used in-process, never from `roster serve` |
+| `11`, `12`, `14` | `session.prepare` for a password-only Host whose vault isn't logged in, isn't installed, or is locked (see [Vault](#vault-the-lock-screen)) |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
@@ -372,7 +394,7 @@ Requests without an `id` (notifications) run but get no reply.
 
   For `not-logged-in` and `missing-cli`, `message` says what to run or install.
 - `vault.unlock` unlocks `provider`, or by default the one `vault.status` names.
-- `vault.lock` forgets every cached secret and session key, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
+- `vault.lock` forgets every cached secret, session key and askpass token, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
 
 | Code | Meaning |
 |---|---|
@@ -413,7 +435,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 167 tests, no network or SSH server needed
+uv run pytest            # 178 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
@@ -430,6 +452,7 @@ src/roster/
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
   serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, error codes
+  askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
 examples/           commented roster.yml, plugin template
 docs/               team guides: setting up a new box, adding hosts
