@@ -16,8 +16,11 @@ Keyboard first, with vim keys and full mouse support. Every binding lives in one
 | `<leader> 1`–`9` | Go to tab N |
 | `<leader> gt` / `gT` | Next / previous tab |
 | `<leader> dd` | Close the current tab |
-| `<leader> e` | Toggle the host tree (iteration 5) |
-| `<leader> ?` | Help overlay, generated from the keymap |
+| `<leader> e` | Toggle the Sidebar (Sessions, Folders, Inventory) |
+| `<leader> ]` / `[` | Next / previous Session |
+| `<leader> a` | Add the selected Host to a Folder |
+| `<leader> s` | Toggle the status bar |
+| `<leader> ?` | Key bindings panel: the resolved keymap and where each binding comes from (default or init.lua) |
 | `<leader> L` | Lock |
 | In lists: `j`/`k`, `gg`/`G`, `/`, `h`/`l`, Enter, Esc | Move, jump, filter, fold/unfold, open, back |
 | In the Picker: Ctrl+N/P, arrow keys | Move (they also work with vim off) |

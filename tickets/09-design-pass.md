@@ -17,7 +17,14 @@
   - Close is red on hover.
 - **The logo:** whichever concept the user picks from `prototype/logos` becomes the app icon at every size and appears in the title bar.
 
-**Blocked by:** 07, 08
+**Settled after round 3 of the prototype** (decisions Q29–Q35; `prototype-shell.html` and `prototype-logos.html` on branch `prototype/logos`):
+- **Logo:** D1 (Network R). Ship it as the app and taskbar icon at every size.
+- **Accent:** jade `#1f9d68`. The **Roster dark** and **Roster light** themes are built from color tokens, and a couple of extra themes (for example Gruvbox and Nord) ship to prove the token set is complete.
+- **Fonts:** Inter for the UI and Iosevka for the terminal and wordmark, bundled with the app (no network).
+- **Selection:** the raised style for the selected item everywhere. No underlines.
+- **Title bar:** the bare bar from the prototype: the mark on the left, then minimize, maximize and close. It replaces the Slack-style bar with tabs and search described above.
+
+**Blocked by:** 07, 08, 17
 
 **Status:** ready-for-agent
 
