@@ -40,7 +40,7 @@ def isolated(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fakes(monkeypatch):
-    """Put stand-in bw / op / pass commands first on PATH."""
+    """Put stand-in bw / op / pass / ssh commands first on PATH."""
     for f in FAKES.iterdir():
         f.chmod(f.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     monkeypatch.setenv("PATH", f"{FAKES}{os.pathsep}{os.environ['PATH']}")

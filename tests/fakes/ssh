@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stand-in ssh for tests: serve only needs an ssh on PATH to build the command; nothing here connects.
+echo "fake ssh: not connecting to $*" >&2
+exit 255
