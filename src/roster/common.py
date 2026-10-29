@@ -39,6 +39,11 @@ def die(msg):
     sys.exit(f"error: {msg}")
 
 
+def not_reviewed(h):
+    """Why roster won't log in to a Host discover found (`roster run`, `roster serve` session.prepare)."""
+    return f"{h['name']} is not reviewed yet (reviewed: false in roster.yml) - not logging in"
+
+
 def say(msg=""):
     print(msg, flush=True)
 
