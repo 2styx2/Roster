@@ -15,3 +15,16 @@
 - [ ] Manual check on Windows: a real password-only Host opens to a shell without you typing anything. A wrong vault password shows a clear failure in the tab.
 
 **Note from research:** `SSH_ASKPASS` must be an absolute path. ssh runs it without your login PATH, and `roster` lives in `~/.local/bin`.
+
+**Roster side is done** (roster MR !16, stacked on !15 and !14):
+- For a password Host, `session.prepare` returns `auth: "password"` and an env with `SSH_ASKPASS`, `SSH_ASKPASS_REQUIRE=force`, `ROSTER_ASKPASS_SOCKET` and `ROSTER_ASKPASS_TOKEN`.
+- Pass the env as `wsl.exe -d D --cd ~ --exec env K=V … <argv>`. Paths are WSL-side and only valid while that `serve` is alive. Don't set DISPLAY.
+- **Tokens:** one per Session, valid for 60 s, so call `prepare` right before spawning. Never log the env.
+- **Error codes:**
+  - 14: vault locked. Show the lock screen.
+  - 11 and 12: vault CLI not logged in, or not installed.
+  - 20: Host not reviewed.
+  - 21: this Box's ssh config isn't set up.
+  - 22: no askpass channel. It only happens in-process, never through `roster serve`.
+- **ControlMaster:** an existing shared connection skips the prompt. That's fine: the token simply expires.
+- **Manual check:** confirm the real prompt wording on password gear (ESXi, switches). The helper only answers `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for X:`.

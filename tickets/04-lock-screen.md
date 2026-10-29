@@ -22,3 +22,10 @@ The leader key followed by the lock key, or `:lock`, locks the app. So does 15 m
 **Note from ticket 01:** `roster.providers.unlock(name, password)`, `lock(name)` and `vault_status(name)` exist now. After `lock`, a later `get_secret` takes the old CLI path, which unlocks again by itself if `BW_PASSWORD` is set and reads the bw-session file if one exists. `roster serve` must clear `BW_PASSWORD` (and not load the session file) at startup, so that only the lock screen can unlock it.
 
 - [ ] A serve test: with `BW_PASSWORD` set and a session file present, a lookup after `vault.lock` still reports locked.
+
+**Roster side is done** (roster MR !15):
+- `vault.status` returns `{provider, status, message?, providers[]}`. `status` is one of locked, unlocked, not-logged-in, missing-cli or unsupported.
+- `vault.unlock {password, provider?}`
+- `vault.lock` returns `{locked: [...]}`.
+- **Codes:** 10 wrong password, 11 not logged in, 12 CLI missing, 13 unsupported, 14 locked.
+- `serve` ignores `BW_PASSWORD`/`BW_SESSION` and the bw-session file.
