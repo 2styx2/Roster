@@ -33,10 +33,14 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 ```
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
-                      start-up and API-version check (backend.rs), error kinds (error.rs)
-src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get
+                      start-up and API-version check (backend.rs), error kinds (error.rs), Sessions:
+                      session.prepare → command (wsl --exec env K=V …) and the PTY manager (session.rs)
+src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
+                      session_open/write/resize/close (output over an ipc Channel as raw bytes)
 src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
+src/session/          Session tabs: tabs.ts (store: open/close/replay/resize, outside React), Sessions.tsx
+src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM), keys.ts (Leader filter), StubTerminal (tests)
 src/App.tsx           connect → error screen or empty state; Leader handling. keymap.ts = keys/options as data
 scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
 ```
@@ -62,6 +66,9 @@ scripts/win-dev.sh --ci     # sync to %LOCALAPPDATA%\roster-desk-dev\src, npm ci
 scripts/win-dev.sh          # later runs; edits need only scripts/win-sync.sh (Vite HMR / cargo rebuild)
 scripts/win-stop.sh         # stop node, the tauri CLI and the app (killing the WSL job leaves them running)
 ```
+
+Parallel worktrees each get their own Windows copy with `ROSTER_DESK_WIN_DIR=roster-desk-dev-NN` (default
+`roster-desk-dev`) on all three scripts; only one `tauri dev` can hold port 1420 at a time.
 
 **Which roster runs.** On Windows the app probes each WSL distro in `wsl -l` order (the default first) with
 `bash -lc` for roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,

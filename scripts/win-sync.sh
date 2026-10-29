@@ -4,7 +4,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/win-lib.sh"
 win_local="$(wincmd 'echo %LOCALAPPDATA%' | tr -d '\r')"
-dest="$(wslpath "$win_local")/roster-desk-dev/src/"
+dest="$(wslpath "$win_local")/$WIN_DIR/src/"
 mkdir -p "$dest"
 rsync -a --delete \
   --exclude .git --exclude node_modules --exclude target --exclude dist \

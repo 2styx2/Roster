@@ -8,6 +8,10 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type SessionEvents,
+  type SessionHandle,
+  type TermSize,
+  SessionRefusal,
 } from "./types";
 
 export interface FakeScenario {
@@ -17,6 +21,8 @@ export interface FakeScenario {
   failOnce?: boolean;
   /** Milliseconds every call waits, to see loading states. */
   delay?: number;
+  /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
+  sessionRefusal?: { code: number; message: string };
 }
 
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
@@ -83,6 +89,14 @@ export const fixtures: Record<string, FakeScenario> = {
       "Clone the infra repo to ~/infra (or set ROSTER_CONFIG in ~/.profile), then retry.",
     ),
   },
+  "not-set-up": {
+    hosts: makeHosts(12),
+    sessionRefusal: {
+      code: SessionRefusal.notSetUp,
+      message:
+        "linux-1-000 isn't in this box's ssh config (~/.ssh/config.d/roster) - run `roster sync`, or `roster setup` if this box isn't set up yet",
+    },
+  },
   "no-wsl": {
     hosts: makeHosts(0),
     startProblem: problem("no-wsl", "No WSL distro was found.", "Install WSL and a Linux distro with roster in it."),
@@ -94,8 +108,47 @@ export function fixtureFromUrl(search: string = globalThis.location?.search ?? "
   return fixtures[name] ?? { hosts: makeHosts(300) };
 }
 
+const encode = (s: string) => new TextEncoder().encode(s);
+
+/** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
+function fakeSession(id: number, host: string, size: TermSize, events: SessionEvents): SessionHandle {
+  let line = "";
+  let ended = false;
+  const end = (code: number | null, closed: boolean) => {
+    if (ended) return;
+    ended = true;
+    setTimeout(() => events.exit({ code, closed }), 0);
+  };
+  const prompt = `${host}$ `;
+  setTimeout(() => events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`)), 0);
+  return {
+    id,
+    async write(data) {
+      if (ended) throw new BackendCallError(`session ${id} isn't open`);
+      for (const ch of data) {
+        if (ch === "\r") {
+          events.output(encode("\r\n"));
+          if (line.trim() === "exit") return end(0, false);
+          line = "";
+          events.output(encode(prompt));
+        } else {
+          line += ch;
+          events.output(encode(ch === "\x1b" ? "^[" : ch));
+        }
+      }
+    },
+    async resize(s) {
+      if (!ended) events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+    },
+    async close() {
+      end(null, true);
+    },
+  };
+}
+
 export function fakeBackend(scenario: FakeScenario): Backend {
   let failures = 0;
+  let sessions = 0;
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   return {
     async connect(): Promise<BackendInfo> {
@@ -126,6 +179,21 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       const h = scenario.hosts.hosts.find((x) => x.name === name);
       if (!h) throw new BackendCallError(`unknown host '${name}'`, 2);
       return h;
+    },
+    async openSession(host, size, events) {
+      await wait();
+      const h = scenario.hosts.hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
+      if (!h.reviewed) {
+        throw new BackendCallError(
+          `${host} is not reviewed yet (reviewed: false in roster.yml) - not logging in`,
+          SessionRefusal.notReviewed,
+        );
+      }
+      if (scenario.sessionRefusal) {
+        throw new BackendCallError(scenario.sessionRefusal.message, scenario.sessionRefusal.code);
+      }
+      return fakeSession(++sessions, host, size, events);
     },
   };
 }
