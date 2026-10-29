@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Test stand-in for the Bitwarden CLI (bw). Logged in, locked; master password "hunter2".
-# Stand-in for the Bitwarden CLI: logged in, locked, master password "hunter2".
+# FAKE_BW_LOGGED_OUT=1: not logged in (status "unauthenticated", unlock fails).
 import json, os, sys
 a = [x for x in sys.argv[1:] if x != "--nointeraction"]
 SESSION = "fake-session-key"
@@ -13,12 +13,15 @@ items = [
 ]
 unlocked = os.environ.get("BW_SESSION") == SESSION
 os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("bw " + " ".join(a[:2]) + "\n")
+logged_out = bool(os.environ.get("FAKE_BW_LOGGED_OUT"))
 if a[0] == "status":
-    print(json.dumps({"status": "unlocked" if unlocked else "locked"})); sys.exit()
+    print(json.dumps({"status": "unauthenticated" if logged_out else "unlocked" if unlocked else "locked"})); sys.exit()
+if logged_out: print("You are not logged in.", file=sys.stderr); sys.exit(1)
 if a[0] == "unlock":
     pw = os.environ.get(a[a.index("--passwordenv") + 1])
     if pw == "hunter2": print(SESSION); sys.exit()
     print("Invalid master password.", file=sys.stderr); sys.exit(1)
+if a[0] == "lock": print("Your vault is locked."); sys.exit()
 if not unlocked: print("Vault is locked.", file=sys.stderr); sys.exit(1)
 if a[0] == "sync": print("Syncing complete."); sys.exit()
 q = a[2]

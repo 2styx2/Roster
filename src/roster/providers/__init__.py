@@ -26,6 +26,7 @@ class SecretError(RuntimeError):
 
 
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
+                          #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
@@ -111,6 +112,44 @@ def get_secret(ref, group):
             raise SecretError(f"provider '{name}' returned no value for {ref!r}")
         _secrets[cache_key] = val
         return val
+
+
+# ---- unlock / lock without a terminal (for `roster serve`, which gets the master password from a GUI)
+
+def _vault_op(name, op):
+    if name not in PROVIDERS:
+        raise SecretError(f"unknown password source {name!r}")
+    return PROVIDERS[name].get(op)
+
+
+def unlock(name, password):
+    """Unlock provider NAME with this master password. Never prompts, never touches a session file,
+    and the password never goes on a command line or into an error message."""
+    fn = _vault_op(name, "unlock")
+    if not fn:
+        raise SecretError(f"provider '{name}' can't be unlocked with a master password")
+    with _secret_lock:
+        PROVIDER_STATE.pop(name, None)                   # re-check readiness on the next lookup
+        fn(password, Ctx(name, None))
+
+
+def vault_status(name):
+    """Where provider NAME stands, without prompting: "unlocked", "locked", "unauthenticated" (CLI not
+    logged in), "missing" (CLI not installed), or "unsupported" (a provider with no lock to speak of)."""
+    fn = _vault_op(name, "status")
+    return fn(Ctx(name, None)) if fn else "unsupported"
+
+
+def lock(name):
+    """Forget every cached secret and NAME's state, then run the provider's own lock (if it has one).
+    Memory is cleared first, so it is forgotten even if the provider's lock then fails."""
+    _vault_op(name, "lock")
+    with _secret_lock:
+        _secrets.clear()
+        PROVIDER_STATE.pop(name, None)
+        fn = PROVIDERS[name].get("lock")
+        if fn:
+            fn(Ctx(name, None))
 
 
 # ---- extension points
