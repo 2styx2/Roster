@@ -13,6 +13,9 @@ v1 options:
 - idle lock timeout
 - roster command, for development
 - backend (used by ticket 19)
+- **themes**: pick a bundled theme or define one as a Lua table of color tokens, and override any single token
+- **layout** (decision Q33): Sidebar on/off and side, Sessions as `sidebar` or `tabs`, status bar on/off, title bar contents
+- **Folders**: personal Folders defined in Lua, merged with the ones made in the app
 
 Saving the file reloads it live. An error, whether a Lua error or a schema error, shows a toast with the file and line, and the last good Config stays active. An example `init.lua` documenting every option ships in the repo. There's no Settings screen.
 

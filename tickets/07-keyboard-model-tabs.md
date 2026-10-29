@@ -1,23 +1,42 @@
-# 07: Keyboard model and tabs
+# 07: Keyboard model and the Session Sidebar
 
-**Iteration:** 1 · **Repo:** roster-desk · **Spec:** 0001 (stories 34–43)
+**Iteration:** 1 · **Repo:** roster-desk · **Spec:** 0001 (stories 34–43, 88–93) · **Decisions:** Q31–Q35
 
-**What to build:** The full keyboard model with two focus modes.
-- **Terminal mode:** every key goes to the PTY except the leader.
+**What to build:** The full keyboard model, plus the **Sidebar** as the default way to see and switch Sessions. It replaces any tab strip that ticket 05 left behind.
+
+**Keyboard model:** two focus modes.
+- **Terminal mode:** every key goes to the PTY except the Leader.
 - **App mode:** vim bindings apply.
 
-All bindings live in one keymap table:
-- tabs: `gt`/`gT`, `<leader> 1-9`, `<leader>` then `dd` to close
-- the `:` command line, with completion of commands and Host names (`:connect HOST`, `:lock`, `:close`)
-- `<leader> ?` opens a help overlay generated from the keymap
+**Bindings:** all of them live in one keymap table: plain data with defaults, overridden later by ticket 21's `init.lua`.
+- `␣ ]` / `␣ [`: next / previous Session
+- `␣ 1-9`: go to Session N
+- `␣ d d`: close the current Session
+- `␣ e`: toggle the Sidebar
+- `␣ :`: the command line, with completion for commands and Host names (`:connect HOST`, `:lock`, `:close`)
+- `␣ s`: toggle the status bar
 
-The keymap and the options (leader key, vim on/off) are plain data tables with defaults, which ticket 21's `init.lua` will override. Until then they can be changed in one defaults file in the code, and there is no Settings screen. A thin tab strip shows each Session's Host name and state. Click focuses a tab, middle-click closes it and drag reorders. Every action can also be reached from a menu or button.
+**Key bindings panel (`␣ ?`):** a right-hand panel generated from the resolved keymap. It's grouped by area, shows where each binding comes from (`default` or, later, `init.lua`), and can be filtered.
+
+**The Sidebar (left):**
+- A **Sessions** section lists each open Session with a state dot: key, password, ended.
+- The Session on screen uses the **raised** style (a lighter fill and a 1px outline; no underlines).
+- `j`/`k` move, Enter switches, and the mouse works throughout.
+- The Inventory tree and Folders sections come in ticket 17. Leave room for them.
+
+The layout options (Sidebar on/off and side, Sessions as Sidebar or tabs, status bar on/off) are read from the options table, so ticket 21 can expose them in the Config.
 
 **Blocked by:** 05
 
 **Status:** ready-for-agent
 
-- [ ] UI tests against the fake backend cover: the leader switching modes, tab switching and closing, the command line with completion, and changing the leader key.
-- [ ] With vim off, `j`/`k`/`gt` do nothing special and all mouse paths still work.
-- [ ] The help overlay lists the current bindings, including any you've changed.
-- [ ] Manual check: drive a whole session, from opening the picker through connecting, switching tabs, closing and locking, without touching the mouse.
+- [ ] UI tests against the fake backend:
+  - the Leader switching modes;
+  - switching and closing Sessions from the Sidebar and by key;
+  - the command line with completion;
+  - changing the Leader;
+  - the Key bindings panel listing the current bindings and their source;
+  - hiding the status bar and the Sidebar.
+- [ ] With vim off, `j`/`k` do nothing special, and every mouse path still works.
+- [ ] No tab strip is shown by default. Setting the `sessions = "tabs"` option still renders a basic tab strip, so the layout stays modular.
+- [ ] Manual check: drive a whole session without the mouse: open the Picker, connect, switch Sessions, open the bindings panel, close a Session, lock.

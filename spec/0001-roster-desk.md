@@ -165,6 +165,15 @@ We build it in iterations. Each one is tested by hand before the next starts:
 86. As the user, I want to use Lua logic, such as picking a font by OS or a theme by time of day, so that one file works on all my machines.
 87. As the user, I want a documented example `init.lua` covering every option, so that I can discover what's configurable.
 
+### Sidebar, Folders and a configurable shell (decisions Q29–Q35)
+
+88. As the user, I want open Sessions listed in a left Sidebar, the way SecureCRT's Session Manager or an editor's file tree does it, so that I see everything that's open at a glance instead of squinting at tabs.
+89. As the user, I want the Session on screen marked with a raised highlight (lighter fill, thin outline) rather than an underline, so that the selection is clear but quiet.
+90. As the user, I want to put Hosts into my own Folders, such as "Lab ESXi" or "Daily", kept on my Box and never pushed to the team, so that I can organise my day without touching the Inventory.
+91. As the user, I want a bare title bar with just the logo and minimize, maximize and close, so that the window is calm and everything else lives in the Sidebar.
+92. As the user, I want to hide the status bar and the helper key hints, and see every key binding in one panel that reads from my Config, so that the screen stays clean and I can still look things up.
+93. As the user, I want every default (theme colours, fonts, Sidebar or tabs, status bar, title bar contents, keys) to be changeable from `init.lua`, so that the app is as configurable as my editor.
+
 ### Host details and web services
 
 78. As the user, I want a toggleable side panel with the host tree grouped like the Inventory, folded with `h`/`l`, so that I can browse when I don't know what I'm looking for.
