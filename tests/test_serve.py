@@ -305,7 +305,7 @@ def synced(write_config, capsys, text=INVENTORY):
     capsys.readouterr()
 
 
-def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys):
+def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys, fakes):
     """The ssh command the app starts in a PTY: the ssh-config alias `roster setup`/`sync` writes, no secret."""
     synced(write_config, capsys)
     spec = serve().call("session.prepare", {"host": "box"})["result"]
@@ -314,7 +314,7 @@ def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys):
     assert os.path.isabs(spec["argv"][0])
 
 
-def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, write_config, capsys):
+def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, write_config, capsys, fakes):
     synced(write_config, capsys)
     with pytest.raises(SystemExit) as run:
         main(["run", "server-10-0-0-9", "--", "uptime"])
@@ -324,7 +324,7 @@ def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, wr
     assert run.value.code == f"error: {err['message']}"
 
 
-def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, write_config, capsys):
+def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, write_config, capsys, fakes):
     """Password sessions need the askpass channel (ticket 06); until then, a clear refusal."""
     synced(write_config, capsys)
     s = serve()
@@ -335,7 +335,7 @@ def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, wr
     assert s.close()[0] == 0
 
 
-def test_session_prepare_needs_this_boxs_ssh_config(serve, write_config, capsys, isolated):
+def test_session_prepare_needs_this_boxs_ssh_config(serve, write_config, capsys, isolated, fakes):
     """No falling back to user@ip: without roster's ssh config there's no key, known_hosts or port for ssh."""
     write_config(INVENTORY)                                     # `roster setup` / `sync` never ran here
     err = serve().call("session.prepare", {"host": "box"})["error"]
