@@ -11,3 +11,6 @@ winexe() {
 }
 # cmd.exe can't start in a \\wsl.localhost path, so always run Windows tools from /mnt/c.
 wincmd() { (cd /mnt/c && winexe cmd.exe /c "$@"); }
+# The Windows build copy lives in %LOCALAPPDATA%\$WIN_DIR. Set ROSTER_DESK_WIN_DIR to give a
+# parallel worktree its own copy (and its own `target/`), e.g. roster-desk-dev-05.
+WIN_DIR="${ROSTER_DESK_WIN_DIR:-roster-desk-dev}"
