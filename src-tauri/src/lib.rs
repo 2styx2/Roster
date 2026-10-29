@@ -3,7 +3,7 @@
 //! All logic lives in desk-core so it can be tested without Tauri (docs/dev/testing.md).
 
 use desk_core::backend::{Backend, BackendInfo};
-use desk_core::detect::{BackendError, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
+use desk_core::detect::{BackendError, DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use desk_core::rpc::CallError;
 use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use serde_json::{Value, json};
@@ -26,7 +26,8 @@ impl BackendState {
         }
         slot.take();
         let cmd = roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref());
-        let candidate = detect(&SystemRunner, Platform::current(), &cmd)?;
+        let distro = std::env::var(DISTRO_VAR).ok();
+        let candidate = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref())?;
         let backend = Backend::start(&candidate)?;
         let info = backend.info.clone();
         *slot = Some(Arc::new(backend));
