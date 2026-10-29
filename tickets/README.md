@@ -15,6 +15,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 08 | [Terminal comfort](08-terminal-comfort.md) | 1 | 05 | ready |
 | 09 | [Design pass](09-design-pass.md) | 2 | 07, 08, 17 | ready |
 | 21 | [Lua config (`init.lua`)](21-lua-config.md) | 2 | 09 | ready |
+| 22 | [Focus mode (fullscreen, tmux-like)](22-focus-mode.md) | 2 | 07, 17 | ready |
 | 10 | [Edit a Host → Pending change → diff/discard](10-edit-host-pending-changes.md) | 3 | 04 | ready |
 | 11 | [Add a Host and mark it reviewed](11-add-host-review.md) | 3 | 10 | ready |
 | 12 | [Publish](12-publish.md) | 3 | 10 | ready |
@@ -26,4 +27,4 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
 
-**Current frontier:** 04, 07, 08 (06 once 04 is done). Iterations run in order: the frontier is limited to the current iteration even when later tickets are technically unblocked.
+**Current frontier:** 04 (in progress), 07, 08, then 06 (needs 04) and 17 (needs 07). Iterations run in order.

@@ -174,6 +174,9 @@ We build it in iterations. Each one is tested by hand before the next starts:
 92. As the user, I want to hide the status bar and the helper key hints, and see every key binding in one panel that reads from my Config, so that the screen stays clean and I can still look things up.
 93. As the user, I want every default (theme colours, fonts, Sidebar or tabs, status bar, title bar contents, keys) to be changeable from `init.lua`, so that the app is as configurable as my editor.
 
+94. As the user, I want a Focus mode where the terminal goes fullscreen with no chrome but works like tmux, with a thin status line of my Sessions and Leader keys to switch, open and close them, so that I can live in the terminal when I want to.
+95. As the user, I want my own shell config (`.bashrc`, prompt, `LS_COLORS`, vim and truecolor colour schemes) to render exactly as it does in any good terminal, so that roster-desk never fights my setup.
+
 ### Host details and web services
 
 78. As the user, I want a toggleable side panel with the host tree grouped like the Inventory, folded with `h`/`l`, so that I can browse when I don't know what I'm looking for.
