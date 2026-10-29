@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { fakeBackend, fixtures, makeHosts } from "./backend/fake";
@@ -31,16 +31,23 @@ describe("App", () => {
     expect(screen.getAllByRole("option")).toHaveLength(12);
   });
 
-  it("ignores other keys after the Leader", async () => {
+  it("ignores an unbound key after the Leader, and Esc leaves App mode", async () => {
     const { user } = await ready();
     await user.keyboard("{Control>} {/Control}x");
-    await user.keyboard("f");
+    expect(pickerOpen()).toBe(false);
+    await user.keyboard("{Escape}f");
     expect(pickerOpen()).toBe(false);
   });
 
   it("opens the Picker with a click", async () => {
     const { user } = await ready();
-    await user.click(screen.getByRole("button", { name: /find a host/i }));
+    await user.click(within(screen.getByRole("main")).getByRole("button", { name: /find a host/i }));
+    expect(pickerOpen()).toBe(true);
+  });
+
+  it("opens the Picker from the Sidebar's button too", async () => {
+    const { user } = await ready();
+    await user.click(within(screen.getByRole("navigation", { name: "Sidebar" })).getByRole("button", { name: /find a host/i }));
     expect(pickerOpen()).toBe(true);
   });
 
@@ -59,7 +66,8 @@ describe("App", () => {
     const target = screen.getAllByRole("option")[5]!.dataset.host!;
     await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
     expect(pickerOpen()).toBe(false);
-    expect(screen.getByRole("tab", { name: new RegExp(target) })).toBeInTheDocument();
+    const sessions = screen.getByRole("region", { name: "Sessions" });
+    expect(within(sessions).getByRole("button", { current: true })).toHaveAccessibleName(new RegExp(`^${target}`));
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(target);
   });

@@ -1,0 +1,122 @@
+import { describe, expect, it } from "vitest";
+import { builtinCommandRegistry, complete as completeIn, describeLine as describeIn, parseLine as parseIn, runLine as runIn, type CommandContext } from "./table";
+
+const registry = builtinCommandRegistry();
+const commands = registry.list();
+const runLine = (ctx: CommandContext, line: string) => runIn(registry, ctx, line);
+const parseLine = (line: string) => parseIn(registry, line);
+const describeLine = (line: string) => describeIn(registry, line);
+const complete = (input: string, hosts: readonly string[]) => completeIn(registry, input, hosts);
+
+/** A CommandContext that writes down what it was asked to do. */
+function recorder() {
+  const calls: string[] = [];
+  const ctx: CommandContext = {
+    openPicker: () => calls.push("picker"),
+    connect: (h) => calls.push(`connect ${h}`),
+    selectRelative: (d) => calls.push(`relative ${d}`),
+    selectNth: (n) => calls.push(`nth ${n}`),
+    close: (n) => calls.push(`close ${n ?? "current"}`),
+    toggleSidebar: () => calls.push("sidebar"),
+    toggleStatusBar: () => calls.push("statusbar"),
+    openCommandLine: () => calls.push("cmdline"),
+    toggleKeys: () => calls.push("keys"),
+    lock: () => calls.push("lock"),
+    toTerminal: () => calls.push("terminal"),
+    list: (m) => calls.push(`list ${m}`),
+    say: (m) => calls.push(`say ${m}`),
+  };
+  return { ctx, calls };
+}
+
+const hosts = ["esxi-02", "esxi-01", "net-sw-core-01", "orion3", "hub2", "lab-hub2"];
+
+describe("runLine", () => {
+  it("runs a command by its name, with its argument", () => {
+    const { ctx, calls } = recorder();
+    runLine(ctx, "connect esxi-02");
+    runLine(ctx, " session 3 ");
+    runLine(ctx, "close");
+    runLine(ctx, "close 2");
+    runLine(ctx, "next");
+    runLine(ctx, "prev");
+    runLine(ctx, "lock");
+    expect(calls).toEqual(["connect esxi-02", "nth 3", "close current", "close 2", "relative 1", "relative -1", "lock"]);
+  });
+
+  it("says what's wrong with a bad line, and ignores an empty one", () => {
+    const { ctx, calls } = recorder();
+    runLine(ctx, "conect x");
+    runLine(ctx, "connect");
+    runLine(ctx, "lock now");
+    runLine(ctx, "session x");
+    runLine(ctx, "  ");
+    expect(calls).toEqual([
+      "say Not a command: conect",
+      "say connect needs a Host name",
+      "say lock takes no argument",
+      "say session needs a number",
+    ]);
+  });
+
+  it("can run every command in the table", () => {
+    for (const c of commands) {
+      const { ctx, calls } = recorder();
+      runLine(ctx, c.arg === "host" ? `${c.id} esxi-02` : c.arg === "number" ? `${c.id} 1` : c.id);
+      expect(calls, c.id).toHaveLength(1);
+      expect(calls[0], c.id).not.toMatch(/^say/);
+    }
+  });
+});
+
+describe("parseLine", () => {
+  it("finds the command and its argument", () => {
+    expect(parseLine("session 2")).toMatchObject({ kind: "ok", arg: "2", command: { id: "session", source: "builtin" } });
+    expect(parseLine("")).toEqual({ kind: "empty" });
+  });
+});
+
+describe("describeLine", () => {
+  it("names what a line does, for the Key bindings panel", () => {
+    expect(describeLine("session 1")).toEqual({ area: "Sessions", label: "Go to Session 1" });
+    expect(describeLine("close")).toEqual({ area: "Sessions", label: "Close the Session" });
+    expect(describeLine("nope")).toEqual({ area: "Other", label: "nope (not a command)" });
+  });
+});
+
+describe("complete", () => {
+  it("offers every command for an empty line", () => {
+    expect(complete("", hosts)).toEqual(expect.arrayContaining(["connect ", "close", "lock"]));
+  });
+
+  it("completes a command name, with a space when it needs an argument", () => {
+    expect(complete("co", hosts)).toEqual(["connect "]);
+    expect(complete("l", hosts)).toEqual(["lock"]);
+    expect(complete("cl", hosts)).toEqual(["close"]);
+  });
+
+  it("completes Host names after connect: prefix matches first, then the rest that contain it", () => {
+    expect(complete("connect esx", hosts)).toEqual(["connect esxi-01", "connect esxi-02"]);
+    expect(complete("connect hub", hosts)).toEqual(["connect hub2", "connect lab-hub2"]);
+    expect(complete("connect ", hosts)).toHaveLength(hosts.length);
+  });
+
+  it("offers nothing for other arguments", () => {
+    expect(complete("lock x", hosts)).toEqual([]);
+  });
+});
+
+describe("the registry", () => {
+  it("runs a command the Config or a Plugin registered, and lets one shadow a built-in", () => {
+    const r = builtinCommandRegistry();
+    const { ctx, calls } = recorder();
+    r.register({ id: "home", source: "init.lua", area: "Hosts", label: () => "Home box", run: (c) => c.connect("orion3") });
+    const undo = r.register({ id: "lock", source: "my-plugin", area: "App", label: () => "Lock", run: (c) => c.say("no") });
+    runIn(r, ctx, "home");
+    runIn(r, ctx, "lock");
+    undo();
+    runIn(r, ctx, "lock");
+    expect(calls).toEqual(["connect orion3", "say no", "lock"]);
+    expect(completeIn(r, "ho", [])).toEqual(["home"]);
+  });
+});

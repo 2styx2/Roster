@@ -2,59 +2,49 @@
 // them later without code changes. Chords are written as chordOf() names them: modifiers in the
 // order Ctrl, Alt, Meta, Shift, then the key ("Ctrl+Space", "Ctrl+n", "j", "G", "ArrowDown").
 // A sequence is chords separated by spaces ("d d", "g g").
+//
+// App-mode keys map to a command line from the one command table (commands/table.ts), e.g.
+// "session 1" or "close", exactly what you'd type after `:`. The Picker's own keys map to the
+// Picker's local actions. Bindings live in a Registry (ADR 0004), one entry per context and key,
+// each with its source; Keymap is the resolved view the app reads.
 
-type Digit = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+/** A line for the command table: a command name and maybe its argument ("session 1"). */
+export type CommandLine = string;
 
-export type Action =
-  | "picker.open"
-  | "picker.down"
-  | "picker.up"
-  | "picker.choose"
-  | "picker.close"
-  | "session.next"
-  | "session.prev"
-  | `session.goto.${Digit}`
-  | "session.close"
-  | "sidebar.toggle"
-  | "statusbar.toggle"
-  | "cmdline.open"
-  | "keys.toggle"
-  | "app.lock"
-  | "mode.terminal"
-  | "list.down"
-  | "list.up"
-  | "list.top"
-  | "list.bottom"
-  | "list.choose";
+export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.close";
 
-/** Where a binding (or option) came from: the built-in defaults or the user's Config. */
-export type Source = "default" | "init.lua";
+import { BUILTIN, CONFIG, Registry, type Entry, type Source } from "./registry";
 
-export interface Binding {
-  action: Action;
+export interface Binding<T extends string = CommandLine> {
+  action: T;
   source: Source;
 }
 
 /** Key (or sequence) → binding. */
-export type KeyTable = Record<string, Binding>;
+export type KeyTable<T extends string = CommandLine> = Record<string, Binding<T>>;
 
 export interface Keymap {
-  /** App mode (GLOSSARY): the keys after the Leader, until Esc or an action takes you back. */
+  /** App mode (GLOSSARY): the keys after the Leader, until Esc or a command takes you back. */
   leader: KeyTable;
-  /** App mode, in a list (the Sidebar), always. */
+  /** App mode, moving in a list (the Sidebar), always. */
   list: KeyTable;
-  /** App mode, in a list, when vim keys are on. */
+  /** App mode, moving in a list, when vim keys are on. */
   listVim: KeyTable;
   /** In the Picker, always. */
-  picker: KeyTable;
+  picker: KeyTable<PickerAction>;
   /** In the Picker's result list, when vim keys are on. */
-  pickerVim: KeyTable;
+  pickerVim: KeyTable<PickerAction>;
 }
 
 export type KeymapContext = keyof Keymap;
 
+type Plain<T> = { [C in keyof T]: T[C] extends KeyTable<infer A> ? Record<string, A> : never };
+
+/** Keymap with plain actions, no sources: how defaults are written. */
+export type KeymapTables = Plain<Keymap>;
+
 /** What the Config hands over: per context, a key → action, or null to unbind a default. */
-export type KeymapOverrides = Partial<Record<KeymapContext, Record<string, Action | null>>>;
+export type KeymapOverrides = { [C in keyof KeymapTables]?: Record<string, KeymapTables[C][string] | null> };
 
 export interface Options {
   /** The chord that takes the keyboard back from a terminal (GLOSSARY: Leader). */
@@ -77,30 +67,24 @@ export const defaultOptions: Options = {
   statusBar: { visible: true },
 };
 
-const digits: Digit[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-export const defaultBindings: Record<KeymapContext, Record<string, Action>> = {
+export const defaultBindings: KeymapTables = {
   leader: {
-    f: "picker.open",
-    "]": "session.next",
-    "[": "session.prev",
-    ...Object.fromEntries(digits.map((d) => [d, `session.goto.${d}` as const])),
-    "d d": "session.close",
-    e: "sidebar.toggle",
-    s: "statusbar.toggle",
-    ":": "cmdline.open",
-    "?": "keys.toggle",
-    L: "app.lock",
-    Escape: "mode.terminal",
+    f: "find",
+    "]": "next",
+    "[": "prev",
+    ...Object.fromEntries(digits.map((d) => [d, `session ${d}`])),
+    "d d": "close",
+    e: "sidebar",
+    s: "statusbar",
+    ":": "cmdline",
+    "?": "keys",
+    L: "lock",
+    Escape: "terminal",
   },
-  list: {
-    ArrowDown: "list.down",
-    ArrowUp: "list.up",
-    Home: "list.top",
-    End: "list.bottom",
-    Enter: "list.choose",
-  },
-  listVim: { j: "list.down", k: "list.up", "g g": "list.top", G: "list.bottom" },
+  list: { ArrowDown: "down", ArrowUp: "up", Home: "top", End: "bottom", Enter: "choose" },
+  listVim: { j: "down", k: "up", "g g": "top", G: "bottom" },
   picker: {
     ArrowDown: "picker.down",
     ArrowUp: "picker.up",
@@ -112,22 +96,50 @@ export const defaultBindings: Record<KeymapContext, Record<string, Action>> = {
   pickerVim: { j: "picker.down", k: "picker.up" },
 };
 
-function tag(table: Record<string, Action>, source: Source): KeyTable {
-  return Object.fromEntries(Object.entries(table).map(([k, action]) => [k, { action, source }]));
+/** One key binding in the keymap registry. `action: null` unbinds the key (shadowing a default). */
+export interface KeyBindingEntry extends Entry {
+  context: KeymapContext;
+  keys: string;
+  action: string | null;
 }
 
-/** The defaults with the Config's bindings layered over them (ticket 21 passes those in). */
-export function resolveKeymap(overrides: KeymapOverrides = {}): Keymap {
-  const out = {} as Keymap;
-  for (const context of Object.keys(defaultBindings) as KeymapContext[]) {
-    const table = new Map(Object.entries(tag(defaultBindings[context], "default")));
-    for (const [key, action] of Object.entries(overrides[context] ?? {})) {
-      if (action === null) table.delete(key);
-      else table.set(key, { action, source: "init.lua" });
+export const bindingId = (context: KeymapContext, keys: string) => `${context} ${keys}`;
+
+export type KeymapRegistry = Registry<KeyBindingEntry>;
+
+/** Registers a set of bindings from one source; returns a function that removes them all. */
+export function registerBindings(registry: KeymapRegistry, tables: KeymapOverrides, source: Source): () => void {
+  const disposers: (() => void)[] = [];
+  for (const context of Object.keys(tables) as KeymapContext[]) {
+    for (const [keys, action] of Object.entries(tables[context] ?? {})) {
+      disposers.push(registry.register({ id: bindingId(context, keys), source, context, keys, action }));
     }
-    out[context] = Object.fromEntries(table);
   }
-  return out;
+  return () => disposers.forEach((d) => d());
+}
+
+/** The resolved keymap from the registry's entries in effect. */
+export function keymapOf(entries: readonly KeyBindingEntry[]): Keymap {
+  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {} };
+  for (const e of entries) {
+    if (e.action === null) continue;
+    (keymap[e.context] as KeyTable<string>)[e.keys] = { action: e.action, source: e.source };
+  }
+  return keymap;
+}
+
+/** A keymap registry holding the built-in bindings. */
+export function builtinKeymap(): KeymapRegistry {
+  const registry = new Registry<KeyBindingEntry>();
+  registerBindings(registry, defaultBindings, BUILTIN);
+  return registry;
+}
+
+/** The built-in bindings with the Config's layered over them (a shortcut for tests and ticket 21). */
+export function resolveKeymap(overrides: KeymapOverrides = {}): Keymap {
+  const registry = builtinKeymap();
+  registerBindings(registry, overrides, CONFIG);
+  return keymapOf(registry.list());
 }
 
 export const defaultKeymap: Keymap = resolveKeymap();

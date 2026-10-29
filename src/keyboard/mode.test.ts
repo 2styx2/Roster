@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { defaultKeymap, defaultOptions, resolveKeymap } from "../keymap";
 import { press, terminalMode, type KeyState } from "./mode";
 
-const ctx = { keymap: defaultKeymap, leader: defaultOptions.leader, vim: true };
+const stays = new Set(["down", "up", "top", "bottom"]);
+const ctx = { keymap: defaultKeymap, leader: defaultOptions.leader, vim: true, staysInAppMode: (l: string) => stays.has(l) };
 
 /** Presses each chord in turn; returns the final state and every action that fired. */
 function run(chords: string[], c = ctx, start: KeyState = terminalMode) {
@@ -28,7 +29,7 @@ describe("press (Terminal mode / App mode)", () => {
 
   it("runs a Leader binding and goes back to the terminal", () => {
     const r = run(["Ctrl+Space", "]"]);
-    expect(r.actions).toEqual(["session.next"]);
+    expect(r.actions).toEqual(["next"]);
     expect(r.consumed).toEqual([true, true]);
     expect(r.state.mode).toBe("terminal");
   });
@@ -37,21 +38,21 @@ describe("press (Terminal mode / App mode)", () => {
     const half = run(["Ctrl+Space", "d"]);
     expect(half.actions).toEqual([]);
     expect(half.state).toEqual({ mode: "app", pending: ["d"] });
-    expect(run(["Ctrl+Space", "d", "d"]).actions).toEqual(["session.close"]);
+    expect(run(["Ctrl+Space", "d", "d"]).actions).toEqual(["close"]);
   });
 
   it("stays in App mode while moving in a list, until Esc", () => {
     const r = run(["Ctrl+Space", "j", "j", "k", "g", "g", "G"]);
-    expect(r.actions).toEqual(["list.down", "list.down", "list.up", "list.top", "list.bottom"]);
+    expect(r.actions).toEqual(["down", "down", "up", "top", "bottom"]);
     expect(r.state.mode).toBe("app");
     const back = run(["Escape"], ctx, r.state);
-    expect(back.actions).toEqual(["mode.terminal"]);
+    expect(back.actions).toEqual(["terminal"]);
     expect(back.state.mode).toBe("terminal");
   });
 
   it("with vim off, j and k do nothing, but arrows still move", () => {
     const r = run(["Ctrl+Space", "j", "k", "ArrowDown"], { ...ctx, vim: false });
-    expect(r.actions).toEqual(["list.down"]);
+    expect(r.actions).toEqual(["down"]);
     expect(r.state.mode).toBe("app");
   });
 
@@ -63,8 +64,8 @@ describe("press (Terminal mode / App mode)", () => {
   });
 
   it("uses whatever Leader and bindings it's given", () => {
-    const c = { ...ctx, leader: "Ctrl+b", keymap: resolveKeymap({ leader: { n: "session.next" } }) };
+    const c = { ...ctx, leader: "Ctrl+b", keymap: resolveKeymap({ leader: { n: "next" } }) };
     expect(run(["Ctrl+Space"], c).state.mode).toBe("terminal");
-    expect(run(["Ctrl+b", "n"], c).actions).toEqual(["session.next"]);
+    expect(run(["Ctrl+b", "n"], c).actions).toEqual(["next"]);
   });
 });

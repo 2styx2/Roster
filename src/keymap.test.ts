@@ -19,15 +19,15 @@ describe("chordOf", () => {
 describe("resolveKeymap", () => {
   it("tags every built-in binding as coming from the defaults", () => {
     const keymap = resolveKeymap();
-    expect(keymap.leader["f"]).toEqual({ action: "picker.open", source: "default" });
-    expect(keymap.leader["d d"]).toEqual({ action: "session.close", source: "default" });
-    expect(keymap.picker["Ctrl+n"]).toEqual({ action: "picker.down", source: "default" });
+    expect(keymap.leader["f"]).toEqual({ action: "find", source: "builtin" });
+    expect(keymap.leader["d d"]).toEqual({ action: "close", source: "builtin" });
+    expect(keymap.picker["Ctrl+n"]).toEqual({ action: "picker.down", source: "builtin" });
   });
 
   it("layers the Config's bindings over the defaults, and null unbinds a key", () => {
-    const keymap = resolveKeymap({ leader: { t: "session.next", "]": null } });
-    expect(keymap.leader["t"]).toEqual({ action: "session.next", source: "init.lua" });
+    const keymap = resolveKeymap({ leader: { t: "next", "]": null } });
+    expect(keymap.leader["t"]).toEqual({ action: "next", source: "init.lua" });
     expect(keymap.leader["]"]).toBeUndefined();
-    expect(keymap.leader["["]).toEqual({ action: "session.prev", source: "default" });
+    expect(keymap.leader["["]).toEqual({ action: "prev", source: "builtin" });
   });
 });
