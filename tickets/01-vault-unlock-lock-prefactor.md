@@ -6,10 +6,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done (roster 8f5a3ae)
 
-- [ ] Unlocking Bitwarden with a given master password succeeds against the fake `bw`, with no TTY and no session file written.
-- [ ] A wrong master password gives a clear, non-secret error.
-- [ ] Locking clears the session key from the process environment, the secret cache and the provider state. The next secret lookup reports "locked".
-- [ ] "Not logged in" and "CLI missing" can be told apart as distinct states.
-- [ ] Every existing test still passes. `ruff check` is clean.
+- [x] Unlocking Bitwarden with a given master password succeeds against the fake `bw`, with no TTY and no session file written.
+- [x] A wrong master password gives a clear, non-secret error.
+- [x] Locking clears the session key from the process environment, the secret cache and the provider state. The next secret lookup reports "locked".
+- [x] "Not logged in" and "CLI missing" can be told apart as distinct states.
+- [x] Every existing test still passes. `ruff check` is clean.

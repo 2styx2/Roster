@@ -18,3 +18,7 @@ The leader key followed by the lock key, or `:lock`, locks the app. So does 15 m
 - [ ] The app's unlock, wrong-password and missing/not-logged-in flows are covered by UI tests against the fake backend.
 - [ ] The idle timer locks the app after the configured time. A test drives it with a fake clock.
 - [ ] Manual check on Windows: unlock with the real vault, lock, unlock again.
+
+**Note from ticket 01:** `roster.providers.unlock(name, password)`, `lock(name)` and `vault_status(name)` exist now. After `lock`, a later `get_secret` takes the old CLI path, which unlocks again by itself if `BW_PASSWORD` is set and reads the bw-session file if one exists. `roster serve` must clear `BW_PASSWORD` (and not load the session file) at startup, so that only the lock screen can unlock it.
+
+- [ ] A serve test: with `BW_PASSWORD` set and a session file present, a lookup after `vault.lock` still reports locked.
