@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { fakeBackend, fixtures, makeHosts } from "./backend/fake";
 import { StubTerminal } from "./terminal/StubTerminal";
+import { memoryPlatform } from "./platform/memory";
 
 async function ready(scenario = { hosts: makeHosts(12) }) {
   const backend = fakeBackend(scenario);
@@ -96,5 +97,28 @@ describe("App", () => {
     vi.spyOn(backend, "listHosts").mockRejectedValue(new Error("the backend exited (code Some(1))"));
     render(<App backend={backend} />);
     expect(await screen.findByText(/the backend exited/)).toBeInTheDocument();
+  });
+
+  it("ranks equal matches by recent use, remembered in the State file", async () => {
+    const hosts = makeHosts(12);
+    const [a, b] = [hosts.hosts[9]!.name, hosts.hosts[5]!.name];
+    const platform = memoryPlatform({ state: { version: 1, recentHosts: [a] } });
+    const user = userEvent.setup();
+    render(<App backend={fakeBackend({ hosts })} platform={platform} terminalView={StubTerminal} />);
+    await screen.findByText(/12 hosts/i);
+    await user.keyboard("{Control>} {/Control}f");
+    expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(a);
+    await user.keyboard(b);
+    await user.keyboard("{Enter}");
+    await vi.waitFor(() => expect(platform.saved()).toMatchObject({ version: 1, recentHosts: [b, a] }));
+  });
+
+  it("starts without recent Hosts when the State file is unreadable", async () => {
+    const platform = memoryPlatform({ state: { recentHosts: "nope" } });
+    render(<App backend={fakeBackend({ hosts: makeHosts(12) })} platform={platform} terminalView={StubTerminal} />);
+    await screen.findByText(/12 hosts/i);
+    const user = userEvent.setup();
+    await user.keyboard("{Control>} {/Control}f");
+    expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(makeHosts(12).hosts[0]!.name);
   });
 });

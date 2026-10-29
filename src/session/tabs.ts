@@ -14,6 +14,8 @@ export type TabStatus =
 export interface Tab {
   id: number;
   host: string;
+  /** The Host's name, with " (2)", " (3)"… on further Sessions to the same Host. */
+  label: string;
   status: TabStatus;
 }
 
@@ -21,6 +23,8 @@ export interface TabsSnapshot {
   tabs: readonly Tab[];
   active: number | null;
 }
+
+const encoder = new TextEncoder();
 
 /** Output kept per tab for a terminal that attaches later (or again). */
 const REPLAY_LIMIT = 1024 * 1024;
@@ -39,6 +43,8 @@ interface Entry {
   session: SessionHandle | null;
   /** Closed by the user before the Session finished opening. */
   closing: boolean;
+  /** Counts the Session starts in this tab, so a late event from an earlier one is ignored. */
+  attempt: number;
   size: TermSize;
   /** The size the Session was last told about. */
   sentSize: TermSize;
@@ -94,14 +100,27 @@ export class Tabs {
     entry.sink?.(data);
   }
 
-  /** Opens a Session to `host` in a new tab, which becomes the active one. Returns the tab id. */
+  /** "host", or "host (n)" with the smallest n no other tab to `host` uses. */
+  private label(host: string, except: number | null): string {
+    const taken = new Set(
+      this.entries.filter((e) => e.tab.host === host && e.tab.id !== except).map((e) => e.tab.label),
+    );
+    let n = 1;
+    const name = (i: number) => (i === 1 ? host : `${host} (${i})`);
+    while (taken.has(name(n))) n++;
+    return name(n);
+  }
+
+  /** Opens a Session to `host` in a new tab, which becomes the active one. Returns the tab id.
+   * Any number of tabs may hold Sessions to the same Host. */
   open(host: string): number {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, status: { state: "connecting" } },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" } },
       session: null,
       closing: false,
+      attempt: 0,
       size,
       sentSize: size,
       replay: [],
@@ -117,18 +136,51 @@ export class Tabs {
     this.entries.push(entry);
     this.active = id;
     this.changed();
+    this.start(entry);
+    return id;
+  }
+
+  /**
+   * Opens a new Session in a tab whose Session has ended or was refused, to the same Host or to
+   * `host`. It asks roster again (`session.prepare`), so a fixed problem or a rebooted Host just
+   * works. The old output stays above. Returns false (and does nothing) for a tab that's still
+   * connecting or open.
+   */
+  reconnect(id: number, host?: string): boolean {
+    const entry = this.find(id);
+    const state = entry?.tab.status.state;
+    if (!entry || (state !== "ended" && state !== "failed")) return false;
+    const to = host ?? entry.tab.host;
+    const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
+    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" } };
+    entry.pending = [];
+    this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
+    this.changed();
+    this.start(entry);
+    return true;
+  }
+
+  /** Asks the Backend for a Session for the tab (it's in the "connecting" state). */
+  private start(entry: Entry) {
+    const attempt = ++entry.attempt;
+    const current = () => entry.attempt === attempt && !entry.closing;
+    const { id, host } = entry.tab;
+    entry.sentSize = { ...entry.size };
     this.backend
-      .openSession(host, size, {
-        output: (data) => this.output(entry, data),
+      .openSession(host, entry.size, {
+        output: (data) => {
+          if (current()) this.output(entry, data);
+        },
         exit: (exit) => {
+          if (!current()) return;
           entry.session = null;
           if (this.find(id)) this.setStatus(entry, { state: "ended", exit });
         },
       })
       .then(
         (session) => {
-          if (entry.closing) {
-            void session.close();
+          if (!current()) {
+            void session.close().catch(() => {});
             return;
           }
           // It may already have ended (ssh failing at once): then there's nothing to talk to.
@@ -139,13 +191,12 @@ export class Tabs {
           this.sendSize(entry);
         },
         (e: unknown) => {
-          if (entry.closing) return;
+          if (!current()) return;
           const message = e instanceof Error ? e.message : String(e);
           const code = e instanceof BackendCallError ? e.code : null;
           this.setStatus(entry, { state: "failed", message, code });
         },
       );
-    return id;
   }
 
   /** Closes the tab and ends its Session (kills ssh). */
