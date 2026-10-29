@@ -1,0 +1,13 @@
+# 13: Prefactor: Bitwarden can create Vault items
+
+**Iteration:** 4 · **Repo:** roster · **Spec:** 0001 (stories 73, 75, 77)
+
+**What to build:** Add an optional "create" capability to the provider interface and implement it for Bitwarden only. It creates a login item with a name, a username, the password, and the address in the URI field. It refuses if an item with that exact name already exists. `vault.create_item` exposes it through `serve`, and `vault.status` reports whether the provider can write.
+
+**Blocked by:** 01
+
+**Status:** ready-for-agent
+
+- [ ] The fake `bw` supports create. pytest covers a successful create, a refused duplicate, and the item's fields.
+- [ ] The password is passed to `bw` without ever appearing in a command line.
+- [ ] Other providers report that they can't write.
