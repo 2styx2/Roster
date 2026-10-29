@@ -18,6 +18,10 @@ Two exceptions are typed by you and leave the UI straight away:
 - **The master password:** sent once to `vault.unlock`, and the field clears.
 - **A Quick Connect password:** sent once to `quick.prepare`, held under an askpass token.
 
+## No vault of our own
+
+roster-desk never stores secrets: there's no built-in vault, now or later (decision Q40). Passwords live in the user's password manager: Bitwarden, 1Password, `pass`, or KeePassXC for local-only use (Q41). roster fetches a password for one use and forgets it.
+
 ## Locking
 
 - Unlocking the vault is what unlocks the app. There is no separate app password.
