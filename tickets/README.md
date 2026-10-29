@@ -30,4 +30,4 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
 
-**Current frontier:** 06, 07, 08, then 17 (needs 07). Iterations run in order.
+**Current frontier:** 06, 07, then 17 (needs 07). Iterations run in order.
