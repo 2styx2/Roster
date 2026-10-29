@@ -7,9 +7,11 @@ Add a method by writing a function (state, params) -> result and listing it in M
 """
 
 import json
+import shutil
 import sys
 
 from . import __version__
+from .common import not_reviewed, ssh_config_file, ssh_dir
 from .config import find_config, load_config
 from .providers import PROVIDERS, setup_providers
 
@@ -87,10 +89,49 @@ def text_param(params, key):
     return v
 
 
+# ---------------------------------------------------------------- sessions (ticket 05; ADR 0002)
+
+# session.* error codes live in 20-29 (vault.* has 10-19)
+NOT_REVIEWED = 20           # the Host came from discover and has reviewed: false; same wording as `roster run`
+NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh client, or the Host isn't in roster's ssh config
+PASSWORD_SESSION = 22       # a password-only Host (enroll: false): needs the askpass channel, not built yet (ticket 06)
+
+def session_prepare(state, params):
+    """What the app runs in a PTY to open a Session: the system ssh, never a secret.
+    It uses the ssh-config alias `roster setup`/`sync` writes (Host NAME), so the key, user, port,
+    known_hosts and connection sharing all come from the config, exactly as `roster run` does."""
+    name = text_param(params, "host")
+    h = state.inventory()["hosts"].get(name)
+    if h is None:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    if not h["reviewed"]:
+        raise RpcError(NOT_REVIEWED, not_reviewed(h))
+    if not h["enroll"]:
+        raise RpcError(PASSWORD_SESSION, f"{h['name']} takes a password (enroll: false) - "
+                                         "password sessions aren't supported yet")
+    ssh = shutil.which("ssh")         # absolute: the app spawns it with `wsl.exe --exec`, where PATH is thin
+    if ssh is None:
+        raise RpcError(NOT_SET_UP, "no ssh client on this box's PATH - install OpenSSH (openssh-client)")
+    if not in_ssh_config(h["name"]):
+        raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
+                                   "run `roster sync`, or `roster setup` if this box isn't set up yet")
+    return {"argv": [ssh, "-o", "BatchMode=yes", h["name"]], "env": {},
+            "host": h["name"], "auth": "key"}
+
+
+def in_ssh_config(name):
+    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
+    ours, main = ssh_config_file(), ssh_dir() / "config"
+    if not ours.is_file() or not main.is_file() or str(ours) not in main.read_text():
+        return False
+    return f"Host {name}" in ours.read_text().splitlines()
+
+
 METHODS = {
     "inventory.info": inventory_info,
     "hosts.list": hosts_list,
     "host.get": host_get,
+    "session.prepare": session_prepare,
 }
 
 

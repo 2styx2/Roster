@@ -1,6 +1,8 @@
 """`roster serve`: JSON-RPC 2.0 over stdin/stdout, driven as the desktop app drives it - a subprocess."""
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 
@@ -183,3 +185,65 @@ def test_config_path_from_flag_or_environment(serve, write_config, monkeypatch):
     assert serve("--config", str(other)).call("inventory.info")["result"]["path"] == str(other)
     monkeypatch.setenv("ROSTER_CONFIG", str(other))
     assert serve().call("inventory.info")["result"]["host_count"] == 3
+
+
+# ---------------------------------------------------------------- session.prepare (ticket 05)
+
+def synced(write_config, capsys, text=INVENTORY):
+    """roster.yml written and `roster sync` run, so this box's ssh config has every Host's alias."""
+    write_config(text)
+    assert main(["sync"]) == 0
+    capsys.readouterr()
+
+
+def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys, fakes):
+    """The ssh command the app starts in a PTY: the ssh-config alias `roster setup`/`sync` writes, no secret."""
+    synced(write_config, capsys)
+    spec = serve().call("session.prepare", {"host": "box"})["result"]
+    assert spec == {"argv": [shutil.which("ssh"), "-o", "BatchMode=yes", "box"], "env": {},
+                    "host": "box", "auth": "key"}
+    assert os.path.isabs(spec["argv"][0])
+
+
+def test_session_prepare_refuses_an_unreviewed_host_as_roster_run_does(serve, write_config, capsys, fakes):
+    synced(write_config, capsys)
+    with pytest.raises(SystemExit) as run:
+        main(["run", "server-10-0-0-9", "--", "uptime"])
+    err = serve().call("session.prepare", {"host": "server-10-0-0-9"})["error"]
+    assert err == {"code": 20, "message": "server-10-0-0-9 is not reviewed yet (reviewed: false in roster.yml) "
+                                          "- not logging in"}
+    assert run.value.code == f"error: {err['message']}"
+
+
+def test_session_prepare_for_a_password_only_host_is_not_supported_yet(serve, write_config, capsys, fakes):
+    """Password sessions need the askpass channel (ticket 06); until then, a clear refusal."""
+    synced(write_config, capsys)
+    s = serve()
+    err = s.call("session.prepare", {"host": "esx"})["error"]
+    assert err["code"] == 22 and "password" in err["message"] and "esx" in err["message"]
+    assert s.call("session.prepare", {"host": "nope"})["error"] == {"code": 2, "message": "unknown host 'nope'"}
+    assert s.call("session.prepare", {})["error"]["code"] == -32602
+    assert s.close()[0] == 0
+
+
+def test_session_prepare_needs_this_boxs_ssh_config(serve, write_config, capsys, isolated, fakes):
+    """No falling back to user@ip: without roster's ssh config there's no key, known_hosts or port for ssh."""
+    write_config(INVENTORY)                                     # `roster setup` / `sync` never ran here
+    err = serve().call("session.prepare", {"host": "box"})["error"]
+    assert err["code"] == 21 and "roster sync" in err["message"] and "roster setup" in err["message"]
+
+    synced(write_config, capsys)
+    write_config(INVENTORY.replace("      esx:", "      box2: {ip: 10.0.0.7}\n      esx:"))   # added since sync
+    s = serve()
+    assert s.call("session.prepare", {"host": "box2"})["error"]["code"] == 21
+    assert s.call("session.prepare", {"host": "box"})["result"]["argv"][-1] == "box"
+
+    (isolated["home"] / ".ssh" / "config").write_text("Host *\n    ServerAliveInterval 5\n")  # Include removed
+    assert serve().call("session.prepare", {"host": "box"})["error"]["code"] == 21
+
+
+def test_session_prepare_without_an_ssh_client(serve, write_config, capsys, isolated, monkeypatch):
+    synced(write_config, capsys)
+    monkeypatch.setenv("PATH", str(isolated["work"]))           # serve itself starts from sys.executable
+    err = serve().call("session.prepare", {"host": "box"})["error"]
+    assert err == {"code": 21, "message": "no ssh client on this box's PATH - install OpenSSH (openssh-client)"}
