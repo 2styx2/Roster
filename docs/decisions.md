@@ -54,4 +54,5 @@ These came from a grilling session in which each question was asked with a recom
 - No plugin HTML/JS in v1.
 
 See [ADR 0004](adr/0004-lua-plugins-and-packages.md). Tickets 23–24, iteration 7. |
+| Q39 | Per-mode layout | **Each view mode has its own layout table** in `init.lua`: which pieces show, where they go, and in what order. The pieces are the title bar, Sidebar (and its sections), session bar, status bar and its segments, and finders. For example, Focus can show the session bar at the bottom, and Standard can hide the status bar. Plugins can add pieces and segments to any mode. The defaults are the two modes as prototyped. |
 | Q22 | Build order | A thin slice first, then test it, then the next iteration. See [roadmap.md](roadmap.md). |
