@@ -352,6 +352,36 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 
 Requests without an `id` (notifications) run but get no reply.
 
+### Vault: the lock screen
+
+`serve` starts locked, and only `vault.unlock` unlocks it. At startup it drops any `BW_PASSWORD` and `BW_SESSION` it inherited, and providers stop unlocking by themselves: no bw-session file, no `BW_PASSWORD`, no prompt. The master password goes to the provider in an environment variable, never on a command line. The session key stays in `serve`'s memory and is never written to the bw-session file. Neither ever appears in a response or on stderr.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.status` | none | `{provider, status, message?, providers: [{provider, status, message?}, ...]}` |
+| `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
+| `vault.lock` | none | `{locked: [names]}` |
+
+- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (in practice `bw`). If none does, `provider` is `null` and `status` is `unsupported`.
+- `status` is one of:
+  - `locked`
+  - `unlocked`
+  - `not-logged-in`: the CLI isn't logged in on this box
+  - `missing-cli`: the CLI isn't installed
+  - `unsupported`: no master password, e.g. `env` or `prompt`
+
+  For `not-logged-in` and `missing-cli`, `message` says what to run or install.
+- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names.
+- `vault.lock` forgets every cached secret and session key, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
+
+| Code | Meaning |
+|---|---|
+| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)` |
+| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once`` |
+| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) `` |
+| `13` | The provider has no master password, or no Host Login uses one |
+| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first` |
+
 ## How Claude uses it
 
 `roster setup` and `roster sync` write three things:
@@ -383,7 +413,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 161 tests, no network or SSH server needed
+uv run pytest            # 167 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```

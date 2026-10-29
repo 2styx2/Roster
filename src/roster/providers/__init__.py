@@ -25,11 +25,34 @@ class SecretError(RuntimeError):
     """Raise this from a provider with a message that's safe to show (never the secret itself)."""
 
 
+# Kinds of SecretError a caller (`roster serve`) can tell apart. Providers and plugins raise these where they fit.
+class WrongPassword(SecretError):
+    """The master password didn't unlock the vault."""
+
+
+class NotLoggedIn(SecretError):
+    """The vault CLI isn't logged in on this box; the message says what to run."""
+
+
+class CliMissing(SecretError):
+    """The provider's command isn't installed."""
+
+
+class Unsupported(SecretError):
+    """The provider has no master password to unlock with."""
+
+
+class VaultLocked(SecretError):
+    """The vault is locked and this process may not unlock it by itself (see MANUAL_UNLOCK)."""
+
+
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
-                          #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str
+                          #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str,
+                          #             "not_logged_in": what to run when status is "unauthenticated"
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
+MANUAL_UNLOCK = False     # True (`roster serve`): only unlock() unlocks - no session file, no BW_PASSWORD, no prompt
 _secrets = {}
 _secret_lock = threading.Lock()
 
@@ -76,10 +99,15 @@ class Ctx:
                                   stdin=None if interactive else subprocess.DEVNULL,
                                   env={**os.environ, **(env or {})})
         except FileNotFoundError:
-            hint = PROVIDERS.get(self.provider, {}).get("help", "")
-            raise SecretError(f"`{tool}` is not installed on this box" + (f" ({hint})" if hint else ""))
+            raise CliMissing(not_installed(self.provider, tool))
         except subprocess.TimeoutExpired:
             raise SecretError(f"`{tool}` timed out")
+
+
+def not_installed(name, tool=None):
+    hint = PROVIDERS.get(name, {}).get("help", "")
+    tool = tool or PROVIDERS.get(name, {}).get("tool") or name
+    return f"`{tool}` is not installed on this box" + (f" ({hint})" if hint else "")
 
 
 def errtext(r, limit=160):
@@ -87,6 +115,11 @@ def errtext(r, limit=160):
     lines = [line for line in (r.stderr + "\n" + r.stdout).splitlines()
              if line.strip() and not line.startswith(("(node", "(Use "))]
     return " ".join(lines)[:limit]
+
+
+def manual_unlock():
+    """For providers: is unlocking by themselves (session file, password env var, prompt) off in this process?"""
+    return MANUAL_UNLOCK
 
 
 def get_secret(ref, group):
@@ -127,7 +160,7 @@ def unlock(name, password):
     and the password never goes on a command line or into an error message."""
     fn = _vault_op(name, "unlock")
     if not fn:
-        raise SecretError(f"provider '{name}' can't be unlocked with a master password")
+        raise Unsupported(f"provider '{name}' can't be unlocked with a master password")
     with _secret_lock:
         PROVIDER_STATE.pop(name, None)                   # re-check readiness on the next lookup
         fn(password, Ctx(name, None))
@@ -138,6 +171,16 @@ def vault_status(name):
     logged in), "missing" (CLI not installed), or "unsupported" (a provider with no lock to speak of)."""
     fn = _vault_op(name, "status")
     return fn(Ctx(name, None)) if fn else "unsupported"
+
+
+def status_message(name, status):
+    """What to tell a person about a vault_status() that needs fixing on this box, or None."""
+    if status == "missing":
+        return not_installed(name)
+    if status == "unauthenticated":
+        p = PROVIDERS.get(name, {})
+        return p.get("not_logged_in") or f"`{p.get('tool') or name}` isn't logged in on this box"
+    return None
 
 
 def lock(name):
