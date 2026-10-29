@@ -4,6 +4,7 @@
 
 **What to build:** The second view mode next to Standard (decision Q36), toggled with `␣ m` or F11: fullscreen with no chrome, plus Telescope-style fuzzy finders. `␣ b` lists open Sessions and `␣ f` lists Hosts, in an overlay with Esc to close.
 - **Entering Focus:** `␣ m` or F11. The window goes OS-fullscreen, and the title bar, Sidebar and status bar are hidden, so only the terminal shows.
+- **Layout comes from data:** Focus's layout is read from the per-mode layout table (decision Q39). The session bar, status segments and anything a Plugin adds are placed according to the Config. Ship sensible defaults and hard-code nothing.
 - **Optional session bar:** a thin tmux-style line, `[box] 0:esxi-02* 1:net-sw-core-01 2:orion3-`, with the current Session's address and login type. It's off by default and turned on with `focus.status_line = true`. It can sit at the top or the bottom.
 - **Keys:** all Session keys work as in Standard: `␣ ]` / `␣ [`, `␣ 0-9`, `␣ f` (the Picker opens over the terminal), `␣ d d`, and `␣ r` to reconnect.
 - **Leaving:** a hint shows for about 2 s on entering, explaining how to leave.
