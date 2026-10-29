@@ -30,4 +30,7 @@ These came from a grilling session in which each question was asked with a recom
 | Q23 | Config language | **Lua**: `init.lua` in the user config dir, run with mlua (Lua 5.4 built in). See [ADR 0002](adr/0002-lua-config-file-only.md). |
 | Q24 | Settings screen | **None. The config file is the only place to change settings**, as in WezTerm and Neovim. Remembered things like window size and recent Hosts are State, not Config. |
 | Q25 | When | **Iteration 2**, with the design pass (ticket 21). In iteration 1 the keymap and options are built as data tables with defaults, ready for the Config to override. |
+| Q26 | Window chrome | **A custom title bar like Slack's** (frameless window; our own bar with app icon, tabs, the Picker search, and minimize, maximize and close). It replaces Q8's "native title bar". The rest of Q8 stays: platform shortcuts, system font and OS light/dark. It lands in iteration 2's design pass (ticket 09). |
+| Q27 | Visual direction | **Linear is the main reference**: lean, dense and quiet, with a muted palette and one accent, thin 1px borders, small type, fast and subtle motion, and keyboard-first with a command palette. Tabby and Warp are secondary references. |
+| Q28 | Logo | Five concepts are prototyped on branch `prototype/logos` (`npm run proto:logos`). The user picks one or more to refine. |
 | Q22 | Build order | A thin slice first, then test it, then the next iteration. See [roadmap.md](roadmap.md). |
