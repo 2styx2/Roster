@@ -55,6 +55,15 @@ describe("Tabs", () => {
     expect(screen(id)).toContain("vim^[");
   });
 
+  it("keeps keys typed before the Session finished opening (ConPTY's ESC[6n answer)", async () => {
+    const { tabs, attach, screen } = setup();
+    const id = tabs.open(reviewed[0]!);
+    attach(id);
+    tabs.write(id, "\x1b[1;1R");
+    await settle();
+    expect(screen(id)).toContain("^[[1;1R");
+  });
+
   it("replays earlier output to a terminal that attaches again", async () => {
     const { tabs, attach, screen } = setup();
     const id = tabs.open(reviewed[0]!);

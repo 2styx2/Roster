@@ -46,6 +46,9 @@ interface Entry {
   replayBytes: number;
   sink: Sink | null;
   wiring: TerminalWiring;
+  /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
+   * to ConPTY's cursor-position request, which ConPTY waits for before starting anything. */
+  pending: string[];
 }
 
 export class Tabs {
@@ -104,6 +107,7 @@ export class Tabs {
       replay: [],
       replayBytes: 0,
       sink: null,
+      pending: [],
       wiring: {
         attach: (sink) => this.attach(id, sink),
         onData: (data) => this.write(id, data),
@@ -127,8 +131,11 @@ export class Tabs {
             void session.close();
             return;
           }
+          // It may already have ended (ssh failing at once): then there's nothing to talk to.
+          if (entry.tab.status.state !== "connecting") return;
           entry.session = session;
-          if (entry.tab.status.state === "connecting") this.setStatus(entry, { state: "open" });
+          for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
+          this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },
         (e: unknown) => {
@@ -184,10 +191,12 @@ export class Tabs {
     };
   }
 
-  /** Keystrokes for the tab's Session (dropped unless it's open). */
+  /** Keystrokes for the tab's Session; held until it's open, dropped once it has ended. */
   write(id: number, data: string) {
-    const session = this.find(id)?.session;
-    if (session) void session.write(data).catch(() => {});
+    const entry = this.find(id);
+    if (!entry) return;
+    if (entry.session) void entry.session.write(data).catch(() => {});
+    else if (entry.tab.status.state === "connecting") entry.pending.push(data);
   }
 
   /** The tab's terminal has this size now; the Session hears about it once it's open. */
