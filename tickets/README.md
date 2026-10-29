@@ -23,6 +23,8 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 14 | [Quick Connect](14-quick-connect.md) | 4 | 06 | ready |
 | 15 | ["Save to vault" on Quick Connect](15-save-to-vault.md) | 4 | 11, 13, 14 | ready |
 | 16 | ["Save to vault" for `auth: prompt` Hosts](16-save-to-vault-prompt-hosts.md) | 4 | 15 | ready |
+| 23 | [Lua Plugin API](23-plugin-api.md) | 7 | 21, 22 | ready |
+| 24 | [Packages (lazy.nvim-style)](24-package-manager.md) | 7 | 23 | ready |
 | 18 | [Host details and web services](18-host-details-web.md) | 5 | 17 | ready |
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
