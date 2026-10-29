@@ -20,6 +20,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 11 | [Add a Host and mark it reviewed](11-add-host-review.md) | 3 | 10 | ready |
 | 12 | [Publish](12-publish.md) | 3 | 10 | ready |
 | 13 | [Bitwarden can create Vault items (prefactor)](13-bitwarden-create-item.md) | 4 | 01 | ready |
+| 25 | [KeePassXC provider (local-only secrets)](25-keepassxc-provider.md) | 4 | 13 | ready |
 | 14 | [Quick Connect](14-quick-connect.md) | 4 | 06 | ready |
 | 15 | ["Save to vault" on Quick Connect](15-save-to-vault.md) | 4 | 11, 13, 14 | ready |
 | 16 | ["Save to vault" for `auth: prompt` Hosts](16-save-to-vault-prompt-hosts.md) | 4 | 15 | ready |
