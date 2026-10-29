@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
-import { fakeBackend, fixtures, makeHosts } from "./backend/fake";
+import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts } from "./backend/fake";
 
 async function ready(scenario = { hosts: makeHosts(12) }) {
   const backend = fakeBackend(scenario);
   const user = userEvent.setup();
   render(<App backend={backend} />);
   await screen.findByText(/12 hosts/i);
+  // The app opens locked (ticket 04).
+  await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+  await screen.findByRole("main", { name: /sessions/i });
   return { user, backend };
 }
 

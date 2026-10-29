@@ -6,6 +6,9 @@ import { BackendStartError, type Backend, type BackendInfo, type BackendProblem,
 import { chordOf, defaultKeymap, defaultOptions, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
 import { ErrorScreen } from "./ErrorScreen";
+import type { Clock } from "./lock/idle";
+import { LockGate } from "./lock/LockScreen";
+import { useVault } from "./lock/useVault";
 
 type Conn =
   | { state: "connecting" }
@@ -24,9 +27,11 @@ export interface AppProps {
   backend: Backend;
   options?: Options;
   keymap?: Keymap;
+  /** For the idle lock; tests pass a manual one. */
+  clock?: Clock;
 }
 
-export function App({ backend, options = defaultOptions, keymap = defaultKeymap }: AppProps) {
+export function App({ backend, options = defaultOptions, keymap = defaultKeymap, clock }: AppProps) {
   const [conn, setConn] = useState<Conn>({ state: "connecting" });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [leader, setLeader] = useState(false);
@@ -34,6 +39,7 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
   const [message, setMessage] = useState("");
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
+  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
 
   const connect = useCallback(
     async (restart: boolean) => {
@@ -55,8 +61,8 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
   }, [connect]);
 
   useEffect(() => {
-    if (conn.state === "ready") mainRef.current?.focus();
-  }, [conn.state]);
+    if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
+  }, [conn.state, vault.locked]);
 
   const openPicker = useCallback(() => {
     returnFocus.current = document.activeElement;
@@ -71,7 +77,7 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
 
   // The Leader: caught before anything else sees it (a terminal will sit under this later).
   useEffect(() => {
-    if (conn.state !== "ready") return;
+    if (conn.state !== "ready" || vault.locked) return;
     function onKey(e: KeyboardEvent) {
       const chord = chordOf(e);
       if (chord === options.leader) {
@@ -84,11 +90,13 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
       e.preventDefault();
       e.stopPropagation();
       setLeader(false);
-      if (keymap.leader[chord] === "picker.open") openPicker();
+      const action = keymap.leader[chord];
+      if (action === "picker.open") openPicker();
+      if (action === "app.lock" && !vault.lock()) setMessage("Nothing to lock: no Host Login uses a vault with a master password.");
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [conn.state, leader, options.leader, keymap, openPicker]);
+  }, [conn.state, leader, options.leader, keymap, openPicker, vault]);
 
   if (conn.state === "connecting") {
     return (
@@ -102,7 +110,7 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
   }
 
   const { info, hosts } = conn;
-  return (
+  const shell = (
     <div className="screen app">
       <main className="workspace" ref={mainRef} tabIndex={-1} aria-label="Sessions">
         <div className="empty">
@@ -125,7 +133,7 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
         </span>
         {leader && <span className="leader">LEADER</span>}
       </footer>
-      {pickerOpen && (
+      {pickerOpen && !vault.locked && (
         <Picker
           hosts={hosts}
           recent={recent}
@@ -140,5 +148,15 @@ export function App({ backend, options = defaultOptions, keymap = defaultKeymap 
         />
       )}
     </div>
+  );
+  const lockHint = (
+    <>
+      Locks after {options.idleLockMinutes} minutes idle. <kbd>{options.leader}</kbd> then <kbd>L</kbd> locks now.
+    </>
+  );
+  return (
+    <LockGate vault={vault} hint={lockHint}>
+      {shell}
+    </LockGate>
   );
 }

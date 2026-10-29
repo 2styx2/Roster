@@ -7,13 +7,16 @@ export type Action =
   | "picker.down"
   | "picker.up"
   | "picker.choose"
-  | "picker.close";
+  | "picker.close"
+  | "app.lock";
 
 export interface Options {
   /** The chord that takes the keyboard back from a terminal (GLOSSARY: Leader). */
   leader: string;
   /** vim keys (j/k in lists) on or off. */
   vim: boolean;
+  /** Lock after this many minutes without input (docs/security.md). */
+  idleLockMinutes: number;
 }
 
 export interface Keymap {
@@ -25,10 +28,10 @@ export interface Keymap {
   pickerVim: Record<string, Action>;
 }
 
-export const defaultOptions: Options = { leader: "Ctrl+Space", vim: true };
+export const defaultOptions: Options = { leader: "Ctrl+Space", vim: true, idleLockMinutes: 15 };
 
 export const defaultKeymap: Keymap = {
-  leader: { f: "picker.open" },
+  leader: { f: "picker.open", L: "app.lock" },
   picker: {
     ArrowDown: "picker.down",
     ArrowUp: "picker.up",
