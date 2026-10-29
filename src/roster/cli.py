@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .claude import write_claude_files
-from .common import die, say, ssh_config_file, tcp_ok
+from .common import die, not_reviewed, say, ssh_config_file, tcp_ok
 from .config import access_label, find_config, load_config, matches, selected
 from .discover import DEFAULT_SCAN_PORTS, cmd_discover
 from .example import EXAMPLE_CONFIG
@@ -305,7 +305,7 @@ def cmd_run(cfg, args):
         die("nothing to run: roster run HOST -- COMMAND")
     command = " ".join(words)
     if not h["reviewed"]:
-        die(f"{h['name']} is not reviewed yet (reviewed: false in roster.yml) - not logging in")
+        die(not_reviewed(h))
     if args.sudo:
         return run_sudo(h, command)
     if h["enroll"]:
