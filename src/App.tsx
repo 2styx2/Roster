@@ -6,6 +6,9 @@ import { BackendStartError, type Backend, type BackendInfo, type BackendProblem,
 import { chordOf, defaultKeymap, defaultOptions, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
 import { ErrorScreen } from "./ErrorScreen";
+import type { Clock } from "./lock/idle";
+import { LockGate } from "./lock/LockScreen";
+import { useVault } from "./lock/useVault";
 import { Sessions } from "./session/Sessions";
 import { Tabs } from "./session/tabs";
 import { TerminalView, type TerminalViewComponent } from "./terminal/TerminalView";
@@ -28,6 +31,8 @@ export interface AppProps {
   backend: Backend;
   options?: Options;
   keymap?: Keymap;
+  /** For the idle lock; tests pass a manual one. */
+  clock?: Clock;
   /** The terminal each Session tab draws in (tests pass a stub; xterm needs a real browser). */
   terminalView?: TerminalViewComponent;
 }
@@ -36,16 +41,19 @@ export function App({
   backend,
   options = defaultOptions,
   keymap = defaultKeymap,
+  clock,
   terminalView = TerminalView,
 }: AppProps) {
   const [conn, setConn] = useState<Conn>({ state: "connecting" });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [leader, setLeader] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
+  const [notice, setNotice] = useState("");
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
+  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
 
   const connect = useCallback(
     async (restart: boolean) => {
@@ -67,8 +75,8 @@ export function App({
   }, [connect]);
 
   useEffect(() => {
-    if (conn.state === "ready") mainRef.current?.focus();
-  }, [conn.state]);
+    if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
+  }, [conn.state, vault.locked]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
@@ -86,7 +94,7 @@ export function App({
 
   // The Leader: caught before anything else sees it (a terminal will sit under this later).
   useEffect(() => {
-    if (conn.state !== "ready") return;
+    if (conn.state !== "ready" || vault.locked) return;
     function onKey(e: KeyboardEvent) {
       const chord = chordOf(e);
       if (isLeaderKey(e, options.leader)) {
@@ -99,11 +107,13 @@ export function App({
       e.preventDefault();
       e.stopPropagation();
       setLeader(false);
-      if (keymap.leader[chord] === "picker.open") openPicker();
+      const action = keymap.leader[chord];
+      if (action === "picker.open") openPicker();
+      if (action === "app.lock" && !vault.lock()) setNotice("Nothing to lock: no Host Login uses a vault with a master password.");
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [conn.state, leader, options.leader, keymap, openPicker]);
+  }, [conn.state, leader, options.leader, keymap, openPicker, vault]);
 
   if (conn.state === "connecting") {
     return (
@@ -117,7 +127,7 @@ export function App({
   }
 
   const { info, hosts } = conn;
-  return (
+  const shell = (
     <div className="screen app">
       <main className="workspace" ref={mainRef} tabIndex={-1} aria-label="Workspace">
         {sessions.tabs.length > 0 ? (
@@ -141,9 +151,10 @@ export function App({
         <span className="path" title={info.command.join(" ")}>
           {info.inventory.path}
         </span>
+        {notice && <span className="notice">{notice}</span>}
         {leader && <span className="leader">LEADER</span>}
       </footer>
-      {pickerOpen && (
+      {pickerOpen && !vault.locked && (
         <Picker
           hosts={hosts}
           recent={recent}
@@ -158,5 +169,15 @@ export function App({
         />
       )}
     </div>
+  );
+  const lockHint = (
+    <>
+      Locks after {options.idleLockMinutes} minutes idle. <kbd>{options.leader}</kbd> then <kbd>L</kbd> locks now.
+    </>
+  );
+  return (
+    <LockGate vault={vault} hint={lockHint}>
+      {shell}
+    </LockGate>
   );
 }

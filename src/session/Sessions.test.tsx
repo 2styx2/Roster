@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../App";
-import { fakeBackend, fixtures, makeHosts } from "../backend/fake";
+import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts } from "../backend/fake";
 import { StubTerminal } from "../terminal/StubTerminal";
 
 const hosts = makeHosts(12);
@@ -14,7 +14,13 @@ async function ready(scenario = { hosts }) {
   const user = userEvent.setup();
   render(<App backend={fakeBackend(scenario)} terminalView={StubTerminal} />);
   await screen.findByText(/12 hosts/i);
+  await unlock(user);
   return user;
+}
+
+async function unlock(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+  await screen.findByRole("main", { name: /workspace/i });
 }
 
 async function openFromPicker(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -84,5 +90,21 @@ describe("Sessions", () => {
     await user.keyboard("exit{Enter}");
     expect(await screen.findByRole("tab", { name: /ended \(code 0\)/ })).toBeInTheDocument();
     expect(screen.getByRole("tabpanel")).toHaveTextContent("ended (code 0)");
+  });
+
+  it("hides open Sessions while locked; they keep running and come back on unlock", async () => {
+    const user = await ready();
+    await openFromPicker(user, reviewed[0]!.name);
+    await within(output()).findByText(/Connected to/);
+    await user.keyboard("{Control>} {/Control}L");
+    expect(await screen.findByRole("dialog", { name: /locked/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).toBeNull();
+    // Keys typed while locked go to the lock screen, never to the shell.
+    await user.type(screen.getByLabelText(/master password/i), "typed-while-locked{Enter}");
+    await screen.findByText(/wrong master password/i);
+    await unlock(user);
+    expect(screen.getByRole("tab", { name: new RegExp(reviewed[0]!.name) })).not.toHaveAccessibleName(/ended/);
+    expect(output()).toHaveTextContent(/Connected to/);
+    expect(output().textContent).not.toMatch(/typed-while-locked/);
   });
 });

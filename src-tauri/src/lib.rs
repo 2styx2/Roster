@@ -74,6 +74,23 @@ async fn host_get(state: tauri::State<'_, Arc<BackendState>>, name: String) -> R
     call(&state, "host.get", json!({ "name": name })).await
 }
 
+#[tauri::command]
+async fn vault_status(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.status", json!({})).await
+}
+
+/// The master password passes through here once, on its way to serve's stdin. It's moved into the
+/// request and dropped with it: never logged, stored or put in an error.
+#[tauri::command]
+async fn vault_unlock(state: tauri::State<'_, Arc<BackendState>>, password: String) -> Result<Value, CallError> {
+    call(&state, "vault.unlock", json!({ "password": password })).await
+}
+
+#[tauri::command]
+async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.lock", json!({})).await
+}
+
 fn session_error(e: SessionError) -> CallError {
     CallError::Io { message: e.to_string() }
 }
@@ -170,7 +187,10 @@ pub fn run() {
             session_open,
             session_write,
             session_resize,
-            session_close
+            session_close,
+            vault_status,
+            vault_unlock,
+            vault_lock
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -24,6 +24,11 @@ Two exceptions are typed by you and leave the UI straight away:
 - It locks after 15 minutes idle (configurable), or on demand with the leader key plus the lock key, or `:lock`.
 - Locking calls `vault.lock`. That forgets the vault session key, every cached secret and every askpass token, and runs the provider's own lock.
 - Sessions keep running while locked, with their content hidden until you unlock.
+- The app always opens locked. If `roster serve` is still unlocked when the window (re)loads, the app calls `vault.lock` first.
+- Idle means no key, click, pointer move or wheel anywhere in the window. The timer runs in the frontend (`src/lock/idle.ts`), where that input arrives, so no keystroke has to cross to Rust. It re-checks the clock when it fires, so a late timer (sleep, a throttled window) still locks.
+- If no Host Login uses a vault with a master password (`vault.status` says `unsupported`), there is nothing to unlock, so there's no lock screen and no idle lock, and the lock key says "nothing to lock".
+- If the vault CLI is missing or not logged in, the lock screen says what to install or run (roster's message) and offers "Check again". It doesn't ask for a password it can't use.
+- The master password lives only in the lock screen's input (never in React state). It goes to the `vault_unlock` command and the field is emptied as soon as the call returns. The Rust core passes it to `serve`'s stdin inside the request and drops it; it's never logged or put in an error.
 
 ## Connections
 

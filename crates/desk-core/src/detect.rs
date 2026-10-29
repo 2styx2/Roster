@@ -7,7 +7,9 @@
 //! script per target; it resolves the roster program to an absolute path (`~/.local/bin` is only
 //! on PATH in interactive shells on some distros) and finds `roster.yml` the way roster would,
 //! plus `~/infra/roster.yml`. `serve` then gets `-c <path>` because it isn't started from a login
-//! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it.
+//! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it. For the same
+//! reason it gets the login shell's PATH (`env PATH=...`): `wsl.exe --exec` has no `~/.local/bin`,
+//! and roster finds the vault CLI (`bw`) and `ssh` on PATH.
 
 pub use crate::error::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR};
 use std::process::Command;
@@ -110,10 +112,11 @@ pub fn roster_command(override_value: Option<&str>) -> Vec<String> {
 }
 
 /// Run with `bash -lc PROBE probe <program>`. Prints `roster=<abs path>` if the program resolves,
-/// then `inventory=<path>` (empty when there's none).
+/// then `path=<the login PATH>` and `inventory=<path>` (empty when there's none).
 const PROBE: &str = r#"PATH="$HOME/.local/bin:$PATH"
 p=$(command -v -- "$1") || exit 0
 echo "roster=$p"
+echo "path=$PATH"
 for f in "$ROSTER_CONFIG" "$HOME/roster.yml" "$HOME/.config/roster/roster.yml" "$HOME/infra/roster.yml"; do
   if [ -n "$f" ] && [ -e "${f/#\~/$HOME}" ]; then echo "inventory=${f/#\~/$HOME}"; exit 0; fi
 done
@@ -124,6 +127,7 @@ echo "inventory="
 struct Probe {
     roster: Option<String>,
     inventory: Option<String>,
+    path: Option<String>,
 }
 
 fn parse_probe(stdout: &str) -> Probe {
@@ -134,6 +138,8 @@ fn parse_probe(stdout: &str) -> Probe {
             p.roster = Some(v.to_string());
         } else if let Some(v) = line.strip_prefix("inventory=").filter(|v| !v.is_empty()) {
             p.inventory = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("path=").filter(|v| !v.is_empty()) {
+            p.path = Some(v.to_string());
         }
     }
     p
@@ -211,7 +217,11 @@ fn list_distros(runner: &dyn Runner) -> Result<Distros, BackendError> {
 }
 
 fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
-    let mut argv = vec![p.roster.clone().unwrap_or_default()];
+    let mut argv = match &p.path {
+        Some(path) => vec!["/usr/bin/env".into(), format!("PATH={path}")],
+        None => vec![],
+    };
+    argv.push(p.roster.clone().unwrap_or_default());
     argv.extend_from_slice(&roster_cmd[1..]);
     if let Some(inv) = &p.inventory {
         argv.extend(["-c".into(), inv.clone()]);

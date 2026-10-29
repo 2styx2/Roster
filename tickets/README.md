@@ -7,7 +7,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 01 | [Unlock and lock the vault without a terminal (prefactor)](01-vault-unlock-lock-prefactor.md) | 1 | — | done |
 | 02 | [`roster serve`: read-only API](02-roster-serve-read-api.md) | 1 | — | done |
 | 03 | [App skeleton: window → WSL backend → host picker](03-app-skeleton-picker.md) | 1 | 02 | done |
-| 04 | [Lock screen and idle lock](04-lock-screen.md) | 1 | 01, 03 | ready |
+| 04 | [Lock screen and idle lock](04-lock-screen.md) | 1 | 01, 03 | done |
 | 05 | [Sessions to key-enrolled Hosts](05-key-sessions.md) | 1 | 03 | done |
 | 06 | [Sessions to password-only Hosts (askpass)](06-password-sessions-askpass.md) | 1 | 04, 05 | ready |
 | 07 | [Keyboard model and the Session Sidebar](07-keyboard-model-tabs.md) | 1 | 05 | ready |
@@ -29,4 +29,4 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
 
-**Current frontier:** 04 (in progress), 07, 08, then 06 (needs 04) and 17 (needs 07). Iterations run in order.
+**Current frontier:** 06, 07, 08, then 17 (needs 07). Iterations run in order.
