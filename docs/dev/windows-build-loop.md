@@ -31,6 +31,8 @@ cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm run tau
 | `tauri build --no-bundle` (release, lto, codegen-units=1) cold | 2 m 20 s, 4.4 MB exe |
 | `tauri build --debug --no-bundle`, workspace layout (see testing.md) | 59 s cold |
 
+Scripted (ticket 03): `scripts/win-sync.sh`, `scripts/win-dev.sh [--ci]` (passes `ROSTER_DESK_ROSTER` through `WSLENV`), `scripts/win-stop.sh`.
+
 ## Gotchas (all observed)
 
 - **The UNC cwd breaks cmd.exe.** If bash's cwd is under `/home` or `/tmp`, cmd.exe prints "UNC paths are not supported. Defaulting to Windows directory." and runs in `C:\Windows`. So `cd /mnt/c &&` first, then `cd /d %LOCALAPPDATA%\...` inside the cmd string. Don't build on `\\wsl.localhost\...`: npm scripts run via cmd.exe can't take a UNC cwd, and file I/O over 9p is slow.
@@ -46,3 +48,5 @@ cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm run tau
 - **Line endings.** rsync copies LF bytes as they are. Vite, tsc and cargo don't care. Add `.gitattributes` with `* text=auto eol=lf` so a future Windows git clone can't introduce CRLF.
 - **The window pops up on the developer's desktop.** `tauri dev` opens a real window on the Windows session, so warn the user before an agent launches it.
 - **Bundling** (`tauri build` without `--no-bundle`) downloads WiX/NSIS on first use. This wasn't tested. Use `--no-bundle` for the dev loop.
+- **Starting another distro can break interop for all of WSL** (observed 2026-10-29). Running anything in `OracleLinux_9` (systemd on) cleared `/proc/sys/fs/binfmt_misc/WSLInterop`, and then every `cmd.exe` from Fedora failed with "Exec format error". `wsl --shutdown` fixes it, or re-register the entry as root. Meanwhile `/init /mnt/c/Windows/System32/cmd.exe …` still works, and the `scripts/win-*.sh` fall back to it. The app's Backend detection stops at the first distro that has roster and an Inventory, and the default distro comes first, so it normally starts no other distro.
+- **Env vars into cmd.exe:** `set "X=a b"` inside a `cmd.exe /c '…'` string gets its quotes escaped as `\"` by interop and sets the wrong name. Export the variable in bash and list it in `WSLENV` instead.

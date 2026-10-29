@@ -1,0 +1,63 @@
+// The real Backend: Tauri commands in src-tauri/src/lib.rs, which drive `roster serve` through
+// desk-core. Only imported when running inside Tauri (see index.ts).
+import { invoke } from "@tauri-apps/api/core";
+import {
+  BackendCallError,
+  BackendStartError,
+  type Backend,
+  type BackendInfo,
+  type BackendProblem,
+  type Host,
+  type HostList,
+} from "./types";
+
+/** desk-core's CallError, as serde sends it. */
+type CallErrorWire =
+  | { kind: "rpc"; code: number; message: string }
+  | { kind: "exited"; code: number | null; stderr: string }
+  | { kind: "timeout" }
+  | { kind: "io"; message: string };
+
+function isProblem(e: unknown): e is BackendProblem {
+  return typeof e === "object" && e !== null && "hint" in e && "message" in e && "kind" in e;
+}
+
+function callError(e: unknown): BackendCallError {
+  if (typeof e === "object" && e !== null && "kind" in e) {
+    const w = e as CallErrorWire;
+    switch (w.kind) {
+      case "rpc":
+        return new BackendCallError(w.message, w.code);
+      case "exited":
+        return new BackendCallError(`The backend exited (code ${w.code ?? "?"}). ${w.stderr}`.trim());
+      case "timeout":
+        return new BackendCallError("The backend didn't answer in time.");
+      case "io":
+        return new BackendCallError(w.message);
+    }
+  }
+  return new BackendCallError(String(e));
+}
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (e) {
+    throw callError(e);
+  }
+}
+
+export function tauriBackend(): Backend {
+  return {
+    async connect(options) {
+      try {
+        return await invoke<BackendInfo>("backend_connect", { restart: options?.restart ?? false });
+      } catch (e) {
+        if (isProblem(e)) throw new BackendStartError(e);
+        throw callError(e);
+      }
+    },
+    listHosts: () => call<HostList>("hosts_list"),
+    getHost: (name) => call<Host>("host_get", { name }),
+  };
+}

@@ -21,6 +21,7 @@ Keyboard first, with vim keys and full mouse support. Every binding lives in one
 | `<leader> L` | Lock |
 | In lists: `j`/`k`, `gg`/`G`, `/`, `h`/`l`, Enter, Esc | Move, jump, filter, fold/unfold, open, back |
 | In the Picker: Ctrl+N/P, arrow keys | Move (they also work with vim off) |
+| In the Picker: `j`/`k` | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, select to copy, right-click to paste | Clipboard |
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.

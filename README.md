@@ -2,7 +2,7 @@
 
 A fast, keyboard-first desktop app that gets you into a terminal on any Host in your team's roster Inventory in a few keystrokes. [roster](../roster) is the only backend: it knows the Hosts and the Logins. roster-desk is the nicest way to reach them.
 
-> Status: **design settled, nothing built yet.** It's a personal project first, local only, with no remote.
+> Status: **iteration 1 in progress.** The app starts, finds roster in WSL and has a Host Picker; Sessions come next. It's a personal project first, local only, with no remote.
 
 ## Where to look
 
@@ -27,3 +27,52 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 - React, Vite and TypeScript (strict)
 - xterm.js with the WebGL renderer
 - roster (Python) as the backend, reached through `roster serve`
+
+## Development
+
+```
+Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
+crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
+                      start-up and API-version check (backend.rs), error kinds (error.rs)
+src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get
+src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
+src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
+src/App.tsx           connect → error screen or empty state; Leader handling. keymap.ts = keys/options as data
+scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
+```
+
+**Checks** (run all before a commit):
+
+```bash
+npm ci                 # once, in WSL
+npm run check          # tsc --noEmit + eslint + Vitest (UI tests use the fake Backend)
+cargo test             # desk-core only (WSL can't build src-tauri: no webkit2gtk)
+```
+
+Separately: `npm run typecheck`, `npm run lint`, `npm test`.
+
+**UI in a plain browser** (fake Backend, no Tauri): `npm run dev -- --port 5179`, then open
+`http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
+`roster-missing`, `inventory-missing`, `no-wsl`.
+
+**The real app on Windows** (from the WSL checkout; see `docs/dev/windows-build-loop.md`):
+
+```bash
+scripts/win-dev.sh --ci     # sync to %LOCALAPPDATA%\roster-desk-dev\src, npm ci, tauri dev (opens the window)
+scripts/win-dev.sh          # later runs; edits need only scripts/win-sync.sh (Vite HMR / cargo rebuild)
+scripts/win-stop.sh         # stop node, the tauri CLI and the app (killing the WSL job leaves them running)
+```
+
+**Which roster runs.** On Windows the app probes each WSL distro in `wsl -l` order (the default first) with
+`bash -lc` for roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,
+`~/.config/roster/roster.yml`, `~/infra/roster.yml`), then starts
+`wsl.exe -d <distro> --cd ~ --exec <roster> -c <roster.yml> serve` with no console window. On Linux it starts
+roster locally the same way. To use another roster command (until the Lua Config, ticket 21), set
+`ROSTER_DESK_ROSTER`, split on spaces:
+
+```bash
+ROSTER_DESK_ROSTER="uv run --project /home/you/work/roster roster" scripts/win-dev.sh
+```
+
+You need this while your installed roster predates `roster serve`: the app then shows "roster is too old".
+`cargo run --example detect` (in WSL, or on Windows via cmd.exe) prints what detection finds without the UI.
