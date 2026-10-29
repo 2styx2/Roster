@@ -1,7 +1,7 @@
 """Stand-in for `roster serve` in desk-core's tests. JSON-RPC 2.0, one object per line.
 
 The first argument picks a behaviour:
-  ok                 answers inventory.info / hosts.list / host.get like roster api 1
+  ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1
   old-api            inventory.info reports api_version 0
   no-inventory       every method returns error code 1, like serve without a roster.yml
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
@@ -44,6 +44,15 @@ def answer(req):
             if h["name"] == req.get("params", {}).get("name"):
                 return {"result": h}
         return {"error": {"code": 2, "message": f"unknown host {req['params'].get('name')!r}"}}
+    if m == "session.prepare":
+        name = req.get("params", {}).get("host")
+        h = next((h for h in HOSTS if h["name"] == name), None)
+        if h is None:
+            return {"error": {"code": 2, "message": f"unknown host {name!r}"}}
+        if not h["reviewed"]:
+            return {"error": {"code": 20, "message": f"{name} isn't reviewed yet: run `roster review {name}`"}}
+        return {"result": {"argv": ["/usr/bin/ssh", "-o", "BatchMode=yes", name], "env": {}, "host": name,
+                           "auth": "key"}}
     return {"error": {"code": -32601, "message": f"unknown method {m!r}"}}
 
 

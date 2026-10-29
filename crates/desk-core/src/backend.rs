@@ -1,9 +1,10 @@
 //! A running Backend: `roster serve` started from a detected [`Candidate`], checked once at start
 //! (`inventory.info` answers and its `api_version` is new enough), then used for calls.
 
-use crate::detect::{Candidate, OVERRIDE_VAR};
+use crate::detect::{Candidate, OVERRIDE_VAR, Target};
 use crate::error::{BackendError, ErrorKind};
 use crate::rpc::{CallError, RpcClient};
+use crate::session::{Prepared, SessionCommand, session_command};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::process::Command;
@@ -28,6 +29,8 @@ pub struct BackendInfo {
 
 pub struct Backend {
     client: RpcClient,
+    /// Where serve (and so every Session) runs.
+    pub target: Target,
     pub info: BackendInfo,
 }
 
@@ -56,6 +59,7 @@ impl Backend {
         }
         Ok(Backend {
             client,
+            target: c.target.clone(),
             info: BackendInfo {
                 backend: c.target.label(),
                 command: c.serve_argv.clone(),
@@ -66,6 +70,16 @@ impl Backend {
 
     pub fn call(&self, method: &str, params: Value) -> Result<Value, CallError> {
         self.client.call(method, params)
+    }
+
+    /// The command that opens a Session to `host` on this Backend (`session.prepare`). Refusals
+    /// keep roster's code and wording: 2 unknown Host, 20 not reviewed, 21 this box isn't set up.
+    pub fn session_command(&self, host: &str) -> Result<SessionCommand, CallError> {
+        let v = self.call("session.prepare", json!({ "host": host }))?;
+        let prepared: Prepared = serde_json::from_value(v).map_err(|e| CallError::Io {
+            message: format!("session.prepare answered something unexpected: {e}"),
+        })?;
+        Ok(session_command(&self.target, &prepared))
     }
 
     /// False once serve has exited; the app then has to start a new one.
