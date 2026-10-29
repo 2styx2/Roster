@@ -144,7 +144,7 @@ fn disable_browser_accelerators(window: &tauri::WebviewWindow) {
         };
         let Ok(settings) = core.Settings() else { return };
         if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
-            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false.into());
+            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
         }
     });
 }

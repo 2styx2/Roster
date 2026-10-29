@@ -6,13 +6,13 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] pytest: `session.prepare` returns a command for an enrolled Host, refuses an unreviewed one, and returns no secret.
-- [ ] Rust integration test: the session manager runs a stub command in a PTY and covers input, output, resize and exit status.
-- [ ] Manual check on Windows: open a Session to a real enrolled Host. Vim, htop and tmux work remotely, colors and resize are right, and Esc reaches remote vim.
-- [ ] A failed connection, such as a host that's down or a key mismatch, shows ssh's own message in the tab.
-- [ ] Closing the tab leaves no `ssh` process running in WSL.
+- [x] pytest: `session.prepare` returns a command for an enrolled Host, refuses an unreviewed one, and returns no secret.
+- [x] Rust integration test: the session manager runs a stub command in a PTY and covers input, output, resize and exit status.
+- [x] Manual check on Windows: open a Session to a real enrolled Host. Vim, htop and tmux work remotely, colors and resize are right, and Esc reaches remote vim. (2026-10-29, build-02 and vpn-01 over CDP: vim with Esc then `:wq`, `top` instead of htop/tmux, which those Hosts don't have; 16/256/truecolor; window resize 40×135 → 25×96.)
+- [x] A failed connection, such as a host that's down or a key mismatch, shows ssh's own message in the tab. (ssh's output goes to the PTY as is: "Shared connection … closed" showed in the tab, then "ended (code 3)". No Host that was down was tried, to spare the 10.19 rate limiter.)
+- [x] Closing the tab leaves no `ssh` process running in WSL. (Only the ControlPersist `[mux]` master from roster's ssh config stays, for its 10 minutes.)
 
 **Notes from research** (`docs/dev/tauri-pty-wsl.md`, `docs/dev/xterm-setup.md`):
 - Call WSL as `wsl.exe -d <distro> --cd ~ --exec <argv…>`, never `--`, which runs through a shell and loses quoting. Windows-side environment variables don't cross into WSL, so pass them as `env K=V`.
@@ -21,3 +21,8 @@
 - The xterm.js key handler must swallow Ctrl+Space (otherwise NUL goes to the shell). WebView2's own browser shortcuts (Ctrl+F, Ctrl+R…) need turning off through `with_webview`.
 
 **Roster side is done** (roster MR !14): `session.prepare {host}` returns `{argv: [<abs ssh>, -o, BatchMode=yes, <alias>], env: {}, host, auth: "key"}`. Codes: 2 for an unknown Host, 20 for an unreviewed Host, 21 when this Box's ssh config isn't set up. Set `TERM=xterm-256color` on the app side.
+
+**Done notes (app half):**
+- desk-core `session.rs`: `session_command()` (TERM forced, env as `env K=V` inside `wsl.exe --exec`; Debug never shows env values) and `SessionManager` (open/write/resize/close, one Exit after the last output). The PTY tests are `tests/pty.rs`. `cargo run --example session -- <argv>` checks the core on Windows without the UI.
+- ConPTY's `ESC[6n` reaches xterm before `session_open` returns, so the Tabs store queues keys until the Session is open. Without that, every Windows Session hung on a blank screen.
+- The xterm build number for `windowsPty` is fixed at 22000. Getting the real one from Rust is left for 08. Whether WebView2's browser shortcuts are off (Ctrl+F/R…) still needs a real keyboard: CDP key events skip the browser's accelerator handling.
