@@ -37,7 +37,7 @@ Cargo.toml            workspace; default member is desk-core, so `cargo test` in
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
                       start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:
                       session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs),
-                      the State file (state.rs), the Windows build (platform.rs)
+                      the State file (state.rs), where the window reopens (window.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
                       state_load/state_save, platform_info, vault_status/unlock/lock;
@@ -49,7 +49,7 @@ src/state/            appState.ts: the State's shape (recent Hosts), parsed leni
 src/session/          Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
                       (terminal panes + the basic tab strip for `sessions = "tabs"`)
 src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
-                      options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
+                      options.ts (font, colour overrides, standard ANSI palette as data), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
 src/errors/           clean connection errors (ticket 26, docs/errors.md): classify.ts (classifyExit: ssh's last lines +
                       exit code + askpass line → a Problem), catalog.ts (the rows as a Registry: where, fix, actions,
@@ -61,6 +61,13 @@ src/keymap.ts         keys → command lines, as a registry of bindings; Options
 src/keyboard/         mode.ts (Terminal mode / App mode machine, key sequences), bindings.ts + BindingsPanel (␣ ?)
 src/sidebar/          Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
 src/cmdline/          CommandLine.tsx (␣ :, Tab completion from the command table and Host names)
+src/theme/            Themes (ticket 09): theme.ts (the colour-token set, AppearanceOptions, terminal colours), themes.ts
+                      (Roster dark/light, Gruvbox, Nord as a registry), useTheme.ts (tokens → CSS variables, follows the OS)
+src/chrome/           TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (mark D1 in Theme colours)
+src/ui/               Keys.tsx (keycaps for every key hint), CloseGlyph.tsx
+src/styles.css        the whole look, written only against Theme tokens (no colour literals)
+assets/               logo.svg (D1 master) + logo-small.svg (16–32 px cut); `npm run icons` renders src-tauri/icons
+docs/design/          screenshots for the design review (dark, light, Gruvbox, Nord)
 src/App.tsx           connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
 ```
@@ -78,7 +85,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
+`correct horse`. `&theme=roster-light|gruvbox|nord` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
 
 **The real app on Windows** (from the WSL checkout; see `docs/dev/windows-build-loop.md`):
 
