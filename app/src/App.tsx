@@ -1343,9 +1343,10 @@ export function App({
               refreshPending();
               const where = `${r.host.name} to ${r.host.group}`;
               setMessage(
-                r.host.reviewed
+                (r.host.reviewed
                   ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
-                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`,
+                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
+                  (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
             }}
             onClose={closeAdd}

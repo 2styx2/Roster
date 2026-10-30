@@ -125,6 +125,17 @@ describe("the add form", () => {
     expect(document.querySelector(".statusbar")).toHaveTextContent(/1 Pending change/);
   });
 
+  it("says so when the Host was added but something after it failed", async () => {
+    const scenario = { ...(fixtures.add as FakeScenario), addWarnings: { "nas-01": ["its host key couldn't be recorded (disk full)"] } };
+    const { user } = await ready(scenario);
+    const panel = await openForm(user);
+    await fill(user, panel, { Name: "nas-01", Address: "10.19.1.50", User: "root" });
+    await user.type(within(panel).getByLabelText("Password"), FAKE_HOST_PASSWORD);
+    await user.keyboard("{Enter}");
+    await user.click(await within(panel).findByRole("button", { name: "Trust it and add" }));
+    expect(await screen.findByText(/Added nas-01 to subnet-1 as a Pending change.* But its host key couldn't be recorded \(disk full\)\./)).toBeInTheDocument();
+  });
+
   it("writes nothing when the test login fails, shows why, and forgets the password", async () => {
     const { user, backend } = await ready();
     const panel = await openForm(user);

@@ -88,6 +88,8 @@ export interface FakeScenario {
   /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
    * is FAKE_HOST_PASSWORD, or an existing item is named). */
   addVerify?: Record<string, HostCheck>;
+  /** host.add's `warnings` by Host name: what failed after the Host was written. */
+  addWarnings?: Record<string, string[]>;
   /** Edits already made on this Box when the app starts (Pending changes), per Host. */
   pending?: Record<string, HostChanges>;
   /** Ticket 12: `changes.publish` refuses with this (82 someone else published, 86 push rejected…). */
@@ -965,6 +967,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         backup: "~/infra/.git/roster/roster.yml.bak",
         verify: login ? passingVerify(p.name) : null,
         item: item ? { provider: "bw", id: `fake-${p.name}`, name: item } : null,
+        warnings: scenario.addWarnings?.[p.name] ?? [],
       };
     },
     async reviewHost(host) {

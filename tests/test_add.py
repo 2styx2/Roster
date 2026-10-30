@@ -191,6 +191,58 @@ def test_a_failure_adding_the_host_takes_the_new_item_back_out(box, sshd, vault,
     assert SECRET not in json.dumps(r)
 
 
+def unlocked_state(box):
+    state = rpc.State(str(box.yml))
+    assert "result" in rpc.handle(state, json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "vault.unlock", "params": {"password": "hunter2"}}))
+    return state
+
+
+def add_in_process(state, sshd, **params):
+    return rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 2, "method": "host.add", "params": {
+        "name": "nas", "group": "lab", "address": "127.0.0.1", "port": sshd.port, "user": "root",
+        "password": SECRET, "enroll": False, **params}}))
+
+
+def disk_full(*a, **k):
+    raise OSError(28, "No space left on device")
+
+
+@pytest.mark.parametrize("where", ["backup", "replace_file"])
+def test_an_os_error_writing_the_host_takes_the_new_item_back_out(box, sshd, vault, isolated, fakes, monkeypatch,
+                                                                   where):
+    from roster import changes
+    state = unlocked_state(box)
+    if where == "backup":
+        monkeypatch.setattr(changes.Repo, "backup", disk_full)
+    else:
+        monkeypatch.setattr(edit, "replace_file", disk_full)
+    r = add_in_process(state, sshd)
+    err = r["error"]
+    assert "No space left on device" in err["message"] and "nas wasn't added" in err["message"], err
+    assert "the vault item 'nas ssh' was taken back out" in err["message"]
+    assert err["data"]["undone"]["name"] == "nas ssh"
+    nothing_written(box, vault, isolated)
+    assert SECRET not in json.dumps(r)
+
+
+def test_a_failure_recording_the_host_key_after_the_host_is_written_is_a_warning(box, sshd, vault, isolated, fakes,
+                                                                                monkeypatch):
+    known_hosts(isolated).write_text("")
+    state = unlocked_state(box)
+    monkeypatch.setattr(rpc, "record_host_key", disk_full)
+    r = add_in_process(state, sshd, host_key=fingerprint(sshd.key))
+    res = r["result"]
+    assert res["added"] is True and res["item"]["name"] == "nas ssh"
+    assert "nas ssh" in items(vault) and "nas:" in box.yml.read_text()
+    assert len(res["warnings"]) == 1 and "host key" in res["warnings"][0] and "No space left" in res["warnings"][0]
+
+
+def test_a_clean_add_has_no_warnings(app, box, sshd, vault):
+    r = result(add(app, name="nas", port=sshd.port, password=SECRET, enroll=False))
+    assert r["warnings"] == []
+
+
 def test_the_typed_password_never_reaches_any_output(app, box, sshd, vault):
     add(app, name="nas", port=sshd.port, password=SECRET, enroll=False)
     add(app, name="nas2", port=sshd.port, password="wrong-" + SECRET, enroll=False)

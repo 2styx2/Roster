@@ -285,6 +285,8 @@ export interface HostAdd {
   backup: string;
   verify: HostCheck | null;
   item: { provider: string; id: string; name: string } | null;
+  /** What went wrong after the Host was written (recording its host key): it's added all the same. */
+  warnings?: string[];
 }
 
 /** `host.scan_key`: the key the address offers, and how it compares with the recorded one. */

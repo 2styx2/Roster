@@ -439,18 +439,39 @@ def add_host(state, params):
         finally:
             del password
         made = {"provider": typed["provider"], **made}
-    try:
+    try:                                        # until the Host is written, any failure takes the item back out
         old_text, new_text, _ = edit.added(repo.path, group, name, fields)
         backup = repo.backup(old_text)
         edit.replace_file(repo.path, new_text)
-    except Problem as e:
-        raise take_back(made, e) from None
+    except BaseException as e:
+        raise take_back(made, write_failed(name, repo.path, e)) from None
+    warnings = []                               # the Host is in roster.yml now: what follows can't un-add it
     if verify and verify.get("host_key"):
         k = verify["host_key"]
-        record_host_key(h, k["type"], k["base64"])
+        try:
+            record_host_key(h, k["type"], k["base64"])
+        except Exception as e:
+            warnings.append(f"{name} was added, but its host key couldn't be recorded in ~/.ssh/roster_known_hosts "
+                            f"({failure_text(e)}) - run `roster sync`, or test the login again before connecting")
     state.reload()
     return {"added": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "verify": verify,
-            "item": made}
+            "item": made, "warnings": warnings}
+
+
+def failure_text(e):
+    """What went wrong, safe to show: an OSError's own words (paths only), else just the exception's type."""
+    if isinstance(e, OSError):
+        return f"{e.strerror or type(e).__name__}" + (f": {e.filename}" if e.filename else "")
+    return type(e).__name__
+
+
+def write_failed(name, path, e):
+    """Writing the Host failed: as a Problem (a Problem or a die() keeps its own words)."""
+    if isinstance(e, Problem):
+        return e
+    if isinstance(e, SystemExit):
+        return Problem(ROSTER_ERROR, f"{name} wasn't added: {die_message(e)}")
+    return Problem(ROSTER_ERROR, f"{name} wasn't added: couldn't write {path} ({failure_text(e)})")
 
 
 def verify_failed(name, verify):
