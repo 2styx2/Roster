@@ -401,9 +401,9 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 2 (2 added `host.check` and codes 30-48). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 3 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`). roster-desk's `docs/errors.md` is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`). roster-desk's `docs/errors.md` is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -432,6 +432,7 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `46` | `host.check`: the Host refused this box's key |
 | `47` | `host.check`: the Host cut the connection after too many key attempts. roster's ssh config sets `IdentitiesOnly yes` for key and password Hosts (and `PubkeyAuthentication no` for password Hosts) so the agent's keys can't use up the Host's tries; an older config fails the `ssh-config` step instead |
 | `48` | `host.check`: the login failed some other way; `details` has ssh's message |
+| `50`-`59` | `vault.login`: see [Signing in](#signing-in-vaultlogin) |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
@@ -446,7 +447,7 @@ Requests without an `id` (notifications) run but get no reply.
 
 | Method | Params | Result |
 |---|---|---|
-| `vault.status` | none | `{provider, status, message?, providers: [{provider, status, message?}, ...]}` |
+| `vault.status` | none | `{provider, status, message?, sign_in?, providers: [{provider, status, message?, sign_in?}, ...]}` |
 | `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
 | `vault.lock` | none | `{locked: [names]}` |
 
@@ -458,7 +459,7 @@ Requests without an `id` (notifications) run but get no reply.
   - `missing-cli`: the CLI isn't installed
   - `unsupported`: no master password, e.g. `env` or `prompt`
 
-  For `not-logged-in` and `missing-cli`, `message` says what to run or install.
+  For `not-logged-in` and `missing-cli`, `message` says what to run or install. For `not-logged-in`, a provider the app can sign in (`bw`) also has `sign_in: {methods: ["password", "apikey", "sso"], server}`, where `server` is what `bw config server` is set to (`null`: bitwarden.com). See `vault.login` below.
 - `vault.unlock` unlocks `provider`, or by default the one `vault.status` names.
 - `vault.lock` forgets every cached secret, session key and askpass token, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
 
@@ -469,6 +470,53 @@ Requests without an `id` (notifications) run but get no reply.
 | `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) `` |
 | `13` | The provider has no master password, or no Host Login uses one |
 | `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first` |
+
+### Signing in: `vault.login`
+
+A new Box's vault CLI isn't logged in (`vault.status`: `not-logged-in`). `vault.login` signs it in from the app, a step at a time, and leaves the vault unlocked. roster-desk's `docs/dev/vault-auth.md` has the research: which methods each CLI can do, and why it works this way.
+
+| Params | Result |
+|---|---|
+| `{action: "start", method: "password", email, password, server?, provider?}` | the first step |
+| `{action: "start", method: "apikey", client_id, client_secret, server?}` | `master_password` |
+| `{action: "start", method: "sso", identifier?, server?}` | `sso` |
+| `{action: "answer", login, ...the step's answer}` | the next step |
+| `{action: "cancel"}` | `{cancelled: true \| false}` |
+
+`action` defaults to `start`. `server` is `cloud` (bitwarden.com), `eu` (`https://vault.bitwarden.eu`), or a self-hosted `https://` URL. Leave it out to keep what `bw config server` says; roster only runs `bw config server` when that changes. A `start` ends any sign-in in progress, and so do `cancel`, `vault.lock`, and 10 minutes without an answer. Every result has `step` and `login`, the sign-in's id, which `answer` sends back:
+
+| `step` | Also has | Answer with |
+|---|---|---|
+| `two_factor_method` | `methods: [{index, id, kind, name}]` in bw's order. `kind` is `authenticator`, `email`, `yubikey` or `other`; `id` is bw's method number (0, 1, 3). FIDO2 and Duo never appear: the CLI can't do them | `{method: index}` |
+| `two_factor_code` | `method` (as above, or `null` when the account has one method and bw picked it), `sent: true` when bw has just emailed the code | `{code}` |
+| `new_device_code` | `email`: Bitwarden emailed a one-time code because this Box is new | `{code}` |
+| `sso` | `url` to open in a browser (roster opens it on the Box too: `wslview`, `explorer.exe` on WSL, else `xdg-open`), `expires_in` seconds (5 minutes) | `{}`: waits up to 20 s for the browser, then answers `sso` again (with the time left) or the next step |
+| `master_password` | after an API key or SSO, which only log in: the vault still needs the master password | `{password}` |
+| `done` | `provider`, `status: "unlocked"` | |
+
+How it works, and what never happens to a secret:
+- `bw login` can't take a new-device code from a flag, and it's one-shot. So the password and SSO flows run `bw login` on a PTY and type at bw's own prompts. The bw process lives between calls.
+- The master password goes to bw in an environment variable (`--passwordenv`). The API key goes in `BW_CLIENTID` and `BW_CLIENTSECRET`. The email and every code are typed at bw's prompts. None of them is ever in a command line (`--code` and a positional password are never used), and none ever appears in a response or on stderr. An error quotes bw's own words with every value the person typed cut out.
+- A wrong code ends the bw process. roster holds the master password in memory for the sign-in's life, so it runs bw again itself and answers code `50`, with `data.step` set to the step to show next. The person types only a new code. For Email and new-device codes, that sends a fresh one, and the message says so.
+- A failure with `data.step` (`50`, and `10` at `master_password`) keeps the sign-in going: show that step again. Any other failure ends it.
+
+| Code | Meaning |
+|---|---|
+| `10` | The email or master password wasn't accepted: "Bitwarden didn't accept that email and master password (on bitwarden.com)". At the `master_password` step, the usual unlock message, with `data.step` |
+| `12` | `bw` isn't installed |
+| `13` | The provider has no sign-in roster can drive. For `op`: "1Password signs in through its desktop app, not here: turn on ... "Integrate with 1Password CLI" ..., or set OP_SERVICE_ACCOUNT_TOKEN for a service account" |
+| `50` | The two-step or new-device code was wrong or expired (the server doesn't tell those apart). `data.step` and `data.login`: carry on there |
+| `51` | The CLI can't do the account's two-step method, which happens when FIDO2 and Duo are its only methods: "... sign in with an API key instead, or add an authenticator app, email or YubiKey OTP as a second method in the web vault". Also SSO for accounts with trusted-device or passkey (PRF) decryption, in bw's words |
+| `52` | The server refused: too many attempts. Wait a few minutes |
+| `53` | The server didn't answer (DNS, refused, TLS, no answer in 40 s): "can't reach the Bitwarden server vault.example.com (...)" |
+| `54` | The CLI is already logged in on this box, so unlock instead. To switch account, run `bw logout` first |
+| `55` | No sign-in in progress: finished, cancelled, replaced by a newer `start`, or 10 minutes without an answer |
+| `56` | SSO failed in the browser, or wasn't finished within 5 minutes |
+| `57` | `server` isn't `cloud`, `eu` or an `http(s)://` URL |
+| `58` | The API key wasn't accepted, or it's an organization key (the CLI takes only personal ones) |
+| `59` | The sign-in failed some other way; the message has bw's words |
+
+`ROSTER_SSO_TIMEOUT` (seconds, given to `serve`) can shorten the 5-minute SSO wait, for tests, and `ROSTER_NO_BROWSER=1` stops roster from opening the link on the Box.
 
 ## How Claude uses it
 
@@ -501,12 +549,12 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 216 tests, no network or SSH server needed
+uv run pytest            # 241 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
 
 ```
 src/roster/
@@ -521,7 +569,8 @@ src/roster/
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, and `roster check HOST` / host.check's steps
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
-  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
+  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword;
+                    bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
 examples/           commented roster.yml, plugin template
 docs/               team guides: setting up a new box, adding hosts
 tests/              pytest suite + fake password-manager CLIs

@@ -46,6 +46,52 @@ class VaultLocked(SecretError):
     """The vault is locked and this process may not unlock it by itself (see MANUAL_UNLOCK)."""
 
 
+# What can go wrong signing in (`roster serve`'s vault.login). `step`: where the sign-in carries on (the provider
+# restarted it, e.g. after a wrong code), or None when it's over. Messages are roster's; never a secret.
+class LoginError(SecretError):
+    """A sign-in failed some other way; the message has the provider's own words."""
+
+    def __init__(self, message, step=None):
+        super().__init__(message)
+        self.step = step
+
+
+class CodeRejected(LoginError):
+    """The two-step or new-device code was wrong or expired."""
+
+
+class MethodUnsupported(LoginError):
+    """The account's only two-step methods (or its SSO decryption) are ones the provider's CLI can't do."""
+
+
+class RateLimited(LoginError):
+    """The server refused: too many attempts."""
+
+
+class ServerUnreachable(LoginError):
+    """The vault's server didn't answer (network, wrong address, TLS)."""
+
+
+class AlreadyLoggedIn(LoginError):
+    """The CLI is already logged in on this box: unlock instead."""
+
+
+class BrowserLoginFailed(LoginError):
+    """SSO in the browser failed or didn't finish in time."""
+
+
+class BadServer(LoginError):
+    """The server address given isn't one."""
+
+
+class ApiKeyRejected(LoginError):
+    """The API key (client id / secret) wasn't accepted, or is an organization key."""
+
+
+class WrongLogin(LoginError):
+    """The email or master password wasn't accepted (WrongPassword's sign-in twin)."""
+
+
 # What can be wrong with the item a Login names. They carry item NAMES (and dates, URIs), never a value.
 class ItemNotFound(SecretError):
     """No item by that name. near: names of similar items, closest first."""
@@ -84,6 +130,8 @@ def near_names(name, names, n=5):
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
                           #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str,
                           #             "not_logged_in": what to run when status is "unauthenticated"
+                          #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
+                          #             "login_help": why this provider has no sign-in here, and what to do
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
@@ -218,6 +266,16 @@ def status_message(name, status):
     return None
 
 
+def login(name):
+    """A new sign-in flow for provider NAME (an object with start(params), answer(params) and close(), each
+    step a dict; see bw_login.py). Unsupported when the provider signs in some other way."""
+    fn = _vault_op(name, "login")
+    if not fn:
+        raise Unsupported(PROVIDERS[name].get("login_help")
+                          or f"provider '{name}' has no sign-in roster can drive - set it up on the box itself")
+    return fn(Ctx(name, None))
+
+
 def lock(name):
     """Forget every cached secret and NAME's state, then run the provider's own lock (if it has one).
     Memory is cleared first, so it is forgotten even if the provider's lock then fails."""
@@ -294,4 +352,4 @@ def setup_providers(cfg):
 
 
 # Built-in providers register themselves on import.
-from . import bitwarden, builtin, onepassword  # noqa: E402,F401
+from . import bitwarden, builtin, bw_login, onepassword  # noqa: E402,F401

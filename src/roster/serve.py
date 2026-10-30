@@ -10,9 +10,11 @@ Add a method by writing a function (state, params) -> result and listing it in M
 
 import json
 import os
+import secrets
 import shutil
 import signal
 import sys
+import time
 
 from . import __version__, askpass, diagnose, providers
 from .common import not_reviewed, ssh_config_file
@@ -21,6 +23,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CLI_MISSING,
     INVENTORY_ERROR,
     NO_ASKPASS,
+    NO_SIGN_IN,
     NOT_LOGGED_IN,
     NOT_REVIEWED,
     NOT_SET_UP,
@@ -31,12 +34,13 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     WRONG_PASSWORD,
     Problem,
     inventory_problem,
+    sign_in_problem,
     vault_problem,
 )
 from .providers import PROVIDERS, setup_providers
 from .sshops import in_ssh_config
 
-API_VERSION = 2             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 3             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -57,6 +61,7 @@ class State:
         self.cfg, self.path, self.error = None, None, None
         self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
         self.askpass = None                 # the askpass Channel, while serve() runs
+        self.login = None                   # the sign-in in progress (vault.login): SignIn
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -192,6 +197,11 @@ def provider_status(name):
         raise secret_error(e) from None
     result = {"provider": name, "status": STATUS_WORDS.get(status, status)}
     message = providers.status_message(name, status)
+    if status == "unauthenticated" and PROVIDERS[name].get("login_info"):
+        try:
+            result["sign_in"] = PROVIDERS[name]["login_info"](providers.Ctx(name, None))
+        except providers.SecretError:
+            pass
     return result | ({"message": message} if message else {})
 
 
@@ -254,6 +264,7 @@ def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
     opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails."""
     names = set(state.unlocked) | (set(referenced_providers(state.cfg)) if state.cfg else set())
+    end_sign_in(state)
     for forget in ON_VAULT_LOCK:
         forget(state)
     for name in sorted(names):
@@ -268,6 +279,90 @@ def vault_lock(state, params):
 METHODS["vault.status"] = vault_status
 METHODS["vault.unlock"] = vault_unlock
 METHODS["vault.lock"] = vault_lock
+
+
+# ---------------------------------------------------------------- vault.login: signing in (ticket 31)
+
+SIGN_IN_IDLE = 600          # s: a sign-in nobody answers for this long is ended (and forgets the password it held)
+SIGN_IN_METHODS = {"password": ("email", "password"), "apikey": ("client_id", "client_secret"), "sso": ()}
+ANSWERS = {"two_factor_code": "code", "new_device_code": "code", "master_password": "password"}
+
+
+class SignIn:
+    def __init__(self, provider, flow):
+        self.id, self.provider, self.flow = secrets.token_hex(8), provider, flow
+
+
+def end_sign_in(state):
+    """Stop the sign-in in progress (its CLI process too) and forget what it held."""
+    login, state.login = state.login, None
+    if login is not None:
+        login.flow.close()
+
+
+def sign_in_step(state, login, fn):
+    """Run one step. A failure that says where to carry on keeps the sign-in; any other ends it."""
+    try:
+        step = fn()
+    except providers.SecretError as e:
+        if getattr(e, "step", None) is None:
+            end_sign_in(state)
+        raise sign_in_problem(e, login.id) from None
+    except (KeyError, TypeError, ValueError) as e:      # an answer that doesn't fit the step: the step stays
+        raise RpcError(INVALID_PARAMS, f"vault.login: {e}" if isinstance(e, ValueError) else
+                       "vault.login: params don't fit the step") from None
+    except Exception as e:                      # never let the generic handler log text that might hold a secret
+        end_sign_in(state)
+        raise RpcError(INTERNAL_ERROR, f"signing in to {login.provider} failed: {type(e).__name__}") from None
+    if step["step"] == "done":
+        state.unlocked.add(login.provider)
+        end_sign_in(state)
+    return {**step, "login": login.id}
+
+
+def vault_login(state, params):
+    """Sign the vault CLI in on this box, a step at a time (README "Signing in: vault.login").
+    action "start" (the default) begins a new one, "answer" answers the current step, "cancel" stops it.
+    Secrets arrive as values, go to the CLI through env vars or its own prompts, and are never echoed."""
+    action = params.get("action", "start")
+    if action == "cancel":
+        cancelled = state.login is not None
+        end_sign_in(state)
+        return {"cancelled": cancelled}
+    if action == "answer":
+        login = state.login
+        if login is None or params.get("login") != login.id:
+            raise RpcError(NO_SIGN_IN, "no sign-in in progress (it finished, was cancelled or timed out) - "
+                                       "start again", fix="start the sign-in again")
+        if time.monotonic() - login.flow.touched > SIGN_IN_IDLE:
+            end_sign_in(state)
+            raise RpcError(NO_SIGN_IN, f"the sign-in timed out ({SIGN_IN_IDLE // 60} minutes without an answer) "
+                                       "- start again", fix="start the sign-in again")
+        key = ANSWERS.get(login.flow.step["step"])
+        if key:
+            text_param(params, key)
+        return sign_in_step(state, login, lambda: login.flow.answer(params))
+    if action != "start":
+        raise RpcError(INVALID_PARAMS, "params.action must be start, answer or cancel")
+    method = params.get("method", "password")
+    if method not in SIGN_IN_METHODS:
+        raise RpcError(INVALID_PARAMS, f"params.method must be one of: {', '.join(SIGN_IN_METHODS)}")
+    for key in SIGN_IN_METHODS[method]:
+        text_param(params, key)
+    for key in ("server", "identifier"):
+        if params.get(key) is not None and not isinstance(params[key], str):
+            raise RpcError(INVALID_PARAMS, f"params.{key} must be a string")
+    end_sign_in(state)
+    name = vault_provider(state, params)
+    try:
+        flow = providers.login(name)
+    except providers.SecretError as e:
+        raise sign_in_problem(e) from None
+    state.login = SignIn(name, flow)
+    return sign_in_step(state, state.login, lambda: flow.start({**params, "method": method}))
+
+
+METHODS["vault.login"] = vault_login
 
 
 # ---------------------------------------------------------------- the loop
@@ -317,11 +412,14 @@ def serve(config_arg):
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed
     state = State(config_arg)
     with askpass.Channel(askpass_lookup, log=log_line) as state.askpass:
-        for line in sys.stdin:
-            if not line.strip():
-                continue
-            response = handle(state, line)
-            if response is not None:
-                out.write(json.dumps(response, default=str) + "\n")
-                out.flush()
+        try:
+            for line in sys.stdin:
+                if not line.strip():
+                    continue
+                response = handle(state, line)
+                if response is not None:
+                    out.write(json.dumps(response, default=str) + "\n")
+                    out.flush()
+        finally:
+            end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
     return 0

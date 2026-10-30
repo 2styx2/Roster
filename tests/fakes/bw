@@ -2,8 +2,19 @@
 # Test stand-in for the Bitwarden CLI (bw). Logged in, locked; master password "hunter2".
 # FAKE_BW_LOGGED_OUT=1: not logged in (status "unauthenticated", unlock fails).
 # FAKE_BW_ITEMS=FILE: a JSON list of items to use instead of the ones below (read on every call).
-import json, os, sys
-a = [x for x in sys.argv[1:] if x != "--nointeraction"]
+# Signing in (`bw login`, vault.login) - prompts like bw's inquirer ones, on stderr, answers read from stdin:
+# FAKE_BW_STATE=FILE: {"logged_in": bool, "server": url|null, "email": ...}, kept across calls (overrides
+#   FAKE_BW_LOGGED_OUT once it exists).
+# FAKE_BW_ACCOUNT=JSON: the account to sign in to - email, password, methods (authenticator, email, yubikey,
+#   webauthn, duo), codes {method: code}, new_device + new_device_code, rate_limited, unreachable,
+#   client_id + client_secret, sso ("ok", "fail", "hang", "tde").
+# FAKE_ARGV_LOG=FILE: every call's full argv, one JSON list per line.
+# FAKE_BW_MAIL=FILE: one line per code bw "emailed" (two-step email, new-device OTP).
+import json, os, subprocess, sys, time
+argv = sys.argv[1:]
+os.environ.get("FAKE_ARGV_LOG") and open(os.environ["FAKE_ARGV_LOG"], "a").write(json.dumps(argv) + "\n")
+nointeraction = "--nointeraction" in argv
+a = [x for x in argv if x not in ("--nointeraction", "--raw")]
 SESSION = "fake-session-key"
 items = [
  {"id": "11111111-aaaa", "name": "Orion servers", "login": {"username": "deploy", "password": "pw-deploy"},
@@ -16,9 +27,109 @@ if os.environ.get("FAKE_BW_ITEMS"):
     items = json.load(open(os.environ["FAKE_BW_ITEMS"]))
 unlocked = os.environ.get("BW_SESSION") == SESSION
 os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("bw " + " ".join(a[:2]) + "\n")
-logged_out = bool(os.environ.get("FAKE_BW_LOGGED_OUT"))
+state_file = os.environ.get("FAKE_BW_STATE")
+state = json.load(open(state_file)) if state_file and os.path.exists(state_file) else \
+    {"logged_in": not os.environ.get("FAKE_BW_LOGGED_OUT"), "server": None}
+account = json.loads(os.environ.get("FAKE_BW_ACCOUNT") or "{}")
+logged_out = not state["logged_in"]
+
+
+def save():
+    if state_file:
+        json.dump(state, open(state_file, "w"))
+
+
+def fail(msg):
+    print(msg, file=sys.stderr); sys.exit(1)
+
+
+def ask(msg):
+    """Like inquirer: '? MSG ' on stderr (colours and all), the answer is a line on stdin."""
+    if nointeraction:
+        return None
+    sys.stderr.write(f"\x1b[32m?\x1b[39m \x1b[1m{msg}\x1b[22m "); sys.stderr.flush()
+    line = sys.stdin.readline()
+    if not line: sys.exit(1)
+    return line.rstrip("\r\n")
+
+
+def mailed(what):
+    os.environ.get("FAKE_BW_MAIL") and open(os.environ["FAKE_BW_MAIL"], "a").write(what + "\n")
+
+
+def logged_in(email):
+    state.update(logged_in=True, email=email); save()
+
+
 if a[0] == "status":
-    print(json.dumps({"status": "unauthenticated" if logged_out else "unlocked" if unlocked else "locked"})); sys.exit()
+    print(json.dumps({"serverUrl": state.get("server"), "userEmail": None if logged_out else state.get("email"),
+                      "status": "unauthenticated" if logged_out else "unlocked" if unlocked else "locked"})); sys.exit()
+if a[:2] == ["config", "server"]:
+    if len(a) == 2: print(state.get("server") or "https://bitwarden.com"); sys.exit()
+    if not logged_out: fail("Logout required before server config update.")
+    state["server"] = None if a[2] in ("bitwarden.com", "https://bitwarden.com") else a[2]; save()
+    print("Saved setting `config`."); sys.exit()
+if a[0] == "login":
+    if not logged_out: fail(f"You are already logged in as {state.get('email') or 'someone@example.com'}.")
+    if account.get("unreachable"):
+        fail(f"request to {state.get('server') or 'https://vault.bitwarden.com'}/identity/accounts/prelogin failed, "
+             "reason: getaddrinfo ENOTFOUND")
+    if account.get("rate_limited"): fail("Slow down! Too many requests. Try again soon.")
+    if "--apikey" in a:
+        cid, secret = os.environ.get("BW_CLIENTID"), os.environ.get("BW_CLIENTSECRET")
+        if not cid.startswith("user"): fail("Invalid API Key; Organization API Key currently not supported")
+        if (cid, secret) != (account.get("client_id"), account.get("client_secret")):
+            fail("client_id or client_secret is incorrect. Try again.")
+        logged_in(account.get("email")); print('You are logged in!\n$ export BW_SESSION="throwaway-key"'); sys.exit()
+    if "--sso" in a:
+        if nointeraction: fail("Email address is required.")              # bw ignores --sso without a prompt
+        subprocess.run(["xdg-open", "https://vault.bitwarden.com/#/sso?clientId=cli&redirectUri=http%3A%2F%2F"
+                        "localhost%3A8065&state=fake-state&codeChallenge=fake-challenge"])
+        how = account.get("sso", "ok")
+        if how == "hang": time.sleep(3600)
+        time.sleep(float(os.environ.get("FAKE_SSO_DELAY", "0.3")))
+        if how == "fail": fail("Something went wrong. Try again.")
+        if how == "tde": fail("The CLI does not support SSO login for accounts using trusted device encryption. "
+                              "Log in through the web vault, desktop app, or browser extension.")
+        logged_in(account.get("email")); print("You are logged in!"); sys.exit()
+    email = a[1] if len(a) > 1 and not a[1].startswith("--") else ask("Email address:")
+    if not email: fail("Email address is required.")
+    pw = os.environ.get(a[a.index("--passwordenv") + 1]) if "--passwordenv" in a else None
+    if not pw: fail("Master password is required.")
+    if (email, pw) != (account.get("email"), account.get("password")):
+        fail(f"Invalid master password. Confirm your email is correct and your account was created on "
+             f"{(state.get('server') or 'https://vault.bitwarden.com').split('//')[-1]}.")
+    names = {"authenticator": "Authenticator App", "yubikey": "Yubico OTP Security Key", "email": "Email"}
+    methods = account.get("methods") or []
+    usable = [m for m in ("authenticator", "yubikey", "email") if m in methods]     # bw's order; no FIDO2, no Duo
+    if methods:
+        if not usable: fail("No providers available for this client.")
+        if "--method" in a:
+            pick = {0: "authenticator", 1: "email", 3: "yubikey"}.get(int(a[a.index("--method") + 1]))
+            if pick not in usable: fail("Login failed. No provider selected.")
+        elif len(usable) == 1:
+            pick = usable[0]
+        elif nointeraction:
+            fail("Login failed. No provider selected.")
+        else:
+            sys.stderr.write("\x1b[32m?\x1b[39m \x1b[1mTwo-step login method:\x1b[22m \x1b[2m(Use arrow keys)\x1b[22m\n"
+                             + "".join(f"{'❯' if i == 0 else ' '} {names[m]}\n" for i, m in enumerate(usable))
+                             + "  ──────────────\n  Cancel\n"); sys.stderr.flush()
+            line = sys.stdin.readline()
+            i = line.count("\x1b[B")
+            if i >= len(usable): fail("Login failed.")
+            pick = usable[i]
+        if pick == "email": mailed("two-step code")
+        code = ask("Two-step login code:")
+        if not code: fail("Code is required.")
+        if code != account.get("codes", {}).get(pick): fail("Two-step token is invalid. Try again.")
+    elif account.get("new_device"):
+        mailed("new-device code")
+        code = ask("New device verification required. Enter OTP sent to login email:")
+        if not code: fail("Code is required.")
+        if code != account.get("new_device_code"): fail("Invalid new device OTP. Try again.")
+    logged_in(email)
+    print(SESSION); sys.exit()
 if logged_out: print("You are not logged in.", file=sys.stderr); sys.exit(1)
 if a[0] == "unlock":
     pw = os.environ.get(a[a.index("--passwordenv") + 1])

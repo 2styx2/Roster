@@ -45,6 +45,19 @@ KEY_REFUSED = 46            # the Host refused this box's key (row 12)
 TOO_MANY_AUTH = 47          # the Host cut the connection after too many key attempts (row 19)
 AUTH_FAILED = 48            # the login failed some other way; details has ssh's own message
 
+# vault.login: signing the vault CLI in on this box (ticket 31; roster-desk docs/dev/vault-auth.md).
+# A wrong email or master password is 10, a provider with no sign-in here 13, no CLI 12.
+CODE_REJECTED = 50          # the two-step or new-device code was wrong or expired; data.step: type a new one
+METHOD_UNSUPPORTED = 51     # the account's two-step method (FIDO2, Duo) or SSO decryption isn't one the CLI can do
+RATE_LIMITED = 52           # the server refused: too many attempts
+SERVER_UNREACHABLE = 53     # the vault's server didn't answer (network, wrong address, TLS)
+ALREADY_LOGGED_IN = 54      # the CLI is already logged in on this box: unlock instead
+NO_SIGN_IN = 55             # no sign-in in progress (finished, cancelled, superseded or idle 10 minutes)
+SSO_FAILED = 56             # SSO in the browser failed or wasn't finished in time
+BAD_SERVER = 57             # the server address isn't one
+API_KEY_REJECTED = 58       # the API key wasn't accepted, or it's an organization key
+SIGN_IN_FAILED = 59         # the sign-in failed some other way; the message has the CLI's own words
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""
@@ -63,6 +76,40 @@ VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: 
 def vault_problem(e):
     """A provider's SecretError about the vault itself (locked, not logged in, ...) as a Problem."""
     return Problem(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
+
+
+SIGN_IN_ERRORS = {providers.CodeRejected: CODE_REJECTED, providers.MethodUnsupported: METHOD_UNSUPPORTED,
+                  providers.RateLimited: RATE_LIMITED, providers.ServerUnreachable: SERVER_UNREACHABLE,
+                  providers.AlreadyLoggedIn: ALREADY_LOGGED_IN, providers.BrowserLoginFailed: SSO_FAILED,
+                  providers.BadServer: BAD_SERVER, providers.ApiKeyRejected: API_KEY_REJECTED,
+                  providers.WrongLogin: WRONG_PASSWORD, providers.LoginError: SIGN_IN_FAILED}
+
+SIGN_IN_FIXES = {
+    WRONG_PASSWORD: "check the email, the master password and the server, then try again",
+    CODE_REJECTED: "type the current code (an authenticator's changes every 30 s; an emailed one is the newest)",
+    METHOD_UNSUPPORTED: "sign in with an API key, or add a second method the CLI can do in the web vault",
+    RATE_LIMITED: "wait a few minutes before trying again",
+    SERVER_UNREACHABLE: "check the server address and this box's network, then try again",
+    ALREADY_LOGGED_IN: "unlock with the master password instead",
+    NO_SIGN_IN: "start the sign-in again",
+    SSO_FAILED: "start the SSO sign-in again and finish it in the browser",
+    BAD_SERVER: "use cloud, eu, or your server's https:// address",
+    API_KEY_REJECTED: "copy client_id and client_secret again from the web vault (Account settings > Security > Keys)",
+    SIGN_IN_FAILED: "see the message; `bw login` in a terminal shows the same",
+}
+
+
+def sign_in_problem(e, login_id=None):
+    """A failed vault.login step as a Problem. data.step (with data.login) is where the sign-in carries on, when
+    it does; without it the sign-in is over. Never holds a value the person typed (the provider scrubs them)."""
+    if isinstance(e, providers.WrongPassword) or type(e) in VAULT_ERRORS:
+        code = VAULT_ERRORS.get(type(e), WRONG_PASSWORD)
+    else:
+        code = next((c for cls, c in SIGN_IN_ERRORS.items() if isinstance(e, cls)), SIGN_IN_FAILED)
+    step = getattr(e, "step", None)
+    data = {"step": step, "login": login_id} if step else None
+    fix = SIGN_IN_FIXES.get(code) or (str(e) if code in (NOT_LOGGED_IN, CLI_MISSING) else None)
+    return Problem(code, str(e), data, fix=fix)
 
 
 def login_problem(e, h, what="ssh"):

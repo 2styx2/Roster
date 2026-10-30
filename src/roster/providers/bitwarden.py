@@ -49,11 +49,16 @@ def load_session_file():
     return bool(key)
 
 
-def _bw_status(ctx):
+def _bw_status_json(ctx):
+    """`bw status` as a dict: status, and (when it says) userEmail and serverUrl (None for bitwarden.com)."""
     try:
-        return json.loads(_bw(ctx, "status").stdout or "{}").get("status")
+        return json.loads(_bw(ctx, "status").stdout or "{}")
     except json.JSONDecodeError:
         raise SecretError("couldn't read `bw status` output")
+
+
+def _bw_status(ctx):
+    return _bw_status_json(ctx).get("status")
 
 
 def _bw_ready(ctx):
