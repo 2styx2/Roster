@@ -259,8 +259,8 @@ function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): Side
     command: `togglefold ${id}`,
     drop,
     actions: [
-      { label: `Rename ${folder.name}`, text: "✎", command: `folder rename ${quote(folder.name)}` },
-      { label: `Delete Folder ${folder.name}`, text: "×", command: `folder delete ${folder.name}` },
+      { label: `Rename ${folder.name}`, icon: "edit", command: `folder rename ${quote(folder.name)}` },
+      { label: `Delete Folder ${folder.name}`, icon: "close", command: `folder delete ${folder.name}` },
     ],
   };
   const hosts = folder.hosts.map((name): SidebarRow => {
@@ -275,7 +275,7 @@ function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): Side
       drag: name,
       dragOut: `folder remove ${name} ${folder.name}`,
       drop,
-      actions: [{ label: `Remove ${name} from ${folder.name}`, text: "×", command: `folder remove ${name} ${folder.name}` }],
+      actions: [{ label: `Remove ${name} from ${folder.name}`, icon: "close", command: `folder remove ${name} ${folder.name}` }],
     };
   });
   return [head, ...hosts];
@@ -294,7 +294,7 @@ export function foldersSection(): SidebarSectionDef {
         title: "Folders",
         count: folders.length,
         empty: "No Folders yet. Drag a Host here, or ␣ a.",
-        actions: [{ label: "New Folder", text: "+", command: "folder new" }],
+        actions: [{ label: "New Folder", icon: "add", command: "folder new" }],
         drop: (host) => `folder add ${host}`,
         rows: folders.flatMap((f) => folderRows(f, hostByName)),
       };

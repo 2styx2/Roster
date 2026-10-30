@@ -165,11 +165,11 @@ describe("Folders", () => {
   it("adds a Host by dragging it onto a Folder, and removes it by dragging it out", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}:folder new Lab{Enter}`);
-    fireEvent.dragStart(inv("esxi-2-001"));
+    fireEvent.dragStart(rowOf(inv("esxi-2-001")));
     fireEvent.dragOver(within(folders()).getByRole("button", { name: /^Lab/ }));
     fireEvent.drop(within(folders()).getByRole("button", { name: /^Lab/ }));
     const inFolder = within(folders()).getByRole("button", { name: /^esxi-2-001/ });
-    fireEvent.dragStart(inFolder);
+    fireEvent.dragStart(rowOf(inFolder));
     fireEvent.dragOver(inv("linux-1-000"));
     fireEvent.drop(inv("linux-1-000"));
     expect(within(folders()).queryByRole("button", { name: /^esxi-2-001/ })).toBeNull();

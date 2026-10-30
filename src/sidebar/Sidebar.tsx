@@ -18,8 +18,7 @@ export type Dot = "key" | "password" | "ended" | "off";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  /** What the button shows (a glyph). */
-  text: string;
+  icon: "close" | "edit" | "add";
   command: CommandLine;
 }
 
@@ -99,10 +98,16 @@ export const headingId = (section: string) => `section:${section}`;
 /** Keeps focus where it is (the terminal) when a row or button is clicked. */
 const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
+
+
 type Run = (line: CommandLine) => void;
 type DropTarget = (payload: string) => CommandLine | null;
 
 interface Drag {
+  /** A mousedown on a row: keeps focus where it is, except on a draggable row, whose mousedown
+   * must go ahead for the drag; that one gives focus back on the click (`refocus`). */
+  press(row: SidebarRow, e: React.MouseEvent): void;
+  refocus(): void;
   start(row: SidebarRow, e: DragEvent): void;
   /** Lets a drop happen here (a target, or the open Sidebar for a row that can be dragged out). */
   over(e: DragEvent, target: DropTarget | undefined): void;
@@ -124,10 +129,22 @@ function Actions({ actions, run }: { actions: readonly RowAction[]; run: Run }) 
         run(a.command);
       }}
     >
-      {a.text}
+      <Icon name={a.icon} />
     </button>
   ));
 }
+
+const ICONS: Record<RowAction["icon"], string> = {
+  close: "M4 4l8 8M12 4l-8 8",
+  edit: "M3 13l1-3.5L10.5 3 13 5.5 6.5 12z",
+  add: "M8 3v10M3 8h10",
+};
+
+const Icon = ({ name }: { name: RowAction["icon"] }) => (
+  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+    <path d={ICONS[name]} />
+  </svg>
+);
 
 const Chevron = ({ folded }: { folded: boolean }) => (
   <span className="sb-chev" aria-hidden="true">
@@ -142,20 +159,24 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
       className={cls}
       data-row={row.id}
       style={row.level ? { paddingLeft: `${row.level * 18}px` } : undefined}
+      // Chromium won't start a drag from a <button>, so the row is a div with the button role,
+      // not focusable, and the <li> is what's dragged.
+      draggable={row.drag !== undefined}
+      onDragStart={row.drag !== undefined ? (e) => drag.start(row, e) : undefined}
       onDragOver={row.drop ? (e) => drag.over(e, row.drop) : undefined}
       onDrop={row.drop ? (e) => drag.drop(e, row.drop) : undefined}
     >
-      <button
-        type="button"
+      <div
+        role="button"
         className="sb-item"
         aria-current={row.raised ? "true" : undefined}
         aria-expanded={row.foldable ? !row.folded : undefined}
         title={row.title}
-        tabIndex={-1}
-        draggable={row.drag !== undefined}
-        onDragStart={row.drag !== undefined ? (e) => drag.start(row, e) : undefined}
-        onMouseDown={keepFocus}
-        onClick={() => run(row.command)}
+        onMouseDown={(e) => drag.press(row, e)}
+        onClick={() => {
+          run(row.command);
+          drag.refocus();
+        }}
       >
         {row.foldable && <Chevron folded={row.folded ?? false} />}
         {row.dot && <span className={`dot ${row.dot}`} aria-hidden="true" />}
@@ -163,7 +184,7 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
         {row.note && <span className="sb-note"> {row.note}</span>}
         {row.badge && <span className="sb-badge"> {row.badge}</span>}
         {row.detail && <span className="sb-detail"> {row.detail}</span>}
-      </button>
+      </div>
       {row.actions && <Actions actions={row.actions} run={run} />}
     </li>
   );
@@ -237,7 +258,17 @@ export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProp
   // The dragged row lives here; its Host also goes on the dataTransfer as text (WebView2 needs
   // some data for a drag to start).
   const dragged = useRef<SidebarRow | null>(null);
+  const focusBefore = useRef<Element | null>(null);
   const [drag] = useState<Drag>(() => ({
+    press(row, e) {
+      if (row.drag === undefined) return e.preventDefault();
+      focusBefore.current = document.activeElement;
+    },
+    refocus() {
+      const el = focusBefore.current;
+      focusBefore.current = null;
+      if (el instanceof HTMLElement && el.isConnected && (document.activeElement === document.body || !document.activeElement)) el.focus();
+    },
     start(row, e) {
       dragged.current = row;
       e.dataTransfer?.setData("text/plain", row.drag ?? "");
@@ -270,6 +301,7 @@ export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProp
         onDrop={(e) => drag.drop(e, undefined)}
         onDragEnd={() => {
           dragged.current = null;
+          drag.refocus();
         }}
       >
         {sections.map((section) => (

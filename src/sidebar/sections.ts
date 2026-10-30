@@ -111,7 +111,7 @@ export const sessionsSection: SidebarSectionDef = {
             ...(tab.auth ? { title: `${tab.auth} login` } : {}),
             raised: tab.id === sessions.active,
             command: `session ${i + 1}`,
-            actions: [{ label: `Close ${tab.label}`, text: "×", command: `close ${i + 1}` }],
+            actions: [{ label: `Close ${tab.label}`, icon: "close", command: `close ${i + 1}` }],
           })),
         },
 };
