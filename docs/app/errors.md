@@ -35,7 +35,7 @@ Edits made by hand to `roster.yml` or the vault get the same treatment as anythi
 
 ## Signing in (ticket 31)
 
-The lock screen signs a new Box's vault CLI in through roster's `vault.login` (roster README "Signing in: vault.login"; the research is in `docs/app/dev/vault-auth.md`). Its failures come from the same catalog, keyed by roster's code. The lock screen shows the message, where it lives, the fix, and roster's text under Details. A 50, and a 10 at the master-password step, keep the sign-in on its step with the field emptied. Every other failure ends the sign-in and goes back to the screen it started from: the server choice for 53 and 57, the unlock form for 54.
+The lock screen signs a new Box's vault CLI in through roster's `vault.login` (roster's docs/serve-api.md "Signing in: vault.login"; the research is in `docs/app/dev/vault-auth.md`). Its failures come from the same catalog, keyed by roster's code. The lock screen shows the message, where it lives, the fix, and roster's text under Details. A 50, and a 10 at the master-password step, keep the sign-in on its step with the field emptied. Every other failure ends the sign-in and goes back to the screen it started from: the server choice for 53 and 57, the unlock form for 54.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
@@ -54,7 +54,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## Saving to the vault (ticket 13)
 
-"Save to vault" creates a Vault item through roster's `vault.create_item` (roster README "Saving to the vault"). It runs after the test login succeeds and before the Pending change is added (Q43); if adding the Pending change fails, `vault.undo_create` removes the item again.
+"Save to vault" creates a Vault item through roster's `vault.create_item` (roster's docs/serve-api.md "Saving to the vault"). It runs after the test login succeeds and before the Pending change is added (Q43); if adding the Pending change fails, `vault.undo_create` removes the item again.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|

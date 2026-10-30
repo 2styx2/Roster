@@ -151,7 +151,7 @@ fn debug_output_never_shows_env_values() {
     }
 }
 
-/// What `session.prepare` gives for a password-only Host (roster README, "Password Sessions").
+/// What `session.prepare` gives for a password-only Host (docs/serve-api.md, "Password Sessions").
 fn password_prepared(token: &str) -> Prepared {
     serde_json::from_value(json!({
         "argv": ["/usr/bin/ssh", "-o", "NumberOfPasswordPrompts=1",

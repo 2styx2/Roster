@@ -88,7 +88,7 @@ export class BackendStartError extends Error {
   }
 }
 
-/** A JSON-RPC error's `data` (roster README): `fix` in a sentence, plus what the code's row needs
+/** A JSON-RPC error's `data` (docs/serve-api.md): `fix` in a sentence, plus what the code's row needs
  * (`near`, `matches`, `path`/`line`, `provider`, `field`). Names, dates and URIs; never a secret. */
 export type CallErrorData = Record<string, unknown> & { fix?: string };
 
@@ -391,7 +391,7 @@ export interface ProviderStatus {
   sign_in?: SignInInfo;
 }
 
-/** How the vault CLI can be signed in from the app (roster README "Signing in: vault.login"). */
+/** How the vault CLI can be signed in from the app (roster's docs/serve-api.md "Signing in: vault.login"). */
 export type SignInWay = "password" | "apikey" | "sso";
 
 export interface SignInInfo {
@@ -505,7 +505,7 @@ export interface SessionHandle {
   close(): Promise<void>;
 }
 
-/** `session.prepare`'s error codes (roster README): the message is roster's, ready to show.
+/** `session.prepare`'s error codes (docs/serve-api.md): the message is roster's, ready to show.
  * Every code has its row in src/errors/catalog.ts (docs/app/errors.md). */
 export const SessionRefusal = {
   inventory: 1,

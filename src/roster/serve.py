@@ -1441,7 +1441,7 @@ def sign_in_step(state, login, fn):
 
 
 def vault_login(state, params):
-    """Sign the vault CLI in on this box, a step at a time (README "Signing in: vault.login").
+    """Sign the vault CLI in on this box, a step at a time (docs/serve-api.md "Signing in: vault.login").
     action "start" (the default) begins a new one, "answer" answers the current step, "cancel" stops it.
     Secrets arrive as values, go to the CLI through env vars or its own prompts, and are never echoed."""
     action = params.get("action", "start")

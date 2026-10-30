@@ -6,7 +6,7 @@
 // own (roster/src/roster/diagnose.py `login_failure`), which does the same for `host.check`.
 // Nothing here ever sees a password: ssh reads it from askpass, it never reaches the terminal.
 
-/** roster's error codes (README "`roster serve` API"), plus the app's own for what only the
+/** roster's error codes (docs/serve-api.md), plus the app's own for what only the
  * Session sees: a dropped connection, a Host that hung up before the login, and a lost `serve`. */
 export type ProblemCode = number | "dropped" | "closed-early" | "backend-lost";
 
@@ -56,7 +56,7 @@ export interface ExitInput {
   auth?: "key" | "password" | null;
 }
 
-/** `roster askpass: [CODE] REASON` (roster README). */
+/** `roster askpass: [CODE] REASON` (docs/serve-api.md). */
 export const ASKPASS_LINE = /^roster askpass: \[(\d+)\] (.*)$/;
 
 const ESC = "\x1b";

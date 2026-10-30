@@ -819,7 +819,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     }
     return { provider: vaultName, status: vaultWord };
   };
-  // ---- vault.login, as roster answers it (README "Signing in: vault.login")
+  // ---- vault.login, as roster answers it (docs/serve-api.md "Signing in: vault.login")
   let login: { id: string; step: SignInStep } | null = null;
   let logins = 0;
   const stepOf = (id: string, step: DistributiveOmit<SignInStep, "login">): SignInStep => {
