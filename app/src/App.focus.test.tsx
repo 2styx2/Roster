@@ -22,8 +22,7 @@ const LEADER = "{Control>} {/Control}";
 type User = ReturnType<typeof userEvent.setup>;
 
 async function ready(props: { options?: Partial<Options>; registries?: Registries } = {}) {
-  // No timer between keys: the command walks below type a few hundred of them (#62).
-  const user = userEvent.setup({ delay: null });
+  const user = userEvent.setup();
   const platform = memoryPlatform();
   const clock = manualClock();
   const options = { ...defaultOptions, ...props.options };
