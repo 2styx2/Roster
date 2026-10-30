@@ -2,6 +2,8 @@
 
 Server side (Channel, run by serve): a Unix socket in a fresh user-only directory. session.prepare mints a
 one-time token for one Host's ssh Login; the token is good once, for TTL seconds, and until vault.lock.
+quick.prepare mints one for a password the user typed (Typed, Quick Connect): the token holds it as is, and it goes
+with the token (spent, expired and pruned, or vault.lock).
 Helper side (main, run by ssh as SSH_ASKPASS with the prompt as argv[1]): answers only a Login password
 prompt, by sending the token over the socket and printing the password ssh asked for.
 
@@ -134,6 +136,20 @@ def ttl():
         return TTL
 
 
+class Typed:
+    """A password the user typed (Quick Connect, ticket 14), as a token's login: the Channel answers with it as is,
+    without a lookup. It lives only as long as its token (spent, expired, or forgotten by vault.lock) and never
+    shows in a repr."""
+
+    __slots__ = ("password",)
+
+    def __init__(self, password):
+        self.password = password
+
+    def __repr__(self):
+        return "Typed(...)"
+
+
 class Channel:
     """serve's end. lookup(login) -> password, raising with a message safe to show when it can't;
     it runs on the channel's threads, so it must be thread-safe (providers.get_secret is)."""
@@ -148,6 +164,7 @@ class Channel:
         os.chmod(self.dir, 0o700)
         self.socket_path = os.path.join(self.dir, "socket")
         self.helper = os.path.join(self.dir, "askpass")
+        self.known_hosts = os.path.join(self.dir, "quick_known_hosts")   # Quick Connect's keys (serve writes it)
         self.stopping = threading.Event()
         old = os.umask(0o177)                # the socket is created 0600
         try:
@@ -174,6 +191,12 @@ class Channel:
             self.labels = {t: v for t, v in self.labels.items() if v[1] > now}
             self.labels[token] = (label, now + 2 * self.ttl)
         return token
+
+    def _prune(self):
+        with self.lock:
+            now = time.monotonic()
+            if any(v[2] <= now for v in self.tokens.values()):
+                self.tokens = {t: v for t, v in self.tokens.items() if v[2] > now}
 
     def redeem(self, token):
         """The token's (login, label), once; None if unknown, used, expired or forgotten."""
@@ -206,6 +229,7 @@ class Channel:
             try:
                 conn, _ = self.server.accept()
             except TimeoutError:
+                self._prune()               # an unused token (a typed password above all) goes once it expires
                 continue
             except OSError:
                 return
@@ -241,7 +265,7 @@ class Channel:
                     "open the Session again").encode()
         login, label = found
         try:
-            password = self.lookup(login)
+            password = login.password if isinstance(login, Typed) else self.lookup(login)
             reason = None
         except Refused as e:
             reason, code = str(e), e.code
@@ -258,7 +282,7 @@ class Channel:
         self.thread.join(timeout=2)
         self.server.close()
         self.forget()
-        for f in (self.socket_path, self.helper):
+        for f in (self.socket_path, self.helper, self.known_hosts):
             try:
                 os.unlink(f)
             except FileNotFoundError:
