@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
   <!-- Gap orbit without the tile, for dark backgrounds (Paper and Apricot flare). -->
-  <path d="M39.01 57.04A26 26 0 1 1 55.44 43.25" fill="none" stroke="#e8e8ea" stroke-width="1.8" stroke-linecap="round" opacity="0.36"/>
-  <path d="M22 18V46M22 18H35L41 25L35 32H22M35 32L45.44 47.17" fill="none" stroke="#e8e8ea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
-  <g fill="#e8e8ea"><circle cx="22" cy="18" r="4.2"/><circle cx="22" cy="32" r="4.2"/><circle cx="35" cy="18" r="4.2"/><circle cx="41" cy="25" r="4.2"/><circle cx="35" cy="32" r="4.2"/></g>
-  <rect x="17.88" y="41.88" width="8.24" height="8.24" rx="1.6" fill="#e8e8ea"/>
-  <circle cx="48.71" cy="51.92" r="5.3" fill="none" stroke="#ff9a70" stroke-width="2.85"/>
+  <path d="M40.41 58.71A28 28 0 1 1 56.84 44.92" fill="none" stroke="#e8e8ea" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+  <path d="M22.57 18.84L22.57 45.16M22.57 18.84L34.79 18.84L40.43 25.42L34.79 32L22.57 32M34.79 32L46.66 48.74" fill="none" stroke="#e8e8ea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+  <g fill="#e8e8ea"><circle cx="22.57" cy="18.84" r="4.2"/><circle cx="22.57" cy="32" r="4.2"/><circle cx="34.79" cy="18.84" r="4.2"/><circle cx="40.43" cy="25.42" r="4.2"/><circle cx="34.79" cy="32" r="4.2"/></g>
+  <rect x="18.79" y="41.38" width="7.56" height="7.56" rx="1.6" fill="#e8e8ea"/>
+  <circle cx="50" cy="53.45" r="5.3" fill="none" stroke="#ff9a70" stroke-width="2.85"/>
 </svg>

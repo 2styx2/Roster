@@ -1,4 +1,5 @@
-// Puts the resolved Theme on the document: its colour tokens and the fonts as CSS variables, plus
+// Puts the resolved Theme on the document: its colour tokens, the fonts and the UI text size as CSS
+// variables, plus
 // `color-scheme` (native scrollbars and form controls follow it). With `theme = "auto"` it
 // follows the OS light/dark setting live. Returns the Theme, for the terminal's colours.
 import { useLayoutEffect, useSyncExternalStore } from "react";
@@ -31,7 +32,12 @@ export function applyTheme(
   fonts: AppearanceOptions["fonts"],
   colors: Partial<ThemeColors> = {},
 ) {
-  const vars = { ...themeVariables(theme, colors), "--font-ui": fonts.ui, "--font-mono": fonts.mono };
+  const vars = {
+    ...themeVariables(theme, colors),
+    "--font-ui": fonts.ui,
+    "--font-mono": fonts.mono,
+    "--ui-size": `${fonts.size}px`,
+  };
   for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
   root.style.colorScheme = theme.appearance;
   root.dataset.theme = theme.id;
@@ -44,8 +50,11 @@ export function useTheme(registry: ThemeRegistry, appearance: AppearanceOptions)
   // `themes` changes when a Theme is registered, so a re-registered id is picked up.
   void themes;
   const theme = resolveTheme(registry, appearance, dark, rosterDark);
-  const { ui, mono } = appearance.fonts;
+  const { ui, mono, size } = appearance.fonts;
   const { colors } = appearance;
-  useLayoutEffect(() => applyTheme(document.documentElement, theme, { ui, mono }, colors), [theme, ui, mono, colors]);
+  useLayoutEffect(
+    () => applyTheme(document.documentElement, theme, { ui, mono, size }, colors),
+    [theme, ui, mono, size, colors],
+  );
   return theme;
 }

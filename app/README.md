@@ -57,8 +57,8 @@ crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster se
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs)
 app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      state_load/state_save, platform_info, vault_status/unlock/lock, config_load,
-                      inventory_pull, host_verify_login, host_update, changes_diff, changes_discard
+                      state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
+                      config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
@@ -80,7 +80,9 @@ app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (id
 crates/roster-core/src/config/
                       the Lua Config (ticket 21, docs/app/config.md): schema.rs (every option and default), lua.rs
                       (sandboxed Lua 5.4, `require` in the config dir, the `roster` table), locate.rs (file:line
-                      for schema errors), watch.rs (live reload), mod.rs (load, Loader keeping the last good one)
+                      for schema errors), watch.rs (live reload), editor.rs (`:config`: the commented-out
+                      starter file, made once, and opening it in the `editor`), mod.rs (load, Loader
+                      keeping the last good one)
 app/src/config/       the Config in the frontend: types.ts (the core's object), apply.ts (→ options, and keys,
                       Themes, Folders through the registries as "init.lua"), ConfigToast.tsx (errors, warnings)
 examples/init.lua     every option with its default, commented (a Rust test loads it)

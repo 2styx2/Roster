@@ -9,7 +9,7 @@
 
 **Blocked by:** 21 (done), 29
 
-**Status:** ready-for-agent
+**Status:** done (manual check by the agent on Windows, 2026-10-30; owner review pending)
 
-- [ ] UI tests: `:config` creates the file once and never overwrites it; option names appear in the Key bindings panel and the theme finder.
-- [ ] Manual check on Windows: `:config` opens the file, an edit applies live on save, and `:config path` shows the right path.
+- [x] UI tests (`app/src/App.configcmd.test.tsx`; the file itself in `crates/roster-core/tests/config.rs`): `:config` creates the file once and never overwrites it; option names appear in the Key bindings panel and the theme finder.
+- [x] Manual check on Windows (dev build, a scratch `%APPDATA%`): `:config path` showed `…\appdata\roster\init.lua`; the first `:config` made the commented-out file and opened it (Notepad, as `.lua` has no app on that machine; the "Pick an app" dialog is skipped); a save with `theme = "nord"` applied live and removing it went back; `:config reload` said "Reloaded init.lua"; `editor = "wsl"` opened it in nvim (`$EDITOR`) in the Backend's distro.

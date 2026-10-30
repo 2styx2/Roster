@@ -105,9 +105,9 @@ describe("the themes finder and :theme", () => {
   it("notes when init.lua sets the theme", async () => {
     const { registries, choice } = await setup();
     const source = registries.finders.get("themes")!;
-    expect(source.note?.()).toBeUndefined();
+    expect(source.note?.(undefined)).toBeUndefined();
     choice.setConfigTheme("gruvbox");
-    expect(source.note?.()).toMatch(/set in init\.lua/);
+    expect(source.note?.(undefined)).toMatch(/set in init\.lua/);
   });
 
   it("completes :theme with Theme ids", async () => {

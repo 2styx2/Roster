@@ -228,6 +228,7 @@ describe("The command line", () => {
       "close",
       "cmdline",
       "connect ",
+      "config",
       "choose",
     ]);
     await user.keyboard("{Tab}{Tab}{Tab}{Tab}{Tab}");

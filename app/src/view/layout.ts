@@ -127,3 +127,15 @@ export function togglePiece(layout: ModeLayout, id: string): ModeLayout {
 export function otherMode(mode: ViewMode): ViewMode {
   return mode === "standard" ? "focus" : "standard";
 }
+
+const PIECE_NAMES: Record<string, string> = { sidebar: "Sidebar", statusbar: "Status bar", sessionbar: "Session bar" };
+
+/** What to say after `␣ e` / `␣ s` showed or hid a piece: it lasts until the Config changes the
+ * modes (or the app restarts), so name the option that keeps it (ticket 32). */
+export function pieceToggled(mode: ViewMode, layout: ModeLayout, id: string): string {
+  const piece = layout.pieces.find((p) => p.id === id);
+  const shown = piece?.shown ?? false;
+  const value = !shown ? "false" : id === "sessionbar" ? `"${piece?.at === "top" ? "top" : "bottom"}"` : "true";
+  const name = PIECE_NAMES[id] ?? id;
+  return `${name} ${shown ? "shown" : "hidden"}. To keep it that way: modes.${mode}.${id} = ${value} in init.lua`;
+}

@@ -66,6 +66,7 @@ return {
   fonts = {
     ui = "Inter",
     mono = "Iosevka", -- the wordmark and code-like text in the UI
+    ui_size = 14, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
   },
 
   -- The terminal ------------------------------------------------------------------------------
@@ -147,6 +148,12 @@ return {
 
   -- Other ----------------------------------------------------------------------------------------
   idle_lock_minutes = 15, -- lock after this many minutes without input (1 to 1440)
+
+  -- What :config opens this file with: "os" (the app Windows or your desktop opens .lua files
+  -- with; Notepad if there's none), or "wsl" ($EDITOR inside the Backend's WSL distro, vi if
+  -- it's unset, in a console window of its own). :config reload reads it again, :config path
+  -- says where it is.
+  editor = "os",
 
   -- Which roster runs (read when the backend starts: Retry, or restart the app, after changing).
   -- "auto" detects it: on Windows, the default WSL distro, then running ones. "wsl:<distro>"

@@ -113,9 +113,11 @@ export function themesFinder(choice: ThemeChoice): FinderSourceDef {
       if (item) choice.preview(item.command.slice("theme ".length));
     },
     close: () => choice.preview(null),
-    note: () => {
+    note: (item) => {
       const id = choice.configTheme();
-      return id ? `${setInConfig(id)} This only previews.` : undefined;
+      if (id) return `${setInConfig(id)} This only previews.`;
+      // Where it's set for good (ticket 32): Enter keeps it on this Box only.
+      return item ? `In init.lua: theme = "${item.command.slice("theme ".length)}"` : undefined;
     },
   };
 }

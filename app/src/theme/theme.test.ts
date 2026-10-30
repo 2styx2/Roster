@@ -56,6 +56,7 @@ describe("Themes", () => {
     applyTheme(el, rosterLight, defaultAppearance.fonts);
     expect(el.style.getPropertyValue("--bg")).toBe("#f2f2f4");
     expect(el.style.getPropertyValue("--font-mono")).toContain("Iosevka");
+    expect(el.style.getPropertyValue("--ui-size")).toBe("14px");
     expect(el.dataset.theme).toBe("roster-light");
     expect(el.style.colorScheme).toBe("light");
   });

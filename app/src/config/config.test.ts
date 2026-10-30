@@ -27,6 +27,12 @@ describe("the Config's defaults", () => {
     expect(d.layouts).toEqual(defaultLayouts(defaultOptions));
   });
 
+  it("set the UI text size the whole type scale follows (fonts.ui_size)", () => {
+    expect(deriveConfig(defaultConfig).appearance.fonts.size).toBe(14);
+    const c = configWith({ fonts: { ...defaultConfig.fonts, uiSize: 16 } });
+    expect(deriveConfig(c).appearance.fonts.size).toBe(16);
+  });
+
   it("name the same colour tokens as the Themes", () => {
     expect(fixture.themeColors.map(camel)).toEqual(Object.keys(rosterDark.colors));
     expect(fixture.themeTerminal.map(camel)).toEqual(Object.keys(rosterDark.terminal));

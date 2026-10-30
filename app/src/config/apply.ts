@@ -111,6 +111,7 @@ export function deriveConfig(c: Config): Derived {
     fonts: {
       ui: fontStack(c.fonts.ui, `${UI_FALLBACK}, ${EMOJI}`),
       mono: fontStack(c.fonts.mono, `${MONO_FALLBACK}, ${EMOJI}`),
+      size: c.fonts.uiSize,
     },
     colors: c.colors,
   };

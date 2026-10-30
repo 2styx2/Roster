@@ -41,6 +41,7 @@ function recorder(mode: ViewMode = "standard") {
     edit: (h) => calls.push(`edit ${h ?? "selected"}`),
     showChanges: (discard) => calls.push(discard ? "changes discard" : "changes"),
     pull: () => calls.push("pull"),
+    config: (what) => calls.push(`config ${what}`),
   };
   return { ctx, calls };
 }
@@ -147,7 +148,8 @@ describe("complete", () => {
   });
 
   it("completes a command name, with a space when it needs an argument", () => {
-    expect(complete("co", hosts)).toEqual(["connect "]);
+    // A seldom command (config) comes after the everyday ones.
+    expect(complete("co", hosts)).toEqual(["connect ", "config"]);
     expect(complete("l", hosts)).toEqual(["lock"]);
     expect(complete("cl", hosts)).toEqual(["close"]);
   });
