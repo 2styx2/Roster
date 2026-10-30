@@ -16,6 +16,16 @@ export interface Host {
   enroll: boolean;
   ssh: { user: string; port: number; auth: string };
   web: string | null;
+  /** Service entries roster left out of the Host because it can't use them (a bad port, url or
+   * `login:` type in roster.yml); the rest of the Host loads. Absent from rosters before it. */
+  problems?: ServiceProblem[];
+}
+
+/** One service entry roster left out: `message` names the service, `fix` says what to change. */
+export interface ServiceProblem {
+  service: string;
+  message: string;
+  fix: string;
 }
 
 export interface Group {

@@ -191,7 +191,8 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 - For SSH, the first match wins: the host's `ssh:` block, then the host's `port`/`user`/`auth`, then the group's `ssh:` block, then the group's keys, then `defaults:` in the same order.
 - A service uses its own `user`/`auth` if it sets them, otherwise the host's default login.
 - `ssh:` and `services:` work at host, group and `defaults:` level. Service entries with the same name merge field by field, so a group can define `modbus: { port: 502, user: mb }` and one host can override just its `auth`.
-- A service accepts `port`, `url`, `scheme`, `user`, `auth` and `verify`. `web: "https://..."` still works and becomes a service named `web`.
+- A service accepts `port`, `url`, `scheme`, `user`, `auth`, `verify` and `login` (below). `web: "https://..."` still works and becomes a service named `web`.
+- **One bad service entry doesn't stop the Inventory loading.** A service roster can't use (a bad port or url, an unknown setting or `login:` type, no port or url) is left out, and its Host stays with the rest of its services. `roster hosts`, `roster check` and `roster auth-check` print a warning on stderr for each one, naming the Host and the service, what's wrong and the fix; `roster info HOST` lists them under `problems`, and `roster web HOST SERVICE` on that service stops with the same words. Mistakes that aren't about one service (bad YAML, a Host listed twice, a Host without an ip or user, a bad SSH port, `services:` that isn't a mapping) still stop the load.
 - `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:orion3 web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
 
 ### Web APIs with stored logins: `roster web`
@@ -203,6 +204,17 @@ A host's `user` + `auth` are its default login for everything on it. An `ssh:` b
 - `login: unifi` (UniFi OS consoles: UDM, Cloud Key, UniFi OS Server) logs in through `/api/auth/login` and sends the request with the session cookie and CSRF token. The session is kept for up to 10 minutes (never past the token's expiry) in a private file under `$XDG_RUNTIME_DIR/roster/sessions/`, so a loop of calls logs in once instead of tripping UniFi OS's login limit (HTTP 429); if the console rejects a kept session, roster logs in again and retries once. Paths: `/api/...` for UniFi OS, `/proxy/network/api/s/default/...` for the Network app, e.g. `roster web unifi GET /proxy/network/api/s/default/stat/health`.
 - `login: openvpnas` (OpenVPN Access Server admin API, port 943) logs in through `/api/auth/login/userpassword` and sends the token as `X-OpenVPN-As-AuthToken`. Access Server has no logout call, so the token just expires. Example: `roster web vpn admin GET /api/server/info`. The old XML-RPC `/RPC2` API is often locked down by the relay level, so use `/api/...`.
 - `login: hub` (Hub web UI) logs in through `/api/auth/login` and sends the access token as a bearer token. The token expires after an hour; there is no logout call. Example: `roster web lab-hub2 GET /api/auth/me`.
+- **Your own names for these:** if your team calls a login type something else, map your name to roster's at the top level of `roster.yml`, and use your name on the services:
+
+  ```yaml
+  web_login_names: { appliance: hub }     # your name: one of basic, bearer, vsphere, unifi, openvpnas, hub, none
+  groups:
+    lab:
+      hosts:
+        lab-hub2: { ip: 10.0.5.20, services: { web: { url: "https://10.0.5.20", login: appliance } } }
+  ```
+
+  `login: appliance` then works exactly like `login: hub`. Everything roster shows (`roster info`, `roster serve`'s Hosts, error messages) gives the type it resolved to (`hub`), so the behaviour is never in doubt; your own word stays in `roster.yml`, and edits made through `roster serve` leave it as it is. A name has to map to one of roster's types and can't be one of them, or the file doesn't load (the message names the key). A service whose `login:` is neither is left out with a warning, like any bad service entry.
 - Only paths are accepted, and redirects are reported, not followed, so the credentials never go anywhere but the service's own address.
 - The password, the token and the Authorization header are never printed. If a response happens to contain the password, it is masked.
 - `verify: false` on the service (or `-k`) accepts a self-signed certificate.
@@ -355,7 +367,7 @@ Results are the objects roster builds when it loads `roster.yml`, with no extra 
 | `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order. `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good ones |
 | `host.get` | `{name}` (exact Host name) | one Host |
 
-A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}`, `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
+A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}` (`login` is the resolved type, never a `web_login_names` alias), `problems: [{service, message, fix}]` (service entries left out because roster can't use them; empty when there are none), `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
 
 ### Sessions: `session.prepare`
 
