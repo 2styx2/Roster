@@ -12,8 +12,9 @@ from pathlib import Path
 
 import yaml
 
-from .config import load_config
-from .errors import INVALID_EDIT, Problem
+from .common import NAME_RE, oneline
+from .config import GROUP_ONLY, first, load_config, resolve_ssh
+from .errors import HOST_EXISTS, INVALID_EDIT, INVALID_HOST, Problem
 
 TEXT = ("title", "description", "type")
 LOGIN_FIELDS = ("ip", "user", "port", "auth")       # an edit to these needs a test login first (decision Q43)
@@ -21,10 +22,15 @@ EDITABLE = TEXT + LOGIN_FIELDS
 SSH_KEYS = ("user", "port", "auth")                 # can live in the Host's ssh: block
 
 
+FLAGS = ("enroll", "reviewed")
+NEW_FIELDS = ("ip", "user", "port", "auth", *FLAGS, *TEXT)          # what host.add can set
+
+
 def current(h):
-    """The editable fields of a loaded Host, as the edit form shows them."""
+    """The editable fields of a loaded Host, as the edit form shows them, and its flags."""
     return {"title": h["title"], "description": h["description"], "type": h["type"], "ip": h["ip"],
-            "user": h["ssh"]["user"], "port": h["ssh"]["port"], "auth": h["ssh"]["auth"]}
+            "user": h["ssh"]["user"], "port": h["ssh"]["port"], "auth": h["ssh"]["auth"],
+            "enroll": h["enroll"], "reviewed": h["reviewed"]}
 
 
 def check_value(field, v):
@@ -52,6 +58,8 @@ def render(v, style=None):
     STYLE is the replaced value's quoting, kept when it can hold V."""
     if v is None:
         return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
     if isinstance(v, int):
         return str(v)
     if style == "'" and "\n" not in v:
@@ -294,3 +302,126 @@ def edited(path, name, changes):
         last = h
     got = ", ".join(f"{k} {current(last)[k]!r}" for k in changes if current(last)[k] != changes[k]) if last else ""
     raise refuse(f"the result loads differently than asked ({got or 'other entries changed'})")
+
+
+# ---------------------------------------------------------------- adding a Host (ticket 11)
+
+def check_new(field, v):
+    """A value from the app for a new Host's FIELD, or a ValueError (check_value's, plus the flags)."""
+    if field in FLAGS:
+        if not isinstance(v, bool):
+            raise ValueError(f"{field} must be true or false")
+        return v
+    if field not in NEW_FIELDS:
+        raise ValueError(f"{field!r} can't be set here (only {', '.join(NEW_FIELDS)})")
+    return check_value(field, v)
+
+
+def invalid(field, message):
+    return Problem(INVALID_HOST, message, {"field": field})
+
+
+def inherited(text, group):
+    """What a Host in GROUP gets without setting anything itself: {field: value} for NEW_FIELDS but ip."""
+    raw = yaml.safe_load(text) or {}
+    g = (raw.get("groups") or {}).get(group) or {}
+    layers = [{}, {k: v for k, v in g.items() if k not in GROUP_ONLY}, raw.get("defaults") or {}]
+    ssh = resolve_ssh("new", layers)
+    out = {k: ssh[k] for k in SSH_KEYS} | {k: bool(first(layers, k, True)) for k in FLAGS}
+    return out | {k: oneline(first(layers, k, "")) for k in TEXT}
+
+
+def last_value(node):
+    """The last scalar (or flow collection) a block node's text ends with."""
+    while isinstance(node, (yaml.MappingNode, yaml.SequenceNode)) and not node.flow_style and node.value:
+        node = node.value[-1][1] if isinstance(node, yaml.MappingNode) else node.value[-1]
+    return node
+
+
+def append_lines(t, node, lines):
+    """Add LINES (already indented) after the last line of NODE's text, comment and all."""
+    end = last_value(node)
+    if isinstance(end, yaml.ScalarNode) and end.style in ("|", ">"):     # its span ends after its last line break
+        t.replace(end.end_mark.index, end.end_mark.index, t.nl.join(lines) + t.nl)
+    else:
+        at = t.line_end(end.end_mark.index)
+        t.replace(at, at, t.nl + t.nl.join(lines))
+
+
+def block_step(mapping, default=2):
+    """How far a block mapping's entries indent their own block values (2 if none does)."""
+    for k, v in mapping.value:
+        if isinstance(v, yaml.MappingNode) and not v.flow_style and v.value:
+            return v.value[0][0].start_mark.column - k.start_mark.column
+    return default
+
+
+def add_text(text, group, name, entry):
+    """roster.yml's TEXT with Host NAME: ENTRY ({key: value}, written as given) added at the end of GROUP's hosts,
+    or in a new GROUP after the last one."""
+    try:
+        root = yaml.compose(text)
+    except yaml.YAMLError as e:
+        raise refuse("roster.yml doesn't parse", str(e)) from None
+    _, groups = child(root, "groups") if isinstance(root, yaml.MappingNode) else (None, None)
+    if not isinstance(groups, yaml.MappingNode) or groups.flow_style or not groups.value:
+        raise refuse("roster.yml's groups: isn't a block of groups")
+    t = Text(text)
+    fields = [f"{k}: {render(v)}" for k, v in entry.items()]
+    _, gnode = child(groups, group)
+    if gnode is None:
+        indent, step = groups.value[0][0].start_mark.column, block_step(groups)
+        pad = [" " * (indent + step * n) for n in range(4)]
+        append_lines(t, groups, [f"{pad[0]}{group}:", f"{pad[1]}hosts:", f"{pad[2]}{name}:",
+                                 *(pad[3] + f for f in fields)])
+        return t.result()
+    _, hosts = child(gnode, "hosts") if isinstance(gnode, yaml.MappingNode) else (None, None)
+    if not isinstance(hosts, yaml.MappingNode) or hosts.flow_style or not hosts.value:
+        raise refuse(f"group {group}'s hosts: isn't a block of Hosts (line {gnode.start_mark.line + 1})")
+    indent = hosts.value[0][0].start_mark.column
+    if isinstance(hosts.value[-1][1], yaml.MappingNode) and hosts.value[-1][1].flow_style:
+        lines = [f"{' ' * indent}{name}: {{{', '.join(fields)}}}"]          # like the entry before it
+    else:
+        pad = " " * (indent + block_step(hosts))
+        lines = [f"{' ' * indent}{name}:", *(pad + f for f in fields)]
+    append_lines(t, hosts, lines)
+    return t.result()
+
+
+def same_plus(before, after, name):
+    """AFTER is BEFORE with Host NAME (and maybe its new group) added, and nothing else changed."""
+    keep = ("resources", "box", "providers")
+    old = {k: v for k, v in after["hosts"].items() if k != name}
+    return old == before["hosts"] and list(old) == list(before["hosts"]) and \
+        all(after["groups"].get(g) == v for g, v in before["groups"].items()) and \
+        all(before[k] == after[k] for k in keep)
+
+
+def added(path, group, name, fields):
+    """The new text of PATH with Host NAME added to GROUP (made if it's new), checked: it loads, the Host has
+    exactly FIELDS (anything left out is inherited), and nothing else changed. Only the values it doesn't inherit
+    are written. Returns (old text, new text, the new Host). Raises Problem: 80 a bad value, 81 the name is
+    taken, 74 the result doesn't come out right."""
+    if not NAME_RE.match(name):
+        raise invalid("name", f"bad host name {name!r} (use letters, digits, . _ -)")
+    if not NAME_RE.match(group):
+        raise invalid("group", f"bad group name {group!r} (use letters, digits, . _ -)")
+    if not fields.get("ip"):
+        raise invalid("ip", f"host {name!r} has no ip")
+    text = read_text(path)
+    before = load_text(path, text)
+    if name in before["hosts"]:
+        raise Problem(HOST_EXISTS, f"host {name!r} is already in the Inventory (group {before['hosts'][name]['group']})",
+                      {"group": before["hosts"][name]["group"]}, fix="pick another name, or edit that Host")
+    base = inherited(text, group)
+    if not (fields.get("user") or base["user"]):
+        raise invalid("user", f"no user for {name} (set it on the Host, its group, or defaults)")
+    entry = {"ip": fields["ip"]} | {k: fields[k] for k in NEW_FIELDS
+                                     if k != "ip" and k in fields and fields[k] != base[k]}
+    new_text = add_text(text, group, name, entry)
+    after = load_text(path, new_text)
+    h = after["hosts"].get(name)
+    if h is None or h["group"] != group or any(current(h)[k] != v for k, v in fields.items()) \
+            or not same_plus(before, after, name):
+        raise refuse("the result loads differently than asked")
+    return text, new_text, h
