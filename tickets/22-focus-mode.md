@@ -16,9 +16,11 @@ The prototype is `prototype-shell.html?mode=focus` on branch `prototype/logos`. 
 
 **Blocked by:** 07, 17
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] UI tests: `␣ m` toggles Standard ↔ Focus and keeps the active Session. In Focus, `␣ b` fuzzy-finds Sessions and `␣ f` fuzzy-finds Hosts, Enter switches and Esc closes. Every Session key works in both modes. The optional session bar lists Sessions in order with the current one (`*`) and the previous one (`-`) marked.
-- [ ] A test walks the full command table and checks that every action can be invoked in both modes, by key and by `:` command.
-- [ ] The terminal's cols and rows are recalculated on entering and leaving, and the remote side sees the new size (`stty size`).
-- [ ] Manual check on Windows: fullscreen with F11, then switch Sessions, open the Picker and close a Session, all without leaving Focus.
+- [x] UI tests: `␣ m` toggles Standard ↔ Focus and keeps the active Session. In Focus, `␣ b` fuzzy-finds Sessions and `␣ f` fuzzy-finds Hosts, Enter switches and Esc closes. Every Session key works in both modes. The optional session bar lists Sessions in order with the current one (`*`) and the previous one (`-`) marked.
+- [x] A test walks the full command table and checks that every action can be invoked in both modes, by key and by `:` command.
+- [x] The terminal's cols and rows are recalculated on entering and leaving, and the remote side sees the new size (`stty size`).
+- [x] Manual check on Windows: fullscreen with F11, then switch Sessions, open the Picker and close a Session, all without leaving Focus.
+
+**Done (2026-10-29):** `src/view/layout.ts` (the per-mode layout table: `fullscreen`, `pieces` placed top/bottom/left/right with `shown`, `tree: "sidebar" | "finder"`, `bar`, `hint`; `defaultLayouts(options)`; App takes a `layouts` prop for ticket 21), `src/finder/` (finder source registry, `finder SOURCE` command, the Finder overlay), `src/view/SessionBar.tsx`, `mode` / `focus` commands, `␣ m`, `␣ b`, and F11 in a new `global` keymap context. Options: `defaultMode` and `focus.sessionbar = "top" | "bottom" | false` (init.lua names are ticket 21's). The session bar numbers Sessions from 1, like `␣ N` and `session N`. UI tests: `src/App.focus.test.tsx` (including the walk over the whole command table in both modes, by key and by `:`). Checked on Windows (WebView2) with a scratch copy of the real Inventory (vault references removed, so no lock screen) and two Sessions (orion3, app-01): F11 goes OS-fullscreen (1100×700 → 2560×1440) and back; `stty size` 42 105 → 89 316 in Focus (88 318 with the session bar) → 42 105 again; `␣ b` lists both with the previous one selected and Enter switches; the Picker, the tree finder (`␣ e`), the session bar (`␣ s`) and the Key bindings panel (over the terminal) all work in Focus; `␣ d d` closed a Session without leaving Focus; the hint shows on entering and is gone after 2 s.
