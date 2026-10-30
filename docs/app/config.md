@@ -153,6 +153,21 @@ Night shift: []
 
 The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from before ticket 28) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
 
+### The vault
+
+```lua
+vault = {
+  kp = { database = "~/roster.kdbx", key_file = "~/roster.keyx" },
+},
+```
+
+This Box's own vault settings. They win over `roster.yml`'s `providers:` (the team's), so a setting that's personal doesn't have to go into the Inventory. The app sends them to `roster serve` (`vault.configure`, roster README) when it starts, before the lock screen asks where the vault stands, and again on every `:source`. Leave one out and `roster.yml`'s applies. They're paths and choices, never a secret: init.lua can't hold or send a password (docs/app/security.md). Needs roster's API 10; an older roster just uses `roster.yml`.
+
+| Option | Default | |
+|---|---|---|
+| `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. Changing it on `:source` locks the app, since the master password was for the old database |
+| `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box. Wins over `providers: kp: key_file:` |
+
 ### Other
 
 | Option | Default | |

@@ -1097,3 +1097,43 @@ fn on_windows_init_lua_opens_with_the_edit_verb_or_notepad_never_open() {
         asked.borrow()
     );
 }
+
+/// Ticket 41: a KeePassXC database (and key file) of this Box's own, sent to roster serve with
+/// `vault.configure`. Paths only, never a secret; a path is the Backend's, so it must be absolute.
+#[test]
+fn the_keepassxc_database_and_key_file_are_paths_on_the_backend() {
+    assert_eq!(Config::default().vault, config::Vault::default());
+    assert_eq!(Config::default().vault.kp.database, None);
+    let dir = with_init(
+        "vault-kp",
+        r#"return { vault = { kp = { database = "~/roster.kdbx", key_file = "/home/you/roster.keyx" } } }"#,
+    );
+    let c = config::load(&dir).unwrap();
+    assert_eq!(c.vault.kp.database.as_deref(), Some("~/roster.kdbx"));
+    assert_eq!(c.vault.kp.key_file.as_deref(), Some("/home/you/roster.keyx"));
+    assert_eq!(
+        serde_json::to_value(&c.vault).unwrap(),
+        serde_json::json!({ "kp": { "database": "~/roster.kdbx", "keyFile": "/home/you/roster.keyx" } })
+    );
+    for (name, lua, field) in [
+        (
+            "vault-rel",
+            "return {\n  vault = { kp = { database = \"roster.kdbx\" } },\n}\n",
+            "vault.kp.database",
+        ),
+        (
+            "vault-empty",
+            "return {\n  vault = { kp = { key_file = \"\" } },\n}\n",
+            "vault.kp.key_file",
+        ),
+        (
+            "vault-secret",
+            "return {\n  vault = { kp = { password = \"x\" } },\n}\n",
+            "password",
+        ),
+    ] {
+        let e = config::load(&with_init(name, lua)).unwrap_err();
+        assert_eq!(e.line, Some(2), "{e}");
+        assert!(e.message.contains(field), "{name}: {e}");
+    }
+}

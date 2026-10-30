@@ -119,6 +119,7 @@ export function tauriBackend(): Backend {
     vaultStatus: () => call<VaultStatus>("vault_status"),
     unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
     lockVault: () => call<{ locked: string[] }>("vault_lock"),
+    configureVault: (settings) => call<{ configured: true; locked: string[] }>("vault_configure", { settings }),
     // Secrets in these params go once to serve's stdin, like vault_unlock's password.
     signIn: (start) => call<SignInStep>("vault_login", { params: { action: "start", ...start } }),
     signInAnswer: (login, answer) =>

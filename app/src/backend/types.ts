@@ -333,6 +333,15 @@ export const AddError = {
   hostExists: 81,
 } as const;
 
+/** The first `api_version` with `vault.configure`: init.lua's vault settings reach roster (tickets 35, 41). */
+export const VAULT_CONFIG_API_VERSION = 10;
+
+/** `vault.configure`'s params: this Box's vault settings from init.lua, as roster takes them.
+ * Paths and choices only, never a secret. A key left out is roster.yml's again. */
+export interface VaultSettings {
+  kp?: { database?: string; key_file?: string };
+}
+
 /** Where a vault provider stands (`vault.status`). */
 export type VaultStatusWord = "locked" | "unlocked" | "not-logged-in" | "missing-cli" | "unsupported";
 
@@ -486,6 +495,9 @@ export interface Backend {
   unlockVault(password: string): Promise<ProviderStatus>;
   /** Forget every secret and lock the vault. Never rejects for a vault reason. */
   lockVault(): Promise<{ locked: string[] }>;
+  /** `vault.configure` (API 10): this Box's vault settings from init.lua, replacing the last ones.
+   * `locked`: providers that were unlocked and aren't now (a KeePassXC database that changed). */
+  configureVault(settings: VaultSettings): Promise<{ configured: true; locked: string[] }>;
   /** Start signing the vault CLI in (`vault.login`). Rejects with BackendCallError (SignInError
    * and VaultError codes); `data.step` says where a sign-in carries on after a failure. */
   signIn(start: SignInStart): Promise<SignInStep>;

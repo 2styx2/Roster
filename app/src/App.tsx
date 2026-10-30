@@ -34,6 +34,8 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  VAULT_CONFIG_API_VERSION,
+  type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
@@ -42,6 +44,7 @@ import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply
 import { ConfigToast } from "./config/ConfigToast";
 import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
+import { vaultSettingsOf } from "./config/vault";
 import { ImportPanel } from "./config/ImportPanel";
 import { registerFolders } from "./folders/folders";
 import { FOLDERS_FILE, FoldersFile } from "./folders/file";
@@ -323,7 +326,36 @@ export function App({
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
-  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
+  // init.lua's vault settings reach roster (`vault.configure`, API 10; tickets 35 and 41) before the
+  // lock screen asks where the vault stands (a KeePassXC database may be init.lua's), and again on
+  // every `:source`.
+  const connInfo = conn.state === "ready" ? conn.info : null;
+  const configuresVault = connInfo !== null && connInfo.inventory.api_version >= VAULT_CONFIG_API_VERSION;
+  const vaultSettingsKey = JSON.stringify(vaultSettingsOf(config?.vault));
+  const [vaultConfiguredFor, setVaultConfiguredFor] = useState<BackendInfo | null>(null);
+  const vaultActive = connInfo !== null && (!configuresVault || vaultConfiguredFor === connInfo);
+  const vault = useVault(backend, vaultActive, { idleMs: options.idleLockMinutes * 60_000, clock });
+  const checkVault = vault.check;
+  useEffect(() => {
+    if (!connInfo || !configuresVault) return;
+    let live = true;
+    backend.configureVault(JSON.parse(vaultSettingsKey) as VaultSettings).then(
+      (r) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        // A KeePassXC database that changed forgot the master password: the lock screen again.
+        if (r.locked.length) void checkVault();
+      },
+      (e: unknown) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        setMessage(`roster didn't take init.lua's vault settings: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, connInfo, configuresVault, vaultSettingsKey, checkVault]);
   // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
   // screen; the tab opens by itself once the vault is unlocked again.
   // `vault` is a new object each render; its `lock` is stable, so the handler is set once.

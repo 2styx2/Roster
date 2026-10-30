@@ -58,7 +58,7 @@ crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster se
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs)
 app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
+                      state_load/state_save, platform_info, vault_status/unlock/lock/configure, config_load, config_open,
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
                       changes_publish, host_scan_key, host_add, host_review,
                       config_import_preview, config_import_apply (ticket 33)

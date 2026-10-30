@@ -54,6 +54,8 @@ pub struct Config {
     /// Reload on every save of a `.lua` file. Off by default: `:source` reloads, as in Neovim
     /// (decision Q58).
     pub auto_reload: bool,
+    /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
+    pub vault: Vault,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -83,6 +85,7 @@ impl Default for Config {
             backend: BackendChoice::Auto,
             editor: Editor::Os,
             auto_reload: false,
+            vault: Vault::default(),
             lines: BTreeMap::new(),
         }
     }
@@ -95,6 +98,42 @@ pub struct Ui {
     /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
     /// `:hints` decides and the State keeps its choice; set, it wins.
     pub hints: Option<bool>,
+}
+
+/// What init.lua says about the vault: this Box's own settings, which win over roster.yml's
+/// `providers:`. The app sends them to roster serve (`vault.configure`) at start and after every
+/// `:source`. Paths and choices only, never a secret (docs/app/security.md).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct Vault {
+    /// KeePassXC (ticket 41): a local database is this Box's, not the team's.
+    pub kp: KeePassXc,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct KeePassXc {
+    /// The `.kdbx`, on the Box roster runs on (WSL's file system for a WSL Backend).
+    #[serde(deserialize_with = "backend_path")]
+    pub database: Option<String>,
+    /// A key file used with the master password, on the same Box.
+    #[serde(deserialize_with = "backend_path")]
+    pub key_file: Option<String>,
+}
+
+/// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to.
+fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let s = String::deserialize(d)?;
+    let t = s.trim();
+    let b = t.as_bytes();
+    let drive = b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+    if t.starts_with('/') || t.starts_with('~') || t.starts_with("\\\\") || drive {
+        return Ok(Some(t.to_string()));
+    }
+    Err(de::Error::custom(format!(
+        "{s:?} isn't an absolute path: give the path on the Box roster runs on, starting with / or ~"
+    )))
 }
 
 /// A place in a Lua file.

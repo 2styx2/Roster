@@ -293,6 +293,16 @@ async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "vault.lock", json!({})).await
 }
 
+/// This Box's vault settings from init.lua (`vault.configure`, API 10; tickets 35 and 41): paths
+/// and choices only, never a secret. Sent at start and after every `:source`.
+#[tauri::command]
+async fn vault_configure(
+    state: tauri::State<'_, Arc<BackendState>>,
+    settings: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    call(&state, "vault.configure", Value::Object(settings)).await
+}
+
 /// roster's diagnostics for one Host (`host.check`, api 2): its steps in order, stopping at the
 /// first failure. roster makes at most one connection and one login, so this is safe on 10.19.
 #[tauri::command]
@@ -657,6 +667,7 @@ pub fn run() {
             vault_unlock,
             vault_login,
             vault_lock,
+            vault_configure,
             config_load,
             config_open,
             config_reload,

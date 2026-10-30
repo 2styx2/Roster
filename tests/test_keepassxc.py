@@ -261,3 +261,72 @@ def test_a_password_session_gets_its_password_from_keepassxc(serve, write_config
     assert s.call("session.prepare", {"host": "nas"})["error"]["code"] == 32          # no such entry
     spec = s.call("session.prepare", {"host": "esx"})["result"]
     assert spec["auth"] == "password" and run_askpass(spec).stdout == "pw-esx\n"
+
+
+# ---- the database from the app's init.lua (ticket 41): vault.configure, paths only, wins over roster.yml
+
+KP_NO_DB = KP_INVENTORY.replace("providers:\n  kp: {database: roster.kdbx}\n", "")
+
+
+def test_the_box_settings_win_over_roster_yml(kdbx, tmp_path):
+    other = make_db(tmp_path / "mine.kdbx", [{"path": "esx ssh", "Password": "pw-mine"}])
+    providers.configure_box({"kp": {"database": str(other)}})
+    providers.unlock("kp", MASTER)
+    assert get_secret("kp:esx ssh", "g") == "pw-mine"
+    providers.configure_box({})                                         # init.lua leaves it out: roster.yml's again
+    assert providers.vault_status("kp") == "locked"                     # its master password went with the database
+    providers.unlock("kp", MASTER)
+    assert get_secret("kp:esx ssh", "g") == "pw-esx"
+
+
+def test_a_missing_database_or_key_file_from_init_lua_says_to_fix_init_lua(fakes, isolated, tmp_path):
+    setup_providers({"path": isolated["work"] / "roster.yml", "providers": {"kp": {"database": "roster.kdbx"}}})
+    providers.configure_box({"kp": {"database": "~/gone.kdbx"}})
+    msg = providers.status_message("kp", providers.vault_status("kp"))
+    assert f"{isolated['home']}/gone.kdbx isn't there" in msg and "vault.kp.database in init.lua" in msg
+    db = make_db(tmp_path / "k.kdbx", [{"path": "esx ssh", "Password": "pw-esx"}], key="key-bytes")
+    providers.configure_box({"kp": {"database": str(db), "key_file": str(tmp_path / "nope.key")}})
+    with pytest.raises(providers.NotLoggedIn, match="vault.kp.key_file in init.lua"):
+        providers.unlock("kp", MASTER)
+
+
+def test_serve_takes_the_database_from_init_lua(serve, write_config, fakes, isolated, tmp_path, monkeypatch):
+    db = make_db(tmp_path / "mine.kdbx", [{"path": "esx ssh", "Password": "pw-esx"}])
+    monkeypatch.setenv("FAKE_ARGV_LOG", str(tmp_path / "argv.log"))
+    write_config(KP_NO_DB)                                              # roster.yml names no database
+    s = serve()
+    assert s.call("vault.status")["result"]["status"] == "not-logged-in"
+    assert s.call("vault.configure", {"kp": {"database": str(db)}})["result"] == {"configured": True, "locked": []}
+    assert s.call("vault.status")["result"]["status"] == "locked"
+    s.call("vault.unlock", {"password": MASTER})
+    made = s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["result"]
+    assert made["id"] == "box ssh" and entries(db)["box ssh"]["Password"] == NEW_PW
+    assert s.call("inventory.reload")["result"]                        # a reload of roster.yml keeps it
+    assert s.call("vault.status")["result"]["status"] == "unlocked"
+    # the same settings again change nothing; another database forgets the master password
+    assert s.call("vault.configure", {"kp": {"database": str(db)}})["result"]["locked"] == []
+    other = make_db(tmp_path / "other.kdbx", [])
+    assert s.call("vault.configure", {"kp": {"database": str(other)}})["result"]["locked"] == ["kp"]
+    assert s.call("vault.status")["result"]["status"] == "locked"
+    assert s.call("vault.configure", {})["result"]["locked"] == []      # back to roster.yml's (none)
+    assert s.call("vault.status")["result"]["status"] == "not-logged-in"
+    code, out, err = s.close()
+    assert code == 0 and out == ""
+    for where in (json.dumps(s.responses), err, argv_log(tmp_path)):
+        assert NEW_PW not in where and MASTER not in where
+
+
+@pytest.mark.parametrize("params, field", [
+    ({"kp": {"database": "roster.kdbx"}}, "kp.database"),              # relative: relative to what, on which box?
+    ({"kp": {"database": ""}}, "kp.database"),
+    ({"kp": {"key_file": 7}}, "kp.key_file"),
+    ({"kp": {"password": "x"}}, "kp.password"),                         # paths only: never a secret
+    ({"kp": "~/roster.kdbx"}, "kp"),
+    ({"bw": {}}, "bw"),
+])
+def test_serve_refuses_box_settings_it_cant_use(serve, write_config, fakes, params, field):
+    write_config(KP_NO_DB)
+    s = serve()
+    err = s.call("vault.configure", params)["error"]
+    assert err["code"] == -32602 and field in err["message"]
+    assert s.call("vault.status")["result"]["status"] == "not-logged-in"   # nothing applied

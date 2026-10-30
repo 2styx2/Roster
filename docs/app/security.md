@@ -57,6 +57,8 @@ The built app runs under a Content Security Policy (`app/src-tauri/tauri.conf.js
 
 `init.lua` is the user's own code. It runs in the Rust core, which never holds a secret, with no access to `roster serve`'s vault. It can choose a Login *reference* or a Host, never read a password.
 
+Its `vault` table reaches `roster serve` through `vault.configure` (tickets 35, 41), and only as paths and choices: a KeePassXC database and key file. The schema has no other keys, and `serve` refuses any key it doesn't list, so nothing else, a secret above all, can ride along. Pointing at another database forgets the master password `serve` held for the old one, so it's never tried against a file it wasn't typed for.
+
 It can't redirect a secret either. `roster_command` names the program that gets the master password, two-step codes and the API key's secret on its stdin, so init.lua may only name roster itself: `roster`, a path ending in `/roster`, or `uv run [--project <dir> | --directory <dir> | --frozen | --locked | --offline | --no-sync | -q] roster` (no `--with`, no other program). Anything else is a Config error, and starting the backend refuses it too. A wrapper needs the `ROSTER_APP_ROSTER` env var, which only the user sets, outside the Config. `:info` shows the command in use. The Lua sandbox has no `io`, so a Config can't write a program of its own to point at.
 
 ## Writes

@@ -55,7 +55,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import in_ssh_config, record_host_key, write_ssh_config
 
-API_VERSION = 9             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 10            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -831,6 +831,53 @@ def vault_lock(state, params):
 METHODS["vault.status"] = vault_status
 METHODS["vault.unlock"] = vault_unlock
 METHODS["vault.lock"] = vault_lock
+
+
+# ---------------------------------------------------------------- vault.configure: this Box's settings (ticket 41)
+# The app sends what its init.lua says about the vault at start and after every `:source`. They're this Box's own
+# (a local KeePassXC database is personal, not team Inventory) and win over roster.yml's. Paths and choices only:
+# a key that isn't one of these is refused, so nothing else (a secret above all) can ride along.
+
+BOX_PATHS = {"kp": ("database", "key_file")}
+
+
+def box_path(value, field):
+    if not isinstance(value, str) or not value.strip():
+        raise RpcError(INVALID_PARAMS, f"params.{field} must be a path")
+    if not os.path.isabs(os.path.expanduser(value)):
+        raise RpcError(INVALID_PARAMS, f"params.{field} must be an absolute path or start with ~ (a path on the "
+                                       f"Box roster runs on): {value!r}")
+    return value
+
+
+def box_settings(params):
+    """vault.configure's params as providers.configure_box's {provider: {key: value}}, checked."""
+    box = {}
+    for name, given in params.items():
+        if name not in BOX_PATHS:
+            raise RpcError(INVALID_PARAMS, f"params.{name} isn't a setting roster takes from init.lua (it takes: "
+                                           f"{', '.join(sorted(BOX_PATHS))})")
+        if not isinstance(given, dict):
+            raise RpcError(INVALID_PARAMS, f"params.{name} must be an object")
+        for key, value in given.items():
+            if key not in BOX_PATHS[name]:
+                raise RpcError(INVALID_PARAMS, f"params.{name}.{key} isn't a setting roster takes from init.lua "
+                                               f"(it takes: {', '.join(BOX_PATHS[name])})")
+            if value is not None:
+                box.setdefault(name, {})[key] = box_path(value, f"{name}.{key}")
+    return box
+
+
+def vault_configure(state, params):
+    """This Box's vault settings from the app's init.lua, replacing the last ones (a key left out is roster.yml's
+    again). A KeePassXC database or key file that changed forgets the master password held for the old one:
+    `locked` names the providers that were unlocked and now aren't."""
+    locked = providers.configure_box(box_settings(params))
+    state.unlocked.difference_update(locked)
+    return {"configured": True, "locked": locked}
+
+
+METHODS["vault.configure"] = vault_configure
 
 
 # ---------------------------------------------------------------- vault.create_item: "Save to vault" (ticket 13)

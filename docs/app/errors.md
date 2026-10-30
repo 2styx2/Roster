@@ -16,7 +16,7 @@ Edits made by hand to `roster.yml` or the vault get the same treatment as anythi
 | 3 | Host is `reviewed: false` | Came from `discover` | Inventory | "esxi-02 hasn't been reviewed" | Review it (ticket 11) |
 | 4 | No user set | Hand edit left the user out, or `CHANGE-ME` | Inventory | "No SSH user for esxi-02" | Edit the Host |
 | 5 | Login points at a provider that isn't set up | `auth: keeper:…` (a provider roster doesn't have), or a typo in the prefix | Inventory | "esxi-02's Login uses `keeper:`, which isn't set up on this Box" | Show the provider list (`roster providers`) |
-| 6 | Vault CLI missing / not logged in | New Box; for KeePassXC, no `providers: kp: database:` or the `.kdbx` (or key file) isn't on this Box | Box | roster's wording, e.g. "Bitwarden CLI isn't logged in - run `bw login` once", "KeePassXC database /home/you/roster.kdbx isn't there - …" | Show the command |
+| 6 | Vault CLI missing / not logged in | New Box; for KeePassXC, no `providers: kp: database:` (or `vault.kp.database` in init.lua) or the `.kdbx` (or key file) isn't on this Box | Box | roster's wording, e.g. "Bitwarden CLI isn't logged in - run `bw login` once", "KeePassXC database /home/you/roster.kdbx isn't there - …" | Show the command |
 | 7 | Vault locked | Idle lock, or locked elsewhere | Vault | (lock screen) | Unlock; the Session opens afterwards (ticket 06) |
 | 8 | Vault item not found | Typo in `bw:NAME`, item renamed or deleted | Vault / Inventory | "No vault item named 'esxi-02 ssh' (Login of esxi-02)" | Show near-matching item names; edit the Login |
 | 9 | Several vault items match | Duplicate names | Vault | "Two vault items are named 'esxi-02 ssh'" | List them (name, last edited, URI); fix in the vault |

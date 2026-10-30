@@ -33,6 +33,7 @@ def isolated(tmp_path, monkeypatch):
     providers._secrets.clear()
     providers.PROVIDER_STATE.clear()
     providers.PROVIDER_SETTINGS.clear()
+    providers.BOX_SETTINGS.clear()
     yield {"home": home, "work": work}
     providers.PROVIDERS.clear()
     providers.PROVIDERS.update(saved_providers)

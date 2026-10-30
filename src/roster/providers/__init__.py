@@ -157,7 +157,11 @@ PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "
                           #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
                           #                       password, uri}; refuses a name that exists (ItemExists)
                           #             "delete": fn(id, ctx), the undo of a create (Q43)
+#             "box_paths": settings naming files on this Box (e.g. kp's database); a change to one
+#                          from vault.configure locks the provider (what it holds was for the old one)
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
+BOX_SETTINGS = {}         # name -> this Box's own settings, from the app's init.lua (`roster serve`'s vault.configure):
+                          #   paths and choices only, never a secret. They win over roster.yml's.
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
 MANUAL_UNLOCK = False     # True (`roster serve`): only unlock() unlocks - no session file, no BW_PASSWORD, no prompt
@@ -189,7 +193,9 @@ class Ctx:
     def __init__(self, name, group):
         self.provider = name
         self.group = group                                   # roster.yml group asking for the password
-        self.settings = PROVIDER_SETTINGS.get(name, {})      # this provider's block under `providers:`
+        box = BOX_SETTINGS.get(name, {})
+        self.settings = {**PROVIDER_SETTINGS.get(name, {}), **box}   # `providers:` in roster.yml, init.lua's over it
+        self.from_box = set(box)                             # the settings that came from init.lua
         self.state = PROVIDER_STATE.setdefault(name, {})     # remembered for the rest of this run
         self.interactive = sys.stdin.isatty()
 
@@ -316,6 +322,37 @@ def lock(name):
         fn = PROVIDERS[name].get("lock")
         if fn:
             fn(Ctx(name, None))
+
+
+# ---- this Box's own settings (ticket 41): from the app's init.lua, through `roster serve`'s vault.configure
+
+def setting_name(ctx, key):
+    """Where a person changes setting KEY of CTX's provider: `vault.kp.database in init.lua`, or roster.yml's."""
+    if key in ctx.from_box:
+        return f"vault.{ctx.provider}.{key} in init.lua"
+    return f"providers: {ctx.provider}: {key}: in roster.yml"
+
+
+def configure_box(settings):
+    """Take this Box's settings ({provider: {key: value}}, from init.lua), replacing the last ones: a provider or key
+    left out goes back to roster.yml's. A provider whose box_paths changed is locked (memory first, as lock() does).
+    Returns the names of the ones that were holding an unlock."""
+    locked = []
+    with _secret_lock:
+        before = {n: dict(v) for n, v in BOX_SETTINGS.items()}
+        BOX_SETTINGS.clear()
+        BOX_SETTINGS.update({n: dict(v) for n, v in settings.items() if v})
+        for name, p in PROVIDERS.items():
+            keys = p.get("box_paths", ())
+            if all(before.get(name, {}).get(k) == BOX_SETTINGS.get(name, {}).get(k) for k in keys):
+                continue
+            state = PROVIDER_STATE.pop(name, None)
+            _secrets.clear()
+            if state and p.get("lock"):
+                p["lock"](Ctx(name, None))
+            if state and state.get("password") is not None:
+                locked.append(name)
+    return locked
 
 
 # ---- writing Vault items (ticket 13)

@@ -3,7 +3,9 @@
 keepassxc-cli has no session: every call opens the database again with the master password, which it reads as the
 first line of its stdin (never an argument). So "unlocked" means this process holds the master password in memory
 (the provider's state), checked against the database once; lock forgets it. The database and an optional key file
-come from roster.yml:  providers: { kp: { database: ~/roster.kdbx, key_file: ~/roster.key, group: Hosts } }.
+come from roster.yml:  providers: { kp: { database: ~/roster.kdbx, key_file: ~/roster.key, group: Hosts } }, or from
+the app's init.lua (vault = { kp = { database = ..., key_file = ... } }, through serve's vault.configure), which wins:
+a local database is this Box's own, not the team's.
 
 Checked against keepassxc-cli 2.8.0: prompts go to stderr ("Enter password to unlock DB: "), a value printed by
 `show -a ATTR` is on stdout with a newline, every failure is one line on stderr and exit 1. No -q: it also silences
@@ -28,6 +30,7 @@ from . import (
     manual_unlock,
     near_names,
     register,
+    setting_name,
     split_field,
 )
 
@@ -50,10 +53,11 @@ def _database(ctx):
     db = _path(ctx, "database")
     if db is None:
         raise NotLoggedIn(f"{NAME} has no database set on this box - add  providers: {{kp: {{database: "
-                          "~/roster.kdbx}}}}  to roster.yml")
+                          "~/roster.kdbx}}}}  to roster.yml, or  vault = {{ kp = {{ database = \"~/roster.kdbx\" }} }}  "
+                          "to the app's init.lua")
     if not db.is_file():
-        raise NotLoggedIn(f"{NAME} database {db} isn't there - create it in KeePassXC, or fix providers: kp: "
-                          "database: in roster.yml")
+        raise NotLoggedIn(f"{NAME} database {db} isn't there - create it in KeePassXC, or fix "
+                          f"{setting_name(ctx, 'database')}")
     return db
 
 
@@ -88,7 +92,7 @@ def _kp(ctx, command, *options, entry=None, password=None, then="", floor=1):
         ctx.state.pop("password", None)                  # it no longer opens the database (changed meanwhile?)
         raise WrongPassword(f"{NAME} unlock failed (wrong master password{' or key file' if key else ''}?)")
     if r.returncode != 0 and "Failed to load key file" in err:
-        raise NotLoggedIn(f"{NAME} can't read the key file {key} - fix providers: kp: key_file: in roster.yml")
+        raise NotLoggedIn(f"{NAME} can't read the key file {key} - fix {setting_name(ctx, 'key_file')}")
     if r.returncode != 0 and "Failed to open database file" in err:
         raise NotLoggedIn(f"{NAME} can't open the database {db}: {err}")
     return r
@@ -244,5 +248,5 @@ def _delete(item_id, ctx):
 
 PROVIDERS["kp"].update(unlock=_unlock, lock=_lock, status=_status, not_logged_in=not_set_up,
                        login_help=f"{NAME} has no sign-in, only a master password: set providers: kp: database: in "
-                                  "roster.yml, then unlock",
-                       create=_create, delete=_delete)
+                                  "roster.yml (or vault.kp.database in the app's init.lua), then unlock",
+                       create=_create, delete=_delete, box_paths=("database", "key_file"))

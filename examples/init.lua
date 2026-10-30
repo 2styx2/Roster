@@ -168,6 +168,17 @@ return {
     -- { name = "Lab ESXi", hosts = { "esxi-02", "esxi-03" } },
   },
 
+  -- The vault ------------------------------------------------------------------------------------
+  -- This Box's own vault settings. They win over roster.yml's providers: (the team's), and reach
+  -- roster when the app starts and on every :source. Paths are on the Box roster runs on (inside
+  -- WSL for a WSL backend): absolute, or starting with ~. Never a password.
+  vault = {
+    kp = {
+      -- database = "~/roster.kdbx", -- KeePassXC's .kdbx (wins over providers: kp: database:)
+      -- key_file = "~/roster.keyx", -- a key file used with its master password
+    },
+  },
+
   -- Other ----------------------------------------------------------------------------------------
   idle_lock_minutes = 15, -- lock after this many minutes without input (1 to 1440)
 
