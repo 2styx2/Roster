@@ -35,9 +35,10 @@ export interface ThemeColors {
   /** Borders of inputs and keycaps: a step stronger than `line`. */
   lineStrong: string;
   text: string;
-  /** Secondary text: inactive rows, labels. */
+  /** Secondary text: inactive rows, labels, counts, addresses, headings, hints. Every text token
+   * (this, `text`, `warn`, `error`, `accentInk`) reads at 4.5:1 on every surface (decision Q53). */
   muted: string;
-  /** Tertiary text: counts, addresses, section headings, hints. */
+  /** Not for text (decision Q53): icons, chevrons, outlines and rules. Text uses `muted`. */
   faint: string;
   warn: string;
   error: string;

@@ -16,7 +16,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
-    // App.worst.test.tsx reads styles.css (`?raw`) for the rules that cut text off.
-    css: { include: [/src\/styles\.css/] },
+    // App.worst.test.tsx reads styles.css (`?raw`) for the rules that cut text off, and
+    // styles.test.ts reads both stylesheets to keep `--faint` out of text.
+    css: { include: [/src\/styles\.css/, /src\/lock\/signin\.css/] },
   },
 });
