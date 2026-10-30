@@ -36,6 +36,8 @@ export interface Tab {
 export interface TabsSnapshot {
   tabs: readonly Tab[];
   active: number | null;
+  /** The tab that was active before this one (the session bar's `-`), while it's still open. */
+  previous: number | null;
 }
 
 const encoder = new TextEncoder();
@@ -98,9 +100,10 @@ export class Tabs {
   private readonly backend: Backend;
   private entries: Entry[] = [];
   private active: number | null = null;
+  private previous: number | null = null;
   private nextId = 1;
   private lastSize: TermSize = { cols: 80, rows: 24 };
-  private snap: TabsSnapshot = { tabs: [], active: null };
+  private snap: TabsSnapshot = { tabs: [], active: null, previous: null };
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
   private readonly now: () => number;
@@ -125,7 +128,7 @@ export class Tabs {
   snapshot = (): TabsSnapshot => this.snap;
 
   private changed() {
-    this.snap = { tabs: this.entries.map((e) => e.tab), active: this.active };
+    this.snap = { tabs: this.entries.map((e) => e.tab), active: this.active, previous: this.previous };
     for (const l of this.listeners) l();
   }
 
@@ -214,7 +217,7 @@ export class Tabs {
       },
     };
     this.entries.push(entry);
-    this.active = id;
+    this.activate(id);
     this.changed();
     this.start(entry);
     return id;
@@ -321,9 +324,11 @@ export class Tabs {
     void entry.session?.close().catch(() => {});
     entry.session = null;
     this.entries.splice(i, 1);
+    if (this.previous === id) this.previous = null;
     if (this.active === id) {
       const next = this.entries[Math.min(i, this.entries.length - 1)];
       this.active = next ? next.tab.id : null;
+      if (this.previous === this.active) this.previous = null;
     }
     this.changed();
   }
@@ -334,8 +339,13 @@ export class Tabs {
 
   select(id: number) {
     if (!this.find(id) || this.active === id) return;
-    this.active = id;
+    this.activate(id);
     this.changed();
+  }
+
+  private activate(id: number) {
+    if (this.active !== null && this.active !== id) this.previous = this.active;
+    this.active = id;
   }
 
   /** Selects the tab `delta` places after the active one (negative: before), wrapping around. */

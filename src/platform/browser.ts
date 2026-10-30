@@ -24,5 +24,14 @@ export function browserPlatform(): Platform {
       readText: () => navigator.clipboard.readText(),
       writeText: (text) => navigator.clipboard.writeText(text),
     },
+    // The browser allows it only from a key or click; Focus works without it.
+    async setFullscreen(on) {
+      try {
+        if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+        if (!on && document.fullscreenElement) await document.exitFullscreen();
+      } catch {
+        // refused: Focus still hides the chrome
+      }
+    },
   };
 }

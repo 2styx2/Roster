@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { defaultOptions, resolveKeymap } from "../keymap";
-import { builtinCommandRegistry } from "../commands/table";
+import { builtinRegistries } from "../registries";
 import { bindingRows as rowsIn, filterRows } from "./bindings";
 
-const commands = builtinCommandRegistry();
+const commands = builtinRegistries().commands;
 const bindingRows = (k: Parameters<typeof rowsIn>[0], o: Parameters<typeof rowsIn>[1]) => rowsIn(k, o, commands);
 
 describe("bindingRows", () => {
@@ -21,6 +21,12 @@ describe("bindingRows", () => {
     ]);
     expect(find("Close the Session")[0]?.keys).toEqual(["␣ d d"]);
     expect(find("Back to the terminal")[0]?.keys).toEqual(["Esc"]);
+  });
+
+  it("lists the view-mode keys: ␣ m and the global F11, which needs no Leader", () => {
+    expect(find("Focus mode on or off")[0]?.keys).toEqual(["F11"]);
+    expect(find("Switch the view mode")[0]?.keys).toEqual(["␣ m"]);
+    expect(find("Find a Session")[0]?.keys).toEqual(["␣ b"]);
   });
 
   it("lists vim keys only while vim is on", () => {

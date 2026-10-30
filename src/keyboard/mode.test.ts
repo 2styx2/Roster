@@ -20,6 +20,16 @@ function run(chords: string[], c = ctx, start: KeyState = terminalMode) {
 }
 
 describe("press (Terminal mode / App mode)", () => {
+  it("catches a global key (F11) in Terminal mode too, and stays in Terminal mode", () => {
+    const r = run(["F11", "x"]);
+    expect(r.actions).toEqual(["focus"]);
+    expect(r.consumed).toEqual([true, false]);
+    expect(r.state.mode).toBe("terminal");
+    const fromApp = run(["Ctrl+Space", "F11"]);
+    expect(fromApp.actions).toEqual(["focus"]);
+    expect(fromApp.state.mode).toBe("terminal");
+  });
+
   it("leaves every key to the terminal in Terminal mode, except the Leader", () => {
     const r = run(["f", "Escape", "Ctrl+c"]);
     expect(r.consumed).toEqual([false, false, false]);
