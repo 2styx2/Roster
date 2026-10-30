@@ -15,7 +15,7 @@ mod lua;
 pub mod schema;
 mod watch;
 
-pub use editor::{Ensured, OpenWith, ensure_file, open, open_with, starter};
+pub use editor::{Ensured, OpenWith, WindowsOpen, ensure_file, open, open_with, starter, windows_open};
 pub use schema::*;
 pub use watch::{Changed, FOLDERS_FILE, Watcher, watch, watch_files};
 
