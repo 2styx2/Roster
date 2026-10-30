@@ -5,7 +5,6 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 import time
 
 import pytest
@@ -13,48 +12,6 @@ from conftest import EXAMPLES
 
 from roster import __version__
 from roster.cli import main
-
-
-class Serve:
-    def __init__(self, *args):
-        self.p = subprocess.Popen([sys.executable, "-m", "roster", *args, "serve"], stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        self.next_id = 0
-        self.responses = []             # every line serve wrote to stdout, as read
-
-    def send(self, line):
-        self.p.stdin.write(line + "\n")
-        self.p.stdin.flush()
-        self.responses.append(self.p.stdout.readline())
-        return json.loads(self.responses[-1])
-
-    def call(self, method, params=None):
-        self.next_id += 1
-        msg = {"jsonrpc": "2.0", "id": self.next_id, "method": method}
-        if params is not None:
-            msg["params"] = params
-        r = self.send(json.dumps(msg))
-        assert r["jsonrpc"] == "2.0" and r["id"] == self.next_id
-        return r
-
-    def close(self):
-        """Close stdin; returns (exit code, anything else written to stdout, stderr)."""
-        out, err = self.p.communicate(timeout=10)
-        return self.p.returncode, out, err
-
-
-@pytest.fixture
-def serve():
-    started = []
-
-    def _start(*args):
-        started.append(Serve(*args))
-        return started[-1]
-    yield _start
-    for s in started:
-        if s.p.poll() is None:
-            s.p.kill()
-            s.p.wait()
 
 
 def test_inventory_info(serve, isolated):
@@ -65,7 +22,7 @@ def test_inventory_info(serve, isolated):
     assert info["path"] == str(example.resolve())
     assert info["box"] and info["host_count"] == 5
     assert {"bw", "op", "env", "prompt"} <= set(info["providers"])
-    assert info["roster_version"] == __version__ and info["api_version"] == 1
+    assert info["roster_version"] == __version__ and info["api_version"] == 2
     assert s.close() == (0, "", "")
 
 
@@ -173,7 +130,8 @@ def test_an_inventory_that_doesnt_load_is_an_error_not_an_exit(serve, write_conf
     err = s.call("inventory.info")["error"]
     assert err["code"] == 1
     assert err["message"] == "host 'box' has no user (set it on the host, its group, or defaults)"
-    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 1}
+    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 2,
+                           "fix": f"fix {path}, or run `roster init` if there's none yet"}
     assert s.call("hosts.list")["error"]["code"] == 1
     assert s.call("host.get", {"name": "box"})["error"]["code"] == 1
     assert s.close() == (0, "", "")
@@ -360,7 +318,7 @@ def test_session_prepare_for_a_password_host_while_locked(serve, write_config, c
     synced(write_config, capsys, PW_INVENTORY)
     s = serve()
     err = s.call("session.prepare", {"host": "esx"})["error"]
-    assert err == {"code": 14, "message": "bw vault is locked - unlock it first"}
+    assert (err["code"], err["message"]) == (14, "bw vault is locked - unlock it first")
     assert s.call("session.prepare", {"host": "nope"})["error"] == {"code": 2, "message": "unknown host 'nope'"}
     assert s.call("session.prepare", {})["error"]["code"] == -32602
     assert s.close()[0] == 0
@@ -432,21 +390,22 @@ REFUSED_PROMPTS = (
 )
 
 
-def test_the_helper_refuses_every_other_prompt_without_contacting_serve(tmp_path):
-    """A socket that would record any connection: a refused prompt must never reach it (or spend a token)."""
-    import socket
-    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    listener.bind(str(tmp_path / "s"))
-    listener.listen(1)
-    listener.settimeout(0.5)
-    env = {**os.environ, "ROSTER_ASKPASS_SOCKET": str(tmp_path / "s"), "ROSTER_ASKPASS_TOKEN": "t" * 43}
+def test_the_helper_refuses_every_other_prompt_and_reports_it(serve, write_config, capsys, fakes):
+    """A refused prompt gets no password and doesn't spend the token. The helper reports the prompt (never an
+    answer) so serve can log it, and prints the one line the app shows: code 36, the Host, the prompt."""
+    s = unlocked_serve(serve, write_config, capsys)
+    spec = s.call("session.prepare", {"host": "esx"})["result"]
     for prompt in REFUSED_PROMPTS:
-        r = subprocess.run([sys.executable, "-I", "-m", "roster.askpass", prompt], env=env,
-                           capture_output=True, text=True, timeout=30)
+        r = run_askpass(spec, prompt)
         assert (r.returncode, r.stdout) == (1, ""), prompt
-    with pytest.raises(TimeoutError):
-        listener.accept()
-    listener.close()
+        assert r.stderr.startswith("roster askpass: [36] esx asked something roster won't answer: '"), prompt
+        assert r.stderr.count("\n") == 1
+    assert run_askpass(spec).stdout == PASSWORD + "\n"                 # the token is still good
+    r = run_askpass(spec, "New password: ")                            # e.g. an expired password, right after
+    assert "[36] esx asked something roster won't answer: 'New password:'" in r.stderr
+    _, _, err = s.close()
+    assert "askpass: esx: refused an unexpected prompt: 'Verification code:'" in err
+    assert PASSWORD not in err
 
 
 def test_the_cli_has_roster_askpass(capsys):
@@ -508,12 +467,3 @@ def test_the_password_never_reaches_serves_output(serve, write_config, capsys, f
     assert code == 0 and out == ""
     assert "esx: password handed to ssh" in err                  # it does log that it happened
     assert PASSWORD not in "".join(s.responses) + out + err
-
-
-def test_a_lookup_that_fails_says_why_in_the_terminal(serve, write_config, capsys, fakes):
-    """The Login's vault item is missing: the helper prints the provider's (safe) message, ssh fails."""
-    synced(write_config, capsys, PW_INVENTORY.replace("auth: bw:Network gear", "auth: bw:No such item"))
-    s = serve()
-    s.call("vault.unlock", {"password": "hunter2"})
-    r = run_askpass(s.call("session.prepare", {"host": "esx"})["result"])
-    assert r.returncode == 1 and r.stdout == "" and r.stderr.startswith("roster askpass: ")

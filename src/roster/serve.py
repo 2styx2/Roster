@@ -14,25 +14,34 @@ import shutil
 import signal
 import sys
 
-from . import __version__, askpass, providers
-from .common import not_reviewed, ssh_config_file, ssh_dir
+from . import __version__, askpass, diagnose, providers
+from .common import not_reviewed, ssh_config_file
 from .config import find_config, load_config
+from .errors import (  # noqa: F401 (the codes are part of serve's API)
+    CLI_MISSING,
+    INVENTORY_ERROR,
+    NO_ASKPASS,
+    NOT_LOGGED_IN,
+    NOT_REVIEWED,
+    NOT_SET_UP,
+    ROSTER_ERROR,
+    UNKNOWN_HOST,
+    UNSUPPORTED,
+    VAULT_LOCKED,
+    WRONG_PASSWORD,
+    Problem,
+    inventory_problem,
+    vault_problem,
+)
 from .providers import PROVIDERS, setup_providers
+from .sshops import in_ssh_config
 
-API_VERSION = 1             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 2             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
-# roster's: stable, the app switches on them; the message is roster's usual wording, ready to show
-INVENTORY_ERROR = 1         # roster.yml wasn't found or doesn't load; error.data has path (if known) and versions
-UNKNOWN_HOST = 2            # no Host by that name
-ROSTER_ERROR = 3            # any other refusal roster gives on the command line ("error: ...")
-
-
-class RpcError(Exception):
-    def __init__(self, code, message, data=None):
-        super().__init__(message)
-        self.code, self.message, self.data = code, message, data
+# roster's own codes are in errors.py: stable, the app switches on them; the message is ready to show
+RpcError = Problem
 
 
 def die_message(e):
@@ -59,7 +68,9 @@ class State:
 
     def inventory(self):
         if self.cfg is None:
-            raise RpcError(INVENTORY_ERROR, self.error, versions() | {"path": str(self.path.resolve()) if self.path else None})
+            p = inventory_problem(self.error, self.path)
+            p.data |= versions()
+            raise p
         return self.cfg
 
 
@@ -98,11 +109,6 @@ def text_param(params, key):
 
 # ---------------------------------------------------------------- sessions (ticket 05; ADR 0002)
 
-# session.* error codes live in 20-29 (vault.* has 10-19)
-NOT_REVIEWED = 20           # the Host came from discover and has reviewed: false; same wording as `roster run`
-NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh client, or the Host isn't in roster's ssh config
-NO_ASKPASS = 22             # a password Session, but this process has no askpass channel open (in-process use only)
-
 def session_prepare(state, params):
     """What the app runs in a PTY to open a Session: the system ssh, never a secret.
     It uses the ssh-config alias `roster setup`/`sync` writes (Host NAME), so the key, user, port,
@@ -113,69 +119,42 @@ def session_prepare(state, params):
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
     if not h["reviewed"]:
         raise RpcError(NOT_REVIEWED, not_reviewed(h))
+    diagnose.check_user(h)
     ssh = shutil.which("ssh")         # absolute: the app spawns it with `wsl.exe --exec`, where PATH is thin
     if ssh is None:
         raise RpcError(NOT_SET_UP, "no ssh client on this box's PATH - install OpenSSH (openssh-client)")
     if not in_ssh_config(h["name"]):
         raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
-    if not h["enroll"] and password_login(h):
+    if not h["enroll"] and diagnose.password_login(h):
         return password_session(state, h, ssh)
     return {"argv": [ssh, "-o", "BatchMode=yes", h["name"]], "env": {},
             "host": h["name"], "auth": "key"}
 
 
-def password_login(h):
-    """The Host's ssh Login, if it's a password one (a vault reference, not agent/key/none)."""
-    auth = h["ssh"].get("auth")
-    return None if auth in (None, "") or auth in providers.NO_PASSWORD else h["ssh"]
-
-
 def password_session(state, h, ssh):
     """ssh that asks `roster askpass` for the password: the env carries a one-time token, never the
-    password. Nothing is looked up yet - that happens when ssh prompts - but a vault that can't answer is
-    reported now (14 locked, 11 not logged in, 12 no CLI) instead of as a failed login in the terminal."""
+    password. The Login is resolved now, in this process, so whatever is wrong with it (provider not set up,
+    vault locked, item missing, several items, no password: errors.py 11-14, 30-35) is reported before ssh
+    starts instead of as a failed login in the terminal. ssh's prompt then gets the value from memory."""
     if state.askpass is None:
         raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
                                    "need `roster serve`")
-    auth = password_login(h)["auth"]
-    check_vault_answers(str(auth).partition(":")[0].strip())
-    token = state.askpass.mint((auth, h["group"]), h["name"])
+    diagnose.check_login(h)
+    token = state.askpass.mint(h, h["name"])
     return {"argv": [ssh, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
 
 
-def check_vault_answers(name):
-    """Refuse now if provider NAME can't hand out a password (env, prompt etc. have no status: let them try)."""
-    if name not in PROVIDERS:
-        raise RpcError(ROSTER_ERROR, f"unknown password source {name!r} - see `roster providers`")
-    try:
-        status = providers.vault_status(name)
-    except providers.SecretError as e:
-        raise secret_error(e) from None
-    error = {"locked": providers.VaultLocked, "unauthenticated": providers.NotLoggedIn,
-             "missing": providers.CliMissing}.get(status)
-    if error:
-        message = providers.status_message(name, status) or f"{name} vault is locked - unlock it first"
-        raise secret_error(error(message))
+askpass_lookup = diagnose.askpass_lookup
 
 
-def askpass_lookup(login):
-    """The askpass channel's lookup. It runs on the channel's threads; get_secret takes the providers' lock."""
-    ref, group = login
-    try:
-        return providers.get_secret(ref, group)
-    except providers.SecretError as e:
-        raise askpass.Refused(str(e)) from None
-
-
-def in_ssh_config(name):
-    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
-    ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or str(ours) not in main.read_text():
-        return False
-    return f"Host {name}" in ours.read_text().splitlines()
+def host_check(state, params):
+    """`roster check HOST` for the app: the diagnostic steps in order, stopping at the first failure (see
+    diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel."""
+    name = text_param(params, "host")
+    return diagnose.check_host(name, state.inventory, state.askpass)
 
 
 METHODS = {
@@ -183,26 +162,16 @@ METHODS = {
     "hosts.list": hosts_list,
     "host.get": host_get,
     "session.prepare": session_prepare,
+    "host.check": host_check,
 }
 
 
 # ---------------------------------------------------------------- vault: the lock screen
 
-# error codes (10+, clear of the codes above and of other method groups)
-WRONG_PASSWORD = 10         # the master password didn't unlock the vault
-NOT_LOGGED_IN = 11          # the vault CLI isn't logged in on this box; the message says what to run
-CLI_MISSING = 12            # the vault CLI isn't installed
-UNSUPPORTED = 13            # the provider has no master password (env, prompt, ...), or no Host Login uses one
-VAULT_LOCKED = 14           # a secret was needed but the vault is locked: unlock first
-VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: NOT_LOGGED_IN,
-                providers.CliMissing: CLI_MISSING, providers.Unsupported: UNSUPPORTED,
-                providers.VaultLocked: VAULT_LOCKED}
 STATUS_WORDS = {"unauthenticated": "not-logged-in", "missing": "missing-cli"}   # providers' word -> the API's
 
 
-def secret_error(e):
-    """A provider's SecretError as the RpcError to answer with (its message is already safe to show)."""
-    return RpcError(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
+secret_error = vault_problem          # a provider's SecretError as the error to answer with (safe to show)
 
 
 def referenced_providers(cfg):

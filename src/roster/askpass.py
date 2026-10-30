@@ -5,8 +5,12 @@ one-time token for one Host's ssh Login; the token is good once, for TTL seconds
 Helper side (main, run by ssh as SSH_ASKPASS with the prompt as argv[1]): answers only a Login password
 prompt, by sending the token over the socket and printing the password ssh asked for.
 
-Wire format, one exchange per connection: the helper sends "TOKEN\\n"; serve answers "ok\\nPASSWORD" or
-"no\\nREASON" (a reason safe to show in the terminal), then closes.
+Wire format, one exchange per connection, then serve closes:
+  helper: "TOKEN\\n"                   serve: "ok\\nPASSWORD", or "no CODE\\nREASON"
+  helper: "prompt TOKEN PROMPT\\n"     serve: "no 36\\nREASON"   (a prompt the helper won't answer, reported
+                                                               so serve can log it; the token isn't spent)
+REASON is safe to show in the terminal; CODE is one of errors.py's stable codes. The helper prints it as
+the one line "roster askpass: [CODE] REASON" on stderr, which the app's classifier parses.
 
 Stdlib only, and nothing else from roster: ssh runs the helper for every prompt, it must start fast and
 never load roster.yml.
@@ -26,6 +30,13 @@ import time
 SOCKET_ENV, TOKEN_ENV = "ROSTER_ASKPASS_SOCKET", "ROSTER_ASKPASS_TOKEN"
 TTL = 60.0                  # seconds a token lives; ROSTER_ASKPASS_TTL may shorten it (tests), never lengthen
 REPLY_TIMEOUT = 30          # the helper waits this long for serve (a vault lookup can take a few seconds)
+PROMPT_LIMIT = 300          # characters of an unexpected prompt that are reported (it comes from the Host)
+
+# Stable codes (errors.py imports these; the rest of its codes arrive here inside Refused)
+LOOKUP_FAILED = 35          # the lookup failed some other way
+UNEXPECTED_PROMPT = 36      # the Host asked something other than the Login password
+TOKEN_SPENT = 37            # the one-time token is used, expired or cleared by vault.lock
+NO_SERVE = 38               # the helper couldn't reach `roster serve`
 
 # ---------------------------------------------------------------- which prompts get the password
 
@@ -44,7 +55,23 @@ def is_password_prompt(prompt):
 
 
 class Refused(Exception):
-    """Raised by a Channel's lookup: its message is safe to show in the terminal (never the secret)."""
+    """Raised by a Channel's lookup: its message is safe to show in the terminal (never the secret), and
+    code is its stable code (errors.py)."""
+
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
+def shown_prompt(prompt):
+    """An unexpected prompt as one line, shortened: what may be logged and shown (it's the Host's text)."""
+    text = " ".join("".join(c if c.isprintable() else " " for c in prompt).split())
+    return text if len(text) <= PROMPT_LIMIT else text[:PROMPT_LIMIT] + "..."
+
+
+def refused_prompt_reason(label, prompt):
+    who = label or "the Host"
+    return f"{who} asked something roster won't answer: '{shown_prompt(prompt)}' - log in by hand once to deal with it"
 
 
 # ---------------------------------------------------------------- the helper ssh runs
@@ -52,30 +79,39 @@ class Refused(Exception):
 def main(argv=None):
     """`roster askpass PROMPT`: print the Login password and exit 0, or print nothing and exit 1."""
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1 or not is_password_prompt(argv[0]):
+    if len(argv) != 1:
         return 1
-    path, token = os.environ.get(SOCKET_ENV), os.environ.get(TOKEN_ENV)
+    prompt, path, token = argv[0], os.environ.get(SOCKET_ENV), os.environ.get(TOKEN_ENV)
+    expected = is_password_prompt(prompt)
     if not path or not token:
-        return 1
+        return 1 if expected else complain(UNEXPECTED_PROMPT, refused_prompt_reason(None, prompt))
+    request = token if expected else f"prompt {token} {shown_prompt(prompt)}"
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(REPLY_TIMEOUT)
             s.connect(path)
-            s.sendall(token.encode() + b"\n")
+            s.sendall(request.encode() + b"\n")
             reply = b""
             while chunk := s.recv(4096):
                 reply += chunk
     except OSError as e:
-        print(f"roster askpass: can't reach roster serve ({e.strerror or type(e).__name__})", file=sys.stderr)
-        return 1
+        if not expected:
+            return complain(UNEXPECTED_PROMPT, refused_prompt_reason(None, prompt))
+        return complain(NO_SERVE, f"can't reach roster serve ({e.strerror or type(e).__name__})")
     status, _, body = reply.partition(b"\n")
-    if status != b"ok" or not body:
+    if status != b"ok" or not body or not expected:
+        word, _, code = status.decode(errors="replace").partition(" ")
         reason = body.decode(errors="replace").strip() or "no answer"
-        print(f"roster askpass: {reason}", file=sys.stderr)
-        return 1
+        return complain(int(code) if code.isdigit() else UNEXPECTED_PROMPT if not expected else TOKEN_SPENT, reason)
     sys.stdout.buffer.write(body + b"\n")
     sys.stdout.flush()
     return 0
+
+
+def complain(code, reason):
+    """The one line the terminal shows and the app's classifier reads; nothing goes to stdout, exit 1."""
+    print(f"roster askpass: [{code}] {' '.join(reason.split())}", file=sys.stderr)
+    return 1
 
 
 # ---------------------------------------------------------------- serve's side
@@ -106,6 +142,7 @@ class Channel:
         self.lookup, self.log = lookup, log or (lambda msg: None)
         self.ttl = ttl()
         self.tokens = {}                     # token -> (login, label, expires at: time.monotonic())
+        self.labels = {}                     # token -> (label, until): names a spent token's prompt reports
         self.lock = threading.Lock()
         self.dir = runtime_dir()
         os.chmod(self.dir, 0o700)
@@ -134,6 +171,8 @@ class Channel:
             now = time.monotonic()
             self.tokens = {t: v for t, v in self.tokens.items() if v[2] > now}   # drop expired ones
             self.tokens[token] = (login, label, now + self.ttl)
+            self.labels = {t: v for t, v in self.labels.items() if v[1] > now}
+            self.labels[token] = (label, now + 2 * self.ttl)
         return token
 
     def redeem(self, token):
@@ -144,9 +183,17 @@ class Channel:
             return None
         return entry[:2]
 
+    def label(self, token):
+        """Which Session a token was minted for, without spending it (also shortly after it was spent:
+        an expired-password prompt comes right after the password was accepted)."""
+        with self.lock:
+            entry = self.labels.get(token)
+        return entry[0] if entry and entry[1] > time.monotonic() else None
+
     def forget(self):
         with self.lock:
             self.tokens.clear()
+            self.labels.clear()
 
     def env(self, token):
         return {"SSH_ASKPASS": self.helper, "SSH_ASKPASS_REQUIRE": "force",
@@ -171,8 +218,8 @@ class Channel:
                 if not same_user(conn):
                     return
                 data = b""
-                while b"\n" not in data and len(data) < 512:
-                    chunk = conn.recv(512)
+                while b"\n" not in data and len(data) < 1024:
+                    chunk = conn.recv(1024)
                     if not chunk:
                         break
                     data += chunk
@@ -180,22 +227,29 @@ class Channel:
             except OSError:
                 pass
 
-    def _reply(self, token):
-        found = self.redeem(token) if token else None
+    def _reply(self, request):
+        if request.startswith("prompt "):
+            _, token, prompt = (request.split(" ", 2) + [""])[:3]
+            label = self.label(token)
+            reason = refused_prompt_reason(label, prompt)
+            self.log(f"askpass: {label or 'unknown Session'}: refused an unexpected prompt: '{shown_prompt(prompt)}'")
+            return f"no {UNEXPECTED_PROMPT}\n{reason}".encode()
+        found = self.redeem(request) if request else None
         if found is None:
             self.log("askpass: refused a token that is unknown, used, expired or cleared by vault.lock")
-            return b"no\nthe askpass token is used up, expired or cleared by a lock - open the Session again"
+            return (f"no {TOKEN_SPENT}\nthe askpass token is used up, expired or cleared by a lock - "
+                    "open the Session again").encode()
         login, label = found
         try:
             password = self.lookup(login)
             reason = None
         except Refused as e:
-            reason = str(e)
+            reason, code = str(e), e.code
         except Exception as e:                  # its text might not be safe to show: name it only
-            reason = f"looking up the password failed: {type(e).__name__}"
+            reason, code = f"looking up the password failed: {type(e).__name__}", LOOKUP_FAILED
         if reason is not None:
             self.log(f"askpass: {label}: {reason}")
-            return b"no\n" + reason.encode()
+            return f"no {code}\n{reason}".encode()
         self.log(f"askpass: {label}: password handed to ssh")
         return b"ok\n" + password.encode()
 
