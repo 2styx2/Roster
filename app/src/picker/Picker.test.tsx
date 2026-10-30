@@ -1,0 +1,126 @@
+import { describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Picker } from "./Picker";
+import type { Host, HostList } from "../backend/types";
+
+function host(name: string, more: Partial<Host> = {}): Host {
+  return {
+    name, group: "lab", ip: "10.0.0.1", type: "linux", product: "", title: "", description: "",
+    reviewed: true, enroll: true, ssh: { user: "root", port: 22, auth: "key" }, web: null, ...more,
+  };
+}
+
+const list: HostList = {
+  hosts: [
+    host("esxi-02", { ip: "10.19.77.10", type: "esxi", group: "core" }),
+    host("proxmox-01", { ip: "10.19.1.20", type: "proxmox", group: "core" }),
+    host("scan-99", { ip: "10.19.77.99", reviewed: false }),
+    host("unifi", { ip: "10.19.1.1", type: "router" }),
+  ],
+  groups: { core: { title: "Core servers", description: "" }, lab: { title: "Lab", description: "" } },
+};
+
+function setup(over: Partial<Parameters<typeof Picker>[0]> = {}) {
+  const onOpen = vi.fn<(h: Host) => void>();
+  const onClose = vi.fn<() => void>();
+  render(<Picker hosts={list} recent={[]} vim onOpen={onOpen} onClose={onClose} {...over} />);
+  return { onOpen, onClose, user: userEvent.setup() };
+}
+
+const rows = () => screen.getAllByRole("option");
+const selected = () => screen.getByRole("option", { selected: true });
+
+describe("Picker", () => {
+  it("shows every Host with its name, address, group and type", () => {
+    setup();
+    expect(rows()).toHaveLength(4);
+    const first = within(rows()[0]!);
+    expect(first.getByText("esxi-02")).toBeInTheDocument();
+    expect(first.getByText("10.19.77.10")).toBeInTheDocument();
+    expect(first.getByText("core")).toBeInTheDocument();
+    expect(first.getByText("esxi")).toBeInTheDocument();
+  });
+
+  it("focuses the query and filters as you type", async () => {
+    const { user } = setup();
+    expect(screen.getByRole("combobox")).toHaveFocus();
+    await user.keyboard("prox");
+    expect(rows().map((r) => r.dataset.host)).toEqual(["proxmox-01"]);
+    await user.clear(screen.getByRole("combobox"));
+    await user.keyboard("10.19.77");
+    expect(rows().map((r) => r.dataset.host)).toEqual(["esxi-02", "scan-99"]);
+  });
+
+  it("says so when nothing matches", async () => {
+    const { user } = setup();
+    await user.keyboard("zzzz");
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByText(/no hosts match/i)).toBeInTheDocument();
+  });
+
+  it("moves with the arrow keys and Ctrl+N / Ctrl+P, stopping at the ends", async () => {
+    const { user } = setup();
+    expect(selected().dataset.host).toBe("esxi-02");
+    await user.keyboard("{ArrowDown}");
+    expect(selected().dataset.host).toBe("proxmox-01");
+    await user.keyboard("{Control>}n{/Control}");
+    expect(selected().dataset.host).toBe("scan-99");
+    await user.keyboard("{Control>}p{/Control}{ArrowUp}{ArrowUp}");
+    expect(selected().dataset.host).toBe("esxi-02");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
+    expect(selected().dataset.host).toBe("unifi");
+  });
+
+  it("moves with j / k once you're in the list, and goes back to typing on any other letter", async () => {
+    const { user } = setup();
+    await user.keyboard("{ArrowDown}jj");
+    expect(selected().dataset.host).toBe("unifi");
+    await user.keyboard("k");
+    expect(selected().dataset.host).toBe("scan-99");
+    await user.keyboard("u");
+    expect(screen.getByRole("combobox")).toHaveValue("u");
+    expect(rows()[0]!.dataset.host).toBe("unifi");
+  });
+
+  it("types j and k into the query when vim keys are off", async () => {
+    const { user } = setup({ vim: false });
+    await user.keyboard("{ArrowDown}j");
+    expect(screen.getByRole("combobox")).toHaveValue("j");
+  });
+
+  it("opens the selected Host with Enter", async () => {
+    const { user, onOpen } = setup();
+    await user.keyboard("unifi{Enter}");
+    expect(onOpen).toHaveBeenCalledWith(list.hosts[3]);
+  });
+
+  it("opens a Host on click", async () => {
+    const { user, onOpen } = setup();
+    await user.click(screen.getByText("proxmox-01"));
+    expect(onOpen).toHaveBeenCalledWith(list.hosts[1]);
+  });
+
+  it("marks unreviewed Hosts and won't open them", async () => {
+    const { user, onOpen } = setup();
+    const row = rows().find((r) => r.dataset.host === "scan-99")!;
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    expect(within(row).getByText(/unreviewed/i)).toBeInTheDocument();
+    await user.keyboard("scan{Enter}");
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(/scan-99 isn't reviewed/i);
+    await user.click(screen.getByText("scan-99"));
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("closes with Esc, even from the list", async () => {
+    const { user, onClose } = setup();
+    await user.keyboard("{ArrowDown}{Escape}");
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("puts recently used Hosts first", () => {
+    setup({ recent: ["unifi"] });
+    expect(rows()[0]!.dataset.host).toBe("unifi");
+  });
+});
