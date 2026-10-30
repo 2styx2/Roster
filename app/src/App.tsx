@@ -1297,6 +1297,7 @@ export function App({
               run={run}
               errorRows={errorRows}
               copy={copy}
+              addressOf={(name) => hostByName.get(name)?.ip ?? null}
             />
           )}
         </main>

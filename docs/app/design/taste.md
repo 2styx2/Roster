@@ -46,7 +46,7 @@ What makes roster feel like Neovim or VS Code, and what every feature must respe
 
 | Detail | Spec |
 |---|---|
-| **Connect** | A 1px edge in the accent draws from the Sidebar row's node toward the terminal, over about 120 ms. The node fills when the Session reaches a shell. On failure the edge snaps back and the node turns hollow with the error state. |
+| **Connect** | A 1px edge in the accent draws from the Sidebar row's node toward the terminal, over about 120 ms. The node fills when the Session reaches a shell. On failure the edge snaps back and the node turns hollow with the error state. Until the shell answers, the pane shows the connect card, never a blank terminal: this Box's square, the edge drawn to the Host's ring, the Host and its address, and what's happening now ("Starting ssh on this Box…", "Logging in…"); it fades out over the first output (issue #78). |
 | **Session ended** | The node empties to a hollow grey ring. The row keeps its place. Nothing jumps. |
 | **Empty states** | The Gap orbit mark (small, 48–64px, muted), one plain sentence, and the keycap for the next action. |
 | **Lock screen** | The Gap orbit mark, the Box name in Iosevka, one field. Nothing else. |

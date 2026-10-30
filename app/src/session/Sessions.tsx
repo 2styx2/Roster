@@ -2,6 +2,7 @@
 // option shows instead of the Sidebar's Sessions section. Inactive terminals stay mounted, just
 // hidden, so their screens survive switching. Buttons here run command lines (`session N`,
 // `close N`, `reconnect`) like every other way in.
+import { useEffect, useState } from "react";
 import type { ErrorRow } from "../errors/catalog";
 import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
 import type { CommandLine } from "../keymap";
@@ -10,13 +11,31 @@ import { Keys } from "../ui/Keys";
 import type { Tab, Tabs, TabsSnapshot } from "./tabs";
 import { CloseGlyph } from "../ui/CloseGlyph";
 
+/** Where a Session is on its way to a shell (issue #78): `starting` while roster prepares it and
+ * ssh starts on this Box, `logging-in` once ssh runs and the Host hasn't answered yet, null once
+ * it has (or it ended, or was refused). */
+export type ConnectPhase = "starting" | "logging-in";
+
+export function connectPhase(tab: Tab): ConnectPhase | null {
+  if (tab.status.state === "connecting") return "starting";
+  if (tab.status.state === "open" && !tab.shell) return "logging-in";
+  return null;
+}
+
+/** How the Session's link to its Host stands, for the edge drawn from its node (taste.md: an
+ * edge drawn on connect, snapping back on failure): drawing, up, or down. */
+export function linkOf(tab: Tab): "connecting" | "up" | "down" {
+  if (connectPhase(tab)) return "connecting";
+  return tab.status.state === "open" ? "up" : "down";
+}
+
 export function statusText(tab: Tab): string {
   const s = tab.status;
   switch (s.state) {
     case "connecting":
       return "connecting…";
     case "open":
-      return "";
+      return tab.shell ? "" : "connecting…";
     case "failed":
       return "failed";
     case "ended":
@@ -30,7 +49,13 @@ export function statusText(tab: Tab): string {
 function StateDot({ tab }: { tab: Tab }) {
   const done = tab.status.state === "ended" || tab.status.state === "failed";
   const auth = tab.auth;
-  const cls = ["st", auth === "password" ? "pw" : "", done ? "ended" : "", auth === null && !done ? "pending" : ""];
+  const connecting = connectPhase(tab) !== null;
+  const cls = [
+    "st",
+    auth === "password" ? "pw" : "",
+    done ? "ended" : "",
+    connecting ? "connecting" : auth === null && !done ? "pending" : "",
+  ];
   return <span className={cls.filter(Boolean).join(" ")} aria-hidden="true" />;
 }
 
@@ -82,6 +107,63 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
   );
 }
 
+/** What the connect card says on its second line: honest about where it is (taste.md). */
+const PHASE_WORDS: Record<ConnectPhase, string> = {
+  starting: "Starting ssh on this Box…",
+  "logging-in": "Logging in…",
+};
+
+/**
+ * The pane while its Session connects (issue #78): not a blank terminal, but this Box's square, an
+ * edge drawn to the Host's node, the Host and its address in Iosevka, and what's happening now.
+ * It's the network-map motif (taste.md), never a spinner. When the shell answers, it fades out
+ * over the first output; a failure replaces it with the error at once.
+ */
+export function ConnectCard({
+  host,
+  address,
+  phase,
+  again,
+}: {
+  host: string;
+  address: string | null;
+  /** Null: the shell answered, so the card fades out and then goes. */
+  phase: ConnectPhase | null;
+  /** A reconnect ("Reconnecting to …"). */
+  again: boolean;
+}) {
+  // The last phase, kept while the card fades out after the shell answered; then it's gone.
+  const [last, setLast] = useState<ConnectPhase | null>(phase);
+  if (phase !== null && phase !== last) setLast(phase);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (phase !== null) return;
+    const t = setTimeout(() => setGone(true), FADE_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
+  const words = phase ?? (gone ? null : last);
+  if (words === null) return null;
+  const title = `${again ? "Reconnecting" : "Connecting"} to ${host}`;
+  return (
+    <div className={`connect-card${phase === null ? " leaving" : ""}`} role="status" aria-label={phase === null ? undefined : title}>
+      <svg className="connect-map" viewBox="0 0 72 12" width="72" height="12" aria-hidden="true">
+        <rect className="connect-box" x="1" y="2" width="8" height="8" rx="1.6" />
+        <line className="connect-edge" x1="12" y1="6" x2="59" y2="6" />
+        <circle className="connect-host" cx="65" cy="6" r="4.25" />
+      </svg>
+      <p className="connect-title">
+        <span className="muted">{again ? "Reconnecting to " : "Connecting to "}</span>
+        <span className="connect-name">{host}</span>
+        {address && <span className="connect-address"> {address}</span>}
+      </p>
+      <p className="connect-phase muted">{PHASE_WORDS[words]}</p>
+    </div>
+  );
+}
+
+/** How long the card takes to fade out (--dur-fade in styles.css). */
+const FADE_MS = 120;
+
 export interface SessionPanesProps {
   tabs: Pick<Tabs, "wiring">;
   snapshot: TabsSnapshot;
@@ -97,6 +179,8 @@ export interface SessionPanesProps {
   errorRows: readonly ErrorRow[];
   /** Puts a command from an error's fix on the clipboard. */
   copy(text: string): Promise<void>;
+  /** A Host's address, for the connect card ("10.0.0.6"), or null. */
+  addressOf?(host: string): string | null;
 }
 
 export function SessionPanes({
@@ -109,6 +193,7 @@ export function SessionPanes({
   run,
   errorRows,
   copy,
+  addressOf,
 }: SessionPanesProps) {
   const actions: ProblemActions = { run, copy };
   return (
@@ -126,7 +211,15 @@ export function SessionPanes({
             ) : (
               wiring && <TerminalView active={active} leader={leader} {...wiring} env={terminalEnv} />
             )}
-            {s.state === "connecting" && <div className="session-note">Connecting to {tab.host}…</div>}
+            {s.state !== "failed" && s.state !== "ended" && (
+              <ConnectCard
+                key={tab.attempt}
+                host={tab.host}
+                address={addressOf?.(tab.host) ?? null}
+                phase={connectPhase(tab)}
+                again={tab.attempt > 1}
+              />
+            )}
             {s.state === "ended" && s.problem && (
               <div className="session-error overlay">
                 <ErrorPanel title="Session ended" problem={s.problem} rows={errorRows} actions={actions} />

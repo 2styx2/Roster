@@ -65,6 +65,10 @@ export interface FakeScenario {
   failOnce?: boolean;
   /** Milliseconds every call waits, to see loading states. */
   delay?: number;
+  /** How long `openSession` takes (session.prepare and starting ssh), in ms; else `delay`. */
+  sessionDelay?: number;
+  /** How long a Session takes to log in (its shell's first output), in ms (issue #78). */
+  loginMs?: number;
   /** Where the vault starts (default: locked, like a fresh `roster serve`). */
   vault?: { status: VaultStatusWord; provider?: "bw" | "kp" };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
@@ -283,6 +287,8 @@ export const fixtures: Record<string, FakeScenario> = {
   /** As many Hosts as the real Inventory (ticket 17's tree check). */
   "91-hosts": { hosts: makeHosts(91) },
   slow: { hosts: makeHosts(300), delay: 1500 },
+  /** Issue #78: Sessions take 1.2 s to start and 2.5 s more to log in, so the connecting state shows. */
+  "slow-login": { hosts: makeHosts(12), apiVersion: 9, sessionDelay: 1200, loginMs: 2500 },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(
@@ -390,7 +396,14 @@ export function fixtureFromUrl(search: string = globalThis.location?.search ?? "
 const encode = (s: string) => new TextEncoder().encode(s);
 
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
-function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize, events: SessionEvents): SessionHandle {
+function fakeSession(
+  id: number,
+  host: string,
+  auth: SessionAuth,
+  size: TermSize,
+  events: SessionEvents,
+  loginMs = 0,
+): SessionHandle {
   let line = "";
   let ended = false;
   const end = (code: number | null, closed: boolean) => {
@@ -399,7 +412,15 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
     setTimeout(() => events.exit({ code, closed }), 0);
   };
   const prompt = `${host}$ `;
-  setTimeout(() => events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`)), 0);
+  // Like ssh, nothing is printed until the Host answers (the login takes `loginMs`).
+  let loggedIn = false;
+  let resized: TermSize | null = null;
+  const sayResized = (s: TermSize) => events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+  setTimeout(() => {
+    loggedIn = true;
+    events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    if (resized && !ended) sayResized(resized);
+  }, loginMs);
   return {
     id,
     auth,
@@ -418,7 +439,9 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
       }
     },
     async resize(s) {
-      if (!ended) events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+      if (ended) return;
+      if (loggedIn) sayResized(s);
+      else resized = s;
     },
     async close() {
       end(null, true);
@@ -817,7 +840,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         login = null;
       }),
     async openSession(host, size, events) {
-      await wait();
+      await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
       const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
       if (!h.reviewed) {
@@ -836,7 +859,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events);
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
     },
     async checkHost(host) {
       await wait();

@@ -4,7 +4,7 @@
 // will. Sections only say what rows they have; buildSections folds them by State, finds each
 // row's parent, and raises the on-screen Host's first row (the others are "also").
 import type { Host, HostList } from "../backend/types";
-import { statusText } from "../session/Sessions";
+import { connectPhase, linkOf, statusText } from "../session/Sessions";
 import type { Tab, TabsSnapshot } from "../session/tabs";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import { headingId, type Dot, type SidebarRow, type SidebarSection } from "./Sidebar";
@@ -98,6 +98,8 @@ function markOnScreen(sections: SidebarSection[], host: string, live: boolean): 
 
 function dotOf(tab: Tab, host: Host | undefined): Dot {
   if (tab.status.state === "ended" || tab.status.state === "failed") return "ended";
+  // Until the shell answers it's connecting: the node fills (or rings) once it's live (issue #78).
+  if (connectPhase(tab)) return "connecting";
   // How the Session logged in, once it has; until then an enrolled Host will use this Box's key
   // (its `ssh.auth` is only the vault fallback).
   if (tab.auth) return tab.auth;
@@ -123,6 +125,7 @@ export const sessionsSection: SidebarSectionDef = {
             ...(tab.label !== tab.host ? { tail: tab.label.slice(tab.host.length) } : {}),
             host: tab.host,
             dot: dotOf(tab, hostByName.get(tab.host)),
+            link: linkOf(tab),
             ...(statusText(tab) ? { note: statusText(tab) } : {}),
             ...(tab.auth ? { title: `${tab.auth} login` } : {}),
             raised: tab.id === sessions.active,

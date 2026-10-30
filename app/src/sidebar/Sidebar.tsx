@@ -68,6 +68,9 @@ export interface SidebarRow {
   live?: boolean;
   /** Added to roster.yml and not Published yet (ticket 28): dimmed, with a dot. */
   pending?: boolean;
+  /** A Session's link to its Host (issue #78): an accent edge is drawn from the node toward the
+   * terminal while it connects, fades once it's up, and snaps back when it's down. */
+  link?: "connecting" | "up" | "down";
   /** Tree depth within its section; rows after a row with a lower level are its children. */
   level?: number;
   /** It has children that h/l (or its chevron) fold and unfold. */
@@ -134,8 +137,8 @@ const hostsCount = (n: number) => `${formatCount(n)} ${n === 1 ? "Host" : "Hosts
  * its note, a badge, its address, its count. */
 export function rowFacts(row: SidebarRow): string[] {
   const facts: string[] = [];
-  // An ended Session's note already says how it ended.
-  if (row.dot && !(row.dot === "ended" && row.note)) facts.push(DOT_WORDS[row.dot]);
+  // An ended or connecting Session's note already says it.
+  if (row.dot && !((row.dot === "ended" || row.dot === "connecting") && row.note)) facts.push(DOT_WORDS[row.dot]);
   if (row.note) facts.push(row.note);
   // An unreviewed Host's badge is what its dot already said.
   if (row.badge && row.dot !== "off") facts.push(row.badge);
@@ -247,7 +250,7 @@ const RowIcon = ({ name }: { name: NonNullable<SidebarRow["icon"]> }) => (
 
 
 const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cursor: boolean; run: Run; drag: Drag }) {
-  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}${row.pending ? " pending" : ""}`;
+  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}${row.pending ? " pending" : ""}${row.link ? ` link-${row.link}` : ""}`;
   const cut = row.tail !== undefined && row.label.endsWith(row.tail);
   return (
     <li
