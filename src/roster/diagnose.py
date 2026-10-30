@@ -335,9 +335,11 @@ def verify_login(h, key_path, previous=None, typed=None, host_key=None):
     fingerprint the user confirmed (scan_key): the result then has host_key {type, fingerprint, base64} for the
     caller to record once the add is written. TYPED is {password, provider, item} for a password typed into the
     form (not in the vault yet): the provider step checks it can be saved there, and the login uses it. A Host
-    with no stored Login (auth: prompt, agent, none) gets everything but the login. Returns {host, ok, steps}
-    like check_host."""
-    ctx = {"h": h, "key_path": key_path, "previous": previous, "typed": typed, "host_key": host_key}
+    with no stored Login (auth: prompt, agent, none) gets everything but the login. A changed Login (auth differs
+    from PREVIOUS's) that is a stored password is tested with that password even when H is enroll: true: the key
+    login would prove nothing about it. Returns {host, ok, steps} like check_host."""
+    ctx = {"h": h, "key_path": key_path, "previous": previous, "typed": typed, "host_key": host_key,
+           "login_changed": previous is not None and previous["ssh"]["auth"] != h["ssh"]["auth"]}
     steps, failed = [], False
     for step in VERIFY_STEPS:
         if failed:
@@ -370,7 +372,11 @@ def login_kind(h):
 
 
 def kind_of(ctx):
-    return "password" if ctx.get("typed") else login_kind(ctx["h"])
+    """How the test login logs in. A changed Login is tested with itself (Q43): its vault item is looked up and its
+    password used, even on an enroll: true Host, whose key login says nothing about the new Login."""
+    if ctx.get("typed") or (ctx.get("login_changed") and stored_password(ctx["h"])):
+        return "password"
+    return login_kind(ctx["h"])
 
 
 def verify_user(ctx):

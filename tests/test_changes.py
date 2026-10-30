@@ -328,6 +328,45 @@ def test_a_key_host_logs_in_with_this_boxs_key(serve, box, sshd, isolated, monke
     assert v["steps"][-1]["code"] == 46
 
 
+@pytest.fixture
+def keyed(serve, box, sshd, isolated):
+    """serve (vault unlocked) where the enroll: true Host 'keyed' logs in with this box's key."""
+    key = paramiko.ECDSAKey.generate()
+    path = isolated["home"] / "roster_key"
+    key.write_private_key_file(str(path))
+    sshd.pubkey = key
+    box.commit(box.yml.read_text().replace("# The lab.", f"key_path: {path}\n# The lab."))
+    s = serve("-c", str(box.yml))
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    return s
+
+
+def test_a_new_login_on_a_key_host_is_tested_with_its_password_not_the_key(keyed, box, sshd):
+    changes = {"auth": "bw:esx ssh"}
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": changes}))
+    assert v["ok"], v
+    steps = {s["step"]: s for s in v["steps"]}
+    assert steps["provider"]["status"] == "ok" and steps["vault-item"]["status"] == "ok"
+    assert sshd.attempts == [("password", "root")]                       # the Login itself, not the key
+    r = result(keyed.call("host.update", {"host": "keyed", "changes": changes}))
+    assert r["host"]["ssh"]["auth"] == "bw:esx ssh" and r["host"]["enroll"] is True
+
+
+@pytest.mark.parametrize("auth,code", [("bw:nopw ssh", 34), ("bw:dup ssh", 33), ("bw:esx shh", 32)])
+def test_a_bad_new_login_on_a_key_host_fails_even_though_the_key_works(keyed, box, sshd, auth, code):
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": {"auth": auth}}))
+    fail = next(s for s in v["steps"] if s["status"] == "fail")
+    assert not v["ok"] and fail["step"] == "vault-item" and fail["code"] == code, v
+    assert sshd.accepts == 0
+    assert keyed.call("host.update", {"host": "keyed", "changes": {"auth": auth}})["error"]["code"] == 75
+
+
+def test_a_new_login_on_a_key_host_that_refuses_its_password_fails(keyed, box, sshd):
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": {"auth": "bw:esx ssh", "user": "admin"}}))
+    assert not v["ok"] and v["steps"][-1]["code"] == 45, v
+    assert sshd.attempts == [("password", "admin")]
+
+
 # ---------------------------------------------------------------- inventory.pull
 
 def test_pull_fast_forwards_and_serve_reloads(app, box):
