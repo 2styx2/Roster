@@ -110,7 +110,7 @@ describe("The command line completes like a shell", () => {
     expect(await within(output()).findByText(/Connected to nas-4-007/)).toBeInTheDocument();
   });
 
-  it("completes every command's arguments: themes, finder sources, modes, :config, fold ids", async () => {
+  it("completes every command and its arguments: themes, finder sources, modes, :config, fold ids", async () => {
     const user = await ready();
     const typed = async (line: string) => {
       await user.keyboard(`${LEADER}:${line}`);
@@ -121,6 +121,7 @@ describe("The command line completes like a shell", () => {
     expect(await typed("theme ")).toEqual(expect.arrayContaining(["theme roster-dark", "theme nord"]));
     expect(await typed("finder ")).toEqual(expect.arrayContaining(["finder sessions", "finder hosts", "finder tree"]));
     expect(await typed("mode ")).toEqual(["mode standard", "mode focus"]);
+    expect(await typed("pu")).toEqual(["publish", "pull"]);
     expect(await typed("config ")).toEqual(["config reload", "config path", "config import-terminal"]);
     expect(await typed("fold group:")).toEqual(
       expect.arrayContaining(["fold group:subnet-1", "fold group:subnet-2", "fold group:subnet-3", "fold group:subnet-4"]),
