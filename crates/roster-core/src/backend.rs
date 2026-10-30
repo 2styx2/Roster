@@ -29,12 +29,13 @@ pub struct QuickTarget {
     pub fingerprint: String,
 }
 
-/// A Quick Connect's Session command, and serve's id for the Quick Connect (what ticket 15's
-/// "Save to vault" will refer to).
+/// A Quick Connect's Session command, serve's id for the Quick Connect, and, when "Save to vault"
+/// was ticked (ticket 15), the id serve holds the typed password under (`quick.save` refers to it).
 #[derive(Debug)]
 pub struct QuickSession {
     pub command: SessionCommand,
     pub quick: String,
+    pub held: Option<String>,
 }
 
 /// Is `fingerprint` shaped like `SHA256:<base64>`? Only that is ever sent to be trusted.
@@ -62,6 +63,7 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("host.check", 90),
     ("host.verify_login", 90),
     ("vault.create_item", 90),
+    ("quick.save", 90),
     ("vault.login", 100),
 ];
 
@@ -174,7 +176,14 @@ impl Backend {
     /// one roster recorded. A typed `password` is moved into the request and dropped with it: it
     /// goes to serve's stdin once and comes back only as an askpass token in the env. Never
     /// logged, stored or put in an error. Without one, the Session logs in with the Box's keys.
-    pub fn quick_session_command(&self, to: &QuickTarget, password: Option<String>) -> Result<QuickSession, CallError> {
+    /// `save` ("Save to vault", ticket 15): serve holds the password until the Session has logged
+    /// in and `quick.save` saves it (or it's forgotten); only its id comes back, as `held`.
+    pub fn quick_session_command(
+        &self,
+        to: &QuickTarget,
+        password: Option<String>,
+        save: bool,
+    ) -> Result<QuickSession, CallError> {
         if !sha256_shaped(&to.fingerprint) {
             return Err(CallError::Io {
                 message: "quick.prepare needs the SHA256:... fingerprint the user was shown".into(),
@@ -188,6 +197,9 @@ impl Backend {
         });
         if let Some(password) = password {
             params["password"] = Value::String(password);
+            if save {
+                params["save"] = Value::Bool(true);
+            }
         }
         let v = self.call("quick.prepare", params)?;
         let prepared: Prepared = serde_json::from_value(v.clone()).map_err(|_| CallError::Io {
@@ -206,6 +218,7 @@ impl Backend {
         Ok(QuickSession {
             command: session_command(&self.target, &prepared),
             quick,
+            held: held_id(&v),
         })
     }
 
@@ -213,6 +226,11 @@ impl Backend {
     pub fn is_alive(&self) -> bool {
         !self.client.is_dead()
     }
+}
+
+/// The id serve holds a typed password under for "Save to vault" (`held`), if it does.
+fn held_id(v: &Value) -> Option<String> {
+    v.get("held").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// Which part of a `session.prepare` result has the wrong shape, by name only (never a value).

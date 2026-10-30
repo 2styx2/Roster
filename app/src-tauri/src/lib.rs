@@ -431,6 +431,24 @@ async fn inventory_call(
     call(&state, method, Value::Object(params)).await
 }
 
+/// "Save to vault" after a Session's own login (tickets 15, 16): saving the typed password serve
+/// holds, or forgetting it. They carry only ids and names, never the password (serve has it).
+const SAVE_METHODS: &[&str] = &["quick.save", "vault.forget_typed"];
+
+#[tauri::command]
+async fn save_call(
+    state: tauri::State<'_, Arc<BackendState>>,
+    method: String,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    let Some(&method) = SAVE_METHODS.iter().find(|m| **m == method) else {
+        return Err(CallError::Io {
+            message: format!("{method} isn't a Save to vault method"),
+        });
+    };
+    call(&state, method, Value::Object(params)).await
+}
+
 /// `folders.yml`'s path and text (null: no file yet), next to init.lua (decision Q46).
 #[tauri::command]
 async fn folders_read(config: tauri::State<'_, ConfigState>) -> Result<Value, String> {
@@ -475,9 +493,12 @@ fn session_error(e: SessionError) -> CallError {
 struct OpenedSession {
     id: SessionId,
     auth: String,
-    /// serve's id for a Quick Connect (ticket 14), for ticket 15's "Save to vault".
+    /// serve's id for a Quick Connect (ticket 14).
     #[serde(skip_serializing_if = "Option::is_none")]
     quick: Option<String>,
+    /// The id serve holds a typed password under for "Save to vault" (tickets 15, 16), when asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    held: Option<String>,
 }
 
 /// Open a Session to `host`: `session.prepare`, then the command in a PTY of `cols`×`rows`.
@@ -511,6 +532,7 @@ async fn session_open(
             id,
             auth: cmd.auth,
             quick: None,
+            held: None,
         })
     })
     .await
@@ -519,13 +541,15 @@ async fn session_open(
 /// Open a Quick Connect Session (ticket 14): `quick.prepare` for `to` (user@address:port and the
 /// fingerprint the user was shown), then the command in a PTY, like `session_open`. A typed
 /// `password` is moved into serve's request and dropped with it, as `vault_unlock`'s is: never
-/// logged, stored or put in an error. What comes back carries only an askpass token.
+/// logged, stored or put in an error. What comes back carries only an askpass token. With `save`
+/// ("Save to vault", ticket 15) serve holds the password for `quick.save`; only its id comes back.
 #[tauri::command]
 async fn quick_session_open(
     state: tauri::State<'_, Arc<BackendState>>,
     sessions: tauri::State<'_, Arc<SessionManager>>,
     to: QuickTarget,
     password: Option<String>,
+    save: Option<bool>,
     cols: u16,
     rows: u16,
     events: Channel<InvokeResponseBody>,
@@ -533,7 +557,7 @@ async fn quick_session_open(
     let backend = state.get()?;
     let sessions = Arc::clone(&sessions);
     blocking(move || {
-        let q = backend.quick_session_command(&to, password)?;
+        let q = backend.quick_session_command(&to, password, save.unwrap_or(false))?;
         let id = sessions
             .open(&q.command, Size { cols, rows }, move |event| {
                 let body = match event {
@@ -547,6 +571,7 @@ async fn quick_session_open(
             id,
             auth: q.command.auth,
             quick: Some(q.quick),
+            held: q.held,
         })
     })
     .await
@@ -722,6 +747,7 @@ pub fn run() {
             host_add,
             host_review,
             inventory_call,
+            save_call,
             folders_read,
             folders_write,
             changes_diff,
