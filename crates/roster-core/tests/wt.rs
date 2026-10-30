@@ -242,3 +242,37 @@ fn apply_refuses_a_date_that_isnt_one() {
     assert!(wt::apply(&dir, &settings, "settings.json", &forged).is_err());
     assert!(!dir.join("init.lua").exists());
 }
+
+#[test]
+fn apply_replaces_init_lua_atomically_keeping_its_mode_and_line_endings() {
+    let dir = temp_dir("atomic");
+    let settings = fixture("defaults-font.json");
+    let init = "-- mine\r\nreturn {\r\n  vim = false,\r\n}\r\n";
+    std::fs::write(dir.join("init.lua"), init).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.join("init.lua"), std::fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
+    let written = std::fs::read_to_string(dir.join("init.lua")).unwrap();
+    assert!(written.starts_with("-- mine\r\n") && written.contains("roster.set("));
+    assert!(
+        !written.replace("\r\n", "").contains('\n'),
+        "every line ends in CRLF, like the file did: {written:?}"
+    );
+    assert!(!config::load(&dir).unwrap().vim);
+    // Only init.lua is in the folder: no temporary file left behind.
+    let names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["init.lua"]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(dir.join("init.lua")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
+}

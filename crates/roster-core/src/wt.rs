@@ -505,6 +505,16 @@ pub fn insert_block(init: &str, block: &str) -> String {
     out
 }
 
+/// [`insert_block`], in the file's own line endings: a file written with CRLF stays CRLF.
+fn with_block(init: &str, block: &str) -> String {
+    let new = insert_block(init, block);
+    if init.contains("\r\n") {
+        new.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        new
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiffKind {
@@ -643,7 +653,7 @@ pub fn preview(dir: &Path, settings_text: &str, settings_path: &str, date: &str)
     let current = read_init(dir)?;
     let old = current.clone().unwrap_or_else(config::starter);
     let profile = parse(settings_text)?;
-    let new = insert_block(&old, &lua_block(&profile, settings_path, date));
+    let new = with_block(&old, &lua_block(&profile, settings_path, date));
     let (overridden, error) = match config::returned_table(dir, &new) {
         Ok(table) => (
             settings(&profile)
@@ -705,7 +715,7 @@ pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, previewed: &P
         );
     }
     let old = current.unwrap_or_else(config::starter);
-    let new = insert_block(&old, &lua_block(&parse(settings_text)?, settings_path, &previewed.date));
+    let new = with_block(&old, &lua_block(&parse(settings_text)?, settings_path, &previewed.date));
     if fingerprint(Some(&new)) != previewed.result {
         return Err(
             "Windows Terminal's settings changed since the preview; nothing was written. \
@@ -713,8 +723,7 @@ pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, previewed: &P
                 .into(),
         );
     }
-    std::fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
-    std::fs::write(dir.join(config::FILE_NAME), new).map_err(|e| format!("can't write init.lua: {e}"))
+    config::write_atomic(&dir.join(config::FILE_NAME), &new).map_err(|e| format!("can't write init.lua: {e}"))
 }
 
 /// Today as YYYY-MM-DD (UTC), for the block's comment.

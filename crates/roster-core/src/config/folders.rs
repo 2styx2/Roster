@@ -36,8 +36,5 @@ pub fn write(dir: &Path, text: &str) -> std::io::Result<()> {
             text.len()
         )));
     }
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{FOLDERS_FILE}.tmp"));
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, path(dir))
+    super::write_atomic(&path(dir), text)
 }
