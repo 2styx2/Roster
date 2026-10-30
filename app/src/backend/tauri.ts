@@ -1,6 +1,7 @@
 // The real Backend: Tauri commands in src-tauri/src/lib.rs, which drive `roster serve` through
 // roster-core. Only imported when running inside Tauri (see index.ts).
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   BackendCallError,
   BackendStartError,
@@ -15,6 +16,8 @@ import {
   type HostCheck,
   type HostList,
   type HostUpdate,
+  type InventoryChanged,
+  type InventoryReload,
   type PendingChanges,
   type PublishResult,
   type PullResult,
@@ -97,6 +100,10 @@ async function openSession(host: string, size: TermSize, events: SessionEvents):
   };
 }
 
+function inventoryCall<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  return call<T>("inventory_call", { method, params });
+}
+
 export function tauriBackend(): Backend {
   return {
     async connect(options) {
@@ -131,5 +138,20 @@ export function tauriBackend(): Backend {
     // A typed password goes once to serve's stdin, like vault_unlock's.
     addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
     reviewHost: (host) => call<HostUpdate>("host_review", { host }),
+    // The Live Inventory (ticket 28): one allow-listed Tauri command for its methods.
+    removeHost: (host) => inventoryCall("host.remove", { host }),
+    renameHost: (host, to) => inventoryCall("host.rename", { host, to }),
+    moveHost: (host, group) => inventoryCall("host.move", { host, group }),
+    newGroup: (name, title) => inventoryCall("group.new", { name, ...(title ? { title } : {}) }),
+    renameGroup: (group, to) => inventoryCall("group.rename", { group, to }),
+    deleteGroup: (group, to) => inventoryCall("group.delete", { group, ...(to ? { to } : {}) }),
+    reloadInventory: () => inventoryCall<InventoryReload>("inventory.reload", {}),
+    watchInventory: (auto) => inventoryCall("inventory.watch", { auto }),
+    onInventoryChanged(onChange) {
+      const stop = listen<{ method: string; params: unknown }>("roster-notification", (e) => {
+        if (e.payload.method === "inventory.changed") onChange(e.payload.params as InventoryChanged);
+      });
+      return () => void stop.then((f) => f());
+    },
   };
 }

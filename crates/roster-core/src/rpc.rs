@@ -57,6 +57,10 @@ impl std::error::Error for CallError {}
 
 type Reply = Result<Value, CallError>;
 
+/// Called with each JSON-RPC notification the child sends (a message with a `method` and no
+/// `id`, such as serve's `inventory.changed`), on the reader thread.
+pub type Notify = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
 #[derive(Default)]
 struct Shared {
     pending: HashMap<u64, Sender<Reply>>,
@@ -75,7 +79,12 @@ pub struct RpcClient {
 
 impl RpcClient {
     /// Start `cmd` with piped stdio and begin reading its answers.
-    pub fn spawn(mut cmd: Command) -> std::io::Result<Self> {
+    pub fn spawn(cmd: Command) -> std::io::Result<Self> {
+        Self::spawn_with(cmd, None)
+    }
+
+    /// As [`RpcClient::spawn`], handing every notification the child sends to `notify`.
+    pub fn spawn_with(mut cmd: Command, notify: Option<Notify>) -> std::io::Result<Self> {
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         no_console_window(&mut cmd);
         let mut child = cmd.spawn()?;
@@ -94,7 +103,7 @@ impl RpcClient {
         let reader = {
             let (shared, child, tail) = (Arc::clone(&shared), Arc::clone(&child), Arc::clone(&stderr_tail));
             thread::spawn(move || {
-                read_answers(stdout, &shared);
+                read_answers(stdout, &shared, notify.as_ref());
                 // stdout closed: the child is gone (or going). Collect its stderr and exit code,
                 // then fail everything still waiting.
                 let _ = err_thread.join();
@@ -190,7 +199,7 @@ impl Drop for RpcClient {
     }
 }
 
-fn read_answers(stdout: impl Read, shared: &Mutex<Shared>) {
+fn read_answers(stdout: impl Read, shared: &Mutex<Shared>, notify: Option<&Notify>) {
     for line in BufReader::new(stdout).lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -200,6 +209,11 @@ fn read_answers(stdout: impl Read, shared: &Mutex<Shared>) {
             continue;
         };
         let Some(id) = msg.get("id").and_then(Value::as_u64) else {
+            if msg.get("id").is_none()
+                && let (Some(method), Some(notify)) = (msg.get("method").and_then(Value::as_str), notify)
+            {
+                notify(method, msg.get("params").cloned().unwrap_or(Value::Null));
+            }
             continue;
         };
         let reply = match msg.get("error") {

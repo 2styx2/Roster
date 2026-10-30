@@ -9,6 +9,7 @@ The first argument picks a behaviour:
   die-on-hosts       exits without answering hosts.list
   locked             session.prepare for a password Host refuses with 14 (vault locked)
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
+  notify             before answering inventory.watch, sends an inventory.changed notification
   bad-prepare        session.prepare for a password Host answers a numeric askpass token (a malformed result)
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
 """
@@ -95,4 +96,8 @@ for line in sys.stdin:
     else:
         reqs = [req]
     for r in reqs:
+        if mode == "notify" and r["method"] == "inventory.watch":
+            print(json.dumps({"jsonrpc": "2.0", "method": "inventory.changed", "params": {"applied": True}}), flush=True)
+            print(json.dumps({"jsonrpc": "2.0", "id": r["id"], "result": {"watching": True}}), flush=True)
+            continue
         print(json.dumps({"jsonrpc": "2.0", "id": r["id"], **answer(r)}), flush=True)

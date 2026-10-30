@@ -3,7 +3,7 @@
 
 use crate::detect::{Candidate, OVERRIDE_VAR, Target};
 use crate::error::{BackendError, ErrorKind};
-use crate::rpc::{CallError, RpcClient};
+use crate::rpc::{CallError, Notify, RpcClient};
 use crate::session::{Prepared, SessionCommand, session_command};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -36,10 +36,15 @@ pub struct Backend {
 
 impl Backend {
     pub fn start(c: &Candidate) -> Result<Backend, BackendError> {
+        Self::start_with(c, None)
+    }
+
+    /// As [`Backend::start`], handing serve's notifications (`inventory.changed`) to `notify`.
+    pub fn start_with(c: &Candidate, notify: Option<Notify>) -> Result<Backend, BackendError> {
         let shown = c.serve_argv.join(" ");
         let mut cmd = Command::new(&c.serve_argv[0]);
         cmd.args(&c.serve_argv[1..]);
-        let client = RpcClient::spawn(cmd).map_err(|e| {
+        let client = RpcClient::spawn_with(cmd, notify).map_err(|e| {
             BackendError::new(
                 ErrorKind::Failed,
                 "The backend couldn't be started.",

@@ -33,6 +33,16 @@ export interface WindowControls {
   watchGeometry(onSettle: (geometry: WindowGeometry) => void): () => void;
 }
 
+/** folders.yml next to init.lua (decision Q46): its text, written whole, and when it changed. */
+export interface FoldersSource {
+  /** Its full path, and its text (null while there's no file). */
+  read(): Promise<{ path: string; text: string | null }>;
+  /** Replaces it with `text`, atomically. */
+  write(text: string): Promise<void>;
+  /** Calls `onSaved` after each save of it (the app's own writes too); returns stop. */
+  watch(onSaved: () => void): () => void;
+}
+
 export interface Platform {
   /** The State file's contents (`{}` the first time). Untrusted: read it with `parseState`. */
   loadState(): Promise<unknown>;
@@ -49,4 +59,6 @@ export interface Platform {
   fontInstalled?: FontProbe;
   /** The Config (init.lua, ticket 21) and its live changes; absent in a plain browser. */
   config?: ConfigSource;
+  /** folders.yml (ticket 28); absent where there's no config folder: Folders then stay in the State. */
+  folders?: FoldersSource;
 }

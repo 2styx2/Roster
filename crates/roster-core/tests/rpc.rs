@@ -69,3 +69,20 @@ fn a_child_that_exits_at_once_reports_its_stderr() {
         other => panic!("expected Exited, got {other:?}"),
     }
 }
+
+#[test]
+fn notifications_go_to_the_notify_callback_and_answers_still_reach_their_caller() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    let mut c = Command::new("python3");
+    c.arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py"))
+        .arg("notify");
+    let notify: roster_core::rpc::Notify = std::sync::Arc::new(move |method: &str, params| {
+        let _ = tx.lock().unwrap().send((method.to_string(), params));
+    });
+    let client = RpcClient::spawn_with(c, Some(notify)).expect("spawn fake serve");
+    assert_eq!(client.call("inventory.watch", json!({})).unwrap()["watching"], true);
+    let (method, params) = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    assert_eq!(method, "inventory.changed");
+    assert_eq!(params["applied"], true);
+}

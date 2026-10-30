@@ -1,5 +1,6 @@
-// Folders (GLOSSARY): the user's own groupings of Hosts, kept in this Box's State under `folders`
-// and nowhere else: never sent to `roster serve`, never in roster.yml (decision Q34).
+// Folders (GLOSSARY): the user's own groupings of Hosts, kept in `folders.yml` next to init.lua
+// (decision Q46; file.ts), or in this Box's State under `folders` where there's no config folder (a
+// plain browser). Never sent to `roster serve`, never in roster.yml (decision Q34).
 //
 // This module stands apart from the app on purpose (ADR 0006): registerFolders adds a Sidebar
 // section, one `folder` command and two key bindings through the public registries, and keeps
@@ -158,10 +159,13 @@ const firstWord = (text: string): [string, string] => {
 
 const SUBCOMMANDS = ["new", "rename", "delete", "add", "remove"] as const;
 
-/** Where Folders keep their data: one State key (StateStore's get/set). */
+/** Where Folders keep their data: one key (StateStore's get/set, or folders.yml's FoldersFile). */
 export interface FolderStore {
   get(key: string): unknown;
   set(key: string, value: unknown): void;
+  /** Calls `listener` after every change; returns stop. (The State's changes rebuild the Sidebar
+   * without it.) */
+  subscribe?(listener: () => void): () => void;
 }
 
 function runFolder(store: FolderStore, fixed: Fixed, ctx: CommandContext, arg: string) {
@@ -344,14 +348,14 @@ function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): Side
 }
 
 /** The Folders section, between Sessions and the Inventory: init.lua's first, then the State's. */
-export function foldersSection(fixed: Fixed = noFixed): SidebarSectionDef {
+export function foldersSection(fixed: Fixed = noFixed, store?: Pick<FolderStore, "get">): SidebarSectionDef {
   return {
     id: "folders",
     source: BUILTIN,
     order: 200,
     build: ({ state, hostByName }: SidebarContext): SidebarSection => {
       const pinned = fixed.list();
-      const folders = parseFolders(state[STATE_KEY]).filter((f) => !fixedNamed(fixed, f.name));
+      const folders = parseFolders(store ? store.get(STATE_KEY) : state[STATE_KEY]).filter((f) => !fixedNamed(fixed, f.name));
       return {
         id: "folders",
         title: "Folders",
@@ -370,14 +374,17 @@ export function registerFolders(registries: Registries, store: FolderStore): () 
   const fixed = registries.folders;
   // The section builds from the `folders` registry; registering it again when that changes is
   // what tells the Sidebar to rebuild.
-  let section = registries.sidebar.register(foldersSection(fixed));
-  const unwatch = fixed.subscribe(() => {
+  let section = registries.sidebar.register(foldersSection(fixed, store));
+  const rebuild = () => {
     section();
-    section = registries.sidebar.register(foldersSection(fixed));
-  });
+    section = registries.sidebar.register(foldersSection(fixed, store));
+  };
+  const unwatch = fixed.subscribe(rebuild);
+  const unwatchStore = store.subscribe?.(rebuild) ?? (() => {});
   const disposers = [
     () => {
       unwatch();
+      unwatchStore();
       section();
     },
     registries.commands.register(folderCommand(store, fixed)),

@@ -5,6 +5,7 @@
 // through runLine, so a view mode only changes how commands are presented, never which exist.
 // A command acts through CommandContext, which App provides.
 
+import { groupCommand, hostCommand, type InventoryOp } from "../inventory/commands";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import { VIEW_MODES, type ViewMode } from "../view/layout";
@@ -64,8 +65,13 @@ export interface CommandContext {
   showInfo(): void;
   /** Opens the edit form for the Host, or the selected one (ticket 10). */
   edit(host: string | null): void;
-  /** Opens the add-Host form (ticket 11). */
-  addHost(): void;
+  /** Opens the add-Host form (ticket 11), in `group` (else the selected Host's). */
+  addHost(group?: string): void;
+  /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
+   * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
+  inventory(op: InventoryOp): void;
+  /** Every group's name, in roster.yml order. */
+  groupNames(): readonly string[];
   /** Marks the Host, or the selected one, reviewed (ticket 11). */
   review(host: string | null): void;
   /** Shows the Pending changes; `discard` asks to discard them straight away, `publish` opens
@@ -101,7 +107,7 @@ export interface CommandDef extends Entry {
   seldom?: boolean;
   run(ctx: CommandContext, arg: string | undefined): void;
   /** Completions for the argument typed so far (whole arguments), when `arg` is "text". */
-  complete?(arg: string, hostNames: readonly string[]): string[];
+  complete?(arg: string, hostNames: readonly string[], groupNames?: readonly string[]): string[];
 }
 
 const fold = (id: string, how: FoldHow, label: string): CommandDef => ({
@@ -177,18 +183,8 @@ export const builtinCommands: readonly CommandDef[] = [
     label: (h) => (h ? `Edit ${h}` : "Edit a Host: title, description, type, address, user, Login"),
     run: (ctx, h) => ctx.edit(h ?? null),
   },
-  {
-    id: "host",
-    source: BUILTIN,
-    area: "Inventory",
-    arg: "text",
-    label: (what) => (what === "add" ? "Add a Host" : "Host: add a Host (host add)"),
-    run: (ctx, what) => {
-      if (what?.toLowerCase() === "add") return ctx.addHost();
-      ctx.say(`host takes one argument: add (not ${what ?? "nothing"})`);
-    },
-    complete: (what) => (["add"] as const).filter((a) => a.startsWith(what.toLowerCase())),
-  },
+  hostCommand,
+  groupCommand,
   {
     id: "review",
     source: BUILTIN,
@@ -363,7 +359,12 @@ const rankOf = (c: CommandDef) => (c.motion ? 2 : c.seldom ? 1 : 0);
 
 /** Complete lines for what's typed so far: command names, then Host names after `connect`, or
  * what the command itself offers. */
-export function complete(commands: Commands, input: string, hostNames: readonly string[]): string[] {
+export function complete(
+  commands: Commands,
+  input: string,
+  hostNames: readonly string[],
+  groupNames: readonly string[] = [],
+): string[] {
   const space = input.indexOf(" ");
   if (space < 0) {
     // List and tree motions last: they're there to be run, but they're meant for keys.
@@ -374,7 +375,7 @@ export function complete(commands: Commands, input: string, hostNames: readonly 
       .map((c) => (c.arg && !c.optionalArg ? `${c.id} ` : c.id));
   }
   const command = commands.get(input.slice(0, space));
-  if (command?.complete) return command.complete(input.slice(space + 1).trimStart(), hostNames).map((a) => `${command.id} ${a}`);
+  if (command?.complete) return command.complete(input.slice(space + 1).trimStart(), hostNames, groupNames).map((a) => `${command.id} ${a}`);
   if (command?.arg !== "host") return [];
   const word = input.slice(space + 1).trimStart().toLowerCase();
   const sorted = [...hostNames].sort();

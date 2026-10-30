@@ -26,6 +26,10 @@ export interface MemoryPlatform extends Platform {
   imported(): string[];
   /** Makes the next import preview fail with `message`. */
   failImport(message: string): void;
+  /** folders.yml's text (null: no file), when the platform has one. */
+  foldersFile(): string | null;
+  /** Saves folders.yml as an editor would: the watcher hears of it. */
+  editFolders(text: string): void;
 }
 
 /** What the core writes the first time (roster-core config/editor.rs starter): commented out. */
@@ -41,6 +45,9 @@ export function memoryPlatform(
     configFile?: string | null;
     /** What `:config import-terminal` previews. */
     importPreview?: ImportPreview;
+    /** folders.yml's text: give it (null: no file yet) for a platform with folders.yml (ticket
+     * 28); leave it out and Folders stay in the State, as in a plain browser. */
+    folders?: string | null;
   } = {},
 ): MemoryPlatform {
   let state = start.state ?? {};
@@ -57,6 +64,8 @@ export function memoryPlatform(
   let openError: string | null = null;
   let importError: string | null = null;
   const imported: string[] = [];
+  let foldersText = start.folders ?? null;
+  const foldersWatchers = new Set<() => void>();
   const path = () => config?.path ?? "/home/you/.config/roster/init.lua";
   const emit = (report: ConfigReport) => {
     applied = report;
@@ -128,6 +137,26 @@ export function memoryPlatform(
     },
     writeConfig(report) {
       config = report;
+    },
+    ...(start.folders !== undefined
+      ? {
+          folders: {
+            read: async () => ({ path: "/home/you/.config/roster/folders.yml", text: foldersText }),
+            async write(text: string) {
+              foldersText = text;
+              for (const w of foldersWatchers) w();
+            },
+            watch(onSaved: () => void) {
+              foldersWatchers.add(onSaved);
+              return () => foldersWatchers.delete(onSaved);
+            },
+          },
+        }
+      : {}),
+    foldersFile: () => foldersText,
+    editFolders(text) {
+      foldersText = text;
+      for (const w of foldersWatchers) w();
     },
     configFile: () => file,
     opened: () => [...opened],
