@@ -122,7 +122,9 @@ They show first in the Folders section, marked "from init.lua", and only `init.l
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
-| `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words |
+| `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
+
+**Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_DESK_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
 
 `backend` and `roster_command` are read when the backend starts. After changing them, use Retry on the error screen or restart the app. The env vars still win, for development: `ROSTER_DESK_ROSTER` over `roster_command`, and `ROSTER_DESK_WSL_DISTRO` over `backend = "wsl:<distro>"`.
 

@@ -555,7 +555,9 @@ export function App({
     setViewMode: (mode) => setViewMode(mode ?? otherMode(viewMode)),
     showInfo: () => {
       if (conn.state === "ready") {
-        setMessage(`Backend ${conn.info.backend} · Box ${conn.info.inventory.box} · Inventory ${conn.info.inventory.path}`);
+        // The command too: it's the program the master password and sign-in codes go to.
+        const { backend, command, inventory } = conn.info;
+        setMessage(`Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")}`);
       }
     },
     openFinder: (source) => {

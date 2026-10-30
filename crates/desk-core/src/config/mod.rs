@@ -319,6 +319,9 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             return Err(at(&["themes", id], "a Theme needs an id other than \"auto\""));
         }
     }
+    if let Some(command) = &c.roster_command {
+        command.check().map_err(|m| at(&["roster_command"], m))?;
+    }
     let mut seen = std::collections::HashSet::new();
     for (i, f) in c.folders.iter().enumerate() {
         let n = (i + 1).to_string();
@@ -441,8 +444,9 @@ pub struct BackendPlan {
 }
 
 /// The roster command and WSL distro: `ROSTER_DESK_ROSTER` and `ROSTER_DESK_WSL_DISTRO` win
-/// (they're for development), then `roster_command` and `backend` from init.lua, then
-/// detection. Blank env vars don't count.
+/// (they're for development, and set by the user outside the Config), then `roster_command`
+/// and `backend` from init.lua, then detection. Blank env vars don't count. A `roster_command`
+/// that isn't roster itself is refused ([`RosterCommand::check`]); only the env var may wrap it.
 pub fn backend_plan(
     config: &Config,
     platform: crate::detect::Platform,
@@ -451,7 +455,12 @@ pub fn backend_plan(
 ) -> Result<BackendPlan, String> {
     let env_command = env_command.filter(|v| !v.trim().is_empty());
     let command = match (env_command, &config.roster_command) {
-        (None, Some(RosterCommand(words))) => words.clone(),
+        (None, Some(command)) => {
+            command
+                .check()
+                .map_err(|m| format!("roster_command in init.lua: {m}."))?;
+            command.0.clone()
+        }
         (given, _) => crate::detect::roster_command(given),
     };
     if platform == crate::detect::Platform::Windows && config.backend == BackendChoice::Local {

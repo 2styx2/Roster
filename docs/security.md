@@ -56,6 +56,8 @@ The built app runs under a Content Security Policy (`src-tauri/tauri.conf.json`)
 
 `init.lua` is the user's own code. It runs in the Rust core, which never holds a secret, with no access to `roster serve`'s vault. It can choose a Login *reference* or a Host, never read a password.
 
+It can't redirect a secret either. `roster_command` names the program that gets the master password, two-step codes and the API key's secret on its stdin, so init.lua may only name roster itself: `roster`, a path ending in `/roster`, or `uv run [--project <dir> | --directory <dir> | --frozen | --locked | --offline | --no-sync | -q] roster` (no `--with`, no other program). Anything else is a Config error, and starting the backend refuses it too. A wrapper needs the `ROSTER_DESK_ROSTER` env var, which only the user sets, outside the Config. `:info` shows the command in use. The Lua sandbox has no `io`, so a Config can't write a program of its own to point at.
+
 ## Writes
 
 - "Save to vault" saves only after the login succeeds, and refuses to create a duplicate Vault item name.

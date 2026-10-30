@@ -682,6 +682,49 @@ pub struct FolderDef {
 #[serde(transparent)]
 pub struct RosterCommand(pub Vec<String>);
 
+impl RosterCommand {
+    /// The forms init.lua may use (docs/security.md): roster itself (`roster`, or a path ending
+    /// in `/roster`), or `uv run [--project P | --directory P | --frozen | --locked | --offline |
+    /// --no-sync | -q | --quiet]… roster`. This program gets the master password, two-step codes
+    /// and the API secret on its stdin, so the Config can't put anything else in front of them;
+    /// a wrapper takes the `ROSTER_DESK_ROSTER` env var, which the user sets outside the Config.
+    pub fn check(&self) -> Result<(), String> {
+        let refuse = || {
+            Err(format!(
+                "{:?} isn't roster. init.lua may only name roster itself (\"roster\", a path to it, or \
+                 \"uv run --project <dir> roster\"), because this program gets the master password; \
+                 for any other wrapper, set the ROSTER_DESK_ROSTER env var instead",
+                self.0.join(" ")
+            ))
+        };
+        let base = |w: &str| w.rsplit(['/', '\\']).next().unwrap_or(w).to_string();
+        let is = |w: &str, name: &str| {
+            let b = base(w);
+            b == name || b == format!("{name}.exe")
+        };
+        match self.0.as_slice() {
+            [roster] if is(roster, "roster") => Ok(()),
+            [uv, run, options @ .., roster] if is(uv, "uv") && run == "run" && is(roster, "roster") => {
+                let mut rest = options.iter();
+                while let Some(o) = rest.next() {
+                    match o.as_str() {
+                        "--frozen" | "--locked" | "--offline" | "--no-sync" | "-q" | "--quiet" => {}
+                        "--project" | "--directory" => {
+                            if rest.next().is_none() {
+                                return refuse();
+                            }
+                        }
+                        o if o.starts_with("--project=") || o.starts_with("--directory=") => {}
+                        _ => return refuse(),
+                    }
+                }
+                Ok(())
+            }
+            _ => refuse(),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for RosterCommand {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         struct V;

@@ -597,3 +597,53 @@ fn a_slow_pattern_is_cut_off_by_the_watchdog() {
     );
     assert!(e.message.contains("took too long"), "{e}");
 }
+
+/// roster_command picks the program that gets the master password, two-step codes and the API
+/// secret on its stdin, so init.lua may only name roster itself; any other wrapper takes the
+/// ROSTER_DESK_ROSTER env var, which the user sets outside the Config.
+#[test]
+fn roster_command_from_init_lua_must_run_roster() {
+    for ok in [
+        r#""roster""#,
+        r#""/home/me/.local/bin/roster""#,
+        r#""~/.local/bin/roster""#,
+        r#"{ "roster" }"#,
+        r#""uv run --project /home/me/roster roster""#,
+        r#""uv run --directory=/home/me/roster --frozen -q roster""#,
+        r#"{ "/usr/bin/uv", "run", "--project", "/home/me/my roster", "roster" }"#,
+    ] {
+        let dir = with_init("cmd-ok", &format!("return {{\n  roster_command = {ok},\n}}"));
+        assert!(config::load(&dir).is_ok(), "{ok} should be accepted");
+    }
+    for bad in [
+        r#""sh -c roster""#,
+        r#"{ "sh", "-c", "tee /tmp/secrets | roster serve" }"#,
+        r#""python3 -m roster""#,
+        r#""roster-wrapper""#,
+        r#""roster --config /tmp/other.yml""#,
+        r#""uv run --with evil roster""#,
+        r#""uv run --project /home/me/roster python -m roster""#,
+        r#""uv run --project""#,
+        r#""uvx roster""#,
+    ] {
+        let dir = with_init("cmd-bad", &format!("return {{\n  roster_command = {bad},\n}}"));
+        let e = config::load(&dir).expect_err(bad);
+        assert_eq!(e.line, Some(2), "{bad}: {e}");
+        assert!(e.message.starts_with("roster_command:"), "{bad}: {e}");
+        assert!(e.message.contains("ROSTER_DESK_ROSTER"), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_may_wrap() {
+    use config::{RosterCommand, backend_plan};
+    use desk_core::detect::Platform;
+    let c = Config {
+        roster_command: Some(RosterCommand(vec!["sh".into(), "-c".into(), "roster".into()])),
+        ..Config::default()
+    };
+    let e = backend_plan(&c, Platform::Linux, None, None).unwrap_err();
+    assert!(e.contains("ROSTER_DESK_ROSTER"), "{e}");
+    let plan = backend_plan(&c, Platform::Linux, Some("my-wrapper roster"), None).unwrap();
+    assert_eq!(plan.command, ["my-wrapper", "roster"]);
+}
