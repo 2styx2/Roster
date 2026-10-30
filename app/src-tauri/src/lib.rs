@@ -186,14 +186,18 @@ async fn config_import_preview(config: tauri::State<'_, ConfigState>) -> Result<
     .await
 }
 
-/// Step 2, after the user confirmed the diff: writes it, only if init.lua is still what the
-/// preview read (`base`). A save then reloads it as any save does.
+/// Step 2, after the user confirmed the diff: writes exactly the previewed file, or nothing. It
+/// refuses if init.lua (`base`) or Windows Terminal's settings (`result`) changed since the
+/// preview, asking for the import again. A save then reloads it as any save does.
 #[tauri::command]
-async fn config_import_apply(config: tauri::State<'_, ConfigState>, base: String) -> Result<(), String> {
+async fn config_import_apply(
+    config: tauri::State<'_, ConfigState>,
+    previewed: roster_core::wt::Previewed,
+) -> Result<(), String> {
     let dir = config_dir(&config)?;
     blocking(move || {
         let (path, text) = wt_settings()?;
-        roster_core::wt::apply(&dir, &text, &path, &roster_core::wt::today(), &base)
+        roster_core::wt::apply(&dir, &text, &path, &previewed)
     })
     .await
 }

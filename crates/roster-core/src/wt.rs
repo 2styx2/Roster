@@ -570,8 +570,42 @@ pub struct Preview {
     pub created: bool,
     /// What [`apply`] checks init.lua against, so a file changed since isn't overwritten.
     pub base: String,
+    /// The fingerprint of init.lua as this preview would leave it: [`apply`] writes only that.
+    pub result: String,
+    /// The date in the block's comment, so applying it another day writes the same block.
+    pub date: String,
     /// The Config error the new file would have, if any.
     pub error: Option<String>,
+}
+
+/// What the app hands back to [`apply`] from the [`Preview`] the user confirmed.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Previewed {
+    pub base: String,
+    pub result: String,
+    pub date: String,
+}
+
+impl Preview {
+    pub fn applied(&self) -> Previewed {
+        Previewed {
+            base: self.base.clone(),
+            result: self.result.clone(),
+            date: self.date.clone(),
+        }
+    }
+}
+
+fn is_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
 }
 
 /// FNV-1a of the file (or "absent"): enough to notice it changed.
@@ -652,20 +686,33 @@ pub fn preview(dir: &Path, settings_text: &str, settings_path: &str, date: &str)
         overridden,
         created: current.is_none(),
         base: fingerprint(current.as_deref()),
+        result: fingerprint(Some(&new)),
+        date: date.into(),
         error,
     })
 }
 
-/// Writes what [`preview`] showed, if init.lua is still what it read (`base`).
-pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, date: &str, base: &str) -> Result<(), String> {
+/// Writes exactly what [`preview`] showed, or nothing: only if init.lua is still what it read
+/// (`base`) and Windows Terminal's settings (read again now) still make the same file (`result`).
+pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, previewed: &Previewed) -> Result<(), String> {
+    if !is_date(&previewed.date) {
+        return Err("the preview's date isn't a date; nothing was written".into());
+    }
     let current = read_init(dir)?;
-    if fingerprint(current.as_deref()) != base {
+    if fingerprint(current.as_deref()) != previewed.base {
         return Err(
             "init.lua changed since the preview; nothing was written. Run :config import-terminal again".into(),
         );
     }
     let old = current.unwrap_or_else(config::starter);
-    let new = insert_block(&old, &lua_block(&parse(settings_text)?, settings_path, date));
+    let new = insert_block(&old, &lua_block(&parse(settings_text)?, settings_path, &previewed.date));
+    if fingerprint(Some(&new)) != previewed.result {
+        return Err(
+            "Windows Terminal's settings changed since the preview; nothing was written. \
+             Run :config import-terminal again to see what it would write now"
+                .into(),
+        );
+    }
     std::fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     std::fs::write(dir.join(config::FILE_NAME), new).map_err(|e| format!("can't write init.lua: {e}"))
 }

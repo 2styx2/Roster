@@ -1,5 +1,5 @@
 // A Platform held in memory, for tests: a State file and a clipboard you can look at.
-import type { ConfigReport, ImportPreview } from "../config/types";
+import type { ConfigReport, ImportPreview, Previewed } from "../config/types";
 import type { Platform } from "./types";
 
 export interface MemoryPlatform extends Platform {
@@ -23,7 +23,7 @@ export interface MemoryPlatform extends Platform {
   /** Makes the next `:config` fail with `message`. */
   failOpen(message: string): void;
   /** The `base` of each import written, in order. */
-  imported(): string[];
+  imported(): Previewed[];
   /** Makes the next import preview fail with `message`. */
   failImport(message: string): void;
   /** folders.yml's text (null: no file), when the platform has one. */
@@ -63,7 +63,7 @@ export function memoryPlatform(
   const opened: string[] = [];
   let openError: string | null = null;
   let importError: string | null = null;
-  const imported: string[] = [];
+  const imported: Previewed[] = [];
   let foldersText = start.folders ?? null;
   const foldersWatchers = new Set<() => void>();
   const path = () => config?.path ?? "/home/you/.config/roster/init.lua";
@@ -118,8 +118,8 @@ export function memoryPlatform(
         if (!start.importPreview) throw new Error("no Windows Terminal settings.json found");
         return start.importPreview;
       },
-      async importApply(base) {
-        imported.push(base);
+      async importApply(previewed) {
+        imported.push(previewed);
       },
       async reload() {
         if (config) emit(config);

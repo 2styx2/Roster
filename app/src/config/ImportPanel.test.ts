@@ -18,7 +18,7 @@ import { ImportPanel } from "./ImportPanel";
 
 describe("ImportPanel", () => {
   it("says when init.lua already has the profile", () => {
-    const preview = { settingsPath: "s.json", summary: [], diff: [same("return {}")], overridden: [], created: false, base: "b", error: null };
+    const preview = { settingsPath: "s.json", summary: [], diff: [same("return {}")], overridden: [], created: false, base: "b", result: "r", date: "2026-10-30", error: null };
     render(createElement(ImportPanel, { preview, problem: null, writing: false, onWrite() {}, onClose() {} }));
     expect(screen.getByText(/already has this profile/)).toBeInTheDocument();
   });

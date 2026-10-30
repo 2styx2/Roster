@@ -1261,7 +1261,8 @@ export function App({
               const source = platform.config;
               if (!source) return;
               setImporting({ ...importing, writing: true, problem: null });
-              source.importApply(importing.preview.base).then(
+              const { base, result, date } = importing.preview;
+              source.importApply({ base, result, date }).then(
                 () => {
                   setImporting(null);
                   restoreFocus();

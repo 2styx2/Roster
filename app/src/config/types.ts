@@ -129,9 +129,16 @@ export interface ImportPreview {
   created: boolean;
   /** What the write checks init.lua against. */
   base: string;
+  /** init.lua as this preview would leave it (a fingerprint): the write makes exactly that, or nothing. */
+  result: string;
+  /** The date in the block's comment. */
+  date: string;
   /** The Config error the new file would have. */
   error: string | null;
 }
+
+/** What the write gets back from the preview the user confirmed. */
+export type Previewed = Pick<ImportPreview, "base" | "result" | "date">;
 
 /** Where the app gets the Config: the core in Tauri; tests push their own. */
 export interface ConfigSource {
@@ -146,8 +153,9 @@ export interface ConfigSource {
   open(): Promise<ConfigOpened>;
   /** `:config import-terminal` (ticket 33): the diff it would make. Rejects with why it can't. */
   importPreview(): Promise<ImportPreview>;
-  /** Writes it, if init.lua is still what the preview read (`base`). */
-  importApply(base: string): Promise<void>;
+  /** Writes exactly what the preview showed: refused (nothing written) if init.lua or Windows
+   * Terminal's settings changed since, with a message to run the import again. */
+  importApply(previewed: Previewed): Promise<void>;
   /** `:source`: reads init.lua again now (watchers get it too). */
   reload(): Promise<ConfigReport | null>;
 }
