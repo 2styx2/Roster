@@ -6,18 +6,21 @@
    fixed here is shape: sizes, spacing, radii, type scale and motion. */
 
 :root {
-  /* Type. --font-ui and --font-mono come from the appearance options (decision Q30). */
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-md: 13px;
-  --text-lg: 15px;
+  /* Type. --font-ui, --font-mono and --ui-size come from the appearance options (decision Q30,
+     `fonts.ui_size`); the scale and the row height follow --ui-size, and nothing goes under 11 px
+     (N6). 14 px by default: xs 12, sm 13, md 14, lg 16, rows 28. */
+  --ui-size: 14px;
+  --text-xs: max(11px, calc(var(--ui-size) - 2px));
+  --text-sm: max(11px, calc(var(--ui-size) - 1px));
+  --text-md: var(--ui-size);
+  --text-lg: calc(var(--ui-size) + 2px);
   --radius-sm: 4px;
   --radius: 6px;
   --radius-lg: 10px;
-  --row-h: 26px;
+  --row-h: calc(var(--ui-size) * 2);
   --titlebar-h: 32px;
   --statusbar-h: 24px;
-  --sidebar-width: 248px;
+  --sidebar-width: calc(var(--ui-size) * 19);
   --keys-width: 320px;
 
   /* Motion (the animate skill): strong ease-out, 150 ms or less, transform and opacity only.
@@ -142,9 +145,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 /* The mark (chrome/Logo.tsx, decision Q57): Gap orbit, plain. The R, its orbit and the Box in the
    Theme's text colour, faded the way the masters are; only the Host on the orbit is the accent. */
 .logo { flex: none; display: block; overflow: visible; }
-.logo-orbit { stroke: var(--text); opacity: 0.36; }
+.logo-orbit { stroke: var(--text); opacity: 0.5; }
 .logo-edges { stroke: var(--text); opacity: 0.5; }
-.logo.small .logo-orbit { opacity: 0.55; }
+.logo.small .logo-orbit { opacity: 0.65; }
 .logo.small .logo-edges { opacity: 0.75; }
 .logo-node { fill: var(--text); }
 .logo-host { stroke: var(--accent); }
@@ -231,7 +234,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 }
 .sidebar button:active { transform: none; }
 .sidebar .sb-find {
-  margin: 10px 10px 6px; height: 30px; padding: 0 6px 0 8px; display: flex; align-items: center; gap: 8px;
+  margin: 10px 10px 6px; height: calc(var(--row-h) + 4px); padding: 0 6px 0 8px; display: flex; align-items: center; gap: 8px;
   color: var(--muted); border: 1px solid var(--line); background: var(--bg);
 }
 .sb-find-label { flex: 1; font-size: var(--text-sm); }
@@ -242,7 +245,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 
 .sb-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 10px; outline: none; }
 .sb-section { margin-top: 10px; }
-.sb-heading { display: flex; align-items: center; height: 24px; border-radius: var(--radius); color: var(--muted); }
+.sb-heading { display: flex; align-items: center; height: calc(var(--row-h) - 2px); border-radius: var(--radius); color: var(--muted); }
 .sidebar .sb-heading-button {
   flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: inherit;
   border-radius: var(--radius); cursor: default;
@@ -360,7 +363,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .sb-details-facts { margin-top: 2px; }
 
 .sb-foot { display: flex; gap: 2px; padding: 6px; border-top: 1px solid var(--line); }
-.sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
+.sidebar .sb-foot button { flex: 1; height: var(--row-h); text-align: center; color: var(--muted); font-size: var(--text-sm); }
 @media (hover: hover) and (pointer: fine) {
   .sidebar .sb-foot button:hover { background: var(--hover); color: var(--text); }
 }

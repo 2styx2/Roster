@@ -91,9 +91,10 @@ export interface AppearanceOptions {
   dark: string;
   /** The Theme for a light OS when `theme` is "auto". */
   light: string;
-  /** Font stacks (decision Q30). The terminal's font is a terminal option (ticket 08). Whether
-   * the title bar shows is the view mode's layout (view/layout.ts, decision Q39). */
-  fonts: { ui: string; mono: string };
+  /** Font stacks (decision Q30) and the UI's text size in px (`fonts.ui_size`), which the whole
+   * type scale follows. The terminal's font is a terminal option (ticket 08). Whether the title
+   * bar shows is the view mode's layout (view/layout.ts, decision Q39). */
+  fonts: { ui: string; mono: string; size: number };
   /** Tokens set over whichever Theme is in use (the Config's `colors`). */
   colors: Partial<ThemeColors>;
 }
@@ -106,6 +107,7 @@ export const defaultAppearance: AppearanceOptions = {
     // The emoji fonts last, so a Host named "🦊-lab" draws its fox wherever one is installed.
     ui: '"Inter", system-ui, "Segoe UI", sans-serif, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"',
     mono: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"',
+    size: 14,
   },
   colors: {},
 };

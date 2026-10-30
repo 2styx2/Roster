@@ -69,6 +69,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 |---|---|---|
 | `fonts.ui` | `"Inter"` | A family name, or a CSS font stack (anything with a comma is used as it is). A name gets the usual fallbacks |
 | `fonts.mono` | `"Iosevka"` | The wordmark and code-like UI text |
+| `fonts.ui_size` | `14` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it; nothing goes under 11 px. The terminal has its own `terminal.size` |
 | `terminal.font` | `"Iosevka"` | Same rules as the UI fonts. Inter and Iosevka ship with the app. Any other font must be installed |
 | `terminal.size` | `14` | Points, 6 to 40. Zoom keys move it, and Ctrl+0 comes back to it |
 | `terminal.weight` | `500` | 100 to 900. Iosevka ships at 400, 500 (medium, the default) and 700 |

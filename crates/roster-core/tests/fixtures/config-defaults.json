@@ -25,7 +25,8 @@
     "folders": [],
     "fonts": {
       "mono": "Iosevka",
-      "ui": "Inter"
+      "ui": "Inter",
+      "uiSize": 14
     },
     "idleLockMinutes": 15,
     "keys": [],

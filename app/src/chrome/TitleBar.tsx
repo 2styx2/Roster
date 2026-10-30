@@ -35,7 +35,7 @@ export function TitleBar({ controls, title = "Roster" }: { controls?: WindowCont
   return (
     <header className="titlebar" data-tauri-drag-region>
       <div className="titlebar-mark" data-tauri-drag-region>
-        <Logo size={15} />
+        <Logo size={16} />
         <span className="wordmark" data-tauri-drag-region>
           {title}
         </span>

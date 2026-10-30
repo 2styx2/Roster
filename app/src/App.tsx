@@ -806,7 +806,7 @@ export function App({
           {noSessions && conn.hosts.hosts.length === 0 ? (
             // Nothing to find yet: say where Hosts come from (S7), not "Find a Host".
             <div className="empty">
-              <Logo size={40} className="empty-mark" />
+              <Logo size={48} className="empty-mark" />
               <p className="empty-title">No Hosts in the Inventory yet.</p>
               <p className="empty-hint">
                 Add them to <code>{info.inventory.path}</code> and they show up here.
@@ -814,7 +814,7 @@ export function App({
             </div>
           ) : noSessions ? (
             <div className="empty">
-              <Logo size={40} className="empty-mark" />
+              <Logo size={48} className="empty-mark" />
               <p className="empty-title">No Sessions open</p>
               <button type="button" className="find primary" onMouseDown={(e) => e.preventDefault()} onClick={() => run("find")}>
                 Find a Host

@@ -58,7 +58,7 @@ function LockScreen({ vault, hint, errorRows, copy }: { vault: Vault; hint?: Rea
   return (
     <div className="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <section className="lock-panel">
-        <Logo size={32} className="lock-mark" />
+        <Logo size={40} className="lock-mark" />
         <h1 id="lock-title">{heading(vault.view)}</h1>
         {vault.view.state === "signin" ? (
           <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />

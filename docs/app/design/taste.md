@@ -48,7 +48,7 @@ What makes roster feel like Neovim or VS Code, and what every feature must respe
 |---|---|
 | **Connect** | A 1px edge in the accent draws from the Sidebar row's node toward the terminal, over about 120 ms. The node fills when the Session reaches a shell. On failure the edge snaps back and the node turns hollow with the error state. |
 | **Session ended** | The node empties to a hollow grey ring. The row keeps its place. Nothing jumps. |
-| **Empty states** | The Gap orbit mark (small, 40–64px, muted), one plain sentence, and the keycap for the next action. |
+| **Empty states** | The Gap orbit mark (small, 48–64px, muted), one plain sentence, and the keycap for the next action. |
 | **Lock screen** | The Gap orbit mark, the Box name in Iosevka, one field. Nothing else. |
 | **Selection** | Raised fill, plus a 2px accent bar only on the live Session (Q53). The cursor in App mode is raised without the bar. |
 | **Data cells** | IPs, ports and fingerprints in Iosevka at the muted color, tabular numbers, never cut mid-token. |
