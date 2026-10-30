@@ -517,6 +517,31 @@ export const SessionRefusal = {
   vaultNotLoggedIn: VaultError.notLoggedIn,
   vaultCliMissing: VaultError.cliMissing,
   vaultLocked: VaultError.locked,
+  /** No host key recorded for the Host (API 11, ticket 36): the app asks before it connects.
+   * `data`: its `address` and `port`. */
+  hostKeyUnknown: 44,
+} as const;
+
+/** The first `api_version` whose Sessions check host keys strictly and ask first (ticket 36, Q60):
+ * `session.prepare`'s 44, `host.scan_key {host}`, `host.trust_key`. */
+export const HOST_KEY_API_VERSION = 11;
+
+/** `host.scan_key {host}` (API 11, ticket 36): the key a Host offers, to ask about. */
+export interface HostKeyScan extends ScannedKey {
+  host: string;
+}
+
+/** `host.trust_key`: the key it recorded (`recorded: false` when it already was). */
+export interface HostKeyTrust extends Omit<HostKeyScan, "recorded"> {
+  recorded: boolean;
+}
+
+/** `host.trust_key`'s refusals besides 40-42 (couldn't fetch the key): nothing is recorded. */
+export const HostKeyError = {
+  /** Another key is recorded for the address (Q44): never trusted from the app. */
+  changed: 43,
+  /** The Host offers another key than the one the user was asked about. */
+  changedWhileAsked: 23,
 } as const;
 
 export interface Backend {
@@ -589,6 +614,12 @@ export interface Backend {
   onInventoryChanged(onChange: (change: InventoryChanged) => void): () => void;
   /** `host.scan_key`: the host key an address offers, for the user to confirm before a first login. */
   scanKey(address: string, port: number): Promise<ScannedKey>;
+  /** `host.scan_key {host}`: the key a Host offers, for the question before a Session to a Host
+   * roster has no key for (ticket 36). One connection, key exchange only; records nothing. */
+  scanHostKey(host: string): Promise<HostKeyScan>;
+  /** `host.trust_key`: record the key the user was shown and trusted. roster fetches it again and
+   * refuses (HostKeyError) if it changed; rejects with 40-42 when it can't get there. */
+  trustHostKey(host: string, fingerprint: string): Promise<HostKeyTrust>;
   /** `host.add`: test the Login, save a typed password to the vault, add the Host as a Pending
    * change (decision Q43). Rejects with the failed step's code and `data.steps`, or AddError. */
   addHost(params: AddHostParams): Promise<HostAdd>;

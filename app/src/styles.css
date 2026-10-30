@@ -772,6 +772,20 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .connect-name { font-family: var(--font-mono); color: var(--text); unicode-bidi: isolate; }
 .connect-address { font-family: var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .connect-phase { font-size: var(--text-sm); }
+/* The host key question (ticket 36) in the same card, so it reads as a step of connecting, not a
+   modal. No motion of its own: it's a keyboard-paced swap inside a card that already eased in. The
+   edge waits, dashed, until the user answers. The fingerprint is data (Iosevka), whole, selectable. */
+.connect-card.key-question { gap: 8px; width: min(520px, calc(100% - 32px)); }
+.connect-map.waiting .connect-edge { stroke-dasharray: 3 3; }
+.key-says { color: var(--text); }
+.key-print {
+  font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+  padding: 6px 8px; background: var(--raised); border-radius: 4px; user-select: all; max-width: 100%;
+}
+.key-type { color: var(--muted); }
+.key-fingerprint { color: var(--text); overflow-wrap: anywhere; }
+.key-advice { font-size: var(--text-sm); }
+.key-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 4px; }
 
 .session-error { margin: 40px auto; width: min(680px, calc(100% - 32px)); }
 .session-error.overlay {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
+import { FAKE_FINGERPRINT, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
 import type { SessionEvents } from "../backend/types";
 import { Tabs, type TabStatus } from "./tabs";
 
@@ -515,5 +515,149 @@ describe("Tabs selection by order (ticket 07)", () => {
     tabs.selectRelative(1);
     tabs.selectNth(1);
     expect(tabs.snapshot().active).toBeNull();
+  });
+});
+
+describe("a Host whose host key roster hasn't seen (ticket 36, decision Q60)", () => {
+  const host = reviewed[0]!;
+  const h = hosts.hosts.find((x) => x.name === host)!;
+  /** The fake Backend with `host`'s key unrecorded, counting the Sessions that really started. */
+  function unknownKey(extra: Partial<FakeScenario> = {}) {
+    const scenario: FakeScenario = { ...unlocked, hosts, unknownKeys: { [host]: {} }, ...extra };
+    const backend = fakeBackend(scenario);
+    const started: string[] = [];
+    const trusted: string[] = [];
+    const open = backend.openSession.bind(backend);
+    backend.openSession = async (name, size, events) => {
+      const s = await open(name, size, events);
+      started.push(name);
+      return s;
+    };
+    const trust = backend.trustHostKey.bind(backend);
+    backend.trustHostKey = (name, fp) => (trusted.push(`${name} ${fp}`), trust(name, fp));
+    return { tabs: new Tabs(backend), started, trusted, scenario };
+  }
+  const status = (tabs: Tabs) => tabs.snapshot().tabs[0]?.status;
+  const asked = (tabs: Tabs) =>
+    vi.waitFor(() => {
+      const s = status(tabs);
+      if (s?.state !== "asking" || !s.key) throw new Error(`not asking yet: ${JSON.stringify(s)}`);
+      return s;
+    });
+
+  it("asks first, showing the key, and connects nothing until the answer", async () => {
+    const { tabs, started, trusted } = unknownKey();
+    tabs.open(host);
+    const s = await asked(tabs);
+    expect(s).toEqual({
+      state: "asking",
+      trusting: false,
+      key: { host, address: h.ip, port: 22, key_type: "ssh-ed25519", fingerprint: FAKE_FINGERPRINT, recorded: "none" },
+    });
+    expect(started).toEqual([]);
+    expect(trusted).toEqual([]);
+  });
+
+  it("records the key on trust and connects; the next Session doesn't ask", async () => {
+    const { tabs, started, trusted } = unknownKey();
+    const id = tabs.open(host);
+    await asked(tabs);
+    tabs.trustKey(id);
+    expect(status(tabs)).toMatchObject({ state: "asking", trusting: true });
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    expect(trusted).toEqual([`${host} ${FAKE_FINGERPRINT}`]);
+    expect(started).toEqual([host]);
+    tabs.open(host);
+    await vi.waitFor(() => expect(tabs.snapshot().tabs[1]?.status).toEqual({ state: "open" }));
+    expect(trusted).toHaveLength(1);
+  });
+
+  it("records nothing and leaves no Session on cancel", async () => {
+    const { tabs, started, trusted } = unknownKey();
+    const id = tabs.open(host);
+    await asked(tabs);
+    tabs.cancelKey(id);
+    expect(tabs.snapshot().tabs).toEqual([]);
+    expect(started).toEqual([]);
+    expect(trusted).toEqual([]);
+    tabs.open(host);
+    await asked(tabs); // nothing was recorded, so it asks again
+  });
+
+  it("puts a reconnected tab back as it was on cancel", async () => {
+    const { tabs, started, scenario } = unknownKey({ unknownKeys: {} });
+    const id = tabs.open(host);
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    tabs.write(id, "exit\r");
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("ended"));
+    const before = tabs.snapshot().tabs[0];
+    scenario.unknownKeys = { [host]: {} }; // say its key was taken out of roster's known hosts since
+    expect(tabs.reconnect(id)).toBe(true);
+    await asked(tabs);
+    tabs.cancelKey(id);
+    expect(tabs.snapshot().tabs).toEqual([before]);
+    expect(started).toEqual([host]);
+  });
+
+  it("refuses a key that changed between the question and the trust", async () => {
+    const { tabs, started } = unknownKey({ unknownKeys: { [host]: { changesOnTrust: true } } });
+    const id = tabs.open(host);
+    await asked(tabs);
+    tabs.trustKey(id);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.problem).toMatchObject({ code: 23, host });
+    expect(started).toEqual([]);
+  });
+
+  it("says why when the key can't be fetched", async () => {
+    const { tabs, started } = unknownKey({ unknownKeys: { [host]: { unreachable: true } } });
+    tabs.open(host);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.problem).toMatchObject({ code: 42, host });
+    expect(started).toEqual([]);
+  });
+
+  it("never asks about a key that differs from the recorded one: ssh refuses it", async () => {
+    // roster had no key when session.prepare looked, but one (another) is recorded by the time the
+    // key is fetched: the Session starts again and strict checking decides (Q44).
+    const { tabs, trusted } = unknownKey({ unknownKeys: { [host]: { recordedAs: "changed" } } });
+    tabs.open(host);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("ended"));
+    const s = status(tabs);
+    expect(s?.state === "ended" && s.problem?.code).toBe(43);
+    expect(trusted).toEqual([]);
+  });
+
+  it("asks at most once per attempt, even if roster keeps saying it has no key", async () => {
+    const { tabs, started } = unknownKey({ unknownKeys: { [host]: { recordedAs: "match" } } });
+    tabs.open(host);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.code).toBe(44);
+    expect(started).toEqual([]);
+  });
+
+  it("doesn't ask through a roster older than API 11: roster's 44 is then a refusal", async () => {
+    const { tabs, trusted } = unknownKey();
+    tabs.setAsksAboutKeys(false);
+    tabs.open(host);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.code).toBe(44);
+    expect(trusted).toEqual([]);
+  });
+
+  it("drops keys typed while it asks", async () => {
+    const { tabs } = unknownKey();
+    const id = tabs.open(host);
+    await asked(tabs);
+    tabs.write(id, "y\r");
+    tabs.trustKey(id);
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    const seen: Uint8Array[] = [];
+    tabs.attach(id, (d) => seen.push(d));
+    expect(text(seen)).not.toContain("y");
   });
 });
