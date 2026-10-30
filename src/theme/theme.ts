@@ -69,9 +69,9 @@ export type ThemeRegistry = Registry<Theme>;
 /** The `--kebab-case` CSS variable for a token name. */
 export const cssVar = (token: string) => `--${token.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
 
-/** The CSS variables a Theme sets. */
-export function themeVariables(theme: Theme): Record<string, string> {
-  return Object.fromEntries(Object.entries(theme.colors).map(([k, v]) => [cssVar(k), v]));
+/** The CSS variables a Theme sets, with any tokens overridden. */
+export function themeVariables(theme: Theme, overrides: Partial<ThemeColors> = {}): Record<string, string> {
+  return Object.fromEntries(Object.entries({ ...theme.colors, ...overrides }).map(([k, v]) => [cssVar(k), v]));
 }
 
 /** The terminal's full theme: the Theme's colours and ANSI palette, then any overrides. */
@@ -89,6 +89,8 @@ export interface AppearanceOptions {
   /** Font stacks (decision Q30). The terminal's font is a terminal option (ticket 08). Whether
    * the title bar shows is the view mode's layout (view/layout.ts, decision Q39). */
   fonts: { ui: string; mono: string };
+  /** Tokens set over whichever Theme is in use (the Config's `colors`). */
+  colors: Partial<ThemeColors>;
 }
 
 export const defaultAppearance: AppearanceOptions = {
@@ -99,6 +101,7 @@ export const defaultAppearance: AppearanceOptions = {
     ui: '"Inter", system-ui, "Segoe UI", sans-serif',
     mono: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
   },
+  colors: {},
 };
 
 /** The Theme to use: the one named, or for "auto" the OS's kind; the default dark one if the

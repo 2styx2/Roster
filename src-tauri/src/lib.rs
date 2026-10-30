@@ -3,13 +3,14 @@
 //! All logic lives in desk-core so it can be tested without Tauri (docs/dev/testing.md).
 
 use desk_core::backend::{Backend, BackendInfo};
-use desk_core::detect::{BackendError, DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
+use desk_core::config::{self, Config, Loader, Report};
+use desk_core::detect::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR, Platform, SystemRunner, detect};
 use desk_core::rpc::CallError;
 use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use desk_core::slot::Slot;
 use desk_core::state::StateFile;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 
 /// The one `roster serve` for this app launch, once started. Starting happens outside the lock
@@ -20,11 +21,20 @@ struct BackendState(Slot<Backend>);
 impl BackendState {
     /// The running Backend, starting one if there's none (or the last one died). Blocks for the
     /// whole detection and start: run it on a blocking thread.
-    fn connect(&self, restart: bool) -> Result<BackendInfo, BackendError> {
+    /// Which roster runs comes from the Config (`roster_command`, `backend`), with the
+    /// development env vars winning; a change takes effect at the next (re)start.
+    fn connect(&self, restart: bool, config: &Config) -> Result<BackendInfo, BackendError> {
         let backend = self.0.connect(restart, Backend::is_alive, || {
-            let cmd = roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref());
-            let distro = std::env::var(DISTRO_VAR).ok();
-            let candidate = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref())?;
+            let env_cmd = std::env::var(OVERRIDE_VAR).ok();
+            let env_distro = std::env::var(DISTRO_VAR).ok();
+            let plan = config::backend_plan(config, Platform::current(), env_cmd.as_deref(), env_distro.as_deref())
+                .map_err(|m| BackendError::new(ErrorKind::Failed, m, "Change `backend` in init.lua, then Retry."))?;
+            let candidate = detect(
+                &SystemRunner,
+                Platform::current(),
+                &plan.command,
+                plan.distro.as_deref(),
+            )?;
             Backend::start(&candidate)
         })?;
         Ok(backend.info.clone())
@@ -50,10 +60,70 @@ async fn blocking<T: Send + 'static, E: Send + 'static>(
 #[tauri::command]
 async fn backend_connect(
     state: tauri::State<'_, Arc<BackendState>>,
+    config: tauri::State<'_, Arc<ConfigState>>,
     restart: bool,
 ) -> Result<BackendInfo, BackendError> {
     let s = Arc::clone(&state);
-    blocking(move || s.connect(restart)).await
+    let config = config.current();
+    blocking(move || s.connect(restart, &config)).await
+}
+
+/// The Config (`init.lua`, desk-core config.rs): the loader with the last good Config, and the
+/// last report (with its error, if the file is broken). None when there's no config dir.
+#[derive(Default)]
+struct ConfigState {
+    loader: Mutex<Option<Loader>>,
+    last: Mutex<Option<Report>>,
+}
+
+impl ConfigState {
+    fn reload(&self) -> Option<Report> {
+        let report = self.loader.lock().ok()?.as_mut()?.reload();
+        if let Ok(mut last) = self.last.lock() {
+            *last = Some(report.clone());
+        }
+        Some(report)
+    }
+
+    fn current(&self) -> Config {
+        self.loader
+            .lock()
+            .ok()
+            .and_then(|l| l.as_ref().map(|l| l.current().clone()))
+            .unwrap_or_default()
+    }
+}
+
+/// The Config as the app starts with it, and the error if init.lua couldn't be used. Later
+/// changes arrive as `config-changed` events with the same shape.
+#[tauri::command]
+fn config_load(config: tauri::State<'_, Arc<ConfigState>>) -> Option<Report> {
+    config.last.lock().ok()?.clone()
+}
+
+/// Reads init.lua once, then watches its dir and emits `config-changed` after every save.
+fn start_config(app: &tauri::App, state: &Arc<ConfigState>) -> Option<config::Watcher> {
+    use tauri::Emitter;
+    let dir = config::dir()?;
+    if let Ok(mut l) = state.loader.lock() {
+        *l = Some(Loader::new(&dir));
+    }
+    if let Some(Report { error: Some(e), .. }) = state.reload() {
+        eprintln!("roster-desk: {e}");
+    }
+    let handle = app.handle().clone();
+    let s = Arc::clone(state);
+    match config::watch(&dir, move || {
+        if let Some(report) = s.reload() {
+            let _ = handle.emit("config-changed", report);
+        }
+    }) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            eprintln!("roster-desk: can't watch {} for changes: {e}", dir.display());
+            None
+        }
+    }
 }
 
 async fn call(state: &Arc<BackendState>, method: &'static str, params: Value) -> Result<Value, CallError> {
@@ -236,11 +306,18 @@ fn restore_and_show(app: &tauri::App, window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sessions = Arc::new(SessionManager::new());
+    let config_state = Arc::new(ConfigState::default());
+    let setup_config = Arc::clone(&config_state);
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(BackendState::default()))
         .manage(Arc::clone(&sessions))
-        .setup(|app| {
+        .manage(config_state)
+        .setup(move |app| {
+            // The watcher lives as long as the app.
+            if let Some(w) = start_config(app, &setup_config) {
+                tauri::Manager::manage(app, Mutex::new(w));
+            }
             if let Some(w) = tauri::Manager::get_webview_window(app, "main") {
                 #[cfg(windows)]
                 disable_browser_accelerators(&w);
@@ -262,7 +339,8 @@ pub fn run() {
             platform_info,
             vault_status,
             vault_unlock,
-            vault_lock
+            vault_lock,
+            config_load
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

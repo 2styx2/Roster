@@ -29,33 +29,80 @@ export interface ModeLayout {
   bar: string;
   /** A hint on entering, saying how to leave. */
   hint: boolean;
+  /** The Sidebar's sections by id, in order; null shows every registered one in its order. */
+  sections: readonly string[] | null;
+  /** The status bar's segments by id (STATUS_SEGMENTS), in order; null shows them all. */
+  segments: readonly string[] | null;
+}
+
+/** The status bar's segments, in their default order. */
+export const STATUS_SEGMENTS = ["backend", "box", "hosts", "path", "hints", "mode"] as const;
+
+/** One mode's pieces as the Config says them (desk-core config schema.rs ModeLayout). */
+export interface ModePieces {
+  fullscreen: boolean;
+  titlebar: boolean;
+  sidebar: { shown: boolean; side: "left" | "right"; sections: readonly string[] | null };
+  sessionbar: { shown: boolean; at: "top" | "bottom" };
+  statusbar: { shown: boolean; segments: readonly string[] | null };
 }
 
 export type Layouts = Record<ViewMode, ModeLayout>;
 
-/** The two modes as prototyped, following the options that already place pieces. */
-export function defaultLayouts(options: Pick<Options, "sidebar" | "statusBar" | "focus">): Layouts {
+/** The pieces of the two modes as prototyped, following the options that place pieces. */
+export function defaultModePieces(options: Pick<Options, "sidebar" | "statusBar" | "focus">): Record<ViewMode, ModePieces> {
   const sessionbar = options.focus.sessionbar;
   return {
     standard: {
       fullscreen: false,
-      pieces: [
-        { id: "titlebar", at: "top", shown: true },
-        { id: "sidebar", at: options.sidebar.side, shown: options.sidebar.visible },
-        { id: "statusbar", at: "bottom", shown: options.statusBar.visible },
-      ],
-      tree: "sidebar",
-      bar: "statusbar",
-      hint: false,
+      titlebar: true,
+      sidebar: { shown: options.sidebar.visible, side: options.sidebar.side, sections: null },
+      sessionbar: { shown: false, at: "bottom" },
+      statusbar: { shown: options.statusBar.visible, segments: null },
     },
     focus: {
       fullscreen: true,
-      pieces: [{ id: "sessionbar", at: sessionbar || "bottom", shown: sessionbar !== false }],
-      tree: "finder",
-      bar: "sessionbar",
-      hint: true,
+      titlebar: false,
+      sidebar: { shown: false, side: "left", sections: null },
+      sessionbar: { shown: sessionbar !== false, at: sessionbar || "bottom" },
+      statusbar: { shown: false, segments: null },
     },
   };
+}
+
+/** A mode's layout from its pieces. Standard reaches the tree through the Sidebar (`␣ e` shows
+ * it even when it starts hidden); another mode does only if it shows the Sidebar, and through
+ * the tree finder otherwise. */
+export function modeLayout(mode: ViewMode, p: ModePieces): ModeLayout {
+  return {
+    fullscreen: p.fullscreen,
+    pieces: [
+      { id: "titlebar", at: "top", shown: p.titlebar },
+      { id: "sidebar", at: p.sidebar.side, shown: p.sidebar.shown },
+      { id: "sessionbar", at: p.sessionbar.at, shown: p.sessionbar.shown },
+      { id: "statusbar", at: "bottom", shown: p.statusbar.shown },
+    ],
+    tree: mode === "standard" || p.sidebar.shown ? "sidebar" : "finder",
+    bar: mode === "standard" ? "statusbar" : "sessionbar",
+    hint: mode === "focus",
+    sections: p.sidebar.sections,
+    segments: p.statusbar.segments,
+  };
+}
+
+export function layoutsOf(modes: Record<ViewMode, ModePieces>): Layouts {
+  return { standard: modeLayout("standard", modes.standard), focus: modeLayout("focus", modes.focus) };
+}
+
+/** The two modes as prototyped, following the options that already place pieces. */
+export function defaultLayouts(options: Pick<Options, "sidebar" | "statusBar" | "focus">): Layouts {
+  return layoutsOf(defaultModePieces(options));
+}
+
+/** `items` ordered and filtered by `ids` (null keeps them all, in their order). */
+export function pick<T extends { id: string }>(items: readonly T[], ids: readonly string[] | null): T[] {
+  if (ids === null) return [...items];
+  return ids.map((id) => items.find((i) => i.id === id)).filter((i): i is T => i !== undefined);
 }
 
 /** The ids shown at `at`, in order. */

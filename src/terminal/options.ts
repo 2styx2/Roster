@@ -39,6 +39,9 @@ export interface TerminalOptions {
   fontFamily: string;
   /** Points; zoom moves it between minFontSize and maxFontSize, and resets to this. */
   fontSize: number;
+  /** Medium (500) by default; the bundled Iosevka has 400, 500 and 700. */
+  fontWeight: number;
+  fontWeightBold: number;
   minFontSize: number;
   maxFontSize: number;
   lineHeight: number;
@@ -74,6 +77,8 @@ export const standardAnsi: AnsiPalette = {
 export const defaultTerminalOptions: TerminalOptions = {
   fontFamily: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
   fontSize: 14,
+  fontWeight: 500,
+  fontWeightBold: 700,
   minFontSize: 6,
   maxFontSize: 40,
   lineHeight: 1,

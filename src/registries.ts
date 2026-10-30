@@ -3,6 +3,7 @@
 import { builtinCommandRegistry, type CommandRegistry } from "./commands/table";
 import { builtinErrorRegistry, type ErrorRegistry } from "./errors/catalog";
 import { finderCommand } from "./finder/command";
+import { folderRegistry, type FolderRegistry } from "./folders/folders";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { builtinKeymap, type KeymapRegistry } from "./keymap";
 import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections";
@@ -19,6 +20,9 @@ export interface Registries {
   themes: ThemeRegistry;
   /** What the Finder overlay searches (ticket 22): Sessions, Hosts, the Sidebar's tree. */
   finders: FinderRegistry;
+  /** Folders defined in init.lua (ticket 21) or by Plugins: read-only in the app. The Folders
+   * made in the app live in the State. */
+  folders: FolderRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -32,5 +36,6 @@ export function builtinRegistries(): Registries {
     errors: builtinErrorRegistry(),
     themes: builtinThemeRegistry(),
     finders,
+    folders: folderRegistry(),
   };
 }
