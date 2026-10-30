@@ -499,6 +499,13 @@ impl Loader {
         report
     }
 
+    /// A `.lua` file of the Config was saved: reloads only if the Config in effect says
+    /// `auto_reload = true` (decision Q58), else None and nothing changes (`:source` reloads).
+    /// Turning auto_reload on therefore takes one `:source`.
+    pub fn on_save(&self) -> Option<Report> {
+        self.current().auto_reload.then(|| self.reload())
+    }
+
     /// Reloads on a thread of its own and waits at most `wait` for it: the report if it was
     /// done by then, else None. `then` gets the report when it's done, either way (at startup:
     /// the window shows without waiting long, and a slow Config arrives as a change).

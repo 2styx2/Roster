@@ -34,6 +34,7 @@ import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
 import { ConfigToast } from "./config/ConfigToast";
+import { initLuaReloader } from "./config/source";
 import type { ConfigReport } from "./config/types";
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
@@ -162,6 +163,8 @@ export function App({
   // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
   // with the last good Config and the error, so nothing changes but the toast.
   const [report, setReport] = useState<ConfigReport | null>(configProp);
+  /** A Config file was saved since the last reload, and isn't applied yet. */
+  const [stale, setStale] = useState(false);
   // The newest report wins: one that arrives late (or twice) never replaces a newer one.
   const takeReport = useCallback(
     (r: ConfigReport) => setReport((cur) => (cur && cur.version >= r.version ? cur : r)),
@@ -170,10 +173,19 @@ export function App({
   useEffect(() => {
     const source = platform.config;
     if (!source) return;
-    const take = takeReport;
+    const take = (r: ConfigReport) => {
+      setStale(false);
+      takeReport(r);
+    };
     let live = true;
     // Listen first, then ask again: a save between main.tsx's load and now isn't lost.
-    const stop = source.watch(take);
+    const stopChanges = source.watch(take);
+    // A save that wasn't applied (auto_reload off, decision Q58): a quiet hint to :source.
+    const stopStale = source.watchStale(() => setStale(true));
+    const stop = () => {
+      stopChanges();
+      stopStale();
+    };
     source.load().then(
       (r) => {
         if (live && r) take(r);
@@ -400,6 +412,26 @@ export function App({
   // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0006).
   useEffect(() => registerFolders(registries, store), [registries, store]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
+  // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
+  const reportPath = useRef<string | null>(null);
+  reportPath.current = report?.path ?? null;
+  useEffect(() => {
+    const source = platform.config;
+    if (!source) return;
+    return registries.reloaders.register(
+      initLuaReloader({
+        path: () => reportPath.current,
+        reload: async () => {
+          const r = await source.reload();
+          if (r) {
+            setStale(false);
+            takeReport(r);
+          }
+          return r;
+        },
+      }),
+    );
+  }, [registries, platform, takeReport]);
 
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
@@ -705,16 +737,8 @@ export function App({
       if (!source) return setMessage("There's no init.lua here: this window isn't the app (a plain browser)");
       const failed = (e: unknown) => (e instanceof Error ? e.message : String(e));
       if (what === "path") return setMessage(report ? `init.lua is at ${report.path}` : "init.lua hasn't been read yet");
-      if (what === "reload") {
-        source.reload().then(
-          (r) => {
-            if (r) takeReport(r);
-            setMessage(r?.error ? "init.lua has an error: the last good Config is still in use" : "Reloaded init.lua");
-          },
-          (e: unknown) => setMessage(`Can't reload init.lua: ${failed(e)}`),
-        );
-        return;
-      }
+      // `:config reload` is `:source init.lua` (decision Q58).
+      if (what === "reload") return void runLine(commands, ctx, "source init.lua");
       source.open().then(
         ({ path, created }) =>
           setMessage(
@@ -822,6 +846,7 @@ export function App({
   const reconnectKey = hintFor(keymap, "reconnect");
   const appMode = keyState.mode === "app" && overlay === null;
   const findKeys = hintFor(keymap, "find");
+  const sourceKeys = hintFor(keymap, "source");
   const hints = [
     [findKeys, "find"],
     [hintFor(keymap, "keys"), "keys"],
@@ -900,6 +925,11 @@ export function App({
         // They drop out whole, last first, when the bar runs out of room (never cut mid-key).
         return (
           <span key={id} className="statusbar-hints">
+            {stale && (
+              <span className="hint stale" title="Saved, not applied yet: auto_reload is off in init.lua">
+                init.lua changed {sourceKeys ? <Keys keys={sourceKeys} leader={options.leader} /> : <code>:source</code>} apply
+              </span>
+            )}
             {hints.map(([k, what]) => (
               <span key={what} className="hint">
                 <Keys keys={k} leader={options.leader} /> {what}

@@ -5,6 +5,7 @@ import { builtinErrorRegistry, type ErrorRegistry } from "./errors/catalog";
 import { finderCommand } from "./finder/command";
 import { folderRegistry, type FolderRegistry } from "./folders/folders";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
+import { reloaderRegistry, sourceCommands, type ReloaderRegistry } from "./config/source";
 import { builtinKeymap, type KeymapRegistry } from "./keymap";
 import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections";
 import type { ThemeRegistry } from "./theme/theme";
@@ -23,12 +24,16 @@ export interface Registries {
   /** Folders defined in init.lua (ticket 21) or by Plugins: read-only in the app. The Folders
    * made in the app live in the State. */
   folders: FolderRegistry;
+  /** What `:source` reloads (decision Q58): init.lua; ticket 28 adds folders.yml and roster.yml. */
+  reloaders: ReloaderRegistry;
 }
 
 export function builtinRegistries(): Registries {
   const finders = builtinFinderRegistry();
   const commands = builtinCommandRegistry();
   commands.register(finderCommand(finders));
+  const reloaders = reloaderRegistry();
+  for (const c of sourceCommands(reloaders)) commands.register(c);
   return {
     commands,
     keymap: builtinKeymap(),
@@ -37,5 +42,6 @@ export function builtinRegistries(): Registries {
     themes: builtinThemeRegistry(),
     finders,
     folders: folderRegistry(),
+    reloaders,
   };
 }

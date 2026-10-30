@@ -18,6 +18,7 @@
     "bright_white"
   ],
   "config": {
+    "autoReload": false,
     "backend": "auto",
     "colors": {},
     "darkTheme": "roster-dark",

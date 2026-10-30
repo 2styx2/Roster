@@ -1,8 +1,9 @@
 // The mark (Gap orbit, plain; decision Q57) for use inside the app: no tile, drawn with Theme
 // tokens so it follows every Theme. The R, its orbit and the Box at the foot of the stem are the
 // text colour (faded as in the masters); the one accent is the Host where the orbit breaks, the
-// node the leg reaches. The app icon is the tiled version, rendered from assets/logo.svg and
-// assets/logo-small.svg (app/scripts/icons.mjs).
+// node the leg reaches. The app icon is the same drawing with no tile either, in one mid-tone
+// neutral that reads on light and dark taskbars (assets/logo-icon.svg and logo-icon-small.svg,
+// rendered by app/scripts/icons.mjs; decision Q59).
 
 interface Cut {
   viewBox: string;
@@ -21,38 +22,40 @@ interface Cut {
   host: { cx: number; cy: number; r: number; width: number };
 }
 
-/** 25 px and up (lock screen, empty states): the full R, five nodes and the leg, inside an orbit
- * of radius 28 with the Host at 50°. */
+/** 25 px and up (lock screen, empty states): the full R, five nodes and the leg, filling most of an
+ * orbit of radius 26 (the round-5 prototype's proportions, decision Q59) with the Host at 50°; the
+ * R sits about 2 px clear of the orbit at 25 px. */
 const FULL: Cut = {
-  viewBox: "3 3 59 59",
-  orbit: "M38.72 59.18A28 28 0 1 1 57.6 43.34",
-  orbitWidth: 2.58,
-  edges: "M22.57 18.84V45.16M22.57 18.84H34.79L40.43 25.42L34.79 32H22.57M34.79 32L46.08 47.92",
-  edgeWidth: 4.3,
+  viewBox: "4 4 57 57",
+  orbit: "M38.33 57.22A26 26 0 1 1 55.74 42.61",
+  orbitWidth: 2.1,
+  edges: "M25 17.5V45.5M25 17.5H38L44 24.5L38 31.5H25M38 31.5L45.84 46.44",
+  edgeWidth: 3.5,
   hosts: [
-    [22.57, 18.84],
-    [22.57, 32],
-    [34.79, 18.84],
-    [40.43, 25.42],
-    [34.79, 32],
+    [25, 17.5],
+    [25, 31.5],
+    [38, 17.5],
+    [44, 24.5],
+    [38, 31.5],
   ],
-  r: 5.2,
-  box: { x: 17.89, y: 40.48, size: 9.36, rx: 1.98 },
-  host: { cx: 50, cy: 53.45, r: 6.28, width: 4.08 },
+  r: 4.6,
+  box: { x: 20.49, y: 40.99, size: 9.02, rx: 1.75 },
+  host: { cx: 48.71, cy: 51.92, r: 5.7, width: 3.32 },
 };
 
-/** 24 px and under (the title bar): stem, bowl and leg, heavier, a smaller R in a wider orbit
- * (radius 27.5) with the Host at 45°, so the R never touches the orbit. */
+/** 24 px and under (the title bar): stem, bowl and leg, heavier, in the same orbit (radius 26,
+ * Host at 50°), the R moved up and right so it clears the orbit by about 1 px at 16 px and never
+ * touches it. */
 const SMALL: Cut = {
-  viewBox: "2.5 2.5 59 59",
-  orbit: "M37.1 59.02A27.5 27.5 0 1 1 59.02 37.1",
+  viewBox: "3.5 3.5 58 58",
+  orbit: "M32.92 57.98A26 26 0 1 1 57.43 37.41",
   orbitWidth: 3.74,
-  edges: "M23.08 44.32V19.68H31.88A7.04 7.04 0 0 1 31.88 33.76H23.08M31 33.76L45.4 46.22",
+  edges: "M25 43.5V15.5H35A8 8 0 0 1 35 31.5H25M34 31.5L43.74 45.02",
   edgeWidth: 5.2,
   hosts: [],
   r: 5.8,
-  box: { x: 17.86, y: 39.1, size: 10.44, rx: 2.2 },
-  host: { cx: 51.45, cy: 51.45, r: 7, width: 4 },
+  box: { x: 19.32, y: 37.82, size: 11.37, rx: 2.2 },
+  host: { cx: 48.71, cy: 51.92, r: 7.5, width: 4 },
 };
 
 export function Logo({ size = 16, className }: { size?: number; className?: string }) {

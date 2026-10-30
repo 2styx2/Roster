@@ -99,6 +99,7 @@ export const defaultBindings: KeymapTables = {
     s: "statusbar",
     ":": "cmdline",
     "?": "keys",
+    S: "source",
     L: "lock",
     E: "edit",
     "+": "host add",
