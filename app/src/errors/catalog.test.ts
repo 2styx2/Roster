@@ -48,6 +48,18 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 72).where).toContain("the infra repo");
   });
 
+  it("gives saving to the vault and adding a Host their rows (rows 34-37, 44-45, ticket 11)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (const n of [34, 35, 36, 37, 44, 45]) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [60, 61, 62, 63, 80, 81]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.fix(p(code))).not.toBe("");
+    }
+    expect(rowFor(rows, 60).fix(p(60))).toMatch(/existing item|another name/);
+    expect(rowFor(rows, 81).where).toContain("roster.yml");
+  });
+
   it("never offers to accept a host key", () => {
     for (const row of builtinErrorRows) {
       for (const a of row.actions) {

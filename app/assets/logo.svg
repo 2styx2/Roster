@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
-  <!-- roster: Gap orbit, plain (decision Q57). The R in its orbit; the orbit breaks where the Host sits, the one accent node. App icon master: `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
+  <!-- roster: Gap orbit, plain (decisions Q57, Q59), on the Ink tile, for places that need a backing (a README, an avatar). The R in its orbit, filling most of it; the orbit breaks where the Host sits, the one accent node. The app icon itself has no tile: logo-icon.svg. -->
   <rect x="1" y="1" width="62" height="62" rx="14" fill="#0f1011" stroke="#2c2d2e" stroke-width="1"/>
-  <path d="M40.41 58.71A28 28 0 1 1 56.84 44.92" fill="none" stroke="#e8e8ea" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
-  <path d="M22.57 18.84L22.57 45.16M22.57 18.84L34.79 18.84L40.43 25.42L34.79 32L22.57 32M34.79 32L46.66 48.74" fill="none" stroke="#e8e8ea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
-  <g fill="#e8e8ea"><circle cx="22.57" cy="18.84" r="4.2"/><circle cx="22.57" cy="32" r="4.2"/><circle cx="34.79" cy="18.84" r="4.2"/><circle cx="40.43" cy="25.42" r="4.2"/><circle cx="34.79" cy="32" r="4.2"/></g>
-  <rect x="18.79" y="41.38" width="7.56" height="7.56" rx="1.6" fill="#e8e8ea"/>
-  <circle cx="50" cy="53.45" r="5.3" fill="none" stroke="#ff9a70" stroke-width="2.85"/>
+  <path d="M39.01 57.04A26 26 0 1 1 55.44 43.25" fill="none" stroke="#e8e8ea" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+  <path d="M25 17.5V45.5M25 17.5H38L44 24.5L38 31.5H25M38 31.5L46.03 46.81" fill="none" stroke="#e8e8ea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+  <g fill="#e8e8ea"><circle cx="25" cy="17.5" r="4.2"/><circle cx="25" cy="31.5" r="4.2"/><circle cx="38" cy="17.5" r="4.2"/><circle cx="44" cy="24.5" r="4.2"/><circle cx="38" cy="31.5" r="4.2"/></g>
+  <rect x="20.88" y="41.38" width="8.23" height="8.23" rx="1.6" fill="#e8e8ea"/>
+  <circle cx="48.71" cy="51.92" r="5.3" fill="none" stroke="#ff9a70" stroke-width="2.85"/>
 </svg>

@@ -22,6 +22,8 @@ from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CANT_WRITE,
     CLI_MISSING,
+    HOST_EXISTS,
+    INVALID_HOST,
     INVENTORY_ERROR,
     ITEM_EXISTS,
     NO_ASKPASS,
@@ -44,9 +46,9 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     write_problem,
 )
 from .providers import PROVIDERS, setup_providers
-from .sshops import in_ssh_config
+from .sshops import in_ssh_config, record_host_key
 
-API_VERSION = 5             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 6             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -276,6 +278,158 @@ def changes_discard(state, params):
     return result
 
 
+# ---------------------------------------------------------------- adding a Host (ticket 11, decision Q43)
+
+ADD_PARAMS = {"address": "ip", "user": "user", "port": "port", "auth": "auth", "enroll": "enroll", "type": "type",
+              "title": "title", "description": "description"}
+
+
+def add_fields(params):
+    """host.add's params as edit.added's fields (checked), leaving out the ones not given."""
+    try:
+        return {f: edit.check_new(f, params[p]) for p, f in ADD_PARAMS.items() if params.get(p) is not None}
+    except ValueError as e:
+        raise RpcError(INVALID_PARAMS, f"params: {e}") from None
+
+
+def save_to(state, params):
+    """Where a typed password is saved: params.provider, else the Inventory's vault. Ticket 35 adds the choice
+    of target (a personal or a shared vault/collection); this is the one place it goes."""
+    return vault_provider(state, params)
+
+
+def typed_login(state, params, name):
+    """{password, provider, item} for a password typed into the form, or None. Checked, never echoed."""
+    password = params.get("password")
+    if password is None:
+        return None
+    if not isinstance(password, str) or not password:
+        raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string")
+    if params.get("auth") is not None:
+        raise RpcError(INVALID_PARAMS, "give params.auth (an existing vault item) or params.password (a new one), "
+                                       "not both")
+    item = params.get("item") or f"{name} ssh"
+    if not isinstance(item, str) or not item.strip() or "\n" in item or ":" in item:
+        raise RpcError(INVALID_PARAMS, "params.item must be one line, without ':' (e.g. 'esx-02 ssh')")
+    return {"password": password, "provider": save_to(state, params), "item": " ".join(item.split())}
+
+
+def host_scan_key(state, params):
+    """The host key at an address, to show the user before host.add's first login there (diagnose.scan_key)."""
+    fields = add_fields({"address": params.get("address"), "port": params.get("port")})
+    if "ip" not in fields:
+        raise RpcError(INVALID_PARAMS, "params.address must be a non-empty string")
+    port = fields.get("port", 22)
+    h = {"name": params.get("name") or fields["ip"], "ip": fields["ip"], "ssh": {"port": port}}
+    return {"address": fields["ip"], "port": port, **diagnose.scan_key(h)}
+
+
+def host_add(state, params):
+    """Add a Host to roster.yml as a Pending change (edit.added). With a Login (an existing vault item in auth, or
+    a password typed into the form) it's a verified add (Q43): the test login first; then, for a typed password,
+    the Vault item; then the Host. Nothing is written when the test login fails, and the item is taken back out
+    when writing the Host fails. Without a Login the Host goes in unreviewed, as discover adds them."""
+    try:
+        return add_host(state, params)
+    except (RpcError, SystemExit):
+        raise
+    except Exception as e:                      # never let the generic handler log text that might hold the password
+        raise RpcError(INTERNAL_ERROR, f"adding the Host failed: {type(e).__name__}") from None
+
+
+def add_host(state, params):
+    name, group = text_param(params, "name"), text_param(params, "group")
+    fields = add_fields(params)
+    if "ip" not in fields:
+        raise RpcError(INVALID_PARAMS, "params.address must be a non-empty string")
+    host_key = params.get("host_key")
+    if host_key is not None and not isinstance(host_key, str):
+        raise RpcError(INVALID_PARAMS, "params.host_key must be a fingerprint (SHA256:...)")
+    typed = typed_login(state, params, name)
+    if typed:
+        fields["auth"] = f"{typed['provider']}:{typed['item']}"
+    state.reload()
+    state.inventory()
+    repo = changes.Repo(state.path)
+    _, _, h = edit.added(repo.path, group, name, fields)      # a dry run: the name, group and user, before the network
+    login = typed is not None or diagnose.stored_password(h) is not None
+    fields["reviewed"] = login
+    verify = None
+    if login:
+        # a new Host's key isn't installed yet, so even an enroll: true Host is tested with its password
+        verify = diagnose.verify_login({**h, "enroll": False}, state.cfg["key"], typed=typed, host_key=host_key)
+        if not verify["ok"]:
+            raise verify_failed(name, verify)
+    made = None
+    if typed:
+        password, typed["password"] = typed["password"], None
+        port = h["ssh"]["port"]
+        uri = f"ssh://{h['ip']}" + ("" if port == 22 else f":{port}")
+        try:
+            made = providers.create_item(typed["provider"], name=typed["item"], password=password,
+                                         username=h["ssh"]["user"], uri=uri)
+        except providers.SecretError as e:
+            raise write_problem(e) from None
+        finally:
+            del password
+        made = {"provider": typed["provider"], **made}
+    try:
+        old_text, new_text, _ = edit.added(repo.path, group, name, fields)
+        backup = repo.backup(old_text)
+        edit.replace_file(repo.path, new_text)
+    except Problem as e:
+        raise take_back(made, e) from None
+    if verify and verify.get("host_key"):
+        k = verify["host_key"]
+        record_host_key(h, k["type"], k["base64"])
+    state.reload()
+    return {"added": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "verify": verify,
+            "item": made}
+
+
+def verify_failed(name, verify):
+    """A failed test login as host.add's error: the failed step's own code and message, and every step."""
+    fail = next(s for s in verify["steps"] if s["status"] == "fail")
+    data = {"step": fail["step"], "steps": verify["steps"], **fail.get("data", {})}
+    return Problem(fail["code"], f"{name} wasn't added: {fail['message']} - nothing was saved", data,
+                   fix=fail.get("fix"), details=fail.get("details"))
+
+
+def take_back(made, e):
+    """Writing the Host failed after its Vault item was made: delete the item again (Q43), and say so."""
+    if made is None:
+        return e
+    try:
+        providers.delete_item(made["provider"], made["id"])
+    except Exception as undo:
+        what = str(undo) if isinstance(undo, providers.SecretError) else type(undo).__name__
+        return Problem(e.code, f"{e.message}; the vault item '{made['name']}' couldn't be taken back out ({what}) "
+                               "- delete it in the vault", {**(e.data or {}), "left": made},
+                       fix=f"delete '{made['name']}' in the vault, then fix what stopped the add", details=e.details)
+    return Problem(e.code, f"{e.message}; the vault item '{made['name']}' was taken back out",
+                   {**(e.data or {}), "undone": made}, details=e.details)
+
+
+def host_review(state, params):
+    """Mark a Host reviewed (reviewed: true on the Host itself, nothing else changes), as a Pending change."""
+    name = text_param(params, "host")
+    state.reload()
+    h = state.inventory()["hosts"].get(name)
+    if h is None:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    if h["reviewed"]:
+        return {"changed": False, "host": h, "backup": None}
+    repo = changes.Repo(state.path)
+    old_text, new_text, _ = edit.edited(repo.path, name, {"reviewed": True})
+    backup = repo.backup(old_text)
+    edit.replace_file(repo.path, new_text)
+    state.reload()
+    return {"changed": True, "host": state.inventory()["hosts"][name], "backup": str(backup)}
+
+
+METHODS["host.scan_key"] = host_scan_key
+METHODS["host.add"] = host_add
+METHODS["host.review"] = host_review
 METHODS["inventory.pull"] = inventory_pull
 METHODS["host.verify_login"] = host_verify_login
 METHODS["host.update"] = host_update

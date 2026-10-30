@@ -64,6 +64,10 @@ export interface CommandContext {
   showInfo(): void;
   /** Opens the edit form for the Host, or the selected one (ticket 10). */
   edit(host: string | null): void;
+  /** Opens the add-Host form (ticket 11). */
+  addHost(): void;
+  /** Marks the Host, or the selected one, reviewed (ticket 11). */
+  review(host: string | null): void;
   /** Shows the Pending changes; `discard`: asks to discard them straight away. */
   showChanges(discard?: boolean): void;
   /** Pulls the infra repo (fast-forward only) and says what happened. */
@@ -171,6 +175,27 @@ export const builtinCommands: readonly CommandDef[] = [
     optionalArg: true,
     label: (h) => (h ? `Edit ${h}` : "Edit a Host: title, description, type, address, user, Login"),
     run: (ctx, h) => ctx.edit(h ?? null),
+  },
+  {
+    id: "host",
+    source: BUILTIN,
+    area: "Inventory",
+    arg: "text",
+    label: (what) => (what === "add" ? "Add a Host" : "Host: add a Host (host add)"),
+    run: (ctx, what) => {
+      if (what?.toLowerCase() === "add") return ctx.addHost();
+      ctx.say(`host takes one argument: add (not ${what ?? "nothing"})`);
+    },
+    complete: (what) => (["add"] as const).filter((a) => a.startsWith(what.toLowerCase())),
+  },
+  {
+    id: "review",
+    source: BUILTIN,
+    area: "Inventory",
+    arg: "host",
+    optionalArg: true,
+    label: (h) => (h ? `Mark ${h} reviewed` : "Mark a Host reviewed, so it can be opened"),
+    run: (ctx, h) => ctx.review(h ?? null),
   },
   { id: "changes", source: BUILTIN, area: "Inventory", label: () => "Show the Pending changes", run: (ctx) => ctx.showChanges() },
   {

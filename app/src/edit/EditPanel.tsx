@@ -38,6 +38,8 @@ export interface EditPanelProps {
   /** The pull brought new commits: the app reads the Inventory again. */
   onPulled(result: PullResult): void;
   onClose(): void;
+  /** Marks the Host reviewed (`:review`, ticket 11): offered while it's unreviewed. */
+  onReview?(host: string): void;
 }
 
 function pulledLine(p: PullResult | null): string | null {
@@ -47,7 +49,7 @@ function pulledLine(p: PullResult | null): string | null {
   return `Up to date with ${p.upstream}.`;
 }
 
-export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved, onPulled, onClose }: EditPanelProps) {
+export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved, onPulled, onClose, onReview }: EditPanelProps) {
   const [current, setCurrent] = useState(host);
   const [draft, setDraft] = useState<Draft>(() => draftOf(host));
   const [phase, setPhase] = useState<Phase>(() => (pendingCount > 0 ? { at: "ready" } : { at: "pulling" }));
@@ -217,6 +219,11 @@ export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved,
             <button type="button" onClick={onClose}>
               Cancel
             </button>
+            {!current.reviewed && onReview && (
+              <button type="button" onClick={() => onReview(current.name)} disabled={busy}>
+                Mark reviewed
+              </button>
+            )}
             <span className="edit-keys muted">
               <Keys keys="Enter" /> save <Keys keys="Escape" /> close
             </span>

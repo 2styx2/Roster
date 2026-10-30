@@ -33,6 +33,7 @@ const LOCAL: Record<string, { area: string; label: string }> = {
   "picker.up": { area: "Picker", label: "Move up" },
   "picker.choose": { area: "Picker", label: "Open the Host" },
   "picker.chooseHere": { area: "Picker", label: "Open it in this tab, if its Session has ended" },
+  "picker.review": { area: "Picker", label: "Mark an unreviewed Host reviewed" },
   "picker.close": { area: "Picker", label: "Close the Picker" },
   "terminal.copy": { area: "Terminal", label: "Copy" },
   "terminal.paste": { area: "Terminal", label: "Paste" },
