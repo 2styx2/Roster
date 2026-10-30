@@ -1,4 +1,5 @@
 // A Platform held in memory, for tests: a State file and a clipboard you can look at.
+import type { ConfigReport } from "../config/types";
 import type { Platform } from "./types";
 
 export interface MemoryPlatform extends Platform {
@@ -8,10 +9,16 @@ export interface MemoryPlatform extends Platform {
   clipboardText(): string;
   /** Whether the window is fullscreen now. */
   fullscreen(): boolean;
+  /** Acts as a save of init.lua: the app gets `report` as a live change. */
+  saveConfig(report: ConfigReport): void;
 }
 
-export function memoryPlatform(start: { state?: unknown; windowsBuild?: number | null; clipboard?: string } = {}): MemoryPlatform {
+export function memoryPlatform(
+  start: { state?: unknown; windowsBuild?: number | null; clipboard?: string; config?: ConfigReport } = {},
+): MemoryPlatform {
   let state = start.state ?? {};
+  let config = start.config ?? null;
+  const watchers = new Set<(r: ConfigReport) => void>();
   let saved: unknown;
   let clip = start.clipboard ?? "";
   let full = false;
@@ -32,6 +39,17 @@ export function memoryPlatform(start: { state?: unknown; windowsBuild?: number |
       full = on;
     },
     fullscreen: () => full,
+    config: {
+      load: async () => config,
+      watch(onChange) {
+        watchers.add(onChange);
+        return () => watchers.delete(onChange);
+      },
+    },
+    saveConfig(report) {
+      config = report;
+      for (const w of watchers) w(report);
+    },
     saved: () => saved,
     clipboardText: () => clip,
   };

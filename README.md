@@ -40,7 +40,8 @@ crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster se
                       the State file (state.rs), where the window reopens (window.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      state_load/state_save, platform_info, vault_status/unlock/lock;
+                      state_load/state_save, platform_info, vault_status/unlock/lock, config_load
+                      (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
@@ -55,6 +56,13 @@ src/errors/           clean connection errors (ticket 26, docs/errors.md): class
                       exit code + askpass line → a Problem), catalog.ts (the rows as a Registry: where, fix, actions,
                       extras), ErrorPanel.tsx (the Session pane's error), CheckPanel.tsx (`:check HOST`)
 src/lock/             the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
+crates/desk-core/src/config/
+                      the Lua Config (ticket 21, docs/config.md): schema.rs (every option and default), lua.rs
+                      (sandboxed Lua 5.4, `require` in the config dir, the `roster` table), locate.rs (file:line
+                      for schema errors), watch.rs (live reload), mod.rs (load, Loader keeping the last good one)
+src/config/           the Config in the frontend: types.ts (the core's object), apply.ts (→ options, and keys,
+                      Themes, Folders through the registries as "init.lua"), ConfigToast.tsx (errors, warnings)
+examples/init.lua     every option with its default, commented (a Rust test loads it)
 src/registry.ts       Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0004; registries.ts = the app's set
 src/commands/         table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)
 src/keymap.ts         keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)
@@ -109,8 +117,9 @@ To use a stopped distro, set `ROSTER_DESK_WSL_DISTRO=<name>`: only that distro i
 roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,
 `~/.config/roster/roster.yml`, `~/infra/roster.yml`), then starts
 `wsl.exe -d <distro> --cd ~ --exec /usr/bin/env PATH=<login PATH> <roster> -c <roster.yml> serve` with no console window (the login PATH so roster finds `bw` in `~/.local/bin`). On Linux it starts
-roster locally the same way. To use another roster command (until the Lua Config, ticket 21), set
-`ROSTER_DESK_ROSTER`, split on spaces:
+roster locally the same way. To use another roster command, set `roster_command` in `init.lua`
+(docs/config.md), or `ROSTER_DESK_ROSTER`, split on spaces, which wins over it (as `ROSTER_DESK_WSL_DISTRO`
+wins over `backend = "wsl:<distro>"`):
 
 ```bash
 ROSTER_DESK_ROSTER="uv run --project /home/you/work/roster roster" scripts/win-dev.sh

@@ -13,6 +13,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,6 +29,9 @@ import {
 } from "./backend/types";
 import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
+import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
+import { ConfigToast } from "./config/ConfigToast";
+import type { ConfigReport } from "./config/types";
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
@@ -59,7 +63,18 @@ import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
 import { Keys } from "./ui/Keys";
-import { defaultLayouts, isShown, otherMode, placed, togglePiece, type Layouts, type Place, type ViewMode } from "./view/layout";
+import {
+  defaultLayouts,
+  isShown,
+  otherMode,
+  pick,
+  placed,
+  STATUS_SEGMENTS,
+  togglePiece,
+  type Layouts,
+  type Place,
+  type ViewMode,
+} from "./view/layout";
 import { SessionBar } from "./view/SessionBar";
 
 type Conn =
@@ -114,22 +129,49 @@ export interface AppProps {
   /** Hosts to open Sessions to once the Backend is up, in order (a fixture's open Sessions: the
    * dev page's `?fixture=worst-case`, and the UI tests), once the app is first unlocked. */
   openAtStart?: readonly string[];
+  /** The Config as the app starts (ticket 21): it replaces `options`, `appearance`,
+   * `terminalOptions` and `layouts`, and its keys, Themes and Folders go into the registries.
+   * Later saves come through `platform.config`. */
+  config?: ConfigReport | null;
 }
 
 export function App({
   backend,
-  options = defaultOptions,
+  options: optionsProp = defaultOptions,
   registries: given,
   clock,
   terminalView = TerminalView,
-  terminalOptions = defaultTerminalOptions,
+  terminalOptions: terminalOptionsProp = defaultTerminalOptions,
   platform: platformProp,
-  appearance = defaultAppearance,
+  appearance: appearanceProp = defaultAppearance,
   layouts: layoutsProp,
   openAtStart,
+  config: configProp = null,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
+
+  // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
+  // with the last good Config and the error, so nothing changes but the toast.
+  const [report, setReport] = useState<ConfigReport | null>(configProp);
+  useEffect(() => platform.config?.watch(setReport), [platform]);
+  const config = report?.config ?? null;
+  const derived = useMemo(() => (config ? deriveConfig(config) : null), [config]);
+  const options = derived?.options ?? optionsProp;
+  const appearance = derived?.appearance ?? appearanceProp;
+  const terminalOptions = derived?.terminalOptions ?? terminalOptionsProp;
+  // Keys, Themes and Folders go through the registries as "init.lua"; the next Config replaces
+  // them. Before paint, so a custom Theme never flashes the default.
+  const [warnings, setWarnings] = useState<readonly ConfigWarning[]>([]);
+  useLayoutEffect(() => {
+    if (!config) return;
+    const registered = registerConfig(registries, config);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- what registering found is its result
+    setWarnings(registered.warnings);
+    return registered.dispose;
+  }, [registries, config]);
+  const [toastClosedFor, setToastClosedFor] = useState<ConfigReport | null>(null);
+
   const theme = useTheme(registries.themes, appearance);
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
@@ -151,13 +193,27 @@ export function App({
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(options.defaultMode);
-  const [layouts, setLayouts] = useState<Layouts>(() => layoutsProp ?? defaultLayouts(options));
+  const [layouts, setLayouts] = useState<Layouts>(() => layoutsProp ?? derived?.layouts ?? defaultLayouts(options));
+  // A Config whose layouts differ replaces them (and what `␣ e` / `␣ s` toggled); one that only
+  // changed a colour keeps them.
+  const modesKey = config ? JSON.stringify(config.modes) : null;
+  const [layoutsFrom, setLayoutsFrom] = useState(modesKey);
+  if (modesKey !== layoutsFrom) {
+    setLayoutsFrom(modesKey);
+    if (derived) setLayouts(derived.layouts);
+  }
   const layout = layouts[viewMode];
   const [hint, setHint] = useState(false);
   const [message, setMessage] = useState("");
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
+  // A new size in the Config is a new zoom reset point, and where the font goes now.
+  const [sizeFrom, setSizeFrom] = useState(terminalOptions.fontSize);
+  if (terminalOptions.fontSize !== sizeFrom) {
+    setSizeFrom(terminalOptions.fontSize);
+    setFontSize(terminalOptions.fontSize);
+  }
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
@@ -177,12 +233,17 @@ export function App({
   const hosts = conn.state === "ready" ? conn.hosts : null;
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
   const folded = useMemo(() => new Set(appState.folded), [appState.folded]);
+  // The mode's layout may pick and order the Sidebar's sections (decision Q39).
+  const shownSectionDefs = useMemo(
+    () => (layout.sections ? [...pick(sectionDefs, layout.sections)].map((d, i) => ({ ...d, order: i })) : sectionDefs),
+    [sectionDefs, layout.sections],
+  );
   const sections = useMemo(
     () =>
       hosts
-        ? buildSections(sectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions, state: appState, folded })
+        ? buildSections(shownSectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions, state: appState, folded })
         : [],
-    [sectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded],
+    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
@@ -502,10 +563,14 @@ export function App({
   // The custom title bar (decision Q32) sits above every screen, the lock screen too, so the
   // window can always be moved and closed; it shows nothing but the mark. The view mode's layout
   // says whether it shows at all (Focus is OS fullscreen without it).
+  const toast = report !== toastClosedFor && (
+    <ConfigToast error={report?.error ?? null} warnings={warnings} onClose={() => setToastClosedFor(report)} />
+  );
   const frame = (content: React.ReactNode) => (
     <div className="window">
       {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
       <div className="window-body">{content}</div>
+      {toast}
     </div>
   );
 
@@ -551,32 +616,64 @@ export function App({
     ? finderSources.find((s) => s.id === overlay.finder)
     : undefined;
 
+  // The status bar's segments, as the mode's layout picks and orders them (decision Q39); the
+  // hints and the mode go to the right.
+  const segment = (id: string) => {
+    switch (id) {
+      case "backend":
+        return (
+          <span key={id} className="backend" title={info.backend}>
+            <span className="status-dot" aria-hidden="true" />
+            <span className="statusbar-cut">{info.backend}</span>
+          </span>
+        );
+      case "box":
+        return (
+          <span key={id} className="statusbar-cut box" title={info.inventory.box}>
+            {info.inventory.box}
+          </span>
+        );
+      case "hosts":
+        return (
+          <span key={id} className="count">
+            {countOf(conn.hosts.hosts.length, "host")}
+          </span>
+        );
+      case "path":
+        return (
+          <span key={id} className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
+            {info.inventory.path}
+          </span>
+        );
+      case "hints":
+        // They drop out whole, last first, when the bar runs out of room (never cut mid-key).
+        return (
+          <span key={id} className="statusbar-hints">
+            {hints.map(([k, what]) => (
+              <span key={what} className="hint">
+                <Keys keys={k} leader={options.leader} /> {what}
+              </span>
+            ))}
+          </span>
+        );
+      case "mode":
+        return (
+          appMode && (
+            <span key={id} className="mode">
+              APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
+            </span>
+          )
+        );
+      default:
+        return null;
+    }
+  };
+  const segments = layout.segments ?? STATUS_SEGMENTS;
+  const right = new Set(["hints", "mode"]);
   const statusBar = (
     <footer key="statusbar" className="statusbar">
-      <span className="backend" title={info.backend}>
-        <span className="status-dot" aria-hidden="true" />
-        <span className="statusbar-cut">{info.backend}</span>
-      </span>
-      <span className="statusbar-cut box" title={info.inventory.box}>
-        {info.inventory.box}
-      </span>
-      <span className="count">{countOf(conn.hosts.hosts.length, "host")}</span>
-      <span className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
-        {info.inventory.path}
-      </span>
-      {/* The hints drop out whole, last first, when the bar runs out of room (never cut mid-key). */}
-      <span className="statusbar-hints">
-        {hints.map(([k, what]) => (
-          <span key={what} className="hint">
-            <Keys keys={k} leader={options.leader} /> {what}
-          </span>
-        ))}
-      </span>
-      {appMode && (
-        <span className="mode">
-          APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
-        </span>
-      )}
+      {segments.filter((id) => !right.has(id)).map(segment)}
+      <span className="statusbar-right">{segments.filter((id) => right.has(id)).map(segment)}</span>
     </footer>
   );
 

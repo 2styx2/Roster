@@ -81,6 +81,8 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       allowProposedApi: true,
       fontFamily: options.fontFamily,
       fontSize: cb.current.env.fontSize,
+      fontWeight: options.fontWeight,
+      fontWeightBold: options.fontWeightBold,
       lineHeight: options.lineHeight,
       theme: xtermTheme(cb.current.env.theme),
     });
@@ -240,11 +242,30 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
   useEffect(() => {
     const t = term.current;
     if (!t) return;
-    t.options.fontFamily = options.fontFamily;
-    t.options.lineHeight = options.lineHeight;
     t.options.theme = xtermTheme(theme);
-    if (t.options.fontSize !== fontSize) t.options.fontSize = fontSize;
-    if (el.current?.offsetParent !== null) fit.current?.fit();
+    let live = true;
+    const apply = () => {
+      if (!live) return;
+      t.options.fontFamily = options.fontFamily;
+      t.options.fontWeight = options.fontWeight;
+      t.options.fontWeightBold = options.fontWeightBold;
+      t.options.lineHeight = options.lineHeight;
+      t.options.scrollback = options.scrollback;
+      if (t.options.fontSize !== fontSize) t.options.fontSize = fontSize;
+      if (el.current?.offsetParent !== null) fit.current?.fit();
+    };
+    // xterm measures its cells when the font changes, so a font (or weight) the Config just
+    // picked must be loaded first; a bundled one is, and this resolves at once.
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    if (fonts && t.options.fontFamily !== options.fontFamily) {
+      const spec = (w: number) => `${w} ${fontSize}px ${options.fontFamily}`;
+      Promise.all([fonts.load(spec(options.fontWeight)), fonts.load(spec(options.fontWeightBold))]).then(apply, apply);
+    } else {
+      apply();
+    }
+    return () => {
+      live = false;
+    };
   }, [fontSize, options, theme]);
 
   // A view mode change resizes the window (OS fullscreen) after the layout does, so fit again

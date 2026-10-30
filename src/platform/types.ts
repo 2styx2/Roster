@@ -1,3 +1,5 @@
+import type { ConfigSource } from "../config/types";
+
 // What the app needs from the machine it runs on, apart from roster (that's the Backend): the
 // State file, the clipboard, the Windows build, the window's controls (title bar) and fullscreen
 // (Focus mode). Tests and the plain browser use their own implementations (memory.ts,
@@ -42,4 +44,6 @@ export interface Platform {
   window?: WindowControls;
   /** OS fullscreen on or off (Focus mode, ticket 22). */
   setFullscreen(on: boolean): Promise<void>;
+  /** The Config (init.lua, ticket 21) and its live changes; absent in a plain browser. */
+  config?: ConfigSource;
 }

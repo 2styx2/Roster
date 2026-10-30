@@ -10,12 +10,16 @@
 //   folder add [HOST [NAME]]   folder remove [HOST NAME]
 //
 // Names may have spaces ("Lab ESXi"); quote one only where it would be ambiguous.
+//
+// Folders can also be defined in init.lua (ticket 21, decision Q46): the Config registers them in
+// the `folders` registry (as a Plugin could), and they show first, marked "from init.lua", and
+// can only be changed there. A Folder in the State with the same name is hidden behind it.
 import type { Host } from "../backend/types";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { registerBindings } from "../keymap";
 import { sectionFinder } from "../finder/sources";
 import type { Registries } from "../registries";
-import { BUILTIN } from "../registry";
+import { BUILTIN, Registry, type Entry } from "../registry";
 import type { SidebarRow, SidebarSection } from "../sidebar/Sidebar";
 import { hostRow, type SidebarContext, type SidebarSectionDef } from "../sidebar/sections";
 
@@ -24,6 +28,21 @@ export interface Folder {
   /** Host names, in the order they were added. */
   hosts: string[];
 }
+
+/** A Folder from the Config or a Plugin (read-only in the app). Its id is the name, lower case. */
+export interface FolderEntry extends Entry {
+  name: string;
+  hosts: string[];
+}
+
+export type FolderRegistry = Registry<FolderEntry>;
+
+/** Folders the app can't change, by name: none, unless the Config or a Plugin defines some. */
+type Fixed = Pick<FolderRegistry, "list">;
+const noFixed: Fixed = { list: () => [] };
+
+const fixedNamed = (fixed: Fixed, name: string) =>
+  fixed.list().find((f) => f.name.toLowerCase() === name.trim().toLowerCase());
 
 /** The State key. */
 export const STATE_KEY = "folders";
@@ -145,9 +164,9 @@ export interface FolderStore {
   set(key: string, value: unknown): void;
 }
 
-function runFolder(store: FolderStore, ctx: CommandContext, arg: string) {
+function runFolder(store: FolderStore, fixed: Fixed, ctx: CommandContext, arg: string) {
   const folders = parseFolders(store.get(STATE_KEY));
-  const names = folders.map((f) => f.name);
+  const names = [...fixed.list().map((f) => f.name), ...folders.map((f) => f.name)];
   const [sub, rest] = firstWord(arg);
   const apply = (outcome: Outcome) => {
     if ("error" in outcome) return ctx.say(outcome.error);
@@ -155,9 +174,17 @@ function runFolder(store: FolderStore, ctx: CommandContext, arg: string) {
     ctx.say(outcome.message);
   };
   const cursorFolder = () => ctx.cursorRow()?.data?.folder ?? null;
+  /** A Folder from init.lua can only be changed there. */
+  const fromConfig = (name: string) => {
+    const f = fixedNamed(fixed, name);
+    if (!f) return false;
+    ctx.say(`${f.name} is defined in ${f.source}: change it there`);
+    return true;
+  };
   switch (sub) {
     case "new":
       if (!rest) return ctx.openCommandLine("folder new ");
+      if (fromConfig(unquote(rest))) return;
       return apply(createFolder(folders, unquote(rest)));
     case "rename": {
       if (!rest) {
@@ -165,12 +192,15 @@ function runFolder(store: FolderStore, ctx: CommandContext, arg: string) {
         return f ? ctx.openCommandLine(`folder rename ${quote(f)} `) : ctx.say("folder rename needs a Folder name and a new name");
       }
       const [name, to] = splitName(rest, names);
+      if (fromConfig(name)) return;
       if (!to) return ctx.openCommandLine(`folder rename ${quote(name)} `);
+      if (fromConfig(unquote(to))) return;
       return apply(renameFolder(folders, name, unquote(to)));
     }
     case "delete": {
       const name = rest ? unquote(rest) : cursorFolder();
       if (!name) return ctx.say("folder delete needs a Folder name");
+      if (fromConfig(name)) return;
       return apply(deleteFolder(folders, name));
     }
     case "add": {
@@ -179,6 +209,7 @@ function runFolder(store: FolderStore, ctx: CommandContext, arg: string) {
       if (!host) return ctx.say("No Host selected: move to one in the Sidebar, or use folder add HOST NAME");
       if (!ctx.hostNames().includes(host)) return ctx.say(`No Host named ${host}`);
       if (!name) return ctx.openCommandLine(`folder add ${host} `);
+      if (fromConfig(unquote(name))) return;
       return apply(addToFolder(folders, host, unquote(name)));
     }
     case "remove": {
@@ -186,10 +217,12 @@ function runFolder(store: FolderStore, ctx: CommandContext, arg: string) {
         const row = ctx.cursorRow();
         const folder = row?.data?.folder;
         if (!row?.host || !folder) return ctx.say("Move to a Host in a Folder first, or use folder remove HOST NAME");
+        if (fromConfig(folder)) return;
         return apply(removeFromFolder(folders, row.host, folder));
       }
       const [host, name] = firstWord(rest);
       if (!name) return ctx.say("folder remove needs a Host and a Folder name");
+      if (fromConfig(unquote(name))) return;
       return apply(removeFromFolder(folders, host, unquote(name)));
     }
     default:
@@ -222,8 +255,8 @@ function completeFolder(store: FolderStore, arg: string, hostNames: readonly str
     .map((n) => `${sub} ${host} ${n}`);
 }
 
-/** The `folder` command, keeping its data in `store`. */
-export function folderCommand(store: FolderStore): CommandDef {
+/** The `folder` command, keeping its data in `store`; `fixed` Folders (init.lua's) it won't change. */
+export function folderCommand(store: FolderStore, fixed: Fixed = noFixed): CommandDef {
   return {
     id: "folder",
     source: BUILTIN,
@@ -238,13 +271,40 @@ export function folderCommand(store: FolderStore): CommandDef {
       if (sub === "delete") return "Delete a Folder";
       return "Folders: new, rename, delete, add, remove";
     },
-    run: (ctx, arg) => runFolder(store, ctx, arg ?? ""),
+    run: (ctx, arg) => runFolder(store, fixed, ctx, arg ?? ""),
     complete: (arg, hostNames) => completeFolder(store, arg, hostNames),
   };
 }
 
 const addTo = (folder: Folder) => (host: string) =>
   folder.hosts.includes(host) ? null : `folder add ${host} ${folder.name}`;
+
+/** A Folder from init.lua: marked, and nothing on it changes it (no rename, delete or drop). */
+function fixedRows(folder: FolderEntry, hostByName: ReadonlyMap<string, Host>): SidebarRow[] {
+  const id = `folder:${folder.name}`;
+  const data = { folder: folder.name };
+  const head: SidebarRow = {
+    id,
+    label: folder.name,
+    detail: String(folder.hosts.length),
+    note: `from ${folder.source}`,
+    title: `Defined in ${folder.source}: change it there`,
+    icon: "folder",
+    level: 0,
+    foldable: true,
+    data,
+    command: `togglefold ${id}`,
+  };
+  const hosts = folder.hosts.map((name): SidebarRow => {
+    const host = hostByName.get(name);
+    const rowId = `${id}/${name}`;
+    const base: SidebarRow = host
+      ? hostRow(host, rowId, 1)
+      : { id: rowId, label: name, host: name, dot: "off", note: "not in the Inventory", level: 1, command: `open ${name}` };
+    return { ...base, data, drag: name };
+  });
+  return [head, ...hosts];
+}
 
 function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): SidebarRow[] {
   const id = `folder:${folder.name}`;
@@ -283,22 +343,23 @@ function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): Side
   return [head, ...hosts];
 }
 
-/** The Folders section, between Sessions and the Inventory. */
-export function foldersSection(): SidebarSectionDef {
+/** The Folders section, between Sessions and the Inventory: init.lua's first, then the State's. */
+export function foldersSection(fixed: Fixed = noFixed): SidebarSectionDef {
   return {
     id: "folders",
     source: BUILTIN,
     order: 200,
     build: ({ state, hostByName }: SidebarContext): SidebarSection => {
-      const folders = parseFolders(state[STATE_KEY]);
+      const pinned = fixed.list();
+      const folders = parseFolders(state[STATE_KEY]).filter((f) => !fixedNamed(fixed, f.name));
       return {
         id: "folders",
         title: "Folders",
-        count: folders.length,
+        count: pinned.length + folders.length,
         empty: "No Folders yet. Drag a Host here or press `␣ a`.",
         actions: [{ label: "New Folder", icon: "add", command: "folder new" }],
         drop: (host) => `folder add ${host}`,
-        rows: folders.flatMap((f) => folderRows(f, hostByName)),
+        rows: [...pinned.flatMap((f) => fixedRows(f, hostByName)), ...folders.flatMap((f) => folderRows(f, hostByName))],
       };
     },
   };
@@ -306,11 +367,25 @@ export function foldersSection(): SidebarSectionDef {
 
 /** Registers Folders: the section, the `folder` command, and ␣ a / ␣ A. Returns what undoes it. */
 export function registerFolders(registries: Registries, store: FolderStore): () => void {
+  const fixed = registries.folders;
+  // The section builds from the `folders` registry; registering it again when that changes is
+  // what tells the Sidebar to rebuild.
+  let section = registries.sidebar.register(foldersSection(fixed));
+  const unwatch = fixed.subscribe(() => {
+    section();
+    section = registries.sidebar.register(foldersSection(fixed));
+  });
   const disposers = [
-    registries.sidebar.register(foldersSection()),
-    registries.commands.register(folderCommand(store)),
+    () => {
+      unwatch();
+      section();
+    },
+    registries.commands.register(folderCommand(store, fixed)),
     registries.finders.register(sectionFinder("folders", "Find in the Folders", "Folders")),
     registerBindings(registries.keymap, { leader: { a: "folder add", A: "folder remove" } }, BUILTIN),
   ];
   return () => disposers.forEach((d) => d());
 }
+
+/** An empty `folders` registry: init.lua and Plugins add to it. */
+export const folderRegistry = (): FolderRegistry => new Registry<FolderEntry>();
