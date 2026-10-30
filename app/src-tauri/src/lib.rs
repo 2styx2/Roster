@@ -135,7 +135,7 @@ async fn config_open(
     .await
 }
 
-/// `:config reload`: reads init.lua again now, and tells every listener as a save would.
+/// `:source` (and `:config reload`): reads init.lua again now, and tells every listener.
 #[tauri::command]
 async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigState>) -> Result<Option<Report>, ()> {
     use tauri::Emitter;
@@ -151,8 +151,9 @@ async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigSta
 /// `config-changed` event.
 const CONFIG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// Reads init.lua (waiting at most CONFIG_STARTUP_WAIT), then watches its dir and emits
-/// `config-changed` after every save, and once the first load is done.
+/// Reads init.lua (waiting at most CONFIG_STARTUP_WAIT), then watches its dir: after a save it
+/// emits `config-changed` (with `auto_reload = true`) or `config-stale`. `config-changed` also
+/// comes once the first load is done.
 fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watcher> {
     use tauri::Emitter;
     let handle = app.handle().clone();
@@ -164,8 +165,15 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     });
     let handle = app.handle().clone();
     let l = Arc::clone(loader);
-    match config::watch(loader.dir(), move || {
-        let _ = handle.emit("config-changed", l.reload());
+    // A save reloads only with `auto_reload = true` (decision Q58); otherwise the frontend
+    // hears that the file changed, and `:source` applies it.
+    match config::watch(loader.dir(), move || match l.on_save() {
+        Some(report) => {
+            let _ = handle.emit("config-changed", report);
+        }
+        None => {
+            let _ = handle.emit("config-stale", ());
+        }
     }) {
         Ok(w) => Some(w),
         Err(e) => {
