@@ -128,7 +128,9 @@ export function App({
   const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
   // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
   // screen; the tab opens by itself once the vault is unlocked again.
-  useEffect(() => tabs.setVaultLockedHandler(() => void vault.lock()), [tabs, vault]);
+  // `vault` is a new object each render; its `lock` is stable, so the handler is set once.
+  const lockVault = vault.lock;
+  useEffect(() => tabs.setVaultLockedHandler(() => void lockVault()), [tabs, lockVault]);
   const vaultUnlocked = vault.view.state === "unlocked";
   useEffect(() => {
     if (vaultUnlocked) tabs.resumeAfterUnlock();

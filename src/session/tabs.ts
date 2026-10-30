@@ -11,7 +11,7 @@ import {
   type SessionHandle,
   type TermSize,
 } from "../backend/types";
-import { classifyExit, terminalTail, type Problem } from "../errors/classify";
+import { classifyDrop, classifyExit, terminalTail, type Problem } from "../errors/classify";
 import { problemFromCallError } from "../errors/catalog";
 
 export type TabStatus =
@@ -19,7 +19,8 @@ export type TabStatus =
   | { state: "open" }
   /** roster refused (`session.prepare`) or the PTY couldn't start; `code` is roster's. */
   | { state: "failed"; message: string; code: number | null; problem: Problem }
-  /** `problem`: why ssh failed (exit 255, classified from the last output), or null. */
+  /** `problem`: why ssh failed (exit 255, classified from what it printed before logging in, or a
+   * dropped Session after that), or null. */
   | { state: "ended"; exit: SessionExit; problem: Problem | null };
 
 export interface Tab {
@@ -38,12 +39,22 @@ export interface TabsSnapshot {
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 
 /** Output kept per tab for a terminal that attaches later (or again). */
 const REPLAY_LIMIT = 1024 * 1024;
-/** The latest attempt's last output, which classifyExit reads when ssh fails. */
-const TAIL_LIMIT = 16 * 1024;
+/**
+ * The pre-auth window: what a Session prints before it has logged in is ssh's (and roster
+ * askpass's) own, and that's all classifyExit may read. Once logged in, the output is the Host's,
+ * where a nested ssh's error or a forged `roster askpass:` line would look just like ours. ssh
+ * doesn't say when the login succeeded, so the window closes after PRE_AUTH_MS (roster's ssh
+ * config has ConnectTimeout 10, and askpass answers in a few seconds) or PRE_AUTH_BYTES of output
+ * (ssh's own messages are short), whichever comes first. A 255 after that is a dropped Session
+ * (row 20), told apart only by ssh's drop lines in the last output.
+ */
+const PRE_AUTH_MS = 30_000;
+const PRE_AUTH_BYTES = 8 * 1024;
+/** The latest attempt's last output after the window, for classifyDrop. */
+const LATE_LIMIT = 4 * 1024;
 
 type Sink = (data: Uint8Array) => void;
 
@@ -66,8 +77,16 @@ interface Entry {
   sentSize: TermSize;
   replay: Uint8Array[];
   replayBytes: number;
-  /** The current attempt's last output (decoded), for classifying a failure. */
-  tail: string;
+  /** The current attempt's output (decoded) inside the pre-auth window, for classifyExit. */
+  preAuth: string;
+  preAuthBytes: number;
+  /** When the current attempt started, or null once its pre-auth window has closed. */
+  windowFrom: number | null;
+  /** The current attempt's last output after the window (decoded), for classifyDrop. */
+  late: string;
+  /** Decodes this tab's output for `preAuth` and `late`. Its own, and new each attempt: a streaming decoder
+   * holds a character split across chunks, which must not end up in another tab's text. */
+  decoder: TextDecoder;
   sink: Sink | null;
   wiring: TerminalWiring;
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
@@ -84,9 +103,12 @@ export class Tabs {
   private snap: TabsSnapshot = { tabs: [], active: null };
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
+  private readonly now: () => number;
 
-  constructor(backend: Backend) {
+  /** `now`: the clock the pre-auth window is timed with (tests move it). */
+  constructor(backend: Backend, { now = Date.now }: { now?: () => number } = {}) {
     this.backend = backend;
+    this.now = now;
   }
 
   /** Called when a password Host's vault turns out to be locked (`session.prepare` code 14): the
@@ -125,20 +147,32 @@ export class Tabs {
     entry.sink?.(data);
   }
 
-  private keepTail(entry: Entry, data: Uint8Array) {
-    entry.tail += decoder.decode(data, { stream: true });
-    if (entry.tail.length > TAIL_LIMIT) entry.tail = entry.tail.slice(-TAIL_LIMIT);
+  /** Closes the attempt's pre-auth window once its time is up. */
+  private windowOpen(entry: Entry): boolean {
+    if (entry.windowFrom !== null && this.now() - entry.windowFrom >= PRE_AUTH_MS) entry.windowFrom = null;
+    return entry.windowFrom !== null;
   }
 
-  /** Why the Session ended, from its exit code and last output (null: it ended normally). */
+  private keepTail(entry: Entry, data: Uint8Array) {
+    const text = entry.decoder.decode(data, { stream: true });
+    if (this.windowOpen(entry) && entry.preAuthBytes + data.length <= PRE_AUTH_BYTES) {
+      entry.preAuth += text;
+      entry.preAuthBytes += data.length;
+      return;
+    }
+    entry.windowFrom = null;
+    entry.late += text;
+    if (entry.late.length > LATE_LIMIT) entry.late = entry.late.slice(-LATE_LIMIT);
+  }
+
+  /** Why the Session ended, from its exit code and output (null: it ended normally). */
   private classify(entry: Entry, exit: SessionExit): Problem | null {
     if (exit.closed) return null;
-    return classifyExit({
-      exitCode: exit.code,
-      tail: terminalTail(entry.tail),
-      host: entry.tab.host,
-      auth: entry.tab.auth,
-    });
+    const host = entry.tab.host;
+    if (!this.windowOpen(entry)) {
+      return exit.code === 255 ? classifyDrop({ host, tail: terminalTail(entry.late) }) : null;
+    }
+    return classifyExit({ exitCode: exit.code, tail: terminalTail(entry.preAuth), host, auth: entry.tab.auth });
   }
 
   /** "host", or "host (n)" with the smallest n no other tab to `host` uses. */
@@ -166,7 +200,11 @@ export class Tabs {
       sentSize: size,
       replay: [],
       replayBytes: 0,
-      tail: "",
+      preAuth: "",
+      preAuthBytes: 0,
+      windowFrom: null,
+      late: "",
+      decoder: new TextDecoder(),
       sink: null,
       pending: [],
       wiring: {
@@ -218,7 +256,11 @@ export class Tabs {
     const current = () => entry.attempt === attempt && !entry.closing;
     const { id, host } = entry.tab;
     entry.sentSize = { ...entry.size };
-    entry.tail = "";
+    entry.preAuth = "";
+    entry.preAuthBytes = 0;
+    entry.windowFrom = this.now();
+    entry.late = "";
+    entry.decoder = new TextDecoder();
     this.backend
       .openSession(host, entry.size, {
         output: (data) => {

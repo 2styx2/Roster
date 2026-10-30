@@ -152,3 +152,14 @@ fn every_session_command_asks_for_a_fresh_token() {
     assert!(first.starts_with(TOKEN));
     assert_ne!(first, second);
 }
+
+#[test]
+fn a_malformed_session_prepare_names_the_field_but_never_its_value() {
+    // serde's own message quotes the bad value ("invalid type: integer `987654321`"), and the env
+    // carries the askpass token, so the error may only say which field has the wrong shape.
+    let b = Backend::start(&fake("bad-prepare")).unwrap();
+    let err = b.session_command("sw-core").err().unwrap();
+    let text = format!("{err} {err:?} {}", serde_json::to_string(&err).unwrap());
+    assert!(!text.contains("987654321"), "{text}");
+    assert!(text.contains("env.ROSTER_ASKPASS_TOKEN"), "{text}");
+}

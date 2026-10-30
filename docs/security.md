@@ -9,6 +9,7 @@ roster-desk keeps roster's promise: **secrets are fetched when needed, kept in m
 | Vault (Bitwarden, …) | yes, at rest |
 | `roster serve` process memory | yes, while unlocked |
 | Private askpass socket, one-time token | yes, in transit, once |
+| Session process env (the token only, never the password) | the token, for the Session's life |
 | `roster askpass` → `ssh` | yes, in transit |
 | Rust core | **never** |
 | Frontend, app State, Config, logs | **never** |
@@ -32,7 +33,16 @@ roster-desk never stores secrets: there's no built-in vault, now or later (decis
 - Idle means no key, click, pointer move or wheel anywhere in the window. The timer runs in the frontend (`src/lock/idle.ts`), where that input arrives, so no keystroke has to cross to Rust. It re-checks the clock when it fires, so a late timer (sleep, a throttled window) still locks.
 - If no Host Login uses a vault with a master password (`vault.status` says `unsupported`), there is nothing to unlock, so there's no lock screen and no idle lock, and the lock key says "nothing to lock".
 - If the vault CLI is missing or not logged in, the lock screen says what to install or run (roster's message) and offers "Check again". It doesn't ask for a password it can't use.
+- If an unlock fails without a clear answer (the call timed out, or `serve` was lost), `serve` may still finish the unlock. The app stays locked, asks `vault.status` (`serve` answers in order, so this comes after that unlock), and calls `vault.lock` if it says unlocked, unless a newer unlock attempt has started meanwhile.
 - The master password lives only in the lock screen's input (never in React state). It goes to the `vault_unlock` command and the field is emptied as soon as the call returns. The Rust core passes it to `serve`'s stdin inside the request and drops it; it's never logged or put in an error.
+
+## The askpass token
+
+`session.prepare` hands back a one-time token (60 s, spent on first use) in the Session's env. The Rust core sets it on the Session's process and never in an argv: a command line is readable by any process and logged by process-creation auditing for the process's whole life, while the environment is only readable by the same user. On WSL that means setting it on `wsl.exe` and naming it in `WSLENV` (`docs/dev/tauri-pty-wsl.md`, section 2). It never appears in Debug output or error text: names only, and spawn errors are redacted.
+
+## The webview
+
+The built app runs under a Content Security Policy (`src-tauri/tauri.conf.json`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'`. So no remote script, style, font or connection, no inline script and no `eval`. Tauri adds hashes for its own inline scripts. `style-src` keeps `'unsafe-inline'` for the `<style>` elements xterm.js creates, and `dangerousDisableAssetCspModification: ["style-src"]` stops Tauri from adding a style nonce, which would void `'unsafe-inline'`. Fonts (Inter, Iosevka) are bundled, never fetched. On desktop, `tauri dev` loads the Vite dev server directly and Tauri adds no CSP header there (only to embedded assets), so HMR needs no `devCsp`.
 
 ## Connections
 

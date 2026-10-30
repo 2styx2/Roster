@@ -6,37 +6,33 @@ use desk_core::backend::{Backend, BackendInfo};
 use desk_core::detect::{BackendError, DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use desk_core::rpc::CallError;
 use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
+use desk_core::slot::Slot;
 use desk_core::state::StateFile;
 use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeResponseBody};
 
-/// The one `roster serve` for this app launch, once started.
+/// The one `roster serve` for this app launch, once started. Starting happens outside the lock
+/// that `get` takes (desk-core's Slot), so commands on the async workers never wait for a start.
 #[derive(Default)]
-struct BackendState(Mutex<Option<Arc<Backend>>>);
+struct BackendState(Slot<Backend>);
 
 impl BackendState {
-    /// The running Backend, starting one if there's none (or the last one died).
+    /// The running Backend, starting one if there's none (or the last one died). Blocks for the
+    /// whole detection and start: run it on a blocking thread.
     fn connect(&self, restart: bool) -> Result<BackendInfo, BackendError> {
-        let mut slot = self.0.lock().unwrap();
-        if restart {
-            slot.take();
-        }
-        if let Some(b) = slot.as_ref().filter(|b| b.is_alive()) {
-            return Ok(b.info.clone());
-        }
-        slot.take();
-        let cmd = roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref());
-        let distro = std::env::var(DISTRO_VAR).ok();
-        let candidate = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref())?;
-        let backend = Backend::start(&candidate)?;
-        let info = backend.info.clone();
-        *slot = Some(Arc::new(backend));
-        Ok(info)
+        let backend = self.0.connect(restart, Backend::is_alive, || {
+            let cmd = roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref());
+            let distro = std::env::var(DISTRO_VAR).ok();
+            let candidate = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref())?;
+            Backend::start(&candidate)
+        })?;
+        Ok(backend.info.clone())
     }
 
+    /// The running Backend. Never waits for one that's starting.
     fn get(&self) -> Result<Arc<Backend>, CallError> {
-        self.0.lock().unwrap().clone().ok_or(CallError::Io {
+        self.0.get().ok_or(CallError::Io {
             message: "the backend isn't running".into(),
         })
     }

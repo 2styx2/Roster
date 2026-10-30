@@ -17,7 +17,7 @@ Verified: with `default-members` set to the core crate, a plain `cargo test` in 
 
 Design the seams so the core is testable:
 - `trait Transport { spawn(argv, env) -> (stdin, stdout lines) }`. The real one runs `wsl.exe --exec …`; the test one runs `python3 tests/fake_serve.py` or an in-memory pair. The JSON-RPC client is tested against a fake that answers `inventory.info` with an old version, an error object, out-of-order ids, and the child exiting mid-call.
-- Build the PTY command from a pure function: `fn session_argv(backend, prepared) -> Vec<String>`. Unit-test the `--exec env K=V ssh …` shape. That's where the wsl.exe quoting bugs live (see tauri-pty-wsl.md).
+- Build the PTY command from a pure function: `fn session_argv(backend, prepared) -> Vec<String>`. Unit-test the `wsl.exe --exec ssh …` shape, with the env on the process and named in `WSLENV`, never in the argv. That's where the wsl.exe quoting bugs live (see tauri-pty-wsl.md).
 - The session manager emits output through a `Fn(Vec<u8>)` sink, not a Tauri Channel. src-tauri adapts it to `InvokeResponseBody::Raw`.
 - PTY tests: on Linux use `sh`. If they ever run on Windows, answer ConPTY's `ESC[6n` with `\x1b[1;1R` first, or the child never starts. Gate them with `#[cfg(unix)]` for now.
 

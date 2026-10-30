@@ -7,4 +7,5 @@ pub mod error;
 pub mod platform;
 pub mod rpc;
 pub mod session;
+pub mod slot;
 pub mod state;

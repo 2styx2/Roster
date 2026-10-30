@@ -11,6 +11,7 @@ import {
   type Host,
   type HostCheck,
   type HostList,
+  type ProviderStatus,
   type VaultStatus,
   type VaultStatusWord,
   VaultError,
@@ -45,6 +46,10 @@ export interface FakeScenario {
   /** The vault locks itself again this many ms after each unlock (bw's own timeout, another
    * roster command), so the next password Session meets code 14. */
   relockAfterMs?: number;
+  /** `vault.unlock` with the right password takes `completesAfterMs`, but the call gives up
+   * after `failAfterMs` (desk-core's timeout) while serve carries on and unlocks anyway. Like
+   * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
+  slowUnlock?: { failAfterMs: number; completesAfterMs: number };
 }
 
 export interface Refusal {
@@ -139,7 +144,7 @@ export const fixtures: Record<string, FakeScenario> = {
     startProblem: problem(
       "roster-too-old",
       "This roster has no `serve` command (it predates roster-desk).",
-      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_DESK_ROSTER at a newer one, e.g. `uv run --project ~/work/roster roster`.",
+      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_DESK_ROSTER at a newer one, e.g. `uv run --project /home/you/work/roster roster`.",
       "roster: error: argument cmd: invalid choice: 'serve' (choose from init, setup, sync, ...)",
     ),
   },
@@ -235,6 +240,29 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   };
   let sessions = 0;
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  /** serve answers one request at a time: vault calls queue behind a slow unlock. */
+  let serveBusy: Promise<unknown> = Promise.resolve();
+  const inOrder = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = serveBusy.then(job, job);
+    serveBusy = run.catch(() => {});
+    return run;
+  };
+  const unlock = async (password: string): Promise<ProviderStatus> => {
+    await wait();
+    if (vault === "not-logged-in") throw new BackendCallError(NOT_LOGGED_IN, VaultError.notLoggedIn);
+    if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
+    if (vault === "unsupported")
+      throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
+    if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
+    vault = "unlocked";
+    if (scenario.relockAfterMs !== undefined) {
+      setTimeout(() => {
+        if (vault === "unlocked") vault = "locked";
+      }, scenario.relockAfterMs);
+    }
+    return { provider: "bw", status: vault };
+  };
   return {
     async connect(): Promise<BackendInfo> {
       await wait();
@@ -265,31 +293,32 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       if (!h) throw new BackendCallError(`unknown host '${name}'`, 2);
       return h;
     },
-    async vaultStatus() {
-      await wait();
-      return vaultStatus();
+    vaultStatus: () =>
+      inOrder(async () => {
+        await wait();
+        return vaultStatus();
+      }),
+    unlockVault(password: string) {
+      const slow = scenario.slowUnlock;
+      const unlocking = inOrder(async () => {
+        if (slow && password === FAKE_PASSWORD) await sleep(slow.completesAfterMs);
+        return unlock(password);
+      });
+      if (!slow) return unlocking;
+      return Promise.race([
+        unlocking,
+        sleep(slow.failAfterMs).then(() => {
+          throw new BackendCallError("The backend didn't answer in time.", null, null, true);
+        }),
+      ]);
     },
-    async unlockVault(password: string) {
-      await wait();
-      if (vault === "not-logged-in") throw new BackendCallError(NOT_LOGGED_IN, VaultError.notLoggedIn);
-      if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
-      if (vault === "unsupported")
-        throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
-      if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
-      vault = "unlocked";
-      if (scenario.relockAfterMs !== undefined) {
-        setTimeout(() => {
-          if (vault === "unlocked") vault = "locked";
-        }, scenario.relockAfterMs);
-      }
-      return { provider: "bw", status: vault };
-    },
-    async lockVault() {
-      await wait();
-      if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
-      vault = "locked";
-      return { locked: ["bw"] };
-    },
+    lockVault: () =>
+      inOrder(async () => {
+        await wait();
+        if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
+        vault = "locked";
+        return { locked: ["bw"] };
+      }),
     async openSession(host, size, events) {
       await wait();
       const h = scenario.hosts.hosts.find((x) => x.name === host);

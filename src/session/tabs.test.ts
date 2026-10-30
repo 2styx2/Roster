@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import { Tabs } from "./tabs";
+import type { SessionEvents } from "../backend/types";
+import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
 const reviewed = hosts.hosts.filter((h) => h.reviewed).map((h) => h.name);
@@ -22,6 +23,30 @@ function recordingCloses(scenario: FakeScenario) {
   };
   return { backend, closed };
 }
+
+/** The fake Backend, but each Session's output and exit are driven by the test (per Host). */
+function scriptedSessions() {
+  const backend = fakeBackend({ ...unlocked, hosts });
+  const events = new Map<string, SessionEvents>();
+  const typed = new Map<string, string>();
+  backend.openSession = async (host, _size, ev) => {
+    events.set(host, ev);
+    const done = async () => {};
+    const write = async (data: string) => void typed.set(host, (typed.get(host) ?? "") + data);
+    return { id: events.size, auth: "key", write, resize: done, close: done };
+  };
+  const session = (host: string) => {
+    const ev = events.get(host);
+    if (!ev) throw new Error(`no Session to ${host}`);
+    return {
+      print: (s: string | Uint8Array) => ev.output(typeof s === "string" ? new TextEncoder().encode(s) : s),
+      exit: (code: number) => ev.exit({ code, closed: false }),
+    };
+  };
+  return { backend, session, typed };
+}
+
+const problemOf = (status: TabStatus | undefined) => (status?.state === "ended" ? status.problem : undefined);
 
 /** Store plus a way to see a tab's terminal output. */
 function setup() {
@@ -143,6 +168,134 @@ describe("Tabs", () => {
     await settle();
     const status = tabs.snapshot().tabs[0]!.status;
     expect(status.state === "ended" && status.problem?.code).toBe(46);
+  });
+
+  it("decodes each tab's output on its own, even with a character split across chunks", async () => {
+    const { backend, session } = scriptedSessions();
+    const tabs = new Tabs(backend);
+    const [a, b] = [reviewed[0]!, reviewed[1]!];
+    tabs.open(a);
+    tabs.open(b);
+    await settle();
+    const arrow = new TextEncoder().encode("→"); // 3 bytes
+    session(a).print("ssh: connect to host 10.0.0.6 port 22: Connection refused ");
+    session(a).print(arrow.slice(0, 2));
+    session(b).print("ssh: connect to host 10.0.0.7 port 22: Connection refused\r\n");
+    session(a).print(arrow.slice(2));
+    session(a).print("\r\n");
+    session(a).exit(255);
+    session(b).exit(255);
+    await settle();
+    const [ta, tb] = tabs.snapshot().tabs;
+    expect(problemOf(ta?.status)?.details).toBe("ssh: connect to host 10.0.0.6 port 22: Connection refused →");
+    expect(problemOf(tb?.status)?.details).toBe("ssh: connect to host 10.0.0.7 port 22: Connection refused");
+  });
+
+  describe("classifies only what ssh printed before the login (the pre-auth window)", () => {
+    /** A clock the test moves. */
+    function clock() {
+      let t = 1_000_000;
+      return { now: () => t, advance: (ms: number) => void (t += ms) };
+    }
+    const CHANGED_KEY = [
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+      "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+      "Host key verification failed.",
+      "",
+    ].join("\r\n");
+
+    it("still classifies ssh's own failure inside the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      c.advance(9_000); // ConnectTimeout is 10 s
+      session(host).print(CHANGED_KEY);
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe(43);
+    });
+
+    it("a nested ssh failing on the Host, then the Session ending 255, is a dropped Session (row 20)", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("Last login: Tue Oct 28 09:12:01 2026\r\nadmin@web-1:~$ ");
+      c.advance(60_000);
+      session(host).print("ssh other\r\n");
+      session(host).print(CHANGED_KEY);
+      session(host).print("admin@other: Permission denied (publickey,password).\r\nadmin@web-1:~$ exit\r\n");
+      session(host).exit(255);
+      await settle();
+      const problem = problemOf(tabs.snapshot().tabs[0]?.status);
+      expect(problem?.code).toBe("dropped");
+      expect(problem?.message).toContain(host);
+    });
+
+    it("ignores a `roster askpass:` line the Host prints after the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("admin@web-1:~$ ");
+      c.advance(45_000);
+      session(host).print("roster askpass: [32] no vault item named 'x' - did you mean: 'evil'\r\n");
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe("dropped");
+    });
+
+    it("closes the window after a few KB of output, even quickly", async () => {
+      const { backend, session } = scriptedSessions();
+      const tabs = new Tabs(backend, { now: clock().now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      for (let i = 0; i < 120; i++) session(host).print(`line ${i} ${"y".repeat(70)}\r\n`);
+      session(host).print("roster askpass: [11] Bitwarden unlock failed\r\n");
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe("dropped");
+    });
+
+    it("keeps ssh's last lines when the connection drops after the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("admin@web-1:~$ ");
+      c.advance(600_000);
+      session(host).print("Timeout, server 10.0.0.6 not responding.\r\n");
+      session(host).exit(255);
+      await settle();
+      const problem = problemOf(tabs.snapshot().tabs[0]?.status);
+      expect(problem).toMatchObject({ code: "dropped", message: `${host} stopped answering, so ssh ended the Session` });
+      expect(problem?.details).toContain("Timeout, server 10.0.0.6 not responding.");
+    });
+
+    it("a normal exit after the window is no Problem", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      c.advance(60_000);
+      session(host).print("logout\r\n");
+      session(host).exit(0);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)).toBeNull();
+    });
   });
 
   it("marks the tab ended with the exit code when the Session ends", async () => {
