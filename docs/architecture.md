@@ -67,7 +67,7 @@ This follows WezTerm's model (roster-desk ADR 0002):
 - It's layered: built-in defaults, then `init.lua`. There's no Settings screen.
 - Saving the file reloads it. An error shows a toast with the file and line, and the last good Config stays active.
 - The core checks the result against a schema and sends a plain typed object to the frontend, which never runs Lua.
-- **v1 covers values only:** fonts, colors and theme tokens, leader key, keymap (key → action name), vim on/off, idle timeout, backend, roster command.
+- **v1 covers values only:** fonts, colors and theme tokens, Themes, leader key, keymap (key → action name), vim on/off, per-mode layout, Folders, idle timeout, backend, roster command. Every option, the sandbox and the small `roster` table are in [config.md](config.md); the code is `crates/desk-core/src/config/` and `src/config/`.
 - **Later:** event hooks (`on_session_open`), custom `:` commands, and extra Picker sources.
 - **State** (window size, recent Hosts, open panels) is saved separately by the app and never put in `init.lua`.
 

@@ -1,6 +1,7 @@
 // A stand-in for TerminalView in UI tests (xterm needs a real browser): shows the Session's
 // output as text, and its input sends keys the way xterm would, keeping the Leader back. (Copy,
-// paste, find and zoom need xterm itself: they're checked by hand, see ticket 08.)
+// paste, find and zoom need xterm itself: they're checked by hand, see ticket 08.) Its font and
+// colours are on data attributes, so tests can see the Config reach the terminal.
 import { useEffect, useRef, useState } from "react";
 import type { TerminalViewProps } from "./TerminalView";
 import type { TermSize } from "../backend/types";
@@ -32,7 +33,14 @@ export function StubTerminal({ active, leader, attach, onData, onResize, env }: 
     if (active) input.current?.focus();
   }, [active]);
   return (
-    <div hidden={!active}>
+    <div
+      hidden={!active}
+      data-font={env.options.fontFamily}
+      data-weight={env.options.fontWeight}
+      data-weight-bold={env.options.fontWeightBold}
+      data-size={env.fontSize}
+      data-background={env.theme.background}
+    >
       <pre aria-label="terminal output">{text}</pre>
       <input
         aria-label="terminal input"

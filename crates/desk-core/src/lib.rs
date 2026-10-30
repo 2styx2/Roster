@@ -2,6 +2,7 @@
 //! running Sessions in PTYs.
 
 pub mod backend;
+pub mod config;
 pub mod detect;
 pub mod error;
 pub mod platform;

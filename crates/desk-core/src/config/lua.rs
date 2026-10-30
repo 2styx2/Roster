@@ -1,0 +1,428 @@
+//! Running `init.lua` in a sandbox (docs/security.md, ADR 0002). The Rust core never holds a
+//! secret, and the Lua state gets even less than the core has:
+//!
+//! - Libraries: the base functions, `string`, `table`, `math`, `utf8`, and an `os` with only
+//!   `time`, `clock`, `date` and `difftime`. No `io`, no `os.execute` / `os.getenv` /
+//!   `os.remove`, no `debug`, no `package` (so no C modules), no `dofile` / `loadfile`, no
+//!   `string.dump`, and `load` takes text only (no bytecode).
+//! - `require(name)` loads only `<config dir>/name.lua`, `name/init.lua`, or the same under
+//!   `lua/` (Neovim's layout), never a path outside the config dir (symlinks included).
+//!   `require("roster")` is the API table.
+//! - A time budget (an instruction-count hook checks a deadline) and a memory limit, so a loop or
+//!   a runaway table can't hang or eat the app.
+//!
+//! The `roster` table is the start of the Lua API that Plugins get in ticket 23 (ADR 0004):
+//! registrations go into the same places as the returned table's values, and from there through
+//! the frontend's registries.
+
+use super::schema::Location;
+use super::{ConfigError, Env, FILE_NAME};
+use mlua::chunk::ChunkMode;
+use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
+use serde_json::{Map, Number, Value as Json};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::Instant;
+
+/// What the API calls registered, by schema path (`keys.leader.x`), with where they were made.
+pub(crate) struct ApiEntry {
+    pub path: Vec<String>,
+    pub value: Json,
+    pub at: Option<Location>,
+}
+
+pub(crate) struct RunOutput {
+    /// The returned table, as JSON (an empty object if the file returned nothing).
+    pub value: Json,
+    pub api: Vec<ApiEntry>,
+}
+
+/// A Lua value that can't become Config data, with where it is in the table.
+pub(crate) struct ConvertError {
+    pub path: Vec<String>,
+    pub message: String,
+}
+
+const LOADED: &str = "roster-desk.loaded";
+const API: &str = "roster-desk.api";
+const LOADING: &str = "\0loading";
+
+pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
+    let lua = Lua::new_with(
+        StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::OS,
+        LuaOptions::new(),
+    )
+    .map_err(internal)?;
+    lua.set_memory_limit(env.limits.memory).map_err(internal)?;
+    let budget = env.limits.time;
+    let deadline = Instant::now() + budget;
+    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |_, debug| {
+        if Instant::now() < deadline {
+            return Ok(VmState::Continue);
+        }
+        let file = debug
+            .source()
+            .short_src
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| FILE_NAME.into());
+        let line = debug.current_line().unwrap_or(0);
+        Err(mlua::Error::runtime(format!(
+            "{file}:{line}: took longer than {} ms to run (an endless loop?)",
+            budget.as_millis()
+        )))
+    })
+    .map_err(internal)?;
+
+    let api = Rc::new(RefCell::new(Vec::new()));
+    sandbox(&lua, dir, env, Rc::clone(&api)).map_err(internal)?;
+
+    let value: Value = lua
+        .load(source)
+        .set_name(format!("@{FILE_NAME}"))
+        .set_mode(ChunkMode::Text)
+        .eval()
+        .map_err(|e| from_lua_error(&e))?;
+    let value = match value {
+        Value::Nil => Json::Object(Map::new()),
+        Value::Table(_) => to_json(&value, &mut Vec::new()).map_err(|e| ConfigError {
+            file: FILE_NAME.into(),
+            line: None,
+            message: located_message(&e.path, &e.message),
+            path: e.path,
+        })?,
+        other => {
+            return Err(ConfigError::new(
+                None,
+                format!("init.lua must return a table (it returned a {})", other.type_name()),
+            ));
+        }
+    };
+    let api = std::mem::take(&mut *api.borrow_mut());
+    Ok(RunOutput { value, api })
+}
+
+fn located_message(path: &[String], message: &str) -> String {
+    if path.is_empty() {
+        message.to_string()
+    } else {
+        format!("{}: {message}", path.join("."))
+    }
+}
+
+fn internal(e: mlua::Error) -> ConfigError {
+    ConfigError::new(None, format!("couldn't start Lua: {e}"))
+}
+
+/// Takes away what a Config must not have, and adds `require` and `roster`.
+fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<()> {
+    let g = lua.globals();
+    for name in ["dofile", "loadfile", "collectgarbage"] {
+        g.raw_set(name, Value::Nil)?;
+    }
+    let os: Table = g.get("os")?;
+    let safe_os = lua.create_table()?;
+    for f in ["time", "clock", "date", "difftime"] {
+        safe_os.raw_set(f, os.raw_get::<Value>(f)?)?;
+    }
+    g.raw_set("os", safe_os)?;
+    let string: Table = g.get("string")?;
+    string.raw_set("dump", Value::Nil)?;
+    // `load` with text chunks only: bytecode can break out of the VM's checks.
+    lua.load(
+        r##"local raw = load
+        load = function(chunk, name, _, ...)
+          if select("#", ...) > 0 then return raw(chunk, name, "t", ...) end
+          return raw(chunk, name, "t")
+        end"##,
+    )
+    .set_name("=sandbox")
+    .exec()?;
+    // print goes to the core's stderr (the `tauri dev` console), never to a file.
+    g.raw_set(
+        "print",
+        lua.create_function(|_, args: mlua::Variadic<Value>| {
+            let words: Vec<String> = args
+                .iter()
+                .map(|v| v.to_string().unwrap_or_else(|_| "?".into()))
+                .collect();
+            eprintln!("init.lua: {}", words.join("\t"));
+            Ok(())
+        })?,
+    )?;
+
+    let roster = roster_api(lua, env, api)?;
+    lua.set_named_registry_value(API, roster.clone())?;
+    lua.set_named_registry_value(LOADED, lua.create_table()?)?;
+    g.raw_set("roster", roster)?;
+    let root = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    g.raw_set(
+        "require",
+        lua.create_function(move |lua, name: String| require(lua, &root, &name))?,
+    )?;
+    Ok(())
+}
+
+/// The `roster` table: facts about the machine, and registration functions shaped like the
+/// Plugin API to come (ticket 23): `roster.keymap.set`, `roster.themes.define`.
+fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<Table> {
+    let roster = lua.create_table()?;
+    roster.raw_set("os", env.os.as_str())?;
+    roster.raw_set("api_version", super::API_VERSION)?;
+
+    let keymap = lua.create_table()?;
+    let entries = Rc::clone(&api);
+    keymap.raw_set(
+        "set",
+        lua.create_function(move |lua, (context, keys, action): (String, String, Value)| {
+            if matches!(action, Value::Function(_)) {
+                return Err(mlua::Error::runtime(
+                    "roster.keymap.set: the action is a command line such as \"close\" (Lua functions as actions come with Plugins)",
+                ));
+            }
+            let value = to_json(&action, &mut Vec::new()).map_err(|e| mlua::Error::runtime(e.message))?;
+            entries.borrow_mut().push(ApiEntry {
+                path: vec!["keys".into(), context, keys],
+                value,
+                at: caller(lua),
+            });
+            Ok(())
+        })?,
+    )?;
+    roster.raw_set("keymap", keymap)?;
+
+    let themes = lua.create_table()?;
+    let entries = Rc::clone(&api);
+    themes.raw_set(
+        "define",
+        lua.create_function(move |lua, (id, theme): (String, Table)| {
+            let value = to_json(&Value::Table(theme), &mut Vec::new())
+                .map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
+            entries.borrow_mut().push(ApiEntry {
+                path: vec!["themes".into(), id],
+                value,
+                at: caller(lua),
+            });
+            Ok(())
+        })?,
+    )?;
+    roster.raw_set("themes", themes)?;
+    Ok(roster)
+}
+
+/// Where the Lua code that called a Rust function is.
+fn caller(lua: &Lua) -> Option<Location> {
+    lua.inspect_stack(1, |d| {
+        let file = d.source().short_src.map(|s| s.to_string())?;
+        let line = u32::try_from(d.current_line()?).ok()?;
+        Some(Location { file, line })
+    })
+    .flatten()
+}
+
+fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
+    if name == "roster" {
+        return lua.named_registry_value(API);
+    }
+    let valid = !name.is_empty()
+        && name
+            .split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    if !valid {
+        return Err(mlua::Error::runtime(format!(
+            "require {name:?}: a module is a name like \"keys\" or \"themes.mine\", found in the config dir"
+        )));
+    }
+    let loaded: Table = lua.named_registry_value(LOADED)?;
+    match loaded.raw_get::<Value>(name)? {
+        Value::Nil => {}
+        Value::String(s) if s.to_str().is_ok_and(|s| s == LOADING) => {
+            return Err(mlua::Error::runtime(format!(
+                "require {name:?}: it requires itself (a loop)"
+            )));
+        }
+        v => return Ok(v),
+    }
+    let rel = name.replace('.', "/");
+    let candidates = [
+        format!("{rel}.lua"),
+        format!("{rel}/init.lua"),
+        format!("lua/{rel}.lua"),
+        format!("lua/{rel}/init.lua"),
+    ];
+    let Some((path, shown)) = candidates.iter().find_map(|c| {
+        let p = root.join(c);
+        p.is_file().then(|| (p, c.clone()))
+    }) else {
+        return Err(mlua::Error::runtime(format!(
+            "module {name:?} not found in the config dir (looked for {})",
+            candidates.join(", ")
+        )));
+    };
+    let real: PathBuf = path.canonicalize().map_err(mlua::Error::external)?;
+    if !real.starts_with(root) {
+        return Err(mlua::Error::runtime(format!(
+            "require {name:?}: {shown} points outside the config dir"
+        )));
+    }
+    let source = std::fs::read_to_string(&real)
+        .map_err(|e| mlua::Error::runtime(format!("require {name:?}: can't read {shown}: {e}")))?;
+    let chunk = lua
+        .load(&source)
+        .set_name(format!("@{shown}"))
+        .set_mode(ChunkMode::Text)
+        .into_function()?;
+    loaded.raw_set(name, LOADING)?;
+    let result = chunk.call::<Value>(name);
+    let value = match result {
+        Ok(Value::Nil) => Value::Boolean(true),
+        Ok(v) => v,
+        Err(e) => {
+            loaded.raw_set(name, Value::Nil)?;
+            return Err(e);
+        }
+    };
+    loaded.raw_set(name, value.clone())?;
+    Ok(value)
+}
+
+/// A Lua value as Config data. Tables become lists (keys 1..n) or objects (string keys); an
+/// empty table is an empty object (the schema takes it as an empty list where it wants one).
+fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
+    let fail = |path: &[String], message: String| ConvertError {
+        path: path.to_vec(),
+        message,
+    };
+    if path.len() > 32 {
+        return Err(fail(path, "nested too deeply (a table that contains itself?)".into()));
+    }
+    Ok(match v {
+        Value::Nil => Json::Null,
+        Value::Boolean(b) => Json::Bool(*b),
+        Value::Integer(i) => Json::Number((*i).into()),
+        Value::Number(n) => {
+            if n.fract() == 0.0 && n.abs() < 9.0e15 {
+                Json::Number((*n as i64).into())
+            } else {
+                Number::from_f64(*n)
+                    .map(Json::Number)
+                    .ok_or_else(|| fail(path, format!("{n} isn't a usable number")))?
+            }
+        }
+        Value::String(s) => Json::String(
+            s.to_str()
+                .map_err(|_| fail(path, "a string that isn't UTF-8".into()))?
+                .to_string(),
+        ),
+        Value::Table(t) => {
+            let len = t.raw_len();
+            let mut count = 0usize;
+            let mut obj = Map::new();
+            let mut ints = false;
+            for pair in t.pairs::<Value, Value>() {
+                let (k, val) = pair.map_err(|e| fail(path, e.to_string()))?;
+                count += 1;
+                match k {
+                    Value::String(s) => {
+                        let key = s
+                            .to_str()
+                            .map_err(|_| fail(path, "a key that isn't UTF-8".into()))?
+                            .to_string();
+                        path.push(key.clone());
+                        let j = to_json(&val, path)?;
+                        path.pop();
+                        obj.insert(key, j);
+                    }
+                    Value::Integer(_) => ints = true,
+                    other => {
+                        return Err(fail(
+                            path,
+                            format!("a table key must be a name, not a {}", other.type_name()),
+                        ));
+                    }
+                }
+            }
+            if ints {
+                if count != len || !obj.is_empty() {
+                    return Err(fail(
+                        path,
+                        "a table that mixes a list with named keys (or has gaps): use one or the other".into(),
+                    ));
+                }
+                let mut out = Vec::with_capacity(len);
+                for i in 1..=len {
+                    path.push(i.to_string());
+                    let val: Value = t.raw_get(i).map_err(|e| fail(path, e.to_string()))?;
+                    out.push(to_json(&val, path)?);
+                    path.pop();
+                }
+                Json::Array(out)
+            } else {
+                Json::Object(obj)
+            }
+        }
+        Value::Function(_) => {
+            return Err(fail(
+                path,
+                "a Lua function can't be a Config value (functions come with Plugins)".into(),
+            ));
+        }
+        other => return Err(fail(path, format!("a {} can't be a Config value", other.type_name()))),
+    })
+}
+
+/// A Lua error as file, line and message.
+pub(crate) fn from_lua_error(e: &mlua::Error) -> ConfigError {
+    match e {
+        mlua::Error::SyntaxError { message, .. } => parse_message(message),
+        mlua::Error::RuntimeError(m) => parse_message(m),
+        mlua::Error::CallbackError { traceback, cause } => {
+            let mut inner = from_lua_error(cause);
+            if inner.line.is_none()
+                && let Some((file, line, _)) = traceback.lines().find_map(find_location)
+            {
+                inner.file = file;
+                inner.line = Some(line);
+            }
+            inner
+        }
+        mlua::Error::WithContext { cause, .. } => from_lua_error(cause),
+        mlua::Error::MemoryError(_) => ConfigError::new(None, "init.lua used too much memory".into()),
+        other => parse_message(&other.to_string()),
+    }
+}
+
+fn parse_message(message: &str) -> ConfigError {
+    let text = message.split("\nstack traceback:").next().unwrap_or(message).trim();
+    // mlua prefixes some messages ("runtime error: init.lua:3: …").
+    match find_location(text) {
+        Some((file, line, rest)) => ConfigError {
+            file,
+            line: Some(line),
+            message: rest.trim().to_string(),
+            path: Vec::new(),
+        },
+        None => ConfigError::new(None, text.to_string()),
+    }
+}
+
+/// The first `name.lua:N:` in `text`: the file, the line, and what follows.
+fn find_location(text: &str) -> Option<(String, u32, &str)> {
+    let mut from = 0;
+    while let Some(i) = text[from..].find(".lua:") {
+        let end_name = from + i + 4;
+        let start = text[..end_name]
+            .rfind(|c: char| c.is_whitespace() || c == '[' || c == '"' || c == '\'')
+            .map(|j| j + 1)
+            .unwrap_or(0);
+        let after = &text[end_name + 1..];
+        let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+        if !digits.is_empty() && after[digits.len()..].starts_with(':') {
+            let file = text[start..end_name].trim_start_matches('@').to_string();
+            let rest = &after[digits.len() + 1..];
+            return Some((file, digits.parse().ok()?, rest));
+        }
+        from = end_name;
+    }
+    None
+}

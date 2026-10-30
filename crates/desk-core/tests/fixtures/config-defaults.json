@@ -1,0 +1,145 @@
+{
+  "ansi": [
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "bright_black",
+    "bright_red",
+    "bright_green",
+    "bright_yellow",
+    "bright_blue",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_white"
+  ],
+  "config": {
+    "backend": "auto",
+    "colors": {},
+    "darkTheme": "roster-dark",
+    "defaultMode": "standard",
+    "folders": [],
+    "fonts": {
+      "mono": "Iosevka",
+      "ui": "Inter"
+    },
+    "idleLockMinutes": 15,
+    "keys": [],
+    "leader": "Ctrl+Space",
+    "lightTheme": "roster-light",
+    "lines": {},
+    "modes": {
+      "focus": {
+        "fullscreen": true,
+        "sessionbar": {
+          "at": "bottom",
+          "shown": false
+        },
+        "sidebar": {
+          "sections": null,
+          "shown": false,
+          "side": "left"
+        },
+        "statusbar": {
+          "segments": null,
+          "shown": false
+        },
+        "titlebar": false
+      },
+      "standard": {
+        "fullscreen": false,
+        "sessionbar": {
+          "at": "bottom",
+          "shown": false
+        },
+        "sidebar": {
+          "sections": null,
+          "shown": true,
+          "side": "left"
+        },
+        "statusbar": {
+          "segments": null,
+          "shown": true
+        },
+        "titlebar": true
+      }
+    },
+    "rosterCommand": null,
+    "sessions": "sidebar",
+    "terminal": {
+      "boldWeight": 700,
+      "colors": {},
+      "copyOnSelect": true,
+      "font": "Iosevka",
+      "lineHeight": 1.0,
+      "rightClickPaste": true,
+      "scrollback": 10000,
+      "size": 14,
+      "weight": 500
+    },
+    "theme": "auto",
+    "themes": {},
+    "vim": true
+  },
+  "terminalColors": [
+    "background",
+    "foreground",
+    "cursor",
+    "cursor_accent",
+    "selection_background",
+    "search_match",
+    "search_active_match",
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "bright_black",
+    "bright_red",
+    "bright_green",
+    "bright_yellow",
+    "bright_blue",
+    "bright_magenta",
+    "bright_cyan",
+    "bright_white"
+  ],
+  "themeColors": [
+    "accent",
+    "accent_text",
+    "accent_ink",
+    "bg",
+    "chrome",
+    "sidebar",
+    "panel",
+    "raised",
+    "raised_line",
+    "hover",
+    "line",
+    "line_strong",
+    "text",
+    "muted",
+    "faint",
+    "warn",
+    "error",
+    "danger",
+    "danger_text",
+    "backdrop",
+    "shadow"
+  ],
+  "themeTerminal": [
+    "background",
+    "foreground",
+    "cursor",
+    "cursor_accent",
+    "selection_background",
+    "search_match",
+    "search_active_match"
+  ]
+}
