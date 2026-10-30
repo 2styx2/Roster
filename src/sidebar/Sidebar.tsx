@@ -418,7 +418,12 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
       <button type="button" className="sb-find" onMouseDown={keepFocus} onClick={() => run("find")}>
         <SearchIcon />
         <span className="sb-find-label">Find a Host</span>
-        {findKeys && <Keys keys={findKeys} leader={leaderHint} />}
+        {findKeys && (
+          <>
+            <span className="visually-hidden">,</span>{" "}
+            <Keys keys={findKeys} leader={leaderHint} />
+          </>
+        )}
       </button>
       <div
         className="sb-scroll"

@@ -102,7 +102,7 @@ describe("Switching view modes", () => {
     const { user, clock } = await ready();
     await user.keyboard(`${LEADER}m`);
     const hint = screen.getByRole("status", { name: "How to leave Focus" });
-    expect(hint).toHaveTextContent(/␣ m/);
+    expect(hint).toHaveTextContent(/Leader m/);
     expect(hint).toHaveTextContent(/F11/);
     act(() => clock.advance(2500));
     expect(screen.queryByRole("status", { name: "How to leave Focus" })).toBeNull();

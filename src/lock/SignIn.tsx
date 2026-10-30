@@ -236,6 +236,7 @@ export function SignIn({
         failed={failed}
         advanced={advanced}
         copy={copy}
+        invalid={problem !== null}
       />
       {problem && <SignInProblem problem={problem} rows={errorRows} />}
       <p className="signin-keys muted">
@@ -261,7 +262,12 @@ interface BodyProps {
   failed(e: unknown, via: Way): void;
   advanced(step: SignInStep, via: Way): void;
   copy?: ((text: string) => Promise<void>) | undefined;
+  /** Bitwarden refused what was typed: the field says so (aria-invalid), described by the error. */
+  invalid: boolean;
 }
+
+/** A field's attributes while the sign-in shows an error, and none without one. */
+const refused = (invalid: boolean) => (invalid ? { "aria-invalid": true, "aria-describedby": "signin-error" } : {});
 
 function Submit({ busy, label = "Continue" }: { busy: boolean; label?: string }) {
   return (
@@ -272,12 +278,13 @@ function Submit({ busy, label = "Continue" }: { busy: boolean; label?: string })
 }
 
 /** A secret field: uncontrolled (never in React state), emptied after every call. */
-function Secret({ name, label, autoComplete = "off", inputMode, busy }: {
+function Secret({ name, label, autoComplete = "off", inputMode, busy, invalid }: {
   name: string;
   label: string;
   autoComplete?: string;
   inputMode?: "numeric" | "text";
   busy: boolean;
+  invalid: boolean;
 }) {
   const id = `signin-${name}`;
   return (
@@ -294,7 +301,7 @@ function Secret({ name, label, autoComplete = "off", inputMode, busy }: {
           readOnly={busy}
           data-secret
           data-autofocus
-          aria-describedby="signin-error"
+          {...refused(invalid)}
         />
         <Submit busy={busy} />
       </div>
@@ -368,6 +375,7 @@ function Body(p: BodyProps) {
               value={p.email}
               onChange={(e) => p.setEmail(e.target.value)}
               data-autofocus
+              {...refused(p.invalid)}
             />
             <Submit busy={busy} />
           </div>
@@ -377,7 +385,7 @@ function Body(p: BodyProps) {
       return (
         <>
           <p className="muted">{p.email}</p>
-          <Secret name="password" label="Master password" busy={busy} />
+          <Secret name="password" label="Master password" busy={busy} invalid={p.invalid} />
         </>
       );
     case "apikey":
@@ -389,7 +397,7 @@ function Body(p: BodyProps) {
           </p>
           <label htmlFor="signin-client_id">client_id</label>
           <input id="signin-client_id" name="client_id" spellCheck={false} autoComplete="off" data-secret data-autofocus />
-          <Secret name="client_secret" label="client_secret" busy={busy} />
+          <Secret name="client_secret" label="client_secret" busy={busy} invalid={p.invalid} />
         </>
       );
     case "sso":
@@ -423,6 +431,7 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
             autoComplete="one-time-code"
             inputMode={step.method?.kind === "yubikey" ? "text" : "numeric"}
             busy={busy}
+            invalid={p.invalid}
           />
         </>
       );
@@ -433,7 +442,14 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
             Bitwarden emailed a code to {step.email ?? (p.email || "your account's email")} because this Box hasn't signed in
             before.
           </p>
-          <Secret name="code" label="New-device code" autoComplete="one-time-code" inputMode="numeric" busy={busy} />
+          <Secret
+            name="code"
+            label="New-device code"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            busy={busy}
+            invalid={p.invalid}
+          />
         </>
       );
     case "sso":
@@ -442,7 +458,7 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
       return (
         <>
           <p>Signed in. Now unlock the vault with your master password.</p>
-          <Secret name="password" label="Master password" busy={busy} />
+          <Secret name="password" label="Master password" busy={busy} invalid={p.invalid} />
         </>
       );
   }

@@ -38,7 +38,8 @@ function Cap({ name, leader }: { name: string; leader?: string | undefined }) {
     return (
       <kbd className="keycap keycap-leader" title={leader ? `Leader (${leader})` : "Leader"}>
         <SpaceGlyph />
-        <span className="visually-hidden">{LEADER}</span>
+        {/* The glossary's word, so a hint reads "Find a Host, Leader f", not "open box f". */}
+        <span className="visually-hidden">Leader</span>
       </kbd>
     );
   }

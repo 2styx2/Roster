@@ -38,8 +38,10 @@ export interface CommandContext {
   openCommandLine(initial?: string): void;
   toggleKeys(): void;
   lock(): void;
-  /** Back to Terminal mode. */
+  /** Back to Terminal mode, closing the topmost side panel (Key bindings, :check) if one is open. */
   toTerminal(): void;
+  /** Closes the topmost side panel, if one is open. */
+  closePanel(): void;
   /** Moves the list cursor (the Sidebar in Standard), or chooses the row under it. */
   list(move: ListMove): void;
   /** Folds or unfolds the Sidebar row (or section heading) `id`, or the one under the cursor. */
@@ -192,6 +194,7 @@ export const builtinCommands: readonly CommandDef[] = [
   { id: "statusbar", source: BUILTIN, area: "App", label: () => "Show or hide the status bar", run: (ctx) => ctx.toggleStatusBar() },
   { id: "lock", source: BUILTIN, area: "App", label: () => "Lock", run: (ctx) => ctx.lock() },
   { id: "terminal", source: BUILTIN, area: "App", label: () => "Back to the terminal", run: (ctx) => ctx.toTerminal() },
+  { id: "hidepanel", source: BUILTIN, area: "App", label: () => "Close the side panel", run: (ctx) => ctx.closePanel() },
 ];
 
 export type CommandRegistry = Registry<CommandDef>;

@@ -26,6 +26,7 @@ function recorder(mode: ViewMode = "standard") {
     toggleKeys: () => calls.push("keys"),
     lock: () => calls.push("lock"),
     toTerminal: () => calls.push("terminal"),
+    closePanel: () => calls.push("hidepanel"),
     list: (m) => calls.push(`list ${m}`),
     open: (h) => calls.push(`open ${h}`),
     fold: (id, how) => calls.push(`${how} ${id ?? "cursor"}`),

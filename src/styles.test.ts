@@ -66,3 +66,10 @@ describe("the stylesheets", () => {
     expect(faintText(css)).toEqual([]);
   });
 });
+
+describe("native controls (S6)", () => {
+  it("take the Theme's accent, not the browser's blue", () => {
+    const root = rules(stylesCss).find(([selector]) => selector === ":root");
+    expect(root?.[1]).toMatch(/accent-color\s*:\s*var\(--accent\)/);
+  });
+});

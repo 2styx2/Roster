@@ -33,7 +33,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
 | `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |
 | — | `finder SOURCE` | The Finder over a finder source: `sessions`, `hosts`, `tree` (Folders and Inventory), `folders`, `inventory`. Enter runs the item's command, Esc closes; the Picker's keys move |
-| Esc (App mode) | `terminal` | Back to the terminal |
+| Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`) if one is open |
+| — | `hidepanel` | Close the topmost side panel (bind it in `init.lua`) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |

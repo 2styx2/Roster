@@ -23,6 +23,8 @@ const STEP_LABEL: Record<string, string> = {
 };
 
 const MARK = { ok: "✓", fail: "✗", skipped: "–" } as const;
+/** The mark in words: an aria-label on a plain span is ignored, so it's hidden text. */
+const RESULT = { ok: "passed", fail: "failed", skipped: "skipped" } as const;
 
 export interface CheckPanelProps {
   check: CheckState;
@@ -55,9 +57,10 @@ export function CheckPanel({ check, rows, actions, onClose }: CheckPanelProps) {
             {check.result.steps.map((s) => (
               <li key={s.step} data-step={s.step} data-status={s.status} className={`check-step ${s.status}`}>
                 <div className="check-line">
-                  <span className="check-mark" aria-label={s.status}>
+                  <span className="check-mark" aria-hidden="true">
                     {MARK[s.status]}
                   </span>
+                  <span className="visually-hidden">{RESULT[s.status]}: </span>
                   <span className="check-name">{STEP_LABEL[s.step] ?? s.step}</span>
                   {s.status !== "fail" && (
                     <span className="check-msg muted" title={s.message}>

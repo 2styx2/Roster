@@ -14,7 +14,7 @@ describe("Keys", () => {
     const { container } = render(<Keys keys="␣ d d" leader="Ctrl+Space" />);
     expect(container.querySelectorAll("kbd")).toHaveLength(3);
     expect(screen.getByTitle("Leader (Ctrl+Space)")).toHaveClass("keycap-leader");
-    expect(container).toHaveTextContent("␣ d d");
+    expect(container).toHaveTextContent("Leader d d");
   });
 
   it("keeps the chord readable as text (Ctrl+Space), with a cap per key", () => {
@@ -25,7 +25,7 @@ describe("Keys", () => {
 
   it("draws key sequences in backticks inside text", () => {
     const { container } = render(<WithKeys text="Drag a Host here or press `␣ a`." />);
-    expect(container).toHaveTextContent("Drag a Host here or press ␣ a.");
+    expect(container).toHaveTextContent("Drag a Host here or press Leader a.");
     expect(container.querySelectorAll("kbd")).toHaveLength(2);
   });
 });

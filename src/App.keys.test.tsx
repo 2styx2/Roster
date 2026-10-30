@@ -284,8 +284,8 @@ describe("The Key bindings panel", () => {
     await user.keyboard(`${LEADER}?`);
     const next = rowOf("Next Session");
     expect(next.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/Next Session.*␣.*\].*builtin/),
-      expect.stringMatching(/Next Session.*␣.*t.*init\.lua/),
+      expect.stringMatching(/Next Session.*Leader.*\].*builtin/),
+      expect.stringMatching(/Next Session.*Leader.*t.*init\.lua/),
     ]);
     expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space.*builtin/);
     expect(within(panel()).getByRole("searchbox", { name: /filter/i })).toHaveFocus();
@@ -347,7 +347,7 @@ describe("Registries (ADR 0004)", () => {
     expect(within(sessionList()).getAllByRole("treeitem", { name: new RegExp(`^${h0}`) })).toHaveLength(2);
     await user.keyboard(`${LEADER}?`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
-    expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/␣\s*h.*init\.lua/);
+    expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/Leader\s*h.*init\.lua/);
   });
 });
 

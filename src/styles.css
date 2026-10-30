@@ -37,6 +37,8 @@
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "calt";
+  /* Native radios and checkboxes take the Theme's accent (ticket 29 S6). */
+  accent-color: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -523,7 +523,18 @@ export function App({
     lock: () => {
       if (!vault.lock()) setMessage("Nothing to lock: no Host Login uses a vault with a master password.");
     },
-    toTerminal: () => setMode(terminalMode),
+    toTerminal: () => {
+      setMode(terminalMode);
+      ctx.closePanel();
+    },
+    // The panel drawn last (Key bindings, beside :check) is the topmost.
+    closePanel: () => {
+      if (keysOpen) return closeKeys();
+      if (check) {
+        checkRun.current++;
+        setCheck(null);
+      }
+    },
     list: (move) => {
       if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
       const row = rows.find((r) => r.id === cursor);
