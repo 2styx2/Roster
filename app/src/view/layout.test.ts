@@ -6,7 +6,7 @@ describe("the per-mode layout table (decision Q39)", () => {
   it("Standard shows the title bar, the Sidebar on its side and the status bar, in a window", () => {
     const { standard } = defaultLayouts(defaultOptions);
     expect(standard.fullscreen).toBe(false);
-    expect(placed(standard, "top")).toEqual(["titlebar"]);
+    expect(placed(standard, "top")).toEqual(["titlebar", "toolbar"]) // the toolbar sits in the title bar (Q65);
     expect(placed(standard, "left")).toEqual(["sidebar"]);
     expect(placed(standard, "right")).toEqual([]);
     expect(placed(standard, "bottom")).toEqual(["statusbar"]);

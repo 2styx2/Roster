@@ -105,7 +105,8 @@ app/src/theme/        Themes (ticket 09): theme.ts (the colour-token set, Appear
                       (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/app/themes.md),
                       useTheme.ts (tokens → CSS variables, follows the OS), picker.ts (`:theme` and the `themes` finder,
                       ticket 30), contrast.ts (WCAG ratios and OKLab ΔE for the contrast test)
-app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (the Gap orbit mark in Theme colours)
+app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, the toolbar, minimize/maximize/close), toolbar.tsx (the toolbar registry:
+                      visible controls for common commands, decision Q65), Logo.tsx (the Gap orbit mark in Theme colours)
 app/src/ui/           Keys.tsx (keycaps for every key hint), StateDot.tsx (state nodes: shape + words), CloseGlyph.tsx
 app/src/styles.css    the whole look, written only against Theme tokens (no colour literals); styles.test.ts lints it
                       (no text in `--faint` or `--tone`, nothing under 11 px, :hover only for a real pointer)

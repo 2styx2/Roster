@@ -56,6 +56,7 @@ import { ChangesPanel, type ChangesState, type ChangesStep } from "./edit/Change
 import { AddPanel } from "./edit/AddPanel";
 import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
+import { shownControls, Toolbar, type ToolbarContext } from "./chrome/toolbar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
@@ -237,6 +238,7 @@ export function App({
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
   const errorRows = useSyncExternalStore(registries.errors.subscribe, registries.errors.list);
   const finderSources = useSyncExternalStore(registries.finders.subscribe, registries.finders.list);
+  const toolbarDefs = useSyncExternalStore(registries.toolbar.subscribe, registries.toolbar.list);
   const commands: Commands = useMemo(
     () => ({ get: (id) => registries.commands.get(id), list: () => commandList }),
     [registries, commandList],
@@ -1079,10 +1081,35 @@ export function App({
   const toast = report !== toastClosedFor && (
     <ConfigToast error={report?.error ?? null} warnings={warnings} onClose={() => setToastClosedFor(report)} />
   );
+  // The toolbar (decision Q65): in the title bar once the app is ready and unlocked (the lock
+  // screen shows nothing but the mark), else a bar of its own at the top.
+  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown };
+  const toolbarControls =
+    ready && isShown(layout, "toolbar") ? shownControls(toolbarDefs, layout.controls, toolbarCtx) : [];
+  const toolbar = (side: "start" | "end") => (
+    <Toolbar
+      controls={toolbarControls}
+      ctx={toolbarCtx}
+      keysFor={(command) => hintFor(keymap, command)}
+      leader={options.leader}
+      run={(line) => {
+        setMode(terminalMode);
+        run(line);
+      }}
+      side={side}
+    />
+  );
   const frame = (content: React.ReactNode) => (
     <HintsShown value={hintsShown}>
       <div className="window">
-        {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
+        {isShown(layout, "titlebar") && <TitleBar controls={platform.window} start={toolbar("start")} end={toolbar("end")} />}
+        {!isShown(layout, "titlebar") && toolbarControls.length > 0 && (
+          <div className="toolbar-bar" data-tauri-drag-region>
+            {toolbar("start")}
+            <div className="titlebar-fill" />
+            {toolbar("end")}
+          </div>
+        )}
         <div className="window-body">{content}</div>
         {toast}
       </div>

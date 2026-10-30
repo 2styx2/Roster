@@ -126,6 +126,7 @@ The pieces of a mode:
 | `sessionbar` | `false`, `"bottom"` or `"top"`: the thin tmux-style bar of open Sessions | `false` | `false` |
 | `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"changes"` (the Pending changes count, shown only when there are some), `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
 | `fullscreen` | `true` / `false`: OS fullscreen | `false` | `true` |
+| `toolbar` | `false`, `true`, or controls in order: `"find"`, `"add"` (Add Host), `"changes"` (with the Pending changes count), `"publish"` (shown only while there are Pending changes), and `"cmdline"`, `"keys"`, `"lock"`, `"mode"`, which aren't in the default set. In the title bar; a bar of its own when the mode has none (decision Q65) | `true` (find, add, changes, publish) | `false` |
 
 `␣ e` shows or hides the Sidebar, and `␣ s` the mode's bar (the status bar in Standard, the session bar in Focus). Focus without a Sidebar reaches the tree with `␣ e` as a finder. A reload that changes `modes` resets what those keys toggled. A reload that changes anything else keeps it.
 

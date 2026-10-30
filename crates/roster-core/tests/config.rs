@@ -366,6 +366,29 @@ fn layouts_take_shorthands_and_keep_each_modes_defaults() {
     assert!(!m.standard.sidebar.shown && !m.standard.statusbar.shown && !m.standard.titlebar);
 }
 
+/// Decision Q65 (issue #78): the toolbar's controls are a piece of each mode's layout, so init.lua
+/// can pick, order or drop them. Shown in Standard by default, with every built-in control.
+#[test]
+fn the_toolbar_is_a_piece_of_each_modes_layout() {
+    let d = config::Modes::default();
+    assert!(d.standard.toolbar.shown && d.standard.toolbar.controls.is_none());
+    assert!(!d.focus.toolbar.shown, "Focus has no chrome");
+
+    let dir = with_init(
+        "toolbar",
+        r#"return { modes = { standard = { toolbar = { "changes", "add" } }, focus = { toolbar = true } } }"#,
+    );
+    let m = config::load(&dir).unwrap().modes;
+    assert_eq!(
+        m.standard.toolbar.controls.as_deref(),
+        Some(&["changes".to_string(), "add".to_string()][..])
+    );
+    assert!(m.focus.toolbar.shown && m.focus.toolbar.controls.is_none());
+
+    let dir = with_init("toolbar-off", "return { modes = { standard = { toolbar = false } } }");
+    assert!(!config::load(&dir).unwrap().modes.standard.toolbar.shown);
+}
+
 #[test]
 fn folders_backend_and_roster_command() {
     let dir = with_init(

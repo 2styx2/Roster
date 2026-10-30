@@ -51,7 +51,11 @@
           "segments": null,
           "shown": false
         },
-        "titlebar": false
+        "titlebar": false,
+        "toolbar": {
+          "controls": null,
+          "shown": false
+        }
       },
       "standard": {
         "fullscreen": false,
@@ -68,7 +72,11 @@
           "segments": null,
           "shown": true
         },
-        "titlebar": true
+        "titlebar": true,
+        "toolbar": {
+          "controls": null,
+          "shown": true
+        }
       }
     },
     "rosterCommand": null,

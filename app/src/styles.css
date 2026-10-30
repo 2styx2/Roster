@@ -139,7 +139,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   flex: none; height: var(--titlebar-h); display: flex; align-items: center; justify-content: space-between;
   background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none;
 }
-.titlebar-mark { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; flex: 1; }
+.titlebar-mark { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; flex: none; }
+/* The empty middle of the bar: where the window is dragged from. */
+.titlebar-fill { flex: 1; align-self: stretch; min-width: 24px; }
 /* Clicks on the mark fall through to the drag region. */
 .titlebar-mark * { pointer-events: none; }
 .wordmark { font: 500 var(--text-sm) var(--font-mono); color: var(--muted); letter-spacing: 0.01em; }
@@ -152,6 +154,31 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 @media (hover: hover) and (pointer: fine) {
   .window-controls button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
   .window-controls button.close:hover:not(:disabled) { background: var(--danger); color: var(--danger-text); }
+}
+
+/* The toolbar (chrome/toolbar.tsx, decision Q65): quiet controls in the title bar, the common
+   commands one click away. Chrome recedes (taste.md): no fills at rest, muted until hovered, the
+   same hairline-free look as the window's buttons; a count is data, so it's in Iosevka. Pressing
+   uses the app's press scale. No motion of their own: they're used many times a day. */
+.toolbar { display: flex; align-items: center; gap: 2px; height: 100%; padding: 0 4px; }
+.toolbar-end { padding-right: 8px; }
+.toolbar-button {
+  height: 24px; padding: 0 7px; display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border-color: transparent; color: var(--muted); font-size: var(--text-sm); font-weight: 500;
+}
+.toolbar-button.with-text { padding: 0 9px 0 7px; }
+.toolbar-button[aria-pressed="true"] { color: var(--text); }
+.toolbar-count {
+  font: 500 var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text);
+  padding: 0 5px; border-radius: 999px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--raised-line);
+}
+@media (hover: hover) and (pointer: fine) {
+  .toolbar-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+}
+/* A mode without a title bar that shows the toolbar: a thin bar of its own. */
+.toolbar-bar {
+  flex: none; height: var(--titlebar-h); display: flex; align-items: center;
+  background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none;
 }
 
 /* The mark (chrome/Logo.tsx) in the Theme's colours. */

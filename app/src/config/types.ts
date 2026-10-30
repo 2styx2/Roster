@@ -49,6 +49,9 @@ export interface ModeConfig {
   sidebar: { shown: boolean; side: "left" | "right"; sections: string[] | null };
   sessionbar: { shown: boolean; at: "top" | "bottom" };
   statusbar: { shown: boolean; segments: string[] | null };
+  /** The toolbar's controls (decision Q65): ids from the toolbar registry, in order; null: the
+   * default set. */
+  toolbar: { shown: boolean; controls: string[] | null };
 }
 
 export interface ConfigKey {
