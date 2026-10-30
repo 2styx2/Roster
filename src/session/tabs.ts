@@ -38,7 +38,6 @@ export interface TabsSnapshot {
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 
 /** Output kept per tab for a terminal that attaches later (or again). */
 const REPLAY_LIMIT = 1024 * 1024;
@@ -68,6 +67,9 @@ interface Entry {
   replayBytes: number;
   /** The current attempt's last output (decoded), for classifying a failure. */
   tail: string;
+  /** Decodes this tab's output for `tail`. Its own, and new each attempt: a streaming decoder
+   * holds a character split across chunks, which must not end up in another tab's text. */
+  decoder: TextDecoder;
   sink: Sink | null;
   wiring: TerminalWiring;
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
@@ -126,7 +128,7 @@ export class Tabs {
   }
 
   private keepTail(entry: Entry, data: Uint8Array) {
-    entry.tail += decoder.decode(data, { stream: true });
+    entry.tail += entry.decoder.decode(data, { stream: true });
     if (entry.tail.length > TAIL_LIMIT) entry.tail = entry.tail.slice(-TAIL_LIMIT);
   }
 
@@ -167,6 +169,7 @@ export class Tabs {
       replay: [],
       replayBytes: 0,
       tail: "",
+      decoder: new TextDecoder(),
       sink: null,
       pending: [],
       wiring: {
@@ -219,6 +222,7 @@ export class Tabs {
     const { id, host } = entry.tab;
     entry.sentSize = { ...entry.size };
     entry.tail = "";
+    entry.decoder = new TextDecoder();
     this.backend
       .openSession(host, entry.size, {
         output: (data) => {

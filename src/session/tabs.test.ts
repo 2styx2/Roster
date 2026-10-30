@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import { Tabs } from "./tabs";
+import type { SessionEvents } from "../backend/types";
+import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
 const reviewed = hosts.hosts.filter((h) => h.reviewed).map((h) => h.name);
@@ -22,6 +23,30 @@ function recordingCloses(scenario: FakeScenario) {
   };
   return { backend, closed };
 }
+
+/** The fake Backend, but each Session's output and exit are driven by the test (per Host). */
+function scriptedSessions() {
+  const backend = fakeBackend({ ...unlocked, hosts });
+  const events = new Map<string, SessionEvents>();
+  const typed = new Map<string, string>();
+  backend.openSession = async (host, _size, ev) => {
+    events.set(host, ev);
+    const done = async () => {};
+    const write = async (data: string) => void typed.set(host, (typed.get(host) ?? "") + data);
+    return { id: events.size, auth: "key", write, resize: done, close: done };
+  };
+  const session = (host: string) => {
+    const ev = events.get(host);
+    if (!ev) throw new Error(`no Session to ${host}`);
+    return {
+      print: (s: string | Uint8Array) => ev.output(typeof s === "string" ? new TextEncoder().encode(s) : s),
+      exit: (code: number) => ev.exit({ code, closed: false }),
+    };
+  };
+  return { backend, session, typed };
+}
+
+const problemOf = (status: TabStatus | undefined) => (status?.state === "ended" ? status.problem : undefined);
 
 /** Store plus a way to see a tab's terminal output. */
 function setup() {
@@ -143,6 +168,27 @@ describe("Tabs", () => {
     await settle();
     const status = tabs.snapshot().tabs[0]!.status;
     expect(status.state === "ended" && status.problem?.code).toBe(46);
+  });
+
+  it("decodes each tab's output on its own, even with a character split across chunks", async () => {
+    const { backend, session } = scriptedSessions();
+    const tabs = new Tabs(backend);
+    const [a, b] = [reviewed[0]!, reviewed[1]!];
+    tabs.open(a);
+    tabs.open(b);
+    await settle();
+    const arrow = new TextEncoder().encode("→"); // 3 bytes
+    session(a).print("ssh: connect to host 10.0.0.6 port 22: Connection refused ");
+    session(a).print(arrow.slice(0, 2));
+    session(b).print("ssh: connect to host 10.0.0.7 port 22: Connection refused\r\n");
+    session(a).print(arrow.slice(2));
+    session(a).print("\r\n");
+    session(a).exit(255);
+    session(b).exit(255);
+    await settle();
+    const [ta, tb] = tabs.snapshot().tabs;
+    expect(problemOf(ta?.status)?.details).toBe("ssh: connect to host 10.0.0.6 port 22: Connection refused →");
+    expect(problemOf(tb?.status)?.details).toBe("ssh: connect to host 10.0.0.7 port 22: Connection refused");
   });
 
   it("marks the tab ended with the exit code when the Session ends", async () => {
