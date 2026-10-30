@@ -1,6 +1,6 @@
 # Help: `:help`
 
-The app has its own docs inside it, the way Neovim's `:help` does (ticket 37, decision Q65). They open in a panel beside the terminal (over it in Focus or a narrow window), like the Key bindings panel.
+The app has its own docs inside it, the way Neovim's `:help` does (ticket 37, decision Q66). They open in a panel beside the terminal (over it in Focus or a narrow window), like the Key bindings panel.
 
 ## Opening it
 
