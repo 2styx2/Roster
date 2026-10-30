@@ -299,7 +299,7 @@ def test_inventory_edits_through_serve_are_pending_changes(live, repo):
     d = s.ok("changes.diff")
     assert sorted((c["host"], c["change"]) for c in d["hosts"]) == [
         ("block", "removed"), ("flow", "removed"), ("flow-2", "added"), ("sw1", "changed")]
-    assert d["groups"] == [{"group": "edge", "change": "added"}] and d["count"] == 5
+    assert [(g["group"], g["change"]) for g in d["groups"]] == [("edge", "added")] and d["count"] == 4
     assert "# The lab. NO PASSWORDS IN THIS FILE." in repo.read_text()
     assert s.ok("hosts.list")["groups"].keys() == {"lab", "other", "edge"}
 
@@ -373,10 +373,10 @@ def test_without_auto_reload_an_outside_edit_is_only_reported_until_source(live,
 
 def test_source_with_a_broken_file_keeps_the_last_good(live, repo):
     s = live()
-    assert len(names(s)) == 7
+    assert len(names(s)) == 6
     repo.write_text("groups: [\n")
     r = s.ok("inventory.reload")
-    assert r["error"]["line"] and r["host_count"] == 7 and len(names(s)) == 7
+    assert r["error"]["line"] and r["host_count"] == 6 and len(names(s)) == 6
 
 
 def test_serves_own_writes_are_not_outside_edits(live, repo):

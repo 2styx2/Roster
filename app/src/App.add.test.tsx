@@ -191,7 +191,7 @@ describe("the add form", () => {
   });
 
   it("needs a roster that can add Hosts", async () => {
-    const { user } = await ready(fixtures.edit as FakeScenario);
+    const { user } = await ready({ ...(fixtures.edit as FakeScenario), apiVersion: 5 });
     await user.keyboard(`${LEADER}:host add{Enter}`);
     expect(await screen.findByText(/:host add needs a newer roster \(API version 6; this one speaks 5\)/)).toBeInTheDocument();
   });

@@ -180,12 +180,13 @@ def test_a_text_edit_needs_no_verify_and_keeps_every_other_byte(app, box):
 
 def test_the_diff_shows_exactly_the_change(app, box):
     assert result(app.call("changes.diff")) == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [],
-                                               "groups": [], "count": 0}
+                                               "groups": [], "count": 0, "message": ""}
     result(app.call("host.update", {"host": "esx", "changes": {"title": "ESXi 8"}}))
     d = result(app.call("changes.diff"))
     body = [ln for ln in d["diff"].splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
     assert body == ["-        title: ESX", "+        title: ESXi 8"]
     assert d["hosts"] == [{"host": "esx", "change": "changed", "fields": ["title"]}] and d["count"] == 1
+    assert d["message"] == "roster: change esx (title)" and d["groups"] == []
 
 
 def test_discard_puts_the_file_back_as_it_was(app, box):
@@ -367,3 +368,141 @@ def test_pull_when_the_remote_is_gone(app, box):
     git(box, "remote", "set-url", "origin", str(box.parent / "missing.git"))
     err = app.call("inventory.pull")["error"]
     assert err["code"] == 73 and "couldn't fetch origin/main" in err["message"] and err["data"]["fix"]
+
+
+# ---------------------------------------------------------------- changes.publish (ticket 12)
+
+def origin_log(box, fmt="%s"):
+    return git(box.parent / "origin.git", "log", "-1", f"--format={fmt}", "main")
+
+
+@pytest.fixture
+def owner(serve, box, monkeypatch):
+    """serve, with the infra repo's own git identity as the only one (nothing in the environment)."""
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(k)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(box.parent / "no-global-gitconfig"))
+    git(box, "config", "user.name", "Infra Owner")
+    git(box, "config", "user.email", "owner@infra")
+    s = serve("-c", str(box.yml))
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    return s
+
+
+def test_publish_commits_roster_yml_pushes_it_and_syncs(owner, box, isolated):
+    app = owner
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "ESXi 8"}}))
+    r = result(app.call("changes.publish"))
+    head = git(box, "rev-parse", "HEAD")
+    assert r["commit"] == head and git(box.parent / "origin.git", "rev-parse", "main") == head
+    assert r["upstream"] == "origin/main" and r["hosts"] == [{"host": "esx", "change": "changed", "fields": ["title"]}]
+    assert git(box, "status", "--porcelain", "--untracked-files=no") == ""      # sync's ROSTER.md is untracked here
+    assert git(box, "show", "--name-only", "--format=", "HEAD") == "roster.yml"
+    assert origin_log(box, "%an <%ae>") == "Infra Owner <owner@infra>"
+    assert origin_log(box) == "roster: change esx (title)"
+    assert r["sync"] == {"ok": True}
+    assert "Host esx" in (isolated["home"] / ".ssh" / "config.d" / "roster").read_text()
+    assert result(app.call("changes.diff"))["count"] == 0
+
+
+def pending_as_before(box, title="mine"):
+    return f"title: {title}" in box.yml.read_text() and git(box, "status", "--porcelain",
+                                                             "--untracked-files=no") == "M roster.yml"
+
+
+def test_publish_with_nothing_pending_is_refused(app, box):
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 90 and "nothing to publish" in err["message"]
+
+
+def test_publish_takes_the_message_given(owner, box):
+    result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    r = result(owner.call("changes.publish", {"message": "  Rename the ESX box\n\nPer the rack audit.  "}))
+    assert r["message"] == "Rename the ESX box\n\nPer the rack audit."
+    assert origin_log(box, "%B").strip() == "Rename the ESX box\n\nPer the rack audit."
+
+
+def test_publish_refuses_when_someone_else_published_roster_yml(app, box):
+    subprocess.run(["git", "clone", "-q", str(box.parent / "origin.git"), str(box.other)], check=True)
+    box.commit((box.other / "roster.yml").read_text() + "# theirs\n", where=box.other, msg="theirs")
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 92 and "since this box pulled" in err["message"] and err["data"]["behind"] == 1
+    assert "stash" in err["data"]["fix"]
+    assert origin_log(box) == "theirs" and pending_as_before(box)
+
+
+def test_publish_fast_forwards_over_commits_that_leave_roster_yml_alone(owner, box):
+    subprocess.run(["git", "clone", "-q", str(box.parent / "origin.git"), str(box.other)], check=True)
+    (box.other / "README.md").write_text("theirs\n")
+    git(box.other, "-c", "user.name=them", "-c", "user.email=them@x", "commit", "-qam", "readme")
+    git(box.other, "push", "-q", "origin", "main")
+    result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    r = result(owner.call("changes.publish"))
+    assert r["pulled"] == 1 and git(box, "log", "--format=%s", "-2").splitlines() == ["roster: change esx (title)",
+                                                                                      "readme"]
+    assert origin_log(box, "%H") == r["commit"]
+
+
+def test_publish_refuses_other_uncommitted_files(app, box):
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    (box / "README.md").write_text("half done\n")
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 91 and err["data"]["files"] == ["README.md"] and "git -C" in err["data"]["fix"]
+    assert origin_log(box) == "inventory"
+
+
+def test_publish_refuses_local_commits_it_didnt_make(app, box):
+    (box / "README.md").write_text("mine\n")
+    git(box, "commit", "-qam", "local")
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 93 and err["data"]["ahead"] == 1 and origin_log(box) == "inventory"
+
+
+def test_a_rejected_push_undoes_the_commit_and_keeps_the_pending_changes(app, box):
+    hook = box.parent / "origin.git" / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\necho 'protected branch' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    before = git(box, "rev-parse", "HEAD")
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 96 and "nothing was published" in err["message"] and "protected branch" in err["data"]["details"]
+    assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+    assert result(app.call("changes.diff"))["count"] == 1
+
+
+def test_a_refused_commit_publishes_nothing(owner, box):
+    git(box, "config", "--unset", "user.name")
+    git(box, "config", "user.useConfigOnly", "true")
+    result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    err = owner.call("changes.publish")["error"]
+    assert err["code"] == 95 and "user.name" in err["data"]["fix"] and pending_as_before(box)
+    assert origin_log(box) == "inventory"
+
+
+def test_publish_without_an_upstream(app, box):
+    git(box, "branch", "--unset-upstream")
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 94 and "push -u origin main" in err["data"]["fix"]
+
+
+def test_a_roster_yml_that_doesnt_load_isnt_published(app, box):
+    result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    box.yml.write_text(box.yml.read_text() + "  : [\n")
+    err = app.call("changes.publish")["error"]
+    assert err["code"] == 1 and "won't publish" in err["message"] and origin_log(box) == "inventory"
+
+
+def test_the_message_names_every_host_and_group_that_changed(owner, box):
+    text = box.yml.read_text()
+    text = text.replace("      other: 10.0.0.9       # never touched\n", "")
+    text += "  rack-b:\n    title: Rack B\n    user: admin\n    hosts:\n      sw-core-01: 10.0.1.2\n      sw-core-02: 10.0.1.3\n"
+    text = text.replace("        title: ESX\n", "        title: ESXi\n        description: the big one\n")
+    box.yml.write_text(text)
+    r = result(owner.call("changes.publish"))
+    assert r["groups"] == [{"group": "rack-b", "change": "added"}]
+    assert r["message"].split("\n") == [
+        "roster: change 4 Hosts and 1 group", "", "- add group rack-b", "- change esx (title, description)",
+        "- add sw-core-01", "- add sw-core-02", "- remove other"]

@@ -19,6 +19,7 @@ import threading
 import time
 
 from . import __version__, askpass, changes, diagnose, edit, providers
+from .claude import write_claude_files
 from .common import not_reviewed, ssh_config_file
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
@@ -52,7 +53,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     write_problem,
 )
 from .providers import PROVIDERS, setup_providers
-from .sshops import in_ssh_config, record_host_key
+from .sshops import in_ssh_config, record_host_key, write_ssh_config
 
 API_VERSION = 8             # bump when a method or result changes in a way the app has to know about
 
@@ -322,6 +323,25 @@ def changes_diff(state, params):
 def changes_discard(state, params):
     result = changes.discard(inventory_path(state))
     state.reload()
+    return result
+
+
+def changes_publish(state, params):
+    """Commit and push the Pending changes (changes.publish), then `roster sync`, so this Box's ssh config
+    follows what it just published. A failed sync doesn't undo the Publish: it's reported in result.sync."""
+    message = params.get("message")
+    if message is not None and not isinstance(message, str):
+        raise RpcError(INVALID_PARAMS, "params.message must be a string")
+    result = changes.publish(inventory_path(state), message)
+    state.reload()
+    try:
+        cfg = state.inventory()
+        write_ssh_config(cfg)
+        write_claude_files(cfg)
+        result["sync"] = {"ok": True}
+    except (Problem, SystemExit, OSError) as e:
+        why = e.message if isinstance(e, Problem) else die_message(e) if isinstance(e, SystemExit) else str(e)
+        result["sync"] = {"ok": False, "error": why, "fix": "run `roster sync` on this box"}
     return result
 
 
@@ -660,6 +680,7 @@ METHODS["host.verify_login"] = host_verify_login
 METHODS["host.update"] = host_update
 METHODS["changes.diff"] = changes_diff
 METHODS["changes.discard"] = changes_discard
+METHODS["changes.publish"] = changes_publish
 
 
 # ---------------------------------------------------------------- vault: the lock screen
@@ -932,6 +953,8 @@ def error_response(rid, e):
     err = {"code": e.code, "message": e.message}
     if e.data is not None:
         err["data"] = e.data
+    if getattr(e, "details", None):         # the raw words (git's, ssh's) for the app's "Details"
+        err["data"] = {**err.get("data", {}), "details": e.details}
     return {"jsonrpc": "2.0", "id": rid, "error": err}
 
 

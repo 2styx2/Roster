@@ -85,6 +85,20 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 44 | 80 | A bad name, group, address, user or port, or no user to log in as | `roster.yml` (the form's field) | "bad host name 'nas 1' (use letters, digits, . _ -)" | Fix that field; nothing was written |
 | 45 | 81 | A Host by that name is already in the Inventory | `roster.yml` | "host 'esx' is already in the Inventory (group lab)" | Pick another name, or `:edit` that Host |
 
+## Publishing (ticket 12)
+
+`:publish` (or Publish… in `:changes`) keeps the diff on screen for a last look, with roster's commit message (it names every Host and group that changed) ready to edit. Publish runs roster's `changes.publish`: fetch, commit `roster.yml` alone with the infra repo's own git identity, push to the branch's upstream, then `roster sync` (decision Q13). It never forces. Every refusal below leaves the Pending changes as they were, and the panel shows the row with git's words under Details. A fetch that fails is row 41 (code 73); a `roster.yml` that doesn't load is row 1. A `roster sync` that fails after the push doesn't undo the Publish: the panel says so and offers `roster sync` to copy.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 46 | 90 | Nothing pending | `roster.yml` | "roster.yml has no Pending changes, so there's nothing to publish" | Edit a Host first |
+| 47 | 91 | Other files in the infra repo are uncommitted too | Infra repo | "the infra repo has other uncommitted changes (README.md), so roster won't publish" | Commit, stash or undo them in a terminal |
+| 48 | 92 | Someone else published `roster.yml` since this Box pulled (new upstream commits that leave `roster.yml` alone are fast-forwarded over instead) | Infra repo | "someone published roster.yml to origin/main since this box pulled (1 new commit), so roster won't publish over it" | Discard, `:pull`, and make the change again; or `git stash && git pull --ff-only && git stash pop` |
+| 49 | 93 | This Box has commits of its own that aren't on the upstream | Infra repo | "this box's infra repo has 1 commit that isn't on origin/main, and roster publishes only its own" | Push or drop them in a terminal |
+| 50 | 94 | The branch has no upstream | Infra repo | "this branch of the infra repo has no upstream, so there's nowhere to publish to" | `git push -u origin main` |
+| 51 | 95 | git refused the commit: no identity, a hook | Infra repo, Box | "git didn't make the commit, so nothing was published" | Set the repo's `user.name`/`user.email`; git's words under Details |
+| 52 | 96 | The push failed, or was rejected because the upstream moved meanwhile; the commit is undone | Network, infra repo | "origin/main moved while roster was publishing, so the push was refused; nothing was published" | Publish again (it fetches first); check your rights to push |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.

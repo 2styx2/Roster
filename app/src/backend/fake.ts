@@ -35,6 +35,7 @@ import {
   type SessionHandle,
   type TermSize,
   SessionRefusal,
+  PublishError,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
 import {
@@ -85,6 +86,10 @@ export interface FakeScenario {
   addVerify?: Record<string, HostCheck>;
   /** Edits already made on this Box when the app starts (Pending changes), per Host. */
   pending?: Record<string, HostChanges>;
+  /** Ticket 12: `changes.publish` refuses with this (82 someone else published, 86 push rejected…). */
+  publishRefusal?: Refusal;
+  /** Ticket 12: the Publish works, but the `roster sync` after it fails with this. */
+  publishSyncError?: string;
   /** The vault locks itself again this many ms after each unlock (bw's own timeout, another
    * roster command), so the next password Session meets code 14. */
   relockAfterMs?: number;
@@ -222,20 +227,37 @@ const signingIn = (signIn: FakeAccount): FakeScenario => ({
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
-  /** Ticket 10: a roster that can edit (api 5), no Pending changes yet. */
-  edit: { hosts: makeHosts(12), apiVersion: 5 },
+  /** Ticket 10: a roster that can edit and publish (api 7), no Pending changes yet. */
+  edit: { hosts: makeHosts(12), apiVersion: 7 },
+  /** Ticket 12: the same, under the name the Publish tests use. */
+  publish: { hosts: makeHosts(12), apiVersion: 7 },
   /** Ticket 11: a roster that can add Hosts (api 6). The new Host's password is FAKE_HOST_PASSWORD. */
   add: { hosts: makeHosts(12), apiVersion: 6 },
   /** Two Pending changes already made on this Box. */
   "edit-pending": {
     hosts: makeHosts(12),
-    apiVersion: 5,
+    apiVersion: 7,
     pending: { "linux-1-000": { title: "Build box", description: "rack 1, top" }, "esxi-2-001": { type: "esxi8" } },
+  },
+  /** Ticket 12: two Pending changes, and someone else published roster.yml meanwhile. */
+  "publish-moved": {
+    hosts: makeHosts(12),
+    apiVersion: 7,
+    pending: { "linux-1-000": { title: "Build box" }, "esxi-2-001": { type: "esxi8" } },
+    publishRefusal: {
+      code: PublishError.remoteMoved,
+      message: "someone published roster.yml to origin/main since this box pulled (1 new commit), so roster won't publish over it",
+      data: {
+        fix: "discard your Pending changes, :pull, and make them again; or merge in a terminal: git -C /home/you/infra stash && git pull --ff-only && git stash pop",
+        upstream: "origin/main",
+        behind: 1,
+      },
+    },
   },
   /** The pull before an edit fails: the branch has diverged. */
   "edit-diverged": {
     hosts: makeHosts(12),
-    apiVersion: 5,
+    apiVersion: 7,
     pullRefusal: {
       code: EditError.diverged,
       message: "this box's infra repo and origin/main have diverged (1 local and 2 new commits there), so roster won't pull",
@@ -452,10 +474,25 @@ function fakeDiff(before: Host[], after: Host[]): string {
   return hunks.length ? ["diff --git a/roster.yml b/roster.yml", "--- a/roster.yml", "+++ b/roster.yml", ...hunks, ""].join("\n") : "";
 }
 
+/** The hash of every commit the fake Publishes. */
+export const FAKE_COMMIT = "3f9c2a7d41e8b05c6a9f12d3e4b5a6c7d8e9f012";
+
+/** roster's generated message (changes.commit_message): a subject naming each change, or, past 72
+ * characters, the count with one line per change below. */
+export function commitMessage(hosts: readonly HostChange[]): string {
+  const items = hosts.map((h) =>
+    h.change === "changed" ? `change ${h.host} (${h.fields.join(", ")})` : `${h.change === "added" ? "add" : "remove"} ${h.host}`,
+  );
+  if (items.length === 0) return "roster: edit roster.yml";
+  const subject = `roster: ${items.join(", ")}`;
+  if (subject.length <= 72) return subject;
+  return `roster: change ${hosts.length} Host${hosts.length === 1 ? "" : "s"}\n\n${items.map((i) => `- ${i}`).join("\n")}`;
+}
+
 export function fakeBackend(scenario: FakeScenario): Backend {
   let failures = 0;
   // ---- the Inventory as committed, and as edited on this Box (ticket 10)
-  const committed = scenario.hosts.hosts;
+  let committed = scenario.hosts.hosts;
   let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
   const verified = new Set<string>();
   const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
@@ -471,7 +508,15 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       const fields = (Object.keys(b) as (keyof typeof b)[]).filter((k) => a[k] !== b[k]);
       return fields.length ? [{ host: h.name, change: "changed", fields }] : [];
     });
-    return { path: scenario.info?.path ?? "~/infra/roster.yml", repo: "~/infra", diff, hosts: changed, count: changed.length };
+    return {
+      path: scenario.info?.path ?? "~/infra/roster.yml",
+      repo: "~/infra",
+      diff,
+      hosts: changed,
+      groups: [],
+      count: changed.length,
+      message: commitMessage(changed),
+    };
   };
   let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
   const vaultMessage = () =>
@@ -785,6 +830,21 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       hosts = committed;
       groups = scenario.hosts.groups;
       return { discarded: true, backup: "~/infra/.git/roster/roster.yml.bak" };
+    },
+    async publishChanges(message) {
+      await wait();
+      if (scenario.publishRefusal) throw refuse(scenario.publishRefusal);
+      const now = pending();
+      if (now.count === 0) {
+        throw new BackendCallError("roster.yml has no Pending changes, so there's nothing to publish", PublishError.nothingPending, {
+          fix: "edit a Host first",
+        });
+      }
+      committed = hosts;
+      const sync = scenario.publishSyncError
+        ? { ok: false, error: scenario.publishSyncError, fix: "run `roster sync` on this box" }
+        : { ok: true };
+      return { commit: FAKE_COMMIT, upstream: "origin/main", message, hosts: now.hosts, groups: [], pulled: 0, sync };
     },
     async scanKey(address, port) {
       await wait();

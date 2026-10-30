@@ -32,7 +32,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
 | `<leader> +` | `host add` | Add a Host (ticket 11): the form tests a Login first (host key confirmed, one login), then saves; Enter adds, Esc closes |
 | (no key) | `review [HOST]` | Mark an unreviewed Host reviewed, so it can be opened; also the ✓ button on its Sidebar row, Ctrl+R in the Picker, and "Mark reviewed" in `:edit` |
-| `<leader> c` | `changes` | Show the Pending changes (the diff of `roster.yml`); `:discard` asks, then discards them |
+| `<leader> c` | `changes` | Show the Pending changes (the diff of `roster.yml`); `:discard` asks, then discards them; `:publish` shows the diff and the commit message (edit it; `Ctrl+Enter` publishes, `Esc` goes back) |
 | `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
 | `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |
