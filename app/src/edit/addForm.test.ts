@@ -74,6 +74,13 @@ describe("host.add's params", () => {
     expect(addParams(draft({ item: "nas-01 ssh+web" }), hosts, "pw")?.item).toBe("nas-01 ssh+web");
   });
 
+  it("says where to save a typed password when Save to chose (ticket 35), and only then", () => {
+    const team = { organization: "o1", collection: "c1" };
+    expect(addParams(draft({}), hosts, "pw", team)?.save_to).toEqual(team);
+    expect(addParams(draft({}), hosts, "pw")).not.toHaveProperty("save_to");
+    expect(addParams(draft({ login: "item" }), hosts, undefined, team)).not.toHaveProperty("save_to");
+  });
+
   it("points at an existing item, or has no Login at all", () => {
     expect(addParams(draft({ login: "item" }), hosts)?.auth).toBe("bw:nas-01 ssh");
     const none = addParams(draft({ login: "none" }), hosts);

@@ -1113,7 +1113,7 @@ fn the_keepassxc_database_and_key_file_are_paths_on_the_backend() {
     assert_eq!(c.vault.kp.key_file.as_deref(), Some("/home/you/roster.keyx"));
     assert_eq!(
         serde_json::to_value(&c.vault).unwrap(),
-        serde_json::json!({ "kp": { "database": "~/roster.kdbx", "keyFile": "/home/you/roster.keyx" } })
+        serde_json::json!({ "saveTo": null, "kp": { "database": "~/roster.kdbx", "keyFile": "/home/you/roster.keyx" } })
     );
     for (name, lua, field) in [
         (
@@ -1135,5 +1135,50 @@ fn the_keepassxc_database_and_key_file_are_paths_on_the_backend() {
         let e = config::load(&with_init(name, lua)).unwrap_err();
         assert_eq!(e.line, Some(2), "{e}");
         assert!(e.message.contains(field), "{name}: {e}");
+    }
+}
+
+/// Ticket 35: where "Save to vault" puts new Vault items on this Box: "personal", an
+/// organization's collection (Bitwarden) or a group (KeePassXC). It wins over roster.yml's.
+#[test]
+fn save_to_is_personal_a_collection_or_a_group() {
+    use config::SaveTo;
+    assert_eq!(Config::default().vault.save_to, None);
+    let load = |name: &str, lua: &str| config::load(&with_init(name, lua));
+    let c = load("save-personal", r#"return { vault = { save_to = "personal" } }"#).unwrap();
+    assert_eq!(c.vault.save_to, Some(SaveTo::Personal));
+    let c = load(
+        "save-coll",
+        r#"return { vault = { save_to = { organization = "My Team", collection = "Infra logins" } } }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&c.vault.save_to).unwrap(),
+        serde_json::json!({ "organization": "My Team", "collection": "Infra logins" })
+    );
+    let c = load("save-group", r#"return { vault = { save_to = { group = "Hosts" } } }"#).unwrap();
+    assert_eq!(
+        serde_json::to_value(&c.vault.save_to).unwrap(),
+        serde_json::json!({ "group": "Hosts" })
+    );
+    assert_eq!(
+        serde_json::to_value(SaveTo::Personal).unwrap(),
+        serde_json::json!("personal")
+    );
+    for (name, lua) in [
+        ("save-shared", "return {\n  vault = { save_to = \"shared\" },\n}\n"),
+        (
+            "save-half",
+            "return {\n  vault = { save_to = { organization = \"My Team\" } },\n}\n",
+        ),
+        (
+            "save-mixed",
+            "return {\n  vault = { save_to = { group = \"a\", collection = \"b\" } },\n}\n",
+        ),
+        ("save-empty", "return {\n  vault = { save_to = { group = \"\" } },\n}\n"),
+    ] {
+        let e = load(name, lua).unwrap_err();
+        assert_eq!(e.line, Some(2), "{e}");
+        assert!(e.message.contains("vault.save_to"), "{name}: {e}");
     }
 }

@@ -531,6 +531,11 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .add-login legend { padding: 0; color: var(--muted); font-size: var(--text-xs); }
 .add-ways { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .add-way, .add-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); }
+/* Save to (ticket 35): one place per line, like a short list; a long one scrolls in place. */
+.add-save-to { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.add-save-to-label { color: var(--muted); font-size: var(--text-xs); }
+.add-targets { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
+.add-target-from { color: var(--muted); font-size: var(--text-xs); }
 .edit-hint { color: var(--muted); font-size: var(--text-xs); }
 .add-key { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
 .add-key .edit-status { margin: 0; }

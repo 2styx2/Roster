@@ -62,6 +62,8 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 35 | 61 | The provider can only read Logins (1Password, `pass`, `env`, …) | Box | "provider 'op' can't save to the vault - …" | Save to `bw` or `kp`, or make the item by hand |
 | 36 | 62 | The vault CLI refused: no rights to the collection, an organization policy, the server; for KeePassXC a read-only `.kdbx`, a missing `group`, or a title with `/` | Vault | "Bitwarden didn't create 'esx-02 ssh': …" | See Details; check your rights |
 | 37 | 63 | An undo for an item this `roster serve` didn't create, or one already undone | roster | "item … wasn't created by this roster serve …" | Nothing to undo |
+| 58 | 64 | `save_to` names an organization, collection or KeePassXC group that isn't there, an organization you're only invited to, or a shape the provider doesn't have (ticket 35) | `roster.yml`, init.lua, or the form's Save to | "no Bitwarden organization 'My Tem' that you can save to (yours: My Team) - fix providers: bw: save_to: organization: in roster.yml" | Fix that setting, or pick another place in Save to. In the form it shows under Save to, which then needs a choice |
+| 59 | 65 | The collection is one you may only read. bw's CLI doesn't say so beforehand: the item came back outside it, so roster took it out again | Vault | "you can only read the Bitwarden collection My Team / Audit, so nothing can be saved there; 'esx-02 ssh' was taken back out" | Pick a place you can write to, or ask an organization admin. That collection isn't offered again until the vault is locked |
 
 ## Editing the Inventory (ticket 10)
 

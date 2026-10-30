@@ -28,6 +28,10 @@ _Avoid_: credential, account (an account is a kind of resource)
 One entry in the team's password manager, named `<host> <what it opens>`.
 _Avoid_: secret, entry, password
 
+**Save to**:
+Where "Save to vault" puts a new Vault item: the personal vault, an organization's collection (Bitwarden), or a group (KeePassXC). Set by `save_to` in `roster.yml` (the team's default) and `init.lua` (this Box's), and chosen per Host in the add form.
+_Avoid_: destination, location, folder (a Folder is the app's grouping of Hosts)
+
 **Quick Connect**:
 Opening a Session to an address that isn't a Host in the Inventory yet. If you choose to save it, it becomes a Host with its own Vault item.
 _Avoid_: ad-hoc session, direct connect

@@ -111,7 +111,8 @@
       "kp": {
         "database": null,
         "keyFile": null
-      }
+      },
+      "saveTo": null
     },
     "vim": true
   },

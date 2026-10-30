@@ -17,4 +17,10 @@ describe("init.lua's vault settings, as roster's vault.configure takes them", ()
       kp: { database: "~/roster.kdbx" },
     });
   });
+
+  it("send where Save to vault goes by default (ticket 35)", () => {
+    const saveTo = { organization: "My Team", collection: "Infra logins" };
+    expect(vaultSettingsOf({ ...defaultConfig.vault, saveTo })).toEqual({ save_to: saveTo });
+    expect(vaultSettingsOf({ ...defaultConfig.vault, saveTo: "personal" })).toEqual({ save_to: "personal" });
+  });
 });

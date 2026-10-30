@@ -138,6 +138,15 @@ class WriteFailed(SecretError):
     """The provider's CLI refused the create or delete; the message has its words (minus any value)."""
 
 
+# Where a Vault item goes (ticket 35): the personal vault, an organization's collection, a KeePassXC group.
+class UnknownTarget(SecretError):
+    """The place to save to isn't there (or isn't one this provider has); the message names the setting to fix."""
+
+
+class ReadOnlyTarget(SecretError):
+    """The account may only read the collection it was asked to save to."""
+
+
 def near_names(name, names, n=5):
     """Item names that look like NAME (a typo, other case, a word missing), closest first."""
     import difflib
@@ -157,6 +166,9 @@ PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "
                           #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
                           #                       password, uri}; refuses a name that exists (ItemExists)
                           #             "delete": fn(id, ctx), the undo of a create (Q43)
+#             "targets": fn(ctx) -> [target], where the provider can save: each {id, kind, label, save_to}
+#             "resolve": fn(setting, field, ctx) -> the target a save_to setting names (UnknownTarget,
+#                        ReadOnlyTarget); field(part) names the setting for messages
 #             "box_paths": settings naming files on this Box (e.g. kp's database); a change to one
 #                          from vault.configure locks the provider (what it holds was for the old one)
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
@@ -328,6 +340,8 @@ def lock(name):
 
 def setting_name(ctx, key):
     """Where a person changes setting KEY of CTX's provider: `vault.kp.database in init.lua`, or roster.yml's."""
+    if key == "save_to" and key in ctx.from_box:                  # init.lua's is one for every provider
+        return "vault.save_to in init.lua"
     if key in ctx.from_box:
         return f"vault.{ctx.provider}.{key} in init.lua"
     return f"providers: {ctx.provider}: {key}: in roster.yml"
@@ -355,6 +369,77 @@ def configure_box(settings):
     return locked
 
 
+# ---- where a Vault item goes (ticket 35): `save_to`, the same shape in roster.yml, init.lua and a save's choice
+
+PERSONAL = "personal"
+SAVE_TO_SHAPES = '"personal", {organization, collection} (Bitwarden, by name or id) or {group} (KeePassXC)'
+
+
+def check_save_to(value):
+    """VALUE as a save_to setting, or ValueError saying what it may be."""
+    if value == PERSONAL:
+        return value
+    if isinstance(value, dict) and set(value) in ({"organization", "collection"}, {"group"}) \
+            and all(isinstance(v, str) and v.strip() for v in value.values()):
+        return {k: v.strip() for k, v in value.items()}
+    raise ValueError(f"must be {SAVE_TO_SHAPES}, not {value!r}")
+
+
+def save_to_setting(ctx):
+    """CTX's default target as (setting, source): init.lua's `vault.save_to`, else roster.yml's `providers: NAME:
+    save_to:` (KeePassXC: its older `group:`), else the personal vault. source: "init.lua", "roster.yml" or None."""
+    if ctx.settings.get("save_to") is not None:
+        return ctx.settings["save_to"], "init.lua" if "save_to" in ctx.from_box else "roster.yml"
+    if ctx.provider == "kp" and ctx.settings.get("group"):         # kp's group: came before save_to
+        return {"group": str(ctx.settings["group"])}, "roster.yml"
+    return PERSONAL, None
+
+
+def save_to_field(ctx, source, part=None):
+    """The name of the setting a save_to came from, for messages (PART: organization, collection, group)."""
+    if source == "init.lua":
+        return "vault.save_to" + (f".{part}" if part else "") + " in init.lua"
+    if source == "roster.yml" and ctx.settings.get("save_to") is None:       # kp's group:
+        return f"providers: {ctx.provider}: group: in roster.yml"
+    if source == "roster.yml":
+        return f"providers: {ctx.provider}: save_to: " + (f"{part}: " if part else "") + "in roster.yml"
+    return "save_to" + (f".{part}" if part else "")                          # the choice at save time
+
+
+def resolve_target(ctx, setting, source):
+    """The target SETTING names, checked against what the provider offers (call once it's unlocked)."""
+    try:
+        setting = check_save_to(setting)
+    except ValueError as e:
+        raise UnknownTarget(f"{save_to_field(ctx, source)} {e}") from None
+    return PROVIDERS[ctx.provider]["resolve"](setting, lambda part=None: save_to_field(ctx, source, part), ctx)
+
+
+def shown(target):
+    """A target as a save's result names it: no save_to, which the app only needs in a list."""
+    return {k: v for k, v in target.items() if k != "save_to"}
+
+
+def save_targets(name):
+    """Where provider NAME can save, and its default: {targets, default (an id, or None when the setting doesn't
+    resolve), from (where the default is set: init.lua, roster.yml or None), problem (that SecretError, or None)}."""
+    fn = _writer(name, "targets")
+    ctx = Ctx(name, None)
+    targets = fn(ctx)
+    setting, source = save_to_setting(ctx)
+    try:
+        default, problem = resolve_target(ctx, setting, source)["id"], None
+    except (UnknownTarget, ReadOnlyTarget) as e:
+        default, problem = None, e
+    return {"targets": targets, "default": default, "from": source, "problem": problem}
+
+
+def default_target(name):
+    """The save_to provider NAME uses when a save doesn't choose, as set (not resolved: no vault call)."""
+    setting, source = save_to_setting(Ctx(name, None))
+    return {"setting": setting, "from": source or "default"}
+
+
 # ---- writing Vault items (ticket 13)
 
 def can_write(name):
@@ -371,16 +456,19 @@ def _writer(name, op):
     return fn
 
 
-def create_item(provider, *, name, password, username="", uri=""):
+def create_item(provider, *, name, password, username="", uri="", save_to=None):
     """Create a login Vault item NAME in PROVIDER: username, password, and the address in its URI field
-    (docs/adding-hosts.md). Refuses a NAME that's already there. Returns {id, name}, never the password;
-    the password never goes on a command line or into an error."""
+    (docs/adding-hosts.md), in SAVE_TO (ticket 35: "personal", {organization, collection}, {group}; None: the
+    setting's). Refuses a NAME that's already there. Returns {id, name, target}, never the password; the password
+    never goes on a command line or into an error."""
     fn = _writer(provider, "create")
     if not str(name).strip() or not password:
         raise SecretError("a Vault item needs a name and a password")
-    made = fn({"name": name, "username": username or "", "password": password, "uri": uri or ""},
-              Ctx(provider, None))
-    return {"id": made["id"], "name": made["name"]}
+    ctx = Ctx(provider, None)
+    where = save_to_setting(ctx) if save_to is None else (save_to, "choice")
+    made = fn({"name": name, "username": username or "", "password": password, "uri": uri or "", "save_to": where},
+              ctx)
+    return {"id": made["id"], "name": made["name"], "target": shown(made["target"])}
 
 
 def delete_item(provider, item_id):

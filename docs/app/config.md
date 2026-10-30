@@ -157,6 +157,7 @@ The app writes it on every Folder change, keeping your comments and the order of
 
 ```lua
 vault = {
+  save_to = { organization = "My Team", collection = "Infra logins" },
   kp = { database = "~/roster.kdbx", key_file = "~/roster.keyx" },
 },
 ```
@@ -165,6 +166,7 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 
 | Option | Default | |
 |---|---|---|
+| `vault.save_to` | unset | Where "Save to vault" puts a new password by default (ticket 35): `"personal"`, `{ organization = …, collection = … }` (Bitwarden, names or ids) or `{ group = … }` (KeePassXC). Wins over `roster.yml`'s `providers: <name>: save_to:` (the team's default). The add form's **Save to** starts on it, says where it's set, and can pick another place for one Host. A name that isn't there shows in the form as roster's message naming `vault.save_to in init.lua` |
 | `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. Changing it on `:source` locks the app, since the master password was for the old database |
 | `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box. Wins over `providers: kp: key_file:` |
 

@@ -134,7 +134,7 @@ def test_creates_a_login_entry_with_the_passwords_off_the_command_line(kdbx, tmp
     providers.unlock("kp", MASTER)
     assert providers.can_write("kp")
     made = providers.create_item("kp", name="box ssh", username="ops", password=NEW_PW, uri="ssh://10.0.0.5")
-    assert made == {"id": "box ssh", "name": "box ssh"}
+    assert made == {"id": "box ssh", "name": "box ssh", "target": {"id": "personal", "kind": "personal", "label": "Top level"}}
     e = entries(kdbx)["box ssh"]
     assert (e["UserName"], e["Password"], e["URL"]) == ("ops", NEW_PW, "ssh://10.0.0.5")
     assert get_secret("kp:box ssh", "g") == NEW_PW
@@ -145,7 +145,8 @@ def test_creates_a_login_entry_with_the_passwords_off_the_command_line(kdbx, tmp
 def test_creates_in_the_group_set_for_it(kdbx):
     providers.PROVIDER_SETTINGS["kp"]["group"] = "Lab"
     providers.unlock("kp", MASTER)
-    assert providers.create_item("kp", name="box ssh", password=NEW_PW) == {"id": "Lab/box ssh", "name": "box ssh"}
+    made = providers.create_item("kp", name="box ssh", password=NEW_PW)
+    assert made == {"id": "Lab/box ssh", "name": "box ssh", "target": {"id": "group:Lab", "kind": "group", "label": "Lab"}}
     assert entries(kdbx)["Lab/box ssh"]["Password"] == NEW_PW
 
 
@@ -185,7 +186,7 @@ def test_a_create_that_timed_out_counts_if_the_entry_is_there(kdbx, monkeypatch)
     providers.unlock("kp", MASTER)
     monkeypatch.setattr(providers, "time_left", lambda timeout, floor=1: 1)     # keepassxc-cli gets 1 s
     monkeypatch.setenv("FAKE_KP_ADD_HANG", "5")                                 # saved, then no answer
-    assert providers.create_item("kp", name="box ssh", password=NEW_PW) == {"id": "box ssh", "name": "box ssh"}
+    assert providers.create_item("kp", name="box ssh", password=NEW_PW)["id"] == "box ssh"
     monkeypatch.delenv("FAKE_KP_ADD_HANG")
     monkeypatch.setenv("FAKE_KP_ADD_STALL", "5")                                # no answer, nothing saved
     with pytest.raises(providers.WriteFailed, match="nothing was saved"):
@@ -215,7 +216,8 @@ def test_serve_locks_unlocks_and_saves_to_keepassxc_like_bitwarden(serve, write_
     write_config(KP_INVENTORY)
     s = serve()
     locked = {"provider": "kp", "status": "locked", "can_write": True}
-    assert s.call("vault.status")["result"] == {**locked, "providers": [locked]}
+    assert s.call("vault.status")["result"] == {**locked, "save_to": {"setting": "personal", "from": "default"},
+                                               "providers": [locked]}
     assert s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["error"]["code"] == 14
     err = s.call("vault.unlock", {"password": "not-it-xyzzy"})["error"]
     assert err == {"code": 10, "message": "KeePassXC unlock failed (wrong master password?)"}
@@ -225,7 +227,7 @@ def test_serve_locks_unlocks_and_saves_to_keepassxc_like_bitwarden(serve, write_
 
     params = {"name": "nas ssh", "username": "admin", "password": NEW_PW, "uri": "ssh://10.0.0.7"}
     made = s.call("vault.create_item", params)["result"]
-    assert made == {"provider": "kp", "id": "nas ssh", "name": "nas ssh"}
+    assert made == {"provider": "kp", "id": "nas ssh", "name": "nas ssh", "target": {"id": "personal", "kind": "personal", "label": "Top level"}}
     assert entries(db)["nas ssh"]["Password"] == NEW_PW
     dup = s.call("vault.create_item", params)["error"]
     assert dup["code"] == 60 and dup["data"]["matches"] == [{"name": "nas ssh", "revised": None, "uris": []}]

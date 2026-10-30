@@ -106,8 +106,76 @@ pub struct Ui {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
 pub struct Vault {
+    /// Where "Save to vault" puts new Vault items by default (ticket 35). None: roster.yml's.
+    pub save_to: Option<SaveTo>,
     /// KeePassXC (ticket 41): a local database is this Box's, not the team's.
     pub kp: KeePassXc,
+}
+
+/// `save_to`: the personal vault, an organization's collection (Bitwarden, by name or id), or a
+/// group (KeePassXC). The same shape as roster.yml's `providers: NAME: save_to:`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum SaveTo {
+    #[serde(serialize_with = "personal")]
+    Personal,
+    Collection {
+        organization: String,
+        collection: String,
+    },
+    Group {
+        group: String,
+    },
+}
+
+fn personal<S: serde::Serializer>(s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str("personal")
+}
+
+impl<'de> Deserialize<'de> for SaveTo {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = SaveTo;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(
+                    "\"personal\", { organization = …, collection = … } (Bitwarden) or { group = … } (KeePassXC)",
+                )
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<SaveTo, E> {
+                match v {
+                    "personal" => Ok(SaveTo::Personal),
+                    _ => Err(E::custom(format!(
+                        "{v:?}: say \"personal\", or give {{ organization = …, collection = … }} or {{ group = … }}"
+                    ))),
+                }
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<SaveTo, A::Error> {
+                let mut fields: BTreeMap<String, String> = BTreeMap::new();
+                while let Some((k, v)) = map.next_entry::<String, String>()? {
+                    if v.trim().is_empty() {
+                        return Err(de::Error::custom(format!("{k} can't be empty")));
+                    }
+                    fields.insert(k, v.trim().to_string());
+                }
+                let keys: Vec<&str> = fields.keys().map(String::as_str).collect();
+                match keys.as_slice() {
+                    ["collection", "organization"] => Ok(SaveTo::Collection {
+                        organization: fields["organization"].clone(),
+                        collection: fields["collection"].clone(),
+                    }),
+                    ["group"] => Ok(SaveTo::Group {
+                        group: fields["group"].clone(),
+                    }),
+                    _ => Err(de::Error::custom(format!(
+                        "{{ {} }}: give {{ organization = …, collection = … }} (Bitwarden) or {{ group = … }} (KeePassXC)",
+                        keys.join(", ")
+                    ))),
+                }
+            }
+        }
+        d.deserialize_any(V)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

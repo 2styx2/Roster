@@ -173,6 +173,11 @@ return {
   -- roster when the app starts and on every :source. Paths are on the Box roster runs on (inside
   -- WSL for a WSL backend): absolute, or starting with ~. Never a password.
   vault = {
+    -- Where "Save to vault" (the add-Host form) puts a new password by default. Wins over
+    -- roster.yml's providers: <name>: save_to: (the team's default); the form can still pick
+    -- another. "personal", { organization = "My Team", collection = "Infra logins" } (Bitwarden,
+    -- names or ids), or { group = "Hosts" } (KeePassXC).
+    -- save_to = "personal",
     kp = {
       -- database = "~/roster.kdbx", -- KeePassXC's .kdbx (wins over providers: kp: database:)
       -- key_file = "~/roster.keyx", -- a key file used with its master password

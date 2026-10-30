@@ -58,6 +58,8 @@ claude_inline_limit: 60      # list hosts inside Claude's instructions up to thi
 providers:
   bw:
     sync: true               # pull the latest vault once per run before reading items
+    # where the app's "Save to vault" puts new items: personal (the default), or a team collection
+    # save_to: { organization: "My Team", collection: "Infra logins" }   # names or ids
   op:
     vault: Infra             # default vault for op:ITEM references (optional)
     # account: my.1password.com   # if you're signed in to more than one account

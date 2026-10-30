@@ -303,6 +303,12 @@ async fn vault_configure(
     call(&state, "vault.configure", Value::Object(settings)).await
 }
 
+/// Where "Save to vault" can put an item, and the default (`vault.targets`, API 10; ticket 35).
+#[tauri::command]
+async fn vault_targets(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.targets", json!({})).await
+}
+
 /// roster's diagnostics for one Host (`host.check`, api 2): its steps in order, stopping at the
 /// first failure. roster makes at most one connection and one login, so this is safe on 10.19.
 #[tauri::command]
@@ -668,6 +674,7 @@ pub fn run() {
             vault_login,
             vault_lock,
             vault_configure,
+            vault_targets,
             config_load,
             config_open,
             config_reload,

@@ -15,6 +15,7 @@ import {
   useEffectEvent,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -34,6 +35,7 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type SaveTarget,
   VAULT_CONFIG_API_VERSION,
   type VaultSettings,
 } from "./backend/types";
@@ -333,6 +335,8 @@ export function App({
   const configuresVault = connInfo !== null && connInfo.inventory.api_version >= VAULT_CONFIG_API_VERSION;
   const vaultSettingsKey = JSON.stringify(vaultSettingsOf(config?.vault));
   const [vaultConfiguredFor, setVaultConfiguredFor] = useState<BackendInfo | null>(null);
+  /** Goes up when where "Save to vault" can go may have changed (ticket 35): the add form lists again. */
+  const [targetsVersion, bumpTargets] = useReducer((n: number) => n + 1, 0);
   const vaultActive = connInfo !== null && (!configuresVault || vaultConfiguredFor === connInfo);
   const vault = useVault(backend, vaultActive, { idleMs: options.idleLockMinutes * 60_000, clock });
   const checkVault = vault.check;
@@ -343,6 +347,7 @@ export function App({
       (r) => {
         if (!live) return;
         setVaultConfiguredFor(connInfo);
+        bumpTargets();
         // A KeePassXC database that changed forgot the master password: the lock screen again.
         if (r.locked.length) void checkVault();
       },
@@ -521,6 +526,7 @@ export function App({
       setStale("roster.yml", false);
       reloadHosts();
       refreshPending();
+      bumpTargets();
       if (change.error) setMessage(inventoryBroken(change.error));
     });
     backend.watchInventory(autoReload).catch(() => {});
@@ -540,6 +546,7 @@ export function App({
         setStale("roster.yml", false);
         reloadHosts();
         refreshPending();
+        bumpTargets();
         return r.error ? inventoryBroken(r.error) : null;
       },
     });
@@ -1474,6 +1481,8 @@ export function App({
             rows={errorRows}
             actions={{ run, copy }}
             onPulled={() => reloadHosts()}
+            chooseTarget={configuresVault}
+            targetsVersion={targetsVersion}
             onAdded={(r) => {
               closeAdd();
               reloadHosts();
@@ -1481,7 +1490,7 @@ export function App({
               const where = `${r.host.name} to ${r.host.group}`;
               setMessage(
                 (r.host.reviewed
-                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
+                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}` : ""}.`
                   : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
                   (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
@@ -1669,6 +1678,11 @@ export function servicesLeftOut(list: HostList): string | null {
 }
 
 /** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */
+/** Where a saved password went, for the add message: said unless it's the personal vault (ticket 35). */
+function savedIn(target: Omit<SaveTarget, "save_to"> | undefined): string {
+  return target && target.kind !== "personal" ? `, in ${target.label}` : "";
+}
+
 export function inventoryBroken(e: InventoryFileError): string {
   const at = `roster.yml${e.line ? `:${e.line}` : ""}`;
   return `${at} has an error (${e.message}): the last good Inventory is still in use`;

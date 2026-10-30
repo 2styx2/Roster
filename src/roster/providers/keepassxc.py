@@ -24,12 +24,14 @@ from . import (
     SecretError,
     SeveralItems,
     TimedOut,
+    UnknownTarget,
     VaultLocked,
     WriteFailed,
     WrongPassword,
     manual_unlock,
     near_names,
     register,
+    resolve_target,
     setting_name,
     split_field,
 )
@@ -132,14 +134,24 @@ def _lock(ctx):
     ctx.state.pop("password", None)                      # lock() already dropped the state; nothing to run
 
 
-def _entries(ctx, floor=1):
-    """Every entry's path (GROUP/…/TITLE), outside the recycle bin."""
+def _listing(ctx, floor=1):
+    """Every group (GROUP/) and entry (GROUP/…/TITLE) path, outside the recycle bin."""
     r = _kp(ctx, "ls", "-R", "-f", floor=floor)
     if r.returncode != 0:
         raise SecretError(f"{NAME} couldn't list the database: {_errtext(r) or f'exit {r.returncode}'}")
     trash = str(ctx.settings.get("recycle_bin", "Recycle Bin")) + "/"
     return [p for p in (x.rstrip("\r") for x in r.stdout.splitlines())
-            if p and not p.endswith("/") and not p.endswith("[empty]") and not p.startswith(trash)]
+            if p and not p.endswith("[empty]") and not p.startswith(trash)]
+
+
+def _entries(ctx, floor=1):
+    """Every entry's path (GROUP/…/TITLE), outside the recycle bin."""
+    return [p for p in _listing(ctx, floor) if not p.endswith("/")]
+
+
+def _groups(ctx):
+    """Every group's path (GROUP/SUB), outside the recycle bin."""
+    return [p.rstrip("/") for p in _listing(ctx) if p.endswith("/")]
 
 
 def _summary(path):
@@ -196,9 +208,39 @@ def _scrub(text, *values):
     return text
 
 
+# ---- where it goes (ticket 35): the top level, or a group. The default is save_to (init.lua's, then roster.yml's),
+# else roster.yml's older `group:`.
+
+TOP = {"id": "personal", "kind": "personal", "label": "Top level", "save_to": "personal"}
+
+
+def _group_target(group):
+    return {"id": f"group:{group}", "kind": "group", "label": group, "save_to": {"group": group}}
+
+
+def _targets(ctx):
+    _ready(ctx)
+    return [TOP] + [_group_target(g) for g in _groups(ctx)]
+
+
+def _resolve(setting, field, ctx):
+    if setting == "personal":
+        return TOP
+    if "group" not in setting:
+        raise UnknownTarget(f"{field()} names a Bitwarden organization and collection, but {NAME} saves to the top "
+                            "level of its database or a group")
+    group = setting["group"].strip("/")
+    groups = _groups(ctx)
+    if group not in groups:
+        raise UnknownTarget(f"no {NAME} group '{group}' in the database (groups: {', '.join(groups) or 'none'}) - "
+                            f"fix {field('group')}")
+    return _group_target(group)
+
+
 def _create(item, ctx):
     _ready(ctx)
     name, password = item["name"], item["password"]
+    target = resolve_target(ctx, *item["save_to"])
     if "/" in name:
         raise WriteFailed(f"{NAME} entry titles can't contain '/' (it separates groups) - '{name}' wasn't created")
     if "\n" in password or "\r" in password:              # stdin is read a line at a time
@@ -207,18 +249,18 @@ def _create(item, ctx):
     if same:
         raise ItemExists(f"a {NAME} entry titled '{name}' already exists ({', '.join(same)}) - Logins look entries "
                          "up by exact title, so roster won't make a second one", name, [_summary(p) for p in same])
-    group = str(ctx.settings.get("group") or "").strip("/")
+    group = target["save_to"]["group"] if target["kind"] == "group" else ""
     path = f"{group}/{name}" if group else name
     options = [*(["-u", item["username"]] if item["username"] else []), *(["--url", item["uri"]] if item["uri"] else [])]
     try:
         r = _kp(ctx, "add", *options, "-p", entry=path, then=f"{password}\n")
     except TimedOut:                                     # stopped: the entry may be saved all the same
-        return _created_anyway(ctx, name, path)
+        return {**_created_anyway(ctx, name, path), "target": target}
     if r.returncode != 0:
         err = _scrub(_errtext(r), password, ctx.state.get("password"))
         raise WriteFailed(f"{NAME} didn't create '{name}': {err or f'exit {r.returncode}'}"
                           + (f" (is there a group '{group}'?)" if group and "Could not create entry" in err else ""))
-    return {"id": path, "name": name}
+    return {"id": path, "name": name, "target": target}
 
 
 LOOKUP_FLOOR = 7            # s for the look-up after a create timed out, even past serve's deadline
@@ -249,4 +291,5 @@ def _delete(item_id, ctx):
 PROVIDERS["kp"].update(unlock=_unlock, lock=_lock, status=_status, not_logged_in=not_set_up,
                        login_help=f"{NAME} has no sign-in, only a master password: set providers: kp: database: in "
                                   "roster.yml (or vault.kp.database in the app's init.lua), then unlock",
-                       create=_create, delete=_delete, box_paths=("database", "key_file"))
+                       create=_create, delete=_delete, targets=_targets, resolve=_resolve,
+                       box_paths=("database", "key_file"))

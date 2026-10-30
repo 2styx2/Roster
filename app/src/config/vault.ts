@@ -10,6 +10,7 @@ export function vaultSettingsOf(vault: VaultConfig | null | undefined): VaultSet
     ...(vault?.kp.database ? { database: vault.kp.database } : {}),
     ...(vault?.kp.keyFile ? { key_file: vault.kp.keyFile } : {}),
   };
+  if (vault?.saveTo) settings.save_to = vault.saveTo;
   if (Object.keys(kp).length) settings.kp = kp;
   return settings;
 }

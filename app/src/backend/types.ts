@@ -301,8 +301,10 @@ export interface AddHostParams {
   password?: string;
   item?: string;
   host_key?: string;
-  /** Where a typed password is saved (ticket 35 adds the choice; roster's default vault until then). */
+  /** Which vault a typed password is saved in (roster's default vault when left out). */
   provider?: string;
+  /** Where in it (ticket 35, API 10): the "Save to" choice; the setting's when left out. */
+  save_to?: SaveTo;
 }
 
 /** `host.add`: the Host as roster.yml has it now, the test login (null without a Login) and the
@@ -312,7 +314,7 @@ export interface HostAdd {
   host: Host;
   backup: string;
   verify: HostCheck | null;
-  item: { provider: string; id: string; name: string } | null;
+  item: { provider: string; id: string; name: string; target?: Omit<SaveTarget, "save_to"> } | null;
   /** What went wrong after the Host was written (recording its host key): it's added all the same. */
   warnings?: string[];
 }
@@ -339,8 +341,41 @@ export const VAULT_CONFIG_API_VERSION = 10;
 /** `vault.configure`'s params: this Box's vault settings from init.lua, as roster takes them.
  * Paths and choices only, never a secret. A key left out is roster.yml's again. */
 export interface VaultSettings {
+  save_to?: SaveTo;
   kp?: { database?: string; key_file?: string };
 }
+
+/** Where "Save to vault" puts a new Vault item (ticket 35): the personal vault (KeePassXC: the
+ * top level), an organization's collection (Bitwarden; names or ids), or a group (KeePassXC). */
+export type SaveTo = "personal" | { organization: string; collection: string } | { group: string };
+
+/** One place `vault.targets` offers. `save_to` (ids, not names) is what to send back. */
+export interface SaveTarget {
+  id: string;
+  kind: "personal" | "collection" | "group";
+  /** "Personal vault", "My Team / Infra logins", "Top level", "Hosts". */
+  label: string;
+  organization?: string;
+  collection?: string;
+  save_to: SaveTo;
+}
+
+/** `vault.targets`: where the vault can save, and the default. `default` is null when the setting
+ * names a place that isn't there; `problem` (code 64 or 65) then says which setting to fix. */
+export interface SaveTargets {
+  provider: string;
+  targets: SaveTarget[];
+  default: string | null;
+  /** Where the default is set: init.lua's `vault.save_to`, roster.yml's `save_to`, or neither. */
+  from: "init.lua" | "roster.yml" | null;
+  problem: { code: number; message: string; fix: string } | null;
+}
+
+/** roster's codes for where to save (ticket 35). */
+export const SaveToError = {
+  unknownTarget: 64,
+  readOnlyTarget: 65,
+} as const;
 
 /** Where a vault provider stands (`vault.status`). */
 export type VaultStatusWord = "locked" | "unlocked" | "not-logged-in" | "missing-cli" | "unsupported";
@@ -369,6 +404,8 @@ export interface VaultStatus {
   status: VaultStatusWord;
   message?: string;
   sign_in?: SignInInfo;
+  /** Where "Save to vault" goes by default, as set (API 10): `from` "default" means the personal vault. */
+  save_to?: { setting: SaveTo; from: "init.lua" | "roster.yml" | "default" };
   providers: ProviderStatus[];
 }
 
@@ -498,6 +535,9 @@ export interface Backend {
   /** `vault.configure` (API 10): this Box's vault settings from init.lua, replacing the last ones.
    * `locked`: providers that were unlocked and aren't now (a KeePassXC database that changed). */
   configureVault(settings: VaultSettings): Promise<{ configured: true; locked: string[] }>;
+  /** `vault.targets` (API 10): where "Save to vault" can put an item, and the default. Needs the
+   * vault unlocked (14). */
+  saveTargets(): Promise<SaveTargets>;
   /** Start signing the vault CLI in (`vault.login`). Rejects with BackendCallError (SignInError
    * and VaultError codes); `data.step` says where a sign-in carries on after a failure. */
   signIn(start: SignInStart): Promise<SignInStep>;

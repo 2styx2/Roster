@@ -2,7 +2,7 @@
 // each field, the Vault item names to suggest, and `host.add`'s params. roster checks everything
 // again; this only saves a round trip. The typed password is never part of the draft: it lives in
 // its input until the call (as the lock screen's master password does).
-import type { AddHostParams, HostList } from "../backend/types";
+import type { AddHostParams, HostList, SaveTo } from "../backend/types";
 
 /** How the new Host logs in: a password typed now (saved to the vault after the test login), an
  * existing Vault item, or none yet (added unreviewed, as discover adds Hosts). */
@@ -93,8 +93,8 @@ export function itemSuggestions(draft: AddDraft, hosts: HostList): string[] {
 }
 
 /** `host.add`'s params for the draft (null while a field is invalid). The password is passed in
- * at the call, never kept with the draft. */
-export function addParams(draft: AddDraft, hosts: HostList, password?: string): AddHostParams | null {
+ * at the call, never kept with the draft; `saveTo` is the "Save to" choice (ticket 35), if any. */
+export function addParams(draft: AddDraft, hosts: HostList, password?: string, saveTo?: SaveTo): AddHostParams | null {
   if (problemsOf(draft, hosts).length) return null;
   const text = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
   const name = draft.name.trim();
@@ -109,8 +109,12 @@ export function addParams(draft: AddDraft, hosts: HostList, password?: string): 
     ...(text(draft.title) ? { title: text(draft.title) } : {}),
   };
   if (draft.login === "password") {
-    // "Save to" (ticket 35) picks the target here; until then roster saves to its default vault.
-    return { ...params, password: password ?? "", item: text(draft.item) || defaultItem(name) };
+    return {
+      ...params,
+      password: password ?? "",
+      item: text(draft.item) || defaultItem(name),
+      ...(saveTo ? { save_to: saveTo } : {}),
+    };
   }
   if (draft.login === "item") return { ...params, auth: draft.item.trim() || defaultRef(name) };
   return params;

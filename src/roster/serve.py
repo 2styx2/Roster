@@ -38,9 +38,11 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NOT_REVIEWED,
     NOT_SET_UP,
     NOT_VERIFIED,
+    READ_ONLY_TARGET,
     ROSTER_ERROR,
     UNKNOWN_GROUP,
     UNKNOWN_HOST,
+    UNKNOWN_TARGET,
     UNSUPPORTED,
     VAULT_LOCKED,
     WOULD_CHANGE,
@@ -368,14 +370,19 @@ def add_fields(params):
         raise RpcError(INVALID_PARAMS, f"params: {e}") from None
 
 
-def save_to(state, params):
-    """Where a typed password is saved: params.provider, else the Inventory's vault. Ticket 35 adds the choice
-    of target (a personal or a shared vault/collection); this is the one place it goes."""
-    return vault_provider(state, params)
+def save_to_param(params):
+    """params.save_to (ticket 35): where to save, chosen at save time, or None for the setting's."""
+    value = params.get("save_to")
+    if value is None:
+        return None
+    try:
+        return providers.check_save_to(value)
+    except ValueError as e:
+        raise RpcError(INVALID_PARAMS, f"params.save_to {e}") from None
 
 
 def typed_login(state, params, name):
-    """{password, provider, item} for a password typed into the form, or None. Checked, never echoed."""
+    """{password, provider, item, save_to} for a password typed into the form, or None. Checked, never echoed."""
     password = params.get("password")
     if password is None:
         return None
@@ -387,7 +394,8 @@ def typed_login(state, params, name):
     item = params.get("item") or f"{name} ssh"
     if not isinstance(item, str) or not item.strip() or "\n" in item or ":" in item:
         raise RpcError(INVALID_PARAMS, "params.item must be one line, without ':' (e.g. 'esx-02 ssh')")
-    return {"password": password, "provider": save_to(state, params), "item": " ".join(item.split())}
+    return {"password": password, "provider": vault_provider(state, params), "item": " ".join(item.split()),
+            "save_to": save_to_param(params)}
 
 
 def host_scan_key(state, params):
@@ -442,7 +450,7 @@ def add_host(state, params):
         uri = f"ssh://{h['ip']}" + ("" if port == 22 else f":{port}")
         try:
             made = providers.create_item(typed["provider"], name=typed["item"], password=password,
-                                         username=h["ssh"]["user"], uri=uri)
+                                         username=h["ssh"]["user"], uri=uri, save_to=typed["save_to"])
         except providers.SecretError as e:
             raise write_problem(e) from None
         finally:
@@ -763,7 +771,10 @@ def vault_status(state, params):
     lockable = main_vault(names)
     main = provider_status(lockable) if lockable else {"provider": None, "status": "unsupported",
                                                        "can_write": False}
-    return {**main, "providers": [main if n == main["provider"] else provider_status(n) for n in sorted(names)]}
+    others = [main if n == main["provider"] else provider_status(n) for n in sorted(names)]
+    if main["can_write"]:                       # where "Save to vault" goes by default (ticket 35), as set
+        main = {**main, "save_to": providers.default_target(lockable)}
+    return {**main, "providers": others}
 
 
 def only_vault_unlock_unlocks():
@@ -850,13 +861,22 @@ def box_path(value, field):
     return value
 
 
+
 def box_settings(params):
     """vault.configure's params as providers.configure_box's {provider: {key: value}}, checked."""
     box = {}
+    save_to = save_to_param(params)
+    if save_to is not None:
+        # init.lua has one save_to; it goes to the provider it fits: a collection is Bitwarden's, a group KeePassXC's
+        fits = ("bw", "kp") if save_to == providers.PERSONAL else ("kp",) if "group" in save_to else ("bw",)
+        for name in fits:
+            box.setdefault(name, {})["save_to"] = save_to
     for name, given in params.items():
+        if name == "save_to":
+            continue
         if name not in BOX_PATHS:
             raise RpcError(INVALID_PARAMS, f"params.{name} isn't a setting roster takes from init.lua (it takes: "
-                                           f"{', '.join(sorted(BOX_PATHS))})")
+                                           f"save_to, {', '.join(sorted(BOX_PATHS))})")
         if not isinstance(given, dict):
             raise RpcError(INVALID_PARAMS, f"params.{name} must be an object")
         for key, value in given.items():
@@ -892,8 +912,9 @@ def vault_create_item(state, params):
     if not all(isinstance(v, str) for v in extra.values()):
         raise RpcError(INVALID_PARAMS, "params.username and params.uri must be strings")
     provider = vault_provider(state, params)
+    save_to = save_to_param(params)
     try:
-        made = providers.create_item(provider, name=name, password=password, **extra)
+        made = providers.create_item(provider, name=name, password=password, save_to=save_to, **extra)
     except providers.SecretError as e:
         raise write_problem(e) from None
     except Exception as e:                      # never let the generic handler log text that might hold it
@@ -917,8 +938,24 @@ def vault_undo_create(state, params):
     return {"provider": provider, "id": item_id}
 
 
+def vault_targets(state, params):
+    """Where "Save to vault" can put an item (ticket 35): the personal vault and every collection of the organizations
+    you're in (Bitwarden), or the top level and every group (KeePassXC), and the default. A default that doesn't
+    resolve doesn't fail the list: `default` is null and `problem` says why (code 64 or 65, its message names the
+    setting). Needs the vault unlocked (14)."""
+    provider = vault_provider(state, params)
+    try:
+        found = providers.save_targets(provider)
+    except providers.SecretError as e:
+        raise write_problem(e) from None
+    problem = found["problem"] and write_problem(found["problem"])
+    return {"provider": provider, **found,
+            "problem": problem and {"code": problem.code, "message": problem.message, "fix": problem.data["fix"]}}
+
+
 METHODS["vault.create_item"] = vault_create_item
 METHODS["vault.undo_create"] = vault_undo_create
+METHODS["vault.targets"] = vault_targets
 
 
 # ---------------------------------------------------------------- vault.login: signing in (ticket 31)
