@@ -224,7 +224,7 @@ export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved,
                 Mark reviewed
               </button>
             )}
-            <span className="edit-keys muted">
+            <span className="edit-keys muted key-hint">
               <Keys keys="Enter" /> save <Keys keys="Escape" /> close
             </span>
           </div>

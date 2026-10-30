@@ -28,7 +28,7 @@ describe("the Config's defaults", () => {
   });
 
   it("set the UI text size the whole type scale follows (fonts.ui_size)", () => {
-    expect(deriveConfig(defaultConfig).appearance.fonts.size).toBe(14);
+    expect(deriveConfig(defaultConfig).appearance.fonts.size).toBe(15); // decision Q61
     const c = configWith({ fonts: { ...defaultConfig.fonts, uiSize: 16 } });
     expect(deriveConfig(c).appearance.fonts.size).toBe(16);
   });
@@ -36,6 +36,10 @@ describe("the Config's defaults", () => {
   it("name the same colour tokens as the Themes", () => {
     expect(fixture.themeColors.map(camel)).toEqual(Object.keys(rosterDark.colors));
     expect(fixture.themeTerminal.map(camel)).toEqual(Object.keys(rosterDark.terminal));
+  });
+
+  it("make the terminal 13 pt (decision Q61): 13 × 96/72 px", () => {
+    expect(defaultTerminalOptions.fontSize).toBeCloseTo(17.333, 3);
   });
 
   it("make the terminal medium weight, bold at 700", () => {

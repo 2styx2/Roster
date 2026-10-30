@@ -199,6 +199,34 @@ def test_vault_not_logged_in_or_not_installed_says_what_to_do(serve, write_confi
     assert code == 0 and "hunter2" not in "".join(s.responses) + out + err
 
 
+def test_vault_unlock_runs_bw_once(serve, write_config, fakes, monkeypatch, tmp_path):
+    """Each `bw` call costs about a second of Node start-up, so unlocking is the one `bw unlock`: no `bw status`
+    before it to see if bw is logged in, none after it to build the answer. Not logged in is one call too."""
+    write_config(INVENTORY)
+    log = tmp_path / "bw.log"
+    monkeypatch.setenv("FAKE_LOG", str(log))
+
+    def bw_commands():
+        return [line.split()[1] for line in log.read_text().splitlines()]
+
+    s = serve()
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"] == {"provider": "bw", "status": "unlocked",
+                                                                         "can_write": True}
+    assert bw_commands() == ["unlock"]
+    log.write_text("")
+    assert s.call("vault.unlock", {"password": "not-it"})["error"]["code"] == 10
+    assert bw_commands() == ["unlock"]
+    s.close()
+
+    monkeypatch.setenv("FAKE_BW_LOGGED_OUT", "1")
+    log.write_text("")
+    s = serve()
+    assert s.call("vault.unlock", {"password": "hunter2"})["error"] == {
+        "code": 11, "message": "Bitwarden CLI isn't logged in on this box - run `bw login` once"}
+    assert bw_commands() == ["unlock"]
+    s.close()
+
+
 def test_vault_unlock_of_a_provider_without_master_password(serve, write_config, fakes):
     write_config(INVENTORY)
     s = serve()

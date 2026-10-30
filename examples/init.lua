@@ -66,7 +66,14 @@ return {
   fonts = {
     ui = "Inter",
     mono = "Iosevka", -- the wordmark and code-like text in the UI
-    ui_size = 14, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
+    ui_size = 15, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
+  },
+
+  -- The UI -----------------------------------------------------------------------------------
+  ui = {
+    -- The keycap hints (status bar, empty states, panels, Picker footers, menus). Unset, `:hints
+    -- on|off|toggle` decides and the app remembers it; set here, it wins. The keys work either way.
+    -- hints = false,
   },
 
   -- The terminal ------------------------------------------------------------------------------
@@ -77,7 +84,7 @@ return {
     font = { "Iosevka Nerd Font", "Iosevka Term", "Iosevka" },
     -- A number is px; "16pt" is points, as Windows Terminal counts them (16 pt = 21.33 px at any
     -- display scale). 6 to 72 px. Ctrl+= / Ctrl+- zoom, Ctrl+0 comes back here.
-    size = "12pt",
+    size = "13pt",
     weight = 500, -- 100 to 900; the bundled Iosevka ships at 400, 500 (medium) and 700
     bold_weight = 700,
     line_height = 1.0, -- a multiple of the font's own line height, 0.5 to 3
@@ -106,7 +113,7 @@ return {
   -- what you'd type after `:` ("close", "session 1", "finder sessions"); false unbinds a default.
   -- Contexts: leader (after the Leader), list and list_vim (the Sidebar), picker and picker_vim
   -- (Tab / Shift+Tab: picker.next / picker.prev), cmdline (the `:` line: cmdline.next,
-  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel), terminal (before the shell sees the key: terminal.copy, terminal.paste, terminal.search,
+  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel), terminal (before the shell sees the key: terminal.copy, terminal.copyIfSelected, terminal.paste, terminal.search,
   -- terminal.zoomIn, …), global (everywhere, no Leader; keep it to keys a shell doesn't use).
   -- The Key bindings panel (Leader ?) lists every binding and where it comes from.
   keys = {

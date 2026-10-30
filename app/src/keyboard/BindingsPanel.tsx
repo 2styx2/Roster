@@ -68,7 +68,8 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                       {r.keys.map((k, i) => (
                         <span key={k}>
                           {i > 0 && " "}
-                          <Keys keys={k} leader={leader} />
+                          {/* The bindings themselves, not hints: shown even with ui.hints = false. */}
+                          <Keys keys={k} leader={leader} className="binding-keys" />
                         </span>
                       ))}
                     </span>

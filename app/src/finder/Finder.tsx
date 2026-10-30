@@ -176,10 +176,10 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
               * current · - previous
             </span>
           )}
-          <span className="picker-hint">
+          <span className="picker-hint key-hint">
             <Keys keys="Enter" /> choose
           </span>
-          <span className="picker-hint">
+          <span className="picker-hint key-hint">
             <Keys keys="Escape" /> close
           </span>
         </div>

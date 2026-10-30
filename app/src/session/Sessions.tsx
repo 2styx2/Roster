@@ -136,7 +136,7 @@ export function SessionPanes({
               <div className="session-note ended">
                 <span>{statusText(tab)}</span>
                 {reconnectKeys && (
-                  <span className="muted">
+                  <span className="muted key-hint">
                     {" "}
                     · <Keys keys={reconnectKeys} leader={leader} /> or
                   </span>
