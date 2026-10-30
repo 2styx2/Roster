@@ -34,6 +34,7 @@ NO_FIELD = 34               # the item has no password, or no such #FIELD (row 1
 # 36 UNEXPECTED_PROMPT      askpass: the Host asked something other than the Login password (row 18)
 # 37 TOKEN_SPENT            askpass: the one-time token is used, expired or cleared by vault.lock
 # 38 NO_SERVE               askpass: the helper couldn't reach `roster serve`
+PASSWORD_NEEDED = 39        # session.prepare: the Host's Login is auth: prompt, so the app asks for its password (T16)
 from .askpass import LOOKUP_FAILED, NO_SERVE, TOKEN_SPENT, UNEXPECTED_PROMPT  # noqa: E402,F401 (stdlib-only helper)
 
 # host.check's network and Host steps (rows 11-17, 19)

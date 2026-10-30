@@ -43,6 +43,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NOT_SET_UP,
     NOT_VERIFIED,
     NOTHING_HELD,
+    PASSWORD_NEEDED,
     READ_ONLY_TARGET,
     ROSTER_ERROR,
     UNKNOWN_GROUP,
@@ -209,6 +210,11 @@ def session_prepare(state, params):
     if not in_ssh_config(h["name"]):
         raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
+    if not h["enroll"] and prompted(h):
+        return prompt_session(state, h, ssh, params)
+    if params.get("password") is not None or params.get("save") is not None:
+        raise RpcError(INVALID_PARAMS, f"params.password and params.save are only for a Host whose Login is auth: "
+                                       f"prompt; {h['name']}'s password comes from its Login")
     if not h["enroll"] and diagnose.password_login(h):
         return password_session(state, h, ssh)
     known_key(h)
@@ -246,6 +252,47 @@ def password_session(state, h, ssh):
     return {"argv": [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
+
+
+def prompted(h):
+    """Is the Host's ssh Login `auth: prompt`: a password nobody saved, which the user types (ticket 16)?"""
+    login = diagnose.password_login(h)
+    return login is not None and str(login["auth"]).partition(":")[0].strip() == "prompt"
+
+
+def prompt_session(state, h, ssh, params):
+    """A Session to an `auth: prompt` Host (ticket 16): roster has no password to look up, so the app asks for it
+    (39 until it's sent) and it goes to ssh through an askpass token, like a vault password. With save: true serve
+    holds it for "Save to vault" (host.save_login) until that Session has logged in with it; that Session then
+    never reuses a shared connection (ControlPath=none), so the login really is made with the typed password."""
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
+                                   "need `roster serve`")
+    diagnose.check_user(h)
+    known_key(h)
+    password = params.get("password")
+    if password is None:
+        raise RpcError(PASSWORD_NEEDED, f"{h['name']}'s Login is auth: prompt - type its password",
+                       {"user": h["ssh"]["user"], "address": h["ip"], "port": h["ssh"]["port"]},
+                       fix="type the password when the app asks; tick Save to vault to keep it in the vault "
+                           "once it has logged in")
+    if not isinstance(password, str) or not password:
+        raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string")
+    save = save_param(params, password)
+    if save:
+        saving_provider(state, params)
+    typed = askpass.Typed(password)
+    del password
+    argv = [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
+            "-o", "PreferredAuthentications=password,keyboard-interactive"]
+    held = {}
+    if save:
+        held = {"held": hold(state, secrets.token_hex(8), typed, "host", h["name"],
+                             {"host": h["name"], "login": login_key(h)})}
+        argv += [*state.askpass.login_options(), "-o", "ControlPath=none"]
+    token = state.askpass.mint(typed, h["name"])
+    return {"argv": [*argv, h["name"]], "env": state.askpass.env(token), "host": h["name"], "auth": "password",
+            **held}
 
 
 askpass_lookup = diagnose.askpass_lookup
@@ -740,6 +787,51 @@ def save_quick(state, params):
             "warnings": warnings}
 
 
+def host_save_login(state, params):
+    """Save an `auth: prompt` Host's typed password once its Session logged in with it (ticket 16, Q43): the Vault
+    item `<host> ssh`, then the Host's Login pointed at it, as a Pending change (comments and every other byte kept).
+    The item is taken back out if the Host can't be changed. Refused (75) if the Host's address, user, port or Login
+    changed since that Session logged in: it would save a password for a login nobody tested."""
+    try:
+        return save_login(state, params)
+    except (RpcError, SystemExit):
+        raise
+    except Exception as e:                      # never let the generic handler log text that might hold the password
+        raise RpcError(INTERNAL_ERROR, f"saving the Login failed: {type(e).__name__}") from None
+
+
+def save_login(state, params):
+    hid = text_param(params, "held")
+    held = logged_in_with(state, hid, "host")
+    name = held.target["host"]
+    item = item_param(params, name)
+    save_to = save_to_param(params)
+    provider = saving_provider(state, params)
+    h = state.fresh()["hosts"].get(name)
+    if h is None or login_key(h) != held.target["login"]:
+        raise RpcError(NOT_VERIFIED, f"{name} changed since its Session logged in (its address, user, port or "
+                                     "Login) - nothing was saved",
+                       fix=f"open a new Session to {name} and save from there")
+    wanted = {"auth": f"{provider}:{item}"}
+    repo = changes.Repo(state.path)
+    edit.edited(repo.path, name, wanted)        # a dry run: the edit must be possible before the vault is touched
+    made = make_item(provider, item, held.typed.password, h["ssh"]["user"], h["ip"], h["ssh"]["port"], save_to)
+    try:                                        # until the Login is written, any failure takes the item back out
+        old_text, new_text, _ = edit.edited(repo.path, name, wanted)
+        backup = repo.backup(old_text)
+        edit.replace_file(repo.path, new_text)
+    except BaseException as e:
+        problem = e if isinstance(e, Problem) else Problem(
+            ROSTER_ERROR, f"{name}'s Login wasn't changed: "
+                          + (die_message(e) if isinstance(e, SystemExit) else
+                             f"couldn't write {repo.path} ({failure_text(e)})"))
+        raise take_back(made, problem) from None
+    forget_held(state, hid)
+    state.reload()
+    return {"changed": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "item": made,
+            "warnings": []}
+
+
 def quick_label(user, address, port):
     """How a Quick Connect is named in messages and the log, as the app writes it: user@address, with :port when
     it isn't 22 (an IPv6 address then in brackets)."""
@@ -1064,6 +1156,7 @@ METHODS["host.scan_key"] = host_scan_key
 METHODS["host.trust_key"] = host_trust_key
 METHODS["quick.prepare"] = quick_prepare
 METHODS["quick.save"] = quick_save
+METHODS["host.save_login"] = host_save_login
 METHODS["vault.forget_typed"] = vault_forget_typed
 METHODS["host.add"] = host_add
 METHODS["host.review"] = host_review
@@ -1400,7 +1493,8 @@ METHODS["vault.login"] = vault_login
 # to take a new Vault item back out). So serve
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
-             "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45}
+             "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
+             "host.save_login": 45}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 
