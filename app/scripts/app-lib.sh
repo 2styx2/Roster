@@ -23,3 +23,15 @@ unset _v
 WIN_DIR="${ROSTER_APP_WIN_DIR:-roster-app-dev}"
 # The repo root: the Cargo workspace (crates/roster-core, app/src-tauri) and the app (app/).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Install the app's npm packages in the Windows copy when they are missing or stale: `npm ci`
+# runs on a fresh copy, after package-lock.json changes (a copy of the lockfile in node_modules
+# records what was last installed), or always with force=1.
+ensure_npm() {
+  local force="${1:-0}" win_local copy
+  win_local="$(wincmd 'echo %LOCALAPPDATA%' | tr -d '\r')"
+  copy="$(wslpath "$win_local")/$WIN_DIR/src/app"
+  if [ "$force" = 1 ] || ! cmp -s "$copy/package-lock.json" "$copy/node_modules/.roster-installed-lock"; then
+    wincmd "cd /d %LOCALAPPDATA%\\${WIN_DIR}\\src\\app && npm ci"
+    cp "$copy/package-lock.json" "$copy/node_modules/.roster-installed-lock"
+  fi
+}

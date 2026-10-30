@@ -6,8 +6,8 @@
 #   app/scripts/app-build.sh              build roster-app.exe (no installer), print where it is
 #   app/scripts/app-build.sh --run        ...and start it
 #   app/scripts/app-build.sh --installer  also build the Windows installers (NSIS setup .exe and .msi)
-#   app/scripts/app-build.sh --ci         run `npm ci` on the Windows side first (first build, or
-#                                         after package-lock.json changes)
+#   app/scripts/app-build.sh --ci         always run `npm ci` on the Windows side first (it already
+#                                         runs on its own on a fresh copy or after package-lock.json changes)
 #
 # The release copy lives in %LOCALAPPDATA%\roster-app-release (separate from the dev copy, so a
 # release build never fights a running `tauri dev`). Stop it with: app/scripts/app-stop.sh --release
@@ -26,11 +26,8 @@ for arg in "$@"; do
 done
 "$here/app-sync.sh"
 app="%LOCALAPPDATA%\\${WIN_DIR}\\src\\app"
-# A fresh copy has no node_modules yet.
+ensure_npm "$ci"
 win_local="$(wincmd 'echo %LOCALAPPDATA%' | tr -d '\r')"
-if [ "$ci" = 1 ] || [ ! -d "$(wslpath "$win_local")/$WIN_DIR/src/app/node_modules" ]; then
-  wincmd "cd /d $app && npm ci"
-fi
 if [ "$installer" = 1 ]; then
   wincmd "cd /d $app && npm run tauri build"
 else
