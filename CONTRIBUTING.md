@@ -13,7 +13,7 @@ This is the same branch model as roster and Orion. **While roster-desk is a loca
 - **Nobody commits directly to `main` or `dev`.** All work happens on Work branches. While the repo is a local prototype, finished Work branches are merged into `dev` straight away, with checks passing. After that, the review step comes back.
 - **One Work branch per ticket**, named `feat/NN-short-slug` after `tickets/NN-*.md`, or `fix/…`, `docs/…`, `chore/…`.
 - **A ticket that needs another ticket's unmerged work** is cut from that ticket's branch, so the branches stack. If it needs two, merge both into the new Work branch. Merging into a Work branch is fine. Merging into `dev` is not.
-- **First Release after iteration 5** (decision Q48). Iterations 1–5 all build up on `dev`, and each one is tested by hand before the next starts. After iteration 5, `dev` merges into `main` and is tagged `v0.1.0`. From then on, each iteration is one Release (`v0.2.0`, …).
+- **First Release after iteration 5** (decision Q48). Iterations 1–5 all build up on `dev`, and each one is tested by hand before the next starts. After iteration 5, `dev` merges into `main` and is tagged `v0.1.0`. After iteration 7, the next Release is tagged `v0.2.0`.
 
 ## Commits
 
