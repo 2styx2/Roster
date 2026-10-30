@@ -1,6 +1,8 @@
-// The app shell: connect to the Backend, then the Standard layout: the Sidebar, the Sessions'
-// terminals (or an empty state), the Key bindings panel, the command line and the status bar.
-// A Backend that can't start gets an error screen that says what to fix.
+// The app shell: connect to the Backend, then the view mode's layout (view/layout.ts): Standard
+// has the Sidebar and the status bar around the Sessions' terminals (or an empty state); Focus is
+// fullscreen with only the terminal and, if asked for, the session bar. The Key bindings panel,
+// the check panel, the command line, the Picker and the Finder work the same in both. A Backend
+// that can't start gets an error screen that says what to fix.
 //
 // Keys: the focus-mode machine (keyboard/mode.ts) decides whether a key is the terminal's or the
 // app's; the app's keys are command lines run through the one command table (commands/table.ts),
@@ -27,12 +29,14 @@ import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
+import { Finder } from "./finder/Finder";
+import type { FinderContext, FinderItem } from "./finder/sources";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
 import { TitleBar } from "./chrome/TitleBar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
-import type { Clock } from "./lock/idle";
+import { realClock, type Clock } from "./lock/idle";
 import { LockGate } from "./lock/LockScreen";
 import { useVault } from "./lock/useVault";
 import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
@@ -53,6 +57,8 @@ import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./them
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { Keys } from "./ui/Keys";
+import { defaultLayouts, isShown, otherMode, placed, togglePiece, type Layouts, type Place, type ViewMode } from "./view/layout";
+import { SessionBar } from "./view/SessionBar";
 
 type Conn =
   | { state: "connecting" }
@@ -60,7 +66,10 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | { cmdline: string } | null;
+type Overlay = "picker" | { cmdline: string } | { finder: string } | null;
+
+/** How long the hint on entering a mode stays. */
+const HINT_MS = 2000;
 
 const MODIFIERS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "CapsLock"]);
 
@@ -76,6 +85,13 @@ function hintFor(keymap: Keymap, line: Line): string | null {
   return key ? `␣ ${key}` : null;
 }
 
+/** The global keys (no Leader) bound to any of `lines`. */
+function globalKeysFor(keymap: Keymap, lines: readonly Line[]): string[] {
+  return Object.entries(keymap.global)
+    .filter(([, b]) => lines.includes(b.action))
+    .map(([k]) => k);
+}
+
 export interface AppProps {
   backend: Backend;
   options?: Options;
@@ -88,8 +104,11 @@ export interface AppProps {
   terminalOptions?: TerminalOptions;
   /** Theme, fonts and the title bar (ticket 09); the Config's later (ticket 21). */
   appearance?: AppearanceOptions;
-  /** The State file, clipboard and Windows build (tests: an in-memory one). */
+  /** The State file, clipboard, Windows build, window controls and fullscreen (tests: an in-memory one). */
   platform?: Platform;
+  /** The per-mode layout table (decision Q39); the defaults from the options unless ticket 21's
+   * Config passes its own. */
+  layouts?: Layouts;
 }
 
 export function App({
@@ -101,6 +120,7 @@ export function App({
   terminalOptions = defaultTerminalOptions,
   platform: platformProp,
   appearance = defaultAppearance,
+  layouts: layoutsProp,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
@@ -109,6 +129,7 @@ export function App({
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
   const errorRows = useSyncExternalStore(registries.errors.subscribe, registries.errors.list);
+  const finderSources = useSyncExternalStore(registries.finders.subscribe, registries.finders.list);
   const commands: Commands = useMemo(
     () => ({ get: (id) => registries.commands.get(id), list: () => commandList }),
     [registries, commandList],
@@ -123,8 +144,10 @@ export function App({
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [sidebarVisible, setSidebarVisible] = useState(options.sidebar.visible);
-  const [statusVisible, setStatusVisible] = useState(options.statusBar.visible);
+  const [viewMode, setViewMode] = useState<ViewMode>(options.defaultMode);
+  const [layouts, setLayouts] = useState<Layouts>(() => layoutsProp ?? defaultLayouts(options));
+  const layout = layouts[viewMode];
+  const [hint, setHint] = useState(false);
   const [message, setMessage] = useState("");
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
@@ -156,7 +179,47 @@ export function App({
     [sectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
-  const sidebarShown = sidebarVisible && sections.length > 0;
+  const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
+  const sidebarSide = sidebarAt === "right" ? "right" : "left";
+  const sidebarShown = isShown(layout, "sidebar") && layout.tree === "sidebar" && sections.length > 0;
+  const finderCtx = useMemo<FinderContext | null>(
+    () =>
+      hosts
+        ? {
+            sessions,
+            hosts,
+            hostByName,
+            sessionsIn: options.sessions,
+            state: appState,
+            folded,
+            recent: appState.recentHosts,
+            sidebar: sectionDefs,
+          }
+        : null,
+    [sessions, hosts, hostByName, options.sessions, appState, folded, sectionDefs],
+  );
+
+  // The window follows the mode: OS fullscreen, or not (only when that changes).
+  const fullscreen = useRef(false);
+  useEffect(() => {
+    if (fullscreen.current === layout.fullscreen) return;
+    fullscreen.current = layout.fullscreen;
+    platform.setFullscreen(layout.fullscreen).catch(() => {});
+  }, [layout.fullscreen, platform]);
+
+  // The hint on entering a mode that has one, for HINT_MS.
+  const hintClock = clock ?? realClock;
+  const showsHint = layout.hint;
+  useEffect(() => {
+    if (!showsHint) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- showing it is the effect
+    setHint(true);
+    const timer = hintClock.setTimeout(() => setHint(false), HINT_MS);
+    return () => {
+      hintClock.clearTimeout(timer);
+      setHint(false);
+    };
+  }, [viewMode, showsHint, hintClock]);
 
   const connect = useCallback(
     async (restart: boolean) => {
@@ -203,6 +266,8 @@ export function App({
   );
   const terminalKeys = useMemo(() => actionsOf(keymap.terminal), [keymap]);
   const termTheme = useMemo(() => terminalTheme(theme, terminalOptions.colors), [theme, terminalOptions.colors]);
+  // What sits around the terminal: a change fits the terminal again and tells the Session.
+  const layoutKey = [viewMode, ...(["top", "bottom", "left", "right"] as const).map((at) => placed(layout, at).join(","))].join(" ");
   const terminalEnv = useMemo<TerminalEnv>(
     () => ({
       options: terminalOptions,
@@ -212,8 +277,9 @@ export function App({
       keys: terminalKeys,
       clipboard: platform.clipboard,
       onZoom,
+      layout: layoutKey,
     }),
-    [terminalOptions, termTheme, fontSize, windowsBuild, terminalKeys, platform, onZoom],
+    [terminalOptions, termTheme, fontSize, windowsBuild, terminalKeys, platform, onZoom, layoutKey],
   );
 
   const openHost = useCallback(
@@ -338,8 +404,11 @@ export function App({
       const id = n === null ? sessions.active : (sessions.tabs[n - 1]?.id ?? null);
       if (id !== null) tabs.close(id);
     },
-    toggleSidebar: () => setSidebarVisible((v) => !v),
-    toggleStatusBar: () => setStatusVisible((v) => !v),
+    toggleSidebar: () => {
+      if (layout.tree === "finder") return ctx.openFinder("tree");
+      setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], "sidebar") }));
+    },
+    toggleStatusBar: () => setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], l[viewMode].bar) })),
     openCommandLine: (initial = "") => {
       if (overlay === null) rememberFocus();
       setOverlay({ cmdline: initial });
@@ -369,6 +438,13 @@ export function App({
     },
     hostNames: () => hosts?.hosts.map((h) => h.name) ?? [],
     say: setMessage,
+    viewMode: () => viewMode,
+    setViewMode: (mode) => setViewMode(mode ?? otherMode(viewMode)),
+    openFinder: (source) => {
+      if (!registries.finders.get(source)) return setMessage(`No finder named ${source}`);
+      if (overlay === null) rememberFocus();
+      setOverlay({ finder: source });
+    },
   };
 
   const copy = (text: string) => platform.clipboard.writeText(text);
@@ -409,10 +485,11 @@ export function App({
   }, [ready]);
 
   // The custom title bar (decision Q32) sits above every screen, the lock screen too, so the
-  // window can always be moved and closed; it shows nothing but the mark.
+  // window can always be moved and closed; it shows nothing but the mark. The view mode's layout
+  // says whether it shows at all (Focus is OS fullscreen without it).
   const frame = (content: React.ReactNode) => (
     <div className="window">
-      {appearance.titleBar.visible && <TitleBar controls={platform.window} />}
+      {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
       <div className="window-body">{content}</div>
     </div>
   );
@@ -438,13 +515,60 @@ export function App({
     [hintFor(keymap, "statusbar"), "hide this bar"],
   ].filter((h): h is [string, string] => h[0] !== null);
 
+  const modeKeys = [hintFor(keymap, "mode"), hintFor(keymap, "focus"), ...globalKeysFor(keymap, ["mode", "focus"])].filter(
+    (k): k is string => k !== null,
+  );
+  /** The pieces the layout places at `at`, in order. The title bar is drawn by `frame` above
+   * every screen (the lock and error screens too); a Plugin's pieces come with ticket 23. */
+  const pieces = (at: Place) =>
+    placed(layout, at).map((id) => {
+      if (id === "statusbar") return statusBar;
+      if (id === "sessionbar") {
+        return (
+          <div key={id} className="piece" data-place={at}>
+            <SessionBar box={info.inventory.box} snapshot={sessions} hostByName={hostByName} run={run} />
+          </div>
+        );
+      }
+      return null;
+    });
+  const finderSource = overlay !== null && typeof overlay === "object" && "finder" in overlay
+    ? finderSources.find((s) => s.id === overlay.finder)
+    : undefined;
+
+  const statusBar = (
+    <footer key="statusbar" className="statusbar">
+      <span className="backend">
+        <span className="status-dot" aria-hidden="true" />
+        {info.backend}
+      </span>
+      <span>{info.inventory.box}</span>
+      <span>{conn.hosts.hosts.length} hosts</span>
+      <span className="path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
+        {info.inventory.path}
+      </span>
+      <span className="grow" />
+      {hints.map(([k, what]) => (
+        <span key={what} className="hint">
+          <Keys keys={k} leader={options.leader} /> {what}
+        </span>
+      ))}
+      {appMode && (
+        <span className="mode">
+          APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
+        </span>
+      )}
+    </footer>
+  );
+
   const shell = (
-    <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`}>
-      <div className={`body sidebar-${options.sidebar.side}`}>
+    <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`} data-view={viewMode}>
+      {pieces("top")}
+      <div className={`body sidebar-${sidebarSide}`}>
         {sidebarShown && (
           <Sidebar
             sections={sections}
-            side={options.sidebar.side}
+            side={sidebarSide}
             cursor={appMode ? cursor : null}
             leaderHint={options.leader}
             findKeys={hintFor(keymap, "find")}
@@ -506,7 +630,7 @@ export function App({
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
         )}
       </div>
-      {overlay !== null && overlay !== "picker" && (
+      {overlay !== null && typeof overlay === "object" && "cmdline" in overlay && (
         <CommandLine
           key={overlay.cmdline}
           initial={overlay.cmdline}
@@ -521,29 +645,28 @@ export function App({
       <div className="message-line" role="status">
         {message}
       </div>
-      {statusVisible && (
-        <footer className="statusbar">
-          <span className="backend">
-            <span className="status-dot" aria-hidden="true" />
-            {info.backend}
-          </span>
-          <span>{info.inventory.box}</span>
-          <span>{conn.hosts.hosts.length} hosts</span>
-          <span className="path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
-            {info.inventory.path}
-          </span>
-          <span className="grow" />
-          {hints.map(([k, what]) => (
-            <span key={what} className="hint">
-              <Keys keys={k} leader={options.leader} /> {what}
-            </span>
-          ))}
-          {appMode && (
-            <span className="mode">
-              APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
-            </span>
-          )}
-        </footer>
+      {pieces("bottom")}
+      {hint && modeKeys.length > 0 && (
+        <div className="mode-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
+          {modeKeys.map((k) => (
+            <Keys key={k} keys={k} leader={options.leader} />
+          ))}{" "}
+          leave {viewMode === "focus" ? "Focus" : "this mode"}
+        </div>
+      )}
+      {finderSource && finderCtx && !vault.locked && (
+        <Finder
+          key={finderSource.id}
+          source={finderSource}
+          ctx={finderCtx}
+          keymap={keymap}
+          vim={options.vim}
+          onClose={closeOverlay}
+          onChoose={(item: FinderItem) => {
+            closeOverlay();
+            run(item.command);
+          }}
+        />
       )}
       {overlay === "picker" && !vault.locked && (
         <Picker

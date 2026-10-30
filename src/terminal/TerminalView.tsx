@@ -31,6 +31,9 @@ export interface TerminalEnv {
   clipboard: Clipboard;
   /** A zoom key or Ctrl+wheel: the app owns the font size, so every terminal follows. */
   onZoom(action: ZoomAction): void;
+  /** The view mode and the pieces around the terminal: when it changes, the terminal fits
+   * itself again and tells the Session (Focus mode, ticket 22). */
+  layout: string;
 }
 
 export interface TerminalViewProps {
@@ -225,6 +228,30 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     if (t.options.fontSize !== fontSize) t.options.fontSize = fontSize;
     if (el.current?.offsetParent !== null) fit.current?.fit();
   }, [fontSize, options, theme]);
+
+  // A view mode change resizes the window (OS fullscreen) after the layout does, so fit again
+  // once it has settled; the ResizeObserver catches most of it, this catches the rest.
+  const { layout } = env;
+  const firstLayout = useRef(true);
+  useEffect(() => {
+    if (firstLayout.current) {
+      firstLayout.current = false;
+      return;
+    }
+    const t = term.current;
+    if (!active || !t) return;
+    const refit = () => {
+      if (el.current?.offsetParent === null) return;
+      fit.current?.fit();
+      cb.current.onResize({ cols: t.cols, rows: t.rows });
+    };
+    const frame = requestAnimationFrame(refit);
+    const late = setTimeout(refit, 300);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(late);
+    };
+  }, [layout, active]);
 
   useEffect(() => {
     const t = term.current;

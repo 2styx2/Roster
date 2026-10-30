@@ -4,7 +4,7 @@ Keyboard first, with vim keys and full mouse support. Every binding lives in one
 
 ## Two modes
 
-- **Terminal mode:** every key goes to the shell, including Esc, Ctrl+C and Ctrl+W. Only the **Leader** (Ctrl+Space by default) is caught.
+- **Terminal mode:** every key goes to the shell, including Esc, Ctrl+C and Ctrl+W. Only the **Leader** (Ctrl+Space by default) and the keymap's `global` keys (F11) are caught.
 - **App mode:** after the Leader, or whenever the Picker, a panel or the command line has focus. Vim bindings apply. Esc goes back to the terminal you came from.
 
 ## How keys become actions
@@ -29,6 +29,10 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and Host names |
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source, filterable |
 | `<leader> L` | `lock` | Lock |
+| `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
+| F11 (any mode, no Leader) | `focus` | Focus on or off |
+| `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |
+| — | `finder SOURCE` | The Finder over a finder source: `sessions`, `hosts`, `tree` (Folders and Inventory), `folders`, `inventory`. Enter runs the item's command, Esc closes; the Picker's keys move |
 | Esc (App mode) | `terminal` | Back to the terminal |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
@@ -43,6 +47,16 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 
 With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
 
-Later: `<leader> m` (view mode, ticket 22), `<leader> b` (Session finder, ticket 22).
+## View modes (ticket 22)
+
+Standard and Focus (decision Q36) differ only in their layout (decision Q39, `src/view/layout.ts`); every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
+
+| Keys | In Standard | In Focus |
+|---|---|---|
+| `<leader> e` (`sidebar`) | Show or hide the Sidebar | The tree finder (`finder tree`): Folders and the Inventory, with paths |
+| `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
+| `<leader> ?`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
+
+A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.

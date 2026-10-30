@@ -1,6 +1,7 @@
 // What the app needs from the machine it runs on, apart from roster (that's the Backend): the
-// State file, the clipboard, and the Windows build. Tests and the plain browser use their own
-// implementations (memory.ts, browser.ts); the app uses tauri.ts.
+// State file, the clipboard, the Windows build, the window's controls (title bar) and fullscreen
+// (Focus mode). Tests and the plain browser use their own implementations (memory.ts,
+// browser.ts); the app uses tauri.ts.
 
 export interface Clipboard {
   readText(): Promise<string>;
@@ -39,4 +40,6 @@ export interface Platform {
   clipboard: Clipboard;
   /** The window's controls; absent where there's no window to control (tests). */
   window?: WindowControls;
+  /** OS fullscreen on or off (Focus mode, ticket 22). */
+  setFullscreen(on: boolean): Promise<void>;
 }

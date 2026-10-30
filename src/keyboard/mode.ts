@@ -1,5 +1,6 @@
 // The two focus modes (GLOSSARY, docs/keyboard.md) as a pure state machine over chords.
 // Terminal mode: every key goes to the Session's shell, except the Leader, which enters App mode.
+// Global keys (F11) are caught in either mode, with no Leader.
 // App mode: the keymap applies (the Leader's table, plus list keys for the Sidebar); keys never
 // reach the shell. A key's command line comes back to the caller to run; commands marked
 // `staysInAppMode` (moving in a list) keep App mode; any other, and Esc, go back to the terminal.
@@ -39,6 +40,11 @@ export function appTables(keymap: Keymap, vim: boolean): KeyTable[] {
 
 export function press(state: KeyState, chord: string, ctx: PressContext): PressResult {
   if (chord === ctx.leader) return { state: appMode, consumed: true };
+  const global = state.pending.length === 0 ? ctx.keymap.global[chord] : undefined;
+  if (global) {
+    const next = state.mode === "app" && ctx.staysInAppMode(global.action) ? appMode : terminalMode;
+    return { state: next, action: global.action, consumed: true };
+  }
   if (state.mode === "terminal") return { state, consumed: false };
 
   const seq = [...state.pending, chord].join(" ");

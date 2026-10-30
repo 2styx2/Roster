@@ -29,7 +29,7 @@ const LOCAL: Record<string, { area: string; label: string }> = {
   "terminal.zoomReset": { area: "Terminal", label: "Reset zoom" },
 };
 
-const AREAS = ["Leader", "Hosts", "Sessions", "Sidebar", "App", "Terminal"];
+const AREAS = ["Leader", "Hosts", "Sessions", "View", "Sidebar", "App", "Terminal"];
 
 function display(context: KeymapContext, seq: string): string {
   const keys = seq
@@ -42,8 +42,8 @@ function display(context: KeymapContext, seq: string): string {
 
 export function bindingRows(keymap: Keymap, options: Options, commands: Commands): BindingRow[] {
   const contexts: KeymapContext[] = options.vim
-    ? ["leader", "list", "listVim", "picker", "pickerVim", "terminal"]
-    : ["leader", "list", "picker", "terminal"];
+    ? ["leader", "global", "list", "listVim", "picker", "pickerVim", "terminal"]
+    : ["leader", "global", "list", "picker", "terminal"];
   const rows = new Map<string, BindingRow & { rank: number }>();
   const ids = commands.list().map((c) => c.id);
   for (const context of contexts) {

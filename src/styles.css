@@ -539,3 +539,71 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 
 /* xterm's own scrollbar follows the Theme. */
 .xterm .xterm-viewport { scrollbar-color: var(--raised-line) transparent; }
+
+/* ---------- View modes (ticket 22) ---------- */
+
+/* Focus: only the terminal; panels float over it instead of beside it, so opening one doesn't
+   resize the terminal. */
+.body { position: relative; }
+.screen[data-view="focus"] .keys-panel,
+.screen[data-view="focus"] .check-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
+  border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+}
+
+/* The hint on entering a mode: it comes on its own and leaves on its own (2 s), so it eases in
+   and fades out; under reduced motion it only fades. */
+.mode-hint {
+  position: fixed; top: 12px; right: 14px; z-index: 20; display: flex; gap: 6px; align-items: center;
+  padding: 5px 10px; border-radius: var(--radius-lg); font-size: var(--text-sm); color: var(--muted); pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px var(--shadow);
+  animation: mode-hint 2s var(--ease-out) both;
+}
+@keyframes mode-hint {
+  from { opacity: 0; transform: translateY(calc(-1 * var(--enter-y))); }
+  8% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* The session bar: tmux's status line, drawn with the app's tokens. */
+.sessionbar {
+  display: flex; align-items: center; gap: 4px; height: var(--statusbar-h); padding: 0 8px; flex: none;
+  font: var(--text-sm) var(--font-mono); color: var(--faint); background: var(--chrome); white-space: nowrap; overflow: hidden;
+}
+.piece[data-place="bottom"] .sessionbar { border-top: 1px solid var(--line); }
+.piece[data-place="top"] .sessionbar { border-bottom: 1px solid var(--line); }
+.sessionbar-box { color: var(--accent-ink); margin-right: 6px; }
+.sessionbar .sessionbar-tab {
+  height: 18px; font: inherit; color: var(--muted); background: transparent; border: 0;
+  border-radius: var(--radius-sm); padding: 0 6px; transition: none;
+}
+.sessionbar .sessionbar-tab:active { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .sessionbar .sessionbar-tab:hover { color: var(--text); background: var(--hover); }
+}
+/* The current Session: the raised style, as everywhere else (decision Q31). */
+.sessionbar .sessionbar-tab.current { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.sessionbar .grow { flex: 1; }
+.sessionbar-info { color: var(--faint); }
+
+/* The Finder: the Picker's frame, one line per item. */
+.finder-query {
+  display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 16px; border-bottom: 1px solid var(--line);
+  font: var(--text-lg) var(--font-mono);
+}
+.finder-query input { flex: 1; min-width: 0; height: auto; padding: 0; font: inherit; border: 0; background: transparent; }
+.finder-query input:focus-visible { box-shadow: none; }
+.finder-prompt { color: var(--accent-ink); font-size: var(--text-md); }
+.finder-count { color: var(--faint); font: var(--text-xs) var(--font-ui); font-variant-numeric: tabular-nums; }
+.finder-row {
+  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius);
+  font: var(--text-md) var(--font-mono); color: var(--muted);
+}
+.finder-row.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.finder-row.unreviewed { cursor: not-allowed; color: var(--faint); }
+.finder-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finder-mark { color: var(--accent-ink); }
+.finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--faint); }
+.finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--faint); }

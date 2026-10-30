@@ -32,5 +32,14 @@ export function browserPlatform(): Platform {
       watchMaximized: () => () => {},
       watchGeometry: () => () => {},
     },
+    // The browser allows it only from a key or click; Focus works without it.
+    async setFullscreen(on) {
+      try {
+        if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+        if (!on && document.fullscreenElement) await document.exitFullscreen();
+      } catch {
+        // refused: Focus still hides the chrome
+      }
+    },
   };
 }

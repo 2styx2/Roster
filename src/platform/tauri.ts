@@ -3,6 +3,7 @@
 // clipboard from the clipboard-manager plugin, because WebView2 won't let the page read the
 // clipboard itself.
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { tauriWindow } from "./tauriWindow";
 import type { Platform } from "./types";
@@ -17,5 +18,6 @@ export function tauriPlatform(): Platform {
       writeText: (text) => writeText(text),
     },
     window: tauriWindow(),
+    setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
   };
 }

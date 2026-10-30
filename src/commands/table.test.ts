@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ViewMode } from "../view/layout";
 import { builtinCommandRegistry, complete as completeIn, describeLine as describeIn, parseLine as parseIn, runLine as runIn, type CommandContext } from "./table";
 
 const registry = builtinCommandRegistry();
@@ -9,7 +10,7 @@ const describeLine = (line: string) => describeIn(registry, line);
 const complete = (input: string, hosts: readonly string[]) => completeIn(registry, input, hosts);
 
 /** A CommandContext that writes down what it was asked to do. */
-function recorder() {
+function recorder(mode: ViewMode = "standard") {
   const calls: string[] = [];
   const ctx: CommandContext = {
     openPicker: () => calls.push("picker"),
@@ -32,6 +33,9 @@ function recorder() {
     selectedHost: () => null,
     hostNames: () => hosts,
     say: (m) => calls.push(`say ${m}`),
+    viewMode: () => mode,
+    setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
+    openFinder: (id) => calls.push(`finder ${id}`),
   };
   return { ctx, calls };
 }
@@ -70,6 +74,20 @@ describe("runLine", () => {
     ]);
   });
 
+  it("switches the view mode: `mode` to the other one or the one named, `focus` in and out of Focus", () => {
+    const { ctx, calls } = recorder();
+    runLine(ctx, "mode");
+    runLine(ctx, "mode focus");
+    runLine(ctx, "mode standard");
+    runLine(ctx, "mode zen");
+    runLine(ctx, "focus");
+    expect(calls).toEqual(["mode other", "mode focus", "mode standard", "say Not a view mode: zen (standard, focus)", "mode focus"]);
+    const inFocus = recorder("focus");
+    runLine(inFocus.ctx, "focus");
+    expect(inFocus.calls).toEqual(["mode standard"]);
+    expect(complete("mode ", hosts)).toEqual(["mode standard", "mode focus"]);
+  });
+
   it("says what's wrong with a bad line, and ignores an empty one", () => {
     const { ctx, calls } = recorder();
     runLine(ctx, "conect x");
@@ -88,7 +106,8 @@ describe("runLine", () => {
   it("can run every command in the table", () => {
     for (const c of commands) {
       const { ctx, calls } = recorder();
-      const arg = c.arg ? { host: " esxi-02", number: " 1", text: " section:sessions" }[c.arg] : "";
+      const text = c.complete?.("", hosts)[0] ?? "section:sessions";
+      const arg = c.arg ? { host: " esxi-02", number: " 1", text: ` ${text}` }[c.arg] : "";
       runLine(ctx, `${c.id}${arg}`);
       expect(calls, c.id).toHaveLength(1);
       expect(calls[0], c.id).not.toMatch(/^say/);

@@ -86,10 +86,9 @@ export interface AppearanceOptions {
   dark: string;
   /** The Theme for a light OS when `theme` is "auto". */
   light: string;
-  /** Font stacks (decision Q30). The terminal's font is a terminal option (ticket 08). */
+  /** Font stacks (decision Q30). The terminal's font is a terminal option (ticket 08). Whether
+   * the title bar shows is the view mode's layout (view/layout.ts, decision Q39). */
   fonts: { ui: string; mono: string };
-  /** The custom title bar (decision Q32). Off leaves no way to drag the window except the OS keys. */
-  titleBar: { visible: boolean };
 }
 
 export const defaultAppearance: AppearanceOptions = {
@@ -100,7 +99,6 @@ export const defaultAppearance: AppearanceOptions = {
     ui: '"Inter", system-ui, "Segoe UI", sans-serif',
     mono: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
   },
-  titleBar: { visible: true },
 };
 
 /** The Theme to use: the one named, or for "auto" the OS's kind; the default dark one if the

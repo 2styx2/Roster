@@ -13,6 +13,7 @@
 import type { Host } from "../backend/types";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { registerBindings } from "../keymap";
+import { sectionFinder } from "../finder/sources";
 import type { Registries } from "../registries";
 import { BUILTIN } from "../registry";
 import type { SidebarRow, SidebarSection } from "../sidebar/Sidebar";
@@ -308,6 +309,7 @@ export function registerFolders(registries: Registries, store: FolderStore): () 
   const disposers = [
     registries.sidebar.register(foldersSection()),
     registries.commands.register(folderCommand(store)),
+    registries.finders.register(sectionFinder("folders", "Find in the Folders", "Folders")),
     registerBindings(registries.keymap, { leader: { a: "folder add", A: "folder remove" } }, BUILTIN),
   ];
   return () => disposers.forEach((d) => d());

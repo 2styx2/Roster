@@ -18,6 +18,7 @@ export type Action = string;
 
 import { BUILTIN, CONFIG, Registry, type Entry, type Source } from "./registry";
 import { terminalKeys, type TerminalAction } from "./terminal/keymap";
+import type { ViewMode } from "./view/layout";
 
 export interface Binding<T extends string = CommandLine> {
   action: T;
@@ -40,6 +41,9 @@ export interface Keymap {
   pickerVim: KeyTable<PickerAction>;
   /** In a terminal, before the shell sees the key (ticket 08). */
   terminal: KeyTable<TerminalAction>;
+  /** Everywhere, Terminal mode included, with no Leader (F11 for Focus, ticket 22). Keep it to
+   * keys a shell has no use for. */
+  global: KeyTable;
 }
 
 export type KeymapContext = keyof Keymap;
@@ -65,6 +69,10 @@ export interface Options {
   statusBar: { visible: boolean };
   /** Lock after this many minutes without input (docs/security.md). */
   idleLockMinutes: number;
+  /** The view mode at start (decision Q36): `default_mode` in init.lua. */
+  defaultMode: ViewMode;
+  /** Focus mode: the tmux-style session bar, off by default (decision Q36). */
+  focus: { sessionbar: "top" | "bottom" | false };
 }
 
 export const defaultOptions: Options = {
@@ -74,6 +82,8 @@ export const defaultOptions: Options = {
   sessions: "sidebar",
   statusBar: { visible: true },
   idleLockMinutes: 15,
+  defaultMode: "standard",
+  focus: { sessionbar: false },
 };
 
 const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -91,6 +101,8 @@ export const defaultBindings: KeymapTables = {
     "?": "keys",
     L: "lock",
     r: "reconnect",
+    m: "mode",
+    b: "finder sessions",
     Escape: "terminal",
   },
   list: {
@@ -114,6 +126,7 @@ export const defaultBindings: KeymapTables = {
   },
   pickerVim: { j: "picker.down", k: "picker.up" },
   terminal: terminalKeys.terminal,
+  global: { F11: "focus" },
 };
 
 /** One key binding in the keymap registry. `action: null` unbinds the key (shadowing a default). */
@@ -145,7 +158,7 @@ export function actionsOf<T extends string>(table: KeyTable<T>): Record<string, 
 
 /** The resolved keymap from the registry's entries in effect. */
 export function keymapOf(entries: readonly KeyBindingEntry[]): Keymap {
-  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {}, terminal: {} };
+  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {}, terminal: {}, global: {} };
   for (const e of entries) {
     if (e.action === null) continue;
     (keymap[e.context] as KeyTable<string>)[e.keys] = { action: e.action, source: e.source };
