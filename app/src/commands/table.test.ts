@@ -39,7 +39,7 @@ function recorder(mode: ViewMode = "standard") {
     openFinder: (id) => calls.push(`finder ${id}`),
     showInfo: () => calls.push("info"),
     edit: (h) => calls.push(`edit ${h ?? "selected"}`),
-    showChanges: (discard) => calls.push(discard ? "changes discard" : "changes"),
+    showChanges: (then) => calls.push(then ? `changes ${then}` : "changes"),
     pull: () => calls.push("pull"),
     addHost: () => calls.push("add"),
     review: (h) => calls.push(`review ${h ?? "selected"}`),
@@ -53,8 +53,8 @@ const hosts = ["esxi-02", "esxi-01", "net-sw-core-01", "orion3", "hub2", "lab-hu
 describe("runLine", () => {
   it("runs the Inventory commands (ticket 10)", () => {
     const { ctx, calls } = recorder();
-    for (const line of ["edit esxi-02", "edit", "changes", "discard", "pull"]) runLine(ctx, line);
-    expect(calls).toEqual(["edit esxi-02", "edit selected", "changes", "changes discard", "pull"]);
+    for (const line of ["edit esxi-02", "edit", "changes", "discard", "publish", "pull"]) runLine(ctx, line);
+    expect(calls).toEqual(["edit esxi-02", "edit selected", "changes", "changes discard", "changes publish", "pull"]);
   });
 
   it("runs :host add and :review (ticket 11), and says what :host takes", () => {

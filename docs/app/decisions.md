@@ -17,7 +17,7 @@ These came from a grilling session in which each question was asked with a recom
 | Q10 | API | `roster serve`, JSON-RPC over stdio, returning roster's **existing objects** (roster ADR 0001). |
 | Q11 | Session transport | System `ssh` in a PTY, with passwords through SSH_ASKPASS (roster ADR 0002). |
 | Q12 | App lock | Unlocking the vault is the app lock. Locks after 15 minutes idle (configurable). |
-| Q13 | Write flow | Edit through roster, keeping comments, then diff, then **Publish** (commit and push to infra `main`, pulling first). |
+| Q13 | Write flow | Edit through roster, keeping comments, then diff, then **Publish** (commit and push to infra `main`, pulling first). *Ticket 12: Publish commits `roster.yml` alone (never `folders.yml` or any other file; other uncommitted files refuse it) with the infra repo's own git identity, and pushes to the branch's upstream, never forced. "Pulling first" is a fetch, then a fast-forward only over upstream commits that leave `roster.yml` alone; if `roster.yml` moved there, or the push is rejected, it stops with the Pending changes kept. `roster sync` runs after.* |
 | Q14 | Backends | All three: native Windows, the Windows app with roster in WSL, and Linux. Auto-detected per machine. |
 | Q15 | Name and location | `roster-desk` in `~/work/roster-desk`. *Superseded by Q56: it's now the roster app, in `app/` of the roster repo.* |
 | — | Keyboard | Vim keys, mostly keyboard, mouse fully supported. |

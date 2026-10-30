@@ -60,7 +60,7 @@ app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
                       state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
-                      host_scan_key, host_add, host_review,
+                      changes_publish, host_scan_key, host_add, host_review,
                       config_import_preview, config_import_apply (ticket 33)
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
@@ -79,7 +79,7 @@ app/src/errors/       clean connection errors (ticket 26, docs/app/errors.md): c
                       extras), ErrorPanel.tsx (the Session pane's error), CheckPanel.tsx (`:check HOST`)
 app/src/edit/         editing a Host (ticket 10): form.ts (the draft, what changed, whether it needs a test login),
                       EditPanel.tsx (`:edit`: pull, the form, test login, save), ChangesPanel.tsx (`:changes`: the diff,
-                      `:discard`); adding one (ticket 11): addForm.ts (the draft, checks, Vault item suggestions,
+                      `:discard`, `:publish`: the message, the commit's hash); adding one (ticket 11): addForm.ts (the draft, checks, Vault item suggestions,
                       host.add's params), AddPanel.tsx (`:host add`: pull, the form, host key, test login, add)
 app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 crates/roster-core/src/config/

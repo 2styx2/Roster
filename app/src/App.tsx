@@ -24,6 +24,7 @@ import {
   BackendStartError,
   CHECK_API_VERSION,
   EDIT_API_VERSION,
+  PUBLISH_API_VERSION,
   type Backend,
   type BackendInfo,
   type BackendProblem,
@@ -42,7 +43,7 @@ import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
 import type { FinderContext, FinderItem } from "./finder/sources";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
-import { ChangesPanel, type ChangesState } from "./edit/ChangesPanel";
+import { ChangesPanel, type ChangesState, type ChangesStep } from "./edit/ChangesPanel";
 import { AddPanel } from "./edit/AddPanel";
 import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
@@ -236,7 +237,7 @@ export function App({
   const checkRun = useRef(0);
   // Ticket 10: the edit form (a Host's name), the Pending changes panel, and the last count.
   const [editing, setEditing] = useState<string | null>(null);
-  const [changesView, setChangesView] = useState<{ confirm: boolean } | null>(null);
+  const [changesView, setChangesView] = useState<{ step: ChangesStep } | null>(null);
   const [pending, setPending] = useState<ChangesState | null>(null);
   // Ticket 11: the add-Host form, with the group it starts in.
   const [adding, setAdding] = useState<{ group: string } | null>(null);
@@ -378,6 +379,7 @@ export function App({
   // and pull. A roster older than API 5 has none to show.
   const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;
   const canEdit = apiVersion >= EDIT_API_VERSION;
+  const canPublish = apiVersion >= PUBLISH_API_VERSION;
   const canAdd = apiVersion >= ADD_API_VERSION;
   const refreshPending = useCallback(() => {
     if (!canEdit) return;
@@ -716,14 +718,17 @@ export function App({
         (e: unknown) => setMessage(`Couldn't mark ${host} reviewed: ${e instanceof Error ? e.message : String(e)}`),
       );
     },
-    showChanges: (discard = false) => {
+    showChanges: (then) => {
       if (!canEdit) return setMessage(`:changes needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
+      if (then === "publish" && !canPublish) {
+        return setMessage(`:publish needs a newer roster (API version ${PUBLISH_API_VERSION}; this one speaks ${apiVersion})`);
+      }
       if (editing === null && !changesView && !adding) rememberFocus();
       setEditing(null);
       setAdding(null);
       setPending((p) => p ?? { state: "loading" });
       refreshPending();
-      setChangesView({ confirm: discard });
+      setChangesView({ step: then ?? "diff" });
     },
     pull: () => {
       if (!canEdit) return setMessage(`:pull needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
@@ -1157,11 +1162,14 @@ export function App({
         )}
         {changesView && pending && (
           <ChangesPanel
-            key={changesView.confirm ? "ask" : "show"}
+            key={changesView.step}
             changes={pending}
-            confirm={changesView.confirm}
+            step={changesView.step}
             editKeys={hintFor(keymap, "edit")}
             leader={options.leader}
+            canPublish={canPublish}
+            rows={errorRows}
+            actions={{ run, copy }}
             onDiscard={async () => {
               try {
                 const r = await backend.discardChanges();
@@ -1171,6 +1179,16 @@ export function App({
               }
               reloadHosts();
               refreshPending();
+            }}
+            onPublish={async (message) => {
+              const r = await backend.publishChanges(message);
+              reloadHosts();
+              refreshPending();
+              setMessage(
+                `Published ${r.commit.slice(0, 7)} to ${r.upstream}.` +
+                  (r.sync.ok ? "" : " This Box's ssh config didn't follow: run roster sync."),
+              );
+              return r;
             }}
             onClose={closeChanges}
           />

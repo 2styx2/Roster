@@ -324,6 +324,16 @@ async fn changes_discard(state: tauri::State<'_, Arc<BackendState>>) -> Result<V
     call(&state, "changes.discard", json!({})).await
 }
 
+/// Commit and push the Pending changes, then `roster sync` (`changes.publish`, ticket 12): never
+/// forced. `message` is the commit message as the user left it.
+#[tauri::command]
+async fn changes_publish(state: tauri::State<'_, Arc<BackendState>>, message: String) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.call_timeout("changes.publish", json!({ "message": message }), PUBLISH_TIMEOUT)).await
+}
+
+/// roster's publish waits up to 60 s for each of git's fetch and push, and the sync after.
+const PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 /// The host key an address offers (`host.scan_key`, ticket 11): key exchange only, never a login.
 #[tauri::command]
 async fn host_scan_key(
@@ -570,6 +580,7 @@ pub fn run() {
             host_review,
             changes_diff,
             changes_discard,
+            changes_publish,
             session_open,
             session_write,
             session_resize,

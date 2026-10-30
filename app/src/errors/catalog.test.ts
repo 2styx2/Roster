@@ -48,6 +48,25 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 72).where).toContain("the infra repo");
   });
 
+  it("gives every publishing code its row (docs/app/errors.md rows 46-52, ticket 12)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (let n = 46; n <= 52; n++) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [90, 91, 92, 93, 94, 95, 96]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.id).toMatch(/^publish-/);
+      expect(row.fix(p(code))).not.toMatch(/force/i);
+    }
+    expect(rowFor(rows, 92).where).toContain("the infra repo");
+  });
+
+  it("puts git's own words from roster's data.details under Details", () => {
+    const e = new BackendCallError("couldn't push", 96, { fix: "publish again", details: "! [remote rejected] main" });
+    const problem = problemFromCallError("", e);
+    expect(problem.details).toBe("[96] couldn't push\n\n! [remote rejected] main");
+    expect(problem.data).toBeUndefined();
+  });
+
   it("gives saving to the vault and adding a Host their rows (rows 34-37, 44-45, ticket 11)", () => {
     const covered = new Set(builtinErrorRows.map((r) => r.row));
     for (const n of [34, 35, 36, 37, 44, 45]) expect(covered.has(n), `row ${n}`).toBe(true);
