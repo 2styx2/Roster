@@ -256,6 +256,29 @@ def test_host_add_stays_within_its_deadline_and_writes_nothing_when_it_runs_out(
     nothing_written(box, vault, isolated)
 
 
+def test_a_vault_item_saved_by_a_create_that_timed_out_is_used_for_the_add(box, sshd, vault, isolated, fakes,
+                                                                           monkeypatch):
+    from roster.providers import bitwarden
+    state = unlocked_state(box)
+    real_bw = bitwarden._bw
+
+    def create_hangs(ctx, *args, **kw):         # only the create runs out of time: the add's own deadline is fine
+        if args[:2] == ("create", "item"):
+            monkeypatch.setenv("FAKE_BW_CREATE_HANG", "30")
+            with rpc.deadline(1):
+                try:
+                    return real_bw(ctx, *args, **kw)
+                finally:
+                    monkeypatch.delenv("FAKE_BW_CREATE_HANG")
+        return real_bw(ctx, *args, **kw)
+    monkeypatch.setattr(bitwarden, "_bw", create_hangs)
+    r = add_in_process(state, sshd)
+    res = r["result"]
+    made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
+    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh"}
+    assert res["host"]["ssh"]["auth"] == "bw:nas ssh"
+
+
 def test_every_deadline_ends_before_the_app_gives_up():
     import re
     from pathlib import Path

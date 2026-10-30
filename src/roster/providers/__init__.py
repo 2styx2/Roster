@@ -26,6 +26,10 @@ class SecretError(RuntimeError):
 
 
 # Kinds of SecretError a caller (`roster serve`) can tell apart. Providers and plugins raise these where they fit.
+class TimedOut(SecretError):
+    """A helper command didn't finish in time (it was stopped): what it was doing may or may not have happened."""
+
+
 class WrongPassword(SecretError):
     """The master password didn't unlock the vault."""
 
@@ -194,18 +198,19 @@ class Ctx:
             raise SecretError(f"needs input ({prompt.strip().rstrip(':')}) but there's no terminal to ask in")
         return getpass.getpass(f"  {prompt}")
 
-    def run(self, args, env=None, shell=False, interactive=False, timeout=120, input=None):
+    def run(self, args, env=None, shell=False, interactive=False, timeout=120, input=None, floor=1):
         """Run a helper command, capturing output. A missing tool becomes a friendly error.
-        INPUT goes to its stdin (the way to hand a tool a secret: never in args)."""
+        INPUT goes to its stdin (the way to hand a tool a secret: never in args). The timeout is held to serve's
+        deadline (common.time_left), but never below FLOOR; past it, TimedOut."""
         tool = args if isinstance(args, str) else args[0]
         stdin = {} if input is not None else {"stdin": None if interactive else subprocess.DEVNULL}
         try:
-            return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=time_left(timeout),
+            return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=time_left(timeout, floor),
                                   input=input, env={**os.environ, **(env or {})}, **stdin)
         except FileNotFoundError:
             raise CliMissing(not_installed(self.provider, tool))
         except subprocess.TimeoutExpired:
-            raise SecretError(f"`{tool}` timed out")
+            raise TimedOut(f"`{tool}` timed out")
 
 
 def not_installed(name, tool=None):
