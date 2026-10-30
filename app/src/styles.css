@@ -650,7 +650,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .panes { flex: 1; position: relative; min-height: 0; }
 .pane { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .pane[hidden] { display: none; }
-.term-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--bg); }
+/* isolation: xterm's layers (z-index up to 11) stay inside the terminal, so the error panel and the
+   notes that follow it in the pane paint over it and get its clicks (issue #78: Details wouldn't open). */
+.term-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; isolation: isolate; background: var(--bg); }
 /* The padding goes on xterm's own element, which FitAddon takes off before counting columns: on
    .term-host it was counted as room, so the last column ran flush to the edge (N5). */
 .term-host { flex: 1; min-height: 0; }
