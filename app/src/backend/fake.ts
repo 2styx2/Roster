@@ -149,6 +149,9 @@ export interface FakeScenario {
   info?: { backend?: string; box?: string; path?: string; command?: string[] };
   /** The not-logged-in or missing-cli message, where it differs from roster's usual one. */
   vaultMessage?: string;
+  /** Every Session's shell prints a busy log at this many lines a second once it has logged in, like
+   * app/scripts/perf/serve.py's: the perf fixture (docs/app/performance.md). */
+  stream?: number;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -422,6 +425,9 @@ export const fixtures: Record<string, FakeScenario> = {
     },
   }),
   "worst-case": worstCase(),
+  /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
+   * Sessions (default 12) whose shells print `&rate=R` log lines a second (default 100). */
+  perf: perfCase(),
   /** No Hosts at all: every empty state. */
   "worst-case-empty": { hosts: { hosts: [], groups: {} }, info: { box: LONG_BOX, path: LONG_PATH } },
   /** One Host, one Session, one Folder: every count at 1. */
@@ -466,12 +472,41 @@ function worstCase(): FakeScenario {
   };
 }
 
+/** The perf fixture: see `fixtures.perf`. */
+function perfCase(search: string = globalThis.location?.search ?? ""): FakeScenario {
+  const params = new URLSearchParams(search);
+  const hosts = worstCaseHosts();
+  const count = Number(params.get("sessions") ?? 12);
+  const open = hosts.hosts.filter((h) => h.reviewed && authOf(h) === "key").slice(0, count).map((h) => h.name);
+  return {
+    hosts,
+    vault: { status: "unsupported" },
+    stream: Number(params.get("rate") ?? 100),
+    app: { state: {}, openAtStart: open },
+  };
+}
+
 export function fixtureFromUrl(search: string = globalThis.location?.search ?? ""): FakeScenario {
   const name = new URLSearchParams(search).get("fixture") ?? "many-hosts";
   return fixtures[name] ?? { hosts: makeHosts(300) };
 }
 
 const encode = (s: string) => new TextEncoder().encode(s);
+
+/** A busy log, `rate` lines a second in bursts every 50 ms (app/scripts/perf/serve.py's, for the
+ * perf fixture). Returns the interval. */
+function streamLog(rate: number, write: (text: string) => void): ReturnType<typeof setInterval> {
+  let n = 0;
+  const perTick = Math.max(1, Math.round(rate / 20));
+  return setInterval(() => {
+    let text = "";
+    for (let i = 0; i < perTick; i++) {
+      n++;
+      text += `\x1b[2m${String(n).padStart(8, "0")}\x1b[0m \x1b[32mINFO\x1b[0m worker-${String(n % 16).padStart(2, "0")} handled request ${n} in ${n % 97} ms path=/api/v1/items/${n % 5000} status=200 bytes=${(n * 7) % 65536}\r\n`;
+    }
+    write(text);
+  }, 50);
+}
 
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
 function fakeSession(
@@ -481,13 +516,15 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
-  extra: { onLogin?: () => void; title?: string } = {},
+  extra: { onLogin?: () => void; title?: string; stream?: number | undefined } = {},
 ): SessionHandle {
   let line = "";
   let ended = false;
+  let streaming: ReturnType<typeof setInterval> | undefined;
   const end = (code: number | null, closed: boolean) => {
     if (ended) return;
     ended = true;
+    clearInterval(streaming);
     setTimeout(() => events.exit({ code, closed }), 0);
   };
   const prompt = `${host}$ `;
@@ -502,6 +539,7 @@ function fakeSession(
     if (extra.title) events.output(encode(`\x1b]0;${extra.title}\x07`));
     events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
     if (resized && !ended) sayResized(resized);
+    if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => events.output(encode(text)));
   }, loginMs);
   return {
     id,
@@ -1091,7 +1129,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream });
     },
     async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
