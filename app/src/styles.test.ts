@@ -73,6 +73,15 @@ describe("the stylesheets", () => {
   });
 });
 
+describe("the second tone (decision Q57)", () => {
+  it.each(SHEETS)("%s draws only shapes with --tone, never text", (_name, css) => {
+    const text = rules(css)
+      .filter(([, body]) => /(^|;)\s*(color|caret-color|-webkit-text-fill-color)\s*:[^;]*var\(--tone\)/.test(body))
+      .map(([selector]) => selector);
+    expect(text).toEqual([]);
+  });
+});
+
 describe("native controls (S6)", () => {
   it("take the Theme's accent, not the browser's blue", () => {
     const root = rules(stylesCss).find(([selector]) => selector === ":root");
