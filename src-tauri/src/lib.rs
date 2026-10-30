@@ -57,70 +57,62 @@ async fn blocking<T: Send + 'static, E: Send + 'static>(
 }
 
 /// Find and start the Backend (or return the running one). Errors explain what to fix.
+/// It reads the Config on the blocking thread: at startup that waits for init.lua's first load
+/// (at most the Lua wall-clock limit) rather than starting the default roster.
 #[tauri::command]
 async fn backend_connect(
     state: tauri::State<'_, Arc<BackendState>>,
-    config: tauri::State<'_, Arc<ConfigState>>,
+    config: tauri::State<'_, ConfigState>,
     restart: bool,
 ) -> Result<BackendInfo, BackendError> {
     let s = Arc::clone(&state);
-    let config = config.current();
-    blocking(move || s.connect(restart, &config)).await
+    let loader = config.0.clone();
+    blocking(move || {
+        let config = loader.map(|l| l.settled()).unwrap_or_default();
+        s.connect(restart, &config)
+    })
+    .await
 }
 
-/// The Config (`init.lua`, desk-core config.rs): the loader with the last good Config, and the
-/// last report (with its error, if the file is broken). None when there's no config dir.
-#[derive(Default)]
-struct ConfigState {
-    loader: Mutex<Option<Loader>>,
-    last: Mutex<Option<Report>>,
-}
+/// The Config (`init.lua`, desk-core config/): None when there's no config dir. desk-core's
+/// Loader runs Lua outside the locks its readers take, so nothing here waits on Lua except
+/// on a blocking thread.
+struct ConfigState(Option<Arc<Loader>>);
 
-impl ConfigState {
-    fn reload(&self) -> Option<Report> {
-        let report = self.loader.lock().ok()?.as_mut()?.reload();
-        if let Ok(mut last) = self.last.lock() {
-            *last = Some(report.clone());
-        }
-        Some(report)
-    }
-
-    fn current(&self) -> Config {
-        self.loader
-            .lock()
-            .ok()
-            .and_then(|l| l.as_ref().map(|l| l.current().clone()))
-            .unwrap_or_default()
-    }
-}
-
-/// The Config as the app starts with it, and the error if init.lua couldn't be used. Later
-/// changes arrive as `config-changed` events with the same shape.
+/// The Config as the app starts with it, and the error if init.lua couldn't be used. Waits for
+/// the first load if it's still running (on a blocking thread). Later changes arrive as
+/// `config-changed` events with the same shape.
 #[tauri::command]
-fn config_load(config: tauri::State<'_, Arc<ConfigState>>) -> Option<Report> {
-    config.last.lock().ok()?.clone()
+async fn config_load(config: tauri::State<'_, ConfigState>) -> Result<Option<Report>, ()> {
+    let Some(loader) = config.0.clone() else {
+        return Ok(None);
+    };
+    blocking(move || Ok(loader.settled_report())).await
 }
 
-/// Reads init.lua once, then watches its dir and emits `config-changed` after every save.
-fn start_config(app: &tauri::App, state: &Arc<ConfigState>) -> Option<config::Watcher> {
+/// How long the window waits for init.lua before it shows. A slower Config arrives as a
+/// `config-changed` event.
+const CONFIG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Reads init.lua (waiting at most CONFIG_STARTUP_WAIT), then watches its dir and emits
+/// `config-changed` after every save, and once the first load is done.
+fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watcher> {
     use tauri::Emitter;
-    let dir = config::dir()?;
-    if let Ok(mut l) = state.loader.lock() {
-        *l = Some(Loader::new(&dir));
-    }
-    if let Some(Report { error: Some(e), .. }) = state.reload() {
-        eprintln!("roster-desk: {e}");
-    }
     let handle = app.handle().clone();
-    let s = Arc::clone(state);
-    match config::watch(&dir, move || {
-        if let Some(report) = s.reload() {
-            let _ = handle.emit("config-changed", report);
+    loader.reload_within(CONFIG_STARTUP_WAIT, move |report| {
+        if let Some(e) = &report.error {
+            eprintln!("roster-desk: {e}");
         }
+        let _ = handle.emit("config-changed", report);
+    });
+    let handle = app.handle().clone();
+    let l = Arc::clone(loader);
+    match config::watch(loader.dir(), move || {
+        let _ = handle.emit("config-changed", l.reload());
     }) {
         Ok(w) => Some(w),
         Err(e) => {
-            eprintln!("roster-desk: can't watch {} for changes: {e}", dir.display());
+            eprintln!("roster-desk: can't watch {} for changes: {e}", loader.dir().display());
             None
         }
     }
@@ -322,16 +314,16 @@ fn restore_and_show(app: &tauri::App, window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sessions = Arc::new(SessionManager::new());
-    let config_state = Arc::new(ConfigState::default());
-    let setup_config = Arc::clone(&config_state);
+    let loader = config::dir().map(|dir| Arc::new(Loader::new(&dir)));
+    let setup_loader = loader.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(BackendState::default()))
         .manage(Arc::clone(&sessions))
-        .manage(config_state)
+        .manage(ConfigState(loader))
         .setup(move |app| {
             // The watcher lives as long as the app.
-            if let Some(w) = start_config(app, &setup_config) {
+            if let Some(w) = setup_loader.as_ref().and_then(|l| start_config(app, l)) {
                 tauri::Manager::manage(app, Mutex::new(w));
             }
             if let Some(w) = tauri::Manager::get_webview_window(app, "main") {

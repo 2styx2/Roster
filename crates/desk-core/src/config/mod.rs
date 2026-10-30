@@ -18,6 +18,7 @@ pub use watch::{Watcher, watch};
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The file the app runs.
@@ -388,11 +389,17 @@ pub struct Report {
     pub path: String,
 }
 
-/// Loads and reloads the Config in one dir, keeping the last good one.
+/// Loads and reloads the Config in one dir, keeping the last good one. Shared between threads:
+/// reading ([`Loader::current`], [`Loader::last`]) never waits for a reload, because Lua runs
+/// outside the locks that reading takes; the result is swapped in when it's done. Reloads run
+/// one at a time, so they finish in the order they started.
 pub struct Loader {
     dir: PathBuf,
     env: Env,
-    current: Config,
+    /// The Config in effect and the last report. Held only to clone or swap, never across Lua.
+    current: Mutex<(Arc<Config>, Option<Report>)>,
+    /// Held for a whole reload: only reloads and [`Loader::settled`] take it.
+    loading: Mutex<()>,
 }
 
 impl Loader {
@@ -405,7 +412,8 @@ impl Loader {
         Loader {
             dir: dir.to_path_buf(),
             env,
-            current: Config::default(),
+            current: Mutex::new((Arc::new(Config::default()), None)),
+            loading: Mutex::new(()),
         }
     }
 
@@ -413,26 +421,73 @@ impl Loader {
         &self.dir
     }
 
-    /// The Config in effect.
-    pub fn current(&self) -> &Config {
-        &self.current
+    /// The Config in effect (the defaults before the first load). Never waits.
+    pub fn current(&self) -> Arc<Config> {
+        Arc::clone(&lock(&self.current).0)
     }
 
-    /// Reads the file again. On an error the last good Config stays in effect.
-    pub fn reload(&mut self) -> Report {
-        let error = match load_with(&self.dir, &self.env) {
+    /// The last reload's report, None before the first one is done. Never waits.
+    pub fn last(&self) -> Option<Report> {
+        lock(&self.current).1.clone()
+    }
+
+    /// The Config in effect once any reload in progress is done. Waits for it (at most the
+    /// Lua wall-clock limit): call it from a blocking thread.
+    pub fn settled(&self) -> Arc<Config> {
+        let _done = lock(&self.loading);
+        self.current()
+    }
+
+    /// The last report once any reload in progress is done; see [`Loader::settled`].
+    pub fn settled_report(&self) -> Option<Report> {
+        let _done = lock(&self.loading);
+        self.last()
+    }
+
+    /// Reads the file again. On an error the last good Config stays in effect. Blocks for the
+    /// Lua run (at most the wall-clock limit), without holding up readers.
+    pub fn reload(&self) -> Report {
+        let _loading = lock(&self.loading);
+        let result = load_with(&self.dir, &self.env);
+        let mut current = lock(&self.current);
+        let error = match result {
             Ok(config) => {
-                self.current = config;
+                current.0 = Arc::new(config);
                 None
             }
             Err(e) => Some(e),
         };
-        Report {
-            config: self.current.clone(),
+        let report = Report {
+            config: (*current.0).clone(),
             error,
             path: self.dir.join(FILE_NAME).display().to_string(),
-        }
+        };
+        current.1 = Some(report.clone());
+        report
     }
+
+    /// Reloads on a thread of its own and waits at most `wait` for it: the report if it was
+    /// done by then, else None. `then` gets the report when it's done, either way (at startup:
+    /// the window shows without waiting long, and a slow Config arrives as a change).
+    pub fn reload_within(
+        self: &Arc<Self>,
+        wait: Duration,
+        then: impl FnOnce(Report) + Send + 'static,
+    ) -> Option<Report> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let me = Arc::clone(self);
+        std::thread::spawn(move || {
+            let report = me.reload();
+            let _ = tx.send(report.clone());
+            then(report);
+        });
+        rx.recv_timeout(wait).ok()
+    }
+}
+
+/// A poisoned lock still holds a usable value here (a Config or a report).
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Which roster to start, from the Config and the development env vars.

@@ -123,7 +123,7 @@ fn returning_something_other_than_a_table_is_an_error() {
 #[test]
 fn reload_keeps_the_last_good_config_on_error() {
     let dir = with_init("reload", "return { vim = false }");
-    let mut loader = Loader::new(&dir);
+    let loader = Loader::new(&dir);
     let first = loader.reload();
     assert!(first.error.is_none());
     assert!(!first.config.vim);
@@ -646,4 +646,100 @@ fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_ma
     assert!(e.contains("ROSTER_DESK_ROSTER"), "{e}");
     let plan = backend_plan(&c, Platform::Linux, Some("my-wrapper roster"), None).unwrap();
     assert_eq!(plan.command, ["my-wrapper", "roster"]);
+}
+
+/// A loader for an init.lua that keeps Lua busy for at least `ms` of wall-clock time (os.time
+/// counts seconds and os.clock is the whole process's CPU, so it counts its own iterations,
+/// calibrated first), then sets the leader. Its limits are generous so it isn't cut off.
+fn slow_loader(name: &str, ms: u32) -> Loader {
+    let dir = with_init(
+        name,
+        &format!(
+            "local n = 0\nfor i = 1, {} do n = n + i end\nreturn {{ leader = 'Ctrl+b' }}",
+            iterations_for(ms)
+        ),
+    );
+    Loader::with_env(&dir, generous())
+}
+
+fn generous() -> config::Env {
+    config::Env {
+        limits: config::Limits {
+            time: std::time::Duration::from_secs(30),
+            wall: std::time::Duration::from_secs(60),
+            ..config::Limits::default()
+        },
+        ..config::Env::default()
+    }
+}
+
+/// How many loop iterations take at least `ms` here.
+fn iterations_for(ms: u32) -> u64 {
+    let n = 2_000_000u64;
+    let dir = with_init(
+        &format!("calibrate-{ms}"),
+        &format!("local n = 0\nfor i = 1, {n} do n = n + i end\nreturn {{}}"),
+    );
+    let started = std::time::Instant::now();
+    config::load_with(&dir, &generous()).unwrap();
+    let per_ms = n as f64 / started.elapsed().as_millis().max(1) as f64;
+    (per_ms * f64::from(ms)) as u64
+}
+
+/// The Tauri shell reads the Config from async commands (backend_connect, config_load) while a
+/// reload may be running Lua on another thread: reading must never wait for Lua.
+#[test]
+fn reading_the_config_never_waits_for_a_reload_in_progress() {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let loader = Arc::new(slow_loader("loader-busy", 600));
+    let l = Arc::clone(&loader);
+    let reload = std::thread::spawn(move || l.reload());
+    std::thread::sleep(Duration::from_millis(100));
+
+    let started = Instant::now();
+    assert_eq!(
+        loader.current().leader,
+        "Ctrl+Space",
+        "the defaults until the reload is done"
+    );
+    assert!(loader.last().is_none(), "nothing loaded yet");
+    assert!(started.elapsed() < Duration::from_millis(50), "{:?}", started.elapsed());
+
+    // `settled` is for blocking threads: it waits for the reload, and sees its result.
+    assert_eq!(loader.settled().leader, "Ctrl+b");
+    assert_eq!(reload.join().unwrap().config.leader, "Ctrl+b");
+    assert_eq!(loader.last().unwrap().config.leader, "Ctrl+b");
+}
+
+/// At startup the window waits for the Config only briefly; a slow init.lua arrives later, as
+/// a change.
+#[test]
+fn a_startup_reload_waits_only_so_long_then_reports_when_done() {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let loader = Arc::new(slow_loader("loader-startup", 600));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let started = Instant::now();
+    let now = loader.reload_within(Duration::from_millis(100), move |report| {
+        let _ = tx.send(report);
+    });
+    assert!(now.is_none(), "not done within the wait");
+    assert!(
+        started.elapsed() < Duration::from_millis(300),
+        "{:?}",
+        started.elapsed()
+    );
+    let later = rx.recv_timeout(Duration::from_secs(5)).expect("reported when done");
+    assert_eq!(later.config.leader, "Ctrl+b");
+
+    // A quick one is there straight away (and still reported).
+    let dir = with_init("loader-quick", "return { vim = false }");
+    let loader = Arc::new(Loader::new(&dir));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let now = loader.reload_within(Duration::from_secs(2), move |report| {
+        let _ = tx.send(report);
+    });
+    assert!(!now.expect("done within the wait").config.vim);
+    assert!(!rx.recv_timeout(Duration::from_secs(2)).unwrap().config.vim);
 }
