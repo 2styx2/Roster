@@ -37,4 +37,4 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 19 | [Native Windows backend](19-native-windows-backend.md) | 6 | 06 | ready |
 | 20 | [Linux build check](20-linux-build.md) | 6 | 08 | ready |
 
-**Iteration 1 is complete** (01–08, 17, 26, plus the review fixes). **Iteration 2 is complete** (09, 21, 22, 27, 30, 31, and 29's interface review with all 26 fixes). The first Release (`v0.1.0`) comes after iteration 5 (Q48). **Current frontier:** iteration 3: 10 and 13 now, then 11 and 12 (after 10; 11 also after 13), then 28 (after 10 and 11). Iterations run in order.
+**Iteration 1 is complete** (01–08, 17, 26, plus the review fixes). **Iteration 2 is complete** (09, 21, 22, 27, 30, 31, and 29's interface review with all 26 fixes). The first Release (`v0.1.0`) comes after iteration 5 (Q48). **Current frontier:** iteration 3: 10, 13 and 32 (unblocked by 29) now, then 11 and 12 (after 10; 11 also after 13), then 28 (after 10 and 11). Iterations run in order.
