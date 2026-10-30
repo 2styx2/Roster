@@ -1,6 +1,6 @@
 # Roadmap
 
-We work in iterations. Each one ends with a hands-on check on the Windows machine, against real Hosts (one key-enrolled, one password-only, one unreviewed), before the next one starts. Tickets and their blockers are in [../tickets/README.md](../../tickets/README.md).
+We work in iterations. Each one ends with a hands-on check on the Windows machine, against real Hosts (one key-enrolled, one password-only, one unreviewed), before the next one starts. Tickets and their blockers are GitHub issues, one milestone per iteration: https://github.com/2styx2/roster/milestones.
 
 | # | Iteration | Tickets | Done when |
 |---|---|---|---|

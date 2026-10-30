@@ -48,7 +48,7 @@ roster web esxi api POST /sdk -d @q.xml # web API call made with the service's s
 | [app/README.md](app/README.md) | The roster app: the desktop app in `app/` (Tauri, React, xterm.js) that opens terminals on your Hosts through `roster serve` |
 | [docs/app/](docs/app/) | The app's design: spec, architecture, security, Config (`init.lua`), themes, keyboard, errors catalog, decisions |
 | [docs/adr/](docs/adr/) | Architecture decisions for the CLI and the app |
-| [tickets/](tickets/) | Work tickets; [tickets/README.md](tickets/README.md) is the board |
+| [GitHub issues](https://github.com/2styx2/roster/issues) | Work tickets (`TNN: …`), one milestone per iteration |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch model and pull requests; [GLOSSARY.md](GLOSSARY.md) has the words |
 
 ## Install

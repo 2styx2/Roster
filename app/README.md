@@ -22,7 +22,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/decisions.md](../docs/app/decisions.md) | Every design question we asked and the answer |
 | [docs/adr/](../docs/adr/) | Architecture decisions for the CLI and the app (0001–0002 roster serve and ssh, 0003–0006 the app, 0007 one repo) |
 | [docs/app/spec/](../docs/app/spec/) | Product specs. Start with [0001](../docs/app/spec/0001-roster-app.md) |
-| [tickets/](../tickets/) | Vertical-slice tickets with their blockers. [tickets/README.md](../tickets/README.md) is the board |
+| [GitHub issues](https://github.com/2styx2/roster/issues) | Vertical-slice tickets (`TNN: …`) with their blockers, one milestone per iteration |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Branch model: Work branches → pull request to `dev` → `main` |
 | [GLOSSARY.md](../GLOSSARY.md) | The words, for the CLI and the app |
 
