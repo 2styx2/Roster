@@ -3,44 +3,55 @@
 // accessibility tree, and the lock screen covers the window.
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Logo } from "../chrome/Logo";
+import type { ErrorRow } from "../errors/catalog";
+import { SignIn } from "./SignIn";
 import type { Vault, VaultView } from "./useVault";
+import { withCode } from "./withCode";
 
 const PROVIDER_NAMES: Record<string, string> = { bw: "Bitwarden" };
 const providerName = (p: string) => PROVIDER_NAMES[p] ?? p;
 
-/** roster's messages put commands in backticks: show those as code. */
-function withCode(message: string): ReactNode[] {
-  return message.split("`").map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
+/** What the sign-in needs from the app: the errors catalog's rows and the clipboard. */
+interface LockExtras {
+  errorRows?: readonly ErrorRow[] | undefined;
+  copy?: ((text: string) => Promise<void>) | undefined;
 }
 
 export function LockGate({
   vault,
   hint,
   children,
+  errorRows,
+  copy,
 }: {
   vault: Vault;
   /** How to lock by hand, shown under the form (e.g. the Leader and the lock key). */
   hint?: ReactNode;
   children: ReactNode;
-}) {
+} & LockExtras) {
   return (
     <>
       <div className="lock-gate" data-locked={vault.locked || undefined} inert={vault.locked} aria-hidden={vault.locked || undefined}>
         {children}
       </div>
-      {vault.locked && <LockScreen vault={vault} hint={hint} />}
+      {vault.locked && <LockScreen vault={vault} hint={hint} errorRows={errorRows} copy={copy} />}
     </>
   );
 }
 
-function LockScreen({ vault, hint }: { vault: Vault; hint?: ReactNode }) {
+function LockScreen({ vault, hint, errorRows, copy }: { vault: Vault; hint?: ReactNode } & LockExtras) {
+  const signingIn = vault.view.state === "signin";
   return (
     <div className="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <section className="lock-panel">
         <Logo size={32} className="lock-mark" />
-        <h1 id="lock-title">Locked</h1>
-        <Body view={vault.view} vault={vault} />
-        {hint && <p className="lock-hint muted">{hint}</p>}
+        <h1 id="lock-title">{signingIn ? "Sign in to Bitwarden" : "Locked"}</h1>
+        {vault.view.state === "signin" ? (
+          <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />
+        ) : (
+          <Body view={vault.view} vault={vault} />
+        )}
+        {hint && !signingIn && <p className="lock-hint muted">{hint}</p>}
       </section>
     </div>
   );

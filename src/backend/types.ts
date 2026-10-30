@@ -118,6 +118,17 @@ export interface ProviderStatus {
   status: VaultStatusWord;
   /** For not-logged-in and missing-cli: what to run or install (backticks around commands). */
   message?: string;
+  /** For not-logged-in, when the app can sign the CLI in (`vault.login`, api 3): the ways in,
+   * and the server the CLI is set to (null: Bitwarden's US cloud). */
+  sign_in?: SignInInfo;
+}
+
+/** How the vault CLI can be signed in from the app (roster README "Signing in: vault.login"). */
+export type SignInWay = "password" | "apikey" | "sso";
+
+export interface SignInInfo {
+  methods: SignInWay[];
+  server: string | null;
 }
 
 /** `vault.status`: the vault the lock screen unlocks (`provider` is null when none has a master password). */
@@ -125,8 +136,55 @@ export interface VaultStatus {
   provider: string | null;
   status: VaultStatusWord;
   message?: string;
+  sign_in?: SignInInfo;
   providers: ProviderStatus[];
 }
+
+/** Where `vault.login` starts: email + master password, an API key, or SSO in a browser.
+ * `server` is "cloud", "eu" or a self-hosted https:// URL. */
+export type SignInStart =
+  | { method: "password"; server: string; email: string; password: string }
+  | { method: "apikey"; server: string; client_id: string; client_secret: string }
+  | { method: "sso"; server: string; identifier?: string };
+
+/** A two-step method bw offers, in its order (FIDO2 and Duo never appear: the CLI can't do them). */
+export interface TwoFactorMethod {
+  index: number;
+  /** bw's number for it: 0 authenticator, 1 email, 3 YubiKey OTP. */
+  id: number | null;
+  kind: "authenticator" | "email" | "yubikey" | "other";
+  name: string;
+}
+
+/** What `vault.login` asks for next. `login` is the sign-in's id, sent back with the answer. */
+export type SignInStep = { login: string } & (
+  | { step: "two_factor_method"; methods: TwoFactorMethod[] }
+  /** `method` is null when the account has one method and bw picked it; `sent`: emailed just now. */
+  | { step: "two_factor_code"; method: TwoFactorMethod | null; sent: boolean }
+  | { step: "new_device_code"; email: string | null }
+  /** Open `url` in a browser; answer `{}` to wait for it (roster waits up to 20 s per call). */
+  | { step: "sso"; url: string; expires_in: number }
+  /** After an API key or SSO, which only log in: the vault still needs the master password. */
+  | { step: "master_password"; email: string | null }
+  | { step: "done"; provider: string; status: "unlocked" }
+);
+
+export type SignInAnswer = { method: number } | { code: string } | { password: string } | Record<string, never>;
+
+/** roster's `vault.login` error codes (10, 12 and 13 are VaultError's). A 50 (and a 10 at the
+ * master-password step) carries `data.step`: the sign-in goes on there. */
+export const SignInError = {
+  codeRejected: 50,
+  methodUnsupported: 51,
+  rateLimited: 52,
+  serverUnreachable: 53,
+  alreadyLoggedIn: 54,
+  noSignIn: 55,
+  ssoFailed: 56,
+  badServer: 57,
+  apiKeyRejected: 58,
+  failed: 59,
+} as const;
 
 /** roster's `vault.*` error codes (BackendCallError.code). */
 export const VaultError = {
@@ -205,6 +263,13 @@ export interface Backend {
   unlockVault(password: string): Promise<ProviderStatus>;
   /** Forget every secret and lock the vault. Never rejects for a vault reason. */
   lockVault(): Promise<{ locked: string[] }>;
+  /** Start signing the vault CLI in (`vault.login`). Rejects with BackendCallError (SignInError
+   * and VaultError codes); `data.step` says where a sign-in carries on after a failure. */
+  signIn(start: SignInStart): Promise<SignInStep>;
+  /** Answer the sign-in's current step. */
+  signInAnswer(login: string, answer: SignInAnswer): Promise<SignInStep>;
+  /** Stop the sign-in in progress (and forget what roster held for it). Never rejects. */
+  signInCancel(): Promise<void>;
   /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password

@@ -12,7 +12,7 @@ import { BUILTIN, Registry, type Entry } from "../registry";
 import type { Problem, ProblemCode, ProblemData } from "./classify";
 
 /** Where a problem lives (docs/errors.md "Where it lives"). */
-export type Where = "roster.yml" | "the vault" | "this Box" | "the network" | "the Host" | "roster";
+export type Where = "roster.yml" | "the vault" | "this Box" | "the network" | "the Host" | "roster" | "the sign-in form";
 
 export type ErrorAction =
   /** Runs a command line: `reconnect`, `check HOST`, `lock` (the lock screen), `find`. */
@@ -233,6 +233,94 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     where: ["the Host"],
     fix: () => "See the details: ssh's own message.",
     actions: [retry, check],
+  }),
+  // Signing the vault CLI in from the lock screen (`vault.login`, ticket 31): docs/errors.md rows
+  // 22-33. The lock screen shows the message, where and fix; a 50 (and a 10 at the master-password
+  // step) keeps the sign-in on its step.
+  row("sign-in-wrong-password", {
+    row: 22,
+    codes: [10],
+    where: ["the vault", "the sign-in form"],
+    fix: () => "Check the email, the master password and the server, then try again.",
+    actions: [],
+  }),
+  row("sign-in-no-sign-in-here", {
+    row: 23,
+    codes: [13],
+    where: ["this Box"],
+    fix: () => "Set the vault up on this Box the way roster's message says; there's nothing to sign in to here.",
+    actions: [],
+  }),
+  row("sign-in-code-rejected", {
+    row: 24,
+    codes: [50],
+    where: ["the sign-in form"],
+    fix: () => "Type the current code: an authenticator's changes every 30 seconds, and an emailed one is the newest.",
+    actions: [],
+  }),
+  row("sign-in-method-unsupported", {
+    row: 25,
+    codes: [51],
+    where: ["the vault"],
+    fix: () =>
+      "Sign in with an API key instead, or add an authenticator app, email or YubiKey OTP as a second method in the web vault.",
+    actions: [],
+  }),
+  row("sign-in-rate-limited", {
+    row: 26,
+    codes: [52],
+    where: ["the vault"],
+    fix: () => "Wait a few minutes before trying again.",
+    actions: [],
+  }),
+  row("sign-in-server-unreachable", {
+    row: 27,
+    codes: [53],
+    where: ["the network", "the sign-in form"],
+    fix: () => "Check the server address and this Box's network, then try again.",
+    actions: [],
+  }),
+  row("sign-in-already-logged-in", {
+    row: 28,
+    codes: [54],
+    where: ["this Box"],
+    fix: () => "Unlock with the master password instead. To switch account, run `bw logout` first.",
+    actions: [copy(() => "bw logout")],
+  }),
+  row("sign-in-expired", {
+    row: 29,
+    codes: [55],
+    where: ["roster"],
+    fix: () => "Start the sign-in again.",
+    actions: [],
+  }),
+  row("sign-in-sso-failed", {
+    row: 30,
+    codes: [56],
+    where: ["the vault"],
+    fix: () => "Start SSO again and finish it in the browser within 5 minutes.",
+    actions: [],
+  }),
+  row("sign-in-bad-server", {
+    row: 31,
+    codes: [57],
+    where: ["the sign-in form"],
+    fix: () => "Pick Bitwarden cloud or EU, or type your server's https:// address.",
+    actions: [],
+  }),
+  row("sign-in-api-key-rejected", {
+    row: 32,
+    codes: [58],
+    where: ["the sign-in form"],
+    fix: () => "Copy client_id and client_secret again from the web vault (Account settings > Security > Keys); only a personal key works.",
+    actions: [],
+  }),
+  row("sign-in-failed", {
+    row: 33,
+    codes: [59],
+    where: ["the vault"],
+    fix: () => "See Bitwarden's message under Details; `bw login` in a terminal shows the same.",
+    actions: [],
   }),
   row("other", {
     row: null,

@@ -33,6 +33,25 @@ Edits made by hand to `roster.yml` or the vault get the same treatment as anythi
 | 20 | Session dropped | Network blip, Host reboot | Network / Host | "Session ended (code 255): connection reset" | Reconnect (`␣ r`) |
 | 21 | `roster serve` died | Crash, WSL restart | Box | "Lost the connection to roster" | Restart the backend; open Sessions keep running |
 
+## Signing in (ticket 31)
+
+The lock screen signs a new Box's vault CLI in through roster's `vault.login` (roster README "Signing in: vault.login"; the research is in `docs/dev/vault-auth.md`). Its failures come from the same catalog, keyed by roster's code. The lock screen shows the message, where it lives, the fix, and roster's text under Details. A 50, and a 10 at the master-password step, keep the sign-in on its step with the field emptied. Every other failure ends the sign-in and goes back to the screen it started from: the server choice for 53 and 57, the unlock form for 54.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 22 | 10 | Wrong email or master password (or the account is on another server) | Vault, sign-in form | "Bitwarden didn't accept that email and master password (on bitwarden.com)" | Check the email, the password and the server |
+| 23 | 13 | The provider has no sign-in roster can drive (1Password, `env`, …) | Box | "1Password signs in through its desktop app, not here: …" | Set it up on the Box the way the message says |
+| 24 | 50 | Two-step or new-device code wrong or expired (Bitwarden doesn't tell those apart) | Sign-in form | "Bitwarden didn't accept that code (wrong or expired) - a new code is on its way to your email" | Type the current code (stays on the step) |
+| 25 | 51 | The account's only two-step methods are ones the CLI can't do (FIDO2/WebAuthn, Duo), or SSO with trusted-device or passkey decryption | Vault | "the Bitwarden CLI can't do this account's two-step login: FIDO2 security keys and Duo aren't supported by the CLI - …" | Use an API key, or add an authenticator app, email or YubiKey OTP in the web vault |
+| 26 | 52 | Too many attempts | Vault | "bitwarden.com refused: too many sign-in attempts" | Wait a few minutes |
+| 27 | 53 | Server unreachable: DNS, refused, TLS, no answer in 40 s | Network, sign-in form | "can't reach the Bitwarden server vault.example.com (…)" | Check the address and the network |
+| 28 | 54 | The CLI is already logged in on this Box | Box | "the Bitwarden CLI is already logged in on this box as … - unlock it instead" | Unlock (the app switches to the unlock form); `bw logout` to switch account |
+| 29 | 55 | No sign-in in progress: finished, cancelled, replaced, or 10 minutes idle | roster | "no sign-in in progress (…) - start again" | Start again |
+| 30 | 56 | SSO failed in the browser or wasn't finished within 5 minutes | Vault | "the SSO sign-in failed in the browser - try again" | Start SSO again |
+| 31 | 57 | The self-hosted address isn't one | Sign-in form | "'vault example com' isn't a server address - …" | Pick cloud or EU, or type an https:// address |
+| 32 | 58 | API key not accepted, or an organization key | Sign-in form | "Bitwarden didn't accept that API key (client_id or client_secret)" | Copy the personal key again from the web vault |
+| 33 | 59 | Anything else; bw's own words | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.

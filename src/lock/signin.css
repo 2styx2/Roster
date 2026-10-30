@@ -1,0 +1,21 @@
+/* The lock screen's sign-in flow (ticket 31). The panel's base styles are .lock-* in styles.css. */
+.signin { gap: 10px; }
+.signin > p { margin: 0; }
+.signin fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.signin legend { color: var(--faint); font-size: var(--text-xs); font-weight: 500; padding: 0; margin-bottom: 4px; }
+.signin .signin-choice { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: var(--text-sm); font-weight: 400; }
+.signin #signin-url, .signin input[name="client_id"] { height: 32px; padding: 0 10px; min-width: 0; }
+.signin-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.signin-actions button { height: 32px; }
+.signin-methods { display: flex; flex-direction: column; gap: 6px; }
+.signin-methods button { height: 34px; text-align: left; display: flex; align-items: center; gap: 10px; }
+.signin-link code { display: block; overflow-wrap: anywhere; font-size: var(--text-xs); color: var(--muted); }
+.signin-problem { display: flex; flex-direction: column; gap: 4px; }
+.signin-problem p { margin: 0; }
+.signin-facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: var(--text-sm); }
+.signin-facts dt { color: var(--faint); }
+.signin-facts dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.signin-problem details { font-size: var(--text-xs); color: var(--faint); }
+.signin-problem pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; }
+.signin-keys { font-size: var(--text-xs); color: var(--faint); margin-top: 4px; }
+.signin kbd { font-family: inherit; font-size: var(--text-xs); color: var(--muted); }
