@@ -94,6 +94,20 @@ function unreachableFix(address: string | undefined): string {
   return fix;
 }
 
+/** ssh's own lines when an open Session's connection goes away (row 20). */
+function dropped(lines: string[], host: string): Omit<Problem, "host" | "details"> | null {
+  if (find(lines, /Timeout, server \S+ not responding/)) {
+    return { code: "dropped", message: `${host} stopped answering, so ssh ended the Session` };
+  }
+  if (find(lines, /Connection to \S+ closed by remote host/)) {
+    return { code: "dropped", message: `The connection was closed by the Host (${host})` };
+  }
+  if (find(lines, /Connection reset by peer|Broken pipe/)) {
+    return { code: "dropped", message: `Session ended (code 255): connection reset` };
+  }
+  return null;
+}
+
 type Rule = (lines: string[], input: ExitInput, details: string) => Omit<Problem, "host" | "details"> | null;
 
 const find = (lines: string[], re: RegExp) => {
@@ -186,18 +200,7 @@ const rules: Rule[] = [
       fix: "The Host is old; its algorithms need allowing in roster's ssh config for it (roster-side).",
     };
   },
-  (lines, { host }) => {
-    if (find(lines, /Timeout, server \S+ not responding/)) {
-      return { code: "dropped", message: `${host} stopped answering, so ssh ended the Session` };
-    }
-    if (find(lines, /Connection to \S+ closed by remote host/)) {
-      return { code: "dropped", message: `The connection was closed by the Host (${host})` };
-    }
-    if (find(lines, /Connection reset by peer|Broken pipe/)) {
-      return { code: "dropped", message: `Session ended (code 255): connection reset` };
-    }
-    return null;
-  },
+  (lines, input) => dropped(lines, input.host),
 ];
 
 /** The Problem behind an ended Session, or null when it ended normally (the shell exited with
@@ -217,4 +220,13 @@ export function classifyExit(input: ExitInput): Problem | null {
     fix: "See the details: ssh's own message.",
     details: details || "ssh ended with code 255 and no message",
   };
+}
+
+/** How a Session that had logged in ended with 255: always row 20 ("dropped"). Its output is the
+ * Host's by then, so a nested ssh's error or a `roster askpass:` line printed there says nothing
+ * about this Session; only ssh's own drop lines pick a more specific message. */
+export function classifyDrop({ host, tail }: { host: string; tail: string }): Problem {
+  const lines = tail.split(/\r?\n/).map((l) => l.trim());
+  const found = dropped(lines, host) ?? { code: "dropped" as const, message: `The Session to ${host} ended (code 255)` };
+  return { host, details: tail || "ssh ended with code 255 and no message", ...found };
 }

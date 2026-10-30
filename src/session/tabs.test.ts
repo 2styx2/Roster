@@ -191,6 +191,113 @@ describe("Tabs", () => {
     expect(problemOf(tb?.status)?.details).toBe("ssh: connect to host 10.0.0.7 port 22: Connection refused");
   });
 
+  describe("classifies only what ssh printed before the login (the pre-auth window)", () => {
+    /** A clock the test moves. */
+    function clock() {
+      let t = 1_000_000;
+      return { now: () => t, advance: (ms: number) => void (t += ms) };
+    }
+    const CHANGED_KEY = [
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+      "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+      "Host key verification failed.",
+      "",
+    ].join("\r\n");
+
+    it("still classifies ssh's own failure inside the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      c.advance(9_000); // ConnectTimeout is 10 s
+      session(host).print(CHANGED_KEY);
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe(43);
+    });
+
+    it("a nested ssh failing on the Host, then the Session ending 255, is a dropped Session (row 20)", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("Last login: Tue Oct 28 09:12:01 2026\r\nadmin@web-1:~$ ");
+      c.advance(60_000);
+      session(host).print("ssh other\r\n");
+      session(host).print(CHANGED_KEY);
+      session(host).print("admin@other: Permission denied (publickey,password).\r\nadmin@web-1:~$ exit\r\n");
+      session(host).exit(255);
+      await settle();
+      const problem = problemOf(tabs.snapshot().tabs[0]?.status);
+      expect(problem?.code).toBe("dropped");
+      expect(problem?.message).toContain(host);
+    });
+
+    it("ignores a `roster askpass:` line the Host prints after the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("admin@web-1:~$ ");
+      c.advance(45_000);
+      session(host).print("roster askpass: [32] no vault item named 'x' - did you mean: 'evil'\r\n");
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe("dropped");
+    });
+
+    it("closes the window after a few KB of output, even quickly", async () => {
+      const { backend, session } = scriptedSessions();
+      const tabs = new Tabs(backend, { now: clock().now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      for (let i = 0; i < 120; i++) session(host).print(`line ${i} ${"y".repeat(70)}\r\n`);
+      session(host).print("roster askpass: [11] Bitwarden unlock failed\r\n");
+      session(host).exit(255);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)?.code).toBe("dropped");
+    });
+
+    it("keeps ssh's last lines when the connection drops after the window", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      session(host).print("admin@web-1:~$ ");
+      c.advance(600_000);
+      session(host).print("Timeout, server 10.0.0.6 not responding.\r\n");
+      session(host).exit(255);
+      await settle();
+      const problem = problemOf(tabs.snapshot().tabs[0]?.status);
+      expect(problem).toMatchObject({ code: "dropped", message: `${host} stopped answering, so ssh ended the Session` });
+      expect(problem?.details).toContain("Timeout, server 10.0.0.6 not responding.");
+    });
+
+    it("a normal exit after the window is no Problem", async () => {
+      const { backend, session } = scriptedSessions();
+      const c = clock();
+      const tabs = new Tabs(backend, { now: c.now });
+      const host = reviewed[0]!;
+      tabs.open(host);
+      await settle();
+      c.advance(60_000);
+      session(host).print("logout\r\n");
+      session(host).exit(0);
+      await settle();
+      expect(problemOf(tabs.snapshot().tabs[0]?.status)).toBeNull();
+    });
+  });
+
   it("marks the tab ended with the exit code when the Session ends", async () => {
     const { tabs, attach } = setup();
     const id = tabs.open(reviewed[0]!);
