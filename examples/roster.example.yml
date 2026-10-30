@@ -61,6 +61,10 @@ providers:
   op:
     vault: Infra             # default vault for op:ITEM references (optional)
     # account: my.1password.com   # if you're signed in to more than one account
+  # kp:                      # KeePassXC, local only: auth: kp:ENTRY (an entry title) or kp:GROUP/ENTRY
+  #   database: ~/roster.kdbx
+  #   key_file: ~/roster.keyx     # optional
+  #   group: Hosts                # optional: where "Save to vault" adds entries
 
   # Add any other tool with a command template - no code needed. {item} and {field} come
   # from auth: NAME:item#field (field defaults to default_field) and are shell-quoted for you.

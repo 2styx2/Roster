@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 
 import pytest
@@ -88,6 +89,13 @@ def test_providers_flags_unknown(capsys, write_config):
     write_config("groups:\n  g: {user: u, auth: 'keeper:x', hosts: {h1: 10.0.0.1}}\n")
     rc, out = run(capsys, "providers")
     assert rc == 1 and "UNKNOWN providers used in roster.yml: keeper" in out
+
+
+def test_providers_lists_keepassxc(capsys, write_config):
+    write_config("providers:\n  kp: {database: roster.kdbx}\n"
+                 "groups:\n  g: {user: u, auth: 'kp:g ssh', hosts: {h1: 10.0.0.1}}\n")
+    rc, out = run(capsys, "providers")
+    assert rc == 0 and re.search(r"^  kp +built-in +KeePassXC, a local \.kdbx.*used by: g$", out, re.M)
 
 
 def test_auth_check(capsys, write_config, monkeypatch):

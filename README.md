@@ -262,6 +262,7 @@ Every resource has the same fields, plus the fixed fields of its type. Anything 
 | `cmd:COMMAND` | Any command that prints the password |
 | `bw:ITEM`, `bw:ITEM#FIELD` | Bitwarden CLI (login password, custom field, `#username`, `#notes`) |
 | `op:ITEM`, `op:VAULT/ITEM#FIELD`, `op:op://…` | 1Password CLI |
+| `kp:ENTRY`, `kp:GROUP/ENTRY`, `kp:ENTRY#FIELD` | KeePassXC (`keepassxc-cli`), a local `.kdbx` (entry password, `#username`, `#url`, `#notes`, or another attribute) |
 
 **Naming vault items:** name each item `<roster host name> <what it opens>` (`orion3 ssh`, `esxi-02 ssh+web`, `shared hub web`, `wifi lab-guest`), and put the address in the item's URI field. The full convention is in [docs/adding-hosts.md](docs/adding-hosts.md#2-add-the-logins-to-the-vault).
 
@@ -273,6 +274,19 @@ Every resource has the same fields, plus the fixed fields of its type. Anything 
 - or `eval $(op signin)`.
 
 Set a default vault under `providers: op: vault:`.
+
+**KeePassXC** is the local-only option (decision Q41): no server and no account, one `.kdbx` file on this box. Install KeePassXC (it ships `keepassxc-cli`) and say where the database is:
+
+```yaml
+providers:
+  kp:
+    database: ~/roster.kdbx      # required; ~ and paths relative to roster.yml work
+    key_file: ~/roster.keyx      # optional, used with the master password
+    group: Hosts                 # optional: the group "Save to vault" adds entries to (default: the top level)
+    recycle_bin: Recycle Bin     # optional: the group lookups skip (KeePassXC's default name)
+```
+
+`kp:ENTRY` finds the one entry titled exactly ENTRY in any group (code `33` if several are, `32` if none is); `kp:GROUP/ENTRY` is a path. `keepassxc-cli` has no session, so every lookup opens the database again with the master password, which it reads from its stdin, never from the command line. On a terminal roster asks for it once per run. Under `roster serve` the lock screen's `vault.unlock` checks it against the database and `serve` keeps it in memory until `vault.lock`. Tested with keepassxc-cli 2.8.0.
 
 **Adding your own:**
 
@@ -436,7 +450,7 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `22` | `session.prepare`: a password Session, but the process has no askpass channel. Only seen when serve's code is used in-process, never from `roster serve` |
 | `11`, `12`, `14` | `session.prepare` for a password-only Host whose vault isn't logged in, isn't installed, or is locked (see [Vault](#vault-the-lock-screen)) |
 | `30` | The Host's ssh user is discover's placeholder `CHANGE-ME`: "no SSH user for esx (user: CHANGE-ME in roster.yml)" |
-| `31` | The Login's provider isn't set up on this box: "kp's ssh Login uses 'kp:', which isn't set up on this box". `data.provider` |
+| `31` | The Login's provider isn't set up on this box: "keeper's ssh Login uses 'keeper:', which isn't set up on this box". `data.provider` |
 | `32` | No vault item by that name: "no vault item named 'esx shh' (ssh Login of esx) - did you mean: 'esx ssh'". `data.near` lists similar item names (names only) |
 | `33` | Several vault items match: "2 vault items are named 'esx ssh' (ssh Login of esx): ...". `data.matches` is `[{name, revised, uris}]`: names, last-edited dates and URIs, never a value |
 | `34` | The item has no password, or no such `#FIELD`: "vault item 'esx ssh' has no password (ssh Login of esx)". `data.field` |
@@ -553,25 +567,25 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 | `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
 | `vault.lock` | none | `{locked: [names]}` |
 
-- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (in practice `bw`). If none does, `provider` is `null` and `status` is `unsupported`.
+- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (`bw` or `kp`). If none does, `provider` is `null` and `status` is `unsupported`.
 - `status` is one of:
   - `locked`
   - `unlocked`
-  - `not-logged-in`: the CLI isn't logged in on this box
+  - `not-logged-in`: the CLI isn't logged in on this box (KeePassXC: no `providers: kp: database:` set, or the file isn't there)
   - `missing-cli`: the CLI isn't installed
   - `unsupported`: no master password, e.g. `env` or `prompt`
 
   For `not-logged-in` and `missing-cli`, `message` says what to run or install. For `not-logged-in`, a provider the app can sign in (`bw`) also has `sign_in: {methods: ["password", "apikey", "sso"], server}`, where `server` is what `bw config server` is set to (`null`: bitwarden.com). See `vault.login` below.
-- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names.
-- `vault.lock` forgets every cached secret, session key and askpass token, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
+- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names. For KeePassXC that's one `keepassxc-cli ls` with the master password (and the key file, if set) to check it; `serve` then holds the password in memory, since `keepassxc-cli` has no session.
+- `vault.lock` forgets every cached secret, session key, held master password and askpass token, then runs the provider's own lock (`bw lock`; KeePassXC has nothing to run). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
 
 | Code | Meaning |
 |---|---|
-| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)` |
-| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once`` |
-| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) `` |
+| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)`, `KeePassXC unlock failed (wrong master password or key file?)` |
+| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once``. For KeePassXC: no database set, the database or the key file isn't there (`KeePassXC database /home/you/roster.kdbx isn't there - ...`) |
+| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) ``, `` `keepassxc-cli` is not installed on this box (...) `` |
 | `13` | The provider has no master password, or no Host Login uses one |
-| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first` |
+| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first`, `KeePassXC database is locked - unlock it first` |
 
 ### Signing in: `vault.login`
 
@@ -630,7 +644,8 @@ How it works, and what never happens to a secret:
 | `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
 
 - `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](docs/adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
-- Only providers whose `can_write` is `true` in `vault.status` (today only `bw`) can save. Every other provider answers `61`.
+- Only providers whose `can_write` is `true` in `vault.status` (`bw` and `kp`) can save. Every other provider answers `61`.
+- **KeePassXC:** the entry goes into the `group` set under `providers: kp:` (default: the top level), with the username and the URL field. Its title must not be any entry's title already, in any group outside the recycle bin (`60`), because `kp:TITLE` looks titles up across groups; a title with `/` is `62`. `keepassxc-cli add -p` reads the master password and then the entry's password from its stdin. The `id` is the entry's path (`Hosts/esx-02 ssh`). `vault.undo_create` runs `keepassxc-cli rm`, which moves it to the recycle bin (or deletes it, in a database without one). A timed-out `add` is checked the same way as Bitwarden's.
 - The password goes to `bw create item` as base64 JSON on its stdin (what `bw encode` makes; bw 2026.9.1 reads stdin when no argument is given). It is never on a command line, and never in a response, an error or stderr. bw prints the new item back, password included, and roster keeps only its id.
 - If `bw create item` doesn't answer in time, it's stopped, and roster syncs and looks the name up: Bitwarden may have saved it anyway. An item with that exact name (there was none just before) counts as made, so it's returned, can be undone, and `host.add` goes on with it; no such item is `62` saying nothing was saved; and if even the lookup fails, `62` says roster couldn't check and names the item to look for. It never says "nothing was saved" while the item is there.
 - `vault.undo_create` deletes only items this `serve` created and hasn't undone yet (`63` for any other id), so it can't be pointed at an existing item. Bitwarden moves the item to its trash (`bw delete item ID`, not `--permanent`), where it can be restored for 30 days.
@@ -696,7 +711,8 @@ src/roster/
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
-  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword;
+  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
+                    keepassxc (a local .kdbx through keepassxc-cli);
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
 examples/           commented roster.yml, plugin template
 docs/               team guides: setting up a new box, adding hosts; docs/app/ for the app, docs/adr/ for decisions

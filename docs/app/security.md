@@ -16,7 +16,7 @@ The roster app keeps roster's promise: **secrets are fetched when needed, kept i
 | Terminal output and scrollback | **never** (ssh reads the password itself) |
 
 A few exceptions are typed by you and leave the UI straight away:
-- **The master password:** sent once to `vault.unlock`, and the field clears.
+- **The master password:** sent once to `vault.unlock`, and the field clears. Bitwarden turns it into a session key and roster drops it. KeePassXC (ticket 25) has no session: `keepassxc-cli` opens the `.kdbx` again on every call, so `serve` keeps the master password itself in memory until `vault.lock` and gives it to each `keepassxc-cli` call on its stdin, never on a command line or in an error.
 - **A Quick Connect password:** sent once to `quick.prepare`, held under an askpass token.
 - **Signing in (ticket 31):** the master password, a two-step or new-device code, or an API key's `client_secret`, each sent once to `vault.login`. The field empties as soon as the call returns. roster gives them to `bw` through an env var or `bw`'s own prompt, never on a command line. It holds the master password only for the sign-in's life, so it can restart `bw login` after a wrong code. That ends when the sign-in is done, cancelled or locked, or after 10 minutes idle. The app cancels a started sign-in whenever it's left other than by going on: Esc, a failure with no step to carry on from (a timeout, a refusal), or the lock screen going away. None of them ever reaches React state, the Rust core's logs or an error message.
 - **A new Host's password (ticket 11):** typed into the add-Host form, it lives only in its input (never React state) and is sent once to `host.add`; the field empties when the call returns, pass or fail. roster uses it for the one test login, then saves it as the Vault item (`bw create item` on stdin) and forgets it. It never appears in a response, an error, stderr, `roster.yml` or the Pending change.
@@ -29,7 +29,7 @@ The roster app never stores secrets: there's no built-in vault, now or later (de
 
 - Unlocking the vault is what unlocks the app. There is no separate app password.
 - It locks after 15 minutes idle (configurable), or on demand with the leader key plus the lock key, or `:lock`.
-- Locking calls `vault.lock`. That forgets the vault session key, every cached secret and every askpass token, and runs the provider's own lock.
+- Locking calls `vault.lock`. That forgets the vault session key (or KeePassXC's held master password), every cached secret and every askpass token, and runs the provider's own lock.
 - Sessions keep running while locked, with their content hidden until you unlock.
 - The app always opens locked. If `roster serve` is still unlocked when the window (re)loads, the app calls `vault.lock` first.
 - Idle means no key, click, pointer move or wheel anywhere in the window. The timer runs in the frontend (`app/src/lock/idle.ts`), where that input arrives, so no keystroke has to cross to Rust. It re-checks the clock when it fires, so a late timer (sleep, a throttled window) still locks.

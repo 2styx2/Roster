@@ -24,7 +24,7 @@ NO_ASKPASS = 22             # a password Session, but this process has no askpas
 
 # Logins: what's wrong with a Host's ssh Login or its vault item (rows 4, 5, 8-10, 18)
 NO_USER = 30                # the Host's ssh user is discover's placeholder CHANGE-ME (row 4)
-NO_PROVIDER = 31            # the Login's provider (the `kp:` in kp:ITEM) isn't set up on this box (row 5)
+NO_PROVIDER = 31            # the Login's provider (the `keeper:` in keeper:ITEM) isn't set up on this box (row 5)
 ITEM_NOT_FOUND = 32         # no vault item by that name (row 8); data.near: similar item names
 SEVERAL_ITEMS = 33          # several vault items match (row 9); data.matches: [{name, revised, uris}]
 NO_FIELD = 34               # the item has no password, or no such #FIELD (row 10)
@@ -60,7 +60,7 @@ SIGN_IN_FAILED = 59         # the sign-in failed some other way; the message has
 
 # vault.create_item / vault.undo_create: "Save to vault" (ticket 13; Q43). Locked is 14, no CLI 12, not logged in 11.
 ITEM_EXISTS = 60            # a vault item by exactly that name already exists; data.matches: [{name, revised, uris}]
-CANT_WRITE = 61             # the provider can only read Logins (only bw can create items)
+CANT_WRITE = 61             # the provider can only read Logins (bw and kp can create items)
 WRITE_FAILED = 62           # the vault CLI refused the create or delete; the message has its words, never a value
 NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that item, or it's already undone
 
@@ -118,7 +118,7 @@ def write_problem(e):
         return Problem(ITEM_EXISTS, str(e), {"matches": e.matches},
                        fix="point the Login at the existing item, or pick another name (`<host> <what it opens>`)")
     if isinstance(e, providers.CantWrite):
-        return Problem(CANT_WRITE, str(e), fix="save to a provider that can write (bw), or make the item by hand")
+        return Problem(CANT_WRITE, str(e), fix="save to a provider that can write (bw, kp), or make the item by hand")
     if isinstance(e, providers.WriteFailed):
         return Problem(WRITE_FAILED, str(e), fix="see the message; check your rights to the vault or collection")
     return vault_problem(e)
