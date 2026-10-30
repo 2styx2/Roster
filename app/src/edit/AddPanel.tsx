@@ -431,7 +431,7 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
               <button type="button" onClick={onClose}>
                 Cancel
               </button>
-              <span className="edit-keys muted">
+              <span className="edit-keys muted key-hint">
                 <Keys keys="Enter" /> add <Keys keys="Escape" /> close
               </span>
             </div>

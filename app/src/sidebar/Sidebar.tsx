@@ -12,10 +12,11 @@
 //
 // 91 Hosts is a few hundred elements: rows are memoized on their object (sections are rebuilt only
 // when what they show changes), so moving the cursor re-renders two rows, not the tree.
-import { memo, useCallback, useLayoutEffect, useRef, useState, type DragEvent } from "react";
+import { memo, useCallback, useContext, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { CommandLine } from "../keymap";
 import { formatCount } from "../ui/format";
-import { Keys, WithKeys } from "../ui/Keys";
+import { HintsShown } from "../ui/hints";
+import { Keys, LEADER, WithKeys } from "../ui/Keys";
 import { DOT_WORDS, StateDot, type Dot } from "../ui/StateDot";
 
 export type { Dot } from "../ui/StateDot";
@@ -24,8 +25,14 @@ export type { Dot } from "../ui/StateDot";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  icon: "close" | "edit" | "add" | "review";
+  icon: "close" | "edit" | "add" | "addGroup" | "review";
   command: CommandLine;
+  /** Always shown, not only on hover or on the raised row (the Inventory's "Add a Host"). */
+  pinned?: boolean;
+  /** The tooltip, when it should say more than the label (why it can't act). */
+  title?: string;
+  /** Its keys in keymap notation ("␣ +"), added to the tooltip while the hints are shown. */
+  keys?: string;
 }
 
 export interface SidebarRow {
@@ -170,14 +177,23 @@ interface Drag {
   drop(e: DragEvent, target: DropTarget | undefined): void;
 }
 
-function Actions({ actions, run }: { actions: readonly RowAction[]; run: Run }) {
+/** An action's tooltip: its own, else its label, with its keys (the Leader spelled out) unless the
+ * hints are hidden (`ui.hints`). */
+function actionTitle(a: RowAction, hints: boolean, leader: string): string {
+  if (a.title) return a.title;
+  if (!hints || !a.keys) return a.label;
+  return `${a.label} (${a.keys.replace(LEADER, leader)})`;
+}
+
+function Actions({ actions, run, leader = "" }: { actions: readonly RowAction[]; run: Run; leader?: string }) {
+  const hints = useContext(HintsShown);
   return actions.map((a) => (
     <button
       key={a.label}
       type="button"
-      className="sb-action"
+      className={`sb-action${a.pinned ? " pinned" : ""}`}
       aria-label={a.label}
-      title={a.label}
+      title={actionTitle(a, hints, leader)}
       tabIndex={-1}
       onMouseDown={keepFocus}
       onClick={(e) => {
@@ -194,6 +210,8 @@ const ICONS: Record<RowAction["icon"], string> = {
   close: "M4 4l8 8M12 4l-8 8",
   edit: "M3 13l1-3.5L10.5 3 13 5.5 6.5 12z",
   add: "M8 3v10M3 8h10",
+  // A group (two stacked rows, as the group rows' icon) with a + beside it.
+  addGroup: "M2 3.5h7v3.5H2zM2 9h7v3.5H2zM13 5.5v5M10.5 8h5",
   review: "M3.5 8.5l3 3 6-7",
 };
 
@@ -327,7 +345,7 @@ const Section = memo(function Section({
           <h2>{section.title}</h2>
           {section.count !== undefined && <span className="sb-count">{formatCount(section.count)}</span>}
         </div>
-        {section.actions && <Actions actions={section.actions} run={run} />}
+        {section.actions && <Actions actions={section.actions} run={run} leader={leader} />}
       </div>
       {emptyShown && (
         <p className="sb-empty" id={`${rowDomId(id)}-empty`}>
@@ -386,12 +404,18 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
   // some data for a drag to start).
   const dragged = useRef<SidebarRow | null>(null);
   const focusBefore = useRef<Element | null>(null);
+  const pressing = useRef(false);
   const cursorRow = cursor === null ? null : (allRows(sections).find((r) => r.id === cursor) ?? null);
 
   const [drag] = useState<Drag>(() => ({
     press(row, e) {
       if (row.drag === undefined) return e.preventDefault();
       focusBefore.current = document.activeElement;
+      // Only the focus this press itself causes (it comes right after, in the same task).
+      pressing.current = true;
+      setTimeout(() => {
+        pressing.current = false;
+      }, 0);
     },
     refocus() {
       const el = focusBefore.current;
@@ -438,7 +462,16 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
         tabIndex={0}
         aria-activedescendant={cursor !== null ? rowDomId(cursor) : undefined}
         onFocus={(e) => {
-          if (e.target === e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) onTreeFocus?.(e.relatedTarget);
+          if (e.target !== e.currentTarget || e.currentTarget.contains(e.relatedTarget)) return;
+          // A press on a draggable row can't keep focus where it is (that would stop the drag), so the
+          // tree takes it. That's a click, not Tab reaching the tree: entering App mode here put the
+          // cursor on the top row and scrolled the Sidebar up to it. Focus goes straight back instead.
+          const before = focusBefore.current;
+          if (pressing.current && before !== null) {
+            if (before instanceof HTMLElement && before.isConnected && before !== e.currentTarget) before.focus({ preventScroll: true });
+            return;
+          }
+          onTreeFocus?.(e.relatedTarget);
         }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) onTreeBlur?.(e.relatedTarget);

@@ -207,7 +207,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           {hints.map(
             ([keys, what]) =>
               keys && (
-                <span key={what} className="picker-hint">
+                <span key={what} className="picker-hint key-hint">
                   <Keys keys={keys} /> {what}
                 </span>
               ),

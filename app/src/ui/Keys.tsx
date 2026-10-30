@@ -76,28 +76,48 @@ export function Keys({ keys, leader, className }: KeysProps) {
   );
 }
 
+/** Where the clause naming some keys starts in the text before them: after a sentence's end
+ * (the clause is a sentence of its own), or at a ", " or " or " (the clause is the sentence's
+ * tail). */
+function clauseStart(before: string): { at: number; sentence: boolean } {
+  let found: { at: number; sentence: boolean } = { at: 0, sentence: true };
+  for (const m of before.matchAll(/\.\s+|,\s+|\s+or\s+/g)) {
+    found = m[0].startsWith(".") ? { at: m.index + m[0].length, sentence: true } : { at: m.index, sentence: false };
+  }
+  return found;
+}
+
 /** Text with key sequences in backticks drawn as keycaps: "Drag a Host here, or `␣ a`". The
- * word before the keys stays on their line ("press ␣ a"), so a wrap never leaves keys alone. */
+ * word before the keys stays on their line ("press ␣ a"), so a wrap never leaves keys alone.
+ * The clause naming the keys is a `.key-hint`, so hiding the hints (`ui.hints = false`) leaves
+ * whole sentences: "No Folders yet. Drag a Host here." */
 export function WithKeys({ text, leader }: { text: string; leader?: string | undefined }) {
   const parts = text.split("`");
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (i % 2 === 0) {
-          // A text part: its last word goes with the keys that follow, if any.
-          if (i + 1 >= parts.length) return part;
-          const at = part.search(/\S+\s*$/);
-          return at < 0 ? part : part.slice(0, at);
-        }
-        const before = parts[i - 1] ?? "";
-        const at = before.search(/\S+\s*$/);
-        return (
-          <span key={i} className="keys-with-word">
-            {at < 0 ? "" : before.slice(at)}
-            <Keys keys={part} leader={leader} />
-          </span>
-        );
-      })}
-    </>
-  );
+  const out: React.ReactNode[] = [];
+  // What's left of the current text part after an earlier hint took its start.
+  let rest = parts[0] ?? "";
+  for (let i = 1; i < parts.length; i += 2) {
+    const keys = parts[i] ?? "";
+    const { at, sentence } = clauseStart(rest);
+    const lead = rest.slice(at);
+    const word = lead.search(/\S+\s*$/);
+    const after = parts[i + 1] ?? "";
+    const dot = after.indexOf(".");
+    // A sentence of its own takes its full stop with it; a tail leaves it to the sentence.
+    const end = dot < 0 ? after.length : sentence ? dot + 1 : dot;
+    out.push(rest.slice(0, at));
+    out.push(
+      <span key={i} className="key-hint">
+        {word < 0 ? lead : lead.slice(0, word)}
+        <span className="keys-with-word">
+          {word < 0 ? "" : lead.slice(word)}
+          <Keys keys={keys} leader={leader} />
+        </span>
+        {after.slice(0, end)}
+      </span>,
+    );
+    rest = after.slice(end);
+  }
+  out.push(rest);
+  return <>{out}</>;
 }

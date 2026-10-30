@@ -132,10 +132,10 @@ export function ChangesPanel(props: ChangesPanelProps) {
         <p className="muted panel-empty-line">
           No Pending changes: roster.yml is as the last commit has it.
           {editKeys && (
-            <>
+            <span className="key-hint">
               {" "}
               <Keys keys={editKeys} leader={leader} /> edits a Host.
-            </>
+            </span>
           )}
         </p>
       )}
@@ -192,7 +192,7 @@ export function ChangesPanel(props: ChangesPanelProps) {
                 <button type="button" onClick={() => setStep("diff")}>
                   Keep them
                 </button>
-                <span className="edit-keys muted">
+                <span className="edit-keys muted key-hint">
                   <Keys keys="Enter" /> discard <Keys keys="Escape" /> keep
                 </span>
               </div>
@@ -242,7 +242,7 @@ export function ChangesPanel(props: ChangesPanelProps) {
                 <button type="button" disabled={publishing} onClick={() => setStep("diff")}>
                   Back
                 </button>
-                <span className="edit-keys muted">
+                <span className="edit-keys muted key-hint">
                   <Keys keys="Ctrl+Enter" /> publish <Keys keys="Escape" /> back
                 </span>
               </div>
@@ -259,7 +259,7 @@ export function ChangesPanel(props: ChangesPanelProps) {
                 Discard…
               </button>
               {!canPublish && (
-                <span className="edit-keys muted">This roster can&rsquo;t publish (it needs API 7); they stay on this Box.</span>
+                <span className="edit-keys muted key-hint">This roster can&rsquo;t publish (it needs API 7); they stay on this Box.</span>
               )}
             </div>
           )}

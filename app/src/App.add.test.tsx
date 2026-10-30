@@ -59,6 +59,34 @@ async function fill(user: ReturnType<typeof userEvent.setup>, panel: HTMLElement
   }
 }
 
+describe("The Inventory heading's + (iteration 3 feedback: add-Host was hard to find)", () => {
+  const heading = () => screen.getByRole("group", { name: "Inventory" });
+  const plus = () => within(heading()).getByRole("button", { name: "Add a Host" });
+
+  it("is always there (not only on hover), says its keys, and opens the add form", async () => {
+    const { user } = await ready();
+    expect(plus()).toHaveClass("pinned");
+    expect(plus()).toHaveAttribute("title", "Add a Host (Ctrl+Space +)");
+    await user.click(plus());
+    expect(await form()).toBeInTheDocument();
+  });
+
+  it("leaves the keys out of its tooltip when the hints are hidden", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:hints off{Enter}`);
+    expect(plus()).toHaveAttribute("title", "Add a Host");
+  });
+
+  it("stays on a roster too old to add Hosts, and says so instead of opening a form", async () => {
+    const { user } = await ready({ ...(fixtures.add as FakeScenario), apiVersion: 5 });
+    const why = "Adding a Host needs a newer roster (API version 6; this one speaks 5)";
+    expect(plus()).toHaveAttribute("title", why);
+    await user.click(plus());
+    expect(screen.getByRole("status")).toHaveTextContent(why);
+    expect(screen.queryByRole("region", { name: "Add a Host" })).toBeNull();
+  });
+});
+
 describe("the add form", () => {
   it("opens from :host add and from Leader +, pulled, with Name focused and the selected group", async () => {
     const { user, calls } = await ready();
@@ -214,7 +242,7 @@ describe("the add form", () => {
   it("needs a roster that can add Hosts", async () => {
     const { user } = await ready({ ...(fixtures.edit as FakeScenario), apiVersion: 5 });
     await user.keyboard(`${LEADER}:host add{Enter}`);
-    expect(await screen.findByText(/:host add needs a newer roster \(API version 6; this one speaks 5\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Adding a Host needs a newer roster \(API version 6; this one speaks 5\)/)).toBeInTheDocument();
   });
 });
 

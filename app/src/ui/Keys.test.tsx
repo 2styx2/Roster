@@ -28,4 +28,18 @@ describe("Keys", () => {
     expect(container).toHaveTextContent("Drag a Host here or press Leader a.");
     expect(container.querySelectorAll("kbd")).toHaveLength(2);
   });
+
+  it("marks the clause that names the keys as a hint, so hiding hints leaves a whole sentence", () => {
+    const visible = (text: string) => {
+      const { container } = render(<WithKeys text={text} />);
+      const copy = container.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll(".key-hint").forEach((h) => h.remove());
+      return [copy.textContent, Array.from(container.querySelectorAll(".key-hint")).map((h) => h.textContent)];
+    };
+    expect(visible("No Hosts yet. Press `␣ n` to add one.")).toEqual(["No Hosts yet. ", ["Press Leader n to add one."]]);
+    expect(visible("No Folders yet. Drag a Host here or press `␣ a`.")).toEqual(["No Folders yet. Drag a Host here.", [" or press Leader a"]]);
+    expect(visible("Nothing here, press `F1`. Then more.")).toEqual(["Nothing here. Then more.", [", press F1"]]);
+    expect(visible("`␣ f` finds a Host.")).toEqual(["", ["Leader f finds a Host."]]);
+    expect(visible("No keys at all.")).toEqual(["No keys at all.", []]);
+  });
 });
