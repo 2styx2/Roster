@@ -180,7 +180,7 @@ def test_a_text_edit_needs_no_verify_and_keeps_every_other_byte(app, box):
 
 def test_the_diff_shows_exactly_the_change(app, box):
     assert result(app.call("changes.diff")) == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [],
-                                               "count": 0}
+                                               "groups": [], "count": 0}
     result(app.call("host.update", {"host": "esx", "changes": {"title": "ESXi 8"}}))
     d = result(app.call("changes.diff"))
     body = [ln for ln in d["diff"].splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]

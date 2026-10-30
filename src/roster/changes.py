@@ -150,15 +150,27 @@ def host_changes(path, old_text, new_text):
     return out_
 
 
+def group_changes(path, old_text, new_text):
+    """[{group, change: added|removed}] between two versions of roster.yml (empty if either doesn't load)."""
+    old, new = loaded(path, old_text), loaded(path, new_text)
+    if old is None or new is None:
+        return []
+    return [{"group": g, "change": "added"} for g in new["groups"] if g not in old["groups"]] + \
+        [{"group": g, "change": "removed"} for g in old["groups"] if g not in new["groups"]]
+
+
 def diff(path):
-    """roster.yml's Pending changes: the unified diff against the last commit, and the Hosts it changes.
-    count is the number of changed Hosts (1 for a change that touches no Host, such as a comment)."""
+    """roster.yml's Pending changes: the unified diff against the last commit, and the Hosts and groups it changes.
+    count is the number of changed Hosts and groups (1 for a change that touches neither, such as a comment)."""
     repo = Repo(path)
     text = repo.diff_text()
     if not text:
-        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "count": 0}
-    hosts = host_changes(repo.path, repo.head_text() or "", read_text(repo.path))
-    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "count": len(hosts) or 1}
+        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "groups": [], "count": 0}
+    head, now = repo.head_text() or "", read_text(repo.path)
+    hosts = host_changes(repo.path, head, now)
+    groups = group_changes(repo.path, head, now)
+    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "groups": groups,
+            "count": len(hosts) + len(groups) or 1}
 
 
 def discard(path):

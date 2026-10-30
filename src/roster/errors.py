@@ -76,6 +76,13 @@ NOT_VERIFIED = 75           # host.update: address, user or Login changed withou
 INVALID_HOST = 80           # host.add: a bad name, group, address, user or port, or no user to log in as; data.field
 HOST_EXISTS = 81            # host.add: a Host by that name is already in the Inventory; data.group
 
+# The Live Inventory (ticket 28): removing, renaming and moving Hosts, and groups. A bad name is 80, an unknown Host
+# 2, a result that wouldn't load (or would change another entry) 74; a roster.yml that doesn't load right now is 1.
+NAME_TAKEN = 100            # host.rename / group.new / group.rename: that name is already a Host's or a group's; data.kind
+UNKNOWN_GROUP = 101         # no group by that name in roster.yml; data.group
+GROUP_NOT_EMPTY = 102       # group.delete: the group still has Hosts and no `to` says where they go; data.hosts
+WOULD_CHANGE = 103          # host.move / group.delete: the Host would come out different in the new group; data.fields
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""
