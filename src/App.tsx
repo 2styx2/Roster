@@ -155,7 +155,25 @@ export function App({
   // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
   // with the last good Config and the error, so nothing changes but the toast.
   const [report, setReport] = useState<ConfigReport | null>(configProp);
-  useEffect(() => platform.config?.watch(setReport), [platform]);
+  useEffect(() => {
+    const source = platform.config;
+    if (!source) return;
+    // The newest report wins: one that arrives late (or twice) never replaces a newer one.
+    const take = (r: ConfigReport) => setReport((cur) => (cur && cur.version >= r.version ? cur : r));
+    let live = true;
+    // Listen first, then ask again: a save between main.tsx's load and now isn't lost.
+    const stop = source.watch(take);
+    source.load().then(
+      (r) => {
+        if (live && r) take(r);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [platform]);
   const config = report?.config ?? null;
   const derived = useMemo(() => (config ? deriveConfig(config) : null), [config]);
   const options = derived?.options ?? optionsProp;
@@ -555,7 +573,9 @@ export function App({
     setViewMode: (mode) => setViewMode(mode ?? otherMode(viewMode)),
     showInfo: () => {
       if (conn.state === "ready") {
-        setMessage(`Backend ${conn.info.backend} · Box ${conn.info.inventory.box} · Inventory ${conn.info.inventory.path}`);
+        // The command too: it's the program the master password and sign-in codes go to.
+        const { backend, command, inventory } = conn.info;
+        setMessage(`Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")}`);
       }
     },
     openFinder: (source) => {

@@ -205,7 +205,7 @@ export const builtinCommands: readonly CommandDef[] = [
     id: "info",
     source: BUILTIN,
     area: "App",
-    label: () => "Show the Backend, the Box and the Inventory's path",
+    label: () => "Show the Backend, the Box, the Inventory's path and the roster command",
     run: (ctx) => ctx.showInfo(),
   },
 ];

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
+import { BackendCallError } from "./backend/types";
 import { FAKE_API_KEY, FAKE_CODE, FAKE_EMAIL, FAKE_PASSWORD, fakeBackend, fixtures, type FakeScenario } from "./backend/fake";
 import { manualClock } from "./lock/manualClock";
 
@@ -114,6 +115,49 @@ describe("signing in from the lock screen", () => {
     await workspace();
   });
 
+  it("cancels a started sign-in that fails without a step to carry on from, so roster's bw login ends (review 2)", async () => {
+    const { user, backend } = await start(fixtures["sign-in-totp"]);
+    const cancel = vi.spyOn(backend, "signInCancel");
+    await throughPassword(user);
+    const code = await within(dialog()).findByLabelText<HTMLInputElement>(/two-step code/i);
+    // A wrong code keeps the step: the sign-in goes on.
+    await user.type(code, "000000{Enter}");
+    await alert();
+    expect(cancel).not.toHaveBeenCalled();
+    // The call times out (roster may still be in it): nothing to carry on from.
+    const answer = backend.signInAnswer.bind(backend);
+    backend.signInAnswer = () => Promise.reject(new BackendCallError("The backend didn't answer in time.", null, null, true));
+    await user.type(field(/two-step code/i), `${FAKE_CODE}{Enter}`);
+    expect(await within(dialog()).findByLabelText(/master password/i)).toBeInTheDocument();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    backend.signInAnswer = answer;
+  });
+
+  it("cancels a started sign-in when the lock screen goes away mid-way (review 2)", async () => {
+    const backend = fakeBackend(fixtures["sign-in-totp"] as FakeScenario);
+    const cancel = vi.spyOn(backend, "signInCancel");
+    const user = userEvent.setup();
+    const { unmount } = render(<App backend={backend} clock={manualClock()} />);
+    await screen.findByRole("dialog", { name: /sign in/i });
+    await throughPassword(user);
+    await within(dialog()).findByLabelText(/two-step code/i);
+    expect(cancel).not.toHaveBeenCalled();
+    unmount();
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't cancel a sign-in that's done (review 2)", async () => {
+    const backend = fakeBackend(fixtures["sign-in-totp"] as FakeScenario);
+    const cancel = vi.spyOn(backend, "signInCancel");
+    const user = userEvent.setup();
+    render(<App backend={backend} clock={manualClock()} />);
+    await screen.findByRole("dialog", { name: /sign in/i });
+    await throughPassword(user);
+    await user.type(await within(dialog()).findByLabelText(/two-step code/i), `${FAKE_CODE}{Enter}`);
+    await workspace();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it("says when the email or master password is wrong, and stays on the password", async () => {
     const { user } = await start();
     await throughPassword(user, "not-it");
@@ -183,6 +227,38 @@ describe("signing in from the lock screen", () => {
     expect(await within(dialog()).findByText(/finish signing in with your browser/i)).toBeInTheDocument();
     expect(within(dialog()).getByText(/^https:\/\/vault\.bitwarden\.com\/#\/sso\?/)).toBeInTheDocument();
     const pw = await within(dialog()).findByLabelText<HTMLInputElement>(/master password/i);
+    await user.type(pw, `${FAKE_PASSWORD}{Enter}`);
+    await workspace();
+  });
+
+  it("keeps exactly one SSO poll in flight while the App re-renders (review 2)", async () => {
+    const backend = fakeBackend({ ...(fixtures["sign-in-sso"] as FakeScenario), signIn: { sso: "ok", ssoMs: 200 } });
+    const answer = backend.signInAnswer.bind(backend);
+    let inFlight = 0;
+    let most = 0;
+    let calls = 0;
+    backend.signInAnswer = async (id, a) => {
+      calls++;
+      most = Math.max(most, ++inFlight);
+      try {
+        return await answer(id, a);
+      } finally {
+        inFlight--;
+      }
+    };
+    const clock = manualClock();
+    const user = userEvent.setup();
+    const { rerender } = render(<App backend={backend} clock={clock} />);
+    await screen.findByRole("dialog", { name: /sign in/i });
+    await user.click(within(dialog()).getByRole("button", { name: /use sso/i }));
+    await user.keyboard("{Enter}");
+    await within(dialog()).findByText(/finish signing in with your browser/i);
+    // The parent re-renders (any App state change does this) while the poll waits.
+    for (let i = 0; i < 5; i++) rerender(<App backend={backend} clock={clock} />);
+    const pw = await within(dialog()).findByLabelText<HTMLInputElement>(/master password/i);
+    expect(most).toBe(1);
+    expect(calls).toBe(1);
+    expect(within(dialog()).queryByRole("alert")).toBeNull();
     await user.type(pw, `${FAKE_PASSWORD}{Enter}`);
     await workspace();
   });

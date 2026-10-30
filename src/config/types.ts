@@ -28,6 +28,8 @@ export interface ConfigReport {
   error: ConfigError | null;
   /** init.lua's full path. */
   path: string;
+  /** Counts the core's reloads, from 1: the app keeps the highest it has seen. */
+  version: number;
 }
 
 export interface ThemeDef {

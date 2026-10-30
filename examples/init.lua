@@ -152,6 +152,8 @@ return {
   -- The ROSTER_DESK_WSL_DISTRO env var wins over this.
   backend = "auto",
   -- The command that runs roster, for development: a command line or a list of words. The
-  -- ROSTER_DESK_ROSTER env var wins over this. Leave it out for "roster".
+  -- ROSTER_DESK_ROSTER env var wins over this. Leave it out for "roster". It must run roster
+  -- itself ("roster", a path to it, or "uv run --project <dir> roster"): it gets the master
+  -- password. For any other wrapper, set ROSTER_DESK_ROSTER instead (docs/config.md).
   -- roster_command = "uv run --project /home/you/work/roster roster",
 }

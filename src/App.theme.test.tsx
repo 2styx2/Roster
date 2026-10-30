@@ -85,7 +85,7 @@ describe("The :theme picker", () => {
   });
 
   it("lets init.lua's theme win: the picker says so, previews, and keeps nothing", async () => {
-    const config: ConfigReport = { config: configWith({ theme: "tokyo-night" }), error: null, path: "/x/init.lua" };
+    const config: ConfigReport = { config: configWith({ theme: "tokyo-night" }), error: null, path: "/x/init.lua", version: 1 };
     const { user, platform } = await ready({ state: { theme: "nord" }, config });
     expect(themeOnScreen()).toBe("tokyo-night");
     await command(user, "theme");

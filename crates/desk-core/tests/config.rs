@@ -123,7 +123,7 @@ fn returning_something_other_than_a_table_is_an_error() {
 #[test]
 fn reload_keeps_the_last_good_config_on_error() {
     let dir = with_init("reload", "return { vim = false }");
-    let mut loader = Loader::new(&dir);
+    let loader = Loader::new(&dir);
     let first = loader.reload();
     assert!(first.error.is_none());
     assert!(!first.config.vim);
@@ -137,6 +137,11 @@ fn reload_keeps_the_last_good_config_on_error() {
     std::fs::write(dir.join("init.lua"), "return { leader = \"Ctrl+b\" }").unwrap();
     let fixed = loader.reload();
     assert!(fixed.error.is_none());
+    assert_eq!(
+        [first.version, broken.version, fixed.version],
+        [1, 2, 3],
+        "each reload is numbered, so the frontend can keep the newest"
+    );
     assert_eq!(fixed.config.leader, "Ctrl+b");
     assert!(
         fixed.config.vim,
@@ -465,4 +470,358 @@ fn the_example_init_lua_loads_and_is_the_defaults() {
     config.themes.clear();
     config.lines.clear();
     assert_eq!(config, Config::default());
+}
+
+/// Loads `dir` with a short time limit on another thread, and fails the test (instead of hanging
+/// it) if the load doesn't come back within `within`.
+fn load_quickly(dir: &std::path::Path, within: std::time::Duration) -> Result<Config, config::ConfigError> {
+    let dir = dir.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let env = config::Env {
+            limits: config::Limits {
+                time: std::time::Duration::from_millis(100),
+                ..config::Limits::default()
+            },
+            ..config::Env::default()
+        };
+        let _ = tx.send(config::load_with(&dir, &env));
+    });
+    rx.recv_timeout(within)
+        .expect("init.lua kept running past its time limit")
+}
+
+#[test]
+fn pcall_and_xpcall_cant_catch_running_out_of_time() {
+    for (name, lua) in [
+        ("pcall", "while true do pcall(function() while true do end end) end"),
+        (
+            "xpcall",
+            "while true do xpcall(function() while true do end end, function(e) return e end) end",
+        ),
+        (
+            "xpcall-handler",
+            "while true do xpcall(function() error('x') end, function() while true do end end) end",
+        ),
+        (
+            "nested",
+            "while true do pcall(pcall, pcall, function() while true do end end) end",
+        ),
+        (
+            "coroutine",
+            "while true do pcall(function() local co = coroutine.wrap(function() while true do end end) co() end) end",
+        ),
+    ] {
+        let dir = with_init(&format!("deadline-{name}"), lua);
+        let e = load_quickly(&dir, std::time::Duration::from_secs(5)).unwrap_err();
+        assert!(e.message.contains("took longer"), "{name}: {e}");
+        assert_eq!(e.line, Some(1), "{name}: {e}");
+    }
+    // In time, they work as usual.
+    assert_eq!(probe("pcall-ok", "select(2, pcall(function() return 7 end))"), "7");
+    assert_eq!(probe("pcall-err", "select(2, pcall(error, 'no', 0))"), "no");
+    assert_eq!(
+        probe(
+            "xpcall-ok",
+            "select(2, xpcall(error, function(e) return 'h:' .. e end, 'no', 0))"
+        ),
+        "h:no"
+    );
+}
+
+#[test]
+fn a_table_shared_into_a_huge_tree_is_refused_quickly() {
+    // 30 tables, but 2^30 nodes once each shared subtable is copied out.
+    let shared = "local t = {}\nfor i = 1, 30 do t = { a = t, b = t } end\n";
+    for (name, tail) in [
+        ("returned", "return { themes = { big = t } }"),
+        ("api", "roster.themes.define('big', t)\nreturn {}"),
+    ] {
+        let dir = with_init(&format!("shared-{name}"), &format!("{shared}{tail}"));
+        let e = load_quickly(&dir, std::time::Duration::from_secs(5)).unwrap_err();
+        assert!(e.message.contains("too big"), "{name}: {e}");
+    }
+    // Sharing a small table is fine: each use is a copy.
+    let dir = with_init(
+        "shared-ok",
+        "local c = { accent = '#ff0000' }\nreturn { colors = c, themes = { a = { colors = c }, b = { colors = c } } }",
+    );
+    let c = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(c.themes.len(), 2);
+}
+
+#[test]
+fn a_table_that_contains_itself_says_so() {
+    let dir = with_init("cycle", "local t = {}\nt.colors = t\nreturn { themes = { loop = t } }");
+    let e = config::load(&dir).unwrap_err();
+    assert!(e.message.contains("contains itself"), "{e}");
+}
+
+#[test]
+fn string_functions_refuse_sizes_a_config_never_needs() {
+    for (name, call, what) in [
+        ("find", "string.find(string.rep('a', 70000), 'b')", "string.find"),
+        ("method", "(string.rep('a', 70000)):match('b')", "string.match"),
+        ("gsub", "string.gsub('abc', string.rep('a', 300), '')", "string.gsub"),
+        ("gmatch", "string.gmatch(string.rep('a', 70000), 'a')", "string.gmatch"),
+        ("rep", "string.rep('ab', 3e6)", "string.rep"),
+    ] {
+        let dir = with_init(
+            &format!("caps-{name}"),
+            &format!("local x = 1\nlocal _ = {call}\nreturn {{}}"),
+        );
+        let e = config::load(&dir).unwrap_err();
+        assert!(e.message.contains(what), "{name}: {e}");
+        assert_eq!(e.line, Some(2), "{name}: {e}");
+    }
+    // Ordinary sizes work as usual.
+    assert_eq!(probe("caps-ok", "('ctrl+b'):gsub('ctrl', 'Ctrl')"), "Ctrl+b");
+}
+
+#[test]
+fn a_slow_pattern_is_cut_off_by_the_watchdog() {
+    // A pattern that backtracks: one C call (no instruction hook inside) that runs for seconds.
+    let dir = with_init(
+        "backtrack",
+        "local s = string.rep('a', 2000)\nlocal _ = s:find('.-.-b')\nreturn {}",
+    );
+    let env = config::Env {
+        limits: config::Limits {
+            time: std::time::Duration::from_millis(100),
+            wall: std::time::Duration::from_millis(300),
+            ..config::Limits::default()
+        },
+        ..config::Env::default()
+    };
+    let started = std::time::Instant::now();
+    let e = config::load_with(&dir, &env).unwrap_err();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(e.message.starts_with("took too long"), "{e}");
+    assert_eq!(e.to_string().matches("init.lua").count(), 1, "{e}");
+}
+
+/// roster_command picks the program that gets the master password, two-step codes and the API
+/// secret on its stdin, so init.lua may only name roster itself; any other wrapper takes the
+/// ROSTER_DESK_ROSTER env var, which the user sets outside the Config.
+#[test]
+fn roster_command_from_init_lua_must_run_roster() {
+    for ok in [
+        r#""roster""#,
+        r#""/home/me/.local/bin/roster""#,
+        r#""~/.local/bin/roster""#,
+        r#"{ "roster" }"#,
+        r#""uv run --project /home/me/roster roster""#,
+        r#""uv run --directory=/home/me/roster --frozen -q roster""#,
+        r#"{ "/usr/bin/uv", "run", "--project", "/home/me/my roster", "roster" }"#,
+    ] {
+        let dir = with_init("cmd-ok", &format!("return {{\n  roster_command = {ok},\n}}"));
+        assert!(config::load(&dir).is_ok(), "{ok} should be accepted");
+    }
+    for bad in [
+        r#""sh -c roster""#,
+        r#"{ "sh", "-c", "tee /tmp/secrets | roster serve" }"#,
+        r#""python3 -m roster""#,
+        r#""roster-wrapper""#,
+        r#""roster --config /tmp/other.yml""#,
+        r#""uv run --with evil roster""#,
+        r#""uv run --project /home/me/roster python -m roster""#,
+        r#""uv run --project""#,
+        r#""uvx roster""#,
+    ] {
+        let dir = with_init("cmd-bad", &format!("return {{\n  roster_command = {bad},\n}}"));
+        let e = config::load(&dir).expect_err(bad);
+        assert_eq!(e.line, Some(2), "{bad}: {e}");
+        assert!(e.message.starts_with("roster_command:"), "{bad}: {e}");
+        assert!(e.message.contains("ROSTER_DESK_ROSTER"), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_may_wrap() {
+    use config::{RosterCommand, backend_plan};
+    use desk_core::detect::Platform;
+    let c = Config {
+        roster_command: Some(RosterCommand(vec!["sh".into(), "-c".into(), "roster".into()])),
+        ..Config::default()
+    };
+    let e = backend_plan(&c, Platform::Linux, None, None).unwrap_err();
+    assert!(e.contains("ROSTER_DESK_ROSTER"), "{e}");
+    let plan = backend_plan(&c, Platform::Linux, Some("my-wrapper roster"), None).unwrap();
+    assert_eq!(plan.command, ["my-wrapper", "roster"]);
+}
+
+/// A loader for an init.lua that keeps Lua busy for at least `ms` of wall-clock time (os.time
+/// counts seconds and os.clock is the whole process's CPU, so it counts its own iterations,
+/// calibrated first), then sets the leader. Its limits are generous so it isn't cut off.
+fn slow_loader(name: &str, ms: u32) -> Loader {
+    let dir = with_init(
+        name,
+        &format!(
+            "local n = 0\nfor i = 1, {} do n = n + i end\nreturn {{ leader = 'Ctrl+b' }}",
+            iterations_for(ms)
+        ),
+    );
+    Loader::with_env(&dir, generous())
+}
+
+fn generous() -> config::Env {
+    config::Env {
+        limits: config::Limits {
+            time: std::time::Duration::from_secs(30),
+            wall: std::time::Duration::from_secs(60),
+            ..config::Limits::default()
+        },
+        ..config::Env::default()
+    }
+}
+
+/// How many loop iterations take at least `ms` here.
+fn iterations_for(ms: u32) -> u64 {
+    let n = 2_000_000u64;
+    let dir = with_init(
+        &format!("calibrate-{ms}"),
+        &format!("local n = 0\nfor i = 1, {n} do n = n + i end\nreturn {{}}"),
+    );
+    let started = std::time::Instant::now();
+    config::load_with(&dir, &generous()).unwrap();
+    let per_ms = n as f64 / started.elapsed().as_millis().max(1) as f64;
+    (per_ms * f64::from(ms)) as u64
+}
+
+/// The Tauri shell reads the Config from async commands (backend_connect, config_load) while a
+/// reload may be running Lua on another thread: reading must never wait for Lua.
+#[test]
+fn reading_the_config_never_waits_for_a_reload_in_progress() {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let loader = Arc::new(slow_loader("loader-busy", 600));
+    let l = Arc::clone(&loader);
+    let reload = std::thread::spawn(move || l.reload());
+    std::thread::sleep(Duration::from_millis(100));
+
+    let started = Instant::now();
+    assert_eq!(
+        loader.current().leader,
+        "Ctrl+Space",
+        "the defaults until the reload is done"
+    );
+    assert!(loader.last().is_none(), "nothing loaded yet");
+    assert!(started.elapsed() < Duration::from_millis(50), "{:?}", started.elapsed());
+
+    // `settled` is for blocking threads: it waits for the reload, and sees its result.
+    assert_eq!(loader.settled().leader, "Ctrl+b");
+    assert_eq!(reload.join().unwrap().config.leader, "Ctrl+b");
+    assert_eq!(loader.last().unwrap().config.leader, "Ctrl+b");
+}
+
+/// At startup the window waits for the Config only briefly; a slow init.lua arrives later, as
+/// a change.
+#[test]
+fn a_startup_reload_waits_only_so_long_then_reports_when_done() {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let loader = Arc::new(slow_loader("loader-startup", 600));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let started = Instant::now();
+    let now = loader.reload_within(Duration::from_millis(100), move |report| {
+        let _ = tx.send(report);
+    });
+    assert!(now.is_none(), "not done within the wait");
+    assert!(
+        started.elapsed() < Duration::from_millis(300),
+        "{:?}",
+        started.elapsed()
+    );
+    let later = rx.recv_timeout(Duration::from_secs(5)).expect("reported when done");
+    assert_eq!(later.config.leader, "Ctrl+b");
+
+    // A quick one is there straight away (and still reported).
+    let dir = with_init("loader-quick", "return { vim = false }");
+    let loader = Arc::new(Loader::new(&dir));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let now = loader.reload_within(Duration::from_secs(2), move |report| {
+        let _ = tx.send(report);
+    });
+    assert!(!now.expect("done within the wait").config.vim);
+    assert!(!rx.recv_timeout(Duration::from_secs(2)).unwrap().config.vim);
+}
+
+/// Dotfile managers (stow, chezmoi's symlink mode) make init.lua and its modules symlinks into
+/// another folder. Saving the real file must reload too.
+#[cfg(unix)]
+#[test]
+fn saving_a_symlinked_init_lua_or_module_calls_the_watcher_back() {
+    use std::os::unix::fs::symlink;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let dotfiles = temp_dir("watch-dotfiles");
+    std::fs::write(dotfiles.join("init.lua"), "return {}").unwrap();
+    std::fs::create_dir_all(dotfiles.join("lua")).unwrap();
+    std::fs::write(dotfiles.join("lua/keys.lua"), "return {}").unwrap();
+    std::fs::write(dotfiles.join("other.txt"), "").unwrap();
+    let dir = temp_dir("watch-symlinked");
+    symlink(dotfiles.join("init.lua"), dir.join("init.lua")).unwrap();
+    symlink(dotfiles.join("lua"), dir.join("lua")).unwrap();
+
+    let (tx, rx) = mpsc::channel();
+    let _w = config::watch(&dir, move || {
+        let _ = tx.send(());
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+
+    std::fs::write(dotfiles.join("init.lua"), "return { vim = false }").unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a save of the symlink's target is seen");
+    // Editor-style: a temp file renamed over the target.
+    std::fs::write(dotfiles.join("init.lua.tmp"), "return {}").unwrap();
+    std::fs::rename(dotfiles.join("init.lua.tmp"), dotfiles.join("init.lua")).unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a rename over the target is seen");
+    std::fs::write(dotfiles.join("lua/keys.lua"), "return { 1 }").unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a module in a symlinked folder is seen");
+    // The rest of the dotfiles folder isn't the Config.
+    while rx.recv_timeout(Duration::from_millis(400)).is_ok() {}
+    std::fs::write(dotfiles.join("other.txt"), "x").unwrap();
+    assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+}
+
+/// A tool that keeps writing (a sync, a formatter on a loop) mustn't hold the reload back
+/// forever: it comes at most about half a second after the first event.
+#[test]
+fn a_continuous_stream_of_saves_still_reloads_within_half_a_second() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    let dir = temp_dir("watch-stream");
+    std::fs::write(dir.join("init.lua"), "return {}").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let _w = config::watch(&dir, move || {
+        let _ = tx.send(Instant::now());
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let started = Instant::now();
+    let writer = std::thread::spawn({
+        let dir = dir.clone();
+        move || {
+            while started.elapsed() < Duration::from_secs(2) {
+                std::fs::write(dir.join("init.lua"), "return {}").unwrap();
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        }
+    });
+    let first = rx
+        .recv_timeout(Duration::from_secs(3))
+        .expect("a reload during the stream");
+    assert!(
+        first.duration_since(started) < Duration::from_millis(900),
+        "{:?}",
+        first.duration_since(started)
+    );
+    writer.join().unwrap();
 }

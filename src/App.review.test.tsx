@@ -226,4 +226,10 @@ describe("M6: the status bar's path, whole, from the keyboard", () => {
     await user.keyboard(`${LEADER}:info{Enter}`);
     expect(screen.getByRole("status")).toHaveTextContent(/~\/infra\/roster\.yml/);
   });
+
+  it(":info says which roster command runs, since it's what gets the master password (review 2)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:info{Enter}`);
+    expect(screen.getByRole("status")).toHaveTextContent(/Command roster serve/);
+  });
 });

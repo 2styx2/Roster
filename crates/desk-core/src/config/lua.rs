@@ -16,11 +16,11 @@
 //! the frontend's registries.
 
 use super::schema::Location;
-use super::{ConfigError, Env, FILE_NAME};
+use super::{ConfigError, Env, FILE_NAME, located_message};
 use mlua::chunk::ChunkMode;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use serde_json::{Map, Number, Value as Json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
@@ -44,38 +44,77 @@ pub(crate) struct ConvertError {
     pub message: String,
 }
 
+/// The longest text a pattern function takes, the longest pattern, and the biggest
+/// `string.rep` result.
+const MAX_TEXT: usize = 64 * 1024;
+const MAX_PATTERN: usize = 256;
+const MAX_REP: usize = 1024 * 1024;
+
 const LOADED: &str = "roster-desk.loaded";
 const API: &str = "roster-desk.api";
 const LOADING: &str = "\0loading";
 
+/// Runs `source` on a thread of its own, and gives up on it after `env.limits.wall`: a single
+/// long C call (a pattern that backtracks) can't be interrupted, so the caller isn't made to wait
+/// for it. The abandoned thread ends when the call does, and its result is dropped.
 pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (dir_owned, source_owned, env_owned) = (dir.to_path_buf(), source.to_string(), *env);
+    std::thread::Builder::new()
+        .name("init.lua".into())
+        .spawn(move || {
+            let _ = tx.send(run_here(&dir_owned, &source_owned, &env_owned));
+        })
+        .map_err(|e| ConfigError::new(None, format!("couldn't start Lua: {e}")))?;
+    let wall = env.limits.wall;
+    match rx.recv_timeout(wall) {
+        Ok(result) => result,
+        Err(_) => Err(ConfigError::new(
+            None,
+            format!(
+                "took too long to run (over {} ms; a string pattern that backtracks?)",
+                wall.as_millis()
+            ),
+        )),
+    }
+}
+
+fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
     let lua = Lua::new_with(
         StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::OS,
         LuaOptions::new(),
     )
     .map_err(internal)?;
     lua.set_memory_limit(env.limits.memory).map_err(internal)?;
+    // Running out of time is final: once the deadline has passed, every hook call errors again,
+    // and `pcall` / `xpcall` (sandbox) re-raise it, so no Lua code can catch it and carry on.
     let budget = env.limits.time;
     let deadline = Instant::now() + budget;
-    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |_, debug| {
+    let timed_out: Rc<RefCell<Option<String>>> = Rc::default();
+    let expired = Rc::clone(&timed_out);
+    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
         if Instant::now() < deadline {
             return Ok(VmState::Continue);
         }
-        let file = debug
-            .source()
-            .short_src
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| FILE_NAME.into());
-        let line = debug.current_line().unwrap_or(0);
-        Err(mlua::Error::runtime(format!(
-            "{file}:{line}: took longer than {} ms to run (an endless loop?)",
-            budget.as_millis()
-        )))
+        let message = expired
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let (file, line) = user_frame(lua, debug);
+                format!(
+                    "{file}:{line}: took longer than {} ms to run (an endless loop?)",
+                    budget.as_millis()
+                )
+            })
+            .clone();
+        Err(mlua::Error::runtime(message))
     })
     .map_err(internal)?;
 
     let api = Rc::new(RefCell::new(Vec::new()));
-    sandbox(&lua, dir, env, Rc::clone(&api)).map_err(internal)?;
+    // One budget for everything the run hands over as Config data: the copy is made outside
+    // Lua's memory and time limits, and shared subtables are copied once per use.
+    let budget = Rc::new(Cell::new(Budget::default()));
+    sandbox(&lua, dir, env, Rc::clone(&api), timed_out, Rc::clone(&budget)).map_err(internal)?;
 
     let value: Value = lua
         .load(source)
@@ -85,7 +124,7 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
         .map_err(|e| from_lua_error(&e))?;
     let value = match value {
         Value::Nil => Json::Object(Map::new()),
-        Value::Table(_) => to_json(&value, &mut Vec::new()).map_err(|e| ConfigError {
+        Value::Table(_) => to_json(&value, &budget).map_err(|e| ConfigError {
             file: FILE_NAME.into(),
             line: None,
             message: located_message(&e.path, &e.message),
@@ -102,12 +141,17 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
     Ok(RunOutput { value, api })
 }
 
-fn located_message(path: &[String], message: &str) -> String {
-    if path.is_empty() {
-        message.to_string()
-    } else {
-        format!("{}: {message}", path.join("."))
-    }
+/// Where the Config's own code is: the running function if it's from a `.lua` file, else the
+/// nearest caller that is (the deadline can strike inside the sandbox's own wrappers).
+fn user_frame(lua: &Lua, debug: &mlua::debug::Debug) -> (String, i64) {
+    let here = |d: &mlua::debug::Debug| {
+        let file = d.source().short_src.map(|s| s.to_string())?;
+        file.ends_with(".lua")
+            .then(|| (file, d.current_line().map_or(0, |l| l as i64)))
+    };
+    here(debug)
+        .or_else(|| (1..64).find_map(|level| lua.inspect_stack(level, here).flatten()))
+        .unwrap_or_else(|| (FILE_NAME.into(), 0))
 }
 
 fn internal(e: mlua::Error) -> ConfigError {
@@ -115,7 +159,14 @@ fn internal(e: mlua::Error) -> ConfigError {
 }
 
 /// Takes away what a Config must not have, and adds `require` and `roster`.
-fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<()> {
+fn sandbox(
+    lua: &Lua,
+    dir: &Path,
+    env: &Env,
+    api: Rc<RefCell<Vec<ApiEntry>>>,
+    timed_out: Rc<RefCell<Option<String>>>,
+    budget: Rc<Cell<Budget>>,
+) -> mlua::Result<()> {
     let g = lua.globals();
     for name in ["dofile", "loadfile", "collectgarbage"] {
         g.raw_set(name, Value::Nil)?;
@@ -138,6 +189,49 @@ fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) ->
     )
     .set_name("=sandbox")
     .exec()?;
+    // `pcall` and `xpcall` can't swallow running out of time: once it has, they raise it again.
+    let still_in_time = lua.create_function(move |_, ()| match &*timed_out.borrow() {
+        Some(message) => Err(mlua::Error::runtime(message.clone())),
+        None => Ok(()),
+    })?;
+    lua.load(
+        r##"local raw_pcall, raw_xpcall, still_in_time = pcall, xpcall, ...
+        local function after(...) still_in_time() return ... end
+        pcall = function(...) return after(raw_pcall(...)) end
+        xpcall = function(f, handler, ...)
+          return after(raw_xpcall(f, function(e) still_in_time() return handler(e) end, ...))
+        end"##,
+    )
+    .set_name("=sandbox")
+    .call::<()>(still_in_time)?;
+    // Patterns and string.rep run as one C call each, which the instruction hook can't stop:
+    // keep their sizes to what a Config needs. The watchdog (run) covers what's left.
+    lua.load(
+        r##"local MAX_TEXT, MAX_PATTERN, MAX_REP = ...
+        local error, type, tostring = error, type, tostring
+        for _, name in ipairs({ "find", "match", "gmatch", "gsub" }) do
+          local raw = string[name]
+          string[name] = function(s, p, ...)
+            if type(s) == "string" and #s > MAX_TEXT then
+              error("string." .. name .. ": the text is over " .. MAX_TEXT .. " bytes", 2)
+            end
+            if type(p) == "string" and #p > MAX_PATTERN then
+              error("string." .. name .. ": the pattern is over " .. MAX_PATTERN .. " bytes", 2)
+            end
+            return raw(s, p, ...)
+          end
+        end
+        local rep = string.rep
+        string.rep = function(s, n, sep)
+          if type(n) == "number" and n > 0
+            and (#tostring(s) + #tostring(sep or "")) * n > MAX_REP then
+            error("string.rep: the result would be over " .. MAX_REP .. " bytes", 2)
+          end
+          return rep(s, n, sep)
+        end"##,
+    )
+    .set_name("=sandbox")
+    .call::<()>((MAX_TEXT, MAX_PATTERN, MAX_REP))?;
     // print goes to the core's stderr (the `tauri dev` console), never to a file.
     g.raw_set(
         "print",
@@ -151,7 +245,7 @@ fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) ->
         })?,
     )?;
 
-    let roster = roster_api(lua, env, api)?;
+    let roster = roster_api(lua, env, api, budget)?;
     lua.set_named_registry_value(API, roster.clone())?;
     lua.set_named_registry_value(LOADED, lua.create_table()?)?;
     g.raw_set("roster", roster)?;
@@ -165,13 +259,14 @@ fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) ->
 
 /// The `roster` table: facts about the machine, and registration functions shaped like the
 /// Plugin API to come (ticket 23): `roster.keymap.set`, `roster.themes.define`.
-fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<Table> {
+fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<Cell<Budget>>) -> mlua::Result<Table> {
     let roster = lua.create_table()?;
     roster.raw_set("os", env.os.as_str())?;
     roster.raw_set("api_version", super::API_VERSION)?;
 
     let keymap = lua.create_table()?;
     let entries = Rc::clone(&api);
+    let left = Rc::clone(&budget);
     keymap.raw_set(
         "set",
         lua.create_function(move |lua, (context, keys, action): (String, String, Value)| {
@@ -180,7 +275,7 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Re
                     "roster.keymap.set: the action is a command line such as \"close\" (Lua functions as actions come with Plugins)",
                 ));
             }
-            let value = to_json(&action, &mut Vec::new()).map_err(|e| mlua::Error::runtime(e.message))?;
+            let value = to_json(&action, &left).map_err(|e| mlua::Error::runtime(e.message))?;
             entries.borrow_mut().push(ApiEntry {
                 path: vec!["keys".into(), context, keys],
                 value,
@@ -196,7 +291,7 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Re
     themes.raw_set(
         "define",
         lua.create_function(move |lua, (id, theme): (String, Table)| {
-            let value = to_json(&Value::Table(theme), &mut Vec::new())
+            let value = to_json(&Value::Table(theme), &budget)
                 .map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
             entries.borrow_mut().push(ApiEntry {
                 path: vec!["themes".into(), id],
@@ -286,16 +381,64 @@ fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
     Ok(value)
 }
 
+/// How much Config data one run may hand over: far more than any Config needs, and small
+/// enough that copying it out of Lua is quick.
+#[derive(Clone, Copy)]
+struct Budget {
+    values: usize,
+    bytes: usize,
+}
+
+const MAX_VALUES: usize = 100_000;
+const MAX_BYTES: usize = 16 * 1024 * 1024;
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            values: MAX_VALUES,
+            bytes: MAX_BYTES,
+        }
+    }
+}
+
+const TOO_BIG: &str =
+    "the Config is too big (more than 100000 values or 16 MB of text; a table shared many times over?)";
+
 /// A Lua value as Config data. Tables become lists (keys 1..n) or objects (string keys); an
 /// empty table is an empty object (the schema takes it as an empty list where it wants one).
-fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
+/// A table used in several places is copied for each; the run's [`Budget`] bounds the total.
+fn to_json(v: &Value, budget: &Cell<Budget>) -> Result<Json, ConvertError> {
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget)
+}
+
+fn convert(
+    v: &Value,
+    path: &mut Vec<String>,
+    within: &mut Vec<*const std::ffi::c_void>,
+    budget: &Cell<Budget>,
+) -> Result<Json, ConvertError> {
     let fail = |path: &[String], message: String| ConvertError {
         path: path.to_vec(),
         message,
     };
     if path.len() > 32 {
-        return Err(fail(path, "nested too deeply (a table that contains itself?)".into()));
+        return Err(fail(path, "nested too deeply (more than 32 levels)".into()));
     }
+    let spend = |path: &[String], bytes: usize| {
+        let b = budget.get();
+        match (b.values.checked_sub(1), b.bytes.checked_sub(bytes)) {
+            (Some(values), Some(bytes)) => {
+                budget.set(Budget { values, bytes });
+                Ok(())
+            }
+            _ => Err(fail(path, TOO_BIG.into())),
+        }
+    };
+    let bytes = match v {
+        Value::String(s) => s.as_bytes().len(),
+        _ => 0,
+    };
+    spend(path, bytes)?;
     Ok(match v {
         Value::Nil => Json::Null,
         Value::Boolean(b) => Json::Bool(*b),
@@ -315,6 +458,11 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                 .to_string(),
         ),
         Value::Table(t) => {
+            let ptr = t.to_pointer();
+            if within.contains(&ptr) {
+                return Err(fail(path, "a table that contains itself".into()));
+            }
+            within.push(ptr);
             let len = t.raw_len();
             let mut count = 0usize;
             let mut obj = Map::new();
@@ -328,8 +476,9 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                             .to_str()
                             .map_err(|_| fail(path, "a key that isn't UTF-8".into()))?
                             .to_string();
+                        spend(path, key.len())?;
                         path.push(key.clone());
-                        let j = to_json(&val, path)?;
+                        let j = convert(&val, path, within, budget)?;
                         path.pop();
                         obj.insert(key, j);
                     }
@@ -353,11 +502,13 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                 for i in 1..=len {
                     path.push(i.to_string());
                     let val: Value = t.raw_get(i).map_err(|e| fail(path, e.to_string()))?;
-                    out.push(to_json(&val, path)?);
+                    out.push(convert(&val, path, within, budget)?);
                     path.pop();
                 }
+                within.pop();
                 Json::Array(out)
             } else {
+                within.pop();
                 Json::Object(obj)
             }
         }

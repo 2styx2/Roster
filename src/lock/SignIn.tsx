@@ -104,6 +104,21 @@ export function SignIn({
   };
   const value = (name: string) => form.current?.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value ?? "";
 
+  /** A sign-in has started in roster and isn't done or cancelled: its `bw login` (with what was
+   * typed) is alive there until it ends. Leaving it any other way than going on cancels it. */
+  const started = useRef(false);
+  const cancelRef = useRef(vault.signInCancel);
+  useEffect(() => {
+    cancelRef.current = vault.signInCancel;
+  });
+  const cancel = useCallback(() => {
+    if (!started.current) return;
+    started.current = false;
+    void cancelRef.current();
+  }, []);
+  // The lock screen going away mid-way (a lock, a reload of the vault state) ends it too.
+  useEffect(() => cancel, [cancel]);
+
   const failed = useCallback(
     (e: unknown, via: Way) => {
       const p = problemFromCallError("Bitwarden", e);
@@ -111,23 +126,28 @@ export function SignIn({
       const data = e instanceof BackendCallError ? e.data : null;
       const again = data?.step as Asked | undefined;
       if (again && typeof data?.login === "string") return setScreen({ kind: "step", step: { ...again, login: data.login }, via });
+      // Nothing to carry on from (a timeout, a refusal, a lost serve): roster may still hold the
+      // sign-in, so end it before going back.
+      cancel();
       const code = e instanceof BackendCallError ? e.code : null;
       if (code === SignInError.alreadyLoggedIn) return void vault.check();
       if (code === SignInError.badServer || code === SignInError.serverUnreachable) return setScreen({ kind: "server" });
       setScreen(origin(via));
     },
-    [vault],
+    [vault, cancel],
   );
 
   /** roster asked for the next step (a `done` has already unlocked the app). */
   const advanced = useCallback((step: SignInStep, via: Way) => {
     setProblem(null);
-    if (step.step !== "done") setScreen({ kind: "step", step, via });
+    if (step.step === "done") started.current = false;
+    else setScreen({ kind: "step", step, via });
   }, []);
 
   const run = useCallback(
     async (call: () => Promise<SignInStep>, via: Way) => {
       setBusy(true);
+      started.current = true;
       try {
         advanced(await call(), via);
       } catch (e) {
@@ -194,7 +214,7 @@ export function SignIn({
       case "password":
         return setScreen({ kind: "email" });
       case "step":
-        void vault.signInCancel();
+        cancel();
         return setScreen(origin(screen.via));
     }
   }
@@ -513,7 +533,9 @@ function MethodPicker({ methods, busy, pick }: { methods: TwoFactorMethod[]; bus
   );
 }
 
-/** SSO: show the link, and keep asking roster (it waits up to 20 s a call) until the browser is done. */
+/** SSO: show the link, and keep asking roster (it waits up to 20 s a call) until the browser is done.
+ * Exactly one poll is in flight per sign-in: re-renders of the App (which hand down new callbacks)
+ * never start another, and a poll whose screen has gone is left to finish with its result ignored. */
 function SsoWait({
   step,
   via,
@@ -531,24 +553,41 @@ function SsoWait({
 }) {
   const [copied, setCopied] = useState(false);
   const { login } = step;
+  // The newest props, for the poll to answer with; it never restarts because they changed.
+  const latest = useRef({ vault, failed, advanced, via });
   useEffect(() => {
-    let alive = true;
+    latest.current = { vault, failed, advanced, via };
+  });
+  const poll = useRef<{ login: string; wanted: boolean } | null>(null);
+  useEffect(() => {
+    const running = poll.current;
+    if (running?.login === login) {
+      // Still asking for this sign-in (StrictMode runs effects twice): carry on with that poll.
+      running.wanted = true;
+      return () => {
+        running.wanted = false;
+      };
+    }
+    const mine = { login, wanted: true };
+    poll.current = mine;
     void (async () => {
       try {
         let s: SignInStep;
         do {
-          s = await vault.signInAnswer(login, {});
-          if (!alive) return;
+          s = await latest.current.vault.signInAnswer(login, {});
+          if (!mine.wanted) return;
         } while (s.step === "sso");
-        advanced(s, via);
+        latest.current.advanced(s, latest.current.via);
       } catch (e) {
-        if (alive) failed(e, via);
+        if (mine.wanted) latest.current.failed(e, latest.current.via);
+      } finally {
+        if (poll.current === mine) poll.current = null;
       }
     })();
     return () => {
-      alive = false;
+      mine.wanted = false;
     };
-  }, [login, vault, failed, advanced, via]);
+  }, [login]);
   return (
     <div>
       <p aria-live="polite">Finish signing in with your browser. roster opened the page on this Box; if it didn't, open this link:</p>

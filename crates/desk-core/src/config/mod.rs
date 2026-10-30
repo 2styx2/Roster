@@ -18,6 +18,7 @@ pub use watch::{Watcher, watch};
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The file the app runs.
@@ -90,7 +91,11 @@ impl Os {
 /// How long `init.lua` (with everything it requires) may run, and how much memory it may use.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
+    /// Lua run time, checked between instructions.
     pub time: Duration,
+    /// Wall-clock time for the whole load, checked by a watchdog: it also covers one long C call
+    /// (a pattern that backtracks), which the instruction check can't interrupt.
+    pub wall: Duration,
     pub memory: usize,
 }
 
@@ -98,6 +103,7 @@ impl Default for Limits {
     fn default() -> Self {
         Limits {
             time: Duration::from_secs(1),
+            wall: Duration::from_secs(2),
             memory: 64 * 1024 * 1024,
         }
     }
@@ -201,7 +207,8 @@ pub fn load_with(dir: &Path, env: &Env) -> Result<Config, ConfigError> {
     Ok(config)
 }
 
-fn located_message(path: &[String], message: &str) -> String {
+/// `terminal.size: message`, or just the message when there's no path.
+pub(crate) fn located_message(path: &[String], message: &str) -> String {
     if path.is_empty() {
         message.to_string()
     } else {
@@ -313,6 +320,9 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             return Err(at(&["themes", id], "a Theme needs an id other than \"auto\""));
         }
     }
+    if let Some(command) = &c.roster_command {
+        command.check().map_err(|m| at(&["roster_command"], m))?;
+    }
     let mut seen = std::collections::HashSet::new();
     for (i, f) in c.folders.iter().enumerate() {
         let n = (i + 1).to_string();
@@ -377,13 +387,22 @@ pub struct Report {
     pub error: Option<ConfigError>,
     /// The file's full path, for messages ("edit C:\Users\…\init.lua").
     pub path: String,
+    /// Counts the reloads, from 1: the frontend keeps the highest it has seen, so a report that
+    /// arrives late (a startup load after a save's event) never replaces a newer one.
+    pub version: u64,
 }
 
-/// Loads and reloads the Config in one dir, keeping the last good one.
+/// Loads and reloads the Config in one dir, keeping the last good one. Shared between threads:
+/// reading ([`Loader::current`], [`Loader::last`]) never waits for a reload, because Lua runs
+/// outside the locks that reading takes; the result is swapped in when it's done. Reloads run
+/// one at a time, so they finish in the order they started.
 pub struct Loader {
     dir: PathBuf,
     env: Env,
-    current: Config,
+    /// The Config in effect and the last report. Held only to clone or swap, never across Lua.
+    current: Mutex<(Arc<Config>, Option<Report>)>,
+    /// Held for a whole reload: only reloads and [`Loader::settled`] take it.
+    loading: Mutex<()>,
 }
 
 impl Loader {
@@ -396,7 +415,8 @@ impl Loader {
         Loader {
             dir: dir.to_path_buf(),
             env,
-            current: Config::default(),
+            current: Mutex::new((Arc::new(Config::default()), None)),
+            loading: Mutex::new(()),
         }
     }
 
@@ -404,26 +424,74 @@ impl Loader {
         &self.dir
     }
 
-    /// The Config in effect.
-    pub fn current(&self) -> &Config {
-        &self.current
+    /// The Config in effect (the defaults before the first load). Never waits.
+    pub fn current(&self) -> Arc<Config> {
+        Arc::clone(&lock(&self.current).0)
     }
 
-    /// Reads the file again. On an error the last good Config stays in effect.
-    pub fn reload(&mut self) -> Report {
-        let error = match load_with(&self.dir, &self.env) {
+    /// The last reload's report, None before the first one is done. Never waits.
+    pub fn last(&self) -> Option<Report> {
+        lock(&self.current).1.clone()
+    }
+
+    /// The Config in effect once any reload in progress is done. Waits for it (at most the
+    /// Lua wall-clock limit): call it from a blocking thread.
+    pub fn settled(&self) -> Arc<Config> {
+        let _done = lock(&self.loading);
+        self.current()
+    }
+
+    /// The last report once any reload in progress is done; see [`Loader::settled`].
+    pub fn settled_report(&self) -> Option<Report> {
+        let _done = lock(&self.loading);
+        self.last()
+    }
+
+    /// Reads the file again. On an error the last good Config stays in effect. Blocks for the
+    /// Lua run (at most the wall-clock limit), without holding up readers.
+    pub fn reload(&self) -> Report {
+        let _loading = lock(&self.loading);
+        let result = load_with(&self.dir, &self.env);
+        let mut current = lock(&self.current);
+        let error = match result {
             Ok(config) => {
-                self.current = config;
+                current.0 = Arc::new(config);
                 None
             }
             Err(e) => Some(e),
         };
-        Report {
-            config: self.current.clone(),
+        let report = Report {
+            config: (*current.0).clone(),
             error,
             path: self.dir.join(FILE_NAME).display().to_string(),
-        }
+            version: current.1.as_ref().map_or(1, |r| r.version + 1),
+        };
+        current.1 = Some(report.clone());
+        report
     }
+
+    /// Reloads on a thread of its own and waits at most `wait` for it: the report if it was
+    /// done by then, else None. `then` gets the report when it's done, either way (at startup:
+    /// the window shows without waiting long, and a slow Config arrives as a change).
+    pub fn reload_within(
+        self: &Arc<Self>,
+        wait: Duration,
+        then: impl FnOnce(Report) + Send + 'static,
+    ) -> Option<Report> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let me = Arc::clone(self);
+        std::thread::spawn(move || {
+            let report = me.reload();
+            let _ = tx.send(report.clone());
+            then(report);
+        });
+        rx.recv_timeout(wait).ok()
+    }
+}
+
+/// A poisoned lock still holds a usable value here (a Config or a report).
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Which roster to start, from the Config and the development env vars.
@@ -435,8 +503,9 @@ pub struct BackendPlan {
 }
 
 /// The roster command and WSL distro: `ROSTER_DESK_ROSTER` and `ROSTER_DESK_WSL_DISTRO` win
-/// (they're for development), then `roster_command` and `backend` from init.lua, then
-/// detection. Blank env vars don't count.
+/// (they're for development, and set by the user outside the Config), then `roster_command`
+/// and `backend` from init.lua, then detection. Blank env vars don't count. A `roster_command`
+/// that isn't roster itself is refused ([`RosterCommand::check`]); only the env var may wrap it.
 pub fn backend_plan(
     config: &Config,
     platform: crate::detect::Platform,
@@ -445,7 +514,12 @@ pub fn backend_plan(
 ) -> Result<BackendPlan, String> {
     let env_command = env_command.filter(|v| !v.trim().is_empty());
     let command = match (env_command, &config.roster_command) {
-        (None, Some(RosterCommand(words))) => words.clone(),
+        (None, Some(command)) => {
+            command
+                .check()
+                .map_err(|m| format!("roster_command in init.lua: {m}."))?;
+            command.0.clone()
+        }
         (given, _) => crate::detect::roster_command(given),
     };
     if platform == crate::detect::Platform::Windows && config.backend == BackendChoice::Local {

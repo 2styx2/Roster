@@ -12,7 +12,8 @@ roster-desk is configured by one Lua file, the way WezTerm and Neovim are (ADR 0
 - The Rust core runs the file with Lua 5.4 (mlua, built in). The file returns a table. Anything it leaves out keeps the built-in default.
 - The table is checked against a schema (`crates/desk-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`src/config/types.ts`). The frontend never runs Lua.
 - The frontend applies it **through the registries** (ADR 0004), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`src/config/apply.ts`).
-- **Saving reloads it live.** The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s.
+- **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a save does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
+- **Saving reloads it live.** The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second.
 - **Errors.** A Lua error (syntax or runtime), or a name or value the schema doesn't accept, shows a message with the file and line, for example `init.lua:12: terminal.size: 400 is out of range (6 to 40)`. The last good Config stays in use. A misspelled name is an error, not silently ignored.
 - **Warnings.** Some things only the app can check: an action that isn't a command, a Theme name that isn't registered, a Sidebar section or status segment it doesn't know. These show as a warning, and the rest of the Config still applies.
 - **Line numbers** come from Lua for Lua errors and for `roster.*` calls. For a value in the returned table, the core finds the key in the source (`size =`, `["d d"] =`) after its parent keys. That's a best effort: a value built in a loop or in a required module may get its parent's line, or no line.
@@ -24,7 +25,8 @@ The Lua code runs in the Rust core, which never holds a secret (docs/security.md
 - **Libraries:** the base functions, `string` (without `string.dump`), `table`, `math`, `utf8`, and an `os` with only `time`, `clock`, `date` and `difftime`.
 - **Not there:** `io`, `os.execute`, `os.getenv`, `os.remove`, `os.exit`, `debug`, `package` (so no C modules), `dofile`, `loadfile`, `collectgarbage`. `load` takes text only, never bytecode.
 - **`require(name)`** loads only `name.lua`, `name/init.lua`, `lua/name.lua` or `lua/name/init.lua` from the config folder (`.` in a name is a `/`). A name with `..` or a slash is refused, and so is a file (or a symlink) that resolves outside the folder. `require("roster")` returns the API table.
-- **Limits:** 1 second of run time (an instruction hook checks a deadline, so `while true do end` stops with its line) and 64 MB of memory.
+- **Limits:** 1 second of run time (an instruction hook checks a deadline, so `while true do end` stops with its line) and 64 MB of memory. Running out of time can't be caught: `pcall` and `xpcall` raise it again, so the run ends. The table it returns (with what it gave the `roster` calls) may hold at most 100,000 values and 16 MB of text, counting a table used in several places once per place.
+- **One C call can't be stopped** by the instruction hook (a pattern that backtracks, say), so `string.find`, `match`, `gmatch` and `gsub` take text up to 64 KB and patterns up to 256 bytes, `string.rep` makes at most 1 MB, and a watchdog gives up on the whole run after 2 seconds of wall-clock time ("init.lua: took too long to run"). The last good Config stays in use.
 - `print(...)` writes to the core's stderr (the `tauri dev` console).
 
 ## The `roster` table
@@ -121,7 +123,9 @@ They show first in the Folders section, marked "from init.lua", and only `init.l
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
-| `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words |
+| `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
+
+**Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_DESK_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
 
 `backend` and `roster_command` are read when the backend starts. After changing them, use Retry on the error screen or restart the app. The env vars still win, for development: `ROSTER_DESK_ROSTER` over `roster_command`, and `ROSTER_DESK_WSL_DISTRO` over `backend = "wsl:<distro>"`.
 
