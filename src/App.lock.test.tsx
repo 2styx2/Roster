@@ -1,7 +1,7 @@
 // The Lock (ticket 04): the app opens locked, unlocks with the master password, and locks again on
 // <leader> L or after the idle timeout. All through the fake Backend.
 import { describe, expect, it } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts, type FakeScenario } from "./backend/fake";
@@ -63,6 +63,23 @@ describe("the Lock", () => {
     await screen.findByLabelText(/master password/i);
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.queryByRole("dialog", { name: /find a host/i })).toBeNull();
+  });
+
+  it("locks serve again when an unlock times out but serve finishes it anyway", async () => {
+    // desk-core gives up on a call after 60 s, but serve carries on: the UI stays locked, so serve
+    // must not be left holding an unlocked vault.
+    const scenario: FakeScenario = { hosts: makeHosts(12), slowUnlock: { failAfterMs: 20, completesAfterMs: 80 } };
+    const { user, backend } = await start(scenario);
+    await unlock(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/didn't answer in time/i);
+    expect(lockScreen()).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 150));
+    await waitFor(async () => expect((await backend.vaultStatus()).status).toBe("locked"));
+    expect(lockScreen()).not.toBeNull();
+    delete scenario.slowUnlock;
+    await unlock(user);
+    await screen.findByRole("main", { name: /workspace/i });
+    expect((await backend.vaultStatus()).status).toBe("unlocked");
   });
 
   it("explains a vault CLI that isn't logged in, with the command to run", async () => {

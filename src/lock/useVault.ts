@@ -72,10 +72,31 @@ export function useVault(
     if (active) void check();
   }, [active, check]);
 
+  /** Counts unlock attempts, so a late clean-up never locks over a newer attempt. */
+  const attempts = useRef(0);
+
+  /** After an unlock failed without a clear answer (a timeout, a lost serve), serve may still
+   * have unlocked, or may do so later. serve answers in order, so `vault.status` comes back after
+   * that unlock is done; if it says unlocked while the app is locked, lock it. */
+  const lockIfServeUnlocked = useCallback(
+    async (attempt: number) => {
+      const stale = () => attempts.current !== attempt || viewRef.current.state === "unlocked";
+      try {
+        const s = await backend.vaultStatus();
+        if (s.status !== "unlocked" || stale()) return;
+      } catch {
+        if (stale()) return; // status unknown: lock anyway, it's harmless on a locked vault
+      }
+      await backend.lockVault().catch(() => {});
+    },
+    [backend],
+  );
+
   const unlock = useCallback(
     async (password: string) => {
       const v = viewRef.current;
       if (v.state !== "locked") return;
+      const attempt = ++attempts.current;
       try {
         const r = await backend.unlockVault(password);
         setView({ state: "unlocked", provider: r.provider });
@@ -89,10 +110,11 @@ export function useVault(
           setView({ state: "none" });
         } else {
           setView({ ...v, error: messageOf(e) });
+          void lockIfServeUnlocked(attempt);
         }
       }
     },
-    [backend],
+    [backend, lockIfServeUnlocked],
   );
 
   const lock = useCallback((): boolean => {
