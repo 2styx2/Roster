@@ -100,7 +100,7 @@ app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, minimize/maxim
 app/src/ui/           Keys.tsx (keycaps for every key hint), StateDot.tsx (state nodes: shape + words), CloseGlyph.tsx
 app/src/styles.css    the whole look, written only against Theme tokens (no colour literals); styles.test.ts lints it
                       (no text in `--faint` or `--tone`, nothing under 11 px, :hover only for a real pointer)
-app/assets/           logo.svg (Gap orbit app icon master) + logo-small.svg (16–32 px cut), logo-mark*.svg (no tile), logo-mono*.svg (one colour); `npm run icons` renders src-tauri/icons
+app/assets/           logo-icon.svg (app icon master: Gap orbit, transparent) + logo-icon-small.svg (16–32 px cut), logo.svg / logo-small.svg (on the Ink tile, for a README or avatar), logo-mark*.svg (Theme colours, no tile), logo-mono*.svg (one colour); `npm run icons` renders src-tauri/icons
 docs/app/design/      taste.md, the interface review, Theme screenshots (themes/, made from the fake Backend)
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)

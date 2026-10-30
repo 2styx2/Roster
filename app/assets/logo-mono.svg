@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 57 57" width="1024" height="1024" role="img" aria-label="roster">
   <!-- Gap orbit in one colour (currentColor), no fades: for print, stamps and single-colour UI. -->
-  <path d="M40.41 58.71A28 28 0 1 1 56.84 44.92" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M22.57 18.84L22.57 45.16M22.57 18.84L34.79 18.84L40.43 25.42L34.79 32L22.57 32M34.79 32L46.66 48.74" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="currentColor"><circle cx="22.57" cy="18.84" r="4.2"/><circle cx="22.57" cy="32" r="4.2"/><circle cx="34.79" cy="18.84" r="4.2"/><circle cx="40.43" cy="25.42" r="4.2"/><circle cx="34.79" cy="32" r="4.2"/></g>
-  <rect x="18.79" y="41.38" width="7.56" height="7.56" rx="1.6" fill="currentColor"/>
-  <circle cx="50" cy="53.45" r="5.3" fill="none" stroke="currentColor" stroke-width="2.85"/>
+  <path d="M39.01 57.04A26 26 0 1 1 55.44 43.25" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M25 17.5V45.5M25 17.5H38L44 24.5L38 31.5H25M38 31.5L46.03 46.81" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="currentColor"><circle cx="25" cy="17.5" r="4.2"/><circle cx="25" cy="31.5" r="4.2"/><circle cx="38" cy="17.5" r="4.2"/><circle cx="44" cy="24.5" r="4.2"/><circle cx="38" cy="31.5" r="4.2"/></g>
+  <rect x="20.88" y="41.38" width="8.23" height="8.23" rx="1.6" fill="currentColor"/>
+  <circle cx="48.71" cy="51.92" r="5.3" fill="none" stroke="currentColor" stroke-width="2.85"/>
 </svg>
