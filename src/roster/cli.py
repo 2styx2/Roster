@@ -517,7 +517,13 @@ def _main(argv=None):
     s.add_argument("--only")
     s.add_argument("-y", "--yes", action="store_true")
     sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see README)")
+    s = sub.add_parser("askpass", help="SSH_ASKPASS helper for a `roster serve` password Session (ssh runs it)")
+    s.add_argument("prompt", nargs="?", default="")
     args = p.parse_args(argv)
+
+    if args.cmd == "askpass":
+        from .askpass import main as askpass_main
+        return askpass_main([args.prompt])
 
     if args.cmd == "init":
         return cmd_init(args)
