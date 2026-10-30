@@ -44,6 +44,7 @@ const LOCAL: Record<string, { area: string; label: string }> = {
   "cmdline.run": { area: "Command line", label: "Run the line (or accept a command that needs more)" },
   "cmdline.cancel": { area: "Command line", label: "Cancel the completion, then close" },
   "terminal.copy": { area: "Terminal", label: "Copy" },
+  "terminal.copyIfSelected": { area: "Terminal", label: "Copy the selection (none: to the shell)" },
   "terminal.paste": { area: "Terminal", label: "Paste" },
   "terminal.search": { area: "Terminal", label: "Find" },
   "terminal.zoomIn": { area: "Terminal", label: "Zoom in" },
