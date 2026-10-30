@@ -468,7 +468,9 @@ def test_vault_lock_clears_tokens(serve, write_config, capsys, fakes):
 def test_a_wrong_token_gets_nothing(serve, write_config, capsys, fakes):
     s = unlocked_serve(serve, write_config, capsys)
     spec = s.call("session.prepare", {"host": "esx"})["result"]
-    r = run_askpass(spec, ROSTER_ASKPASS_TOKEN="x" + spec["env"]["ROSTER_ASKPASS_TOKEN"][1:])
+    token = spec["env"]["ROSTER_ASKPASS_TOKEN"]
+    wrong = ("y" if token[0] == "x" else "x") + token[1:]          # always differs (1 in 64 tokens starts with x)
+    r = run_askpass(spec, ROSTER_ASKPASS_TOKEN=wrong)
     assert (r.returncode, r.stdout) == (1, "")
     assert run_askpass(spec).stdout == PASSWORD + "\n"           # a guess doesn't spend the real one
 
