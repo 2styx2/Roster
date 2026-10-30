@@ -8,6 +8,7 @@ The first argument picks a behaviour:
   reverse            holds two requests, then answers them in reverse order
   die-on-hosts       exits without answering hosts.list
   locked             session.prepare for a password Host refuses with 14 (vault locked)
+  missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
 """
 import json
@@ -62,6 +63,9 @@ def answer(req):
         if h.get("password"):
             if mode == "locked":
                 return {"error": {"code": 14, "message": "Bitwarden vault is locked - unlock it first"}}
+            if mode == "missing-item":
+                return {"error": {"code": 32, "message": f"no vault item named '{name} shh' (ssh Login of {name})",
+                                  "data": {"near": [f"{name} ssh"], "fix": "fix the name in auth:"}}}
             global minted
             minted += 1
             return {"result": {

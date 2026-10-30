@@ -51,6 +51,9 @@ src/session/          Sessions: tabs.ts (store: open/close/select/reconnect/repl
 src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
                       options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
+src/errors/           clean connection errors (ticket 26, docs/errors.md): classify.ts (classifyExit: ssh's last lines +
+                      exit code + askpass line → a Problem), catalog.ts (the rows as a Registry: where, fix, actions,
+                      extras), ErrorPanel.tsx (the Session pane's error), CheckPanel.tsx (`:check HOST`)
 src/lock/             the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 src/registry.ts       Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0004; registries.ts = the app's set
 src/commands/         table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)

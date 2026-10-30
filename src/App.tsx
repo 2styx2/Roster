@@ -15,11 +15,19 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { BackendStartError, type Backend, type BackendInfo, type BackendProblem, type HostList } from "./backend/types";
+import {
+  BackendStartError,
+  CHECK_API_VERSION,
+  type Backend,
+  type BackendInfo,
+  type BackendProblem,
+  type HostList,
+} from "./backend/types";
 import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
+import { CheckPanel, type CheckState } from "./errors/CheckPanel";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
@@ -91,6 +99,7 @@ export function App({
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
+  const errorRows = useSyncExternalStore(registries.errors.subscribe, registries.errors.list);
   const commands: Commands = useMemo(
     () => ({ get: (id) => registries.commands.get(id), list: () => commandList }),
     [registries, commandList],
@@ -100,6 +109,8 @@ export function App({
   const [conn, setConn] = useState<Conn>({ state: "connecting" });
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [keysOpen, setKeysOpen] = useState(false);
+  const [check, setCheck] = useState<CheckState | null>(null);
+  const checkRun = useRef(0);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -281,6 +292,23 @@ export function App({
     reconnect: () => {
       if (sessions.active !== null) tabs.reconnect(sessions.active);
     },
+    check: (name) => {
+      const host = name ?? sessions.tabs.find((t) => t.id === sessions.active)?.host;
+      if (!host) return setMessage("check needs a Host name (no Session is open)");
+      if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
+      const api = conn.state === "ready" ? conn.info.inventory.api_version : 0;
+      if (api < CHECK_API_VERSION) {
+        return setMessage(`:check needs a newer roster (API version ${CHECK_API_VERSION}; this one speaks ${api})`);
+      }
+      const run = ++checkRun.current;
+      setCheck({ state: "running", host });
+      backend.checkHost(host).then(
+        (result) => run === checkRun.current && setCheck({ state: "done", host, result }),
+        (e: unknown) =>
+          run === checkRun.current &&
+          setCheck({ state: "error", host, message: e instanceof Error ? e.message : String(e) }),
+      );
+    },
     selectRelative: (delta) => tabs.selectRelative(delta),
     selectNth: (n) => tabs.selectNth(n),
     close: (n) => {
@@ -319,6 +347,8 @@ export function App({
     hostNames: () => hosts?.hosts.map((h) => h.name) ?? [],
     say: setMessage,
   };
+
+  const copy = (text: string) => platform.clipboard.writeText(text);
 
   function run(line: Line) {
     setMessage("");
@@ -419,9 +449,22 @@ export function App({
               terminalEnv={terminalEnv}
               reconnectKeys={reconnectKey ? `${options.leader} ${reconnectKey.slice(2)}` : null}
               run={run}
+              errorRows={errorRows}
+              copy={copy}
             />
           )}
         </main>
+        {check && (
+          <CheckPanel
+            check={check}
+            rows={errorRows}
+            actions={{ run, copy }}
+            onClose={() => {
+              checkRun.current++;
+              setCheck(null);
+            }}
+          />
+        )}
         {keysOpen && (
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
         )}

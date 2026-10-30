@@ -11,13 +11,16 @@ import {
   type SessionHandle,
   type TermSize,
 } from "../backend/types";
+import { classifyExit, terminalTail, type Problem } from "../errors/classify";
+import { problemFromCallError } from "../errors/catalog";
 
 export type TabStatus =
   | { state: "connecting" }
   | { state: "open" }
   /** roster refused (`session.prepare`) or the PTY couldn't start; `code` is roster's. */
-  | { state: "failed"; message: string; code: number | null }
-  | { state: "ended"; exit: SessionExit };
+  | { state: "failed"; message: string; code: number | null; problem: Problem }
+  /** `problem`: why ssh failed (exit 255, classified from the last output), or null. */
+  | { state: "ended"; exit: SessionExit; problem: Problem | null };
 
 export interface Tab {
   id: number;
@@ -35,9 +38,12 @@ export interface TabsSnapshot {
 }
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 /** Output kept per tab for a terminal that attaches later (or again). */
 const REPLAY_LIMIT = 1024 * 1024;
+/** The latest attempt's last output, which classifyExit reads when ssh fails. */
+const TAIL_LIMIT = 16 * 1024;
 
 type Sink = (data: Uint8Array) => void;
 
@@ -60,6 +66,8 @@ interface Entry {
   sentSize: TermSize;
   replay: Uint8Array[];
   replayBytes: number;
+  /** The current attempt's last output (decoded), for classifying a failure. */
+  tail: string;
   sink: Sink | null;
   wiring: TerminalWiring;
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
@@ -117,6 +125,22 @@ export class Tabs {
     entry.sink?.(data);
   }
 
+  private keepTail(entry: Entry, data: Uint8Array) {
+    entry.tail += decoder.decode(data, { stream: true });
+    if (entry.tail.length > TAIL_LIMIT) entry.tail = entry.tail.slice(-TAIL_LIMIT);
+  }
+
+  /** Why the Session ended, from its exit code and last output (null: it ended normally). */
+  private classify(entry: Entry, exit: SessionExit): Problem | null {
+    if (exit.closed) return null;
+    return classifyExit({
+      exitCode: exit.code,
+      tail: terminalTail(entry.tail),
+      host: entry.tab.host,
+      auth: entry.tab.auth,
+    });
+  }
+
   /** "host", or "host (n)" with the smallest n no other tab to `host` uses. */
   private label(host: string, except: number | null): string {
     const taken = new Set(
@@ -142,6 +166,7 @@ export class Tabs {
       sentSize: size,
       replay: [],
       replayBytes: 0,
+      tail: "",
       sink: null,
       pending: [],
       wiring: {
@@ -193,15 +218,18 @@ export class Tabs {
     const current = () => entry.attempt === attempt && !entry.closing;
     const { id, host } = entry.tab;
     entry.sentSize = { ...entry.size };
+    entry.tail = "";
     this.backend
       .openSession(host, entry.size, {
         output: (data) => {
-          if (current()) this.output(entry, data);
+          if (!current()) return;
+          this.keepTail(entry, data);
+          this.output(entry, data);
         },
         exit: (exit) => {
           if (!current()) return;
           entry.session = null;
-          if (this.find(id)) this.setStatus(entry, { state: "ended", exit });
+          if (this.find(id)) this.setStatus(entry, { state: "ended", exit, problem: this.classify(entry, exit) });
         },
       })
       .then(
@@ -210,8 +238,15 @@ export class Tabs {
             void session.close().catch(() => {});
             return;
           }
-          // It may already have ended (ssh failing at once): then there's nothing to talk to.
-          if (entry.tab.status.state !== "connecting") return;
+          // It may already have ended (ssh failing at once): then there's nothing to talk to, but
+          // knowing the auth now tells a refused password from a refused key.
+          const s = entry.tab.status;
+          if (s.state === "ended") {
+            entry.tab = { ...entry.tab, auth: session.auth };
+            this.setStatus(entry, { ...s, problem: this.classify(entry, s.exit) });
+            return;
+          }
+          if (s.state !== "connecting") return;
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
           entry.tab = { ...entry.tab, auth: session.auth };
@@ -221,14 +256,15 @@ export class Tabs {
         (e: unknown) => {
           if (!current()) return;
           const code = e instanceof BackendCallError ? e.code : null;
+          const problem = problemFromCallError(host, e);
           if (code === SessionRefusal.vaultLocked) {
             const message = "The vault is locked. Unlock it and this Session opens.";
-            this.setStatus(entry, { state: "failed", message, code });
+            this.setStatus(entry, { state: "failed", message, code, problem: { ...problem, message } });
             this.onVaultLocked();
             return;
           }
           const message = e instanceof Error ? e.message : String(e);
-          this.setStatus(entry, { state: "failed", message, code });
+          this.setStatus(entry, { state: "failed", message, code, problem });
         },
       );
   }

@@ -7,7 +7,9 @@ import {
   type Backend,
   type BackendInfo,
   type BackendProblem,
+  type CallErrorData,
   type Host,
+  type HostCheck,
   type HostList,
   type ProviderStatus,
   type VaultStatus,
@@ -20,7 +22,7 @@ import {
 
 /** desk-core's CallError, as serde sends it. */
 type CallErrorWire =
-  | { kind: "rpc"; code: number; message: string }
+  | { kind: "rpc"; code: number; message: string; data?: unknown }
   | { kind: "exited"; code: number | null; stderr: string }
   | { kind: "timeout" }
   | { kind: "io"; message: string };
@@ -33,12 +35,14 @@ function callError(e: unknown): BackendCallError {
   if (typeof e === "object" && e !== null && "kind" in e) {
     const w = e as CallErrorWire;
     switch (w.kind) {
-      case "rpc":
-        return new BackendCallError(w.message, w.code);
+      case "rpc": {
+        const data = typeof w.data === "object" && w.data !== null ? (w.data as CallErrorData) : null;
+        return new BackendCallError(w.message, w.code, data);
+      }
       case "exited":
-        return new BackendCallError(`The backend exited (code ${w.code ?? "?"}). ${w.stderr}`.trim());
+        return new BackendCallError(`The backend exited (code ${w.code ?? "?"}). ${w.stderr}`.trim(), null, null, true);
       case "timeout":
-        return new BackendCallError("The backend didn't answer in time.");
+        return new BackendCallError("The backend didn't answer in time.", null, null, true);
       case "io":
         return new BackendCallError(w.message);
     }
@@ -100,5 +104,6 @@ export function tauriBackend(): Backend {
     unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
     lockVault: () => call<{ locked: string[] }>("vault_lock"),
     openSession,
+    checkHost: (host) => call<HostCheck>("host_check", { host }),
   };
 }

@@ -124,6 +124,26 @@ fn a_locked_vault_keeps_code_14_for_the_lock_screen() {
 }
 
 #[test]
+fn a_refusal_keeps_roster_data_for_the_error_panel() {
+    // Ticket 26: the app shows `data.near` / `data.matches` and roster's `data.fix`, so the error
+    // object's data must reach the frontend (serialized with the CallError) untouched.
+    let b = Backend::start(&fake("missing-item")).unwrap();
+    let err = b.session_command("sw-core").err().unwrap();
+    match &err {
+        desk_core::rpc::CallError::Rpc { code, data, .. } => {
+            assert_eq!(*code, 32);
+            let data = data.as_ref().expect("data");
+            assert_eq!(data["near"], serde_json::json!(["sw-core ssh"]));
+            assert_eq!(data["fix"], "fix the name in auth:");
+        }
+        other => panic!("{other:?}"),
+    }
+    let wire = serde_json::to_value(&err).unwrap();
+    assert_eq!(wire["kind"], "rpc");
+    assert_eq!(wire["data"]["near"][0], "sw-core ssh");
+}
+
+#[test]
 fn every_session_command_asks_for_a_fresh_token() {
     // Tokens live 60 s and are spent once: opening (or reconnecting) must never reuse one.
     let b = Backend::start(&fake("ok")).unwrap();

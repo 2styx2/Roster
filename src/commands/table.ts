@@ -23,6 +23,8 @@ export interface CommandContext {
   open(host: string): void;
   /** Reconnects the current tab if its Session has ended or was refused. */
   reconnect(): void;
+  /** Runs roster's diagnostics (`host.check`) for the Host, or the current Session's Host. */
+  check(host: string | null): void;
   /** The Session `delta` places after the current one, wrapping. */
   selectRelative(delta: number): void;
   /** The Nth Session, counting from 1. */
@@ -118,6 +120,15 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Sessions",
     label: () => "Reconnect an ended Session",
     run: (ctx) => ctx.reconnect(),
+  },
+  {
+    id: "check",
+    source: BUILTIN,
+    area: "Hosts",
+    arg: "host",
+    optionalArg: true,
+    label: (h) => (h ? `Check ${h}` : "Check a Host: inventory, ssh config, vault item, network, host key, login"),
+    run: (ctx, h) => ctx.check(h ?? null),
   },
   { id: "next", source: BUILTIN, area: "Sessions", label: () => "Next Session", run: (ctx) => ctx.selectRelative(1) },
   { id: "prev", source: BUILTIN, area: "Sessions", label: () => "Previous Session", run: (ctx) => ctx.selectRelative(-1) },

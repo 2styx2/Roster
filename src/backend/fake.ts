@@ -6,7 +6,10 @@ import {
   type Backend,
   type BackendInfo,
   type BackendProblem,
+  type CallErrorData,
+  CHECK_STEPS,
   type Host,
+  type HostCheck,
   type HostList,
   type VaultStatus,
   type VaultStatusWord,
@@ -28,12 +31,52 @@ export interface FakeScenario {
   /** Where the vault starts (default: locked, like a fresh `roster serve`). */
   vault?: { status: VaultStatusWord };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
-  sessionRefusal?: { code: number; message: string };
+  sessionRefusal?: Refusal;
   /** Sessions to password-only Hosts are refused with this (their vault: 11, 12 or 14). */
-  passwordRefusal?: { code: number; message: string };
+  passwordRefusal?: Refusal;
+  /** Per Host: `session.prepare` refuses with this (a Login's codes 30-35, roster.yml's 1). */
+  refusals?: Record<string, Refusal>;
+  /** Per Host: ssh prints this into the PTY and exits 255 (a refused port, a changed key…). */
+  sshFailures?: Record<string, string>;
+  /** Per Host: what `host.check` answers (default: every step ok). */
+  checks?: Record<string, HostCheck>;
+  /** `inventory.info`'s api_version (default 2). */
+  apiVersion?: number;
   /** The vault locks itself again this many ms after each unlock (bw's own timeout, another
    * roster command), so the next password Session meets code 14. */
   relockAfterMs?: number;
+}
+
+export interface Refusal {
+  code: number;
+  message: string;
+  data?: CallErrorData;
+}
+
+const refuse = (r: Refusal) => new BackendCallError(r.message, r.code, r.data ?? null);
+
+/** A `host.check` answer with every step ok (a key Host's provider and vault-item skipped). */
+export function passingCheck(host: Host): HostCheck {
+  const password = authOf(host) === "password";
+  return {
+    host: host.name,
+    ok: true,
+    steps: CHECK_STEPS.map((step) =>
+      !password && (step === "provider" || step === "vault-item")
+        ? { step, status: "skipped" as const, message: "key login" }
+        : { step, status: "ok" as const, message: `${step} is fine` },
+    ),
+  };
+}
+
+/** ssh failing: its message in the PTY, then exit 255 (as a refused port or a changed key do). */
+function failingSession(id: number, auth: SessionAuth, output: string, events: SessionEvents): SessionHandle {
+  setTimeout(() => {
+    events.output(encode(output));
+    events.exit({ code: 255, closed: false });
+  }, 0);
+  const done = async () => {};
+  return { id, auth, write: done, resize: done, close: done };
 }
 
 /** The fake vault's master password (type it on the lock screen in a plain browser). */
@@ -208,7 +251,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
           host_count: scenario.hosts.hosts.length,
           providers: ["bw"],
           roster_version: "0.1.0",
-          api_version: 1,
+          api_version: scenario.apiVersion ?? 2,
         },
       };
     },
@@ -257,17 +300,32 @@ export function fakeBackend(scenario: FakeScenario): Backend {
           SessionRefusal.notReviewed,
         );
       }
-      if (scenario.sessionRefusal) {
-        throw new BackendCallError(scenario.sessionRefusal.message, scenario.sessionRefusal.code);
-      }
+      if (scenario.sessionRefusal) throw refuse(scenario.sessionRefusal);
+      const refusal = scenario.refusals?.[host];
+      if (refusal) throw refuse(refusal);
       const auth = authOf(h);
       if (auth === "password") {
-        if (scenario.passwordRefusal) {
-          throw new BackendCallError(scenario.passwordRefusal.message, scenario.passwordRefusal.code);
-        }
+        if (scenario.passwordRefusal) throw refuse(scenario.passwordRefusal);
         if (vault === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
       }
+      const failure = scenario.sshFailures?.[host];
+      if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
       return fakeSession(++sessions, host, auth, size, events);
+    },
+    async checkHost(host) {
+      await wait();
+      const given = scenario.checks?.[host];
+      if (given) return given;
+      const h = scenario.hosts.hosts.find((x) => x.name === host);
+      if (!h) {
+        const steps = CHECK_STEPS.map((step, i) =>
+          i === 0
+            ? { step, status: "fail" as const, code: 2, message: `unknown host '${host}'`, fix: "check the name" }
+            : { step, status: "skipped" as const, message: "an earlier step failed" },
+        );
+        return { host, ok: false, steps };
+      }
+      return passingCheck(h);
     },
   };
 }

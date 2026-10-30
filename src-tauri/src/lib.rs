@@ -92,6 +92,13 @@ async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "vault.lock", json!({})).await
 }
 
+/// roster's diagnostics for one Host (`host.check`, api 2): its steps in order, stopping at the
+/// first failure. roster makes at most one connection and one login, so this is safe on 10.19.
+#[tauri::command]
+async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
+    call(&state, "host.check", json!({ "host": host })).await
+}
+
 fn session_error(e: SessionError) -> CallError {
     CallError::Io { message: e.to_string() }
 }
@@ -221,6 +228,7 @@ pub fn run() {
             backend_connect,
             hosts_list,
             host_get,
+            host_check,
             session_open,
             session_write,
             session_resize,
