@@ -289,7 +289,7 @@ Let your security team know before scanning big ranges.
 | `discover CIDR…` | Scan networks; `--write` adds the results to `roster.yml` |
 | `setup` | One-time per box: key, fingerprints, key install, SSH config, Claude files (`--only`, `--dry-run`) |
 | `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
-| `check` | Reachability of SSH, web UIs and services |
+| `check [HOST]` | Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see [`roster check HOST`](#roster-check-host)) |
 | `hosts [--find TEXT] [--all] [--long]` | The hosts and resources you can use: name, IP, user, logins (`ssh (key), web (admin), api`, `wifi`) and title. Unreviewed scanned hosts are hidden unless you pass `--all`, `--find` or `--only`. `--long` shows the full table (type, product, web URL, scan description) |
 | `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
 | `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
@@ -306,6 +306,33 @@ Let your security team know before scanning big ranges.
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
 
 Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then `~/.config/roster/roster.yml`.
+
+### `roster check HOST`
+
+Runs the same diagnostics as the app's `:check HOST` (`host.check` below), in this order, and stops at the first failure:
+
+| Step | Checks | Fails with |
+|---|---|---|
+| `inventory` | `roster.yml` loads, the Host is in it, it's reviewed, its user isn't `CHANGE-ME` | `1`, `2`, `20`, `30` |
+| `ssh-config` | `ssh` is installed, and roster's ssh config has the Host's block exactly as `roster.yml` now says (stale, including one written before `IdentitiesOnly`: run `roster sync`) | `21` |
+| `provider` | A password Login's provider is set up on this box and can answer | `31`, `11`, `12`, `14` |
+| `vault-item` | The Login's vault item exists, is the only match, and has the password or `#FIELD` | `32`, `33`, `34`, `35` |
+| `dns` | The Host's address resolves | `40` |
+| `tcp` | The ssh port accepts a connection (5 s) | `41`, `42` |
+| `host-key` | Over that same connection, the key the Host offers matches the one recorded in `~/.ssh/roster_known_hosts`. It's never recorded or accepted here | `43`, `44` |
+| `auth` | One real login with the system ssh: `BatchMode` with the key, or one password prompt through askpass. `StrictHostKeyChecking=yes`, `ControlPath=none` | `45`, `46`, `47`, `36`, `48` |
+
+Key Hosts skip `provider` and `vault-item`. Nothing touches the network once a local step has failed, and a whole check makes at most one TCP connection (port and host key) and one login, so it's safe to run against the 10.19.x rate limiter. It prints one line per step (`ok`, `FAIL` with the code, `skip`), then the fix and ssh's own message under a failure, and exits 1 if a step failed. It never prints a password.
+
+```
+ok   inventory   root@10.0.0.6:22 (password login)
+ok   ssh-config  Host esx
+ok   provider    bw is ready
+FAIL vault-item  [33] 2 vault items are named 'esx ssh' (ssh Login of esx): 'esx ssh' (edited 2026-09-01, ssh://10.0.0.6); 'esx ssh' (edited 2026-10-20, https://10.0.0.6)
+                 fix: delete or rename the extra items in the vault, or use the item's id in auth:
+skip dns         an earlier step failed
+...
+```
 
 ## `roster serve` API
 
@@ -331,14 +358,14 @@ A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth
 
 The command is the same one `roster run` uses: `ssh -o BatchMode=yes NAME`, where `NAME` is the `Host` alias that `roster setup` / `roster sync` write to `~/.ssh/config.d/roster`. The key, user, port, `known_hosts` and connection sharing all come from that config, so a Session behaves exactly like `ssh NAME` in a terminal (ADR 0002). There's no fallback to `-i KEY -p PORT user@ip`. Without roster's config there's no recorded host key and no installed key either, so `session.prepare` refuses with code `21` and says to run `roster sync`, or `roster setup` on a box that isn't set up yet. A failed login after that (host down, key not installed) is ssh's own message in the tab.
 
-It refuses unreviewed Hosts with the same message as `roster run`.
+It refuses unreviewed Hosts with the same message as `roster run`, and Hosts whose user is still discover's `CHANGE-ME` (code `30`).
 
 #### Password Sessions: the askpass channel
 
 A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`key`/`none`) gets a password Session. The password goes from the provider to `serve`, over a private socket, to `roster askpass`, and into `ssh`. It never passes through the app.
 
 - While `serve` runs, it listens on a Unix socket in a fresh directory: `$XDG_RUNTIME_DIR/roster-askpass-XXXX/` (or the temp dir if there's no runtime dir). The directory is `0700` and the socket is `0600`. `serve` also checks that the peer's uid is its own, and removes the directory when it exits (stdin closed or SIGTERM). Next to the socket is `askpass`, a `0700` two-line script that runs `<serve's python> -I -m roster.askpass`. `SSH_ASKPASS` has to be one absolute executable, because ssh runs it without a shell or your login PATH.
-- `session.prepare` looks nothing up. It mints a random one-time token tied to that Host's ssh Login. The token is spent on first use (even if the lookup then fails), and it expires after 60 seconds or on `vault.lock`. Unlocking again doesn't bring it back, so open the Session again. If the Login's vault can't answer right now, `session.prepare` refuses with the vault error (`14` locked, `11` not logged in, `12` no CLI) instead of handing out a token that could only fail at ssh's prompt.
+- `session.prepare` resolves the Login first, inside `serve`: the provider is set up, the vault answers, and the vault item exists, is the only match and has the password (or `#FIELD`). Whatever is wrong comes back as its own code before ssh starts: `31` provider not set up, `14` locked, `11` not logged in, `12` no CLI, `32` no such item, `33` several items, `34` no password or field, `35` the provider failed some other way. The password stays in `serve`'s memory; the result never holds it. Then it mints a random one-time token tied to that Host's ssh Login. The token is spent on first use (even if the lookup then fails), and it expires after 60 seconds or on `vault.lock`. Unlocking again doesn't bring it back, so open the Session again.
 - The `env` to add to the ssh command:
 
   | Variable | Value |
@@ -348,24 +375,63 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
   | `ROSTER_ASKPASS_SOCKET` | the socket's path |
   | `ROSTER_ASKPASS_TOKEN` | the one-time token |
 
-- When ssh prompts, it runs `roster askpass PROMPT`. The helper answers only these prompts, compared whole and ignoring case and extra spaces: `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for user@host:`. Every other prompt is refused without contacting the socket: host-key `yes/no`, key passphrases, verification codes, and `New password:` / `(current) UNIX password:` from an expired-password change. The helper exits 1 and prints nothing, so ssh fails. For an allowed prompt, the helper sends the token and prints the password to ssh. If `serve` refuses the token (used, expired, locked, or the vault item lookup failed), the helper writes a one-line reason starting `roster askpass:` to the terminal and exits 1. With `NumberOfPasswordPrompts=1`, ssh then stops with its own `Permission denied`.
-- `serve`'s stderr records each use (`askpass: esx: password handed to ssh`, or why it refused), never the password.
-- The protocol is one exchange per connection. The helper sends `TOKEN\n`. `serve` replies `ok\nPASSWORD` or `no\nREASON` and closes the connection.
+- When ssh prompts, it runs `roster askpass PROMPT`. The helper answers only these prompts, compared whole and ignoring case and extra spaces: `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for user@host:`. Every other prompt is refused: host-key `yes/no`, key passphrases, verification codes, and `New password:` / `(current) UNIX password:` from an expired-password change. The helper reports the prompt's text (never an answer) to `serve`, which logs it, doesn't spend the token, and gives back the reason. For an allowed prompt, the helper sends the token and prints the password to ssh. Whenever the helper doesn't print a password, it writes one line to the terminal (ssh's stderr) and exits 1, so ssh fails; with `NumberOfPasswordPrompts=1` ssh then stops with its own `Permission denied`. The line is what the app's classifier reads:
+
+  ```
+  roster askpass: [CODE] REASON
+  ```
+
+  `CODE` is one of the codes below, and `REASON` is the same wording `session.prepare` gives for it:
+
+  | Code | Line, for example |
+  |---|---|
+  | `36` | `roster askpass: [36] esx asked something roster won't answer: 'New password:' - log in by hand once to deal with it` |
+  | `37` | `roster askpass: [37] the askpass token is used up, expired or cleared by a lock - open the Session again` |
+  | `38` | `roster askpass: [38] can't reach roster serve (Connection refused)` |
+  | `32`, `33`, `34`, `35`, `14`, ... | the vault item went away (or the vault was locked) between `session.prepare` and ssh's prompt, e.g. `roster askpass: [32] no vault item named 'esx ssh' (ssh Login of esx) - did you mean: 'esx root'` |
+- `serve`'s stderr records each use (`askpass: esx: password handed to ssh`, `askpass: esx: refused an unexpected prompt: 'New password:'`, or why it refused), never the password.
+- The protocol is one exchange per connection. The helper sends `TOKEN\n`, or `prompt TOKEN PROMPT\n` for a prompt it won't answer (the prompt on one line, at most 300 characters). `serve` replies `ok\nPASSWORD` or `no CODE\nREASON` and closes the connection.
 - `ROSTER_ASKPASS_TTL` (seconds, given to `serve`) can shorten the 60-second lifetime, for tests. It can't lengthen it.
 
-`api_version` is currently 1. It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+### Diagnostics: `host.check`
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording and is ready to show to a person.
+| Method | Params | Result |
+|---|---|---|
+| `host.check` | `{host}` (exact Host name) | `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}` |
+
+It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
+
+`api_version` is currently 2 (2 added `host.check` and codes 30-48). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`). roster-desk's `docs/errors.md` is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
-| `1` | The Inventory didn't load: no `roster.yml`, or it's invalid. Every method that needs it returns this, and `serve` keeps running. `data` has `path` (or `null`), `roster_version` and `api_version`. |
+| `1` | The Inventory didn't load: no `roster.yml`, or it's invalid (including a Host with no user at all). Every method that needs it returns this, and `serve` keeps running. `data` has `path` (or `null`), `roster_version`, `api_version`, `fix`, and `line` for a YAML error. |
 | `2` | Unknown host (`host.get`, `session.prepare`) |
 | `3` | Any other refusal roster would print as `error: ...` on the command line |
 | `20` | `session.prepare`: the Host isn't reviewed (`reviewed: false`); same message as `roster run` |
 | `21` | `session.prepare`: this box can't run `ssh NAME` yet. Either there's no `ssh` on PATH, or the Host isn't in roster's ssh config (run `roster sync`, or `roster setup`) |
 | `22` | `session.prepare`: a password Session, but the process has no askpass channel. Only seen when serve's code is used in-process, never from `roster serve` |
 | `11`, `12`, `14` | `session.prepare` for a password-only Host whose vault isn't logged in, isn't installed, or is locked (see [Vault](#vault-the-lock-screen)) |
+| `30` | The Host's ssh user is discover's placeholder `CHANGE-ME`: "no SSH user for esx (user: CHANGE-ME in roster.yml)" |
+| `31` | The Login's provider isn't set up on this box: "kp's ssh Login uses 'kp:', which isn't set up on this box". `data.provider` |
+| `32` | No vault item by that name: "no vault item named 'esx shh' (ssh Login of esx) - did you mean: 'esx ssh'". `data.near` lists similar item names (names only) |
+| `33` | Several vault items match: "2 vault items are named 'esx ssh' (ssh Login of esx): ...". `data.matches` is `[{name, revised, uris}]`: names, last-edited dates and URIs, never a value |
+| `34` | The item has no password, or no such `#FIELD`: "vault item 'esx ssh' has no password (ssh Login of esx)". `data.field` |
+| `35` | The provider failed some other way; the message is the provider's |
+| `36` | askpass: the Host asked something roster won't answer (an expired password, an OTP); the prompt is in the message |
+| `37` | askpass: the token is used up, expired or cleared by `vault.lock` |
+| `38` | askpass: the helper couldn't reach `serve` |
+| `40` | `host.check`: the address doesn't resolve |
+| `41` | `host.check`: the ssh port refused the connection |
+| `42` | `host.check`: no answer in time. For 10.19.x the fix mentions the rate limiter (wait a few minutes) |
+| `43` | `host.check`: the Host's key isn't the recorded one. Never accepted automatically |
+| `44` | `host.check`: no recorded host key for the Host |
+| `45` | `host.check`: the Host refused the password for that user |
+| `46` | `host.check`: the Host refused this box's key |
+| `47` | `host.check`: the Host cut the connection after too many key attempts. roster's ssh config sets `IdentitiesOnly yes` for key and password Hosts (and `PubkeyAuthentication no` for password Hosts) so the agent's keys can't use up the Host's tries; an older config fails the `ssh-config` step instead |
+| `48` | `host.check`: the login failed some other way; `details` has ssh's message |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
@@ -435,12 +501,12 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 178 tests, no network or SSH server needed
+uv run pytest            # 216 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op` and `pass` commands from `tests/fakes/`, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
 
 ```
 src/roster/
@@ -451,7 +517,9 @@ src/roster/
   resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
-  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, error codes
+  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table
+  errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
+  diagnose.py       a Host's Login checked before ssh runs, and `roster check HOST` / host.check's steps
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
 examples/           commented roster.yml, plugin template

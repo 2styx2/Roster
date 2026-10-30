@@ -131,6 +131,36 @@ def cmd_check(cfg, args):
     return 1 if bad else 0
 
 
+def cmd_check_host(args):
+    """`roster check HOST`: why a Session to HOST would or wouldn't open, step by step (as host.check).
+    It loads roster.yml itself, so a broken one is the first failed step rather than an exit."""
+    from . import askpass, diagnose
+    from .errors import inventory_problem
+
+    def inventory():
+        path = None
+        try:
+            path = find_config(args.config)
+            cfg = load_config(path)
+            setup_providers(cfg)
+            return cfg
+        except SystemExit as e:
+            raise inventory_problem(str(e.code).removeprefix("error: "), path) from None
+
+    with askpass.Channel(diagnose.askpass_lookup) as channel:
+        result = diagnose.check_host(args.host, inventory, channel)
+    words = {"ok": "ok", "fail": "FAIL", "skipped": "skip"}
+    width = max(len(s["step"]) for s in result["steps"])
+    for s in result["steps"]:
+        code = f"[{s['code']}] " if "code" in s else ""
+        say(f"{words[s['status']]:<4} {s['step']:<{width}}  {code}{s['message']}")
+        if s.get("fix"):
+            say(f"     {'':<{width}}  fix: {s['fix']}")
+        for line in (s.get("details") or "").splitlines():
+            say(f"     {'':<{width}}  | {line}")
+    return 0 if result["ok"] else 1
+
+
 def logins_label(h):
     """What a person can use on a host, short: 'ssh (key), web (admin), api'."""
     if not h["reviewed"]:
@@ -469,7 +499,9 @@ def _main(argv=None):
     s.add_argument("--only")
     s.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing remote")
     sub.add_parser("sync", help="rewrite ssh config and Claude files from roster.yml")
-    s = sub.add_parser("check", help="test reachability")
+    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step")
+    s.add_argument("host", nargs="?", help="diagnose this one Host: inventory, ssh config, vault, DNS, port, "
+                   "host key, login (one connection)")
     s.add_argument("--only")
     s = sub.add_parser("hosts", help="list hosts")
     s.add_argument("--only")
@@ -531,6 +563,8 @@ def _main(argv=None):
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
+    if args.cmd == "check" and args.host:
+        return cmd_check_host(args)
     if args.cmd == "serve":
         from .serve import serve
         return serve(args.config)            # loads roster.yml itself, so a bad one becomes an API error

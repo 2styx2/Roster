@@ -7,12 +7,16 @@ import shutil
 from ..common import say, user_config_dir
 from . import (
     PROVIDERS,
+    ItemNotFound,
+    NoField,
     NotLoggedIn,
     SecretError,
+    SeveralItems,
     VaultLocked,
     WrongPassword,
     errtext,
     manual_unlock,
+    near_names,
     register,
     split_field,
 )
@@ -111,20 +115,36 @@ def _bw_lock(ctx):
         os.environ.pop("BW_SESSION", None)
 
 
+def _bw_list(ctx, *search):
+    r = _bw(ctx, "list", "items", *(("--search", search[0]) if search else ()))
+    try:
+        return json.loads(r.stdout or "[]") if r.returncode == 0 else []
+    except json.JSONDecodeError:
+        return []
+
+
+def _bw_summary(item):
+    """What may be shown about an item: its name, when it was last edited, its URIs. Never a value."""
+    uris = [u.get("uri") for u in (item.get("login") or {}).get("uris") or [] if u.get("uri")]
+    return {"name": item.get("name", ""), "revised": str(item.get("revisionDate") or "")[:10] or None, "uris": uris}
+
+
 def _bw_item(ctx, ref):
     r = _bw(ctx, "get", "item", ref)
     if r.returncode == 0:
         return json.loads(r.stdout)
     err = errtext(r)
     if "More than one" in err:
-        listed = _bw(ctx, "list", "items", "--search", ref)
-        exact = [i for i in json.loads(listed.stdout or "[]") if i.get("name") == ref]
+        listed = _bw_list(ctx, ref)
+        exact = [i for i in listed if i.get("name") == ref]
         if len(exact) == 1:
             return exact[0]
-        raise SecretError(f"several Bitwarden items match '{ref}' - use the item's id instead "
-                          f"(find it with: bw list items --search \"{ref}\")")
+        matches = [_bw_summary(i) for i in (exact or listed)]
+        raise SeveralItems(f"several Bitwarden items match '{ref}' - use the item's id instead "
+                           f"(find it with: bw list items --search \"{ref}\")", ref, matches, exact=bool(exact))
     if "Not found" in err:
-        raise SecretError(f"no Bitwarden item matches '{ref}'")
+        near = near_names(ref, [i.get("name", "") for i in _bw_list(ctx)])
+        raise ItemNotFound(f"no Bitwarden item matches '{ref}'", ref, near)
     raise SecretError(f"`bw get item` failed: {err}")
 
 
@@ -150,7 +170,7 @@ def _bitwarden(spec, ctx):
         val = hit[0].get("value") if hit else None
     if not val:
         what = field if field in ("password", "username", "notes") else f"field '{field}'"
-        raise SecretError(f"Bitwarden item '{item.get('name', name)}' has no {what} set")
+        raise NoField(f"Bitwarden item '{item.get('name', name)}' has no {what} set", item.get("name", name), field)
     return val
 
 

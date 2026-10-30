@@ -46,6 +46,41 @@ class VaultLocked(SecretError):
     """The vault is locked and this process may not unlock it by itself (see MANUAL_UNLOCK)."""
 
 
+# What can be wrong with the item a Login names. They carry item NAMES (and dates, URIs), never a value.
+class ItemNotFound(SecretError):
+    """No item by that name. near: names of similar items, closest first."""
+
+    def __init__(self, message, item, near=()):
+        super().__init__(message)
+        self.item, self.near = item, list(near)
+
+
+class SeveralItems(SecretError):
+    """More than one item matches. matches: [{name, revised, uris}]; exact: they all have that exact name."""
+
+    def __init__(self, message, item, matches, exact):
+        super().__init__(message)
+        self.item, self.matches, self.exact = item, matches, exact
+
+
+class NoField(SecretError):
+    """The item exists but has no value in the field the Login asks for ("password", or a #FIELD)."""
+
+    def __init__(self, message, item, field):
+        super().__init__(message)
+        self.item, self.field = item, field
+
+
+def near_names(name, names, n=5):
+    """Item names that look like NAME (a typo, other case, a word missing), closest first."""
+    import difflib
+    lowered = {x.lower(): x for x in names}
+    close = difflib.get_close_matches(name.lower(), list(lowered), n=n, cutoff=0.6)
+    words = [w for w in name.lower().split() if len(w) > 2]
+    contains = [low for low in lowered if low not in close and words and all(w in low for w in words[:1])]
+    return [lowered[x] for x in (close + sorted(contains))[:n]]
+
+
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
                           #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str,
                           #             "not_logged_in": what to run when status is "unauthenticated"
