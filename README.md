@@ -33,6 +33,17 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 
 ## Development
 
+### Two builds
+
+| | Dev build | Release build |
+|---|---|---|
+| Command | `scripts/win-dev.sh` (`--ci` the first time) | `scripts/win-build.sh --run` (`--installer` for the setup .exe/.msi) |
+| For | working on roster-desk: hot reload, devtools, the worst-case/fixture toggle (only with `?fixture=` or `VITE_ROSTER_DESK_FIXTURES=1`) | using it day to day: optimised, no dev code, no fixtures, no fake backend |
+| Windows copy | `%LOCALAPPDATA%\roster-desk-dev` | `%LOCALAPPDATA%\roster-desk-release` |
+| Stop | `scripts/win-stop.sh` | `scripts/win-stop.sh --release` (or just close the window) |
+
+Both use the installed `roster` (needs `roster serve`, API 3+) unless `ROSTER_DESK_ROSTER` is set, and both share the same State and `init.lua`.
+
 ```
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
