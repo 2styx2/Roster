@@ -2,9 +2,11 @@
 
 How roster-desk should look, move and talk, so it feels like *ours* and not "Linear with jade". Linear is the discipline we borrow (density, restraint, a quiet surface). `emil-design-eng` and `animate` are the craft. This page is the identity. Every UI change should be explainable with one of these lines. When they conflict with a reference, **this page wins** (except on accessibility).
 
-## The idea: a live map of your network, and a fast way into it
+## The idea: a live map of your network, a fast way into it, and yours to shape
 
 roster *is* the map: Hosts are nodes, and Sessions are live connections between this Box and them. The logo already says this (D1: nodes joined into an R, with the accent node at the end of the leg, the Host you're connecting to). Carry that one motif everywhere instead of decorating.
+
+And like Neovim or VS Code, **roster is a tool you make your own**. The look, the keys, the layout and the behaviour are opinionated defaults that `init.lua`, themes and Plugins can reshape. Configurability isn't a settings page bolted on; it's part of the identity.
 
 ## Principles
 
@@ -23,7 +25,20 @@ roster *is* the map: Hosts are nodes, and Sessions are live connections between 
 6. **Honest, plain voice.** Copy says what happened, where it lives (`roster.yml`, the vault, this Box, the network, the Host), and the one thing to do next. No exclamation marks, no "Oops", no blame, no jargon the user didn't type themselves. A secret is never named "password" in a log line.
 7. **Calm under failure.** Errors look like the rest of the app, not like an alarm: the same panel, a clear fix, raw details one keypress away. Red is reserved for "this will break something" (danger) and real failures. Alarm is never used to get attention.
 8. **Motion confirms, it never performs.** Motion shows cause and effect: an edge drawn on connect, a node dimming on exit, a panel sliding from the side it belongs to. It's under 150 ms, interruptible, off under reduced motion, and the lock cover is instant. Through `animate`, always.
-9. **It's yours.** Every color, font, key and layout piece is a default the Config or a Plugin can change. Defaults are opinionated; they're never locks.
+9. **It's yours, like Neovim or VS Code.** Every color, font, key, layout piece, Sidebar section, finder, status segment and command is a default that the Config or a Plugin can change, add or remove. Defaults are opinionated; they're never locks. See "Made to be made yours" below.
+
+## Made to be made yours
+
+What makes roster feel like Neovim or VS Code, and what every feature must respect:
+
+- **Code, not a settings screen.** Configuration is `init.lua` (Lua, versioned in your dotfiles) plus Packages pinned in a lock file (ADR 0002, ADR 0004). There's no hidden preference that only a GUI can reach.
+- **Everything is a registry entry.** Built-in features register commands, keys, themes, Sidebar sections, finder sources, status segments and error rows through the same registries Plugins use. If the app can do it, a Plugin can do it, and a Plugin can undo it. *(Built-in Folders proves it: ticket 23 re-implements it as an internal Plugin.)*
+- **Always say where a thing comes from.** Every binding, theme, Folder and setting shows its source (`builtin`, `init.lua`, or the Plugin's name), as the Key bindings panel already does. The user can always answer "why is it like this, and where do I change it?"
+- **Make changing it one step away.** `:config` opens `init.lua`. Every panel that shows a configurable thing hints at its name, for example `theme`, `keys`, `modes.focus.sessionbar`. `examples/init.lua` documents every option. Saving applies live.
+- **Plugins look native.** Plugin pieces render with the same tokens, components, keycaps and voice as built-ins, so a well-made Plugin is indistinguishable from the app. Third-party HTML is out in v1 for this reason, as well as for security.
+- **Breaking your config never breaks the app.** A config mistake shows the file and line, and the last good config keeps running. A misbehaving Plugin is disabled and named, never fatal.
+- **Opinionated, then out of the way.** The defaults (Standard mode, jade, Inter and Iosevka, `␣` as the Leader) are good enough that most people never open `init.lua`. Everyone who does can change all of it.
+- **Two lines that never move, whatever the config:** secrets never reach the UI or Plugins, and Inventory changes from Plugins only become Pending changes. Configurability stops at safety.
 
 ## Signature details (do these consistently)
 
