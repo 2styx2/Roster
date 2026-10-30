@@ -2,6 +2,7 @@
 // through this interface; tests and the plain-browser dev page use the fake (fake.ts), the app
 // uses the Tauri one (tauri.ts). Shapes follow roster's `roster serve` API, version 1 or newer
 // (2 adds `host.check` and the Login/askpass/network codes 30-48: `:check` needs it).
+import type { QuickTarget } from "../quick/target";
 
 /** A Host as `hosts.list` returns it (roster's own object; only the fields the UI reads). */
 export interface Host {
@@ -492,6 +493,8 @@ export type SessionAuth = "key" | "password";
 export interface SessionHandle {
   readonly id: number;
   readonly auth: SessionAuth;
+  /** serve's id for a Quick Connect (ticket 14), for ticket 15's "Save to vault"; absent otherwise. */
+  readonly quick?: string;
   /** Keystrokes or pasted text, as xterm's onData gives them. */
   write(data: string): Promise<void>;
   resize(size: TermSize): Promise<void>;
@@ -536,6 +539,15 @@ export interface HostKeyTrust extends Omit<HostKeyScan, "recorded"> {
   recorded: boolean;
 }
 
+/** The first `api_version` with Quick Connect (ticket 14): `quick.prepare`. */
+export const QUICK_CONNECT_API_VERSION = 12;
+
+/** A Quick Connect's box and the fingerprint the user was shown (`scanKey`): what `quick.prepare`
+ * takes besides the password. */
+export interface QuickConnect extends QuickTarget {
+  fingerprint: string;
+}
+
 /** `host.trust_key`'s refusals besides 40-42 (couldn't fetch the key): nothing is recorded. */
 export const HostKeyError = {
   /** Another key is recorded for the address (Q44): never trusted from the app. */
@@ -575,6 +587,12 @@ export interface Backend {
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
    * Session always gets a new one-time askpass token: call it again to reconnect. */
   openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
+  /** `quick.prepare` (API 12, ticket 14), then the command in a PTY: a Session to a box that isn't
+   * in the Inventory. roster fetches the key again and refuses (23) one that isn't `to.fingerprint`,
+   * or (43) one that differs from a key it recorded. A typed `password` goes once to serve, which
+   * hands it to ssh through an askpass token; null logs in with this Box's keys. The caller keeps
+   * no copy of it. */
+  openQuickSession(to: QuickConnect, password: string | null, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code

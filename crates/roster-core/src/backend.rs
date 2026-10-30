@@ -5,7 +5,7 @@ use crate::detect::{Candidate, OVERRIDE_VAR, Target};
 use crate::error::{BackendError, ErrorKind};
 use crate::rpc::{CallError, Notify, RpcClient};
 use crate::session::{Prepared, SessionCommand, session_command};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::process::Command;
 
@@ -18,6 +18,34 @@ pub const INVENTORY_ERROR: i64 = 1;
 /// address and port). The app asks the user ([`Backend::scan_host_key`], then [`Backend::trust_host_key`]).
 pub const HOST_KEY_UNKNOWN: i64 = 44;
 const METHOD_NOT_FOUND: i64 = -32601;
+
+/// Where a Quick Connect goes (ticket 14): `user@address:port`, a box that isn't in the Inventory,
+/// and the SHA256 fingerprint of the host key the user was shown (`host.scan_key {address, port}`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuickTarget {
+    pub user: String,
+    pub address: String,
+    pub port: u16,
+    pub fingerprint: String,
+}
+
+/// A Quick Connect's Session command, and serve's id for the Quick Connect (what ticket 15's
+/// "Save to vault" will refer to).
+#[derive(Debug)]
+pub struct QuickSession {
+    pub command: SessionCommand,
+    pub quick: String,
+}
+
+/// Is `fingerprint` shaped like `SHA256:<base64>`? Only that is ever sent to be trusted.
+fn sha256_shaped(fingerprint: &str) -> bool {
+    let b64 = fingerprint.strip_prefix("SHA256:").unwrap_or("");
+    !b64.is_empty()
+        && b64.len() <= 64
+        && b64
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=')
+}
 
 /// How long the app waits for a method's answer, in seconds, where that isn't [`DEFAULT_TIMEOUT`].
 /// Each is longer than `roster serve`'s own deadline for the method plus what serve may still run
@@ -133,18 +161,52 @@ impl Backend {
     /// and refuses (23) if the Host now offers another one. Only a `SHA256:` fingerprint is sent,
     /// never a key or anything else the frontend might pass.
     pub fn trust_host_key(&self, host: &str, fingerprint: &str) -> Result<Value, CallError> {
-        let b64 = fingerprint.strip_prefix("SHA256:").unwrap_or("");
-        let shaped = !b64.is_empty()
-            && b64.len() <= 64
-            && b64
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=');
-        if !shaped {
+        if !sha256_shaped(fingerprint) {
             return Err(CallError::Io {
                 message: "host.trust_key needs the SHA256:... fingerprint the user was shown".into(),
             });
         }
         self.call("host.trust_key", json!({ "host": host, "fingerprint": fingerprint }))
+    }
+
+    /// The command for a Quick Connect (`quick.prepare`, ticket 14). serve fetches the host key
+    /// again and refuses (23) if it isn't the one the user was shown, or (43) if it differs from
+    /// one roster recorded. A typed `password` is moved into the request and dropped with it: it
+    /// goes to serve's stdin once and comes back only as an askpass token in the env. Never
+    /// logged, stored or put in an error. Without one, the Session logs in with the Box's keys.
+    pub fn quick_session_command(&self, to: &QuickTarget, password: Option<String>) -> Result<QuickSession, CallError> {
+        if !sha256_shaped(&to.fingerprint) {
+            return Err(CallError::Io {
+                message: "quick.prepare needs the SHA256:... fingerprint the user was shown".into(),
+            });
+        }
+        let mut params = json!({
+            "user": to.user,
+            "address": to.address,
+            "port": to.port,
+            "fingerprint": to.fingerprint,
+        });
+        if let Some(password) = password {
+            params["password"] = Value::String(password);
+        }
+        let v = self.call("quick.prepare", params)?;
+        let prepared: Prepared = serde_json::from_value(v.clone()).map_err(|_| CallError::Io {
+            message: format!(
+                "quick.prepare answered something unexpected: {}",
+                prepare_shape_error(&v)
+            ),
+        })?;
+        let quick = v
+            .get("quick")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CallError::Io {
+                message: "quick.prepare answered something unexpected: `quick` isn't a string".into(),
+            })?
+            .to_owned();
+        Ok(QuickSession {
+            command: session_command(&self.target, &prepared),
+            quick,
+        })
     }
 
     /// False once serve has exited; the app then has to start a new one.

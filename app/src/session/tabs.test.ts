@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { FAKE_FINGERPRINT, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import type { SessionEvents } from "../backend/types";
+import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
+import { QUICK_CONNECT_API_VERSION, type SessionEvents } from "../backend/types";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -659,5 +659,113 @@ describe("a Host whose host key roster hasn't seen (ticket 36, decision Q60)", (
     const seen: Uint8Array[] = [];
     tabs.attach(id, (d) => seen.push(d));
     expect(text(seen)).not.toContain("y");
+  });
+});
+
+describe("Quick Connect (ticket 14)", () => {
+  const to = { user: "root", address: "10.0.0.5", port: 22 };
+  const PASSWORD = FAKE_HOST_PASSWORD;
+  function quick(extra: Partial<FakeScenario> = {}) {
+    const backend = fakeBackend({ ...unlocked, hosts, apiVersion: QUICK_CONNECT_API_VERSION, ...extra });
+    return { backend, tabs: new Tabs(backend) };
+  }
+  const status = (tabs: Tabs) => tabs.snapshot().tabs[0]?.status;
+  const asked = (tabs: Tabs) =>
+    vi.waitFor(() => {
+      const s = status(tabs);
+      if (s?.state !== "asking" || !s.key) throw new Error(`not asking yet: ${JSON.stringify(s)}`);
+      return s;
+    });
+
+  it("opens a tab for user@address that shows the box's key first and connects nothing", async () => {
+    const { backend, tabs } = quick();
+    tabs.openQuick(to);
+    const tab = tabs.snapshot().tabs[0]!;
+    expect(tab).toMatchObject({ host: "root@10.0.0.5", label: "root@10.0.0.5", quick: { to, id: null } });
+    const s = await asked(tabs);
+    expect(s.key).toEqual({ host: "root@10.0.0.5", address: "10.0.0.5", port: 22, key_type: "ssh-ed25519", fingerprint: FAKE_FINGERPRINT, recorded: "none" });
+    expect(backend.quickConnects()).toEqual([]);
+  });
+
+  it("connects with the typed password and the key the user saw, and keeps neither in the tab", async () => {
+    const { backend, tabs } = quick();
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, PASSWORD);
+    expect(status(tabs)).toEqual({ state: "connecting" });
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    expect(backend.quickConnects()).toEqual([{ ...to, fingerprint: FAKE_FINGERPRINT, password: true }]);
+    const tab = tabs.snapshot().tabs[0]!;
+    expect(tab).toMatchObject({ auth: "password", quick: { to, id: "q1" } });
+    expect(JSON.stringify(tabs.snapshot())).not.toContain(PASSWORD);
+  });
+
+  it("logs in with this Box's keys when the password is left empty", async () => {
+    const { backend, tabs } = quick();
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, "");
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    expect(backend.quickConnects()[0]!.password).toBe(false);
+    expect(tabs.snapshot().tabs[0]!.auth).toBe("key");
+  });
+
+  it("ends with the box's refusal on a wrong password", async () => {
+    const { tabs } = quick();
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, "nope");
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("ended"));
+    expect(problemOf(status(tabs))).toMatchObject({ host: "root@10.0.0.5" });
+  });
+
+  it("records nothing and closes the tab on cancel", async () => {
+    const { backend, tabs } = quick();
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.cancelKey(id);
+    expect(tabs.snapshot().tabs).toEqual([]);
+    expect(backend.quickConnects()).toEqual([]);
+  });
+
+  it("never asks about a key that differs from the one roster recorded for the address", async () => {
+    const { backend, tabs } = quick({ scanKeys: { "10.0.0.5": { recorded: "changed" } } });
+    tabs.openQuick(to);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.code).toBe(43);
+    expect(backend.quickConnects()).toEqual([]);
+  });
+
+  it("refuses a key that changed between the question and the connect", async () => {
+    const { tabs } = quick({ quickBoxes: { "10.0.0.5": { changesOnConnect: true } } });
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, PASSWORD);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.problem).toMatchObject({ code: 23, host: "root@10.0.0.5" });
+  });
+
+  it("says why when the box doesn't answer", async () => {
+    const { tabs } = quick({ quickBoxes: { "10.0.0.5": { unreachable: true } } });
+    tabs.openQuick(to);
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("failed"));
+    const s = status(tabs);
+    expect(s?.state === "failed" && s.code).toBe(42);
+  });
+
+  it("asks again, key and password, on a reconnect", async () => {
+    const { backend, tabs } = quick();
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, PASSWORD);
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    tabs.write(id, "exit\r");
+    await vi.waitFor(() => expect(status(tabs)?.state).toBe("ended"));
+    expect(tabs.reconnect(id)).toBe(true);
+    await asked(tabs);
+    expect(backend.quickConnects()).toHaveLength(1);
+    expect(tabs.snapshot().tabs[0]!.quick).toEqual({ to, id: null });
   });
 });

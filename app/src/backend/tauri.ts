@@ -17,6 +17,7 @@ import {
   type HostKeyScan,
   type HostKeyTrust,
   type HostList,
+  type QuickConnect,
   type HostUpdate,
   type InventoryChanged,
   type InventoryReload,
@@ -103,6 +104,30 @@ async function openSession(host: string, size: TermSize, events: SessionEvents):
   };
 }
 
+/** A Quick Connect (ticket 14): the typed password goes once to serve's stdin, like vault_unlock's. */
+async function openQuickSession(
+  to: QuickConnect,
+  password: string | null,
+  size: TermSize,
+  events: SessionEvents,
+): Promise<SessionHandle> {
+  const { id, auth, quick } = await call<{ id: number; auth: SessionAuth; quick?: string }>("quick_session_open", {
+    to,
+    password,
+    cols: size.cols,
+    rows: size.rows,
+    events: sessionChannel(events),
+  });
+  return {
+    id,
+    auth,
+    ...(quick === undefined ? {} : { quick }),
+    write: (data) => call("session_write", { id, data }),
+    resize: ({ cols, rows }) => call("session_resize", { id, cols, rows }),
+    close: () => call("session_close", { id }),
+  };
+}
+
 function inventoryCall<T>(method: string, params: Record<string, unknown>): Promise<T> {
   return call<T>("inventory_call", { method, params });
 }
@@ -132,6 +157,7 @@ export function tauriBackend(): Backend {
       await call("vault_login", { params: { action: "cancel" } }).catch(() => {});
     },
     openSession,
+    openQuickSession,
     checkHost: (host) => call<HostCheck>("host_check", { host }),
     pullInventory: () => call<PullResult>("inventory_pull"),
     verifyLogin: (host, changes: HostChanges) => call<HostCheck>("host_verify_login", { host, changes }),

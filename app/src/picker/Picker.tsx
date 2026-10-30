@@ -10,6 +10,7 @@ import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { prefixFill } from "../ui/completion";
 import { searchHosts } from "./match";
+import { formatQuickTarget, parseQuickTarget, type QuickTarget } from "../quick/target";
 
 /** Rows actually rendered; the rest are counted. Keeps every keystroke cheap. */
 const MAX_ROWS = 200;
@@ -26,13 +27,18 @@ export interface PickerProps {
    * the Host can't be opened. */
   onReview?: (host: Host) => void;
   onClose: () => void;
+  /** Quick Connect (ticket 14): a query that reads as user@address[:port] is offered first, and
+   * choosing it calls this. Left out (a roster without it), the Picker only finds Hosts. */
+  onQuick?: (to: QuickTarget) => void;
+  /** Opened for Quick Connect (the toolbar's control): the field says what to type. */
+  quickFirst?: boolean;
 }
 
 /** The first key bound to `action`, for the footer's hints. */
 const keyFor = (table: KeyTable<PickerAction>, action: PickerAction) =>
   Object.entries(table).find(([, b]) => b.action === action)?.[0] ?? null;
 
-export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose }: PickerProps) {
+export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose, onQuick, quickFirst = false }: PickerProps) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [inList, setInList] = useState(false);
@@ -42,12 +48,23 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
 
   const results = useMemo(() => searchHosts(hosts, query, recent), [hosts, query, recent]);
   const shown = results.slice(0, MAX_ROWS);
-  const current = Math.min(index, Math.max(0, shown.length - 1));
+  // A Quick Connect address is row 0, ahead of any Host it happens to match.
+  const quick = onQuick ? parseQuickTarget(query) : null;
+  const offset = quick ? 1 : 0;
+  const rowCount = shown.length + offset;
+  const current = Math.min(index, Math.max(0, rowCount - 1));
+  /** The Host at row `i` (none for the Quick Connect row). */
+  const hostAt = (i: number) => (i < offset ? undefined : shown[i - offset]?.host);
 
   useLayoutEffect(() => {
     const row = listRef.current?.querySelector<HTMLElement>(`[data-index="${current}"]`);
     row?.scrollIntoView?.({ block: "nearest" });
   }, [current]);
+
+  function chooseRow(i: number, here = false) {
+    if (quick && i < offset) onQuick?.(quick);
+    else choose(hostAt(i), here);
+  }
 
   function choose(host: Host | undefined, here = false) {
     if (!host) return;
@@ -75,7 +92,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
     e.stopPropagation();
     switch (action) {
       case "picker.down":
-        setIndex(Math.min(current + 1, shown.length - 1));
+        setIndex(Math.min(current + 1, rowCount - 1));
         setInList(true);
         break;
       case "picker.up":
@@ -91,19 +108,19 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           setNotice("");
           break;
         }
-        if (shown.length === 0) break;
-        setIndex((current + (action === "picker.next" ? 1 : -1) + shown.length) % shown.length);
+        if (rowCount === 0) break;
+        setIndex((current + (action === "picker.next" ? 1 : -1) + rowCount) % rowCount);
         setInList(true);
         break;
       }
       case "picker.choose":
-        choose(shown[current]?.host);
+        chooseRow(current);
         break;
       case "picker.chooseHere":
-        choose(shown[current]?.host, true);
+        chooseRow(current, true);
         break;
       case "picker.review": {
-        const host = shown[current]?.host;
+        const host = hostAt(current);
         if (host && !host.reviewed && onReview) onReview(host);
         else if (host) setNotice(onReview ? `${host.name} is already reviewed.` : "");
         break;
@@ -114,7 +131,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
     }
   }
 
-  const activeId = shown[current] ? `${listId}-${current}` : undefined;
+  const activeId = current < rowCount ? `${listId}-${current}` : undefined;
   const move = [keyFor(keymap.picker, "picker.up"), keyFor(keymap.picker, "picker.down")].filter((k) => k !== null).join(" ");
   const hints: [string | null, string][] = [
     [move, "move"],
@@ -137,7 +154,13 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           aria-controls={listId}
           aria-activedescendant={activeId}
           aria-autocomplete="list"
-          placeholder="Find a Host: name, address, type, product, group…"
+          placeholder={
+            quickFirst
+              ? "Quick Connect: user@address[:port], or find a Host"
+              : onQuick
+                ? "Find a Host, or user@address to Quick Connect"
+                : "Find a Host: name, address, type, product, group…"
+          }
           autoFocus
           spellCheck={false}
           autoComplete="off"
@@ -151,20 +174,36 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           />
         </div>
         <ul className="picker-list" role="listbox" id={listId} ref={listRef} aria-label="Hosts">
-          {shown.map(({ host }, i) => (
+          {quick && (
+            <li
+              id={`${listId}-0`}
+              role="option"
+              aria-selected={current === 0}
+              data-index={0}
+              className={`picker-row quick-row${current === 0 ? " selected" : ""}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseMove={() => current !== 0 && setIndex(0)}
+              onClick={() => onQuick?.(quick)}
+            >
+              <span className="quick-label">Quick Connect</span>
+              <span className="host-name">{formatQuickTarget(quick)}</span>
+              <span className="quick-note">not in the Inventory</span>
+            </li>
+          )}
+          {shown.map(({ host }, n) => (
             <li
               key={host.name}
-              id={`${listId}-${i}`}
+              id={`${listId}-${n + offset}`}
               role="option"
-              aria-selected={i === current}
+              aria-selected={n + offset === current}
               aria-disabled={!host.reviewed}
               data-host={host.name}
-              data-index={i}
-              className={`picker-row${i === current ? " selected" : ""}${host.reviewed ? "" : " unreviewed"}`}
+              data-index={n + offset}
+              className={`picker-row${n + offset === current ? " selected" : ""}${host.reviewed ? "" : " unreviewed"}`}
               onMouseDown={(e) => e.preventDefault()}
-              onMouseMove={() => i !== current && setIndex(i)}
+              onMouseMove={() => n + offset !== current && setIndex(n + offset)}
               onClick={() => {
-                setIndex(i);
+                setIndex(n + offset);
                 choose(host);
               }}
             >
@@ -188,7 +227,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
             </li>
           ))}
         </ul>
-        {shown.length === 0 && (
+        {rowCount === 0 && (
           <p className="picker-empty">
             {query.trim() === "" && hosts.hosts.length === 0
               ? "The Inventory has no Hosts yet. Add them to roster.yml and they show up here."

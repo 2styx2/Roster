@@ -21,7 +21,7 @@ One live terminal connection from a Box to a Host. A Host can have several Sessi
 _Avoid_: connection profile, saved session
 
 **Host key**:
-The key a Host's sshd proves itself with. roster keeps the ones it trusts in its known hosts (`~/.ssh/roster_known_hosts`), recorded by `roster setup`, a verified add or edit, or a Session's question "roster hasn't seen this Host's key before" (Q60). A key that differs from the recorded one is never accepted.
+The key a Host's sshd proves itself with. roster keeps the ones it trusts in its known hosts (`~/.ssh/roster_known_hosts`), recorded by `roster setup`, a verified add or edit, or a Session's question "roster hasn't seen this Host's key before" (Q60). A key that differs from the recorded one is never accepted. A Quick Connect's key, confirmed when you connect, is trusted for that Session only and never recorded there (Q67).
 _Avoid_: fingerprint (that's the key's SHA256 digest, what the user compares), server key
 
 **Login**:
@@ -37,7 +37,7 @@ Where "Save to vault" puts a new Vault item: the personal vault, an organization
 _Avoid_: destination, location, folder (a Folder is the app's grouping of Hosts)
 
 **Quick Connect**:
-Opening a Session to an address that isn't a Host in the Inventory yet. If you choose to save it, it becomes a Host with its own Vault item.
+Opening a Session to an address that isn't a Host in the Inventory yet: `user@address[:port]`, typed in the Picker or after `:connect`. If you choose to save it, it becomes a Host with its own Vault item.
 _Avoid_: ad-hoc session, direct connect
 
 **Pending change**:

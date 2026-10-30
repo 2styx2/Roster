@@ -14,9 +14,11 @@ export interface ToolbarContext {
   pendingCount: number;
   /** The Sidebar is on screen. */
   sidebarShown: boolean;
+  /** roster can Quick Connect (API 12, ticket 14). */
+  quickConnect: boolean;
 }
 
-export type ToolbarIcon = "find" | "add" | "changes" | "publish" | "cmdline" | "keys" | "help" | "lock" | "mode" | "sidebar";
+export type ToolbarIcon = "find" | "quick" | "add" | "changes" | "publish" | "cmdline" | "keys" | "help" | "lock" | "mode" | "sidebar";
 
 export interface ToolbarControlDef extends Entry {
   /** The accessible name and the tooltip ("Add a Host"). */
@@ -59,6 +61,16 @@ export const builtinControls: readonly ToolbarControlDef[] = [
     pressed: (c) => c.sidebarShown,
   }),
   control({ id: "find", label: () => "Find a Host", text: "Find", icon: "find", command: "find", byDefault: true }),
+  // Quick Connect (ticket 14): the Picker, ready for user@address[:port].
+  control({
+    id: "quick",
+    label: () => "Quick Connect",
+    text: "Connect",
+    icon: "quick",
+    command: "quick",
+    byDefault: true,
+    when: (c) => c.quickConnect,
+  }),
   control({ id: "add", label: () => "Add a Host", text: "Add Host", icon: "add", command: "host add", byDefault: true }),
   control({
     id: "changes",
@@ -112,6 +124,14 @@ const PATHS: Record<ToolbarIcon, React.ReactNode> = {
     </>
   ),
   add: <path d="M8 3v10M3 8h10" />,
+  // This Box's square, an edge, and a dashed node: a box that isn't on the map (yet).
+  quick: (
+    <>
+      <rect x="1.75" y="6" width="4" height="4" rx="0.8" />
+      <path d="M6.5 8h3" />
+      <circle cx="12.25" cy="8" r="2.5" strokeDasharray="1.6 1.3" />
+    </>
+  ),
   // Two lines, the second changed: a diff.
   changes: <path d="M3 5h10M3 8h6M3 11h8M12.5 9.5v3M11 11h3" />,
   // An arrow up out of a line: send it upstream.

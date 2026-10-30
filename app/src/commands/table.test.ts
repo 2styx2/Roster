@@ -15,6 +15,7 @@ function recorder(mode: ViewMode = "standard") {
   const ctx: CommandContext = {
     openPicker: () => calls.push("picker"),
     connect: (h, here) => calls.push(`connect ${h}${here ? " here" : ""}`),
+    quickConnect: (t) => calls.push(`quick ${t ?? "picker"}`),
     reconnect: () => calls.push("reconnect"),
     check: (h) => calls.push(`check ${h ?? "current"}`),
     selectRelative: (d) => calls.push(`relative ${d}`),

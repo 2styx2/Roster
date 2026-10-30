@@ -11,6 +11,7 @@ Add a method by writing a function (state, params) -> result and listing it in M
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -59,7 +60,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 11            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 12            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -89,6 +90,7 @@ class State:
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
+        self.quick = {}                     # quick.prepare's Quick Connects by id: where, and the key confirmed (T15)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -468,6 +470,106 @@ def host_trust_key(state, params):
             "fingerprint": offered, "recorded": recorded == "none"}
 
 
+# ---------------------------------------------------------------- Quick Connect (ticket 14)
+# A Session to user@address[:port], a box that isn't in the Inventory. The app shows the key host.scan_key
+# {address, port} fetched; quick.prepare fetches it again and goes on only if it's still exactly that one. The key
+# is trusted for this Session only: it goes into serve's own known-hosts file (in the askpass channel's private
+# directory, gone when serve exits) under an alias of its own, never into roster's known hosts, so a box nobody
+# added stays unknown to every Host-to-be at that address (T15's "Save to vault" records it, after the login).
+# A typed password goes to ssh through the askpass channel, exactly like a vault password: once, within 60 s,
+# and forgotten by vault.lock. Nothing is written to roster.yml.
+
+QUICK_USER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
+QUICK_ADDRESS = re.compile(r"[A-Za-z0-9_.:%][A-Za-z0-9_.:%-]*")     # a name, IPv4 or IPv6 (no brackets, no '-' first)
+
+
+def quick_target(params):
+    """(user, address, port) from quick.prepare's params, checked: nothing ssh could read as an option."""
+    user, address, port = params.get("user"), params.get("address"), params.get("port", 22)
+    if not isinstance(user, str) or not QUICK_USER.fullmatch(user):
+        raise RpcError(INVALID_PARAMS, "params.user must be a user name (letters, digits, '.', '_', '-'; not "
+                                       "starting with '-')")
+    if not isinstance(address, str) or not QUICK_ADDRESS.fullmatch(address):
+        raise RpcError(INVALID_PARAMS, "params.address must be a host name or an IP address")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise RpcError(INVALID_PARAMS, "params.port must be a number from 1 to 65535")
+    return user, address, port
+
+
+def quick_prepare(state, params):
+    """What the app runs in a PTY for a Quick Connect: ssh to user@address:port, checking the host key strictly
+    against the one the user was shown (params.fingerprint, from host.scan_key). With params.password the Session
+    logs in with it, through an askpass token; without, with this box's own keys (BatchMode). Refuses a key that
+    changed since the user was asked (23) or differs from one roster recorded for the address (43), and 40-42 when
+    it can't get there; nothing is kept on any error."""
+    user, address, port = quick_target(params)
+    asked = params.get("fingerprint")
+    if not isinstance(asked, str) or not asked.startswith("SHA256:"):
+        raise RpcError(INVALID_PARAMS, "params.fingerprint must be the SHA256:... fingerprint the user was shown")
+    password = params.get("password")
+    if password is not None and (not isinstance(password, str) or not password):
+        raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string, or left out to log in with "
+                                       "this box's keys")
+    ssh = shutil.which("ssh")
+    if ssh is None:
+        raise RpcError(NOT_SET_UP, "there's no ssh on this box's PATH - install OpenSSH's client")
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - Quick Connect needs "
+                                   "`roster serve`")
+    label = quick_label(user, address, port)
+    h = {"name": label, "ip": address, "ssh": {"port": port, "user": user}}
+    key, recorded = diagnose.offered_key(h)
+    if recorded == "changed":
+        p = diagnose.changed_key(h, recorded_host_keys(h), key)
+        p.data["fix"] = ("don't accept it blindly: compare the new fingerprint with the box's console or owner. If "
+                         "the change is expected (reinstall), delete its line in ~/.ssh/roster_known_hosts")
+        raise p
+    offered = fingerprint(key)
+    if offered != asked:
+        raise RpcError(HOST_KEY_CHANGED_WHILE_ASKED,
+                       f"{label}'s host key changed while roster was asking - not connecting",
+                       {"asked": asked, "offered": offered},
+                       fix="don't trust it blindly: compare the new fingerprint with the box's console or owner, "
+                           "then Quick Connect again to see it",
+                       details=f"asked about {asked}; now offered {key.get_name()} {offered}")
+    qid = secrets.token_hex(8)
+    alias = f"roster-quick-{qid}"
+    known = state.askpass.known_hosts
+    fd = os.open(known, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a") as f:
+        f.write(f"{alias} {key.get_name()} {key.get_base64()}\n")
+    state.quick[qid] = {"user": user, "address": address, "port": port, "key_type": key.get_name(),
+                        "fingerprint": offered, "base64": key.get_base64()}
+    argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(known)}", "-o", "GlobalKnownHostsFile=/dev/null",
+            "-o", f"HostKeyAlias={alias}", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none",
+            "-o", "ConnectTimeout=10"]
+    if password is None:
+        argv += ["-o", "BatchMode=yes"]
+        env, auth = {}, "key"
+    else:
+        argv += ["-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive",
+                 "-o", "PubkeyAuthentication=no"]
+        token = state.askpass.mint(askpass.Typed(password), label)
+        del password
+        env, auth = state.askpass.env(token), "password"
+    argv += ["-p", str(port), "-l", user, "--", address]
+    return {"argv": argv, "env": env, "host": label, "auth": auth, "quick": qid, "user": user, "address": address,
+            "port": port, "key_type": key.get_name(), "fingerprint": offered}
+
+
+def quick_label(user, address, port):
+    """How a Quick Connect is named in messages and the log, as the app writes it: user@address, with :port when
+    it isn't 22 (an IPv6 address then in brackets)."""
+    if port == 22:
+        return f"{user}@{address}"
+    return f"{user}@[{address}]:{port}" if ":" in address else f"{user}@{address}:{port}"
+
+
+def ssh_value(path):
+    """A path as an ssh -o value: quoted when it has a space (ssh splits a known-hosts list on whitespace)."""
+    return f'"{path}"' if re.search(r"\s", path) else path
+
+
 def host_add(state, params):
     """Add a Host to roster.yml as a Pending change (edit.added). With a Login (an existing vault item in auth, or
     a password typed into the form) it's a verified add (Q43): the test login first; then, for a typed password,
@@ -777,6 +879,7 @@ METHODS["inventory.reload"] = inventory_reload
 METHODS["inventory.watch"] = inventory_watch
 METHODS["host.scan_key"] = host_scan_key
 METHODS["host.trust_key"] = host_trust_key
+METHODS["quick.prepare"] = quick_prepare
 METHODS["host.add"] = host_add
 METHODS["host.review"] = host_review
 METHODS["inventory.pull"] = inventory_pull

@@ -136,7 +136,9 @@ export interface ProblemBodyProps {
 /** The message, where, fix, extras, actions and Details of one Problem. */
 export function ProblemBody({ problem, rows, actions, noActions, notInTab }: ProblemBodyProps) {
   const row = rowFor(rows, problem.code);
-  const shown = row.actions.filter((a) => !(notInTab && a.kind === "run" && a.line(problem) === "reconnect"));
+  const shown = row.actions.filter(
+    (a) => !(notInTab && a.kind === "run" && a.line(problem) === "reconnect") && !(problem.quick && a.hostOnly),
+  );
   const data = problem.data ?? {};
   return (
     <>

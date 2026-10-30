@@ -4,6 +4,8 @@ The first argument picks a behaviour:
   ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1
   old-api            inventory.info reports api_version 0
   unknown-key        session.prepare refuses with 44 until host.trust_key records esxi-02's key (host.scan_key shows it)
+  quick              quick.prepare (Quick Connect, ticket 14): FINGERPRINT goes through, any other is 23; a
+                     password gets an askpass token in env, and the password itself is never echoed back
   no-inventory       every method returns error code 1, like serve without a roster.yml
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
   reverse            holds two requests, then answers them in reverse order
@@ -68,6 +70,24 @@ def answer(req):
         was, trusted = trusted, True
         return {"result": {"host": "esxi-02", "address": "10.19.77.10", "port": 22, "key_type": "ssh-ed25519",
                            "fingerprint": FINGERPRINT, "recorded": not was}}
+    if m == "quick.prepare":
+        p = req.get("params", {})
+        label = f"{p.get('user')}@{p.get('address')}:{p.get('port')}"
+        if p.get("fingerprint") != FINGERPRINT:
+            return {"error": {"code": 23, "message": f"{label}'s host key changed while roster was asking - not connecting",
+                              "data": {"asked": p.get("fingerprint"), "offered": FINGERPRINT}}}
+        base = ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=yes", "-o", "HostKeyAlias=roster-quick-q1"]
+        common = {"host": label, "quick": "q1", "user": p.get("user"), "address": p.get("address"),
+                  "port": p.get("port"), "key_type": "ssh-ed25519", "fingerprint": FINGERPRINT}
+        tail = ["-p", str(p.get("port")), "-l", p.get("user"), "--", p.get("address")]
+        if "password" not in p:
+            return {"result": {"argv": [*base, "-o", "BatchMode=yes", *tail], "env": {}, "auth": "key", **common}}
+        minted += 1
+        return {"result": {"argv": [*base, "-o", "NumberOfPasswordPrompts=1", *tail], "auth": "password", **common,
+                           "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass",
+                                   "SSH_ASKPASS_REQUIRE": "force",
+                                   "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
+                                   "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"}}}
     if m == "session.prepare":
         name = req.get("params", {}).get("host")
         h = next((h for h in HOSTS if h["name"] == name), None)

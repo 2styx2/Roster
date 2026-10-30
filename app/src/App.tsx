@@ -38,6 +38,7 @@ import {
   type SaveTarget,
   VAULT_CONFIG_API_VERSION,
   HOST_KEY_API_VERSION,
+  QUICK_CONNECT_API_VERSION,
   type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
@@ -78,6 +79,7 @@ import { Picker } from "./picker/Picker";
 import { builtinRegistries, type Registries } from "./registries";
 import { BUILTIN } from "./registry";
 import { SessionPanes, TabStrip } from "./session/Sessions";
+import { parseQuickTarget, type QuickTarget } from "./quick/target";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { buildSections } from "./sidebar/sections";
@@ -117,7 +119,7 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | { cmdline: string } | { finder: string } | null;
+type Overlay = "picker" | "quick" | { cmdline: string } | { finder: string } | null;
 
 /** How long the hint on entering a mode stays. */
 const HINT_MS = 2000;
@@ -372,6 +374,7 @@ export function App({
   const lockVault = vault.lock;
   useEffect(() => tabs.setVaultLockedHandler(() => void lockVault()), [tabs, lockVault]);
   const asksAboutKeys = conn.state === "ready" && conn.info.inventory.api_version >= HOST_KEY_API_VERSION;
+  const quickConnects = conn.state === "ready" && conn.info.inventory.api_version >= QUICK_CONNECT_API_VERSION;
   useEffect(() => tabs.setAsksAboutKeys(asksAboutKeys), [tabs, asksAboutKeys]);
   const vaultUnlocked = vault.view.state === "unlocked";
   useEffect(() => {
@@ -809,9 +812,23 @@ export function App({
     },
     connect: (name, here = false) => {
       const host = hostByName.get(name);
+      if (!host && parseQuickTarget(name)) return ctx.quickConnect(name);
       if (!host) return setMessage(`No Host named ${name}`);
       if (!host.reviewed) return setMessage(notReviewedMessage(name, canAdd));
       openHost(name, here);
+    },
+    quickConnect: (text) => {
+      if (!quickConnects) {
+        const api = conn.state === "ready" ? conn.info.inventory.api_version : 0;
+        return setMessage(`Quick Connect needs a newer roster (API version ${QUICK_CONNECT_API_VERSION}; this one speaks ${api})`);
+      }
+      if (text === null) {
+        if (overlay === null) rememberFocus();
+        return setOverlay("quick");
+      }
+      const to = parseQuickTarget(text);
+      if (!to) return setMessage(`${text} isn't a Quick Connect address: type user@address, or user@address:port`);
+      tabs.openQuick(to);
     },
     open: (name) => {
       const tab = sessions.tabs.find((t) => t.host === name);
@@ -1175,7 +1192,7 @@ export function App({
   );
   // The toolbar (decision Q65): in the title bar once the app is ready and unlocked (the lock
   // screen shows nothing but the mark), else a bar of its own at the top.
-  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown };
+  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown, quickConnect: quickConnects };
   const toolbarControls =
     ready && isShown(layout, "toolbar") ? shownControls(toolbarDefs, layout.controls, toolbarCtx) : [];
   const toolbar = (side: "start" | "end") => (
@@ -1654,8 +1671,17 @@ export function App({
           }}
         />
       )}
-      {overlay === "picker" && !vault.locked && (
+      {(overlay === "picker" || overlay === "quick") && !vault.locked && (
         <Picker
+          quickFirst={overlay === "quick"}
+          {...(quickConnects
+            ? {
+                onQuick: (to: QuickTarget) => {
+                  closeOverlay();
+                  tabs.openQuick(to);
+                },
+              }
+            : {})}
           hosts={conn.hosts}
           recent={appState.recentHosts}
           vim={options.vim}

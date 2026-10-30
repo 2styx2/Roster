@@ -222,3 +222,56 @@ fn only_a_fingerprint_is_sent_to_be_trusted() {
     assert!(matches!(err, roster_core::rpc::CallError::Io { .. }), "{err:?}");
     assert!(b.session_command("esxi-02").is_err(), "nothing was recorded");
 }
+
+#[test]
+fn a_quick_connect_password_goes_to_serve_and_comes_back_as_an_askpass_token() {
+    // Ticket 14: the typed password is sent once, inside quick.prepare's params; what comes back is
+    // a Session command whose env carries a token, never the password.
+    use roster_core::backend::QuickTarget;
+    let b = Backend::start(&fake("quick")).unwrap();
+    let to = QuickTarget {
+        user: "root".into(),
+        address: "10.0.0.5".into(),
+        port: 2222,
+        fingerprint: "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8".into(),
+    };
+    let q = b.quick_session_command(&to, Some("typed-pw-123".into())).unwrap();
+    assert_eq!(q.quick, "q1");
+    assert_eq!(q.command.auth, "password");
+    assert_eq!(
+        q.command.argv[q.command.argv.len() - 4..],
+        ["-l", "root", "--", "10.0.0.5"]
+    );
+    assert!(q.command.env.iter().any(|(k, _)| k == "ROSTER_ASKPASS_TOKEN"));
+    let shown = format!("{:?}", q.command);
+    assert!(!shown.contains("typed-pw-123") && !shown.contains("tok-3b1f9e2a7c-"));
+    let key = b.quick_session_command(&to, None).unwrap();
+    assert_eq!(key.command.auth, "key");
+}
+
+#[test]
+fn a_quick_connect_with_a_key_that_changed_keeps_serves_code_and_never_the_password() {
+    use roster_core::backend::QuickTarget;
+    let b = Backend::start(&fake("quick")).unwrap();
+    let to = QuickTarget {
+        user: "root".into(),
+        address: "10.0.0.5".into(),
+        port: 22,
+        fingerprint: "SHA256:AAAAbbbbCCCCddddEEEEffffGGGGhhhhIIIIjjjjKKK".into(),
+    };
+    let err = b.quick_session_command(&to, Some("typed-pw-123".into())).err().unwrap();
+    assert!(
+        matches!(err, roster_core::rpc::CallError::Rpc { code: 23, .. }),
+        "{err:?}"
+    );
+    assert!(!format!("{err:?}").contains("typed-pw-123"));
+    // Only a SHA256 fingerprint is ever sent.
+    let bad = QuickTarget {
+        fingerprint: "ssh-ed25519 AAAA".into(),
+        ..to
+    };
+    assert!(matches!(
+        b.quick_session_command(&bad, None).err().unwrap(),
+        roster_core::rpc::CallError::Io { .. }
+    ));
+}

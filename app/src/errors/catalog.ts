@@ -25,9 +25,9 @@ export type Where =
 
 export type ErrorAction =
   /** Runs a command line: `reconnect`, `check HOST`, `lock` (the lock screen), `find`. */
-  | { kind: "run"; label: string; line(p: Problem): string }
+  | { kind: "run"; label: string; line(p: Problem): string; hostOnly?: boolean }
   /** Shows a command to run in a terminal, with a Copy button. Null: nothing to show. */
-  | { kind: "copy"; label: string; text(p: Problem): string | null };
+  | { kind: "copy"; label: string; text(p: Problem): string | null; hostOnly?: boolean };
 
 /** What a row shows beyond the message: 32's near names, 33's matching items, 43's fingerprints. */
 export type ErrorExtra = "near" | "matches" | "fingerprints";
@@ -47,10 +47,11 @@ export interface ErrorRow extends Entry {
 
 const retry: ErrorAction = { kind: "run", label: "Retry", line: () => "reconnect" };
 const reconnect: ErrorAction = { kind: "run", label: "Reconnect", line: () => "reconnect" };
-const check: ErrorAction = { kind: "run", label: "Run :check", line: (p) => `check ${p.host}` };
+/** `hostOnly`: it names a Host in the Inventory, so a Quick Connect's Problem leaves it out. */
+const check: ErrorAction = { kind: "run", label: "Run :check", line: (p) => `check ${p.host}`, hostOnly: true };
 const copy = (text: (p: Problem) => string | null): ErrorAction => ({ kind: "copy", label: "Copy", text });
 const sync = copy(() => "roster sync");
-const setupOnly = copy((p) => `roster setup --only ${p.host}`);
+const setupOnly: ErrorAction = { ...copy((p) => `roster setup --only ${p.host}`), hostOnly: true };
 /** The first `command` in roster's message (e.g. "run `bw login` once"). */
 const quoted = (p: Problem) => /`([^`]+)`/.exec(p.message)?.[1] ?? null;
 

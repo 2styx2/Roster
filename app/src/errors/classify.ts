@@ -39,6 +39,9 @@ export interface Problem {
   /** The raw text: ssh's last lines, or roster's message. */
   details: string;
   data?: ProblemData;
+  /** A Quick Connect's (ticket 14): `host` is user@address, not a Host, so fixes that name a Host
+   * (`:check`, `roster setup --only`) don't apply. */
+  quick?: boolean;
 }
 
 export interface ExitInput {

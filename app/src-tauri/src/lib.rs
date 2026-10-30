@@ -2,7 +2,7 @@
 //! calls, Sessions).
 //! All logic lives in roster-core so it can be tested without Tauri (docs/app/dev/testing.md).
 
-use roster_core::backend::{Backend, BackendInfo};
+use roster_core::backend::{Backend, BackendInfo, QuickTarget};
 use roster_core::config::{self, Config, Loader, Report};
 use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect};
 use roster_core::rpc::{CallError, Notify};
@@ -475,6 +475,9 @@ fn session_error(e: SessionError) -> CallError {
 struct OpenedSession {
     id: SessionId,
     auth: String,
+    /// serve's id for a Quick Connect (ticket 14), for ticket 15's "Save to vault".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quick: Option<String>,
 }
 
 /// Open a Session to `host`: `session.prepare`, then the command in a PTY of `cols`×`rows`.
@@ -504,7 +507,47 @@ async fn session_open(
                 let _ = events.send(body);
             })
             .map_err(session_error)?;
-        Ok(OpenedSession { id, auth: cmd.auth })
+        Ok(OpenedSession {
+            id,
+            auth: cmd.auth,
+            quick: None,
+        })
+    })
+    .await
+}
+
+/// Open a Quick Connect Session (ticket 14): `quick.prepare` for `to` (user@address:port and the
+/// fingerprint the user was shown), then the command in a PTY, like `session_open`. A typed
+/// `password` is moved into serve's request and dropped with it, as `vault_unlock`'s is: never
+/// logged, stored or put in an error. What comes back carries only an askpass token.
+#[tauri::command]
+async fn quick_session_open(
+    state: tauri::State<'_, Arc<BackendState>>,
+    sessions: tauri::State<'_, Arc<SessionManager>>,
+    to: QuickTarget,
+    password: Option<String>,
+    cols: u16,
+    rows: u16,
+    events: Channel<InvokeResponseBody>,
+) -> Result<OpenedSession, CallError> {
+    let backend = state.get()?;
+    let sessions = Arc::clone(&sessions);
+    blocking(move || {
+        let q = backend.quick_session_command(&to, password)?;
+        let id = sessions
+            .open(&q.command, Size { cols, rows }, move |event| {
+                let body = match event {
+                    SessionEvent::Output(bytes) => InvokeResponseBody::Raw(bytes),
+                    SessionEvent::Exit(exit) => InvokeResponseBody::Json(json!({ "exit": exit }).to_string()),
+                };
+                let _ = events.send(body);
+            })
+            .map_err(session_error)?;
+        Ok(OpenedSession {
+            id,
+            auth: q.command.auth,
+            quick: Some(q.quick),
+        })
     })
     .await
 }
@@ -685,6 +728,7 @@ pub fn run() {
             changes_discard,
             changes_publish,
             session_open,
+            quick_session_open,
             session_write,
             session_resize,
             session_close,
