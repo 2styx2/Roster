@@ -12,6 +12,6 @@ If a Vault item with that name already exists, nothing is created and the app sa
 
 **Status:** ready-for-agent
 
-- [ ] A failed login never saves anything.
+- [ ] A failed login never saves anything (decision Q43). The Session's own successful login *is* the verification. `quick.save` refuses unless the Session it refers to reached a shell, and it creates the Vault item, then the Host, undoing the item if adding the Host fails.
 - [ ] pytest: `quick.save` creates the item and the Host. A duplicate item name leaves both the vault and the Inventory untouched.
 - [ ] Manual check: save a real box, Publish it, and reconnect from the picker with no password prompt.

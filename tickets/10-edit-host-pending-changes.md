@@ -8,6 +8,8 @@
 - An edit form changes a Host's fields. The write edits `roster.yml` text in place and keeps comments, the same way `discover --write` does. It keeps a `.bak` and refuses any result that wouldn't load.
 - The app shows Pending changes as a diff and can discard them.
 
+**Verified changes to a Login** (decision Q43): an edit that changes a Host's address, user or Login reference runs `host.verify_login` with the new values before it becomes a Pending change. Text-only edits (title, description, type) need no verify.
+
 **Blocked by:** 04
 
 **Status:** ready-for-agent

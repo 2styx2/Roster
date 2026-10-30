@@ -9,4 +9,5 @@
 **Status:** ready-for-agent
 
 - [ ] pytest: the Host's Login is updated with comments kept. A duplicate Vault item is refused.
+- [ ] Only after the password login succeeded (Q43). A failed login writes nothing, and a failure while updating the Host deletes the item it just created.
 - [ ] Manual check on a real `auth: prompt` Host.

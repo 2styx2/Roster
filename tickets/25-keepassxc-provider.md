@@ -6,6 +6,7 @@
 - **Read:** `auth: kp:ENTRY` and `kp:ENTRY#FIELD`, where the database path comes from `providers:` in `roster.yml` or `init.lua`.
 - **Unlock and lock:** through the master password with the ticket 01 interface (`unlock`, `lock`, `vault_status`), so the lock screen works the same as with Bitwarden. A key file is supported as an option.
 - **Create:** the "create" capability (as in ticket 13) for "Save to vault", following the same `<host> <what it opens>` naming, with the address in the URL field.
+- **Verified adds only:** creating entries follows the same verify → create → add order, with the same undo (decision Q43).
 - **Safety:** the password never appears on a command line or in output. `keepassxc-cli` reads it from stdin.
 
 **Blocked by:** 13
