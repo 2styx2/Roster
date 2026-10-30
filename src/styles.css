@@ -245,8 +245,8 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
    No entrance motion: both come from keys and are seen often; buttons get press feedback only. */
 .session-error.overlay {
   position: absolute; inset: auto 16px 16px 16px; margin: 0 auto; max-width: 680px;
+  max-height: calc(100% - 32px); overflow: auto; padding: 0;
 }
-.pane { position: relative; }
 .problem, .check-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .problem { padding: 14px 16px; border-left: 3px solid var(--error); }
 .problem h2, .check-panel h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }

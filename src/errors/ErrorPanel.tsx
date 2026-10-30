@@ -42,7 +42,7 @@ function Action({ action, problem, actions }: { action: ErrorAction; problem: Pr
   );
 }
 
-const VERIFY = "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub";
+const VERIFY = "for k in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf \"$k\"; done";
 
 function Fingerprints({ data }: { data: ProblemData }) {
   const recorded = Array.isArray(data.recorded) ? data.recorded : [];
@@ -127,11 +127,14 @@ export interface ProblemBodyProps {
   actions: ProblemActions;
   /** Hide actions (the check panel shows them only for its failing step). */
   noActions?: boolean;
+  /** Leave out actions that act on the current tab (`reconnect`): the check panel isn't a tab. */
+  notInTab?: boolean;
 }
 
 /** The message, where, fix, extras, actions and Details of one Problem. */
-export function ProblemBody({ problem, rows, actions, noActions }: ProblemBodyProps) {
+export function ProblemBody({ problem, rows, actions, noActions, notInTab }: ProblemBodyProps) {
   const row = rowFor(rows, problem.code);
+  const shown = row.actions.filter((a) => !(notInTab && a.kind === "run" && a.line(problem) === "reconnect"));
   const data = problem.data ?? {};
   return (
     <>
@@ -145,9 +148,9 @@ export function ProblemBody({ problem, rows, actions, noActions }: ProblemBodyPr
       {row.extras?.map((x) => (
         <div key={x}>{extras[x](data)}</div>
       ))}
-      {!noActions && row.actions.length > 0 && (
+      {!noActions && shown.length > 0 && (
         <div className="problem-actions">
-          {row.actions.map((a, i) => (
+          {shown.map((a, i) => (
             <Action key={i} action={a} problem={problem} actions={actions} />
           ))}
         </div>

@@ -62,7 +62,7 @@ export function CheckPanel({ check, rows, actions, onClose }: CheckPanelProps) {
                 </div>
                 {s.status === "fail" && (
                   <div className="check-problem">
-                    <ProblemBody problem={problemFromStep(host, s)} rows={rows} actions={actions} />
+                    <ProblemBody problem={problemFromStep(host, s)} rows={rows} actions={actions} notInTab />
                   </div>
                 )}
               </li>

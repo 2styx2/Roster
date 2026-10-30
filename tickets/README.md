@@ -12,7 +12,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 06 | [Sessions to password-only Hosts (askpass)](06-password-sessions-askpass.md) | 1 | 04, 05 | done |
 | 07 | [Keyboard model and the Session Sidebar](07-keyboard-model-tabs.md) | 1 | 05 | done |
 | 17 | [Inventory tree and Folders in the Sidebar](17-host-tree-panel.md) | 1 | 07 | ready |
-| 26 | [Clean connection errors and `check HOST`](26-clean-connection-errors.md) | 1 | 07 (UI); roster side now | ready |
+| 26 | [Clean connection errors and `check HOST`](26-clean-connection-errors.md) | 1 | 07 (UI); roster side now | done |
 | 08 | [Terminal comfort](08-terminal-comfort.md) | 1 | 05 | done |
 | 09 | [Design pass](09-design-pass.md) | 2 | 07, 08, 17 | ready |
 | 21 | [Lua config (`init.lua`)](21-lua-config.md) | 2 | 09 | ready |

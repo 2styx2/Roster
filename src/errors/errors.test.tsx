@@ -177,6 +177,9 @@ describe(":check HOST", () => {
     expect(failed).toHaveTextContent("the network");
     expect(within(failed).getByText("Details").closest("details")).toHaveTextContent("timed out");
     expect(items[0]).not.toHaveTextContent(/Where/);
+    // The check isn't a tab: no Retry (that would reconnect whatever tab is current).
+    expect(within(failed).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(failed).getByRole("button", { name: "Run :check" })).toBeInTheDocument();
   });
 
   it("shows both fingerprints for a changed host key", async () => {
