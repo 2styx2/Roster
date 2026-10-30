@@ -12,7 +12,7 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Command | What it does |
 |---|---|
 | `:config` | Opens `init.lua` with the `editor` below. If there's no file yet, it first makes one from [`examples/init.lua`](../../examples/init.lua) with every line commented out, so it changes nothing until you uncomment something. A file that's there is never overwritten |
-| `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules (and, with ticket 28, `folders.yml` and `roster.yml`). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
+| `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules, `folders.yml` and `roster.yml` (ticket 28). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
 | `:config reload` | The same as `:source init.lua` |
 | `:config path` | Says where the file is |
 | `:config import-terminal` | Copies Windows Terminal's default profile into `init.lua` (ticket 33): font, size, weight, cell height, cursor, how bold text looks, and a Theme made from its colour scheme. It reads `settings.json` (Store, Preview or unpackaged), shows the change as a diff, and writes it only on Enter, if `init.lua` hasn't changed since. The block goes between `-- >>> Windows Terminal >>>` and `-- <<< Windows Terminal <<<` lines, before the file's `return`, and running the import again replaces it. It uses `roster.set`, so a value the file's own returned table sets wins, and the diff names those. Windows only |
@@ -136,14 +136,27 @@ The option names in the app are `Options.defaultMode` ← `default_mode`, `Optio
 folders = { { name = "Lab ESXi", hosts = { "esxi-02", "esxi-03" } } },
 ```
 
-They show first in the Folders section, marked "from init.lua", and only `init.lua` can change them: `folder add`, `rename`, `delete` and `remove` say so. A Folder made in the app with the same name is hidden behind it. Names must be unique, ignoring case, and can't contain a double quote. Folders made in the app stay in the State. Ticket 28 moves them to `folders.yml`.
+They show first in the Folders section, marked "from init.lua", and only `init.lua` can change them: `folder add`, `rename`, `delete` and `remove` say so. A Folder made in the app with the same name is hidden behind it. Names must be unique, ignoring case, and can't contain a double quote. Folders made in the app live in `folders.yml` (below).
+
+### `folders.yml`
+
+The Folders you make in the app (decision Q46) are kept in `folders.yml`, next to `init.lua`: plain data that you and the app both edit. Each Folder is its name and a list of Hosts:
+
+```yaml
+Lab ESXi:
+  - esxi-02
+  - esxi-03   # comments are kept
+Night shift: []
+```
+
+The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from before ticket 28) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
 
 ### Other
 
 | Option | Default | |
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
-| `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config. Off: `:source` reloads (decision Q58) |
+| `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config, of `folders.yml`, and of `roster.yml` (roster's watcher; the Sidebar follows within a second). Off: `:source` reloads (decision Q58), and the status bar says which file changed |
 | `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app Windows or the desktop opens `.lua` files with; on Windows, Notepad if there's none), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |

@@ -25,6 +25,9 @@ import {
   CHECK_API_VERSION,
   EDIT_API_VERSION,
   PUBLISH_API_VERSION,
+  LIVE_API_VERSION,
+  LiveError,
+  BackendCallError,
   type Backend,
   type BackendInfo,
   type BackendProblem,
@@ -39,6 +42,10 @@ import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
 import { ImportPanel } from "./config/ImportPanel";
 import { registerFolders } from "./folders/folders";
+import { FOLDERS_FILE, FoldersFile } from "./folders/file";
+import type { InventoryOp } from "./inventory/commands";
+import { ConfirmPanel } from "./inventory/ConfirmPanel";
+import type { InventoryFileError } from "./backend/types";
 import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
 import type { FinderContext, FinderItem } from "./finder/sources";
@@ -56,6 +63,7 @@ import { useVault } from "./lock/useVault";
 import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
 import { builtinRegistries, type Registries } from "./registries";
+import { BUILTIN } from "./registry";
 import { SessionPanes, TabStrip } from "./session/Sessions";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
@@ -166,8 +174,12 @@ export function App({
   // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
   // with the last good Config and the error, so nothing changes but the toast.
   const [report, setReport] = useState<ConfigReport | null>(configProp);
-  /** A Config file was saved since the last reload, and isn't applied yet. */
-  const [stale, setStale] = useState(false);
+  /** Config files saved since their last reload and not applied yet ("init.lua", "folders.yml",
+   * "roster.yml"): the status bar's quiet hint to `:source` (decision Q58). */
+  const [stale, setStaleFiles] = useState<readonly string[]>([]);
+  const setStale = useCallback((file: string, on: boolean) => {
+    setStaleFiles((s) => (s.includes(file) === on ? s : on ? [...s, file] : s.filter((f) => f !== file)));
+  }, []);
   // The newest report wins: one that arrives late (or twice) never replaces a newer one.
   const takeReport = useCallback(
     (r: ConfigReport) => setReport((cur) => (cur && cur.version >= r.version ? cur : r)),
@@ -177,14 +189,14 @@ export function App({
     const source = platform.config;
     if (!source) return;
     const take = (r: ConfigReport) => {
-      setStale(false);
+      setStale("init.lua", false);
       takeReport(r);
     };
     let live = true;
     // Listen first, then ask again: a save between main.tsx's load and now isn't lost.
     const stopChanges = source.watch(take);
     // A save that wasn't applied (auto_reload off, decision Q58): a quiet hint to :source.
-    const stopStale = source.watchStale(() => setStale(true));
+    const stopStale = source.watchStale(() => setStale("init.lua", true));
     const stop = () => {
       stopChanges();
       stopStale();
@@ -199,7 +211,7 @@ export function App({
       live = false;
       stop();
     };
-  }, [platform, takeReport]);
+  }, [platform, takeReport, setStale]);
   const config = report?.config ?? null;
   const derived = useMemo(() => (config ? deriveConfig(config) : null), [config]);
   const options = derived?.options ?? optionsProp;
@@ -241,6 +253,8 @@ export function App({
   const [pending, setPending] = useState<ChangesState | null>(null);
   // Ticket 11: the add-Host form, with the group it starts in.
   const [adding, setAdding] = useState<{ group: string } | null>(null);
+  // Ticket 28: removing a Host asks first.
+  const [confirming, setConfirming] = useState<{ host: string; group: string } | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -300,7 +314,22 @@ export function App({
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
+  const groupNames = useMemo(() => {
+    const names = Object.keys(hosts?.groups ?? {});
+    for (const h of hosts?.hosts ?? []) if (!names.includes(h.group)) names.push(h.group);
+    return names;
+  }, [hosts]);
   const folded = useMemo(() => new Set(appState.folded), [appState.folded]);
+  // The Live Inventory (ticket 28, API 8): what's added and not Published yet shows dimmed.
+  const canLiveNow = conn.state === "ready" && conn.info.inventory.api_version >= LIVE_API_VERSION;
+  const live = useMemo(() => {
+    if (!canLiveNow) return undefined;
+    const changes = pending?.state === "done" ? pending.changes : null;
+    return {
+      pendingHosts: new Set((changes?.hosts ?? []).filter((c) => c.change === "added").map((c) => c.host)),
+      pendingGroups: new Set((changes?.groups ?? []).filter((c) => c.change === "added").map((c) => c.group)),
+    };
+  }, [canLiveNow, pending]);
   // The mode's layout may pick and order the Sidebar's sections (decision Q39).
   const shownSectionDefs = useMemo(
     () => (layout.sections ? [...pick(sectionDefs, layout.sections)].map((d, i) => ({ ...d, order: i })) : sectionDefs),
@@ -309,9 +338,17 @@ export function App({
   const sections = useMemo(
     () =>
       hosts
-        ? buildSections(shownSectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions, state: appState, folded })
+        ? buildSections(shownSectionDefs, {
+            sessions,
+            hosts,
+            hostByName,
+            sessionsIn: options.sessions,
+            state: appState,
+            folded,
+            ...(live ? { live } : {}),
+          })
         : [],
-    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded],
+    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
@@ -381,6 +418,7 @@ export function App({
   const canEdit = apiVersion >= EDIT_API_VERSION;
   const canPublish = apiVersion >= PUBLISH_API_VERSION;
   const canAdd = apiVersion >= ADD_API_VERSION;
+  const canLive = apiVersion >= LIVE_API_VERSION;
   const refreshPending = useCallback(() => {
     if (!canEdit) return;
     backend.pendingChanges().then(
@@ -389,13 +427,49 @@ export function App({
     );
   }, [backend, canEdit]);
   useEffect(() => refreshPending(), [refreshPending]);
-  /** The Inventory again, after roster.yml changed (an edit, a discard, a pull). */
+  /** The Inventory again, after roster.yml changed (an edit, a discard, a pull, an outside edit).
+   * It updates in place: folds, the cursor and open Sessions stay. */
   const reloadHosts = useCallback(() => {
     backend.listHosts().then(
       (hosts) => setConn((c) => (c.state === "ready" ? { ...c, hosts } : c)),
       () => {},
     );
   }, [backend]);
+
+  // roster.yml edited outside the app (ticket 28, decision Q58): serve applies it with
+  // auto_reload (the Sidebar follows), else only says so, for `:source`. A file that doesn't load
+  // keeps the last good Inventory and says the line.
+  const autoReload = config?.autoReload ?? false;
+  useEffect(() => {
+    if (conn.state !== "ready" || !canLive) return;
+    const stop = backend.onInventoryChanged((change) => {
+      if (!change.applied) return setStale("roster.yml", true);
+      setStale("roster.yml", false);
+      reloadHosts();
+      refreshPending();
+      if (change.error) setMessage(inventoryBroken(change.error));
+    });
+    backend.watchInventory(autoReload).catch(() => {});
+    return stop;
+  }, [backend, conn.state, canLive, autoReload, reloadHosts, refreshPending, setStale]);
+  // `:source` reloads roster.yml too.
+  useEffect(() => {
+    if (!canLive) return;
+    return registries.reloaders.register({
+      id: "roster.yml",
+      source: BUILTIN,
+      describe: "roster.yml (the Inventory)",
+      files: () => ["roster.yml"],
+      owns: (p) => /(^|[\\/])roster\.yml$/.test(p.trim()),
+      async reload() {
+        const r = await backend.reloadInventory();
+        setStale("roster.yml", false);
+        reloadHosts();
+        refreshPending();
+        return r.error ? inventoryBroken(r.error) : null;
+      },
+    });
+  }, [registries, backend, canLive, reloadHosts, refreshPending, setStale]);
   const pendingCount = pending?.state === "done" ? pending.changes.count : 0;
 
   // The State file and the Windows build, once. What changed before the file was read (Hosts
@@ -415,8 +489,41 @@ export function App({
   // The window's size and place go in the State; the Tauri shell restores them at the next start.
   useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
 
-  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0006).
-  useEffect(() => registerFolders(registries, store), [registries, store]);
+  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0006). They
+  // live in folders.yml next to init.lua (ticket 28, decision Q46) where there's a config folder,
+  // else in the State (a plain browser).
+  const [foldersFile] = useState(() => (platform.folders ? new FoldersFile(platform.folders, store) : null));
+  useEffect(() => registerFolders(registries, foldersFile ?? store), [registries, store, foldersFile]);
+  const autoReloadRef = useRef(autoReload);
+  autoReloadRef.current = autoReload;
+  useEffect(() => {
+    const source = platform.folders;
+    if (!foldersFile || !source) return;
+    foldersFile.load().catch((e: unknown) => setMessage(`Can't read ${FOLDERS_FILE}: ${e instanceof Error ? e.message : String(e)}`));
+    const stop = source.watch(() => {
+      void foldersFile.isOutsideEdit().then(async (outside) => {
+        if (!outside) return;
+        if (!autoReloadRef.current) return setStale(FOLDERS_FILE, true);
+        const problem = await foldersFile.reload();
+        if (problem) setMessage(problem);
+      });
+    });
+    const unregister = registries.reloaders.register({
+      id: FOLDERS_FILE,
+      source: BUILTIN,
+      describe: "folders.yml (your Folders)",
+      files: () => [FOLDERS_FILE],
+      owns: (p) => /(^|[\\/])folders\.yml$/.test(p.trim()),
+      async reload() {
+        setStale(FOLDERS_FILE, false);
+        return foldersFile.reload();
+      },
+    });
+    return () => {
+      stop();
+      unregister();
+    };
+  }, [platform, foldersFile, registries, setStale]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
   const reportPath = useRef<string | null>(null);
@@ -430,14 +537,14 @@ export function App({
         reload: async () => {
           const r = await source.reload();
           if (r) {
-            setStale(false);
+            setStale("init.lua", false);
             takeReport(r);
           }
           return r;
         },
       }),
     );
-  }, [registries, platform, takeReport]);
+  }, [registries, platform, takeReport, setStale]);
 
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
@@ -530,6 +637,10 @@ export function App({
   };
   const closeAdd = () => {
     setAdding(null);
+    restoreFocus();
+  };
+  const closeConfirm = () => {
+    setConfirming(null);
     restoreFocus();
   };
   const closeChanges = () => {
@@ -644,6 +755,7 @@ export function App({
     // The panel drawn last (Key bindings, beside :check) is the topmost.
     closePanel: () => {
       if (keysOpen) return closeKeys();
+      if (confirming) return closeConfirm();
       if (editing !== null) return closeEdit();
       if (adding) return closeAdd();
       if (changesView) return closeChanges();
@@ -667,6 +779,31 @@ export function App({
       return sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
     },
     hostNames: () => hosts?.hosts.map((h) => h.name) ?? [],
+    groupNames: () => groupNames,
+    inventory: (op) => {
+      if (!canLive) {
+        return setMessage(`Changing the Inventory here needs a newer roster (API version ${LIVE_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      if (op.op === "remove") {
+        const h = hostByName.get(op.host);
+        if (!h) return setMessage(`No Host named ${op.host}`);
+        if (!confirming) rememberFocus();
+        return setConfirming({ host: h.name, group: h.group });
+      }
+      if (op.op === "group-delete" && op.to === undefined) {
+        const members = hosts?.hosts.filter((h) => h.group === op.group) ?? [];
+        if (members.length > 0) {
+          // Where should they go? The command line asks, with the groups to complete.
+          const others = groupNames.filter((g) => g !== op.group);
+          if (others.length === 0) {
+            return setMessage(`${op.group} has ${countOf(members.length, "Host")} and there's no other group for them: make one first (:group new)`);
+          }
+          ctx.openCommandLine(`group delete ${op.group} `);
+          return setMessage(`${op.group} has ${countOf(members.length, "Host")}: name the group they move to (Tab completes), or Esc to keep it`);
+        }
+      }
+      void runInventory(op);
+    },
     say: setMessage,
     viewMode: () => viewMode,
     setViewMode: (mode) => setViewMode(mode ?? otherMode(viewMode)),
@@ -693,11 +830,11 @@ export function App({
       setAdding(null);
       setEditing(host);
     },
-    addHost: () => {
+    addHost: (inGroup) => {
       if (!canAdd) return setMessage(`:host add needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
       if (editing === null && !changesView && !adding) rememberFocus();
       const selected = ctx.selectedHost();
-      const group = (selected && hostByName.get(selected)?.group) ?? Object.keys(hosts?.groups ?? {})[0] ?? "";
+      const group = inGroup ?? (selected && hostByName.get(selected)?.group) ?? Object.keys(hosts?.groups ?? {})[0] ?? "";
       setChangesView(null);
       setEditing(null);
       setAdding({ group });
@@ -780,6 +917,60 @@ export function App({
   };
 
   const copy = (text: string) => platform.clipboard.writeText(text);
+
+  /** One Live Inventory change through roster (a Pending change), then the Sidebar and the count
+   * again, and what happened in a line. A refusal is roster's message, with its fix. */
+  async function runInventory(op: InventoryOp): Promise<void> {
+    try {
+      const said = await inventoryCall(op);
+      setMessage(said);
+    } catch (e) {
+      setMessage(inventoryRefusal(e));
+    }
+    reloadHosts();
+    refreshPending();
+  }
+
+  async function inventoryCall(op: InventoryOp): Promise<string> {
+    const pendingNote = "as a Pending change";
+    switch (op.op) {
+      case "remove": {
+        const r = await backend.removeHost(op.host);
+        return `Removed ${r.removed} from ${r.group} ${pendingNote}. Its vault item, if any, is untouched.`;
+      }
+      case "rename": {
+        const r = await backend.renameHost(op.host, op.to);
+        return r.changed ? `Renamed ${op.host} to ${op.to} ${pendingNote}. Sessions use it after roster sync.` : `${op.host} already has that name.`;
+      }
+      case "move": {
+        const r = await backend.moveHost(op.host, op.group);
+        if (!r.changed) return `${op.host} is already in ${op.group}.`;
+        const kept = r.pinned.length ? ` It keeps its ${r.pinned.join(", ")}, now written on the Host.` : "";
+        return `Moved ${op.host} to ${op.group} ${pendingNote}.${kept}`;
+      }
+      case "group-new":
+        await backend.newGroup(op.name);
+        return `Added group ${op.name} ${pendingNote}. Drag Hosts onto it, or + adds one.`;
+      case "group-rename": {
+        const r = await backend.renameGroup(op.group, op.to);
+        return r.changed ? `Renamed group ${op.group} to ${op.to} ${pendingNote}.` : `${op.group} already has that name.`;
+      }
+      case "group-delete": {
+        const r = await backend.deleteGroup(op.group, op.to);
+        return r.moved.length
+          ? `Deleted group ${op.group}; ${countOf(r.moved.length, "Host")} moved to ${r.to ?? "?"}, ${pendingNote}.`
+          : `Deleted group ${op.group} ${pendingNote}.`;
+      }
+    }
+  }
+
+  /** A refused Live Inventory change, said whole: roster's message and its fix. */
+  function inventoryRefusal(e: unknown): string {
+    if (!(e instanceof BackendCallError)) return `Couldn't change the Inventory: ${e instanceof Error ? e.message : String(e)}`;
+    if (e.code === LiveError.groupNotEmpty) return `${e.message}.`;
+    const fix = e.data?.fix ? ` (${e.data.fix})` : "";
+    return `Couldn't change the Inventory: ${e.message}${fix}`;
+  }
 
   function run(line: Line) {
     setMessage("");
@@ -948,9 +1139,9 @@ export function App({
         // They drop out whole, last first, when the bar runs out of room (never cut mid-key).
         return (
           <span key={id} className="statusbar-hints">
-            {stale && (
+            {stale.length > 0 && (
               <span className="hint stale" title="Saved, not applied yet: auto_reload is off in init.lua">
-                init.lua changed {sourceKeys ? <Keys keys={sourceKeys} leader={options.leader} /> : <code>:source</code>} apply
+                {stale.join(", ")} changed {sourceKeys ? <Keys keys={sourceKeys} leader={options.leader} /> : <code>:source</code>} apply
               </span>
             )}
             {hints.map(([k, what]) => (
@@ -1078,7 +1269,7 @@ export function App({
                   source.reload().then(
                     (r) => {
                       if (r) {
-                        setStale(false);
+                        setStale("init.lua", false);
                         takeReport(r);
                       }
                       setMessage(
@@ -1193,6 +1384,25 @@ export function App({
             onClose={closeChanges}
           />
         )}
+        {confirming && (
+          <ConfirmPanel
+            key={confirming.host}
+            title={`Remove ${confirming.host}?`}
+            body={
+              <>
+                <code>{confirming.host}</code> leaves group {confirming.group} in roster.yml, as a Pending change you can
+                discard until it&rsquo;s Published. Its vault item, if it has one, stays in the vault.
+              </>
+            }
+            action="Remove"
+            onConfirm={async () => {
+              const host = confirming.host;
+              await runInventory({ op: "remove", host });
+              closeConfirm();
+            }}
+            onClose={closeConfirm}
+          />
+        )}
         {keysOpen && (
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
         )}
@@ -1205,6 +1415,7 @@ export function App({
             complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [], {
               foldIds: rows.filter((r) => r.foldable).map((r) => r.id),
               sessions: sessions.tabs.map((t) => t.host),
+              groupNames,
             })
           }
           describe={(candidate) => {
@@ -1301,4 +1512,10 @@ export function notReviewedMessage(name: string, canReview: boolean): string {
   return canReview
     ? `${name} isn't reviewed yet, so it can't be opened. :review ${name} marks it reviewed.`
     : `${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`;
+}
+
+/** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */
+export function inventoryBroken(e: InventoryFileError): string {
+  const at = `roster.yml${e.line ? `:${e.line}` : ""}`;
+  return `${at} has an error (${e.message}): the last good Inventory is still in use`;
 }

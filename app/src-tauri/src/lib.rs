@@ -5,7 +5,7 @@
 use roster_core::backend::{Backend, BackendInfo};
 use roster_core::config::{self, Config, Loader, Report};
 use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect};
-use roster_core::rpc::CallError;
+use roster_core::rpc::{CallError, Notify};
 use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use roster_core::slot::Slot;
 use roster_core::state::StateFile;
@@ -23,7 +23,7 @@ impl BackendState {
     /// whole detection and start: run it on a blocking thread.
     /// Which roster runs comes from the Config (`roster_command`, `backend`), with the
     /// development env vars winning; a change takes effect at the next (re)start.
-    fn connect(&self, restart: bool, config: &Config) -> Result<BackendInfo, BackendError> {
+    fn connect(&self, restart: bool, config: &Config, notify: Notify) -> Result<BackendInfo, BackendError> {
         let backend = self.0.connect(restart, Backend::is_alive, || {
             let env_cmd = roster_core::env::roster_override();
             let env_distro = roster_core::env::wsl_distro();
@@ -41,7 +41,7 @@ impl BackendState {
                 &plan.command,
                 plan.distro.as_deref(),
             )?;
-            Backend::start(&candidate)
+            Backend::start_with(&candidate, Some(notify))
         })?;
         Ok(backend.info.clone())
     }
@@ -67,15 +67,21 @@ async fn blocking<T: Send + 'static, E: Send + 'static>(
 /// (at most the Lua wall-clock limit) rather than starting the default roster.
 #[tauri::command]
 async fn backend_connect(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
     config: tauri::State<'_, ConfigState>,
     restart: bool,
 ) -> Result<BackendInfo, BackendError> {
     let s = Arc::clone(&state);
     let loader = config.0.clone();
+    // serve's notifications (`inventory.changed`, ticket 28) go to the frontend as one event.
+    let notify: Notify = Arc::new(move |method: &str, params: Value| {
+        use tauri::Emitter;
+        let _ = app.emit("roster-notification", json!({ "method": method, "params": params }));
+    });
     blocking(move || {
         let config = loader.map(|l| l.settled()).unwrap_or_default();
-        s.connect(restart, &config)
+        s.connect(restart, &config, notify)
     })
     .await
 }
@@ -212,12 +218,21 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     let l = Arc::clone(loader);
     // A save reloads only with `auto_reload = true` (decision Q58); otherwise the frontend
     // hears that the file changed, and `:source` applies it.
-    match config::watch(loader.dir(), move || match l.on_save() {
-        Some(report) => {
-            let _ = handle.emit("config-changed", report);
+    // folders.yml (ticket 28, decision Q46) is the frontend's to read: it hears that it changed.
+    match config::watch_files(loader.dir(), move |changed| {
+        if changed.folders {
+            let _ = handle.emit("folders-changed", ());
         }
-        None => {
-            let _ = handle.emit("config-stale", ());
+        if !changed.lua {
+            return;
+        }
+        match l.on_save() {
+            Some(report) => {
+                let _ = handle.emit("config-changed", report);
+            }
+            None => {
+                let _ = handle.emit("config-stale", ());
+            }
         }
     }) {
         Ok(w) => Some(w),
@@ -358,6 +373,51 @@ async fn host_add(
 
 /// One connection with a 10 s login, then bw's sync and create (each up to 40 s).
 const ADD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// The Live Inventory (ticket 28): removing, renaming and moving Hosts, groups, `:source` for
+/// roster.yml and the watch. Only these methods pass; each is a plain call to serve.
+const INVENTORY_METHODS: &[&str] = &[
+    "host.remove",
+    "host.rename",
+    "host.move",
+    "group.new",
+    "group.rename",
+    "group.delete",
+    "inventory.reload",
+    "inventory.watch",
+];
+
+#[tauri::command]
+async fn inventory_call(
+    state: tauri::State<'_, Arc<BackendState>>,
+    method: String,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    let Some(&method) = INVENTORY_METHODS.iter().find(|m| **m == method) else {
+        return Err(CallError::Io {
+            message: format!("{method} isn't an Inventory method"),
+        });
+    };
+    call(&state, method, Value::Object(params)).await
+}
+
+/// `folders.yml`'s path and text (null: no file yet), next to init.lua (decision Q46).
+#[tauri::command]
+async fn folders_read(config: tauri::State<'_, ConfigState>) -> Result<Value, String> {
+    let dir = config_dir(&config)?;
+    blocking(move || {
+        let text = config::folders::read(&dir).map_err(|e| e.to_string())?;
+        Ok(json!({ "path": config::folders::path(&dir).display().to_string(), "text": text }))
+    })
+    .await
+}
+
+/// Replaces `folders.yml` (atomically) with the text the frontend made.
+#[tauri::command]
+async fn folders_write(config: tauri::State<'_, ConfigState>, text: String) -> Result<(), String> {
+    let dir = config_dir(&config)?;
+    blocking(move || config::folders::write(&dir, &text).map_err(|e| e.to_string())).await
+}
 
 /// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change.
 #[tauri::command]
@@ -578,6 +638,9 @@ pub fn run() {
             host_scan_key,
             host_add,
             host_review,
+            inventory_call,
+            folders_read,
+            folders_write,
             changes_diff,
             changes_discard,
             changes_publish,

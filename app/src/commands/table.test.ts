@@ -41,7 +41,9 @@ function recorder(mode: ViewMode = "standard") {
     edit: (h) => calls.push(`edit ${h ?? "selected"}`),
     showChanges: (then) => calls.push(then ? `changes ${then}` : "changes"),
     pull: () => calls.push("pull"),
-    addHost: () => calls.push("add"),
+    addHost: (g) => calls.push(g ? `add ${g}` : "add"),
+    inventory: (op) => calls.push(`inventory ${JSON.stringify(op)}`),
+    groupNames: () => ["lab", "net"],
     review: (h) => calls.push(`review ${h ?? "selected"}`),
     config: (what) => calls.push(`config ${what}`),
   };
@@ -59,10 +61,56 @@ describe("runLine", () => {
 
   it("runs :host add and :review (ticket 11), and says what :host takes", () => {
     const { ctx, calls } = recorder();
-    for (const line of ["host add", "review switch-4-003", "review", "host remove"]) runLine(ctx, line);
-    expect(calls).toEqual(["add", "review switch-4-003", "review selected", "say host takes one argument: add (not remove)"]);
-    expect(complete("host ", hosts)).toEqual(["host add"]);
+    for (const line of ["host add", "review switch-4-003", "review", "host frob"]) runLine(ctx, line);
+    expect(calls).toEqual(["add", "review switch-4-003", "review selected", "say host takes add, remove, rename, move (not frob)"]);
+    expect(complete("host ", hosts)).toEqual(["host add", "host remove ", "host rename ", "host move "]);
     expect(complete("rev", hosts)).toEqual(["review"]);
+  });
+
+  it("runs :host remove|rename|move and :group new|rename|delete (ticket 28), asking for what's missing", () => {
+    const { ctx, calls } = recorder();
+    for (const line of [
+      "host remove orion3",
+      "host remove",
+      "host remove nope",
+      "host rename orion3 orion4",
+      "host rename orion3",
+      "host move hub2 net",
+      "host move hub2",
+      "host add lab",
+      "group new dmz",
+      "group new",
+      "group rename lab",
+      "group rename lab bench",
+      "group delete lab",
+      "group delete lab net",
+      "group delete nope",
+    ]) {
+      runLine(ctx, line);
+    }
+    expect(calls).toEqual([
+      'inventory {"op":"remove","host":"orion3"}',
+      "say No Host selected: move to one in the Sidebar, or use host remove HOST",
+      "say No Host named nope",
+      'inventory {"op":"rename","host":"orion3","to":"orion4"}',
+      "cmdline host rename orion3 ",
+      'inventory {"op":"move","host":"hub2","group":"net"}',
+      "cmdline host move hub2 ",
+      "add lab",
+      'inventory {"op":"group-new","name":"dmz"}',
+      "cmdline group new ",
+      "cmdline group rename lab ",
+      'inventory {"op":"group-rename","group":"lab","to":"bench"}',
+      'inventory {"op":"group-delete","group":"lab"}',
+      'inventory {"op":"group-delete","group":"lab","to":"net"}',
+      "say No group named nope",
+    ]);
+    const more = { foldIds: [], sessions: [], groupNames: ["lab", "net"] };
+    expect(completeIn(registry, "host move hub2 ", hosts, more)).toEqual(["host move hub2 lab", "host move hub2 net"]);
+    expect(completeIn(registry, "host rem", hosts, more)).toEqual(["host remove "]);
+    expect(completeIn(registry, "host remove or", hosts, more)).toEqual(["host remove orion3"]);
+    expect(completeIn(registry, "group delete lab ", hosts, more)).toEqual(["group delete lab net"]);
+    expect(completeIn(registry, "group ", hosts, more)).toEqual(["group new ", "group rename ", "group delete "]);
   });
 
   it("runs :check for a Host, or for the current Session's Host with no argument", () => {

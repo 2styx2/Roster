@@ -8,12 +8,14 @@ Logins come back as references (bw:ITEM), never as values. Requests are handled 
 Add a method by writing a function (state, params) -> result and listing it in METHODS.
 """
 
+import hashlib
 import json
 import os
 import secrets
 import shutil
 import signal
 import sys
+import threading
 import time
 
 from . import __version__, askpass, changes, diagnose, edit, providers
@@ -23,10 +25,12 @@ from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CANT_WRITE,
     CLI_MISSING,
+    GROUP_NOT_EMPTY,
     HOST_EXISTS,
     INVALID_HOST,
     INVENTORY_ERROR,
     ITEM_EXISTS,
+    NAME_TAKEN,
     NO_ASKPASS,
     NO_SIGN_IN,
     NOT_CREATED_HERE,
@@ -35,9 +39,11 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NOT_SET_UP,
     NOT_VERIFIED,
     ROSTER_ERROR,
+    UNKNOWN_GROUP,
     UNKNOWN_HOST,
     UNSUPPORTED,
     VAULT_LOCKED,
+    WOULD_CHANGE,
     WRITE_FAILED,
     WRONG_PASSWORD,
     Problem,
@@ -49,7 +55,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import in_ssh_config, record_host_key, write_ssh_config
 
-API_VERSION = 7             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 8             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -68,6 +74,12 @@ class State:
 
     def __init__(self, config_arg):
         self.cfg, self.path, self.error = None, None, None
+        self.digest = None                  # what roster.yml held at the last load (good or not): the watcher's base
+        self.noticed = None                 # an outside edit already reported as not applied (auto off)
+        self.auto = False                   # inventory.watch: apply outside edits as they're saved
+        self.watcher = None                 # the Watcher thread, once inventory.watch started it
+        self.notify = None                  # fn(method, params): a JSON-RPC notification to the app (serve() sets it)
+        self.lock = threading.RLock()       # one request, or one reload by the watcher, at a time
         self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
@@ -82,24 +94,59 @@ class State:
         self.reload()
 
     def reload(self):
-        """Load roster.yml again (after a pull, an edit or a discard, so hosts.list shows the file as it is)."""
+        """Load roster.yml again (after a pull, an edit, a discard, `:source` or an outside edit, so hosts.list shows
+        the file as it is). A file that doesn't load keeps the last good Inventory, with the error beside it."""
+        self.digest, self.noticed = file_digest(self.path), None
         try:
-            self.cfg = load_config(self.path)
-            self.path, self.error = self.cfg["path"], None
-            setup_providers(self.cfg)
+            cfg = load_config(self.path)
         except SystemExit as e:
-            self.cfg, self.error = None, die_message(e)
+            self.error = die_message(e)
+            return
+        self.cfg, self.path, self.error = cfg, cfg["path"], None
+        setup_providers(cfg)
+
+    def problem(self):
+        """Why roster.yml doesn't load right now (code 1, with its line), or None."""
+        if self.error is None:
+            return None
+        p = inventory_problem(self.error, self.path)
+        p.data |= versions()
+        return p
+
+    def fresh(self):
+        """roster.yml loaded again, for an edit: refuses (code 1) when the file as it is now doesn't load, even
+        though the last good Inventory is still shown."""
+        self.reload()
+        p = self.problem()
+        if p:
+            raise p
+        return self.cfg
 
     def inventory(self):
         if self.cfg is None:
-            p = inventory_problem(self.error, self.path)
-            p.data |= versions()
-            raise p
+            raise self.problem()
         return self.cfg
 
 
 def versions():
     return {"roster_version": __version__, "api_version": API_VERSION}
+
+
+def file_digest(path):
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path else None
+    except OSError:
+        return None
+
+
+def broken(state):
+    """hosts.list's and inventory.reload's `error`: why roster.yml as it is now doesn't load, while the last good
+    Inventory is shown ({message, path, line?}); None when it loads."""
+    p = state.problem()
+    if p is None:
+        return None
+    return {"message": p.message, "path": p.data.get("path"), **({"line": p.data["line"]} if "line" in p.data else {}),
+            "fix": p.data.get("fix")}
 
 
 # ---------------------------------------------------------------- methods
@@ -111,8 +158,9 @@ def inventory_info(state, params):
 
 
 def hosts_list(state, params):
+    """Every Host and group. While roster.yml doesn't load (an outside edit), the last good ones, and `error`."""
     cfg = state.inventory()
-    return {"hosts": list(cfg["hosts"].values()), "groups": cfg["groups"]}
+    return {"hosts": list(cfg["hosts"].values()), "groups": cfg["groups"], "error": broken(state)}
 
 
 def host_get(state, params):
@@ -223,8 +271,7 @@ def edit_params(params):
 def edited_host(state, params):
     """(the Host now, the Host as params would leave it, the fields that really change). Reads roster.yml afresh."""
     name = text_param(params, "host")
-    state.reload()
-    h = state.inventory()["hosts"].get(name)
+    h = state.fresh()["hosts"].get(name)
     if h is None:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
     now = edit.current(h)
@@ -368,8 +415,7 @@ def add_host(state, params):
     typed = typed_login(state, params, name)
     if typed:
         fields["auth"] = f"{typed['provider']}:{typed['item']}"
-    state.reload()
-    state.inventory()
+    state.fresh()
     repo = changes.Repo(state.path)
     _, _, h = edit.added(repo.path, group, name, fields)      # a dry run: the name, group and user, before the network
     login = typed is not None or diagnose.stored_password(h) is not None
@@ -433,8 +479,7 @@ def take_back(made, e):
 def host_review(state, params):
     """Mark a Host reviewed (reviewed: true on the Host itself, nothing else changes), as a Pending change."""
     name = text_param(params, "host")
-    state.reload()
-    h = state.inventory()["hosts"].get(name)
+    h = state.fresh()["hosts"].get(name)
     if h is None:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
     if h["reviewed"]:
@@ -447,6 +492,186 @@ def host_review(state, params):
     return {"changed": True, "host": state.inventory()["hosts"][name], "backup": str(backup)}
 
 
+# ---------------------------------------------------------------- the Live Inventory (ticket 28, decision Q45)
+# Removing, renaming and moving Hosts, and adding, renaming and deleting groups: each a text edit of roster.yml
+# (edit.py) written as a Pending change, like host.update. Removing a Host never touches the vault.
+
+def write_edit(state, old_text, new_text):
+    """Write an edit of roster.yml (a Pending change), keeping what it replaced as the backup; load it again."""
+    repo = changes.Repo(state.path)
+    backup = repo.backup(old_text)
+    edit.replace_file(repo.path, new_text)
+    state.reload()
+    return str(backup)
+
+
+def name_param(params, key):
+    v = params.get(key)
+    if not isinstance(v, str) or not v.strip():
+        raise RpcError(INVALID_PARAMS, f"params.{key} must be a non-empty string")
+    return v.strip()
+
+
+def live_repo(state):
+    """roster.yml as it is now, loaded, and in a git repo (Pending changes need one: 70)."""
+    state.fresh()
+    return changes.Repo(state.path)
+
+
+def host_remove(state, params):
+    """Take a Host out of roster.yml (its entry's lines), as a Pending change. Never touches the vault: its vault
+    item, if any, stays where it is."""
+    name = name_param(params, "host")
+    repo = live_repo(state)
+    old_text, new_text, h = edit.removed(repo.path, name)
+    backup = write_edit(state, old_text, new_text)
+    return {"removed": name, "group": h["group"], "backup": backup}
+
+
+def host_rename(state, params):
+    """Rename a Host (its key in roster.yml, nothing else), as a Pending change. Its vault item keeps its name."""
+    name, to = name_param(params, "host"), name_param(params, "to")
+    repo = live_repo(state)
+    old_text, new_text, h = edit.renamed(repo.path, name, to)
+    if old_text == new_text:
+        return {"changed": False, "host": h, "backup": None}
+    backup = write_edit(state, old_text, new_text)
+    return {"changed": True, "host": state.inventory()["hosts"][to], "backup": backup}
+
+
+def host_move(state, params):
+    """Move a Host to the end of another group, as a Pending change. What it inherited from its old group and
+    wouldn't from the new one is written on the Host, so it stays the same Host (`pinned` names those fields)."""
+    name, group = name_param(params, "host"), name_param(params, "group")
+    repo = live_repo(state)
+    old_text, new_text, h, pinned = edit.moved(repo.path, name, group)
+    if old_text == new_text:
+        return {"changed": False, "host": h, "pinned": [], "backup": None}
+    backup = write_edit(state, old_text, new_text)
+    return {"changed": True, "host": state.inventory()["hosts"][name], "pinned": pinned, "backup": backup}
+
+
+def group_new(state, params):
+    """Add an empty group after the last one (`NAME:` with `hosts: {}`), as a Pending change."""
+    name = name_param(params, "name")
+    title = params.get("title") or ""
+    if not isinstance(title, str) or "\n" in title:
+        raise RpcError(INVALID_PARAMS, "params.title must be one line")
+    repo = live_repo(state)
+    old_text, new_text = edit.group_added(repo.path, name, title)
+    backup = write_edit(state, old_text, new_text)
+    return {"group": name, "backup": backup}
+
+
+def group_rename(state, params):
+    """Rename a group (its key in roster.yml); its Hosts go with it. A Pending change."""
+    group, to = name_param(params, "group"), name_param(params, "to")
+    repo = live_repo(state)
+    old_text, new_text = edit.group_renamed(repo.path, group, to)
+    if old_text == new_text:
+        return {"changed": False, "group": to, "backup": None}
+    backup = write_edit(state, old_text, new_text)
+    return {"changed": True, "group": to, "backup": backup}
+
+
+def group_delete(state, params):
+    """Delete a group. One that still has Hosts is refused (102, data.hosts) unless `to` names the group they move
+    to first (as host.move moves them). A Pending change."""
+    group = name_param(params, "group")
+    to = params.get("to")
+    if to is not None:
+        to = name_param(params, "to")
+    repo = live_repo(state)
+    old_text, new_text, moved = edit.group_deleted(repo.path, group, to)
+    backup = write_edit(state, old_text, new_text)
+    return {"deleted": group, "moved": moved, "to": to if moved else None, "backup": backup}
+
+
+# ---------------------------------------------------------------- reloading: `:source` and auto_reload (Q58)
+
+def inventory_reload(state, params):
+    """`:source` for roster.yml: load it again now. A file that doesn't load keeps the last good Inventory, and
+    `error` says why ({message, path, line?, fix}); `changed`: the file differs from what was loaded before."""
+    before = state.digest
+    state.reload()
+    cfg = state.inventory()
+    return {"changed": state.digest != before, "host_count": len(cfg["hosts"]), "error": broken(state)}
+
+
+WATCH_EVERY = 0.2           # s: how often the watcher looks at roster.yml (an outside edit shows within a second)
+
+
+class Watcher(threading.Thread):
+    """Looks at roster.yml every WATCH_EVERY s: its size, time and inode, so an editor that saves by writing a new
+    file and renaming it over is seen too. A change that has settled (the same for one more look) and differs from
+    what serve last loaded (its own writes don't count) is either applied (inventory.watch's auto: reload, then
+    `inventory.changed {applied: true, error}`) or only reported once (`{applied: false}`: the app's status bar
+    hint, applied by `:source`)."""
+
+    def __init__(self, state):
+        super().__init__(daemon=True, name="roster-watch")
+        self.state, self.stop = state, threading.Event()
+
+    @staticmethod
+    def look(path):
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        return st.st_mtime_ns, st.st_size, st.st_ino
+
+    def run(self):
+        last = settling = self.look(self.state.path)
+        while not self.stop.wait(WATCH_EVERY):
+            now = self.look(self.state.path)
+            if now == last:
+                continue
+            if now != settling:                     # still being written: look again once it's settled
+                settling = now
+                continue
+            last = now
+            self.changed()
+
+    def changed(self):
+        state = self.state
+        with state.lock:
+            digest = file_digest(state.path)
+            if digest is None or digest in (state.digest, state.noticed):
+                return
+            if state.auto:
+                state.reload()
+                params = {"applied": True, "error": broken(state)}
+            else:
+                state.noticed = digest
+                params = {"applied": False, "error": None}
+            notify = state.notify
+        if notify:
+            notify("inventory.changed", params)
+
+
+def inventory_watch(state, params):
+    """Start watching roster.yml for outside edits (once), and say whether to apply them (auto, the Config's
+    auto_reload) or only report them. Without a notification channel (in-process use) it can't watch."""
+    auto = params.get("auto", False)
+    if not isinstance(auto, bool):
+        raise RpcError(INVALID_PARAMS, "params.auto must be true or false")
+    state.auto = auto
+    if state.notify is None or state.path is None:
+        return {"watching": False, "auto": auto}
+    if state.watcher is None:
+        state.watcher = Watcher(state)
+        state.watcher.start()
+    return {"watching": True, "auto": auto, "path": str(state.path)}
+
+
+METHODS["host.remove"] = host_remove
+METHODS["host.rename"] = host_rename
+METHODS["host.move"] = host_move
+METHODS["group.new"] = group_new
+METHODS["group.rename"] = group_rename
+METHODS["group.delete"] = group_delete
+METHODS["inventory.reload"] = inventory_reload
+METHODS["inventory.watch"] = inventory_watch
 METHODS["host.scan_key"] = host_scan_key
 METHODS["host.add"] = host_add
 METHODS["host.review"] = host_review
@@ -742,15 +967,26 @@ def serve(config_arg):
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed
     state = State(config_arg)
+    out_lock = threading.Lock()
+
+    def send(message):
+        with out_lock:
+            out.write(json.dumps(message, default=str) + "\n")
+            out.flush()
+
+    # the one message serve sends unasked: a JSON-RPC notification (no id), e.g. inventory.changed
+    state.notify = lambda method, params: send({"jsonrpc": "2.0", "method": method, "params": params})
     with askpass.Channel(askpass_lookup, log=log_line) as state.askpass:
         try:
             for line in sys.stdin:
                 if not line.strip():
                     continue
-                response = handle(state, line)
+                with state.lock:
+                    response = handle(state, line)
                 if response is not None:
-                    out.write(json.dumps(response, default=str) + "\n")
-                    out.flush()
+                    send(response)
         finally:
+            if state.watcher is not None:
+                state.watcher.stop.set()
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
     return 0

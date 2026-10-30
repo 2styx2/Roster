@@ -59,6 +59,8 @@ export interface SidebarRow {
   /** The raised row stands for a live Session (connected or connecting, not ended): it gets the
    * accent bar (decision Q53). Set by the Sessions section, or by buildSections. */
   live?: boolean;
+  /** Added to roster.yml and not Published yet (ticket 28): dimmed, with a dot. */
+  pending?: boolean;
   /** Tree depth within its section; rows after a row with a lower level are its children. */
   level?: number;
   /** It has children that h/l (or its chevron) fold and unfold. */
@@ -132,6 +134,7 @@ export function rowFacts(row: SidebarRow): string[] {
   if (row.badge && row.dot !== "off") facts.push(row.badge);
   if (row.detail) facts.push(row.detail);
   if (row.count !== undefined) facts.push(hostsCount(row.count));
+  if (row.pending) facts.push("not Published yet");
   return facts;
 }
 
@@ -224,7 +227,7 @@ const RowIcon = ({ name }: { name: NonNullable<SidebarRow["icon"]> }) => (
 
 
 const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cursor: boolean; run: Run; drag: Drag }) {
-  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}`;
+  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}${row.pending ? " pending" : ""}`;
   const cut = row.tail !== undefined && row.label.endsWith(row.tail);
   return (
     <li
@@ -270,6 +273,7 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
             </span>
             {cut && <span className="sb-tail">{row.tail}</span>}
             {row.note && <span className="sb-note"> {row.note}</span>}
+            {row.pending && <span className="sb-pending-dot" aria-hidden="true" title="Not Published yet" />}
           </span>
           {row.badge && <span className="sb-badge"> {row.badge}</span>}
           {row.detail && <span className="sb-detail"> {row.detail}</span>}

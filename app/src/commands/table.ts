@@ -5,6 +5,7 @@
 // through runLine, so a view mode only changes how commands are presented, never which exist.
 // A command acts through CommandContext, which App provides.
 
+import { groupCommand, hostCommand, type InventoryOp } from "../inventory/commands";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import { VIEW_MODES, type ViewMode } from "../view/layout";
@@ -64,8 +65,13 @@ export interface CommandContext {
   showInfo(): void;
   /** Opens the edit form for the Host, or the selected one (ticket 10). */
   edit(host: string | null): void;
-  /** Opens the add-Host form (ticket 11). */
-  addHost(): void;
+  /** Opens the add-Host form (ticket 11), in `group` (else the selected Host's). */
+  addHost(group?: string): void;
+  /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
+   * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
+  inventory(op: InventoryOp): void;
+  /** Every group's name, in roster.yml order. */
+  groupNames(): readonly string[];
   /** Marks the Host, or the selected one, reviewed (ticket 11). */
   review(host: string | null): void;
   /** Shows the Pending changes; `discard` asks to discard them straight away, `publish` opens
@@ -113,6 +119,8 @@ export interface CompletionContext {
   foldIds: readonly string[];
   /** The open Sessions' Hosts, in order (what `session N` and `close N` take). */
   sessions: readonly string[];
+  /** Every group's name, in roster.yml order (`host move`, `group …`, ticket 28). */
+  groupNames?: readonly string[];
 }
 
 /** Names that start with `word` first, then the rest that contain it, without case. */
@@ -196,18 +204,8 @@ export const builtinCommands: readonly CommandDef[] = [
     label: (h) => (h ? `Edit ${h}` : "Edit a Host: title, description, type, address, user, Login"),
     run: (ctx, h) => ctx.edit(h ?? null),
   },
-  {
-    id: "host",
-    source: BUILTIN,
-    area: "Inventory",
-    arg: "text",
-    label: (what) => (what === "add" ? "Add a Host" : "Host: add a Host (host add)"),
-    run: (ctx, what) => {
-      if (what?.toLowerCase() === "add") return ctx.addHost();
-      ctx.say(`host takes one argument: add (not ${what ?? "nothing"})`);
-    },
-    complete: (what) => (["add"] as const).filter((a) => a.startsWith(what.toLowerCase())),
-  },
+  hostCommand,
+  groupCommand,
   {
     id: "review",
     source: BUILTIN,

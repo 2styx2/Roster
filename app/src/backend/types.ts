@@ -26,6 +26,17 @@ export interface Group {
 export interface HostList {
   hosts: Host[];
   groups: Record<string, Group>;
+  /** roster.yml as it is now doesn't load (an outside edit): these are the last good Hosts, and
+   * this says why (API 8; catalog row 1). Null or absent when it loads. */
+  error?: InventoryFileError | null;
+}
+
+/** Why roster.yml doesn't load right now, with the line when roster knows it. */
+export interface InventoryFileError {
+  message: string;
+  path: string | null;
+  line?: number;
+  fix?: string | null;
 }
 
 /** `inventory.info`. */
@@ -192,6 +203,34 @@ export interface PublishResult {
   pulled: number;
   /** `roster sync` after the push: this Box's ssh config. A failure doesn't undo the Publish. */
   sync: { ok: boolean; error?: string; fix?: string };
+}
+
+/** The first `api_version` with the Live Inventory (ticket 28): `host.remove`, `host.rename`,
+ * `host.move`, `group.new|rename|delete`, `inventory.reload` (`:source`), `inventory.watch` and the
+ * `inventory.changed` notification, and `hosts.list`'s `error`. */
+export const LIVE_API_VERSION = 8;
+
+/** roster's codes for the Live Inventory (ticket 28). A bad name is 80, an unknown Host 2. */
+export const LiveError = {
+  nameTaken: 100,
+  unknownGroup: 101,
+  groupNotEmpty: 102,
+  wouldChange: 103,
+} as const;
+
+/** `inventory.reload` (`:source`): roster.yml read again now; `error` while it doesn't load (the
+ * last good Inventory stays). */
+export interface InventoryReload {
+  changed: boolean;
+  host_count: number;
+  error: InventoryFileError | null;
+}
+
+/** serve's `inventory.changed` notification: an outside edit of roster.yml. `applied`: it was
+ * loaded (auto_reload on), with `error` if it doesn't load; else only noticed, for `:source`. */
+export interface InventoryChanged {
+  applied: boolean;
+  error: InventoryFileError | null;
 }
 
 /** roster's codes for publishing (ticket 12; docs/app/errors.md rows 46-52). A failed fetch is 73. */
@@ -446,6 +485,26 @@ export interface Backend {
   /** `changes.publish`: commit roster.yml with `message` and push it (never forced), then
    * `roster sync`. Rejects with a PublishError code (or 73 fetch failed, 1 roster.yml broken). */
   publishChanges(message: string): Promise<PublishResult>;
+  /** `host.remove`: take the Host out of roster.yml as a Pending change. Never touches the vault. */
+  removeHost(host: string): Promise<{ removed: string; group: string; backup: string }>;
+  /** `host.rename`: the Host's name in roster.yml, nothing else. Rejects with 100 (taken) or 80. */
+  renameHost(host: string, to: string): Promise<HostUpdate>;
+  /** `host.move`: to the end of another group; what it inherited and wouldn't there is written on
+   * it (`pinned`). Rejects with 101 (no such group) or 103 (it would come out different). */
+  moveHost(host: string, group: string): Promise<HostUpdate & { pinned: string[] }>;
+  /** `group.new`: an empty group after the last one. */
+  newGroup(name: string, title?: string): Promise<{ group: string; backup: string }>;
+  /** `group.rename`: its Hosts go with it. */
+  renameGroup(group: string, to: string): Promise<{ changed: boolean; group: string; backup: string | null }>;
+  /** `group.delete`: refuses (102, `data.hosts`) a group that still has Hosts unless `to` says
+   * where they go. */
+  deleteGroup(group: string, to?: string): Promise<{ deleted: string; moved: string[]; to: string | null; backup: string }>;
+  /** `inventory.reload`: `:source` for roster.yml. */
+  reloadInventory(): Promise<InventoryReload>;
+  /** `inventory.watch`: notice outside edits of roster.yml; `auto` applies them (auto_reload). */
+  watchInventory(auto: boolean): Promise<{ watching: boolean; auto: boolean }>;
+  /** Calls `onChange` for each `inventory.changed`; returns stop. */
+  onInventoryChanged(onChange: (change: InventoryChanged) => void): () => void;
   /** `host.scan_key`: the host key an address offers, for the user to confirm before a first login. */
   scanKey(address: string, port: number): Promise<ScannedKey>;
   /** `host.add`: test the Login, save a typed password to the vault, add the Host as a Pending

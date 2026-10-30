@@ -85,7 +85,7 @@ app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (id
 crates/roster-core/src/config/
                       the Lua Config (ticket 21, docs/app/config.md): schema.rs (every option and default), lua.rs
                       (sandboxed Lua 5.4, `require` in the config dir, the `roster` table), locate.rs (file:line
-                      for schema errors), watch.rs (live reload), editor.rs (`:config`: the commented-out
+                      for schema errors), watch.rs (live reload; folders.yml too), folders.rs (folders.yml's text), editor.rs (`:config`: the commented-out
                       starter file, made once, and opening it in the `editor`), mod.rs (load, Loader
                       keeping the last good one)
 app/src/config/       the Config in the frontend (ImportPanel.tsx: `:config import-terminal`'s diff): types.ts (the core's object), apply.ts (→ options, and keys,
@@ -96,6 +96,10 @@ app/src/commands/     table.ts: the ONE command table (`:` names; keys, the comm
 app/src/keymap.ts     keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)
 app/src/keyboard/     mode.ts (Terminal mode / App mode machine, key sequences), bindings.ts + BindingsPanel (␣ ?)
 app/src/sidebar/      Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
+app/src/inventory/    the Live Inventory (ticket 28): commands.ts (`:host add|remove|rename|move`, `:group new|rename|delete`),
+                      ConfirmPanel.tsx (removing a Host asks first)
+app/src/folders/      Folders (GLOSSARY): folders.ts (the `folder` command, the section), file.ts (folders.yml: parse, write
+                      keeping comments, the one-time move from the State)
 app/src/cmdline/      CommandLine.tsx (␣ :, Tab completion from the command table and Host names)
 app/src/theme/        Themes (ticket 09): theme.ts (the colour-token set, AppearanceOptions, terminal colours), themes.ts
                       (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/app/themes.md),

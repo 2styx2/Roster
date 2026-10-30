@@ -17,6 +17,10 @@ import {
   type HostCheck,
   type HostFields,
   type HostList,
+  type GroupChange,
+  type InventoryChanged,
+  type InventoryFileError,
+  LiveError,
   LOGIN_FIELDS,
   type PendingChanges,
   type ScannedKey,
@@ -407,6 +411,15 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
   };
 }
 
+const BACKUP = "~/infra/.git/roster/roster.yml.bak";
+
+function unknownGroup(group: string, groups: Record<string, unknown>) {
+  return new BackendCallError(`no group named '${group}' in roster.yml (groups: ${Object.keys(groups).join(", ")})`, LiveError.unknownGroup, {
+    group,
+    fix: "pick one of the groups, or make it first (group.new)",
+  });
+}
+
 /** A `host.verify_login` answer with every step ok. */
 export function passingVerify(host: string): HostCheck {
   return { host, ok: true, steps: VERIFY_STEPS.map((step) => ({ step, status: "ok" as const, message: `${step} is fine` })) };
@@ -489,7 +502,18 @@ export function commitMessage(hosts: readonly HostChange[]): string {
   return `roster: change ${hosts.length} Host${hosts.length === 1 ? "" : "s"}\n\n${items.map((i) => `- ${i}`).join("\n")}`;
 }
 
-export function fakeBackend(scenario: FakeScenario): Backend {
+/** The fake, plus what a test does from outside the app: edit roster.yml as an editor would. */
+export interface FakeBackend extends Backend {
+  /** roster.yml saved outside the app: new Hosts and groups, or a file that doesn't load. serve's
+   * watcher then applies it (auto) or only reports it, as `inventory.changed`. */
+  outsideEdit(next: HostList | { error: InventoryFileError }): void;
+  /** Whether `inventory.watch` asked to apply outside edits (null: not watching). */
+  watching(): boolean | null;
+}
+
+const NAME = /^[A-Za-z0-9._-]+$/;
+
+export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let failures = 0;
   // ---- the Inventory as committed, and as edited on this Box (ticket 10)
   let committed = scenario.hosts.hosts;
@@ -497,6 +521,22 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   const verified = new Set<string>();
   const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
   let groups = scenario.hosts.groups;
+  let committedGroups = groups;
+  // ---- the Live Inventory (ticket 28): the watch, and an outside edit not applied yet
+  let watchAuto: boolean | null = null;
+  let onDisk: HostList | { error: InventoryFileError } | null = null;
+  let broken: InventoryFileError | null = null;
+  const changeWatchers = new Set<(c: InventoryChanged) => void>();
+  const applyDisk = () => {
+    if (!onDisk) return;
+    if ("error" in onDisk) broken = onDisk.error;
+    else {
+      broken = null;
+      hosts = onDisk.hosts;
+      groups = onDisk.groups;
+    }
+    onDisk = null;
+  };
   const pending = (): PendingChanges => {
     const diff = fakeDiff(committed, hosts);
     const before = new Map(committed.map((h) => [h.name, h]));
@@ -508,13 +548,23 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       const fields = (Object.keys(b) as (keyof typeof b)[]).filter((k) => a[k] !== b[k]);
       return fields.length ? [{ host: h.name, change: "changed", fields }] : [];
     });
+    const now = new Set(hosts.map((h) => h.name));
+    for (const h of committed) if (!now.has(h.name)) changed.push({ host: h.name, change: "removed", fields: [] });
+    const groupChanges: GroupChange[] = [
+      ...Object.keys(groups).filter((g) => !(g in committedGroups)).map((group) => ({ group, change: "added" as const })),
+      ...Object.keys(committedGroups).filter((g) => !(g in groups)).map((group) => ({ group, change: "removed" as const })),
+    ];
+    const removedDiff = changed
+      .filter((c) => c.change === "removed")
+      .map((c) => `@@ -1,1 +0,0 @@\n-      ${c.host}:`)
+      .join("\n");
     return {
       path: scenario.info?.path ?? "~/infra/roster.yml",
       repo: "~/infra",
-      diff,
+      diff: diff || removedDiff || (groupChanges.length ? groupChanges.map((g) => `${g.change === "added" ? "+" : "-"}  ${g.group}:`).join("\n") : ""),
       hosts: changed,
-      groups: [],
-      count: changed.length,
+      groups: groupChanges,
+      count: changed.length || (groupChanges.length ? 1 : 0),
       message: commitMessage(changed),
     };
   };
@@ -704,7 +754,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
     },
     async listHosts() {
       await wait();
-      return { hosts, groups };
+      return { hosts, groups, error: broken };
     },
     async getHost(name: string) {
       await wait();
@@ -828,7 +878,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       await wait();
       if (pending().count === 0) return { discarded: false, backup: null };
       hosts = committed;
-      groups = scenario.hosts.groups;
+      groups = committedGroups;
       return { discarded: true, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
     async publishChanges(message) {
@@ -841,6 +891,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         });
       }
       committed = hosts;
+      committedGroups = groups;
       const sync = scenario.publishSyncError
         ? { ok: false, error: scenario.publishSyncError, fix: "run `roster sync` on this box" }
         : { ok: true };
@@ -925,5 +976,98 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       hosts = hosts.map((x) => (x.name === host ? updated : x));
       return { changed: true, host: updated, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
+    async removeHost(host) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      hosts = hosts.filter((x) => x.name !== host);
+      return { removed: host, group: h.group, backup: BACKUP };
+    },
+    async renameHost(host, to) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      if (!NAME.test(to)) throw new BackendCallError(`bad host name '${to}' (use letters, digits, . _ -)`, AddError.invalidHost, { field: "name" });
+      if (to === host) return { changed: false, host: h, backup: null };
+      const there = hosts.find((x) => x.name === to);
+      if (there) {
+        throw new BackendCallError(`host '${to}' is already in the Inventory (group ${there.group})`, LiveError.nameTaken, {
+          kind: "host",
+          group: there.group,
+          fix: "pick another name",
+        });
+      }
+      const renamed = { ...h, name: to };
+      hosts = hosts.map((x) => (x.name === host ? renamed : x));
+      return { changed: true, host: renamed, backup: BACKUP };
+    },
+    async moveHost(host, group) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      if (!(group in groups)) throw unknownGroup(group, groups);
+      if (h.group === group) return { changed: false, host: h, backup: null, pinned: [] };
+      const moved = { ...h, group };
+      hosts = [...hosts.filter((x) => x.name !== host), moved];
+      return { changed: true, host: moved, backup: BACKUP, pinned: [] };
+    },
+    async newGroup(name, title) {
+      await wait();
+      if (!NAME.test(name)) throw new BackendCallError(`bad group name '${name}' (use letters, digits, . _ -)`, AddError.invalidHost, { field: "group" });
+      if (name in groups) {
+        throw new BackendCallError(`group '${name}' is already in roster.yml`, LiveError.nameTaken, { kind: "group", group: name, fix: "pick another name, or use that group" });
+      }
+      groups = { ...groups, [name]: { title: title ?? "", description: "" } };
+      return { group: name, backup: BACKUP };
+    },
+    async renameGroup(group, to) {
+      await wait();
+      if (!(group in groups)) throw unknownGroup(group, groups);
+      if (!NAME.test(to)) throw new BackendCallError(`bad group name '${to}' (use letters, digits, . _ -)`, AddError.invalidHost, { field: "group" });
+      if (to === group) return { changed: false, group: to, backup: null };
+      if (to in groups) throw new BackendCallError(`group '${to}' is already in roster.yml`, LiveError.nameTaken, { kind: "group", group: to });
+      groups = Object.fromEntries(Object.entries(groups).map(([g, v]) => [g === group ? to : g, v]));
+      hosts = hosts.map((h) => (h.group === group ? { ...h, group: to } : h));
+      return { changed: true, group: to, backup: BACKUP };
+    },
+    async deleteGroup(group, to) {
+      await wait();
+      if (!(group in groups)) throw unknownGroup(group, groups);
+      const members = hosts.filter((h) => h.group === group).map((h) => h.name);
+      if (members.length && to === undefined) {
+        throw new BackendCallError(
+          `group ${group} still has ${members.length} Host${members.length > 1 ? "s" : ""} (${members.join(", ")}) - say which group they go to, or move them first`,
+          LiveError.groupNotEmpty,
+          { group, hosts: members, fix: "pick the group its Hosts move to" },
+        );
+      }
+      if (to !== undefined && members.length && !(to in groups)) throw unknownGroup(to, groups);
+      hosts = [...hosts.filter((h) => h.group !== group), ...hosts.filter((h) => h.group === group).map((h) => ({ ...h, group: to ?? h.group }))];
+      groups = Object.fromEntries(Object.entries(groups).filter(([g]) => g !== group));
+      return { deleted: group, moved: members, to: members.length ? (to ?? null) : null, backup: BACKUP };
+    },
+    async reloadInventory() {
+      await wait();
+      const changed = onDisk !== null;
+      applyDisk();
+      return { changed, host_count: hosts.length, error: broken };
+    },
+    async watchInventory(auto) {
+      await wait();
+      watchAuto = auto;
+      return { watching: true, auto };
+    },
+    onInventoryChanged(onChange) {
+      changeWatchers.add(onChange);
+      return () => changeWatchers.delete(onChange);
+    },
+    outsideEdit(next) {
+      onDisk = next;
+      if (watchAuto === null) return;
+      if (watchAuto) applyDisk();
+      const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
+      for (const w of changeWatchers) w(change);
+    },
+    watching: () => watchAuto,
   };
 }

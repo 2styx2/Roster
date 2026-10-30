@@ -41,5 +41,14 @@ export function tauriPlatform(): Platform {
       },
       reload: () => invoke<ConfigReport | null>("config_reload"),
     },
+    // roster-core config/folders.rs; the core's watcher sends `folders-changed` after a save.
+    folders: {
+      read: () => invoke<{ path: string; text: string | null }>("folders_read"),
+      write: (text) => invoke("folders_write", { text }),
+      watch(onSaved) {
+        const stop = listen("folders-changed", () => onSaved());
+        return () => void stop.then((f) => f());
+      },
+    },
   };
 }

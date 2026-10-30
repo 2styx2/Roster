@@ -85,6 +85,13 @@ NO_UPSTREAM = 94            # changes.publish: the branch has no upstream to pus
 COMMIT_FAILED = 95          # changes.publish: git refused the commit (no identity, a hook); Pending changes kept
 PUSH_FAILED = 96            # changes.publish: the push failed or was rejected; the commit is undone, changes kept
 
+# The Live Inventory (ticket 28): removing, renaming and moving Hosts, and groups. A bad name is 80, an unknown Host
+# 2, a result that wouldn't load (or would change another entry) 74; a roster.yml that doesn't load right now is 1.
+NAME_TAKEN = 100            # host.rename / group.new / group.rename: that name is already a Host's or a group's; data.kind
+UNKNOWN_GROUP = 101         # no group by that name in roster.yml; data.group
+GROUP_NOT_EMPTY = 102       # group.delete: the group still has Hosts and no `to` says where they go; data.hosts
+WOULD_CHANGE = 103          # host.move / group.delete: the Host would come out different in the new group; data.fields
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""
