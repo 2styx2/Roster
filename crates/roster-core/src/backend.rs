@@ -14,6 +14,9 @@ pub const REQUIRED_API_VERSION: i64 = 1;
 
 /// roster's own error codes (roster/src/roster/serve.py).
 pub const INVENTORY_ERROR: i64 = 1;
+/// `session.prepare` (API 11, ticket 36): roster has no host key recorded for the Host (`data`: its
+/// address and port). The app asks the user ([`Backend::scan_host_key`], then [`Backend::trust_host_key`]).
+pub const HOST_KEY_UNKNOWN: i64 = 44;
 const METHOD_NOT_FOUND: i64 = -32601;
 
 /// How long the app waits for a method's answer, in seconds, where that isn't [`DEFAULT_TIMEOUT`].
@@ -117,6 +120,31 @@ impl Backend {
             ),
         })?;
         Ok(session_command(&self.target, &prepared))
+    }
+
+    /// The host key a Host offers, to ask the user about before its first Session (`host.scan_key
+    /// {host}`): `{host, address, port, key_type, fingerprint, recorded: none|match|changed}`.
+    /// One connection, key exchange only; nothing is recorded.
+    pub fn scan_host_key(&self, host: &str) -> Result<Value, CallError> {
+        self.call("host.scan_key", json!({ "host": host }))
+    }
+
+    /// Records the key the user was shown and trusted (`host.trust_key`). serve fetches it again
+    /// and refuses (23) if the Host now offers another one. Only a `SHA256:` fingerprint is sent,
+    /// never a key or anything else the frontend might pass.
+    pub fn trust_host_key(&self, host: &str, fingerprint: &str) -> Result<Value, CallError> {
+        let b64 = fingerprint.strip_prefix("SHA256:").unwrap_or("");
+        let shaped = !b64.is_empty()
+            && b64.len() <= 64
+            && b64
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=');
+        if !shaped {
+            return Err(CallError::Io {
+                message: "host.trust_key needs the SHA256:... fingerprint the user was shown".into(),
+            });
+        }
+        self.call("host.trust_key", json!({ "host": host, "fingerprint": fingerprint }))
     }
 
     /// False once serve has exited; the app then has to start a new one.

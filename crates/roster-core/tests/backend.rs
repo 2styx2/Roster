@@ -62,7 +62,17 @@ fn a_command_that_cannot_start_is_a_failure_naming_it() {
 fn a_session_command_comes_from_session_prepare_with_term_set() {
     let b = Backend::start(&fake("ok")).unwrap();
     let cmd = b.session_command("esxi-02").unwrap();
-    assert_eq!(cmd.argv, ["/usr/bin/ssh", "-o", "BatchMode=yes", "esxi-02"]);
+    assert_eq!(
+        cmd.argv,
+        [
+            "/usr/bin/ssh",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            "BatchMode=yes",
+            "esxi-02"
+        ]
+    );
     assert!(cmd.env.contains(&("TERM".into(), "xterm-256color".into())));
 }
 
@@ -95,7 +105,10 @@ fn a_password_host_gets_ssh_with_the_askpass_env_and_says_so() {
     let b = Backend::start(&fake("ok")).unwrap();
     let cmd = b.session_command("sw-core").unwrap();
     assert_eq!(cmd.auth, "password");
-    assert_eq!(cmd.argv[1..3], ["-o", "NumberOfPasswordPrompts=1"]);
+    assert_eq!(
+        cmd.argv[1..5],
+        ["-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1"]
+    );
     let names: Vec<&str> = cmd.env.iter().map(|(k, _)| k.as_str()).collect();
     for var in [
         "SSH_ASKPASS",
@@ -173,4 +186,39 @@ fn slow_methods_get_their_own_timeout_and_the_rest_the_default() {
     assert_eq!(timeout_for("changes.publish"), Duration::from_secs(180));
     assert_eq!(timeout_for("hosts.list"), DEFAULT_TIMEOUT);
     assert!(CALL_SECS.iter().all(|(_, s)| Duration::from_secs(*s) > DEFAULT_TIMEOUT));
+}
+
+#[test]
+fn an_unknown_host_key_is_asked_about_then_trusted_then_the_session_opens() {
+    // Ticket 36: serve refuses with 44 (and the address to ask about) until the user trusted the
+    // key; the core passes that on intact, fetches the key and records the one the user saw.
+    use roster_core::backend::HOST_KEY_UNKNOWN;
+    let b = Backend::start(&fake("unknown-key")).unwrap();
+    match b.session_command("esxi-02").err().unwrap() {
+        roster_core::rpc::CallError::Rpc { code, data, .. } => {
+            assert_eq!(code, HOST_KEY_UNKNOWN);
+            let data = data.expect("data");
+            assert_eq!(
+                (data["address"].as_str(), data["port"].as_i64()),
+                (Some("10.19.77.10"), Some(22))
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    let key = b.scan_host_key("esxi-02").unwrap();
+    assert_eq!(key["recorded"], "none");
+    let fp = key["fingerprint"].as_str().unwrap().to_owned();
+    assert_eq!(b.trust_host_key("esxi-02", &fp).unwrap()["recorded"], true);
+    assert_eq!(
+        b.session_command("esxi-02").unwrap().argv[2],
+        "StrictHostKeyChecking=yes"
+    );
+}
+
+#[test]
+fn only_a_fingerprint_is_sent_to_be_trusted() {
+    let b = Backend::start(&fake("unknown-key")).unwrap();
+    let err = b.trust_host_key("esxi-02", "ssh-ed25519 AAAA").err().unwrap();
+    assert!(matches!(err, roster_core::rpc::CallError::Io { .. }), "{err:?}");
+    assert!(b.session_command("esxi-02").is_err(), "nothing was recorded");
 }
