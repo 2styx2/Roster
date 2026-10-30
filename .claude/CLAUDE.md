@@ -14,7 +14,7 @@ One repo, two halves: the Python CLI at the root (`src/roster/`, `tests/`) and t
 
 - Start at `app/README.md` (module map, the two builds, fixtures). The design rationale is in `docs/app/`, and the decisions are in `docs/app/decisions.md` and `docs/adr/`. Don't re-ask settled questions.
 - Vocabulary: `GLOSSARY.md` (one file for the CLI and the app).
-- Work comes from `tickets/`. Pick from the frontier in `tickets/README.md`, stay inside the current iteration, and update the ticket's Status line.
+- Work comes from GitHub issues (github.com/2styx2/roster): one issue per ticket, titled `TNN: …`, in its iteration's milestone, with "Blocked by" naming other issues. Pick from the frontier of the current iteration's milestone (`gh issue list --milestone "Iteration N — …"`). There's no `tickets/` folder: new tickets are new issues, never files or a pull request. Ticket numbers (TNN) aren't issue numbers.
 - The app reaches roster only through `roster serve` (ADR 0001). Never read `roster.yml` or a vault from the app. Secrets must never reach the Rust core or the frontend (`docs/app/security.md`).
 - TypeScript is strict and required. UI tests go through the typed backend client with a fake backend.
 - Checks (same as CI): in `app/`, `npm ci` once, then `npm run check`; at the root, `cargo test`, `cargo clippy -p roster-core --all-targets -- -D warnings` and `cargo fmt --check` (WSL can't build `app/src-tauri`: no webkit2gtk; CI can).

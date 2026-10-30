@@ -11,7 +11,7 @@ One branch model for the whole repo: the Python CLI at the root and the roster a
 | `hotfix/*` | `main` | `main`, then back-merge `main` → `dev` | the maintainer | pull request, merge commit |
 
 - **Nobody commits directly to `main` or `dev`.** All work happens on Work branches and lands through a pull request with CI green.
-- **One Work branch per ticket**, named `feat/NN-short-slug` after `tickets/NN-*.md`, or `fix/…`, `docs/…`, `chore/…`. A ticket that changes both the CLI and the app is one branch and one pull request.
+- **One Work branch per ticket**, named `feat/NN-short-slug` after ticket TNN (a GitHub issue), or `fix/…`, `docs/…`, `chore/…`. A ticket that changes both the CLI and the app is one branch and one pull request.
 - **A ticket that needs another ticket's unmerged work** is cut from that ticket's branch, so the branches stack; open its pull request against `dev` once the first one is merged (or against the first branch, retargeted later). If it needs two, merge both into the new Work branch. Merging into a Work branch is fine. Merging into `dev` is not.
 - **First Release of the app after iteration 5** (decision Q48). Iterations 1–5 all build up on `dev`, and each one is tested by hand before the next starts. After iteration 5, `dev` merges into `main` and is tagged `v0.1.0`. After iteration 7, the next Release is tagged `v0.2.0`.
 
@@ -22,4 +22,4 @@ One branch model for the whole repo: the Python CLI at the root and the roster a
 - Every commit passes the checks of the half it touches; CI (`.github/workflows/ci.yml`) runs all of them on every pull request:
   - CLI: `uv run ruff check src tests` and `uv run pytest`.
   - App: in `app/`, `npm run check` (tsc, ESLint, Vitest); at the root, `cargo test`, `cargo clippy -p roster-core --all-targets -- -D warnings` and `cargo fmt --check`.
-- The ticket's `**Status:**` line and the board in `tickets/README.md` are updated on the Work branch, as part of the ticket.
+- Tickets are GitHub issues, grouped by iteration milestones; the issue is the ticket and its open or closed state is its status. Filing or changing a ticket needs no pull request. Merges into `dev` don't fire "Closes #N", so the issue is closed when its pull request is merged.
