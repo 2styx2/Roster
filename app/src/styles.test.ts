@@ -116,3 +116,14 @@ describe("hover (N8)", () => {
     expect(loose).toEqual([]);
   });
 });
+
+describe("what sits over a terminal (issue #78, item 6)", () => {
+  // xterm.js gives its own layers z-indexes up to 11 (the link layer, the helpers). Unless the
+  // terminal's box is a stacking context of its own, those layers paint over the error panel and
+  // the "ended" note that follow it in the Session's pane, and swallow their clicks: the error's
+  // Details couldn't be opened, nor Reconnect pressed. `isolation: isolate` keeps them inside.
+  it("keeps xterm's layers inside the terminal's own stacking context", () => {
+    const wrap = rules(stylesCss).find(([selector]) => selector === ".term-wrap");
+    expect(wrap?.[1]).toMatch(/(^|;)\s*isolation\s*:\s*isolate/);
+  });
+});

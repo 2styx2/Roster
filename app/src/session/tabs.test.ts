@@ -61,6 +61,24 @@ function setup() {
   return { tabs, attach, screen };
 }
 
+describe("reaching a shell (issue #78, item 1)", () => {
+  it("says the Session reached a shell only once it prints, and starts over on reconnect", async () => {
+    const { backend, session } = scriptedSessions();
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0]!);
+    const tab = () => tabs.snapshot().tabs[0]!;
+    expect(tab()).toMatchObject({ status: { state: "connecting" }, shell: false });
+    await settle();
+    // ssh is running, but still logging in: nothing on screen yet.
+    expect(tab()).toMatchObject({ status: { state: "open" }, shell: false });
+    session(reviewed[0]!).print("Last login: today\r\n$ ");
+    expect(tab().shell).toBe(true);
+    session(reviewed[0]!).exit(0);
+    expect(tabs.reconnect(id)).toBe(true);
+    expect(tab()).toMatchObject({ status: { state: "connecting" }, shell: false });
+  });
+});
+
 describe("Tabs", () => {
   it("opens a Session in a new active tab and shows its output", async () => {
     const { tabs, attach, screen } = setup();

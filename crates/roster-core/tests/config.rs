@@ -396,6 +396,43 @@ fn layouts_take_shorthands_and_keep_each_modes_defaults() {
     assert!(!m.standard.sidebar.shown && !m.standard.statusbar.shown && !m.standard.titlebar);
 }
 
+/// Decision Q65 (issue #78): the toolbar's controls are a piece of each mode's layout, so init.lua
+/// can pick, order or drop them. Shown in Standard by default, with every built-in control.
+#[test]
+fn the_toolbar_is_a_piece_of_each_modes_layout() {
+    let d = config::Modes::default();
+    assert!(d.standard.toolbar.shown && d.standard.toolbar.controls.is_none());
+    assert!(!d.focus.toolbar.shown, "Focus has no chrome");
+
+    let dir = with_init(
+        "toolbar",
+        r#"return { modes = { standard = { toolbar = { "changes", "add" } }, focus = { toolbar = true } } }"#,
+    );
+    let m = config::load(&dir).unwrap().modes;
+    assert_eq!(
+        m.standard.toolbar.controls.as_deref(),
+        Some(&["changes".to_string(), "add".to_string()][..])
+    );
+    assert!(m.focus.toolbar.shown && m.focus.toolbar.controls.is_none());
+
+    let dir = with_init("toolbar-off", "return { modes = { standard = { toolbar = false } } }");
+    assert!(!config::load(&dir).unwrap().modes.standard.toolbar.shown);
+}
+
+/// Issue #78: the frontend keeps a shown or hidden Sidebar in the State unless init.lua sets it, so
+/// each mode says which pieces init.lua set.
+#[test]
+fn each_mode_says_which_pieces_init_lua_set() {
+    assert!(config::Modes::default().standard.set.is_empty());
+    let dir = with_init(
+        "modes-set",
+        r#"return { modes = { standard = { sidebar = false, toolbar = { "add" } }, focus = { statusbar = true } } }"#,
+    );
+    let m = config::load(&dir).unwrap().modes;
+    assert_eq!(m.standard.set, ["sidebar", "toolbar"]);
+    assert_eq!(m.focus.set, ["statusbar"]);
+}
+
 #[test]
 fn folders_backend_and_roster_command() {
     let dir = with_init(
@@ -536,6 +573,10 @@ fn the_example_init_lua_loads_and_is_the_defaults() {
     config.themes.clear();
     config.lines.clear();
     config.set.clear();
+    // It writes out every piece of each mode, at its default.
+    assert_eq!(config.modes.standard.set.len(), 6);
+    config.modes.standard.set.clear();
+    config.modes.focus.set.clear();
     assert_eq!(config, Config::default());
 }
 
@@ -1087,4 +1128,89 @@ fn on_windows_init_lua_opens_with_the_edit_verb_or_notepad_never_open() {
         "only ever asks about edit: {:?}",
         asked.borrow()
     );
+}
+
+/// Ticket 41: a KeePassXC database (and key file) of this Box's own, sent to roster serve with
+/// `vault.configure`. Paths only, never a secret; a path is the Backend's, so it must be absolute.
+#[test]
+fn the_keepassxc_database_and_key_file_are_paths_on_the_backend() {
+    assert_eq!(Config::default().vault, config::Vault::default());
+    assert_eq!(Config::default().vault.kp.database, None);
+    let dir = with_init(
+        "vault-kp",
+        r#"return { vault = { kp = { database = "~/roster.kdbx", key_file = "/home/you/roster.keyx" } } }"#,
+    );
+    let c = config::load(&dir).unwrap();
+    assert_eq!(c.vault.kp.database.as_deref(), Some("~/roster.kdbx"));
+    assert_eq!(c.vault.kp.key_file.as_deref(), Some("/home/you/roster.keyx"));
+    assert_eq!(
+        serde_json::to_value(&c.vault).unwrap(),
+        serde_json::json!({ "saveTo": null, "kp": { "database": "~/roster.kdbx", "keyFile": "/home/you/roster.keyx" } })
+    );
+    for (name, lua, field) in [
+        (
+            "vault-rel",
+            "return {\n  vault = { kp = { database = \"roster.kdbx\" } },\n}\n",
+            "vault.kp.database",
+        ),
+        (
+            "vault-empty",
+            "return {\n  vault = { kp = { key_file = \"\" } },\n}\n",
+            "vault.kp.key_file",
+        ),
+        (
+            "vault-secret",
+            "return {\n  vault = { kp = { password = \"x\" } },\n}\n",
+            "password",
+        ),
+    ] {
+        let e = config::load(&with_init(name, lua)).unwrap_err();
+        assert_eq!(e.line, Some(2), "{e}");
+        assert!(e.message.contains(field), "{name}: {e}");
+    }
+}
+
+/// Ticket 35: where "Save to vault" puts new Vault items on this Box: "personal", an
+/// organization's collection (Bitwarden) or a group (KeePassXC). It wins over roster.yml's.
+#[test]
+fn save_to_is_personal_a_collection_or_a_group() {
+    use config::SaveTo;
+    assert_eq!(Config::default().vault.save_to, None);
+    let load = |name: &str, lua: &str| config::load(&with_init(name, lua));
+    let c = load("save-personal", r#"return { vault = { save_to = "personal" } }"#).unwrap();
+    assert_eq!(c.vault.save_to, Some(SaveTo::Personal));
+    let c = load(
+        "save-coll",
+        r#"return { vault = { save_to = { organization = "My Team", collection = "Infra logins" } } }"#,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&c.vault.save_to).unwrap(),
+        serde_json::json!({ "organization": "My Team", "collection": "Infra logins" })
+    );
+    let c = load("save-group", r#"return { vault = { save_to = { group = "Hosts" } } }"#).unwrap();
+    assert_eq!(
+        serde_json::to_value(&c.vault.save_to).unwrap(),
+        serde_json::json!({ "group": "Hosts" })
+    );
+    assert_eq!(
+        serde_json::to_value(SaveTo::Personal).unwrap(),
+        serde_json::json!("personal")
+    );
+    for (name, lua) in [
+        ("save-shared", "return {\n  vault = { save_to = \"shared\" },\n}\n"),
+        (
+            "save-half",
+            "return {\n  vault = { save_to = { organization = \"My Team\" } },\n}\n",
+        ),
+        (
+            "save-mixed",
+            "return {\n  vault = { save_to = { group = \"a\", collection = \"b\" } },\n}\n",
+        ),
+        ("save-empty", "return {\n  vault = { save_to = { group = \"\" } },\n}\n"),
+    ] {
+        let e = load(name, lua).unwrap_err();
+        assert_eq!(e.line, Some(2), "{e}");
+        assert!(e.message.contains("vault.save_to"), "{name}: {e}");
+    }
 }

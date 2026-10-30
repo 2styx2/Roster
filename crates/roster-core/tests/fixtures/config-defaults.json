@@ -42,6 +42,7 @@
           "at": "bottom",
           "shown": false
         },
+        "set": [],
         "sidebar": {
           "sections": null,
           "shown": false,
@@ -51,7 +52,11 @@
           "segments": null,
           "shown": false
         },
-        "titlebar": false
+        "titlebar": false,
+        "toolbar": {
+          "controls": null,
+          "shown": false
+        }
       },
       "standard": {
         "fullscreen": false,
@@ -59,6 +64,7 @@
           "at": "bottom",
           "shown": false
         },
+        "set": [],
         "sidebar": {
           "sections": null,
           "shown": true,
@@ -68,7 +74,11 @@
           "segments": null,
           "shown": true
         },
-        "titlebar": true
+        "titlebar": true,
+        "toolbar": {
+          "controls": null,
+          "shown": true
+        }
       }
     },
     "rosterCommand": null,
@@ -97,6 +107,13 @@
     "themes": {},
     "ui": {
       "hints": null
+    },
+    "vault": {
+      "kp": {
+        "database": null,
+        "keyFile": null
+      },
+      "saveTo": null
     },
     "vim": true
   },

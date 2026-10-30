@@ -112,6 +112,28 @@ def test_the_item_name_can_be_chosen(app, box, sshd, vault):
     assert r["host"]["ssh"]["auth"] == "bw:nas ssh+web" and "nas ssh+web" in items(vault)
 
 
+def test_a_typed_password_goes_where_save_to_says(serve, box, sshd, vault, monkeypatch):
+    """Ticket 35: the add form's "Save to" choice reaches the Vault item; a bad one is refused after nothing was
+    written, and the test login's password stays out of every output."""
+    from test_save_to import ORGS
+    monkeypatch.setenv("FAKE_BW_ORGS", json.dumps(ORGS))
+    app = serve("-c", str(box.yml))
+    app.call("vault.unlock", {"password": "hunter2"})
+    team = {"organization": "My Team", "collection": "Infra logins"}
+    r = result(add(app, name="nas", port=sshd.port, password=SECRET, enroll=False, save_to=team))
+    assert r["item"]["target"]["label"] == "My Team / Infra logins"
+    made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
+    assert (made["organizationId"], made["collectionIds"]) == ("0rg-team", ["c0l-infra"])
+    assert r["host"]["ssh"]["auth"] == "bw:nas ssh"
+    err = add(app, name="nas2", port=sshd.port, password=SECRET, enroll=False,
+              save_to={"organization": "My Team", "collection": "Nope"})["error"]
+    assert err["code"] == 64 and "save_to.collection" in err["message"]
+    assert "nas2" not in box.yml.read_text() and "nas2 ssh" not in items(vault)
+    assert add(app, name="nas3", password=SECRET, save_to="team")["error"]["code"] == -32602
+    _, out, err = app.close()
+    assert not [x for x in ALL_SECRETS if x in "".join(app.responses) + out + err]
+
+
 def test_an_existing_vault_item_is_tested_and_the_host_added(app, box, sshd, vault):
     r = result(add(app, name="esx2", port=sshd.port, auth="bw:esx ssh", enroll=False))
     assert r["verify"]["ok"] and r["item"] is None and r["host"]["reviewed"] is True
@@ -275,7 +297,7 @@ def test_a_vault_item_saved_by_a_create_that_timed_out_is_used_for_the_add(box, 
     r = add_in_process(state, sshd)
     res = r["result"]
     made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
-    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh"}
+    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh", "target": {"id": "personal", "kind": "personal", "label": "Personal vault"}}
     assert res["host"]["ssh"]["auth"] == "bw:nas ssh"
 
 
@@ -307,3 +329,45 @@ def test_marking_a_host_reviewed_flips_only_that_flag(app, box):
     assert box.yml.read_text() == before.replace("        reviewed: false\n", "        reviewed: true\n")
     assert result(app.call("host.review", {"host": "nas"}))["changed"] is False
     assert app.call("host.review", {"host": "nope"})["error"]["code"] == 2
+
+
+# ---------------------------------------------------------------- host.review with reviewed: false (issue #78, item 5)
+
+def test_un_reviewing_a_host_flips_the_flag_back_as_a_pending_change(app, box):
+    before = box.yml.read_text()
+    r = result(app.call("host.review", {"host": "esx", "reviewed": False}))
+    assert r["changed"] and r["host"]["reviewed"] is False
+    assert box.yml.read_text() == before.replace("        title: ESX\n", "        title: ESX\n        reviewed: false\n")
+    assert result(app.call("changes.diff"))["hosts"] == [{"host": "esx", "change": "changed", "fields": ["reviewed"]}]
+    assert result(app.call("host.review", {"host": "esx", "reviewed": False}))["changed"] is False
+    assert app.call("host.review", {"host": "esx", "reviewed": "no"})["error"]["code"] == -32602
+
+
+def test_un_reviewing_a_review_that_is_still_pending_leaves_no_change(app, box):
+    """A Host reviewed by mistake and un-reviewed again is back to its published text: nothing to publish."""
+    box.commit(box.yml.read_text().replace("      other: 10.0.0.9       # never touched\n",
+                                           "      other: 10.0.0.9       # never touched\n"
+                                           "      nas: {ip: 10.0.0.50, reviewed: false}\n"))
+    result(app.call("inventory.pull"))
+    published = box.yml.read_text()
+    result(app.call("host.review", {"host": "nas"}))
+    assert box.yml.read_text() != published
+    r = result(app.call("host.review", {"host": "nas", "reviewed": False}))
+    assert r["changed"] and r["host"]["reviewed"] is False
+    assert box.yml.read_text() == published and result(app.call("changes.diff"))["count"] == 0
+
+
+def test_un_reviewing_a_host_whose_group_is_unreviewed_drops_its_own_line(app, box):
+    """The review wrote `reviewed: true` over the group's `reviewed: false`; un-reviewing takes that line out
+    again instead of writing `reviewed: false` next to the group's, so the text is what was published."""
+    box.commit(box.yml.read_text() + "  found:\n    user: root\n    reviewed: false\n    hosts:\n"
+                                     "      scan-1: 10.0.0.60\n      scan-2:\n        ip: 10.0.0.61\n")
+    result(app.call("inventory.pull"))
+    published = box.yml.read_text()
+    result(app.call("host.review", {"host": "scan-2"}))
+    assert "        reviewed: true\n" in box.yml.read_text()
+    assert result(app.call("host.review", {"host": "scan-2", "reviewed": False}))["host"]["reviewed"] is False
+    assert box.yml.read_text() == published
+    # and discarding a review still pending works as it always did
+    result(app.call("host.review", {"host": "scan-1"}))
+    assert result(app.call("changes.discard"))["discarded"] and box.yml.read_text() == published

@@ -7,11 +7,25 @@
 // The typed password lives only in its input (uncontrolled, like the lock screen's), goes to roster
 // once in the `host.add` call, and the input is emptied when the call returns, pass or fail.
 //
+// "Save to" (ticket 35, API 10) lists where roster says the vault can save a typed password
+// (`vault.targets`), starting on the default (init.lua's `vault.save_to`, else roster.yml's) and
+// saying where that's set. Radios, like "How it logs in": Tab reaches the choice, arrows move it,
+// Enter adds. It lists again when `targetsVersion` changes (a `:source`), keeping a choice that's
+// still there.
+//
 // Keyboard first: Name has focus, Tab moves, Enter adds, Esc closes. It opens from a key, so it
 // doesn't animate (emil-design-eng: never animate keyboard-initiated actions).
 import { useEffect, useId, useRef, useState } from "react";
 import { addHostChecked } from "../backend/afterTimeout";
-import { BackendCallError, type Backend, type CheckStep, type HostAdd, type HostList, type ScannedKey } from "../backend/types";
+import {
+  BackendCallError,
+  type Backend,
+  type CheckStep,
+  type HostAdd,
+  type HostList,
+  type SaveTargets,
+  type ScannedKey,
+} from "../backend/types";
 import { problemFromCallError, type ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
 import { CheckSteps } from "../errors/CheckPanel";
@@ -55,7 +69,13 @@ export interface AddPanelProps {
   onAdded(result: HostAdd): void;
   onPulled(): void;
   onClose(): void;
+  /** roster can say where it saves (`vault.targets`, API 10): show "Save to". */
+  chooseTarget?: boolean;
+  /** Changes when the vault settings may have (a `:source` of init.lua or roster.yml): list again. */
+  targetsVersion?: number;
 }
+
+type Targets = { at: "loading" } | { at: "done"; found: SaveTargets } | { at: "failed"; message: string };
 
 const LOGIN_WAYS: { way: LoginWay; label: string }[] = [
   { way: "password", label: "Type its password" },
@@ -80,7 +100,19 @@ const FIELDS: readonly FieldDef[] = [
   { name: "title", label: "Title", mono: false },
 ];
 
-export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, onAdded, onPulled, onClose }: AddPanelProps) {
+export function AddPanel({
+  backend,
+  hosts,
+  group,
+  pendingCount,
+  rows,
+  actions,
+  onAdded,
+  onPulled,
+  onClose,
+  chooseTarget = false,
+  targetsVersion = 0,
+}: AddPanelProps) {
   const [draft, setDraft] = useState<AddDraft>(() => emptyDraft(group));
   const [phase, setPhase] = useState<Phase>(() => (pendingCount > 0 ? { at: "ready" } : { at: "pulling" }));
   /** Problems show once a field was left, or after a try to add. */
@@ -127,6 +159,28 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
   const fieldId = (f: string) => `${ids}-${f}`;
   const busy = phase.at === "scanning" || phase.at === "adding";
   const login = draft.login;
+
+  // ---- Save to (ticket 35)
+  const choosing = chooseTarget && open && login === "password";
+  const [targets, setTargets] = useState<Targets>({ at: "loading" });
+  /** The target picked here; null: the default. */
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [pickMissing, setPickMissing] = useState(false);
+  useEffect(() => {
+    if (!choosing) return;
+    let current = true;
+    backend.saveTargets().then(
+      (found) => current && setTargets({ at: "done", found }),
+      (e: unknown) => current && setTargets({ at: "failed", message: e instanceof Error ? e.message : String(e) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [backend, choosing, targetsVersion]);
+  const found = choosing && targets.at === "done" ? targets.found : null;
+  const target = found
+    ? (found.targets.find((t) => t.id === chosen) ?? found.targets.find((t) => t.id === found.default) ?? null)
+    : null;
   const name = draft.name.trim() || "the Host";
   const newGroup = isNewGroup(draft, hosts);
   const suggestions = itemSuggestions(draft, hosts);
@@ -152,7 +206,7 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
   };
 
   const add = async (hostKey?: string) => {
-    const params = addParams(draft, hosts, login === "password" ? password.current?.value : undefined);
+    const params = addParams(draft, hosts, login === "password" ? password.current?.value : undefined, target?.save_to);
     if (!params) return;
     setPhase({ at: "adding" });
     try {
@@ -182,6 +236,12 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
     if (problems.length || (login === "password" && !password.current?.value)) {
       const first = problems[0]?.[0] ?? "password";
       (first === "password" ? password.current : document.getElementById(fieldId(first)))?.focus();
+      return;
+    }
+    if (found && !target) {
+      // The default names a place that isn't there: this Host's choice has to be made here.
+      setPickMissing(true);
+      document.querySelector<HTMLInputElement>(`input[name="${ids}-saveto"]`)?.focus();
       return;
     }
     if (login === "none") return add();
@@ -372,6 +432,52 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
                         ? "Saved to the vault only after the test login passes. Name it <host> <what it opens>."
                         : "Its password is looked up for the test login, never shown.")}
                   </span>
+                </div>
+              )}
+              {choosing && (
+                <div className="add-save-to">
+                  <span id={fieldId("saveto")} className="add-save-to-label">
+                    Save to
+                  </span>
+                  {targets.at === "loading" && <span className="edit-hint">Reading where the vault can save…</span>}
+                  {targets.at === "failed" && (
+                    <span className="edit-hint">
+                      roster saves it where its settings say (it couldn't list the other places: {targets.message})
+                    </span>
+                  )}
+                  {found && (
+                    <div
+                      className="add-targets"
+                      role="radiogroup"
+                      aria-labelledby={fieldId("saveto")}
+                      aria-describedby={found.problem ? `${fieldId("saveto")}-problem` : undefined}
+                    >
+                      {found.targets.map((t) => (
+                        <label key={t.id} className="add-way">
+                          <input
+                            type="radio"
+                            name={`${ids}-saveto`}
+                            value={t.id}
+                            checked={target?.id === t.id}
+                            onChange={() => {
+                              setChosen(t.id);
+                              setPickMissing(false);
+                            }}
+                          />
+                          {t.label}
+                          {t.id === found.default && (
+                            <span className="add-target-from"> · default{found.from ? `, from ${found.from}` : ""}</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {found?.problem && (
+                    <span id={`${fieldId("saveto")}-problem`} className={pickMissing && !target ? "edit-field-problem" : "edit-hint"}>
+                      {pickMissing && !target ? "Pick where to save it. " : ""}
+                      {found.problem.message}
+                    </span>
+                  )}
                 </div>
               )}
               <label className="add-check">

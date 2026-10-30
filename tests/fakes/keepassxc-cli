@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+# Test stand-in for keepassxc-cli (KeePassXC 2.8's wording and exit codes, checked against the real one).
+# The "database" is a JSON file at the path given on the command line (read on every call, written back by add/rm):
+#   {"password": "hunter2", "key": null | "key file contents", "recycle_bin": "Recycle Bin" | null,
+#    "groups": ["Lab"], "entries": [{"path": "Lab/esx ssh", "UserName": "root", "Password": "...", "URL": "...",
+#    "Notes": "", "attrs": {"enable": "..."}}]}
+# Like the real one: the master password is the first line on stdin (after "Enter password to unlock DB: " on
+# stderr), `add -p` reads the entry's password as the next line, -k KEYFILE adds a key file, and every failure is
+# one line on stderr with exit 1. -q silences the prompt and the unlock errors (as the real one does).
+# FAKE_ARGV_LOG=FILE: every call's full argv, one JSON list per line.
+# FAKE_LOG=FILE: "keepassxc-cli COMMAND" per call.
+# FAKE_KP_WRITE_FAIL=TEXT: add and rm fail with TEXT on stderr (e.g. the file is read-only).
+# FAKE_KP_ADD_HANG=SECONDS: `add` saves the entry, then hangs before answering.
+# FAKE_KP_ADD_STALL=SECONDS: `add` hangs before saving anything.
+import json, os, sys, time
+argv = sys.argv[1:]
+os.environ.get("FAKE_ARGV_LOG") and open(os.environ["FAKE_ARGV_LOG"], "a").write(json.dumps(argv) + "\n")
+os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("keepassxc-cli " + (argv[0] if argv else "") + "\n")
+
+
+def fail(msg, code=1):
+    print(msg, file=sys.stderr); sys.exit(code)
+
+
+if not argv: fail("Usage: keepassxc-cli [options] command")
+if argv[0] in ("-v", "--version"): print("2.8.0"); sys.exit()
+cmd, rest = argv[0], argv[1:]
+with_value = {"-k", "--key-file", "-a", "--attributes", "-u", "--username", "--url", "--notes", "-y", "--yubikey"}
+opts, pos, i = {}, [], 0
+while i < len(rest):
+    x = rest[i]
+    if x in with_value:
+        opts.setdefault(x, []).append(rest[i + 1]); i += 2
+    elif x.startswith("-") and len(x) > 1:
+        opts[x] = True; i += 1
+    else:
+        pos.append(x); i += 1
+quiet = "-q" in opts or "--quiet" in opts
+if len(pos) < 1: fail("Missing positional argument(s).")
+path = pos[0]
+key = (opts.get("-k") or opts.get("--key-file") or [None])[0]
+if not os.path.exists(path): fail(f"Failed to open database file {path}: not found")
+if key and not os.path.exists(key): fail(f"Failed to load key file {key}: No such file or directory")
+db = json.load(open(path))
+if not quiet: sys.stderr.write(f"Enter password to unlock {os.path.basename(path)}: \n")
+typed = None if "--no-password" in opts else sys.stdin.readline().rstrip("\n")
+if typed != db.get("password") or (open(key).read() if key else None) != db.get("key"):
+    quiet or fail("Error while reading the database: Invalid credentials were provided, please try again.\n"
+                  "If this reoccurs, then your database file may be corrupt.")
+    sys.exit(1)
+entries = db.setdefault("entries", [])
+groups = db.setdefault("groups", [])
+bin_ = db.get("recycle_bin", "Recycle Bin")
+
+
+def save():
+    json.dump(db, open(path, "w"), indent=1)
+
+
+def find(p):
+    return next((e for e in entries if e["path"] == p.strip("/")), None)
+
+
+if cmd == "ls":
+    if "-R" in opts and "-f" in opts:
+        lines = [g + "/" for g in groups] + [e["path"] for e in entries]
+        for g in groups:
+            if not any(e["path"].startswith(g + "/") for e in entries): lines.append(g + "/[empty]")
+        print("\n".join(sorted(lines, key=lambda x: (x.count("/"), x))) or "[empty]"); sys.exit()
+    top = [g + "/" for g in groups if "/" not in g] + [e["path"] for e in entries if "/" not in e["path"]]
+    print("\n".join(top) or "[empty]"); sys.exit()
+if cmd == "show":
+    e = find(pos[1])
+    if not e: fail(f"Could not find entry with path {pos[1]}.")
+    std = {"title": e["path"].split("/")[-1], "username": e.get("UserName", ""), "password": e.get("Password", ""),
+           "url": e.get("URL", ""), "notes": e.get("Notes", "")}
+    out = []
+    for a in opts.get("-a") or opts.get("--attributes") or ["title", "username", "password", "url", "notes"]:
+        attrs = {k.lower(): v for k, v in (e.get("attrs") or {}).items()}
+        if a.lower() in std: out.append(std[a.lower()])
+        elif a.lower() in attrs: out.append(attrs[a.lower()])
+        else: fail(f"ERROR: unknown attribute {a}.")
+    print("\n".join(out)); sys.exit()
+if cmd == "add":
+    if os.environ.get("FAKE_KP_WRITE_FAIL"): fail(os.environ["FAKE_KP_WRITE_FAIL"])
+    if os.environ.get("FAKE_KP_ADD_STALL"): time.sleep(float(os.environ["FAKE_KP_ADD_STALL"]))
+    p = pos[1].strip("/")
+    group = p.rpartition("/")[0]
+    if find(p) or (group and group not in groups): fail(f"Could not create entry with path {pos[1]}.")
+    pw = ""
+    if "-p" in opts or "--password-prompt" in opts:
+        quiet or print("Enter password for new entry: ", end="", flush=True)
+        pw = sys.stdin.readline().rstrip("\n")
+    entries.append({"path": p, "UserName": (opts.get("-u") or opts.get("--username") or [""])[0],
+                    "Password": pw, "URL": (opts.get("--url") or [""])[0], "Notes": ""})
+    save()
+    if os.environ.get("FAKE_KP_ADD_HANG"): time.sleep(float(os.environ["FAKE_KP_ADD_HANG"]))
+    print(f"Successfully added entry {p.split('/')[-1]}."); sys.exit()
+if cmd == "rm":
+    if os.environ.get("FAKE_KP_WRITE_FAIL"): fail(os.environ["FAKE_KP_WRITE_FAIL"])
+    e = find(pos[1])
+    if not e: fail(f"Entry {pos[1]} not found.")
+    title = e["path"].split("/")[-1]
+    if bin_ and not e["path"].startswith(bin_ + "/"):
+        bin_ in groups or groups.append(bin_)
+        e["path"] = f"{bin_}/{title}"; save()
+        print(f"Successfully recycled entry {title}."); sys.exit()
+    entries.remove(e); save()
+    print(f"Successfully deleted entry {title}."); sys.exit()
+if cmd == "db-info":
+    print(f"Location: {path}\nNumber of entries: {len(entries)}"); sys.exit()
+fail(f"Invalid command {cmd}.")

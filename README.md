@@ -48,7 +48,7 @@ roster web esxi api POST /sdk -d @q.xml # web API call made with the service's s
 | [app/README.md](app/README.md) | The roster app: the desktop app in `app/` (Tauri, React, xterm.js) that opens terminals on your Hosts through `roster serve` |
 | [docs/app/](docs/app/) | The app's design: spec, architecture, security, Config (`init.lua`), themes, keyboard, errors catalog, decisions |
 | [docs/adr/](docs/adr/) | Architecture decisions for the CLI and the app |
-| [tickets/](tickets/) | Work tickets; [tickets/README.md](tickets/README.md) is the board |
+| [GitHub issues](https://github.com/2styx2/roster/issues) | Work tickets (`TNN: …`), one milestone per iteration |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch model and pull requests; [GLOSSARY.md](GLOSSARY.md) has the words |
 
 ## Install
@@ -262,10 +262,24 @@ Every resource has the same fields, plus the fixed fields of its type. Anything 
 | `cmd:COMMAND` | Any command that prints the password |
 | `bw:ITEM`, `bw:ITEM#FIELD` | Bitwarden CLI (login password, custom field, `#username`, `#notes`) |
 | `op:ITEM`, `op:VAULT/ITEM#FIELD`, `op:op://…` | 1Password CLI |
+| `kp:ENTRY`, `kp:GROUP/ENTRY`, `kp:ENTRY#FIELD` | KeePassXC (`keepassxc-cli`), a local `.kdbx` (entry password, `#username`, `#url`, `#notes`, or another attribute) |
 
 **Naming vault items:** name each item `<roster host name> <what it opens>` (`orion3 ssh`, `esxi-02 ssh+web`, `shared hub web`, `wifi lab-guest`), and put the address in the item's URI field. The full convention is in [docs/adding-hosts.md](docs/adding-hosts.md#2-add-the-logins-to-the-vault).
 
 **Bitwarden:** run `bw login` once. A locked vault is unlocked once per run, using a master password prompt, `BW_PASSWORD`, or an existing `BW_SESSION`. For headless boxes, set `BW_CLIENTID`/`BW_CLIENTSECRET`.
+
+**Where "Save to vault" puts new items** (ticket 35) is a setting, so every Box of a team behaves the same:
+
+```yaml
+providers:
+  bw:
+    save_to: personal                                                # the default
+    # save_to: { organization: "My Team", collection: "Infra logins" }  # names or ids
+  kp:
+    save_to: { group: Hosts }                                        # KeePassXC: "personal" is the top level
+```
+
+The app's `init.lua` can set `vault.save_to` for its own Box, which wins, and the add-Host form's **Save to** can pick another place for one Host. A name that doesn't resolve is code `64` naming the setting; see `vault.targets` below. Team logins belong in a collection the team shares ([docs/adding-hosts.md](docs/adding-hosts.md#2-add-the-logins-to-the-vault)).
 
 **1Password:** use one of these:
 - the 1Password app integration,
@@ -273,6 +287,21 @@ Every resource has the same fields, plus the fixed fields of its type. Anything 
 - or `eval $(op signin)`.
 
 Set a default vault under `providers: op: vault:`.
+
+**KeePassXC** is the local-only option (decision Q41): no server and no account, one `.kdbx` file on this box. Install KeePassXC (it ships `keepassxc-cli`) and say where the database is:
+
+```yaml
+providers:
+  kp:
+    database: ~/roster.kdbx      # required; ~ and paths relative to roster.yml work
+    key_file: ~/roster.keyx      # optional, used with the master password
+    group: Hosts                 # optional: the group "Save to vault" adds entries to (default: the top level)
+    recycle_bin: Recycle Bin     # optional: the group lookups skip (KeePassXC's default name)
+```
+
+A local database is this Box's own, so the app's `init.lua` can name it instead: `vault = { kp = { database = "~/roster.kdbx", key_file = "~/roster.keyx" } }` ([docs/app/config.md](docs/app/config.md#the-vault)). It reaches `roster serve` through `vault.configure` and wins over `roster.yml`'s `database` and `key_file`.
+
+`kp:ENTRY` finds the one entry titled exactly ENTRY in any group (code `33` if several are, `32` if none is); `kp:GROUP/ENTRY` is a path. `keepassxc-cli` has no session, so every lookup opens the database again with the master password, which it reads from its stdin, never from the command line. On a terminal roster asks for it once per run. Under `roster serve` the lock screen's `vault.unlock` checks it against the database and `serve` keeps it in memory until `vault.lock`. Tested with keepassxc-cli 2.8.0.
 
 **Adding your own:**
 
@@ -422,7 +451,7 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 8 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 10 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103; 9 added `host.review`'s `reviewed: false`; 10 added `vault.configure`, `vault.targets`, `save_to` on `vault.create_item` and `host.add`, `target` in their results, `vault.status`'s `save_to`, and codes 64-65). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
 Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory, 80-89 adding a Host (`host.add`), 90-99 publishing (`changes.publish`), 100-109 the Live Inventory (removing, renaming and moving Hosts and groups). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
@@ -436,7 +465,7 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `22` | `session.prepare`: a password Session, but the process has no askpass channel. Only seen when serve's code is used in-process, never from `roster serve` |
 | `11`, `12`, `14` | `session.prepare` for a password-only Host whose vault isn't logged in, isn't installed, or is locked (see [Vault](#vault-the-lock-screen)) |
 | `30` | The Host's ssh user is discover's placeholder `CHANGE-ME`: "no SSH user for esx (user: CHANGE-ME in roster.yml)" |
-| `31` | The Login's provider isn't set up on this box: "kp's ssh Login uses 'kp:', which isn't set up on this box". `data.provider` |
+| `31` | The Login's provider isn't set up on this box: "keeper's ssh Login uses 'keeper:', which isn't set up on this box". `data.provider` |
 | `32` | No vault item by that name: "no vault item named 'esx shh' (ssh Login of esx) - did you mean: 'esx ssh'". `data.near` lists similar item names (names only) |
 | `33` | Several vault items match: "2 vault items are named 'esx ssh' (ssh Login of esx): ...". `data.matches` is `[{name, revised, uris}]`: names, last-edited dates and URIs, never a value |
 | `34` | The item has no password, or no such `#FIELD`: "vault item 'esx ssh' has no password (ssh Login of esx)". `data.field` |
@@ -505,16 +534,16 @@ A Pending change is an edit to `roster.yml` made on this box and not Published y
 | Method | Params | Result |
 |---|---|---|
 | `host.scan_key` | `{address, port?}` | `{address, port, key_type, fingerprint, recorded: none\|match\|changed}`: the host key the address offers, and how it compares with the one in `~/.ssh/roster_known_hosts`. One connection, key exchange only: never logs in, never records anything. `40`-`42` when it can't get there |
-| `host.add` | `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? \| password + item?, host_key?, provider?}` | `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify` the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made (`{provider, id, name}`, or `null`) |
-| `host.review` | `{host}` | `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if it already was) |
+| `host.add` | `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? \| password + item?, host_key?, provider?, save_to?}` | `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify` the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made (`{provider, id, name, target}`, or `null`) |
+| `host.review` | `{host, reviewed?}` | `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if it already was). `reviewed: false` (API 9) un-reviews it, for a review made by mistake: where the Host's own `reviewed: true` sits over an unreviewed group or defaults, its line is taken out again, so the text goes back to what it was |
 
 `host.add` writes the Host into `roster.yml` as text at the end of its group (or in a new group after the last one), like `host.update`: comments and every other entry stay byte for byte, a group of one-line `{ip: ...}` entries gets one more, and only what the Host doesn't inherit from its group or `defaults:` is written. The result must load with exactly the values asked for and nothing else changed (`74` otherwise). It's a Pending change, with the backup in `.git/roster/`.
 
-**Verified adds (decision Q43).** A Host with a Login gets one test login before anything is written. The Login is either `auth`, an existing vault reference (`bw:esx-02 ssh`, looked up into roster's memory), or `password`, typed into the form, with `item` the Vault item to save it as (default `<name> ssh`, see [docs/adding-hosts.md](docs/adding-hosts.md)) in `provider` (default: the one `vault.status` names; choosing the target is ticket 35). In order:
+**Verified adds (decision Q43).** A Host with a Login gets one test login before anything is written. The Login is either `auth`, an existing vault reference (`bw:esx-02 ssh`, looked up into roster's memory), or `password`, typed into the form, with `item` the Vault item to save it as (default `<name> ssh`, see [docs/adding-hosts.md](docs/adding-hosts.md)) in `provider` (default: the one `vault.status` names) and `save_to` (where in it; default: the setting, see `vault.create_item`). In order:
 
 1. The name, group and user are checked and the add is tried as text (`80`, `81`, `74`), before the network. For a typed password, the provider must be able to save (`61`) and be unlocked (`14`, `11`, `12`).
 2. The test login, as `host.verify_login`'s steps (`user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`): one connection and one attempt with the password, even for `enroll: true` (this Box's key isn't on the new Host yet). The host key must be the recorded one for the address, or, for an address with none, the `host_key` fingerprint the user confirmed after `host.scan_key`. Without either it's `44`; a different key is `43`, and no login is tried. A failed step is the error: its own code (`40`-`48`, `30`-`35`), the message "esx-02 wasn't added: ... - nothing was saved", and `data.step` and `data.steps`.
-3. For a typed password, the Vault item (`vault.create_item`'s rules: `60` if the name is taken, `62` if the vault refuses). The password then leaves roster's memory.
+3. For a typed password, the Vault item (`vault.create_item`'s rules: `60` if the name is taken, `62` if the vault refuses, `64`/`65` for a `save_to` that isn't there or is read-only). The password then leaves roster's memory.
 4. The Host, written into `roster.yml` with `reviewed: true`. If this fails in any way (an edit that wouldn't load, a full disk, an unwritable `.git/roster/`), the Vault item from step 3 is deleted again: the error says "the vault item 'esx-02 ssh' was taken back out" and has `data.undone`, or, if even that fails, `data.left` with the item to delete by hand.
 5. A host key confirmed with `host_key` is recorded in `~/.ssh/roster_known_hosts`, so Sessions and later test logins find it. The Host is already written by now, so a failure here doesn't undo the add: it succeeds with the failure in `warnings` (a list of sentences, empty when all went well).
 
@@ -549,29 +578,43 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 
 | Method | Params | Result |
 |---|---|---|
-| `vault.status` | none | `{provider, status, message?, sign_in?, providers: [{provider, status, message?, sign_in?}, ...]}` |
+| `vault.status` | none | `{provider, status, message?, sign_in?, save_to?, providers: [{provider, status, message?, sign_in?}, ...]}` |
 | `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
 | `vault.lock` | none | `{locked: [names]}` |
 
-- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (in practice `bw`). If none does, `provider` is `null` and `status` is `unsupported`.
+- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (`bw` or `kp`). If none does, `provider` is `null` and `status` is `unsupported`.
 - `status` is one of:
   - `locked`
   - `unlocked`
-  - `not-logged-in`: the CLI isn't logged in on this box
+  - `not-logged-in`: the CLI isn't logged in on this box (KeePassXC: no database set in `providers: kp:` or init.lua's `vault.kp`, or the file isn't there)
   - `missing-cli`: the CLI isn't installed
   - `unsupported`: no master password, e.g. `env` or `prompt`
 
   For `not-logged-in` and `missing-cli`, `message` says what to run or install. For `not-logged-in`, a provider the app can sign in (`bw`) also has `sign_in: {methods: ["password", "apikey", "sso"], server}`, where `server` is what `bw config server` is set to (`null`: bitwarden.com). See `vault.login` below.
-- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names.
-- `vault.lock` forgets every cached secret, session key and askpass token, then runs the provider's own lock (`bw lock`). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
+- `save_to` (when `provider` can save): where "Save to vault" goes by default, as set and not looked up (no vault call): `{setting, from}`, `from` being `init.lua`, `roster.yml` or `default` (the personal vault).
+- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names. For KeePassXC that's one `keepassxc-cli ls` with the master password (and the key file, if set) to check it; `serve` then holds the password in memory, since `keepassxc-cli` has no session.
+- `vault.lock` forgets every cached secret, session key, held master password and askpass token, then runs the provider's own lock (`bw lock`; KeePassXC has nothing to run). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
 
 | Code | Meaning |
 |---|---|
-| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)` |
-| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once`` |
-| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) `` |
+| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)`, `KeePassXC unlock failed (wrong master password or key file?)` |
+| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once``. For KeePassXC: no database set, the database or the key file isn't there (`KeePassXC database /home/you/roster.kdbx isn't there - ...`) |
+| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) ``, `` `keepassxc-cli` is not installed on this box (...) `` |
 | `13` | The provider has no master password, or no Host Login uses one |
-| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first` |
+| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first`, `KeePassXC database is locked - unlock it first` |
+
+### This Box's settings: `vault.configure`
+
+The app sends what its `init.lua` says about the vault at start, before `vault.status`, and again after every `:source` ([docs/app/config.md](docs/app/config.md#the-vault)). These are this Box's own settings, and they win over `roster.yml`'s `providers:`, which are the team's.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names]}` |
+
+- Each call replaces the last one. A setting it leaves out (or `{}`) goes back to `roster.yml`'s. `serve` keeps them across `roster.yml` reloads.
+- Paths and choices only, never a secret: a key that isn't listed here is refused (`-32602`), and so is a path that isn't absolute or `~/…`. A path is on the Box `roster serve` runs on (inside WSL for a WSL Backend).
+- `save_to` is where "Save to vault" goes by default on this Box (ticket 35), the same shape as `roster.yml`'s: `"personal"` goes to every provider, a collection to Bitwarden, a group to KeePassXC.
+- `kp.database` and `kp.key_file` are KeePassXC's (ticket 41). When one changes, the master password `serve` held for the old database is forgotten, along with every cached value: `locked` names the providers that were unlocked and aren't now, so the app shows its lock screen again. A database that isn't there is `vault.status`'s `not-logged-in`, and the message names `vault.kp.database in init.lua`.
 
 ### Signing in: `vault.login`
 
@@ -626,11 +669,16 @@ How it works, and what never happens to a secret:
 
 | Method | Params | Result |
 |---|---|---|
-| `vault.create_item` | `{name, password, username?, uri?, provider?}` | `{provider, id, name}` |
+| `vault.create_item` | `{name, password, username?, uri?, provider?, save_to?}` | `{provider, id, name, target}` |
 | `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
+| `vault.targets` | `{provider?}` | `{provider, targets: [{id, kind, label, organization?, collection?, save_to}], default, from, problem}` |
 
 - `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](docs/adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
-- Only providers whose `can_write` is `true` in `vault.status` (today only `bw`) can save. Every other provider answers `61`.
+- Only providers whose `can_write` is `true` in `vault.status` (`bw` and `kp`) can save. Every other provider answers `61`.
+- **Where it goes** (ticket 35): `save_to` is `"personal"`, `{organization, collection}` (Bitwarden; names or ids) or `{group}` (KeePassXC); any other shape is `-32602`. Left out, it's the setting: `init.lua`'s `vault.save_to` (through `vault.configure`), else `roster.yml`'s `providers: NAME: save_to:` (KeePassXC: also its `group:`), else the personal vault. `target` in the result is where it went: `{id, kind, label, organization?, collection?}`.
+- **Bitwarden collections:** roster looks the names up with `bw list organizations` (only ones you're confirmed in) and `bw list collections`, and puts `organizationId` and `collectionIds` in the item, which `bw create item` (2026.9.1) creates right there: no `bw move` or `bw share`. A name that matches nothing, or several, is `64`, and the message names the setting (`providers: bw: save_to: organization: in roster.yml`, `vault.save_to.collection in init.lua`, `save_to.collection` for a choice). bw's CLI doesn't say which collections you may only read, so roster checks the new item: one that came back outside the collection was refused it, and is deleted again (`65`; if even that fails, the message says to delete it by hand). That collection is then left out of `vault.targets` until the vault is locked.
+- `vault.targets` lists where the vault can save, in the provider's order: Bitwarden's personal vault and every collection of the organizations you're confirmed in; KeePassXC's top level and every group outside the recycle bin. `default` is the id of the setting's target and `from` where it's set (`init.lua`, `roster.yml`, or `null` for the built-in personal vault). A setting that doesn't resolve doesn't fail the list: `default` is `null` and `problem` is `{code, message, fix}` (64 or 65). It needs the vault unlocked (`14`).
+- **KeePassXC:** the entry goes into the `group` set under `providers: kp:` (default: the top level), with the username and the URL field. Its title must not be any entry's title already, in any group outside the recycle bin (`60`), because `kp:TITLE` looks titles up across groups; a title with `/` is `62`. `keepassxc-cli add -p` reads the master password and then the entry's password from its stdin. The `id` is the entry's path (`Hosts/esx-02 ssh`). `vault.undo_create` runs `keepassxc-cli rm`, which moves it to the recycle bin (or deletes it, in a database without one). A timed-out `add` is checked the same way as Bitwarden's.
 - The password goes to `bw create item` as base64 JSON on its stdin (what `bw encode` makes; bw 2026.9.1 reads stdin when no argument is given). It is never on a command line, and never in a response, an error or stderr. bw prints the new item back, password included, and roster keeps only its id.
 - If `bw create item` doesn't answer in time, it's stopped, and roster syncs and looks the name up: Bitwarden may have saved it anyway. An item with that exact name (there was none just before) counts as made, so it's returned, can be undone, and `host.add` goes on with it; no such item is `62` saying nothing was saved; and if even the lookup fails, `62` says roster couldn't check and names the item to look for. It never says "nothing was saved" while the item is there.
 - `vault.undo_create` deletes only items this `serve` created and hasn't undone yet (`63` for any other id), so it can't be pointed at an existing item. Bitwarden moves the item to its trash (`bw delete item ID`, not `--permanent`), where it can be restored for 30 days.
@@ -642,6 +690,8 @@ How it works, and what never happens to a secret:
 | `61` | The provider can only read Logins: "provider 'op' can't save to the vault - ..." |
 | `62` | The vault CLI refused the create or delete (no rights to the collection, an organization policy, the server). The message has bw's words with any value cut out |
 | `63` | `vault.undo_create`: this `serve` didn't create that item, or it's already undone |
+| `64` | `save_to` names an organization, collection or group that isn't there (or a shape the provider doesn't have); the message names the setting to fix |
+| `65` | `save_to` names a collection you may only read; nothing was left behind |
 
 ## How Claude uses it
 
@@ -696,7 +746,8 @@ src/roster/
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
-  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword;
+  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
+                    keepassxc (a local .kdbx through keepassxc-cli);
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
 examples/           commented roster.yml, plugin template
 docs/               team guides: setting up a new box, adding hosts; docs/app/ for the app, docs/adr/ for decisions

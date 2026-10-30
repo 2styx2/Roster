@@ -135,10 +135,10 @@ describe("Option names where configurable things show", () => {
   it("showing or hiding a layout piece names its option", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}e`);
-    expect(messageLine()).toHaveTextContent("Sidebar hidden. To keep it that way: modes.standard.sidebar = false in init.lua");
+    expect(messageLine()).toHaveTextContent("Sidebar hidden, and kept that way. modes.standard.sidebar = false in init.lua makes it the default");
     await user.keyboard(`${LEADER}s`);
     expect(messageLine()).toHaveTextContent("Status bar hidden. To keep it that way: modes.standard.statusbar = false in init.lua");
     await user.keyboard(`${LEADER}e`);
-    expect(messageLine()).toHaveTextContent("Sidebar shown. To keep it that way: modes.standard.sidebar = true in init.lua");
+    expect(messageLine()).toHaveTextContent("Sidebar shown, and kept that way. modes.standard.sidebar = true in init.lua makes it the default");
   });
 });

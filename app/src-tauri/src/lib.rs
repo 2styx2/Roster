@@ -293,6 +293,22 @@ async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "vault.lock", json!({})).await
 }
 
+/// This Box's vault settings from init.lua (`vault.configure`, API 10; tickets 35 and 41): paths
+/// and choices only, never a secret. Sent at start and after every `:source`.
+#[tauri::command]
+async fn vault_configure(
+    state: tauri::State<'_, Arc<BackendState>>,
+    settings: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    call(&state, "vault.configure", Value::Object(settings)).await
+}
+
+/// Where "Save to vault" can put an item, and the default (`vault.targets`, API 10; ticket 35).
+#[tauri::command]
+async fn vault_targets(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.targets", json!({})).await
+}
+
 /// roster's diagnostics for one Host (`host.check`, api 2): its steps in order, stopping at the
 /// first failure. roster makes at most one connection and one login, so this is safe on 10.19.
 #[tauri::command]
@@ -413,10 +429,21 @@ async fn folders_write(config: tauri::State<'_, ConfigState>, text: String) -> R
     blocking(move || config::folders::write(&dir, &text).map_err(|e| e.to_string())).await
 }
 
-/// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change.
+/// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change. With
+/// `reviewed: false` (API 9) it marks the Host unreviewed again; `reviewed` is sent only then, so a
+/// review reads exactly as it did for an older roster.
 #[tauri::command]
-async fn host_review(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
-    call(&state, "host.review", json!({ "host": host })).await
+async fn host_review(
+    state: tauri::State<'_, Arc<BackendState>>,
+    host: String,
+    reviewed: Option<bool>,
+) -> Result<Value, CallError> {
+    let params = if reviewed == Some(false) {
+        json!({ "host": host, "reviewed": false })
+    } else {
+        json!({ "host": host })
+    };
+    call(&state, "host.review", params).await
 }
 
 fn session_error(e: SessionError) -> CallError {
@@ -646,6 +673,8 @@ pub fn run() {
             vault_unlock,
             vault_login,
             vault_lock,
+            vault_configure,
+            vault_targets,
             config_load,
             config_open,
             config_reload,

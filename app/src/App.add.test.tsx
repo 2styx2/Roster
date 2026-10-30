@@ -286,3 +286,52 @@ describe("marking a Host reviewed", () => {
     expect((await backend.getHost(UNREVIEWED)).reviewed).toBe(true);
   });
 });
+
+describe("un-reviewing a Host (issue #78, item 5)", () => {
+  const current = { ...(fixtures.add as FakeScenario), apiVersion: 9 };
+  const REVIEWED = "linux-1-000";
+
+  it(":host unreview sets reviewed: false again, as a Pending change", async () => {
+    const { user, backend } = await ready(current);
+    const before = await backend.getHost(REVIEWED);
+    await user.keyboard(`${LEADER}:host unreview ${REVIEWED}{Enter}`);
+    expect(
+      await screen.findByText(`Marked ${REVIEWED} unreviewed, as a Pending change. It can't be opened until it's reviewed again.`),
+    ).toBeInTheDocument();
+    expect(await backend.getHost(REVIEWED)).toEqual({ ...before, reviewed: false });
+    expect((await backend.pendingChanges()).hosts).toEqual([{ host: REVIEWED, change: "changed", fields: ["reviewed"] }]);
+    // and back
+    await user.keyboard(`${LEADER}:host review ${REVIEWED}{Enter}`);
+    expect(await screen.findByText(/Marked linux-1-000 reviewed/)).toBeInTheDocument();
+    expect((await backend.pendingChanges()).count).toBe(0);
+  });
+
+  it("the Sidebar's ✓ takes back a review that's still a Pending change", async () => {
+    const { user, backend } = await ready(current);
+    await user.click(await screen.findByRole("button", { name: `Mark ${UNREVIEWED} reviewed` }));
+    const undo = await screen.findByRole("button", { name: `Mark ${UNREVIEWED} unreviewed` });
+    await user.click(undo);
+    expect(await screen.findByText(/Marked switch-4-003 unreviewed/)).toBeInTheDocument();
+    expect((await backend.getHost(UNREVIEWED)).reviewed).toBe(false);
+    expect((await backend.pendingChanges()).count).toBe(0);
+    expect(await screen.findByRole("button", { name: `Mark ${UNREVIEWED} reviewed` })).toBeInTheDocument();
+    // A Host reviewed in roster.yml already (published) has no such button: the command and the edit form reach it.
+    expect(screen.queryByRole("button", { name: `Mark ${REVIEWED} unreviewed` })).toBeNull();
+  });
+
+  it("from the edit form", async () => {
+    const { user, backend } = await ready(current);
+    await user.keyboard(`${LEADER}:edit ${REVIEWED}{Enter}`);
+    const panel = await screen.findByRole("region", { name: `Edit ${REVIEWED}` });
+    await user.click(await within(panel).findByRole("button", { name: "Mark unreviewed" }));
+    expect(await screen.findByText(/Marked linux-1-000 unreviewed/)).toBeInTheDocument();
+    expect((await backend.getHost(REVIEWED)).reviewed).toBe(false);
+  });
+
+  it("says when roster is too old to un-review (API 9)", async () => {
+    const { user, backend } = await ready({ ...current, apiVersion: 8 });
+    await user.keyboard(`${LEADER}:host unreview ${REVIEWED}{Enter}`);
+    expect(await screen.findByText(/:host unreview needs a newer roster \(API version 9; this one speaks 8\)/)).toBeInTheDocument();
+    expect((await backend.getHost(REVIEWED)).reviewed).toBe(true);
+  });
+});

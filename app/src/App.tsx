@@ -15,12 +15,14 @@ import {
   useEffectEvent,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import {
   ADD_API_VERSION,
+  UNREVIEW_API_VERSION,
   BackendStartError,
   CHECK_API_VERSION,
   EDIT_API_VERSION,
@@ -33,6 +35,9 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type SaveTarget,
+  VAULT_CONFIG_API_VERSION,
+  type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
@@ -41,6 +46,7 @@ import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply
 import { ConfigToast } from "./config/ConfigToast";
 import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
+import { vaultSettingsOf } from "./config/vault";
 import { ImportPanel } from "./config/ImportPanel";
 import { registerFolders } from "./folders/folders";
 import { FOLDERS_FILE, FoldersFile } from "./folders/file";
@@ -55,6 +61,7 @@ import { ChangesPanel, type ChangesState, type ChangesStep } from "./edit/Change
 import { AddPanel } from "./edit/AddPanel";
 import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
+import { shownControls, Toolbar, type ToolbarContext } from "./chrome/toolbar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { HelpView, registerHelp } from "./help/command";
 import { HelpPanel } from "./help/HelpPanel";
@@ -240,6 +247,7 @@ export function App({
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
   const errorRows = useSyncExternalStore(registries.errors.subscribe, registries.errors.list);
   const finderSources = useSyncExternalStore(registries.finders.subscribe, registries.finders.list);
+  const toolbarDefs = useSyncExternalStore(registries.toolbar.subscribe, registries.toolbar.list);
   const commands: Commands = useMemo(
     () => ({ get: (id) => registries.commands.get(id), list: () => commandList }),
     [registries, commandList],
@@ -274,11 +282,19 @@ export function App({
     setLayoutsFrom(modesKey);
     if (derived) setLayouts(derived.layouts);
   }
-  const layout = layouts[viewMode];
   const [hint, setHint] = useState(false);
   const [message, setMessage] = useState("");
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
+  // The Sidebar shown or hidden (issue #78): what the toggle chose is kept in the State, per mode,
+  // unless init.lua sets `modes.<mode>.sidebar`, which wins (as `theme` does over `:theme`).
+  const configSetsSidebar = config?.modes[viewMode].set?.includes("sidebar") ?? false;
+  const storedSidebar = sidebarChoice(appState, viewMode);
+  const layout = useMemo(() => {
+    const base = layouts[viewMode];
+    if (configSetsSidebar || storedSidebar === null || isShown(base, "sidebar") === storedSidebar) return base;
+    return togglePiece(base, "sidebar");
+  }, [layouts, viewMode, configSetsSidebar, storedSidebar]);
   // The Theme (ticket 30): a preview in the `themes` finder, else init.lua's `theme` if it names
   // one, else the choice kept in the State, else the Config's (`auto` follows the OS).
   const [themeChoice] = useState(() => new ThemeChoice(store, registries.themes));
@@ -316,7 +332,39 @@ export function App({
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
-  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
+  // init.lua's vault settings reach roster (`vault.configure`, API 10; tickets 35 and 41) before the
+  // lock screen asks where the vault stands (a KeePassXC database may be init.lua's), and again on
+  // every `:source`.
+  const connInfo = conn.state === "ready" ? conn.info : null;
+  const configuresVault = connInfo !== null && connInfo.inventory.api_version >= VAULT_CONFIG_API_VERSION;
+  const vaultSettingsKey = JSON.stringify(vaultSettingsOf(config?.vault));
+  const [vaultConfiguredFor, setVaultConfiguredFor] = useState<BackendInfo | null>(null);
+  /** Goes up when where "Save to vault" can go may have changed (ticket 35): the add form lists again. */
+  const [targetsVersion, bumpTargets] = useReducer((n: number) => n + 1, 0);
+  const vaultActive = connInfo !== null && (!configuresVault || vaultConfiguredFor === connInfo);
+  const vault = useVault(backend, vaultActive, { idleMs: options.idleLockMinutes * 60_000, clock });
+  const checkVault = vault.check;
+  useEffect(() => {
+    if (!connInfo || !configuresVault) return;
+    let live = true;
+    backend.configureVault(JSON.parse(vaultSettingsKey) as VaultSettings).then(
+      (r) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        bumpTargets();
+        // A KeePassXC database that changed forgot the master password: the lock screen again.
+        if (r.locked.length) void checkVault();
+      },
+      (e: unknown) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        setMessage(`roster didn't take init.lua's vault settings: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, connInfo, configuresVault, vaultSettingsKey, checkVault]);
   // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
   // screen; the tab opens by itself once the vault is unlocked again.
   // `vault` is a new object each render; its `lock` is stable, so the handler is set once.
@@ -337,14 +385,19 @@ export function App({
   const folded = useMemo(() => new Set(appState.folded), [appState.folded]);
   // The Live Inventory (ticket 28, API 8): what's added and not Published yet shows dimmed.
   const canLiveNow = conn.state === "ready" && conn.info.inventory.api_version >= LIVE_API_VERSION;
+  const canUnreview = conn.state === "ready" && conn.info.inventory.api_version >= UNREVIEW_API_VERSION;
   const live = useMemo(() => {
     if (!canLiveNow) return undefined;
     const changes = pending?.state === "done" ? pending.changes : null;
     return {
       pendingHosts: new Set((changes?.hosts ?? []).filter((c) => c.change === "added").map((c) => c.host)),
+      // A review that's still only a Pending change can be taken back from the same ✓ (issue #78).
+      pendingReviews: canUnreview
+        ? new Set((changes?.hosts ?? []).filter((c) => c.change === "changed" && c.fields.includes("reviewed")).map((c) => c.host))
+        : new Set<string>(),
       pendingGroups: new Set((changes?.groups ?? []).filter((c) => c.change === "added").map((c) => c.group)),
     };
-  }, [canLiveNow, pending]);
+  }, [canLiveNow, canUnreview, pending]);
   // The mode's layout may pick and order the Sidebar's sections (decision Q39).
   const shownSectionDefs = useMemo(
     () => (layout.sections ? [...pick(sectionDefs, layout.sections)].map((d, i) => ({ ...d, order: i })) : sectionDefs),
@@ -377,7 +430,7 @@ export function App({
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
   const sidebarSide = sidebarAt === "right" ? "right" : "left";
-  const sidebarShown = isShown(layout, "sidebar") && layout.tree === "sidebar" && sections.length > 0;
+  const sidebarShown = isShown(layout, "sidebar") && sections.length > 0;
   const finderCtx = useMemo<FinderContext | null>(
     () =>
       hosts
@@ -477,6 +530,7 @@ export function App({
       setStale("roster.yml", false);
       reloadHosts();
       refreshPending();
+      bumpTargets();
       if (change.error) setMessage(inventoryBroken(change.error));
     });
     backend.watchInventory(autoReload).catch(() => {});
@@ -496,6 +550,7 @@ export function App({
         setStale("roster.yml", false);
         reloadHosts();
         refreshPending();
+        bumpTargets();
         return r.error ? inventoryBroken(r.error) : null;
       },
     });
@@ -787,10 +842,17 @@ export function App({
       if (id !== null) tabs.close(id);
     },
     toggleSidebar: () => {
-      if (layout.tree === "finder") return ctx.openFinder("tree");
-      const next = togglePiece(layout, "sidebar");
-      setLayouts((l) => ({ ...l, [viewMode]: next }));
-      setMessage(pieceToggled(viewMode, next, "sidebar"));
+      const shown = !isShown(layout, "sidebar");
+      const name = `modes.${viewMode}.sidebar`;
+      if (configSetsSidebar) {
+        // init.lua sets it: this lasts until the Config is loaded again (or the app restarts).
+        setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], "sidebar") }));
+        return setMessage(
+          `Sidebar ${shown ? "shown" : "hidden"} for now: init.lua sets ${name} = ${String(!shown)}, which comes back on :source or a restart`,
+        );
+      }
+      store.set(SIDEBAR_KEY, { ...sidebarChoices(appState), [viewMode]: shown });
+      setMessage(`Sidebar ${shown ? "shown" : "hidden"}, and kept that way. ${name} = ${String(shown)} in init.lua makes it the default`);
     },
     toggleStatusBar: () => {
       const next = togglePiece(layout, layout.bar);
@@ -901,20 +963,29 @@ export function App({
       setEditing(null);
       setAdding({ group });
     },
-    review: (name) => {
+    review: (name, reviewed = true) => {
+      const verb = reviewed ? "review" : "unreview";
       const host = name ?? ctx.selectedHost();
-      if (!host) return setMessage("review needs a Host name (no Host is selected)");
+      if (!host) return setMessage(`${verb} needs a Host name (no Host is selected)`);
       const h = hostByName.get(host);
       if (!h) return setMessage(`No Host named ${host}`);
-      if (!canAdd) return setMessage(`:review needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
-      if (h.reviewed) return setMessage(`${host} is already reviewed.`);
-      backend.reviewHost(host).then(
+      if (!canAdd) return setMessage(`:${verb} needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
+      if (!reviewed && apiVersion < UNREVIEW_API_VERSION) {
+        return setMessage(`:host unreview needs a newer roster (API version ${UNREVIEW_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      const already = reviewed ? `${host} is already reviewed.` : `${host} isn't reviewed.`;
+      if (h.reviewed === reviewed) return setMessage(already);
+      const done = reviewed
+        ? `Marked ${host} reviewed, as a Pending change. It can be opened now.`
+        : `Marked ${host} unreviewed, as a Pending change. It can't be opened until it's reviewed again.`;
+      backend.reviewHost(host, reviewed).then(
         (r) => {
           reloadHosts();
           refreshPending();
-          setMessage(r.changed ? `Marked ${host} reviewed, as a Pending change. It can be opened now.` : `${host} is already reviewed.`);
+          setMessage(r.changed ? done : already);
         },
-        (e: unknown) => setMessage(`Couldn't mark ${host} reviewed: ${e instanceof Error ? e.message : String(e)}`),
+        (e: unknown) =>
+          setMessage(`Couldn't mark ${host} ${reviewed ? "reviewed" : "unreviewed"}: ${e instanceof Error ? e.message : String(e)}`),
       );
     },
     showChanges: (then) => {
@@ -1099,10 +1170,35 @@ export function App({
   const toast = report !== toastClosedFor && (
     <ConfigToast error={report?.error ?? null} warnings={warnings} onClose={() => setToastClosedFor(report)} />
   );
+  // The toolbar (decision Q65): in the title bar once the app is ready and unlocked (the lock
+  // screen shows nothing but the mark), else a bar of its own at the top.
+  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown };
+  const toolbarControls =
+    ready && isShown(layout, "toolbar") ? shownControls(toolbarDefs, layout.controls, toolbarCtx) : [];
+  const toolbar = (side: "start" | "end") => (
+    <Toolbar
+      controls={toolbarControls}
+      ctx={toolbarCtx}
+      keysFor={(command) => hintFor(keymap, command)}
+      leader={options.leader}
+      run={(line) => {
+        setMode(terminalMode);
+        run(line);
+      }}
+      side={side}
+    />
+  );
   const frame = (content: React.ReactNode) => (
     <HintsShown value={hintsShown}>
       <div className="window">
-        {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
+        {isShown(layout, "titlebar") && <TitleBar controls={platform.window} start={toolbar("start")} end={toolbar("end")} />}
+        {!isShown(layout, "titlebar") && toolbarControls.length > 0 && (
+          <div className="toolbar-bar" data-tauri-drag-region>
+            {toolbar("start")}
+            <div className="titlebar-fill" />
+            {toolbar("end")}
+          </div>
+        )}
         <div className="window-body">{content}</div>
         {toast}
       </div>
@@ -1317,6 +1413,7 @@ export function App({
               run={run}
               errorRows={errorRows}
               copy={copy}
+              addressOf={(name) => hostByName.get(name)?.ip ?? null}
             />
           )}
         </main>
@@ -1400,6 +1497,14 @@ export function App({
                   },
                 }
               : {})}
+            {...(apiVersion >= UNREVIEW_API_VERSION
+              ? {
+                  onUnreview: (name: string) => {
+                    closeEdit();
+                    run(`host unreview ${name}`);
+                  },
+                }
+              : {})}
           />
         )}
         {adding && hosts && (
@@ -1411,6 +1516,8 @@ export function App({
             rows={errorRows}
             actions={{ run, copy }}
             onPulled={() => reloadHosts()}
+            chooseTarget={configuresVault}
+            targetsVersion={targetsVersion}
             onAdded={(r) => {
               closeAdd();
               reloadHosts();
@@ -1418,7 +1525,7 @@ export function App({
               const where = `${r.host.name} to ${r.host.group}`;
               setMessage(
                 (r.host.reviewed
-                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
+                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}` : ""}.`
                   : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
                   (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
@@ -1609,7 +1716,28 @@ export function servicesLeftOut(list: HostList): string | null {
 }
 
 /** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */
+/** Where a saved password went, for the add message: said unless it's the personal vault (ticket 35). */
+function savedIn(target: Omit<SaveTarget, "save_to"> | undefined): string {
+  return target && target.kind !== "personal" ? `, in ${target.label}` : "";
+}
+
 export function inventoryBroken(e: InventoryFileError): string {
   const at = `roster.yml${e.line ? `:${e.line}` : ""}`;
   return `${at} has an error (${e.message}): the last good Inventory is still in use`;
+}
+
+/** The State's key for the Sidebar shown or hidden, per view mode (issue #78). */
+const SIDEBAR_KEY = "sidebar";
+
+/** What the State holds for the Sidebar, per mode (untrusted: only booleans count). */
+function sidebarChoices(state: Readonly<Record<string, unknown>>): Partial<Record<ViewMode, boolean>> {
+  const v = state[SIDEBAR_KEY];
+  if (typeof v !== "object" || v === null) return {};
+  const out: Partial<Record<ViewMode, boolean>> = {};
+  for (const [mode, shown] of Object.entries(v)) if (typeof shown === "boolean") out[mode as ViewMode] = shown;
+  return out;
+}
+
+function sidebarChoice(state: Readonly<Record<string, unknown>>, mode: ViewMode): boolean | null {
+  return sidebarChoices(state)[mode] ?? null;
 }

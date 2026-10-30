@@ -31,6 +31,12 @@ export interface Tab {
   status: TabStatus;
   /** How its Session logs in, once one has opened (the tab's state dot: hollow for password). */
   auth: SessionAuth | null;
+  /** The Session has reached a shell: it printed something since it started connecting. Until
+   * then it's still connecting, from the user's side, even once ssh runs (it's logging in), and
+   * the row and the pane say so (issue #78). */
+  shell: boolean;
+  /** 1 for the first Session in the tab, 2 and on after each reconnect ("Reconnecting to …"). */
+  attempt: number;
 }
 
 export interface TabsSnapshot {
@@ -195,7 +201,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1 },
       session: null,
       closing: false,
       attempt: 0,
@@ -244,7 +250,7 @@ export class Tabs {
     if (!entry || (state !== "ended" && state !== "failed")) return false;
     const to = host ?? entry.tab.host;
     const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
-    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" } };
+    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1 };
     entry.pending = [];
     this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
     this.changed();
@@ -270,6 +276,10 @@ export class Tabs {
           if (!current()) return;
           this.keepTail(entry, data);
           this.output(entry, data);
+          if (!entry.tab.shell && data.length > 0) {
+            entry.tab = { ...entry.tab, shell: true };
+            this.changed();
+          }
         },
         exit: (exit) => {
           if (!current()) return;

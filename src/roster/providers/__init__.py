@@ -138,6 +138,15 @@ class WriteFailed(SecretError):
     """The provider's CLI refused the create or delete; the message has its words (minus any value)."""
 
 
+# Where a Vault item goes (ticket 35): the personal vault, an organization's collection, a KeePassXC group.
+class UnknownTarget(SecretError):
+    """The place to save to isn't there (or isn't one this provider has); the message names the setting to fix."""
+
+
+class ReadOnlyTarget(SecretError):
+    """The account may only read the collection it was asked to save to."""
+
+
 def near_names(name, names, n=5):
     """Item names that look like NAME (a typo, other case, a word missing), closest first."""
     import difflib
@@ -150,13 +159,21 @@ def near_names(name, names, n=5):
 
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
                           #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str,
-                          #             "not_logged_in": what to run when status is "unauthenticated"
+                          #             "not_logged_in": what to run when status is "unauthenticated" (or
+                          #                              fn(ctx) -> that text)
                           #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
                           #             "login_help": why this provider has no sign-in here, and what to do
                           #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
                           #                       password, uri}; refuses a name that exists (ItemExists)
                           #             "delete": fn(id, ctx), the undo of a create (Q43)
+#             "targets": fn(ctx) -> [target], where the provider can save: each {id, kind, label, save_to}
+#             "resolve": fn(setting, field, ctx) -> the target a save_to setting names (UnknownTarget,
+#                        ReadOnlyTarget); field(part) names the setting for messages
+#             "box_paths": settings naming files on this Box (e.g. kp's database); a change to one
+#                          from vault.configure locks the provider (what it holds was for the old one)
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
+BOX_SETTINGS = {}         # name -> this Box's own settings, from the app's init.lua (`roster serve`'s vault.configure):
+                          #   paths and choices only, never a secret. They win over roster.yml's.
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
 MANUAL_UNLOCK = False     # True (`roster serve`): only unlock() unlocks - no session file, no BW_PASSWORD, no prompt
@@ -188,7 +205,9 @@ class Ctx:
     def __init__(self, name, group):
         self.provider = name
         self.group = group                                   # roster.yml group asking for the password
-        self.settings = PROVIDER_SETTINGS.get(name, {})      # this provider's block under `providers:`
+        box = BOX_SETTINGS.get(name, {})
+        self.settings = {**PROVIDER_SETTINGS.get(name, {}), **box}   # `providers:` in roster.yml, init.lua's over it
+        self.from_box = set(box)                             # the settings that came from init.lua
         self.state = PROVIDER_STATE.setdefault(name, {})     # remembered for the rest of this run
         self.interactive = sys.stdin.isatty()
 
@@ -288,7 +307,10 @@ def status_message(name, status):
         return not_installed(name)
     if status == "unauthenticated":
         p = PROVIDERS.get(name, {})
-        return p.get("not_logged_in") or f"`{p.get('tool') or name}` isn't logged in on this box"
+        hint = p.get("not_logged_in")
+        if callable(hint):                               # it depends on this box (e.g. KeePassXC's database path)
+            hint = hint(Ctx(name, None))
+        return hint or f"`{p.get('tool') or name}` isn't logged in on this box"
     return None
 
 
@@ -314,6 +336,110 @@ def lock(name):
             fn(Ctx(name, None))
 
 
+# ---- this Box's own settings (ticket 41): from the app's init.lua, through `roster serve`'s vault.configure
+
+def setting_name(ctx, key):
+    """Where a person changes setting KEY of CTX's provider: `vault.kp.database in init.lua`, or roster.yml's."""
+    if key == "save_to" and key in ctx.from_box:                  # init.lua's is one for every provider
+        return "vault.save_to in init.lua"
+    if key in ctx.from_box:
+        return f"vault.{ctx.provider}.{key} in init.lua"
+    return f"providers: {ctx.provider}: {key}: in roster.yml"
+
+
+def configure_box(settings):
+    """Take this Box's settings ({provider: {key: value}}, from init.lua), replacing the last ones: a provider or key
+    left out goes back to roster.yml's. A provider whose box_paths changed is locked (memory first, as lock() does).
+    Returns the names of the ones that were holding an unlock."""
+    locked = []
+    with _secret_lock:
+        before = {n: dict(v) for n, v in BOX_SETTINGS.items()}
+        BOX_SETTINGS.clear()
+        BOX_SETTINGS.update({n: dict(v) for n, v in settings.items() if v})
+        for name, p in PROVIDERS.items():
+            keys = p.get("box_paths", ())
+            if all(before.get(name, {}).get(k) == BOX_SETTINGS.get(name, {}).get(k) for k in keys):
+                continue
+            state = PROVIDER_STATE.pop(name, None)
+            _secrets.clear()
+            if state and p.get("lock"):
+                p["lock"](Ctx(name, None))
+            if state and state.get("password") is not None:
+                locked.append(name)
+    return locked
+
+
+# ---- where a Vault item goes (ticket 35): `save_to`, the same shape in roster.yml, init.lua and a save's choice
+
+PERSONAL = "personal"
+SAVE_TO_SHAPES = '"personal", {organization, collection} (Bitwarden, by name or id) or {group} (KeePassXC)'
+
+
+def check_save_to(value):
+    """VALUE as a save_to setting, or ValueError saying what it may be."""
+    if value == PERSONAL:
+        return value
+    if isinstance(value, dict) and set(value) in ({"organization", "collection"}, {"group"}) \
+            and all(isinstance(v, str) and v.strip() for v in value.values()):
+        return {k: v.strip() for k, v in value.items()}
+    raise ValueError(f"must be {SAVE_TO_SHAPES}, not {value!r}")
+
+
+def save_to_setting(ctx):
+    """CTX's default target as (setting, source): init.lua's `vault.save_to`, else roster.yml's `providers: NAME:
+    save_to:` (KeePassXC: its older `group:`), else the personal vault. source: "init.lua", "roster.yml" or None."""
+    if ctx.settings.get("save_to") is not None:
+        return ctx.settings["save_to"], "init.lua" if "save_to" in ctx.from_box else "roster.yml"
+    if ctx.provider == "kp" and ctx.settings.get("group"):         # kp's group: came before save_to
+        return {"group": str(ctx.settings["group"])}, "roster.yml"
+    return PERSONAL, None
+
+
+def save_to_field(ctx, source, part=None):
+    """The name of the setting a save_to came from, for messages (PART: organization, collection, group)."""
+    if source == "init.lua":
+        return "vault.save_to" + (f".{part}" if part else "") + " in init.lua"
+    if source == "roster.yml" and ctx.settings.get("save_to") is None:       # kp's group:
+        return f"providers: {ctx.provider}: group: in roster.yml"
+    if source == "roster.yml":
+        return f"providers: {ctx.provider}: save_to: " + (f"{part}: " if part else "") + "in roster.yml"
+    return "save_to" + (f".{part}" if part else "")                          # the choice at save time
+
+
+def resolve_target(ctx, setting, source):
+    """The target SETTING names, checked against what the provider offers (call once it's unlocked)."""
+    try:
+        setting = check_save_to(setting)
+    except ValueError as e:
+        raise UnknownTarget(f"{save_to_field(ctx, source)} {e}") from None
+    return PROVIDERS[ctx.provider]["resolve"](setting, lambda part=None: save_to_field(ctx, source, part), ctx)
+
+
+def shown(target):
+    """A target as a save's result names it: no save_to, which the app only needs in a list."""
+    return {k: v for k, v in target.items() if k != "save_to"}
+
+
+def save_targets(name):
+    """Where provider NAME can save, and its default: {targets, default (an id, or None when the setting doesn't
+    resolve), from (where the default is set: init.lua, roster.yml or None), problem (that SecretError, or None)}."""
+    fn = _writer(name, "targets")
+    ctx = Ctx(name, None)
+    targets = fn(ctx)
+    setting, source = save_to_setting(ctx)
+    try:
+        default, problem = resolve_target(ctx, setting, source)["id"], None
+    except (UnknownTarget, ReadOnlyTarget) as e:
+        default, problem = None, e
+    return {"targets": targets, "default": default, "from": source, "problem": problem}
+
+
+def default_target(name):
+    """The save_to provider NAME uses when a save doesn't choose, as set (not resolved: no vault call)."""
+    setting, source = save_to_setting(Ctx(name, None))
+    return {"setting": setting, "from": source or "default"}
+
+
 # ---- writing Vault items (ticket 13)
 
 def can_write(name):
@@ -330,16 +456,19 @@ def _writer(name, op):
     return fn
 
 
-def create_item(provider, *, name, password, username="", uri=""):
+def create_item(provider, *, name, password, username="", uri="", save_to=None):
     """Create a login Vault item NAME in PROVIDER: username, password, and the address in its URI field
-    (docs/adding-hosts.md). Refuses a NAME that's already there. Returns {id, name}, never the password;
-    the password never goes on a command line or into an error."""
+    (docs/adding-hosts.md), in SAVE_TO (ticket 35: "personal", {organization, collection}, {group}; None: the
+    setting's). Refuses a NAME that's already there. Returns {id, name, target}, never the password; the password
+    never goes on a command line or into an error."""
     fn = _writer(provider, "create")
     if not str(name).strip() or not password:
         raise SecretError("a Vault item needs a name and a password")
-    made = fn({"name": name, "username": username or "", "password": password, "uri": uri or ""},
-              Ctx(provider, None))
-    return {"id": made["id"], "name": made["name"]}
+    ctx = Ctx(provider, None)
+    where = save_to_setting(ctx) if save_to is None else (save_to, "choice")
+    made = fn({"name": name, "username": username or "", "password": password, "uri": uri or "", "save_to": where},
+              ctx)
+    return {"id": made["id"], "name": made["name"], "target": shown(made["target"])}
 
 
 def delete_item(provider, item_id):
@@ -407,7 +536,7 @@ def setup_providers(cfg):
         conf = conf or {}
         if not isinstance(conf, dict):
             die(f"providers.{name} in roster.yml must be a mapping")
-        PROVIDER_SETTINGS[name] = conf
+        PROVIDER_SETTINGS[name] = {**conf, "_base": base}     # _base: where relative paths in it start
         if conf.get("command"):
             if not re.match(r"^[a-z0-9_-]+$", name):
                 die(f"provider name {name!r} must be lowercase letters, digits, _ or -")
@@ -416,4 +545,4 @@ def setup_providers(cfg):
 
 
 # Built-in providers register themselves on import.
-from . import bitwarden, builtin, bw_login, onepassword  # noqa: E402,F401
+from . import bitwarden, builtin, bw_login, keepassxc, onepassword  # noqa: E402,F401

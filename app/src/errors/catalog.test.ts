@@ -90,6 +90,15 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 81).where).toContain("roster.yml");
   });
 
+  it("gives where to save its rows (rows 58-59, ticket 35)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (const n of [58, 59]) expect(covered.has(n), `row ${n}`).toBe(true);
+    expect(rowFor(rows, 64).where).toEqual(["roster.yml", "init.lua"]);
+    expect(rowFor(rows, 64).fix(p(64))).toMatch(/setting|Save to/);
+    expect(rowFor(rows, 65).where).toContain("the vault");
+    expect(rowFor(rows, 65).fix(p(65))).toMatch(/write/);
+  });
+
   it("never offers to accept a host key", () => {
     for (const row of builtinErrorRows) {
       for (const a of row.actions) {

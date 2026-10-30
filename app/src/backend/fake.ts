@@ -34,6 +34,12 @@ import {
   type VaultStatus,
   type VaultStatusWord,
   VaultError,
+  VAULT_CONFIG_API_VERSION,
+  type VaultSettings,
+  type SaveTarget,
+  type SaveTargets,
+  type SaveTo,
+  SaveToError,
   type SessionAuth,
   type SessionEvents,
   type SessionHandle,
@@ -65,8 +71,14 @@ export interface FakeScenario {
   failOnce?: boolean;
   /** Milliseconds every call waits, to see loading states. */
   delay?: number;
-  /** Where the vault starts (default: locked, like a fresh `roster serve`). */
-  vault?: { status: VaultStatusWord };
+  /** How long `openSession` takes (session.prepare and starting ssh), in ms; else `delay`. */
+  sessionDelay?: number;
+  /** How long a Session takes to log in (its shell's first output), in ms (issue #78). */
+  loginMs?: number;
+  /** Where the vault starts (default: locked, like a fresh `roster serve`). `database`: KeePassXC's
+   * .kdbx is at this path on the Box and roster.yml names none, so the vault is usable only once
+   * `vault.configure` names it (init.lua, ticket 41). */
+  vault?: { status: VaultStatusWord; provider?: "bw" | "kp"; database?: string };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
   sessionRefusal?: Refusal;
   /** Sessions to password-only Hosts are refused with this (their vault: 11, 12 or 14). */
@@ -108,6 +120,9 @@ export interface FakeScenario {
   /** The account `vault.login` signs in to, when the vault is `not-logged-in` (ticket 31). Without
    * it, `vault.status` has no `sign_in` (a roster older than api 3). */
   signIn?: FakeAccount;
+  /** Ticket 35 (API 10): where the vault can save (default: the personal vault only), and roster.yml's
+   * `save_to` (default: none, so the personal vault). init.lua's, sent with vault.configure, wins. */
+  saveTo?: { targets: SaveTarget[]; setting?: SaveTo };
   /** `connect()`'s answer, where it differs from the default (a long Box name, path, distro). */
   info?: { backend?: string; box?: string; path?: string; command?: string[] };
   /** The not-logged-in or missing-cli message, where it differs from roster's usual one. */
@@ -185,6 +200,12 @@ const NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login
 const MISSING_CLI = "`bw` is not installed on this box (install the Bitwarden CLI, e.g. `npm install -g @bitwarden/cli`)";
 const WRONG_PASSWORD = "Bitwarden unlock failed (wrong master password?)";
 const VAULT_LOCKED = "Bitwarden vault is locked - unlock it first";
+/** The same, from the KeePassXC provider (ticket 25): a local .kdbx, so "not logged in" is a missing database. */
+const KP_WORDS = {
+  notLoggedIn: "KeePassXC database /home/you/roster.kdbx isn't there - create it in KeePassXC, or fix providers: kp: database: in roster.yml",
+  missingCli: "`keepassxc-cli` is not installed on this box (KeePassXC, a local .kdbx: … Install: https://keepassxc.org/download/)",
+  wrongPassword: "KeePassXC unlock failed (wrong master password?)",
+};
 
 /** Like roster: a Host that doesn't enroll a key and whose ssh Login is a vault reference. */
 export function authOf(h: Host): SessionAuth {
@@ -241,6 +262,8 @@ export const fixtures: Record<string, FakeScenario> = {
   publish: { hosts: makeHosts(12), apiVersion: 7 },
   /** Ticket 11: a roster that can add Hosts (api 6). The new Host's password is FAKE_HOST_PASSWORD. */
   add: { hosts: makeHosts(12), apiVersion: 6 },
+  /** Issue #78: today's roster (api 9), which can also un-review a Host. */
+  review: { hosts: makeHosts(12), apiVersion: 9 },
   /** Two Pending changes already made on this Box. */
   "edit-pending": {
     hosts: makeHosts(12),
@@ -275,6 +298,8 @@ export const fixtures: Record<string, FakeScenario> = {
   /** As many Hosts as the real Inventory (ticket 17's tree check). */
   "91-hosts": { hosts: makeHosts(91) },
   slow: { hosts: makeHosts(300), delay: 1500 },
+  /** Issue #78: Sessions take 1.2 s to start and 2.5 s more to log in, so the connecting state shows. */
+  "slow-login": { hosts: makeHosts(12), apiVersion: 9, sessionDelay: 1200, loginMs: 2500 },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(
@@ -304,6 +329,9 @@ export const fixtures: Record<string, FakeScenario> = {
   "not-logged-in": { hosts: makeHosts(12), vault: { status: "not-logged-in" } },
   "missing-cli": { hosts: makeHosts(12), vault: { status: "missing-cli" } },
   "no-vault": { hosts: makeHosts(12), vault: { status: "unsupported" } },
+  /** KeePassXC (ticket 25): a local .kdbx instead of Bitwarden. */
+  keepassxc: { hosts: makeHosts(12), vault: { status: "locked", provider: "kp" } },
+  "keepassxc-no-database": { hosts: makeHosts(12), vault: { status: "not-logged-in", provider: "kp" } },
   "not-set-up": {
     hosts: makeHosts(12),
     sessionRefusal: {
@@ -379,7 +407,14 @@ export function fixtureFromUrl(search: string = globalThis.location?.search ?? "
 const encode = (s: string) => new TextEncoder().encode(s);
 
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
-function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize, events: SessionEvents): SessionHandle {
+function fakeSession(
+  id: number,
+  host: string,
+  auth: SessionAuth,
+  size: TermSize,
+  events: SessionEvents,
+  loginMs = 0,
+): SessionHandle {
   let line = "";
   let ended = false;
   const end = (code: number | null, closed: boolean) => {
@@ -388,7 +423,15 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
     setTimeout(() => events.exit({ code, closed }), 0);
   };
   const prompt = `${host}$ `;
-  setTimeout(() => events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`)), 0);
+  // Like ssh, nothing is printed until the Host answers (the login takes `loginMs`).
+  let loggedIn = false;
+  let resized: TermSize | null = null;
+  const sayResized = (s: TermSize) => events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+  setTimeout(() => {
+    loggedIn = true;
+    events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    if (resized && !ended) sayResized(resized);
+  }, loginMs);
   return {
     id,
     auth,
@@ -407,7 +450,9 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
       }
     },
     async resize(s) {
-      if (!ended) events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+      if (ended) return;
+      if (loggedIn) sayResized(s);
+      else resized = s;
     },
     async close() {
       end(null, true);
@@ -513,6 +558,10 @@ export interface FakeBackend extends Backend {
   outsideEdit(next: HostList | { error: InventoryFileError }): void;
   /** Whether `inventory.watch` asked to apply outside edits (null: not watching). */
   watching(): boolean | null;
+  /** What `vault.configure` was last sent (null: never). */
+  vaultSettings(): VaultSettings | null;
+  /** Every `host.add` so far, without its password. */
+  adds(): Omit<AddHostParams, "password">[];
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;
@@ -576,15 +625,33 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let publishedOnce = false;
   /** What the Tauri shell answers for a call it stopped waiting for. */
   const late = () => new BackendCallError("The backend didn't answer in time.", null, null, true, true);
-  let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
-  const vaultMessage = () =>
-    vault === "not-logged-in"
-      ? (scenario.vaultMessage ?? NOT_LOGGED_IN)
+  let vaultWord: VaultStatusWord = scenario.vault?.status ?? "locked";
+  const vaultName = scenario.vault?.provider ?? "bw";
+  const kp = vaultName === "kp";
+  // ---- vault.configure (ticket 41): the KeePassXC database init.lua names, if any
+  let settings: VaultSettings | null = null;
+  const onBox = scenario.vault?.database;
+  const named = () => settings?.kp?.database;
+  /** No usable database: roster.yml names none, and init.lua names none or another path. */
+  const noDatabase = () => onBox !== undefined && named() !== onBox;
+  const noDatabaseWords = () =>
+    named()
+      ? `KeePassXC database ${named()} isn't there - create it in KeePassXC, or fix vault.kp.database in init.lua`
+      : "KeePassXC has no database set on this box - add  providers: {kp: {database: ~/roster.kdbx}}  to roster.yml, or  vault = { kp = { database = \"~/roster.kdbx\" } }  to the app's init.lua";
+  /** The vault as roster sees it now. Writes go to `vaultWord`. */
+  const vaultNow = (): VaultStatusWord => (noDatabase() && vaultWord !== "missing-cli" ? "not-logged-in" : vaultWord);
+  const vaultMessage = () => {
+    const vault = vaultNow();
+    if (vault === "not-logged-in" && noDatabase()) return noDatabaseWords();
+    return vault === "not-logged-in"
+      ? (scenario.vaultMessage ?? (kp ? KP_WORDS.notLoggedIn : NOT_LOGGED_IN))
       : vault === "missing-cli"
-        ? (scenario.vaultMessage ?? MISSING_CLI)
+        ? (scenario.vaultMessage ?? (kp ? KP_WORDS.missingCli : MISSING_CLI))
         : undefined;
+  };
   const vaultStatus = (): VaultStatus => {
-    const provider = vault === "unsupported" ? null : "bw";
+    const vault = vaultNow();
+    const provider = vault === "unsupported" ? null : vaultName;
     const message = vaultMessage();
     const signIn = vault === "not-logged-in" && scenario.signIn
       ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: scenario.signIn.server ?? null } }
@@ -592,6 +659,30 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn };
     return { ...main, providers: provider ? [{ ...main, provider }] : [] };
   };
+  // ---- vault.targets (ticket 35)
+  const PERSONAL: SaveTarget = { id: "personal", kind: "personal", label: "Personal vault", save_to: "personal" };
+  const targets = () => scenario.saveTo?.targets ?? [PERSONAL];
+  const fits = (want: SaveTo, t: SaveTarget) => {
+    if (want === "personal" || t.save_to === "personal") return want === t.save_to;
+    if ("group" in want) return t.kind === "group" && t.label === want.group;
+    if ("group" in t.save_to) return false;
+    const ids = t.save_to;
+    return (
+      [t.organization, ids.organization].includes(want.organization) && [t.collection, ids.collection].includes(want.collection)
+    );
+  };
+  const targetFor = (want: SaveTo) => targets().find((t) => fits(want, t)) ?? null;
+  const defaultSetting = (): { setting: SaveTo; from: SaveTargets["from"] } =>
+    settings?.save_to
+      ? { setting: settings.save_to, from: "init.lua" }
+      : scenario.saveTo?.setting
+        ? { setting: scenario.saveTo.setting, from: "roster.yml" }
+        : { setting: "personal", from: null };
+  const unknownTarget = (field: string) =>
+    new BackendCallError(`no Bitwarden collection like that you can save to - fix ${field}`, SaveToError.unknownTarget, {
+      fix: "fix the setting the message names, or pick where to save it",
+    });
+  const added: Omit<AddHostParams, "password">[] = [];
   let sessions = 0;
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -604,18 +695,20 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   };
   const unlock = async (password: string): Promise<ProviderStatus> => {
     await wait();
+    const vault = vaultNow();
     if (vault === "not-logged-in") throw new BackendCallError(vaultMessage() ?? NOT_LOGGED_IN, VaultError.notLoggedIn);
-    if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
+    if (vault === "missing-cli") throw new BackendCallError(vaultMessage() ?? MISSING_CLI, VaultError.cliMissing);
     if (vault === "unsupported")
       throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
-    if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
-    vault = "unlocked";
+    if (password !== FAKE_PASSWORD)
+      throw new BackendCallError(kp ? KP_WORDS.wrongPassword : WRONG_PASSWORD, VaultError.wrongPassword);
+    vaultWord = "unlocked";
     if (scenario.relockAfterMs !== undefined) {
       setTimeout(() => {
-        if (vault === "unlocked") vault = "locked";
+        if (vaultWord === "unlocked") vaultWord = "locked";
       }, scenario.relockAfterMs);
     }
-    return { provider: "bw", status: vault };
+    return { provider: vaultName, status: vaultWord };
   };
   // ---- vault.login, as roster answers it (README "Signing in: vault.login")
   let login: { id: string; step: SignInStep } | null = null;
@@ -623,7 +716,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   const stepOf = (id: string, step: DistributiveOmit<SignInStep, "login">): SignInStep => {
     const s = { ...step, login: id } as SignInStep;
     if (s.step === "done") {
-      vault = "unlocked";
+      vaultWord = "unlocked";
       login = null;
     } else {
       login = { id, step: s };
@@ -663,7 +756,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   const signIn = async (start: SignInStart): Promise<SignInStep> => {
     await wait();
     login = null;
-    if (vault !== "not-logged-in") {
+    if (vaultNow() !== "not-logged-in") {
       throw signInFailure(
         SignInError.alreadyLoggedIn,
         "the Bitwarden CLI is already logged in on this box - unlock it instead (to sign in as someone else, run `bw logout` first)",
@@ -792,9 +885,41 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     lockVault: () =>
       inOrder(async () => {
         await wait();
-        if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
-        vault = "locked";
-        return { locked: ["bw"] };
+        if (vaultNow() !== "locked" && vaultNow() !== "unlocked") return { locked: [] };
+        vaultWord = "locked";
+        return { locked: [vaultName] };
+      }),
+    configureVault: (next) =>
+      inOrder(async () => {
+        await wait();
+        if ((scenario.apiVersion ?? 2) < VAULT_CONFIG_API_VERSION) {
+          throw new BackendCallError("unknown method 'vault.configure'", -32601);
+        }
+        const before = named();
+        settings = structuredClone(next);
+        // Another KeePassXC database: the master password held for the old one is forgotten.
+        const relocked = kp && named() !== before && vaultWord === "unlocked";
+        if (relocked) vaultWord = "locked";
+        return { configured: true as const, locked: relocked ? [vaultName] : [] };
+      }),
+    saveTargets: () =>
+      inOrder(async () => {
+        await wait();
+        if ((scenario.apiVersion ?? 2) < VAULT_CONFIG_API_VERSION) {
+          throw new BackendCallError("unknown method 'vault.targets'", -32601);
+        }
+        if (vaultNow() !== "unlocked") throw new BackendCallError(VAULT_LOCKED, VaultError.locked);
+        const { setting, from } = defaultSetting();
+        const found = targetFor(setting);
+        const field = from === "init.lua" ? "vault.save_to in init.lua" : `providers: ${vaultName}: save_to: in roster.yml`;
+        const problem = found ? null : unknownTarget(field);
+        return {
+          provider: vaultName,
+          targets: targets(),
+          default: found?.id ?? null,
+          from,
+          problem: problem && { code: SaveToError.unknownTarget, message: problem.message, fix: "fix the setting the message names" },
+        };
       }),
     signIn: (start) => inOrder(() => signIn(start)),
     signInAnswer: (id, answer) => inOrder(() => signInAnswer(id, answer)),
@@ -803,7 +928,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         login = null;
       }),
     async openSession(host, size, events) {
-      await wait();
+      await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
       const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
       if (!h.reviewed) {
@@ -818,11 +943,11 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const auth = authOf(h);
       if (auth === "password") {
         if (scenario.passwordRefusal) throw refuse(scenario.passwordRefusal);
-        if (vault === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
+        if (vaultNow() === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events);
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
     },
     async checkHost(host) {
       await wait();
@@ -927,12 +1052,15 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
           fix: "pick another name, or edit that Host",
         });
       }
+      const { password: _typed, ...seen } = p;
+      void _typed;
+      added.push(seen);
       const port = p.port ?? 22;
       const login = p.password !== undefined || (p.auth ?? "").includes(":");
       const item = p.password !== undefined ? (p.item ?? `${p.name} ssh`) : null;
       if (login) {
         const key = { recorded: "none", fingerprint: FAKE_FINGERPRINT, ...scenario.scanKeys?.[p.address] };
-        const typedLocked = p.password !== undefined && vault !== "unlocked";
+        const typedLocked = p.password !== undefined && vaultNow() !== "unlocked";
         const result =
           scenario.addVerify?.[p.name] ??
           (typedLocked
@@ -954,7 +1082,10 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
           });
         }
       }
-      const added: Host = {
+      const choosing = (scenario.apiVersion ?? 2) >= VAULT_CONFIG_API_VERSION;
+      const target = p.password === undefined || !choosing ? null : targetFor(p.save_to ?? defaultSetting().setting);
+      if (p.password !== undefined && choosing && !target) throw unknownTarget(p.save_to ? "save_to" : "vault.save_to in init.lua");
+      const host: Host = {
         name: p.name,
         group: p.group,
         ip: p.address,
@@ -967,24 +1098,26 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         ssh: { user: p.user ?? "admin", port, auth: item ? `bw:${item}` : (p.auth ?? "prompt") },
         web: null,
       };
-      hosts = [...hosts, added];
+      hosts = [...hosts, host];
       if (!(p.group in groups)) groups = { ...groups, [p.group]: { title: "", description: "" } };
       if (scenario.lateAnswers) throw late();
       return {
         added: true,
-        host: added,
+        host,
         backup: "~/infra/.git/roster/roster.yml.bak",
         verify: login ? passingVerify(p.name) : null,
-        item: item ? { provider: "bw", id: `fake-${p.name}`, name: item } : null,
+        item: item
+          ? { provider: "bw", id: `fake-${p.name}`, name: item, ...(target ? { target: { id: target.id, kind: target.kind, label: target.label } } : {}) }
+          : null,
         warnings: scenario.addWarnings?.[p.name] ?? [],
       };
     },
-    async reviewHost(host) {
+    async reviewHost(host, reviewed = true) {
       await wait();
       const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
-      if (h.reviewed) return { changed: false, host: h, backup: null };
-      const updated = { ...h, reviewed: true };
+      if (h.reviewed === reviewed) return { changed: false, host: h, backup: null };
+      const updated = { ...h, reviewed };
       hosts = hosts.map((x) => (x.name === host ? updated : x));
       return { changed: true, host: updated, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
@@ -1081,5 +1214,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       for (const w of changeWatchers) w(change);
     },
     watching: () => watchAuto,
+    vaultSettings: () => settings,
+    adds: () => added,
   };
 }

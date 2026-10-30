@@ -128,6 +128,8 @@ export const defaultBindings: KeymapTables = {
     r: "reconnect",
     m: "mode",
     b: "finder sessions",
+    // The Sidebar's tree as a finder (in Focus, where the Sidebar is hidden by default).
+    t: "finder tree",
     Escape: "terminal",
   },
   list: {

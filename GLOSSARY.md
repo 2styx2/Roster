@@ -28,6 +28,10 @@ _Avoid_: credential, account (an account is a kind of resource)
 One entry in the team's password manager, named `<host> <what it opens>`.
 _Avoid_: secret, entry, password
 
+**Save to**:
+Where "Save to vault" puts a new Vault item: the personal vault, an organization's collection (Bitwarden), or a group (KeePassXC). Set by `save_to` in `roster.yml` (the team's default) and `init.lua` (this Box's), and chosen per Host in the add form.
+_Avoid_: destination, location, folder (a Folder is the app's grouping of Hosts)
+
 **Quick Connect**:
 Opening a Session to an address that isn't a Host in the Inventory yet. If you choose to save it, it becomes a Host with its own Vault item.
 _Avoid_: ad-hoc session, direct connect
@@ -39,6 +43,14 @@ _Avoid_: draft, unsaved edit
 **Publish**:
 Committing the Pending changes and pushing them to the infra repo, so every Box picks them up.
 _Avoid_: save, sync (sync means rewriting a Box's ssh config from the Inventory)
+
+**Mesh**:
+Host-to-Host access that one Box sets up: Hosts in a meshed group, or joined by a Link, can log in to each other with their own keys. Nothing is installed on the Hosts.
+_Avoid_: VPN, tailnet, fleet
+
+**Link**:
+A one-way (or `both`) permission in the Inventory for one Host or group to reach another across groups or networks.
+_Avoid_: route, peering
 
 ## The app
 

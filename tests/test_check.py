@@ -84,7 +84,7 @@ groups:
       dup: {{ip: 127.0.0.1, auth: "bw:dup ssh"}}
       nopw: {{ip: 127.0.0.1, auth: "bw:nopw ssh"}}
       field: {{ip: 127.0.0.1, auth: "bw:esx ssh#enabel"}}
-      kp: {{ip: 127.0.0.1, auth: "kp:esx ssh"}}
+      keeper: {{ip: 127.0.0.1, auth: "keeper:esx ssh"}}
       noone: {{ip: 127.0.0.1, user: CHANGE-ME, auth: "bw:esx ssh"}}
       nodns: {{ip: no-such-host.invalid, auth: "bw:esx ssh"}}
       keyed: {{ip: 127.0.0.1, enroll: true}}
@@ -159,7 +159,7 @@ def test_a_key_host_has_no_vault_steps_and_logs_in_with_batchmode(check, box, mo
 
 LOCAL_FAILURES = [
     ("typo", "vault-item", 32), ("dup", "vault-item", 33), ("nopw", "vault-item", 34), ("field", "vault-item", 34),
-    ("kp", "provider", 31), ("noone", "inventory", 30), ("scanned", "inventory", 20), ("ghost", "inventory", 2),
+    ("keeper", "provider", 31), ("noone", "inventory", 30), ("scanned", "inventory", 20), ("ghost", "inventory", 2),
 ]
 
 

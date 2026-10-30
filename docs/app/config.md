@@ -126,8 +126,9 @@ The pieces of a mode:
 | `sessionbar` | `false`, `"bottom"` or `"top"`: the thin tmux-style bar of open Sessions | `false` | `false` |
 | `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"changes"` (the Pending changes count, shown only when there are some), `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
 | `fullscreen` | `true` / `false`: OS fullscreen | `false` | `true` |
+| `toolbar` | `false`, `true`, or controls in order: `"sidebar"` (the Sidebar's toggle, at the left), `"find"`, `"add"` (Add Host), `"changes"` (with the Pending changes count), `"publish"` (shown only while there are Pending changes), and `"cmdline"`, `"keys"`, `"help"` (`:help`'s topic finder), `"lock"`, `"mode"`, which aren't in the default set. In the title bar; a bar of its own when the mode has none (decision Q65) | `true` (sidebar, find, add, changes, publish) | `false` |
 
-`␣ e` shows or hides the Sidebar, and `␣ s` the mode's bar (the status bar in Standard, the session bar in Focus). Focus without a Sidebar reaches the tree with `␣ e` as a finder. A reload that changes `modes` resets what those keys toggled. A reload that changes anything else keeps it.
+`␣ e` (or the Sidebar button at the left of the title bar) shows or hides the Sidebar, in Standard and in Focus (over the terminal there), and the State keeps that per mode, unless `init.lua` sets that mode's `sidebar`, which wins at the next start or `:source` (issue #78). `␣ s` shows or hides the mode's bar (the status bar in Standard, the session bar in Focus). `␣ t` finds in the Sidebar's tree. A reload that changes `modes` resets what `␣ s` toggled. A reload that changes anything else keeps it.
 
 The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. Decision Q36's earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
 
@@ -155,6 +156,23 @@ Night shift: []
 ```
 
 The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from before ticket 28) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
+
+### The vault
+
+```lua
+vault = {
+  save_to = { organization = "My Team", collection = "Infra logins" },
+  kp = { database = "~/roster.kdbx", key_file = "~/roster.keyx" },
+},
+```
+
+This Box's own vault settings. They win over `roster.yml`'s `providers:` (the team's), so a setting that's personal doesn't have to go into the Inventory. The app sends them to `roster serve` (`vault.configure`, roster README) when it starts, before the lock screen asks where the vault stands, and again on every `:source`. Leave one out and `roster.yml`'s applies. They're paths and choices, never a secret: init.lua can't hold or send a password (docs/app/security.md). Needs roster's API 10; an older roster just uses `roster.yml`.
+
+| Option | Default | |
+|---|---|---|
+| `vault.save_to` | unset | Where "Save to vault" puts a new password by default (ticket 35): `"personal"`, `{ organization = …, collection = … }` (Bitwarden, names or ids) or `{ group = … }` (KeePassXC). Wins over `roster.yml`'s `providers: <name>: save_to:` (the team's default). The add form's **Save to** starts on it, says where it's set, and can pick another place for one Host. A name that isn't there shows in the form as roster's message naming `vault.save_to in init.lua` |
+| `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. Changing it on `:source` locks the app, since the master password was for the old database |
+| `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box. Wins over `providers: kp: key_file:` |
 
 ### Other
 

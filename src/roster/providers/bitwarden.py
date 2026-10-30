@@ -12,9 +12,11 @@ from . import (
     ItemNotFound,
     NoField,
     NotLoggedIn,
+    ReadOnlyTarget,
     SecretError,
     SeveralItems,
     TimedOut,
+    UnknownTarget,
     VaultLocked,
     WriteFailed,
     WrongPassword,
@@ -22,6 +24,7 @@ from . import (
     manual_unlock,
     near_names,
     register,
+    resolve_target,
     split_field,
 )
 
@@ -195,9 +198,83 @@ def _scrub(text, *values):
     return text
 
 
+# ---- where it goes (ticket 35): the personal vault, or a collection of an organization you're in. bw 2026.9.1's
+# `bw create item` takes organizationId and collectionIds in the item and creates it there (its SDK create request
+# carries both), so no `bw move` is needed. Its `bw list collections` doesn't say which collections the account may
+# only read (the CLI's CollectionResponse has no readOnly), so roster checks the new item: one that isn't in the
+# collection asked for was refused it, and is taken back out (ReadOnlyTarget). That collection is then left out of
+# the targets until the vault is locked.
+
+PERSONAL_TARGET = {"id": "personal", "kind": "personal", "label": "Personal vault", "save_to": "personal"}
+CONFIRMED = 2               # bw's OrganizationUserStatusType: invited 0, accepted 1, confirmed 2 (has the keys)
+
+
+def _bw_listed(ctx, *what):
+    r = _bw(ctx, "list", *what)
+    try:
+        listed = json.loads(r.stdout) if r.returncode == 0 else None
+    except json.JSONDecodeError:
+        listed = None
+    if not isinstance(listed, list):
+        raise SecretError(f"`bw list {what[0]}` failed: {errtext(r) or f'exit {r.returncode}'}")
+    return listed
+
+
+def _bw_orgs(ctx):
+    """The organizations whose collections the account can save to: confirmed in, and enabled."""
+    return [o for o in _bw_listed(ctx, "organizations") if o.get("status") == CONFIRMED and o.get("enabled", True)]
+
+
+def _collection_target(org, c):
+    return {"id": f"collection:{c['id']}", "kind": "collection", "label": f"{org['name']} / {c['name']}",
+            "organization": org["name"], "collection": c["name"],
+            "save_to": {"organization": org["id"], "collection": c["id"]}}
+
+
+def _bw_targets(ctx):
+    _bw_ready(ctx)
+    orgs = {o["id"]: o for o in _bw_orgs(ctx)}
+    refused = ctx.state.get("read_only", set())
+    return [PERSONAL_TARGET] + [_collection_target(orgs[c["organizationId"]], c) for c in _bw_listed(ctx, "collections")
+                                if c.get("organizationId") in orgs and c.get("id") not in refused]
+
+
+def _pick(things, ref, what, field, scope=""):
+    """The one of THINGS (organizations, collections) whose id or exact name is REF."""
+    hits = [t for t in things if t.get("id") == ref] or [t for t in things if t.get("name") == ref]
+    if len(hits) == 1:
+        return hits[0]
+    if hits:
+        raise UnknownTarget(f"{len(hits)} Bitwarden {what}s{scope} are named '{ref}' - give its id instead "
+                            f"({', '.join(h['id'] for h in hits)}) in {field}")
+    yours = ", ".join(t.get("name", "?") for t in things) or "none"
+    raise UnknownTarget(f"no Bitwarden {what} '{ref}'{scope} that you can save to (yours: {yours}) - fix {field}")
+
+
+def _bw_resolve(setting, field, ctx):
+    if setting == "personal":
+        return PERSONAL_TARGET
+    if "group" in setting:
+        raise UnknownTarget(f"{field()} names a KeePassXC group ('{setting['group']}'), but Bitwarden saves to the "
+                            "personal vault or an organization's collection")
+    org = _pick(_bw_orgs(ctx), setting["organization"], "organization", field("organization"))
+    collections = [c for c in _bw_listed(ctx, "collections") if c.get("organizationId") == org["id"]]
+    c = _pick(collections, setting["collection"], "collection", field("collection"), f" in {org['name']}")
+    if c["id"] in ctx.state.get("read_only", ()):
+        raise _read_only(_collection_target(org, c))
+    return _collection_target(org, c)
+
+
+def _read_only(target, what=""):
+    return ReadOnlyTarget(f"you can only read the Bitwarden collection {target['label']}, so nothing can be saved "
+                          f"there{what}")
+
+
 def _bw_create(item, ctx):
     _bw_ready(ctx)
     name, password = item["name"], item["password"]
+    target = resolve_target(ctx, *item["save_to"])
+    collection = target["save_to"]["collection"] if target["kind"] == "collection" else None
     if _bw(ctx, "sync").returncode != 0:                   # see items made elsewhere since this run's first sync
         say("warning      `bw sync` failed - checking for a duplicate name in the vault as last synced")
     r = _bw(ctx, "list", "items", "--search", name)
@@ -213,25 +290,45 @@ def _bw_create(item, ctx):
                          "so roster won't make a second one", name, same)
     login = {"username": item["username"] or None, "password": password, "totp": None,
              "uris": [{"uri": item["uri"], "match": None}] if item["uri"] else []}
+    where = {"organizationId": target["save_to"]["organization"], "collectionIds": [collection]} if collection \
+        else {"organizationId": None}
     encoded = base64.b64encode(json.dumps({
         "type": 1, "name": name, "notes": None, "favorite": False, "fields": [], "reprompt": 0,
-        "organizationId": None, "folderId": None, "login": login}).encode()).decode()
+        **where, "folderId": None, "login": login}).encode()).decode()
     try:
         r = _bw(ctx, "create", "item", input=encoded)
     except TimedOut:                                       # bw was stopped: the item may be saved all the same
-        return _created_anyway(ctx, name)
-    if r.returncode != 0:                                  # stderr only: stdout would be the item itself
+        r, made = None, _created_anyway(ctx, name)
+    if r is not None and r.returncode != 0:                # stderr only: stdout would be the item itself
         err = _scrub(" ".join(r.stderr.split()), password, encoded)[:160]
+        if collection and any(w in err.lower() for w in ("permission", "not found", "do not have")):
+            ctx.state.setdefault("read_only", set()).add(collection)
+            raise _read_only(target, f" (Bitwarden: {err})")
         raise WriteFailed(f"Bitwarden didn't create '{name}': {err or f'exit {r.returncode}'}")
-    try:
-        made = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        made = {}
+    if r is not None:
+        try:
+            made = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            made = {}
     if not made.get("id"):                                 # bw's answer didn't parse: find it, so it can be undone
         made = next((i for i in _bw_list(ctx, name) if i.get("name") == name), None)
         if made is None:
             raise WriteFailed(f"Bitwarden said it created '{name}' but it isn't in the vault - check it there")
-    return {"id": made["id"], "name": made.get("name", name)}
+    if collection and collection not in (made.get("collectionIds") or []):
+        _refused_collection(ctx, made, target)
+    return {"id": made["id"], "name": made.get("name", name), "target": target}
+
+
+def _refused_collection(ctx, made, target):
+    """Bitwarden saved the item but not into the collection (the account may only read it): take it back out."""
+    ctx.state.setdefault("read_only", set()).add(target["save_to"]["collection"])
+    name = made.get("name", "")
+    try:
+        _bw_delete(made["id"], ctx)
+    except SecretError as e:
+        raise _read_only(target, f"; '{name}' was saved outside it and roster couldn't take it back out ({e}) - "
+                                 "delete it in the vault (an organization admin may have to)") from None
+    raise _read_only(target, f"; '{name}' was taken back out")
 
 
 LOOKUP_FLOOR = 7            # s for each of the sync and the list after a create timed out, even past serve's deadline
@@ -259,7 +356,7 @@ def _created_anyway(ctx, name):
         raise WriteFailed(f"Bitwarden didn't answer `bw create item` in time, and roster couldn't check whether "
                           f"'{name}' was saved ({e}) - look for it in the vault, and delete it if it's not wanted")
     if len(found) == 1:
-        return {"id": found[0]["id"], "name": found[0].get("name", name)}
+        return found[0]
     if not found:
         raise WriteFailed(f"Bitwarden didn't answer `bw create item` in time, and there's no '{name}' in the vault: "
                           "nothing was saved")
@@ -275,4 +372,4 @@ def _bw_delete(item_id, ctx):
 
 
 PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status, not_logged_in=NOT_LOGGED_IN,
-                       create=_bw_create, delete=_bw_delete)
+                       create=_bw_create, delete=_bw_delete, targets=_bw_targets, resolve=_bw_resolve)

@@ -21,6 +21,7 @@ import {
   type PendingChanges,
   type PublishResult,
   type PullResult,
+  type SaveTargets,
   type ScannedKey,
   type ProviderStatus,
   type SignInStep,
@@ -119,6 +120,8 @@ export function tauriBackend(): Backend {
     vaultStatus: () => call<VaultStatus>("vault_status"),
     unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
     lockVault: () => call<{ locked: string[] }>("vault_lock"),
+    configureVault: (settings) => call<{ configured: true; locked: string[] }>("vault_configure", { settings }),
+    saveTargets: () => call<SaveTargets>("vault_targets"),
     // Secrets in these params go once to serve's stdin, like vault_unlock's password.
     signIn: (start) => call<SignInStep>("vault_login", { params: { action: "start", ...start } }),
     signInAnswer: (login, answer) =>
@@ -137,7 +140,7 @@ export function tauriBackend(): Backend {
     scanKey: (address, port) => call<ScannedKey>("host_scan_key", { address, port }),
     // A typed password goes once to serve's stdin, like vault_unlock's.
     addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
-    reviewHost: (host) => call<HostUpdate>("host_review", { host }),
+    reviewHost: (host, reviewed = true) => call<HostUpdate>("host_review", { host, reviewed }),
     // The Live Inventory (ticket 28): one allow-listed Tauri command for its methods.
     removeHost: (host) => inventoryCall("host.remove", { host }),
     renameHost: (host, to) => inventoryCall("host.rename", { host, to }),

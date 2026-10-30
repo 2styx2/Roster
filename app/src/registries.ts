@@ -9,6 +9,7 @@ import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { reloaderRegistry, sourceCommands, type ReloaderRegistry } from "./config/source";
 import { builtinKeymap, type KeymapRegistry } from "./keymap";
 import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections";
+import { builtinToolbarRegistry, type ToolbarRegistry } from "./chrome/toolbar";
 import type { ThemeRegistry } from "./theme/theme";
 import { builtinThemeRegistry } from "./theme/themes";
 
@@ -27,6 +28,8 @@ export interface Registries {
   folders: FolderRegistry;
   /** What `:source` reloads (decision Q58): init.lua; ticket 28 adds folders.yml and roster.yml. */
   reloaders: ReloaderRegistry;
+  /** The toolbar's controls (decision Q65): the built-ins, and what Plugins add. */
+  toolbar: ToolbarRegistry;
   /** `:help`'s pages (ticket 37): generated from the registries above, plus the guides. */
   help: HelpRegistry;
 }
@@ -46,6 +49,7 @@ export function builtinRegistries(): Registries {
     finders,
     folders: folderRegistry(),
     reloaders,
+    toolbar: builtinToolbarRegistry(),
     help: builtinHelpRegistry(),
   };
 }

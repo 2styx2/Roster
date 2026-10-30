@@ -54,6 +54,8 @@ pub struct Config {
     /// Reload on every save of a `.lua` file. Off by default: `:source` reloads, as in Neovim
     /// (decision Q58).
     pub auto_reload: bool,
+    /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
+    pub vault: Vault,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -89,6 +91,7 @@ impl Default for Config {
             backend: BackendChoice::Auto,
             editor: Editor::Os,
             auto_reload: false,
+            vault: Vault::default(),
             lines: BTreeMap::new(),
             set: Vec::new(),
         }
@@ -102,6 +105,110 @@ pub struct Ui {
     /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
     /// `:hints` decides and the State keeps its choice; set, it wins.
     pub hints: Option<bool>,
+}
+
+/// What init.lua says about the vault: this Box's own settings, which win over roster.yml's
+/// `providers:`. The app sends them to roster serve (`vault.configure`) at start and after every
+/// `:source`. Paths and choices only, never a secret (docs/app/security.md).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct Vault {
+    /// Where "Save to vault" puts new Vault items by default (ticket 35). None: roster.yml's.
+    pub save_to: Option<SaveTo>,
+    /// KeePassXC (ticket 41): a local database is this Box's, not the team's.
+    pub kp: KeePassXc,
+}
+
+/// `save_to`: the personal vault, an organization's collection (Bitwarden, by name or id), or a
+/// group (KeePassXC). The same shape as roster.yml's `providers: NAME: save_to:`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum SaveTo {
+    #[serde(serialize_with = "personal")]
+    Personal,
+    Collection {
+        organization: String,
+        collection: String,
+    },
+    Group {
+        group: String,
+    },
+}
+
+fn personal<S: serde::Serializer>(s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str("personal")
+}
+
+impl<'de> Deserialize<'de> for SaveTo {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = SaveTo;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(
+                    "\"personal\", { organization = …, collection = … } (Bitwarden) or { group = … } (KeePassXC)",
+                )
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<SaveTo, E> {
+                match v {
+                    "personal" => Ok(SaveTo::Personal),
+                    _ => Err(E::custom(format!(
+                        "{v:?}: say \"personal\", or give {{ organization = …, collection = … }} or {{ group = … }}"
+                    ))),
+                }
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<SaveTo, A::Error> {
+                let mut fields: BTreeMap<String, String> = BTreeMap::new();
+                while let Some((k, v)) = map.next_entry::<String, String>()? {
+                    if v.trim().is_empty() {
+                        return Err(de::Error::custom(format!("{k} can't be empty")));
+                    }
+                    fields.insert(k, v.trim().to_string());
+                }
+                let keys: Vec<&str> = fields.keys().map(String::as_str).collect();
+                match keys.as_slice() {
+                    ["collection", "organization"] => Ok(SaveTo::Collection {
+                        organization: fields["organization"].clone(),
+                        collection: fields["collection"].clone(),
+                    }),
+                    ["group"] => Ok(SaveTo::Group {
+                        group: fields["group"].clone(),
+                    }),
+                    _ => Err(de::Error::custom(format!(
+                        "{{ {} }}: give {{ organization = …, collection = … }} (Bitwarden) or {{ group = … }} (KeePassXC)",
+                        keys.join(", ")
+                    ))),
+                }
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct KeePassXc {
+    /// The `.kdbx`, on the Box roster runs on (WSL's file system for a WSL Backend).
+    #[serde(deserialize_with = "backend_path")]
+    pub database: Option<String>,
+    /// A key file used with the master password, on the same Box.
+    #[serde(deserialize_with = "backend_path")]
+    pub key_file: Option<String>,
+}
+
+/// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to.
+fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let s = String::deserialize(d)?;
+    let t = s.trim();
+    let b = t.as_bytes();
+    let drive = b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+    if t.starts_with('/') || t.starts_with('~') || t.starts_with("\\\\") || drive {
+        return Ok(Some(t.to_string()));
+    }
+    Err(de::Error::custom(format!(
+        "{s:?} isn't an absolute path: give the path on the Box roster runs on, starting with / or ~"
+    )))
 }
 
 /// A place in a Lua file.
@@ -649,6 +756,11 @@ impl Default for Modes {
                     shown: true,
                     segments: None,
                 },
+                toolbar: ToolbarPiece {
+                    shown: true,
+                    controls: None,
+                },
+                set: Vec::new(),
             },
             focus: ModeLayout {
                 fullscreen: true,
@@ -666,6 +778,11 @@ impl Default for Modes {
                     shown: false,
                     segments: None,
                 },
+                toolbar: ToolbarPiece {
+                    shown: false,
+                    controls: None,
+                },
+                set: Vec::new(),
             },
         }
     }
@@ -680,6 +797,12 @@ pub struct ModeLayout {
     pub sidebar: SidebarPiece,
     pub sessionbar: SessionBarPiece,
     pub statusbar: StatusBarPiece,
+    /// The visible controls for common commands (decision Q65): in the title bar, or a bar of
+    /// their own at the top when the mode has no title bar.
+    pub toolbar: ToolbarPiece,
+    /// The pieces `init.lua` set, by name ("sidebar", "toolbar"…): what it sets wins over what the
+    /// app keeps in the State (the Sidebar shown or hidden, issue #78). Empty for the defaults.
+    pub set: Vec<String>,
 }
 
 /// What `init.lua` says about the modes: only what it sets, laid over each mode's defaults.
@@ -700,16 +823,31 @@ struct ModePatch {
     sidebar: Option<SidebarPiece>,
     sessionbar: Option<SessionBarPiece>,
     statusbar: Option<StatusBarPiece>,
+    toolbar: Option<ToolbarPiece>,
 }
 
 impl ModePatch {
     fn over(self, base: ModeLayout) -> ModeLayout {
+        let set = [
+            ("fullscreen", self.fullscreen.is_some()),
+            ("titlebar", self.titlebar.is_some()),
+            ("sidebar", self.sidebar.is_some()),
+            ("sessionbar", self.sessionbar.is_some()),
+            ("statusbar", self.statusbar.is_some()),
+            ("toolbar", self.toolbar.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, given)| *given)
+        .map(|(name, _)| name.to_string())
+        .collect();
         ModeLayout {
             fullscreen: self.fullscreen.unwrap_or(base.fullscreen),
             titlebar: self.titlebar.unwrap_or(base.titlebar),
             sidebar: self.sidebar.unwrap_or(base.sidebar),
             sessionbar: self.sessionbar.unwrap_or(base.sessionbar),
             statusbar: self.statusbar.unwrap_or(base.statusbar),
+            toolbar: self.toolbar.unwrap_or(base.toolbar),
+            set,
         }
     }
 }
@@ -858,6 +996,48 @@ impl<'de> Deserialize<'de> for StatusBarPiece {
                 Ok(StatusBarPiece {
                     shown: true,
                     segments: Some(segments),
+                })
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+/// The toolbar (decision Q65): `true`, `false`, or its controls in order (`{ "add", "find" }`,
+/// ids from the app's toolbar registry: "sidebar", "find", "add", "changes", "publish", and the
+/// ones not shown by default, "cmdline", "keys", "help", "lock", "mode"); null: the default set.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ToolbarPiece {
+    pub shown: bool,
+    pub controls: Option<Vec<String>>,
+}
+
+impl<'de> Deserialize<'de> for ToolbarPiece {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = ToolbarPiece;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("true, false, or a list of controls such as { \"add\", \"find\" }")
+            }
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<ToolbarPiece, E> {
+                Ok(ToolbarPiece {
+                    shown: v,
+                    controls: None,
+                })
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<ToolbarPiece, A::Error> {
+                let controls = ListVisitor::<String>::new().visit_seq(seq)?;
+                Ok(ToolbarPiece {
+                    shown: true,
+                    controls: Some(controls),
+                })
+            }
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<ToolbarPiece, A::Error> {
+                let controls = ListVisitor::<String>::new().visit_map(map)?;
+                Ok(ToolbarPiece {
+                    shown: true,
+                    controls: Some(controls),
                 })
             }
         }

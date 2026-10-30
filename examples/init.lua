@@ -147,6 +147,9 @@ return {
       sidebar = { side = "left" },
       sessionbar = false,
       statusbar = true,
+      -- The title bar's controls (decision Q65): true for the default set, false for none, or a list
+      -- in order from "sidebar", "find", "add", "changes", "publish", "cmdline", "keys", "help", "lock", "mode".
+      toolbar = true,
     },
     focus = {
       fullscreen = true,
@@ -154,6 +157,7 @@ return {
       sidebar = false, -- Focus reaches the tree with Leader e as a finder instead
       sessionbar = false, -- e.g. "bottom"
       statusbar = false,
+      toolbar = false,
     },
   },
 
@@ -162,6 +166,22 @@ return {
   -- only be changed here; Folders made in the app are kept by the app.
   folders = {
     -- { name = "Lab ESXi", hosts = { "esxi-02", "esxi-03" } },
+  },
+
+  -- The vault ------------------------------------------------------------------------------------
+  -- This Box's own vault settings. They win over roster.yml's providers: (the team's), and reach
+  -- roster when the app starts and on every :source. Paths are on the Box roster runs on (inside
+  -- WSL for a WSL backend): absolute, or starting with ~. Never a password.
+  vault = {
+    -- Where "Save to vault" (the add-Host form) puts a new password by default. Wins over
+    -- roster.yml's providers: <name>: save_to: (the team's default); the form can still pick
+    -- another. "personal", { organization = "My Team", collection = "Infra logins" } (Bitwarden,
+    -- names or ids), or { group = "Hosts" } (KeePassXC).
+    -- save_to = "personal",
+    kp = {
+      -- database = "~/roster.kdbx", -- KeePassXC's .kdbx (wins over providers: kp: database:)
+      -- key_file = "~/roster.keyx", -- a key file used with its master password
+    },
   },
 
   -- Other ----------------------------------------------------------------------------------------

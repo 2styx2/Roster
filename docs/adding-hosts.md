@@ -41,6 +41,30 @@ Make one vault item per distinct login. Several hosts can point at the same item
 - **Put the username in the item's username field.** roster reads it as `#username`.
 - **Names must be unique.** roster looks items up by exact name, so two items with the same name make both logins fail with `several Bitwarden items match`.
 
+**Team logins belong where the team can see them.** An item in your personal Bitwarden vault works only for you: a teammate's Box looks the same `bw:orion3 ssh` up and finds nothing. Put logins that everyone uses into an organization collection the team shares, and keep the personal vault for what's yours. "Save to vault" (the app's add-Host form) follows a setting, so the team can agree on it once in `roster.yml`:
+
+```yaml
+providers:
+  bw:
+    save_to: { organization: "My Team", collection: "Infra logins" }   # names or ids; default: personal
+```
+
+A Box can choose otherwise in the app's `init.lua` (`vault = { save_to = "personal" }`), and the form's **Save to** choice wins over both for one Host. It lists your personal vault and the collections of the organizations you're in. A name that doesn't match is an error naming the setting (code `64`). Bitwarden's CLI doesn't say which collections you may only read, so one of those is refused when you save (`65`), nothing is left behind, and it's no longer offered.
+
+**KeePassXC (local only).** With no team password manager, the same names go into a local `.kdbx` as entry titles: `kp:orion3 ssh` finds the entry titled `orion3 ssh` in any group (outside the recycle bin), and `kp:Lab/orion3 ssh` names its path. Put the address in the entry's URL field and the user in its username field (`#username`, `#url`). Titles must be unique across the whole database, and can't contain `/`. Tell roster where the database is on this box:
+
+```yaml
+providers:
+  kp:
+    database: ~/roster.kdbx         # ~ and paths relative to roster.yml work
+    key_file: ~/roster.keyx          # optional: a key file as well as the master password
+    group: Hosts                     # optional: where "Save to vault" puts new entries (default: the top)
+```
+
+`save_to: { group: Hosts }` says the same as `group: Hosts` and wins over it; the app's `init.lua` can set `vault.kp.database` and `vault.save_to` for its own Box.
+
+A local database isn't shared: every box (or person) keeps its own, so `auth-check` passes only where those entries exist.
+
 To see what's in the vault without exposing passwords (Bitwarden):
 
 ```bash
@@ -114,6 +138,8 @@ What the errors mean:
 | `login refused (wrong user or password?)` | Wrong item, wrong user, or a different box from the one you think. Check the host key (step 3). |
 | `warning: HOST service 'NAME': ... - left out` | That service entry has a mistake roster can't work around, so the rest of the Host loads without it. The `fix:` line under it says what to change. |
 | bw "locked" / session expired | Run `(umask 077; bw unlock --raw > ~/.config/roster/bw-session)` again |
+| `KeePassXC database is locked and there's no terminal to ask` | Run roster in a terminal (it asks for the master password once per run), or unlock in the app |
+| `KeePassXC database … isn't there` | Fix `providers: kp: database:` in `roster.yml`, or create the database in KeePassXC |
 
 ## Limits to know about
 

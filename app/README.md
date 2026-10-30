@@ -23,7 +23,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/decisions.md](../docs/app/decisions.md) | Every design question we asked and the answer |
 | [docs/adr/](../docs/adr/) | Architecture decisions for the CLI and the app (0001–0002 roster serve and ssh, 0003–0006 the app, 0007 one repo) |
 | [docs/app/spec/](../docs/app/spec/) | Product specs. Start with [0001](../docs/app/spec/0001-roster-app.md) |
-| [tickets/](../tickets/) | Vertical-slice tickets with their blockers. [tickets/README.md](../tickets/README.md) is the board |
+| [GitHub issues](https://github.com/2styx2/roster/issues) | Vertical-slice tickets (`TNN: …`) with their blockers, one milestone per iteration |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Branch model: Work branches → pull request to `dev` → `main` |
 | [GLOSSARY.md](../GLOSSARY.md) | The words, for the CLI and the app |
 
@@ -59,7 +59,7 @@ crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster se
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs)
 app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
+                      state_load/state_save, platform_info, vault_status/unlock/lock/configure/targets, config_load, config_open,
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
                       changes_publish, host_scan_key, host_add, host_review,
                       config_import_preview, config_import_apply (ticket 33)
@@ -110,11 +110,12 @@ app/src/theme/        Themes (ticket 09): theme.ts (the colour-token set, Appear
                       (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/app/themes.md),
                       useTheme.ts (tokens → CSS variables, follows the OS), picker.ts (`:theme` and the `themes` finder,
                       ticket 30), contrast.ts (WCAG ratios and OKLab ΔE for the contrast test)
-app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (the Gap orbit mark in Theme colours)
+app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, the toolbar, minimize/maximize/close), toolbar.tsx (the toolbar registry:
+                      visible controls for common commands, decision Q65), Logo.tsx (the Gap orbit mark in Theme colours)
 app/src/ui/           Keys.tsx (keycaps for every key hint), StateDot.tsx (state nodes: shape + words), CloseGlyph.tsx
 app/src/styles.css    the whole look, written only against Theme tokens (no colour literals); styles.test.ts lints it
                       (no text in `--faint` or `--tone`, nothing under 11 px, :hover only for a real pointer)
-app/assets/           logo-icon.svg (app icon master: Gap orbit, transparent) + logo-icon-small.svg (16–32 px cut), logo.svg / logo-small.svg (on the Ink tile, for a README or avatar), logo-mark*.svg (Theme colours, no tile), logo-mono*.svg (one colour); `npm run icons` renders src-tauri/icons
+app/assets/           logo-icon.svg (app icon master: Gap orbit, transparent) + the small cut, one per size on its own pixel grid (logo-icon-small-16/20/24.svg, logo-icon-small.svg for 32 px), logo.svg / logo-small.svg (on the Ink tile, for a README or avatar), logo-mark*.svg (Theme colours, no tile), logo-mono*.svg (one colour); `npm run icons` renders src-tauri/icons
 docs/app/design/      taste.md, the interface review, Theme screenshots (themes/, made from the fake Backend)
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)
@@ -134,7 +135,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): in `app/`, `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused).
+`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused). Un-reviewing (API 9): `review`. Connecting (issue #78): `slow-login` (Sessions take 1.2 s to start and 2.5 s to log in).
 Worst case (ticket 27): `worst-case` (1,284 Hosts, 50 Sessions, 100 Folders, long, odd and missing values),
 `worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; a dev build shows a
 "Demo data / Worst case" toggle at the bottom to switch between them (`&toggle=off` hides it; it works in
