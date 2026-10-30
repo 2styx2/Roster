@@ -39,7 +39,7 @@ JSON-RPC 2.0, one JSON object per line on stdin/stdout. Logging goes to stderr. 
 | `inventory.pull`, `host.update`, `host.add`, `host.review` | 3 | Inventory writes, keeping comments |
 | `changes.diff`, `changes.discard`, `changes.publish` | 3 | Pending changes and Publish |
 | `vault.create_item` | 4 | Bitwarden only |
-| `quick.prepare`, `quick.save` | 4 | Quick Connect and "Save to vault" |
+| `quick.prepare`, `quick.save` | 4 | Quick Connect (ticket 14, API 12: `quick.prepare`) and "Save to vault" (ticket 15) |
 | `host.scan_key {host}`, `host.trust_key` | 4 | Ask before trusting a Host's new host key (ticket 36, API 11) |
 
 ## How a Session connects
@@ -52,6 +52,14 @@ JSON-RPC 2.0, one JSON object per line on stdin/stdout. Logging goes to stderr. 
 4. If `ssh` asks for a password, it runs `roster askpass`. The helper sends the token over serve's private socket and prints the password. It refuses every other kind of prompt, such as host-key questions.
 
 The askpass socket is the one deliberate exception to stdio-only. If it grows beyond that, write a new ADR.
+
+
+## How a Quick Connect connects (ticket 14)
+
+1. The user types `user@address[:port]` in the Picker (offered as the first row), after `:connect` or `:quick`, or from the toolbar's Quick Connect control. The app parses it (`app/src/quick/target.ts`), with the same rules as serve: nothing ssh could read as an option.
+2. The tab asks first: `host.scan_key {address, port}` fetches the key (key exchange only), and the connect card shows its type and fingerprint with a masked password field. A key that differs from one roster recorded for the address is refused (43), never asked about. Cancel (Esc) connects nothing.
+3. Enter sends the confirmed fingerprint and the password (or none: this Box's keys) through the core's `quick_session_open` to `quick.prepare`. serve fetches the key again (23 if it's not the one shown), writes it under a one-off alias to its own known-hosts file, mints an askpass token for the password, and returns `ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<serve's file> -o HostKeyAlias=roster-quick-<id> … -p PORT -l USER -- ADDRESS`. Then the PTY starts as in step 3 above.
+4. The result's `quick` id stays on the tab, for ticket 15's "Save to vault". A reconnect asks again, key and password; nothing about the box is kept between Sessions.
 
 ## Backends
 

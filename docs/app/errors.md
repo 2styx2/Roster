@@ -125,6 +125,17 @@ A Session to a Host whose host key isn't in roster's known hosts asks before any
 | 62 | 23 | The key changed between the question and Trust | Host / network | "esxi-02's host key changed while roster was asking - nothing was recorded" | Don't trust it blindly: compare the new fingerprint with the Host's console or owner, then open the Session again to see it |
 | 63 | 43 | A different key got recorded for the address meanwhile (another Session's question, `roster setup`) | Host / network | "esxi-02's host key changed - not connecting" | Row 13's: compare the fingerprints; never accepted automatically |
 
+## Quick Connect (ticket 14)
+
+A Session to `user@address[:port]`, a box that isn't in the Inventory (decision Q67). The tab fetches the key (`host.scan_key {address, port}`) and asks for it to be confirmed, with the password, in the connect card; `quick.prepare` then fetches it again and returns the Session's command. Its Problems name the box as `user@address`, and leave out the fixes that only apply to a Host (`:check`, `roster setup --only`). Every failure below connects nothing and records nothing.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 64 | 40, 41, 42 | Couldn't fetch the key: the name doesn't resolve, the port refused, or no answer (on 10.19.x and 10.19.x often the SSH rate limiter) | Network / the box | "root@10.0.0.5 (10.0.0.5:22) didn't answer within 5 s" | Rows 15-17's: check the address or port; for a rate-limited network wait a few minutes, don't retry in a loop |
+| 65 | 43 | roster recorded a different key for that address (a Host there, or `roster setup`) | the box / network | "root@10.0.0.5's host key changed - not connecting" | Compare the fingerprints with the box's console or owner; if the change is expected (a reinstall), delete its line in `~/.ssh/roster_known_hosts`. Never asked about |
+| 66 | 23 | The key changed between the question and Enter | the box / network | "root@10.0.0.5's host key changed while roster was asking - not connecting" | Row 62's: compare it, then Retry, which asks again with the new key |
+| 67 | none (ssh's) | The box refused the password, or this Box's keys when it was left empty | the box | Rows 11-12's, naming `root@10.0.0.5` | Check the user and password, then Reconnect (it asks again) |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.
