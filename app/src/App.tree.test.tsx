@@ -49,6 +49,35 @@ describe("The Inventory section", () => {
   });
 });
 
+describe("Clicking a Host row (iteration 3 feedback: the Sidebar snapped up)", () => {
+  it("keeps the Sidebar where it's scrolled: no cursor jumps to the top, and the new Session gets the keys", async () => {
+    const scrolled: string[] = [];
+    // jsdom has no scrollIntoView; the Sidebar calls it when its cursor moves.
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute("data-row") ?? this.className);
+    };
+    try {
+      const { user } = await ready();
+      await user.click(inv("linux-1-000"));
+      await within(output()).findByText(/Connected to linux-1-000/);
+      expect(document.activeElement).toHaveAccessibleName("terminal input");
+      scrolled.length = 0;
+      // A Host row can be dragged, so its mousedown goes ahead and focus would move to the tree:
+      // that must not count as Tab reaching the tree (App mode, cursor on the top row, scrolled to it).
+      await user.click(inv("esxi-2-001"));
+      await within(output()).findByText(/Connected to esxi-2-001/);
+      expect(scrolled).toEqual([]);
+      expect(cursorRow()).toBeNull();
+      expect(document.activeElement).toHaveAccessibleName("terminal input");
+      await user.click(inv("linux-1-000"));
+      expect(scrolled).toEqual([]);
+      expect(document.activeElement).toHaveAccessibleName("terminal input");
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+});
+
 describe("Moving and folding", () => {
   it("walks the tree with j/k, folds with h and unfolds with l", async () => {
     const { user } = await ready();

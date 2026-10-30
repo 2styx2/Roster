@@ -386,12 +386,18 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
   // some data for a drag to start).
   const dragged = useRef<SidebarRow | null>(null);
   const focusBefore = useRef<Element | null>(null);
+  const pressing = useRef(false);
   const cursorRow = cursor === null ? null : (allRows(sections).find((r) => r.id === cursor) ?? null);
 
   const [drag] = useState<Drag>(() => ({
     press(row, e) {
       if (row.drag === undefined) return e.preventDefault();
       focusBefore.current = document.activeElement;
+      // Only the focus this press itself causes (it comes right after, in the same task).
+      pressing.current = true;
+      setTimeout(() => {
+        pressing.current = false;
+      }, 0);
     },
     refocus() {
       const el = focusBefore.current;
@@ -438,7 +444,16 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
         tabIndex={0}
         aria-activedescendant={cursor !== null ? rowDomId(cursor) : undefined}
         onFocus={(e) => {
-          if (e.target === e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) onTreeFocus?.(e.relatedTarget);
+          if (e.target !== e.currentTarget || e.currentTarget.contains(e.relatedTarget)) return;
+          // A press on a draggable row can't keep focus where it is (that would stop the drag), so the
+          // tree takes it. That's a click, not Tab reaching the tree: entering App mode here put the
+          // cursor on the top row and scrolled the Sidebar up to it. Focus goes straight back instead.
+          const before = focusBefore.current;
+          if (pressing.current && before !== null) {
+            if (before instanceof HTMLElement && before.isConnected && before !== e.currentTarget) before.focus({ preventScroll: true });
+            return;
+          }
+          onTreeFocus?.(e.relatedTarget);
         }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) onTreeBlur?.(e.relatedTarget);
