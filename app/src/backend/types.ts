@@ -493,8 +493,11 @@ export type SessionAuth = "key" | "password";
 export interface SessionHandle {
   readonly id: number;
   readonly auth: SessionAuth;
-  /** serve's id for a Quick Connect (ticket 14), for ticket 15's "Save to vault"; absent otherwise. */
+  /** serve's id for a Quick Connect (ticket 14); absent otherwise. */
   readonly quick?: string;
+  /** The id serve holds the typed password under for "Save to vault" (API 13, tickets 15 and 16),
+   * when it was asked to; `onLoggedIn` names it once the Session has logged in with it. */
+  readonly held?: string;
   /** Keystrokes or pasted text, as xterm's onData gives them. */
   write(data: string): Promise<void>;
   resize(size: TermSize): Promise<void>;
@@ -523,6 +526,9 @@ export const SessionRefusal = {
   /** No host key recorded for the Host (API 11, ticket 36): the app asks before it connects.
    * `data`: its `address` and `port`. */
   hostKeyUnknown: 44,
+  /** The Host's Login is `auth: prompt` (API 13, ticket 16): the app asks for the password.
+   * `data`: its `user`, `address` and `port`. */
+  passwordNeeded: 39,
 } as const;
 
 /** The first `api_version` whose Sessions check host keys strictly and ask first (ticket 36, Q60):
@@ -547,6 +553,58 @@ export const QUICK_CONNECT_API_VERSION = 12;
 export interface QuickConnect extends QuickTarget {
   fingerprint: string;
 }
+
+/** The first `api_version` with "Save to vault" after a Session's own login (tickets 15, 16):
+ * `quick.prepare`'s `save`, `quick.save`, `vault.forget_typed` and `session.logged_in`. */
+export const SAVE_TO_VAULT_API_VERSION = 13;
+
+/** `quick.save`'s params: the Quick Connect (serve's id) and the Host it becomes. The password
+ * isn't here: serve holds it, and saves it only after that Session logged in with it (Q43). */
+export interface QuickSaveParams {
+  quick: string;
+  name: string;
+  group: string;
+  title?: string;
+  /** The Vault item's name (`<name> ssh` when left out). */
+  item?: string;
+  /** Where in the vault (ticket 35): the "Save to" choice; the setting's when left out. */
+  save_to?: SaveTo;
+}
+
+/** `quick.save`: the Host as roster.yml has it now and the Vault item it made. */
+export type QuickSave = Omit<HostAdd, "verify" | "item"> & { item: NonNullable<HostAdd["item"]> };
+
+/** A password the user typed for an `auth: prompt` Host's Session (ticket 16), and whether roster
+ * should hold it for "Save to vault". It goes once to serve; the caller keeps no copy. */
+export interface TypedPassword {
+  password: string;
+  save?: boolean;
+}
+
+/** `host.save_login`'s params: the held id; the password itself stays with serve. */
+export interface SaveLoginParams {
+  held: string;
+  item?: string;
+  save_to?: SaveTo;
+}
+
+/** `host.save_login`: the Host as roster.yml has it now (its Login the new item's). */
+export interface SaveLogin {
+  changed: true;
+  host: Host;
+  backup: string;
+  item: NonNullable<HostAdd["item"]>;
+  warnings?: string[];
+}
+
+/** roster's codes for "Save to vault" after a Session's login, besides vault.create_item's (60-65)
+ * and host.add's (80, 81). */
+export const SaveLoginError = {
+  /** The Session hasn't logged in with the typed password (yet, or the box refused it). */
+  notLoggedIn: 66,
+  /** No typed password held for it: saved already, or forgotten (ended, locked, 10 minutes). */
+  nothingHeld: 67,
+} as const;
 
 /** `host.trust_key`'s refusals besides 40-42 (couldn't fetch the key): nothing is recorded. */
 export const HostKeyError = {
@@ -586,13 +644,33 @@ export interface Backend {
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
    * Session always gets a new one-time askpass token: call it again to reconnect. */
-  openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
+  openSession(host: string, size: TermSize, events: SessionEvents, typed?: TypedPassword): Promise<SessionHandle>;
   /** `quick.prepare` (API 12, ticket 14), then the command in a PTY: a Session to a box that isn't
    * in the Inventory. roster fetches the key again and refuses (23) one that isn't `to.fingerprint`,
    * or (43) one that differs from a key it recorded. A typed `password` goes once to serve, which
    * hands it to ssh through an askpass token; null logs in with this Box's keys. The caller keeps
    * no copy of it. */
-  openQuickSession(to: QuickConnect, password: string | null, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
+  openQuickSession(
+    to: QuickConnect,
+    password: string | null,
+    size: TermSize,
+    events: SessionEvents,
+    options?: { save?: boolean },
+  ): Promise<SessionHandle>;
+  /** `quick.save` (API 13, ticket 15): the Vault item, then the Host as a Pending change, from a
+   * Quick Connect that logged in with its typed password (Q43). Rejects with SaveLoginError,
+   * vault.create_item's 60-65 or AddError; the item is taken back out if the Host can't be added. */
+  saveQuick(params: QuickSaveParams): Promise<QuickSave>;
+  /** `host.save_login` (API 13, ticket 16): the Vault item, then the `auth: prompt` Host's Login
+   * pointed at it as a Pending change, once its Session logged in with the typed password (Q43).
+   * Rejects with SaveLoginError, 60-65, or 75 (the Host changed since that Session logged in). */
+  saveLogin(params: SaveLoginParams): Promise<SaveLogin>;
+  /** `vault.forget_typed` (API 13): serve forgets the typed password it held for "Save to vault".
+   * Never rejects for a roster reason. */
+  forgetTyped(held: string): Promise<{ forgotten: boolean }>;
+  /** Calls `onLogin` with the held id each time a Session that holds a typed password for "Save to
+   * vault" logs in with it (serve's `session.logged_in`); returns stop. */
+  onLoggedIn(onLogin: (held: string) => void): () => void;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code

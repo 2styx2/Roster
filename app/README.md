@@ -45,7 +45,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | Windows copy | `%LOCALAPPDATA%\roster-app-dev` | `%LOCALAPPDATA%\roster-app-release` |
 | Stop | `app/scripts/app-stop.sh` | `app/scripts/app-stop.sh --release` (or just close the window) |
 
-Both use the installed `roster` (needs `roster serve`, API 3+; asking about a new Host's host key needs API 11, Q60; Quick Connect needs API 12, ticket 14) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
+Both use the installed `roster` (needs `roster serve`, API 3+; asking about a new Host's host key needs API 11, Q60; Quick Connect needs API 12, ticket 14; its "Save to vault" API 13, ticket 15) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
 
 Paths below are from the repo root.
 
@@ -61,13 +61,16 @@ app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts
                       session_open/write/resize/close (output over an ipc Channel as raw bytes), quick_session_open (ticket 14),
                       state_load/state_save, platform_info, vault_status/unlock/lock/configure/targets, config_load, config_open,
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
-                      changes_publish, host_scan_key, host_add, host_review,
+                      changes_publish, host_scan_key, host_add, host_review, save_call (quick.save, host.save_login, vault.forget_typed),
                       config_import_preview, config_import_apply (ticket 33)
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 app/src/picker/       the Picker: match.ts (fuzzy ranking), Picker.tsx (a user@address query offers Quick Connect first)
-app/src/quick/        Quick Connect (ticket 14): target.ts (user@address[:port], parsed as roster's quick.prepare checks it)
+app/src/quick/        Quick Connect (ticket 14): target.ts (user@address[:port], parsed as roster's quick.prepare checks it);
+                      "Save to vault" (ticket 15): hostname.ts (the box's name from its shell's title or prompt),
+                      SavePanel.tsx (`:save`: name, group, Save to, then quick.save; for an
+                      `auth: prompt` Host (ticket 16), Save to, then host.save_login)
 app/src/platform/     State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
 app/src/state/        appState.ts: the State's shape (recent Hosts), parsed leniently
 app/src/session/      Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
@@ -82,7 +85,7 @@ app/src/errors/       clean connection errors (ticket 26, docs/app/errors.md): c
 app/src/edit/         editing a Host (ticket 10): form.ts (the draft, what changed, whether it needs a test login),
                       EditPanel.tsx (`:edit`: pull, the form, test login, save), ChangesPanel.tsx (`:changes`: the diff,
                       `:discard`, `:publish`: the message, the commit's hash); adding one (ticket 11): addForm.ts (the draft, checks, Vault item suggestions,
-                      host.add's params), AddPanel.tsx (`:host add`: pull, the form, host key, test login, add)
+                      host.add's params), AddPanel.tsx (`:host add`: pull, the form, host key, test login, add), SaveTo.tsx (the "Save to" choice, shared)
 app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 crates/roster-core/src/config/
                       the Lua Config (ticket 21, docs/app/config.md): schema.rs (every option and default), lua.rs
@@ -136,7 +139,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): in `app/`, `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused). Un-reviewing (API 9): `review`. Connecting (issue #78): `slow-login` (Sessions take 1.2 s to start and 2.5 s to log in). Host keys (ticket 36, API 11): `host-key` (every first Session asks about the Host's key), `host-key-changed` (the key changes before Trust). Quick Connect (ticket 14, API 12): `quick` (any `user@address` takes the password `host pass`, or none; `10.0.0.66` doesn't answer, `10.0.0.43`'s key differs from the recorded one, `10.0.0.23`'s changes before the connect).
+`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused). Un-reviewing (API 9): `review`. Connecting (issue #54): `slow-login` (Sessions take 1.2 s to start and 2.5 s to log in). Host keys (ticket 36, API 11): `host-key` (every first Session asks about the Host's key), `host-key-changed` (the key changes before Trust). Quick Connect (ticket 14, API 12): `quick` (any `user@address` takes the password `host pass`, or none; `10.0.0.66` doesn't answer, `10.0.0.43`'s key differs from the recorded one, `10.0.0.23`'s changes before the connect). Save to vault (ticket 15, API 13): `quick-save` (`root@10.0.0.5` with `host pass` and the tick logs in as `nas-01`; a vault item `dup ssh` is already there). `prompt-save` (ticket 16: the first Host's Login is `auth: prompt`; its password is `host pass`).
 Worst case (ticket 27): `worst-case` (1,284 Hosts, 50 Sessions, 100 Folders, long, odd and missing values),
 `worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; a dev build shows a
 "Demo data / Worst case" toggle at the bottom to switch between them (`&toggle=off` hides it; it works in

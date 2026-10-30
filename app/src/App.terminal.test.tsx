@@ -24,7 +24,7 @@ const report = (config: Config): ConfigReport => ({ config, error: null, path: "
 
 const PREVIEW: ImportPreview = {
   settingsPath: "C:\\Users\\me\\AppData\\Local\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
-  summary: ["Profile: Windows PowerShell", "Font: Iosevka Nerd Font, 16 pt (21.3 px)", "Colours: Campbell → Theme wt-campbell", "Cursor: block"],
+  summary: ["Profile: Windows PowerShell", "Font: Iosevka Nerd Font, 16 pt (21.3 px)", "Colours: Imported → Theme wt-import", "Cursor: block"],
   diff: [
     { kind: "same", text: "-- mine" },
     { kind: "add", text: "-- >>> Windows Terminal >>> made by :config import-terminal" },
@@ -40,6 +40,7 @@ const PREVIEW: ImportPreview = {
   result: "def",
   date: "2026-10-30",
   error: null,
+  theme: "wt-import",
 };
 
 async function ready(opts: { config?: Config; platform?: Partial<Platform> } = {}) {
@@ -90,16 +91,39 @@ describe(":config import-terminal", () => {
     expect(platform.imported()).toEqual([]);
   });
 
-  it("writes on Enter, against the file the preview read, then sources it", async () => {
+  it("writes on Enter, against the file the preview read, sources it and chooses its Theme as :theme does", async () => {
     const { user, platform } = await ready();
-    platform.writeConfig(report(configWith({ theme: "nord" })));
+    const imported = { base: "roster-dark", colors: {}, terminal: { background: "#0c0c0c" }, ansi: "inherit" as const };
+    platform.writeConfig(report(configWith({ themes: { "wt-import": imported } })));
     await command(user, "config import-terminal");
     await screen.findByRole("dialog", { name: "Import from Windows Terminal" });
     await user.keyboard("{Enter}");
     expect(platform.imported()).toEqual([{ base: "abc", result: "def", date: "2026-10-30" }]);
-    await screen.findByText(/Wrote Windows Terminal's profile into init\.lua/);
-    expect(document.documentElement.dataset.theme).toBe("nord");
+    await screen.findByText("Wrote Windows Terminal's profile into init.lua, and applied it");
+    expect(document.documentElement.dataset.theme).toBe("wt-import");
     expect(screen.queryByRole("dialog", { name: "Import from Windows Terminal" })).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(platform.saved()).toMatchObject({ theme: "wt-import", themeOver: null });
+    // Not pinned: :theme still changes it.
+    await command(user, "theme nord");
+    expect(document.documentElement.dataset.theme).toBe("nord");
+  });
+
+  it("chooses its Theme over init.lua's own theme line, and says which line that is", async () => {
+    const { user, platform } = await ready();
+    const imported = { base: "roster-dark", colors: {}, terminal: { background: "#0c0c0c" }, ansi: "inherit" as const };
+    platform.writeConfig(
+      report(configWith({ theme: "nord", set: ["theme"], lines: { theme: { file: "init.lua", line: 2 } }, themes: { "wt-import": imported } })),
+    );
+    await command(user, "config import-terminal");
+    await screen.findByRole("dialog", { name: "Import from Windows Terminal" });
+    await user.keyboard("{Enter}");
+    await screen.findByText(
+      'Wrote Windows Terminal\'s profile into init.lua, and applied it. Theme wt-import. init.lua:2 also sets theme = "nord": this choice stays until that line changes. Delete the line to unpin it.',
+    );
+    expect(document.documentElement.dataset.theme).toBe("wt-import");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(platform.saved()).toMatchObject({ theme: "wt-import", themeOver: "nord" });
   });
 
   it("says why when there's nothing to import", async () => {

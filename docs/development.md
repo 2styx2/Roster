@@ -23,7 +23,7 @@ src/roster/
   changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak, publish)
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
-  askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)
+  askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper and the logged-in report (stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
                     keepassxc (a local .kdbx through keepassxc-cli);
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
