@@ -743,3 +743,79 @@ fn a_startup_reload_waits_only_so_long_then_reports_when_done() {
     assert!(!now.expect("done within the wait").config.vim);
     assert!(!rx.recv_timeout(Duration::from_secs(2)).unwrap().config.vim);
 }
+
+/// Dotfile managers (stow, chezmoi's symlink mode) make init.lua and its modules symlinks into
+/// another folder. Saving the real file must reload too.
+#[cfg(unix)]
+#[test]
+fn saving_a_symlinked_init_lua_or_module_calls_the_watcher_back() {
+    use std::os::unix::fs::symlink;
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let dotfiles = temp_dir("watch-dotfiles");
+    std::fs::write(dotfiles.join("init.lua"), "return {}").unwrap();
+    std::fs::create_dir_all(dotfiles.join("lua")).unwrap();
+    std::fs::write(dotfiles.join("lua/keys.lua"), "return {}").unwrap();
+    std::fs::write(dotfiles.join("other.txt"), "").unwrap();
+    let dir = temp_dir("watch-symlinked");
+    symlink(dotfiles.join("init.lua"), dir.join("init.lua")).unwrap();
+    symlink(dotfiles.join("lua"), dir.join("lua")).unwrap();
+
+    let (tx, rx) = mpsc::channel();
+    let _w = config::watch(&dir, move || {
+        let _ = tx.send(());
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+
+    std::fs::write(dotfiles.join("init.lua"), "return { vim = false }").unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a save of the symlink's target is seen");
+    // Editor-style: a temp file renamed over the target.
+    std::fs::write(dotfiles.join("init.lua.tmp"), "return {}").unwrap();
+    std::fs::rename(dotfiles.join("init.lua.tmp"), dotfiles.join("init.lua")).unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a rename over the target is seen");
+    std::fs::write(dotfiles.join("lua/keys.lua"), "return { 1 }").unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a module in a symlinked folder is seen");
+    // The rest of the dotfiles folder isn't the Config.
+    while rx.recv_timeout(Duration::from_millis(400)).is_ok() {}
+    std::fs::write(dotfiles.join("other.txt"), "x").unwrap();
+    assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+}
+
+/// A tool that keeps writing (a sync, a formatter on a loop) mustn't hold the reload back
+/// forever: it comes at most about half a second after the first event.
+#[test]
+fn a_continuous_stream_of_saves_still_reloads_within_half_a_second() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    let dir = temp_dir("watch-stream");
+    std::fs::write(dir.join("init.lua"), "return {}").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let _w = config::watch(&dir, move || {
+        let _ = tx.send(Instant::now());
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let started = Instant::now();
+    let writer = std::thread::spawn({
+        let dir = dir.clone();
+        move || {
+            while started.elapsed() < Duration::from_secs(2) {
+                std::fs::write(dir.join("init.lua"), "return {}").unwrap();
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        }
+    });
+    let first = rx
+        .recv_timeout(Duration::from_secs(3))
+        .expect("a reload during the stream");
+    assert!(
+        first.duration_since(started) < Duration::from_millis(900),
+        "{:?}",
+        first.duration_since(started)
+    );
+    writer.join().unwrap();
+}
