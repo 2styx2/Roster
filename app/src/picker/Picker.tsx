@@ -1,12 +1,14 @@
 // The Picker (GLOSSARY): fuzzy search over the Inventory's Hosts. Typing goes to the query.
 // Arrows and Ctrl+N/P move; once you've moved, j/k move too (vim on) until you type anything
-// else. Enter or a click opens the selected Host, Esc closes. Unreviewed Hosts are listed but
+// else. Tab and Shift+Tab move too, wrapping (ticket 34); before you've moved, Tab first fills the
+// query with what the matching names share, as a shell does. Enter or a click opens the selected Host, Esc closes. Unreviewed Hosts are listed but
 // marked and never opened (spec story 14).
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Host, HostList } from "../backend/types";
 import { chordOf, defaultKeymap, type Keymap, type KeyTable, type PickerAction } from "../keymap";
 import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
+import { prefixFill } from "../ui/completion";
 import { searchHosts } from "./match";
 
 /** Rows actually rendered; the rest are counted. Keeps every keystroke cheap. */
@@ -80,6 +82,20 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
         setIndex(Math.max(current - 1, 0));
         setInList(true);
         break;
+      case "picker.next":
+      case "picker.prev": {
+        const fill = action === "picker.next" && !inList ? prefixFill(query, shown.map((r) => r.host.name)) : null;
+        if (fill !== null) {
+          setQuery(fill);
+          setIndex(0);
+          setNotice("");
+          break;
+        }
+        if (shown.length === 0) break;
+        setIndex((current + (action === "picker.next" ? 1 : -1) + shown.length) % shown.length);
+        setInList(true);
+        break;
+      }
       case "picker.choose":
         choose(shown[current]?.host);
         break;

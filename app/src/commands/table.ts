@@ -106,8 +106,28 @@ export interface CommandDef extends Entry {
    * still completes `connect` first. */
   seldom?: boolean;
   run(ctx: CommandContext, arg: string | undefined): void;
-  /** Completions for the argument typed so far (whole arguments), when `arg` is "text". */
-  complete?(arg: string, hostNames: readonly string[], groupNames?: readonly string[]): string[];
+  /** Completions for the argument typed so far (whole arguments), when `arg` is "text". A
+   * command from the Config or a Plugin completes the same way (ticket 34). */
+  complete?(arg: string, hostNames: readonly string[], ctx?: CompletionContext): string[];
+}
+
+/** What completion knows of the app now, beyond the command table (ticket 34). */
+export interface CompletionContext {
+  /** Every Host's name, in roster.yml order. */
+  hostNames: readonly string[];
+  /** The Sidebar's rows that fold, by id: `section:sessions`, `group:subnet-42`, `folder:Lab`. */
+  foldIds: readonly string[];
+  /** The open Sessions' Hosts, in order (what `session N` and `close N` take). */
+  sessions: readonly string[];
+  /** Every group's name, in roster.yml order (`host move`, `group …`, ticket 28). */
+  groupNames?: readonly string[];
+}
+
+/** Names that start with `word` first, then the rest that contain it, without case. */
+export function matching(names: readonly string[], word: string): string[] {
+  const w = word.toLowerCase();
+  const lower = (n: string) => n.toLowerCase();
+  return [...names.filter((n) => lower(n).startsWith(w)), ...names.filter((n) => !lower(n).startsWith(w) && lower(n).includes(w))];
 }
 
 const fold = (id: string, how: FoldHow, label: string): CommandDef => ({
@@ -120,6 +140,7 @@ const fold = (id: string, how: FoldHow, label: string): CommandDef => ({
   staysInAppMode: true,
   motion: true,
   run: (ctx, row) => ctx.fold(row ?? null, how),
+  complete: (row, _hosts, ctx) => matching(ctx?.foldIds ?? [], row),
 });
 
 const list = (move: ListMove, label: string): CommandDef => ({
@@ -357,13 +378,13 @@ export function describeLine(commands: Commands, line: string): { area: string; 
 /** Everyday commands first, then seldom ones, then list and tree motions. */
 const rankOf = (c: CommandDef) => (c.motion ? 2 : c.seldom ? 1 : 0);
 
-/** Complete lines for what's typed so far: command names, then Host names after `connect`, or
- * what the command itself offers. */
+/** Complete lines for what's typed so far: command names, then what the command offers (its
+ * `complete` hook), Host names for a Host argument, or the open Sessions' numbers. */
 export function complete(
   commands: Commands,
   input: string,
   hostNames: readonly string[],
-  groupNames: readonly string[] = [],
+  more: Omit<CompletionContext, "hostNames"> = { foldIds: [], sessions: [] },
 ): string[] {
   const space = input.indexOf(" ");
   if (space < 0) {
@@ -375,12 +396,14 @@ export function complete(
       .map((c) => (c.arg && !c.optionalArg ? `${c.id} ` : c.id));
   }
   const command = commands.get(input.slice(0, space));
-  if (command?.complete) return command.complete(input.slice(space + 1).trimStart(), hostNames, groupNames).map((a) => `${command.id} ${a}`);
-  if (command?.arg !== "host") return [];
-  const word = input.slice(space + 1).trimStart().toLowerCase();
-  const sorted = [...hostNames].sort();
-  const lower = (h: string) => h.toLowerCase();
-  const prefix = sorted.filter((h) => lower(h).startsWith(word));
-  const inside = sorted.filter((h) => !lower(h).startsWith(word) && lower(h).includes(word));
-  return [...prefix, ...inside].map((h) => `${command.id} ${h}`);
+  if (!command) return [];
+  const word = input.slice(space + 1).trimStart();
+  const args = command.complete
+    ? command.complete(word, hostNames, { hostNames, ...more })
+    : command.arg === "host"
+      ? matching([...hostNames].sort(), word)
+      : command.arg === "number"
+        ? more.sessions.map((_, i) => String(i + 1)).filter((n) => n.startsWith(word))
+        : [];
+  return args.map((a) => `${command.id} ${a}`);
 }

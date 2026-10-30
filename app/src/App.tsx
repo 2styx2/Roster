@@ -1201,13 +1201,21 @@ export function App({
         <CommandLine
           key={overlay.cmdline}
           initial={overlay.cmdline}
-          complete={(input) => complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [])}
+          complete={(input) =>
+            complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [], {
+              foldIds: rows.filter((r) => r.foldable).map((r) => r.id),
+              sessions: sessions.tabs.map((t) => t.host),
+            })
+          }
           describe={(candidate) => {
-            // A command name (not a command and its argument): its label and key.
+            // A command name: its label and key. A Session's number: its Host.
             const [id = "", arg = ""] = candidate.split(" ");
-            const command = arg === "" ? commands.get(id) : undefined;
-            return command ? { label: command.label(), keys: hintFor(keymap, id) } : null;
+            const command = commands.get(id);
+            if (command && arg === "") return { label: command.label(), keys: hintFor(keymap, id) };
+            const tab = command?.arg === "number" ? sessions.tabs[Number(arg) - 1] : undefined;
+            return tab ? { label: tab.host, keys: null } : null;
           }}
+          keys={keymap.cmdline}
           leader={options.leader}
           onClose={closeOverlay}
           onRun={(line) => {

@@ -1,11 +1,13 @@
 // The Finder (ticket 22): a Telescope-style fuzzy finder over one finder source (sources.ts),
 // as an overlay over the terminal. Typing goes to the query; the Picker's keys move (arrows,
-// Ctrl+N/P, then j/k with vim on once you've moved); Enter or a click runs the item's command
+// Ctrl+N/P, then j/k with vim on once you've moved, and Tab / Shift+Tab, Tab first filling the
+// query with what the matching labels share, ticket 34); Enter or a click runs the item's command
 // line, Esc closes. It's the same in every view mode; Focus leans on it to reach what the Sidebar
 // shows in Standard (decision Q36).
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
+import { prefixFill } from "../ui/completion";
 import { formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { StateDot } from "../ui/StateDot";
@@ -71,6 +73,20 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
         setMoved(Math.max(current - 1, 0));
         setInList(true);
         break;
+      case "picker.next":
+      case "picker.prev": {
+        const fill = action === "picker.next" && !inList ? prefixFill(query, shown.map((i) => i.label)) : null;
+        if (fill !== null) {
+          setQuery(fill);
+          setMoved(null);
+          setNotice("");
+          break;
+        }
+        if (shown.length === 0) break;
+        setMoved((current + (action === "picker.next" ? 1 : -1) + shown.length) % shown.length);
+        setInList(true);
+        break;
+      }
       case "picker.choose":
       case "picker.chooseHere":
         choose(shown[current]);

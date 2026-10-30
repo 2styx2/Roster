@@ -105,12 +105,12 @@ describe("runLine", () => {
       'inventory {"op":"group-delete","group":"lab","to":"net"}',
       "say No group named nope",
     ]);
-    const groups = ["lab", "net"];
-    expect(completeIn(registry, "host move hub2 ", hosts, groups)).toEqual(["host move hub2 lab", "host move hub2 net"]);
-    expect(completeIn(registry, "host rem", hosts, groups)).toEqual(["host remove "]);
-    expect(completeIn(registry, "host remove or", hosts, groups)).toEqual(["host remove orion3"]);
-    expect(completeIn(registry, "group delete lab ", hosts, groups)).toEqual(["group delete lab net"]);
-    expect(completeIn(registry, "group ", hosts, groups)).toEqual(["group new ", "group rename ", "group delete "]);
+    const more = { foldIds: [], sessions: [], groupNames: ["lab", "net"] };
+    expect(completeIn(registry, "host move hub2 ", hosts, more)).toEqual(["host move hub2 lab", "host move hub2 net"]);
+    expect(completeIn(registry, "host rem", hosts, more)).toEqual(["host remove "]);
+    expect(completeIn(registry, "host remove or", hosts, more)).toEqual(["host remove orion3"]);
+    expect(completeIn(registry, "group delete lab ", hosts, more)).toEqual(["group delete lab net"]);
+    expect(completeIn(registry, "group ", hosts, more)).toEqual(["group new ", "group rename ", "group delete "]);
   });
 
   it("runs :check for a Host, or for the current Session's Host with no argument", () => {
@@ -220,6 +220,33 @@ describe("complete", () => {
 
   it("offers nothing for other arguments", () => {
     expect(complete("lock x", hosts)).toEqual([]);
+  });
+
+  it("completes the Sidebar's foldable rows after fold, unfold and togglefold (ticket 34)", () => {
+    const more = { foldIds: ["section:sessions", "group:subnet-42", "folder:Lab ESXi"], sessions: [] };
+    expect(completeIn(registry, "fold g", hosts, more)).toEqual(["fold group:subnet-42"]);
+    expect(completeIn(registry, "togglefold lab", hosts, more)).toEqual(["togglefold folder:Lab ESXi"]);
+    expect(completeIn(registry, "unfold ", hosts, more)).toHaveLength(3);
+  });
+
+  it("completes the open Sessions' numbers after session and close (ticket 34)", () => {
+    const more = { foldIds: [], sessions: ["esxi-01", "hub2", "orion3"] };
+    expect(completeIn(registry, "session ", hosts, more)).toEqual(["session 1", "session 2", "session 3"]);
+    expect(completeIn(registry, "close 2", hosts, more)).toEqual(["close 2"]);
+  });
+
+  it("hands a command's own hook what the app knows, so a Plugin's command can use it", () => {
+    const r = builtinCommandRegistry();
+    r.register({
+      id: "jump",
+      source: "my-plugin",
+      area: "Sidebar",
+      arg: "text",
+      label: () => "Jump",
+      run: () => undefined,
+      complete: (arg, _hosts, ctx) => (ctx?.foldIds ?? []).filter((id) => id.startsWith(arg)),
+    });
+    expect(completeIn(r, "jump gr", [], { foldIds: ["group:a", "section:b"], sessions: [] })).toEqual(["jump group:a"]);
   });
 });
 

@@ -96,7 +96,7 @@ export const hostCommand: CommandDef = {
     return "Hosts: add, remove, rename, move";
   },
   run: runHost,
-  complete: completeHost,
+  complete: (arg, hosts, ctx) => completeHost(arg, hosts, ctx?.groupNames ?? []),
 };
 
 export const groupCommand: CommandDef = {
@@ -112,5 +112,5 @@ export const groupCommand: CommandDef = {
     return "Groups: new, rename, delete";
   },
   run: runGroup,
-  complete: (arg, _hosts, groups) => completeGroup(arg, groups ?? []),
+  complete: (arg, _hosts, ctx) => completeGroup(arg, ctx?.groupNames ?? []),
 };

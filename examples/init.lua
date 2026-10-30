@@ -104,8 +104,9 @@ return {
 
   -- Key bindings, per context: key or sequence = action. An action is a command line, exactly
   -- what you'd type after `:` ("close", "session 1", "finder sessions"); false unbinds a default.
-  -- Contexts: leader (after the Leader), list and list_vim (the Sidebar), picker and picker_vim,
-  -- terminal (before the shell sees the key: terminal.copy, terminal.paste, terminal.search,
+  -- Contexts: leader (after the Leader), list and list_vim (the Sidebar), picker and picker_vim
+  -- (Tab / Shift+Tab: picker.next / picker.prev), cmdline (the `:` line: cmdline.next,
+  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel), terminal (before the shell sees the key: terminal.copy, terminal.paste, terminal.search,
   -- terminal.zoomIn, …), global (everywhere, no Leader; keep it to keys a shell doesn't use).
   -- The Key bindings panel (Leader ?) lists every binding and where it comes from.
   keys = {

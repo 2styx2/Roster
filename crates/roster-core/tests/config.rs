@@ -284,6 +284,7 @@ fn the_roster_api_registers_keys_and_themes_with_their_lines() {
         r##"local roster = require("roster")
 roster.keymap.set("leader", "x", "close")
 roster.keymap.set("global", "F12", "keys")
+roster.keymap.set("cmdline", "Ctrl+j", "cmdline.next")
 roster.themes.define("mine", { base = "nord", colors = { accent = "#ff8800" } })
 return { theme = "mine" }
 "##,
@@ -297,9 +298,15 @@ return { theme = "mine" }
         .collect();
     assert!(keys.contains(&(config::KeyContext::Leader, "x", config::KeyAction::Run("close".into()))));
     assert!(keys.contains(&(config::KeyContext::Global, "F12", config::KeyAction::Run("keys".into()))));
+    assert!(keys.contains(&(
+        config::KeyContext::Cmdline,
+        "Ctrl+j",
+        config::KeyAction::Run("cmdline.next".into())
+    )));
     assert_eq!(config.themes["mine"].colors.accent.as_deref(), Some("#ff8800"));
     assert_eq!(config.lines["keys.leader.x"].line, 2);
-    assert_eq!(config.lines["themes.mine"].line, 4);
+    assert_eq!(config.lines["keys.cmdline.Ctrl+j"].line, 4);
+    assert_eq!(config.lines["themes.mine"].line, 5);
 }
 
 #[test]

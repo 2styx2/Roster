@@ -4,14 +4,26 @@
 // A sequence is chords separated by spaces ("d d", "g g").
 //
 // App-mode keys map to a command line from the one command table (commands/table.ts), e.g.
-// "session 1" or "close", exactly what you'd type after `:`. The Picker's own keys map to the
-// Picker's and the terminal's local actions (ticket 08's copy, paste, find, zoom). Bindings live in a Registry (ADR 0006), one entry per context and key,
+// "session 1" or "close", exactly what you'd type after `:`. The Picker's, the command line's
+// and the terminal's own keys map to their local actions (ticket 08's copy, paste, find, zoom). Bindings live in a Registry (ADR 0006), one entry per context and key,
 // each with its source; Keymap is the resolved view the app reads.
 
 /** A line for the command table: a command name and maybe its argument ("session 1"). */
 export type CommandLine = string;
 
-export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.chooseHere" | "picker.review" | "picker.close";
+export type PickerAction =
+  | "picker.down"
+  | "picker.up"
+  | "picker.next"
+  | "picker.prev"
+  | "picker.choose"
+  | "picker.chooseHere"
+  | "picker.review"
+  | "picker.close";
+
+/** The command line's own keys (ticket 34): cycle through the completions, accept one, run the
+ * line, cancel. */
+export type CmdlineAction = "cmdline.next" | "cmdline.prev" | "cmdline.accept" | "cmdline.run" | "cmdline.cancel";
 
 /** Anything a key can be bound to: a command line, or a Picker or terminal action. */
 export type Action = string;
@@ -39,6 +51,8 @@ export interface Keymap {
   picker: KeyTable<PickerAction>;
   /** In the Picker's result list, when vim keys are on. */
   pickerVim: KeyTable<PickerAction>;
+  /** In the command line (`␣ :`), ticket 34. */
+  cmdline: KeyTable<CmdlineAction>;
   /** In a terminal, before the shell sees the key (ticket 08). */
   terminal: KeyTable<TerminalAction>;
   /** Everywhere, Terminal mode included, with no Leader (F11 for Focus, ticket 22). Keep it to
@@ -124,12 +138,23 @@ export const defaultBindings: KeymapTables = {
     ArrowUp: "picker.up",
     "Ctrl+n": "picker.down",
     "Ctrl+p": "picker.up",
+    Tab: "picker.next",
+    "Shift+Tab": "picker.prev",
     Enter: "picker.choose",
     "Ctrl+r": "picker.review",
     Escape: "picker.close",
     ...terminalKeys.picker,
   },
   pickerVim: { j: "picker.down", k: "picker.up" },
+  cmdline: {
+    Tab: "cmdline.next",
+    "Shift+Tab": "cmdline.prev",
+    "Ctrl+n": "cmdline.next",
+    "Ctrl+p": "cmdline.prev",
+    "Ctrl+y": "cmdline.accept",
+    Enter: "cmdline.run",
+    Escape: "cmdline.cancel",
+  },
   terminal: terminalKeys.terminal,
   global: { F11: "focus" },
 };
@@ -163,7 +188,7 @@ export function actionsOf<T extends string>(table: KeyTable<T>): Record<string, 
 
 /** The resolved keymap from the registry's entries in effect. */
 export function keymapOf(entries: readonly KeyBindingEntry[]): Keymap {
-  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {}, terminal: {}, global: {} };
+  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {}, cmdline: {}, terminal: {}, global: {} };
   for (const e of entries) {
     if (e.action === null) continue;
     (keymap[e.context] as KeyTable<string>)[e.keys] = { action: e.action, source: e.source };
