@@ -148,17 +148,11 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .screen.center { align-items: center; justify-content: center; padding: 24px; }
 .starting { font-size: var(--text-sm); }
 
-/* The backend didn't start. */
+/* The backend didn't start: the clean error's parts (.problem-*, below), on the bare window. */
 .error { width: min(560px, 100%); display: flex; flex-direction: column; gap: 10px; }
-.error h1 { font-size: var(--text-lg); font-weight: 600; margin: 0; color: var(--error); }
+.error h1 { font-size: var(--text-lg); font-weight: 600; margin: 0; color: var(--error); overflow-wrap: anywhere; }
 .error p { margin: 0; }
-.error .hint { color: var(--muted); }
-.error .detail {
-  margin: 0; font: var(--text-sm)/1.5 var(--font-mono); background: var(--panel); color: var(--muted);
-  border: 1px solid var(--line); padding: 10px 12px; border-radius: var(--radius);
-  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto;
-}
-.error button { align-self: flex-start; margin-top: 4px; }
+.error .problem-message, .error .problem-facts, .error .problem-actions { margin: 0; overflow-wrap: anywhere; }
 
 /* ---------- Standard layout: [Sidebar | workspace | side panel], command line, status bar ---------- */
 

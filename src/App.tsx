@@ -632,7 +632,7 @@ export function App({
     );
   }
   if (conn.state === "failed") {
-    return frame(<ErrorScreen problem={conn.problem} onRetry={() => void connect(true)} />);
+    return frame(<ErrorScreen problem={conn.problem} onRetry={() => void connect(true)} copy={copy} />);
   }
 
   const { info } = conn;

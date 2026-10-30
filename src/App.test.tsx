@@ -80,7 +80,7 @@ describe("App", () => {
   it("explains a roster that's too old and how to fix it", async () => {
     render(<App backend={fakeBackend(fixtures["roster-too-old"]!)} />);
     expect(await screen.findByRole("heading", { name: /roster is too old/i })).toBeInTheDocument();
-    expect(screen.getByText(/has no `serve` command/)).toBeInTheDocument();
+    expect(screen.getByText("serve", { selector: "code" }).parentElement).toHaveTextContent(/has no serve command/);
     expect(screen.getByText(/ROSTER_DESK_ROSTER/)).toBeInTheDocument();
     expect(screen.getByText(/invalid choice: 'serve'/)).toBeInTheDocument();
   });
