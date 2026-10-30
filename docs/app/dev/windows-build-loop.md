@@ -33,7 +33,7 @@ cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-app-dev\src\app && npm run 
 | `tauri build --no-bundle` (release, lto, codegen-units=1) cold | 2 m 20 s, 4.4 MB exe |
 | `tauri build --debug --no-bundle`, workspace layout (see testing.md) | 59 s cold |
 
-Scripted (ticket 03; renamed from `scripts/win-*.sh` when the app joined the roster repo): `app/scripts/app-sync.sh`, `app/scripts/app-dev.sh [--ci]` (passes `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO` through `WSLENV`), `app/scripts/app-build.sh [--run] [--installer] [--ci]` (the release copy `roster-app-release`), `app/scripts/app-stop.sh [--release]`. The scripts still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
+Scripted (ticket 03; renamed from `scripts/win-*.sh` when the app joined the roster repo): `app/scripts/app-sync.sh`, `app/scripts/app-dev.sh [--ci]` (passes `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO` through `WSLENV`), `app/scripts/app-build.sh [--run] [--installer] [--ci]` (the release copy `roster-app-release`), `app/scripts/app-stop.sh [--release]`. `app-dev.sh` and `app-build.sh` run `npm ci` on their own when the copy has no `node_modules` or `package-lock.json` changed since the last install; `--ci` forces it. The scripts still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
 
 ## Gotchas (all observed)
 
