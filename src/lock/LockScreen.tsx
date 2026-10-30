@@ -4,6 +4,7 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Logo } from "../chrome/Logo";
 import type { ErrorRow } from "../errors/catalog";
+import { CopyCommand } from "../errors/ErrorPanel";
 import { SignIn } from "./SignIn";
 import type { Vault, VaultView } from "./useVault";
 import { withCode } from "./withCode";
@@ -39,17 +40,30 @@ export function LockGate({
   );
 }
 
+/** The lock screen's heading: what's actually wrong (ticket 29 S10), not "Locked" for a vault
+ * that can't be unlocked here at all. */
+function heading(view: VaultView): string {
+  if (view.state === "signin") return `Sign in to ${providerName(view.provider)}`;
+  if (view.state === "unavailable" && view.status === "not-logged-in") return `${providerName(view.provider)} isn't signed in on this Box`;
+  if (view.state === "unavailable" && view.status === "missing-cli") return `The ${providerName(view.provider)} CLI isn't installed`;
+  return "Locked";
+}
+
+/** The command in roster's message to copy: the first one in backticks that takes arguments
+ * ("run `bw login` once", "install it: `npm install -g @bitwarden/cli`"). */
+const commandIn = (message: string) => message.split("`").find((part, i) => i % 2 === 1 && part.includes(" ")) ?? null;
+
 function LockScreen({ vault, hint, errorRows, copy }: { vault: Vault; hint?: ReactNode } & LockExtras) {
   const signingIn = vault.view.state === "signin";
   return (
     <div className="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <section className="lock-panel">
         <Logo size={32} className="lock-mark" />
-        <h1 id="lock-title">{signingIn ? "Sign in to Bitwarden" : "Locked"}</h1>
+        <h1 id="lock-title">{heading(vault.view)}</h1>
         {vault.view.state === "signin" ? (
           <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />
         ) : (
-          <Body view={vault.view} vault={vault} />
+          <Body view={vault.view} vault={vault} copy={copy} />
         )}
         {hint && !signingIn && <p className="lock-hint muted">{hint}</p>}
       </section>
@@ -57,24 +71,27 @@ function LockScreen({ vault, hint, errorRows, copy }: { vault: Vault; hint?: Rea
   );
 }
 
-function Body({ view, vault }: { view: VaultView; vault: Vault }) {
+function Body({ view, vault, copy }: { view: VaultView; vault: Vault; copy?: LockExtras["copy"] }) {
   switch (view.state) {
     case "checking":
       return <p className="muted">Checking the vault…</p>;
     case "locked":
       return <UnlockForm provider={view.provider} error={view.error} onUnlock={vault.unlock} />;
     case "unavailable":
-    case "failed":
+    case "failed": {
+      const command = view.state === "unavailable" ? commandIn(view.message) : null;
       return (
         <>
           <p role="alert" className="lock-problem">
             {withCode(view.message)}
           </p>
+          {command && copy && <CopyCommand text={command} copy={copy} />}
           <button type="button" onClick={() => void vault.check()} autoFocus>
             Check again
           </button>
         </>
       );
+    }
     default:
       return null;
   }

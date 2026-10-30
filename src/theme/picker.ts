@@ -104,7 +104,8 @@ export function themesFinder(choice: ThemeChoice): FinderSourceDef {
       choice.themes.list().map((t) => ({
         id: `theme:${t.id}`,
         label: t.label,
-        detail: t.source === BUILTIN ? t.appearance : `${t.appearance} · ${t.source}`,
+        // The Theme in use says so, and the finder opens on it: Esc after a preview goes back to it.
+        detail: [t.appearance, ...(t.source === BUILTIN ? [] : [t.source]), ...(t.id === choice.active() ? ["current"] : [])].join(" · "),
         command: `theme ${t.id}`,
       })),
     initial: (items) => Math.max(0, items.findIndex((i) => i.command === `theme ${choice.active()}`)),

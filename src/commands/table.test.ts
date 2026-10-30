@@ -26,6 +26,7 @@ function recorder(mode: ViewMode = "standard") {
     toggleKeys: () => calls.push("keys"),
     lock: () => calls.push("lock"),
     toTerminal: () => calls.push("terminal"),
+    closePanel: () => calls.push("hidepanel"),
     list: (m) => calls.push(`list ${m}`),
     open: (h) => calls.push(`open ${h}`),
     fold: (id, how) => calls.push(`${how} ${id ?? "cursor"}`),
@@ -36,6 +37,7 @@ function recorder(mode: ViewMode = "standard") {
     viewMode: () => mode,
     setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
     openFinder: (id) => calls.push(`finder ${id}`),
+    showInfo: () => calls.push("info"),
   };
   return { ctx, calls };
 }

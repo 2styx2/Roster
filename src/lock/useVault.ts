@@ -20,8 +20,9 @@ export type VaultView =
   | { state: "locked"; provider: string; error: string | null }
   /** The vault CLI isn't logged in on this box, and roster can sign it in (`vault.login`). */
   | { state: "signin"; provider: string; info: SignInInfo }
-  /** The vault CLI can't unlock on this box yet; `message` says what to run or install. */
-  | { state: "unavailable"; provider: string; message: string }
+  /** The vault CLI can't unlock on this box yet; `message` says what to run or install, and
+   * `status` why (`not-logged-in`, `missing-cli`, or what roster said). */
+  | { state: "unavailable"; provider: string; message: string; status: string }
   /** `vault.status` itself failed. */
   | { state: "failed"; message: string }
   | { state: "unlocked"; provider: string }
@@ -50,7 +51,7 @@ function viewOf(s: VaultStatus): VaultView {
   if (s.status === "unlocked") return { state: "unlocked", provider: s.provider };
   if (s.status === "locked") return { state: "locked", provider: s.provider, error: null };
   if (s.status === "not-logged-in" && s.sign_in) return { state: "signin", provider: s.provider, info: s.sign_in };
-  return { state: "unavailable", provider: s.provider, message: s.message ?? `${s.provider}: ${s.status}` };
+  return { state: "unavailable", provider: s.provider, message: s.message ?? `${s.provider}: ${s.status}`, status: s.status };
 }
 
 function messageOf(e: unknown): string {
@@ -121,7 +122,8 @@ export function useVault(
         if (code === VaultError.wrongPassword) {
           setView({ ...v, error: "Wrong master password. Try again." });
         } else if (code === VaultError.notLoggedIn || code === VaultError.cliMissing) {
-          setView({ state: "unavailable", provider: v.provider, message: messageOf(e) });
+          const status = code === VaultError.notLoggedIn ? "not-logged-in" : "missing-cli";
+          setView({ state: "unavailable", provider: v.provider, message: messageOf(e), status });
         } else if (code === VaultError.unsupported) {
           setView({ state: "none" });
         } else {

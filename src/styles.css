@@ -37,6 +37,8 @@
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "calt";
+  /* Native radios and checkboxes take the Theme's accent (ticket 29 S6). */
+  accent-color: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -94,7 +96,7 @@ input {
   border: 1px solid var(--line-strong); border-radius: var(--radius);
   transition: border-color var(--dur-fade) ease, box-shadow var(--dur-fade) ease;
 }
-input::placeholder { color: var(--faint); }
+input::placeholder { color: var(--muted); }
 input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 code { font-family: var(--font-mono); font-size: 0.95em; }
@@ -104,7 +106,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .chord { display: inline-flex; gap: 2px; }
 .keycap {
   display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
-  font: 500 10.5px/1 var(--font-mono); color: var(--muted);
+  font: 500 var(--text-xs)/1 var(--font-mono); color: var(--muted);
   background: var(--raised); border: 1px solid var(--line-strong); border-bottom-width: 1.5px;
   border-radius: var(--radius-sm);
 }
@@ -148,17 +150,11 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .screen.center { align-items: center; justify-content: center; padding: 24px; }
 .starting { font-size: var(--text-sm); }
 
-/* The backend didn't start. */
+/* The backend didn't start: the clean error's parts (.problem-*, below), on the bare window. */
 .error { width: min(560px, 100%); display: flex; flex-direction: column; gap: 10px; }
-.error h1 { font-size: var(--text-lg); font-weight: 600; margin: 0; color: var(--error); }
+.error h1 { font-size: var(--text-lg); font-weight: 600; margin: 0; color: var(--error); overflow-wrap: anywhere; }
 .error p { margin: 0; }
-.error .hint { color: var(--muted); }
-.error .detail {
-  margin: 0; font: var(--text-sm)/1.5 var(--font-mono); background: var(--panel); color: var(--muted);
-  border: 1px solid var(--line); padding: 10px 12px; border-radius: var(--radius);
-  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto;
-}
-.error button { align-self: flex-start; margin-top: 4px; }
+.error .problem-message, .error .problem-facts, .error .problem-actions { margin: 0; overflow-wrap: anywhere; }
 
 /* ---------- Standard layout: [Sidebar | workspace | side panel], command line, status bar ---------- */
 
@@ -174,12 +170,12 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .empty p { margin: 0; }
 .empty-mark { opacity: 0.35; margin-bottom: 6px; }
 .empty-title { font-weight: 500; color: var(--muted); }
-.empty-hint { font-size: var(--text-sm); color: var(--faint); }
+.empty-hint { font-size: var(--text-sm); color: var(--muted); }
 
 .statusbar {
   flex: none; height: var(--statusbar-h); display: flex; align-items: center; gap: 16px; padding: 0 12px;
   background: var(--chrome); border-top: 1px solid var(--line);
-  color: var(--faint); font-size: var(--text-xs); white-space: nowrap; overflow: hidden;
+  color: var(--muted); font-size: var(--text-xs); white-space: nowrap; overflow: hidden;
 }
 .statusbar > * { flex: none; }
 .statusbar .backend { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
@@ -195,10 +191,14 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .statusbar-right { margin-left: auto; flex: 0 1000 auto; min-width: 0; display: flex; align-items: center; gap: 16px; }
 .statusbar-hints {
   flex: 0 1000 auto; min-width: 0; height: var(--statusbar-h); overflow: hidden;
-  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; column-gap: 16px;
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center;
 }
-.statusbar .hint { display: inline-flex; align-items: center; gap: 5px; height: var(--statusbar-h); }
-.statusbar .keycap { height: 15px; min-width: 15px; font-size: 10px; color: var(--muted); }
+/* A zero-width first item: with it on the first line, a hint that doesn't fit wraps to the
+   hidden second line whole, even the first one, instead of being cut after its keycaps (N3). */
+.statusbar-hints::before { content: ""; width: 0; height: var(--statusbar-h); }
+.statusbar .hint { flex: none; display: inline-flex; align-items: center; gap: 5px; height: var(--statusbar-h); }
+.statusbar .hint + .hint { margin-left: 16px; }
+.statusbar .keycap { height: 16px; min-width: 16px; color: var(--muted); }
 .statusbar .mode { color: var(--accent-ink); font-weight: 600; letter-spacing: 0.04em; }
 .statusbar .mode .pending { font-family: var(--font-mono); font-weight: 400; }
 
@@ -223,32 +223,33 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .sidebar button:active { transform: none; }
 .sidebar .sb-find {
   margin: 10px 10px 6px; height: 30px; padding: 0 6px 0 8px; display: flex; align-items: center; gap: 8px;
-  color: var(--faint); border: 1px solid var(--line); background: var(--bg);
+  color: var(--muted); border: 1px solid var(--line); background: var(--bg);
 }
 .sb-find-label { flex: 1; font-size: var(--text-sm); }
 @media (hover: hover) and (pointer: fine) {
-  .sidebar .sb-find:hover { color: var(--muted); border-color: var(--line-strong); background: var(--bg); }
+  .sidebar .sb-find:hover { color: var(--text); border-color: var(--line-strong); background: var(--bg); }
 }
 .sb-icon { flex: none; color: var(--faint); }
 
-.sb-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 10px; }
+.sb-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 10px; outline: none; }
 .sb-section { margin-top: 10px; }
-.sb-heading { display: flex; align-items: center; height: 24px; border-radius: var(--radius); color: var(--faint); }
+.sb-heading { display: flex; align-items: center; height: 24px; border-radius: var(--radius); color: var(--muted); }
 .sidebar .sb-heading-button {
   flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: inherit;
+  border-radius: var(--radius); cursor: default;
   font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
 }
 .sb-heading h2 { margin: 0; font: inherit; }
 @media (hover: hover) and (pointer: fine) {
-  .sb-heading:hover { color: var(--muted); }
+  .sb-heading:hover { color: var(--text); }
 }
 .sb-count { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.sb-empty { margin: 2px 8px 4px 24px; color: var(--faint); font-size: var(--text-sm); line-height: 1.7; text-wrap: balance; }
+.sb-empty { margin: 2px 8px 4px 24px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; text-wrap: balance; }
 .sb-empty .keys { margin: 0 1px; }
 .keys-with-word { white-space: nowrap; }
 
 .sb-rows { list-style: none; margin: 0; padding: 0; }
-.sb-row { display: flex; align-items: center; height: var(--row-h); border-radius: var(--radius); color: var(--muted); }
+.sb-row { position: relative; display: flex; align-items: center; height: var(--row-h); border-radius: var(--radius); color: var(--muted); }
 @media (hover: hover) and (pointer: fine) {
   .sb-row:hover { background: var(--hover); color: var(--text); }
 }
@@ -256,12 +257,24 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .sb-row.also { color: var(--text); }
 /* The raised style (decision Q31): a lighter fill and a 1px outline. */
 .sb-row.raised { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
-/* The App-mode cursor: the accent outline. */
-.sb-row.cursor, .sb-heading.cursor { box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
+/* The live Session (decision Q53, S11): the raised row plus a 2px jade bar at its start, 3:1
+   against the Sidebar in every Theme. Jade only for what's live (taste.md): an ended Session on
+   screen is raised without it. It moves with a key, so it doesn't animate. */
+.sb-row.live::before {
+  content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px; border-radius: 1px;
+  background: var(--accent);
+}
+/* The App-mode cursor: raised, with the accent outline and no bar. */
+.sb-row.cursor, .sb-heading.cursor { background: var(--raised); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
+/* Forced colours drop fills and box-shadows: keep the bar and the cursor visible. */
+@media (forced-colors: active) {
+  .sb-row.live::before { forced-color-adjust: none; background: Highlight; }
+  .sb-row.cursor, .sb-heading.cursor { outline: 1px solid Highlight; outline-offset: -1px; }
+}
 .sidebar .sb-item {
   flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: inherit;
 }
-.sb-chev { flex: none; color: var(--faint); }
+.sb-chev { flex: none; color: var(--muted); }
 .sb-chev.folded { transform: rotate(-90deg); }
 /* The name wins the room. What follows it (a note, the badge, the address) shares a wrapping
    line box one row high: anything that doesn't fit beside the name drops to a second line that
@@ -278,46 +291,65 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   unicode-bidi: isolate;
 }
 /* A Session's " (2)": it tells two Sessions to one long-named Host apart, so it's never cut. */
-.sb-tail { flex: none; white-space: pre; color: var(--faint); }
+.sb-tail { flex: none; white-space: pre; color: var(--muted); }
 .sb-row:has(.dot) .sb-name { font-family: var(--font-mono); font-size: var(--text-md); }
-/* An unreviewed Host: faint, and its badge shows only when you look at the row. */
-.sb-row:has(.dot.off):not(.raised):not(.cursor) .sb-label { color: var(--faint); }
-.sb-note { flex: none; font-size: var(--text-xs); color: var(--faint); white-space: nowrap; }
+/* An unreviewed Host: its dashed node says so, and its badge shows only when you look at the row
+   (ticket 27). A Session's note ("ended (code 0)") sits in the name's line and is never cut: the
+   label is. */
+.sb-note { flex: none; margin-left: 8px; font: var(--text-xs) var(--font-ui); color: var(--muted); white-space: nowrap; }
 .sb-detail {
   margin-left: auto; flex: none;
-  color: var(--faint); font: var(--text-xs) var(--font-mono); white-space: nowrap; font-variant-numeric: tabular-nums;
+  color: var(--muted); font: var(--text-xs) var(--font-mono); white-space: nowrap; font-variant-numeric: tabular-nums;
 }
 .sb-detail, .sb-note { line-height: var(--row-h); }
 .sb-num {
   margin-left: auto; padding-left: 8px; flex: none;
-  color: var(--faint); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
+  color: var(--muted); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
 }
 .sb-badge {
-  display: none; margin-left: auto; flex: none; font-size: 10px; line-height: 15px; color: var(--warn);
+  display: none; margin-left: auto; flex: none; font-size: var(--text-xs); line-height: 15px; color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm); padding: 0 4px;
   white-space: nowrap;
 }
-.sb-row:hover .sb-badge, .sb-row.raised .sb-badge, .sb-row.cursor .sb-badge { display: block; }
+.sb-row.raised .sb-badge, .sb-row.cursor .sb-badge { display: block; }
 .sb-badge + .sb-detail { display: none; }
 .sidebar .sb-action {
-  display: none; flex: none; width: 22px; height: 22px; margin-right: 2px; place-items: center; color: var(--faint);
+  display: none; flex: none; width: 22px; height: 22px; margin-right: 2px; place-items: center; color: var(--muted);
 }
 @media (hover: hover) and (pointer: fine) {
   .sidebar .sb-action:hover { color: var(--text); background: var(--hover); }
 }
-.sb-row:hover .sb-action, .sb-row.raised .sb-action, .sb-heading:hover .sb-action { display: grid; }
-.sb-row.has-actions:hover .sb-detail, .sb-row.has-actions.raised .sb-detail,
-.sb-row.has-actions:hover .sb-num, .sb-row.has-actions.raised .sb-num,
-.sb-row.has-actions:hover .sb-badge, .sb-row.has-actions.raised .sb-badge { display: none; }
+.sb-row.raised .sb-action { display: grid; }
+.sb-row.has-actions.raised .sb-detail, .sb-row.has-actions.raised .sb-num, .sb-row.has-actions.raised .sb-badge { display: none; }
+/* Hover shows the same (a real pointer only: a tap mustn't leave them stuck, N8). */
+@media (hover: hover) and (pointer: fine) {
+  .sb-row:hover .sb-badge { display: block; }
+  .sb-row:hover .sb-action, .sb-heading:hover .sb-action { display: grid; }
+  .sb-row.has-actions:hover .sb-detail, .sb-row.has-actions:hover .sb-num, .sb-row.has-actions:hover .sb-badge { display: none; }
+}
 
-/* State dots: filled = key login, hollow = password, faint = ended, faint ring = can't open. */
-.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--accent); }
-.dot.password { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
-.dot.ended { background: var(--faint); }
-.dot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
+/* State nodes (ui/StateDot.tsx, decision Q53): the shape carries the state, colour only adds to
+   it. Filled jade = key login, jade ring = password login, grey ring = ended, dashed grey ring =
+   unreviewed. Grey is `muted`, so a node reads at 3:1 or more on every surface. */
+.dot { flex: none; overflow: visible; }
+.dot circle { fill: var(--accent); stroke: none; }
+.dot.password circle, .dot.ended circle, .dot.off circle { fill: none; stroke-width: 1.5px; }
+.dot.password circle { stroke: var(--accent); }
+.dot.ended circle, .dot.off circle { stroke: var(--muted); }
+/* Four dashes round the 3.25 px circle (2πr ≈ 20.4). */
+.dot.off circle { stroke-dasharray: 2.55 2.55; }
+
+/* App mode: the cursor row whole (M6), its name wrapped, its state and address below. */
+.sb-details {
+  flex: none; padding: 8px 14px; border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--muted);
+}
+.sb-details p { margin: 0; overflow-wrap: anywhere; }
+.sb-details-name { font-size: var(--text-sm); color: var(--text); unicode-bidi: isolate; }
+.sb-details-name.data { font-family: var(--font-mono); }
+.sb-details-facts { margin-top: 2px; }
 
 .sb-foot { display: flex; gap: 2px; padding: 6px; border-top: 1px solid var(--line); }
-.sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--faint); font-size: var(--text-sm); }
+.sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
 @media (hover: hover) and (pointer: fine) {
   .sidebar .sb-foot button:hover { background: var(--hover); color: var(--text); }
 }
@@ -340,7 +372,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .keys-list { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 6px; }
 /* Where the binding comes from: builtin, init.lua or a Plugin. */
 .keys-panel td.keys-source {
-  width: 1%; padding: 6px 14px 6px 10px; font-size: 10.5px; color: var(--faint); white-space: nowrap; text-align: right;
+  width: 1%; padding: 6px 14px 6px 10px; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; text-align: right;
 }
 .keys-panel td.keys-source.config { color: var(--accent-ink); }
 /* A Plugin's name can be long: it gives way to the binding's label, whole in its tooltip. */
@@ -349,10 +381,10 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
    the table past the panel. */
 .keys-panel .keys, .keys-panel .chord { flex-wrap: wrap; justify-content: flex-end; }
 .keys-panel tr.group th {
-  text-align: left; padding: 14px 14px 5px; font-size: var(--text-xs); font-weight: 600; color: var(--faint);
+  text-align: left; padding: 14px 14px 5px; font-size: var(--text-xs); font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-.panel-empty { margin: 0; padding: 12px 14px; color: var(--faint); }
+.panel-empty { margin: 0; padding: 12px 14px; color: var(--muted); }
 
 .check-panel {
   width: var(--keys-width); flex: none; overflow: auto; padding: 10px 14px;
@@ -368,7 +400,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .check-mark { width: 14px; flex: none; text-align: center; font-family: var(--font-mono); }
 .check-step.ok .check-mark { color: var(--accent-ink); }
 .check-step.fail .check-mark { color: var(--error); }
-.check-step.skipped { color: var(--faint); }
+.check-step.skipped { color: var(--muted); }
 .check-name { flex: none; }
 .check-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .check-problem { margin: 8px 0 0 22px; }
@@ -383,7 +415,16 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 /* A fixed line height: a fallback font (Arabic, CJK) mustn't make its row taller than the rest. */
 .cmdline-candidates li { line-height: 20px; padding: 1px 8px; color: var(--muted); border-radius: var(--radius-sm); }
 .cmdline-candidates li.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
-.cmdline-candidates li.more { color: var(--faint); }
+.cmdline-candidates li.more { color: var(--muted); }
+/* A candidate: the command, what it does, its key (S8). */
+.cmdline-candidates li:not(.more) { display: flex; align-items: center; gap: 12px; }
+.cmd-id { flex: none; min-width: 12ch; white-space: pre; }
+.cmd-label {
+  flex: 1 1 auto; min-width: 0; color: var(--muted); font: var(--text-sm) var(--font-ui);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmdline-candidates li.selected .cmd-label { color: var(--text); }
+.cmd-keys { margin-left: auto; flex: none; }
 .cmdline-input { display: flex; align-items: center; gap: 4px; padding: 5px 12px; color: var(--accent-ink); }
 .cmdline-input input { flex: 1; height: auto; padding: 0; border: 0; background: transparent; color: var(--text); }
 .cmdline-input input:focus-visible { box-shadow: none; }
@@ -409,24 +450,27 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
 .picker-row {
   display: grid; grid-template-columns: minmax(0, 2fr) 9.5em minmax(0, 1fr) minmax(0, 6em) 6.5em;
-  gap: 12px; align-items: center; height: 34px; padding: 0 10px; border-radius: var(--radius); color: var(--muted);
+  gap: 12px; align-items: center; min-height: 34px; padding: 8px 10px; border-radius: var(--radius); color: var(--muted);
 }
 .picker-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-row.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+/* The selected row shows its whole name, wrapped (M6): two long Hosts that differ at the end can
+   be told apart from the keyboard. */
+.picker-row.selected > .host-name { white-space: normal; overflow-wrap: anywhere; }
 .picker-row .host-name { font-family: var(--font-mono); color: var(--text); unicode-bidi: isolate; }
-.picker-row .host-ip { font: var(--text-sm) var(--font-mono); color: var(--faint); font-variant-numeric: tabular-nums; }
-.picker-row .host-group, .picker-row .host-type { font-size: var(--text-sm); color: var(--faint); }
+.picker-row .host-ip { font: var(--text-sm) var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.picker-row .host-group, .picker-row .host-type { font-size: var(--text-sm); color: var(--muted); }
 .picker-row.unreviewed { cursor: not-allowed; }
-.picker-row.unreviewed .host-name { color: var(--faint); }
+.picker-row.unreviewed .host-name { color: var(--muted); }
 .picker-row > .badge { justify-self: end; overflow: visible; }
 .badge {
-  font-size: 10px; line-height: 15px; color: var(--warn);
+  font-size: var(--text-xs); line-height: 15px; color: var(--warn);
   border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm); padding: 0 5px;
 }
-.picker-empty { margin: 0; padding: 18px 16px; color: var(--faint); }
+.picker-empty { margin: 0; padding: 18px 16px; color: var(--muted); }
 .picker-footer {
   display: flex; align-items: center; gap: 14px; padding: 0 14px; height: 34px; flex: none;
-  border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--faint);
+  border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--muted);
 }
 .picker-footer [role="status"] {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--warn);
@@ -448,7 +492,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .lock-panel p { margin: 0; }
 .lock-form { display: flex; flex-direction: column; gap: 8px; }
 .lock-form > p { color: var(--muted); margin-bottom: 6px; }
-.lock-form label { color: var(--faint); font-size: var(--text-xs); font-weight: 500; }
+.lock-form label { color: var(--muted); font-size: var(--text-xs); font-weight: 500; }
 .lock-row { display: flex; gap: 8px; }
 .lock-row input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; }
 .lock-row input[aria-invalid] { border-color: var(--error); }
@@ -457,7 +501,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .lock-problem { color: var(--warn); }
 .lock-problem code, .lock-error code { color: var(--text); }
 .lock-panel > button { align-self: flex-start; }
-.lock-panel .lock-hint { margin-top: 8px; font-size: var(--text-xs); color: var(--faint); line-height: 1.8; }
+.lock-panel .lock-hint { margin-top: 8px; font-size: var(--text-xs); color: var(--muted); line-height: 1.8; }
 
 /* ---------- Sessions: the tab strip option, panes, terminals ---------- */
 
@@ -474,7 +518,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   font-weight: 400; color: inherit;
 }
 .tab button:active { transform: none; }
-.tab .tab-close { padding: 0 10px 0 6px; color: var(--faint); }
+.tab .tab-close { padding: 0 10px 0 6px; color: var(--muted); }
 @media (hover: hover) and (pointer: fine) {
   .tab:not(.selected):hover { background: var(--hover); }
   .tab .tab-close:hover { color: var(--text); background: transparent; }
@@ -488,17 +532,21 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   background: var(--accent);
 }
 .st.pw { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
-.st.ended { background: var(--faint); }
-.st.pw.ended { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
-.st.pending { background: transparent; box-shadow: inset 0 0 0 1.5px var(--faint); }
-.tab-status { font-size: var(--text-xs); color: var(--faint); }
+.st.ended, .st.pw.ended { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.st.pending { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.tab-status { font-size: var(--text-xs); color: var(--muted); }
 .tab.failed .tab-status { color: var(--error); }
 
 .panes { flex: 1; position: relative; min-height: 0; }
 .pane { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .pane[hidden] { display: none; }
 .term-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--bg); }
-.term-host { flex: 1; min-height: 0; padding: 8px 0 0 12px; }
+/* The padding goes on xterm's own element, which FitAddon takes off before counting columns: on
+   .term-host it was counted as room, so the last column ran flush to the edge (N5). */
+.term-host { flex: 1; min-height: 0; }
+.term-host > .xterm { height: 100%; padding: 8px 12px 0; }
+/* xterm's viewport is black by default and now spans the padding: let the pane's colour show. */
+.term-host .xterm .xterm-viewport { background-color: transparent; }
 
 /* Find in the scrollback. It opens from a key: no motion. */
 .term-search {
@@ -512,7 +560,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   background: transparent; border-color: transparent; color: var(--muted);
 }
 .term-search-count {
-  font-size: var(--text-xs); color: var(--faint); min-width: 72px; text-align: right; padding-right: 6px;
+  font-size: var(--text-xs); color: var(--muted); min-width: 72px; text-align: right; padding-right: 6px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -550,7 +598,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .problem h2 { overflow-wrap: anywhere; }
 .problem-message { margin: 0 0 12px; color: var(--text); }
 .problem-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
-.problem-facts dt { color: var(--faint); }
+.problem-facts dt { color: var(--muted); }
 .problem-facts dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .problem-facts dd code { display: block; color: var(--text); }
 .problem code { font-size: var(--text-sm); }
@@ -558,7 +606,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .problem-extra p { margin: 6px 0 0; }
 .problem-extra ul { margin: 4px 0 0; padding-left: 18px; }
 .problem-matches { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
-.problem-matches th { text-align: left; color: var(--faint); font-weight: 500; }
+.problem-matches th { text-align: left; color: var(--muted); font-weight: 500; }
 .problem-matches th, .problem-matches td { padding: 4px 8px 4px 0; border-top: 1px solid var(--line); }
 .problem-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
 .problem-actions button, .problem-copy button { height: 26px; padding: 0 10px; font-size: var(--text-sm); }
@@ -567,9 +615,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 2px 2px 2px 10px;
 }
 .problem-copy code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.problem-details summary { cursor: default; color: var(--faint); font-size: var(--text-sm); width: max-content; }
+.problem-details summary { cursor: default; color: var(--muted); font-size: var(--text-sm); width: max-content; }
 @media (hover: hover) and (pointer: fine) {
-  .problem-details summary:hover { color: var(--muted); }
+  .problem-details summary:hover { color: var(--text); }
 }
 .problem-details pre {
   margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
@@ -591,10 +639,21 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
 
+/* Too narrow for the Sidebar, a side panel and a usable terminal (1040 = 248 + 320 + 472, about
+   64 columns): the panels float over the terminal, as in Focus, instead of squeezing it (M5).
+   They open from a key, so they don't animate. */
+@media (max-width: 1040px) {
+  .keys-panel, .check-panel {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
+    border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+  }
+}
+
 /* The hint on entering a mode: it comes on its own and leaves on its own (2 s), so it eases in
    and fades out; under reduced motion it only fades. */
+/* At the top centre, clear of a side panel's heading (N4). */
 .mode-hint {
-  position: fixed; top: 12px; right: 14px; z-index: 20; display: flex; gap: 6px; align-items: center;
+  position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; width: max-content; z-index: 20; display: flex; gap: 6px; align-items: center;
   padding: 5px 10px; border-radius: var(--radius-lg); font-size: var(--text-sm); color: var(--muted); pointer-events: none;
   background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line-strong);
   box-shadow: 0 8px 24px var(--shadow);
@@ -610,7 +669,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 /* The session bar: tmux's status line, drawn with the app's tokens. */
 .sessionbar {
   display: flex; align-items: center; gap: 4px; height: var(--statusbar-h); padding: 0 8px; flex: none;
-  font: var(--text-sm) var(--font-mono); color: var(--faint); background: var(--chrome); white-space: nowrap; overflow: hidden;
+  font: var(--text-sm) var(--font-mono); color: var(--muted); background: var(--chrome); white-space: nowrap; overflow: hidden;
 }
 .piece[data-place="bottom"] .sessionbar { border-top: 1px solid var(--line); }
 .piece[data-place="top"] .sessionbar { border-bottom: 1px solid var(--line); }
@@ -635,7 +694,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 /* The current Session: the raised style, as everywhere else (decision Q31). */
 .sessionbar .sessionbar-tab.current { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--raised-line); }
 .sessionbar-info {
-  flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--faint);
+  flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -647,19 +706,22 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .finder-query input { flex: 1; min-width: 0; height: auto; padding: 0; font: inherit; border: 0; background: transparent; }
 .finder-query input:focus-visible { box-shadow: none; }
 .finder-prompt { color: var(--accent-ink); font-size: var(--text-md); }
-.finder-count { color: var(--faint); font: var(--text-xs) var(--font-ui); font-variant-numeric: tabular-nums; }
+.finder-count { color: var(--muted); font: var(--text-xs) var(--font-ui); font-variant-numeric: tabular-nums; }
 .finder-row {
-  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius);
+  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 7px 10px; border-radius: var(--radius);
   font: var(--text-md) var(--font-mono); color: var(--muted);
 }
 .finder-row.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
-.finder-row.unreviewed { cursor: not-allowed; color: var(--faint); }
+.finder-row.selected .finder-label, .finder-row.selected .finder-path { white-space: normal; }
+.finder-row.selected .finder-name, .finder-row.selected .finder-path { overflow-wrap: anywhere; }
+.finder-row.unreviewed { cursor: not-allowed; color: var(--muted); }
 .finder-label { flex: 0 1 auto; min-width: 0; display: flex; white-space: nowrap; }
 .finder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; unicode-bidi: isolate; }
 /* The session bar's `*` and `-`: kept in view when the name is cut. */
 .finder-mark { flex: none; color: var(--accent-ink); }
-.finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--faint); }
-.finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--faint); }
+.finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
+.finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); }
+.finder-legend { font-family: var(--font-mono); white-space: nowrap; }
 
 /* ---------- The Config's problems (ticket 21) ---------- */
 
@@ -678,7 +740,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: var(--radius-sm);
   color: var(--muted); background: transparent; cursor: pointer;
 }
-.config-toast-close:hover { background: var(--hover); color: var(--text); }
+@media (hover: hover) and (pointer: fine) {
+  .config-toast-close:hover { background: var(--hover); color: var(--text); }
+}
 .config-toast-lines {
   margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--font-mono); color: var(--muted);
   overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto;

@@ -129,14 +129,17 @@ describe("signing in from the lock screen", () => {
     const problem = await alert();
     expect(problem).toHaveTextContent(/FIDO2 security keys and Duo aren't supported by the CLI/i);
     expect(problem).toHaveTextContent(/sign in with an API key instead/i);
-    expect(within(problem).getByText(/where/i).nextSibling).toHaveTextContent(/the vault/i);
+    // No Where on the lock screen: the problem is the form you're looking at (ticket 29 S10).
+    expect(within(problem).queryByText(/^where$/i)).toBeNull();
   });
 
   it("shows a refusal from the server with the catalog's fix", async () => {
     const { user } = await start(fixtures["sign-in-rate-limited"]);
     await throughPassword(user);
     expect(await alert()).toHaveTextContent(/too many sign-in attempts/i);
-    expect(await alert()).toHaveTextContent(/wait a few minutes before trying again/i);
+    // roster's message already says to wait, so the Fix isn't repeated (ticket 29 S10).
+    expect(await alert()).toHaveTextContent(/wait a few minutes/i);
+    expect(within(await alert()).queryByText("Fix")).toBeNull();
   });
 
   it("refuses a self-hosted address that isn't one, back on the server choice", async () => {
@@ -177,7 +180,7 @@ describe("signing in from the lock screen", () => {
     const { user } = await start({ ...(fixtures["sign-in-sso"] as FakeScenario), signIn: { sso: "ok", ssoMs: 50 } });
     await user.click(within(dialog()).getByRole("button", { name: /use sso/i }));
     await user.type(field(/organization identifier/i), "yourorg{Enter}");
-    expect(await within(dialog()).findByText(/finish signing in in your browser/i)).toBeInTheDocument();
+    expect(await within(dialog()).findByText(/finish signing in with your browser/i)).toBeInTheDocument();
     expect(within(dialog()).getByText(/^https:\/\/vault\.bitwarden\.com\/#\/sso\?/)).toBeInTheDocument();
     const pw = await within(dialog()).findByLabelText<HTMLInputElement>(/master password/i);
     await user.type(pw, `${FAKE_PASSWORD}{Enter}`);

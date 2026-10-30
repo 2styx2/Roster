@@ -100,7 +100,7 @@ describe("the Session's error panel", () => {
     });
     await command(user, `connect ${keyHost}`);
     const panel = await problem();
-    expect(within(panel).getByText("roster sync", { selector: "code" })).toBeInTheDocument();
+    expect(within(panel).getAllByText("roster sync", { selector: "code" }).length).toBeGreaterThan(0);
     await user.click(within(panel).getByRole("button", { name: "Copy" }));
     expect(platform.clipboardText()).toBe("roster sync");
   });

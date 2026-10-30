@@ -32,6 +32,8 @@ export interface ErrorRow extends Entry {
   fix(p: Problem): string;
   actions: readonly ErrorAction[];
   extras?: readonly ErrorExtra[];
+  /** roster's message already says what to do: the lock screen leaves the Fix out. */
+  fixInMessage?: boolean;
 }
 
 const retry: ErrorAction = { kind: "run", label: "Retry", line: () => "reconnect" };
@@ -271,6 +273,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     codes: [52],
     where: ["the vault"],
     fix: () => "Wait a few minutes before trying again.",
+    fixInMessage: true,
     actions: [],
   }),
   row("sign-in-server-unreachable", {

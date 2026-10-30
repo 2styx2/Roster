@@ -46,9 +46,9 @@ async function connect(user: ReturnType<typeof userEvent.setup>, name: string) {
 }
 
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
-const sessionList = () => screen.getByRole("region", { name: "Sessions" });
-const row = (name: string) => within(sessionList()).getByRole("button", { name: new RegExp(`^${name}`) });
-const current = () => within(sessionList()).getByRole("button", { current: true });
+const sessionList = () => screen.getByRole("group", { name: "Sessions" });
+const row = (name: string) => within(sessionList()).getByRole("treeitem", { name: new RegExp(`^${name}`) });
+const current = () => within(sessionList()).getByRole("treeitem", { current: true });
 const appMode = () => screen.queryByText("APP") !== null;
 
 describe("Terminal mode and App mode", () => {
@@ -93,7 +93,7 @@ describe("The Sidebar", () => {
     expect(within(sessionList()).getByText(/No Sessions open/)).toBeInTheDocument();
     await connect(user, h0);
     await connect(user, h1);
-    expect(within(sessionList()).getAllByRole("button", { name: /^(?!Close|Sessions$)/ })).toHaveLength(2);
+    expect(within(sessionList()).getAllByRole("treeitem", { name: /^(?!Sessions$)/ })).toHaveLength(2);
     expect(current()).toHaveAccessibleName(new RegExp(`^${h1}`));
     expect(screen.queryByRole("tablist")).toBeNull();
   });
@@ -133,7 +133,7 @@ describe("The Sidebar", () => {
     await connect(user, h0);
     await connect(user, h1);
     await user.keyboard(`${LEADER}dd`);
-    expect(within(sessionList()).queryByRole("button", { name: new RegExp(`^${h1}`) })).toBeNull();
+    expect(within(sessionList()).queryByRole("treeitem", { name: new RegExp(`^${h1}`) })).toBeNull();
     expect(current()).toHaveAccessibleName(new RegExp(`^${h0}`));
     expect(document.activeElement).toHaveAccessibleName("terminal input");
   });
@@ -172,7 +172,7 @@ describe("The Sidebar", () => {
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
     await user.keyboard(`${LEADER}1`);
     expect(screen.getAllByRole("tab")[0]).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByRole("region", { name: "Sessions" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Sessions" })).toBeNull();
   });
 });
 
@@ -221,8 +221,15 @@ describe("The command line", () => {
   it("shows the candidates and cycles through them with Tab", async () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:c`);
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["check", "choose", "close", "cmdline", "connect "]);
-    await user.keyboard("{Tab}{Tab}{Tab}{Tab}{Tab}");
+    // List motions (choose) come last (ticket 29 S8).
+    expect(screen.getAllByRole("option").map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual([
+      "check",
+      "close",
+      "cmdline",
+      "connect ",
+      "choose",
+    ]);
+    await user.keyboard("{Tab}{Tab}{Tab}{Tab}");
     expect(cmdline()).toHaveValue("connect ");
   });
 
@@ -284,10 +291,11 @@ describe("The Key bindings panel", () => {
     await user.keyboard(`${LEADER}?`);
     const next = rowOf("Next Session");
     expect(next.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/Next Session.*␣.*\].*builtin/),
-      expect.stringMatching(/Next Session.*␣.*t.*init\.lua/),
+      expect.stringMatching(/Next Session.*Leader.*\]$/),
+      expect.stringMatching(/Next Session.*Leader.*t.*init\.lua/),
     ]);
-    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space.*builtin/);
+    // A built-in binding doesn't say "builtin" (ticket 29 N1); only another source is named.
+    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space$/);
     expect(within(panel()).getByRole("searchbox", { name: /filter/i })).toHaveFocus();
     await user.keyboard("close the s");
     const shown = within(panel()).getAllByRole("row").filter((r) => !r.classList.contains("group"));
@@ -323,8 +331,8 @@ describe("Registries (ADR 0004)", () => {
     });
     render(<App backend={fakeBackend({ hosts })} terminalView={StubTerminal} registries={registries} />);
     await unlock(user);
-    const pinned = await screen.findByRole("region", { name: "Pinned" });
-    await user.click(within(pinned).getByRole("button", { name: h2 }));
+    const pinned = await screen.findByRole("group", { name: "Pinned" });
+    await user.click(within(pinned).getByRole("treeitem", { name: h2 }));
     expect(await within(output()).findByText(new RegExp(`Connected to ${h2}`))).toBeInTheDocument();
   });
 
@@ -344,10 +352,10 @@ describe("Registries (ADR 0004)", () => {
     await user.keyboard(`${LEADER}h`);
     expect(await within(output()).findByText(new RegExp(`Connected to ${h0}`))).toBeInTheDocument();
     await user.keyboard(`${LEADER}:home{Enter}`);
-    expect(within(sessionList()).getAllByRole("button", { name: new RegExp(`^${h0}`) })).toHaveLength(2);
+    expect(within(sessionList()).getAllByRole("treeitem", { name: new RegExp(`^${h0}`) })).toHaveLength(2);
     await user.keyboard(`${LEADER}?`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
-    expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/␣\s*h.*init\.lua/);
+    expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/Leader\s*h.*init\.lua/);
   });
 });
 

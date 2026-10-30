@@ -9,7 +9,7 @@ export function formatCount(n: number): string {
   return Number.isFinite(n) ? numbers.format(n) : "?";
 }
 
-/** A count and its noun: (1, "host") → "1 host"; (1284, "host") → "1,284 hosts". `many` is the
+/** A count and its noun: (1, "Host") → "1 Host"; (1284, "Host") → "1,284 Hosts". `many` is the
  * plural when it isn't `one` + "s". */
 export function countOf(n: number, one: string, many = `${one}s`): string {
   return `${formatCount(n)} ${plurals.select(n) === "one" ? one : many}`;

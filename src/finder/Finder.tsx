@@ -8,10 +8,12 @@ import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
 import { formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
+import { StateDot } from "../ui/StateDot";
 
 /** Rows actually rendered; the rest are counted. */
 const MAX_ROWS = 200;
 
+// The session bar's tmux marks (decision Q36), with their words for assistive tech and a legend.
 const MARKS = { current: "*", previous: "-" } as const;
 
 export interface FinderProps {
@@ -125,12 +127,19 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
               onMouseMove={() => i !== current && setMoved(i)}
               onClick={() => choose(item)}
             >
-              {item.dot && <span className={`dot ${item.dot}`} aria-hidden="true" />}
+              {item.dot && <StateDot dot={item.dot} />}
               <span className="finder-label" title={item.label}>
                 <span className="finder-name" dir="auto">
                   {item.label}
                 </span>
-                {item.mark && <span className="finder-mark">{MARKS[item.mark]}</span>}
+                {item.mark && (
+                  <>
+                    <span className="finder-mark" aria-hidden="true">
+                      {MARKS[item.mark]}
+                    </span>
+                    <span className="visually-hidden">, {item.mark}</span>
+                  </>
+                )}
               </span>
               {item.path && (
                 <span className="finder-path" title={item.path}>
@@ -146,6 +155,11 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
           <span role="status" title={notice || source.note?.() || undefined}>
             {notice || source.note?.()}
           </span>
+          {shown.some((i) => i.mark) && (
+            <span className="finder-legend" aria-hidden="true">
+              * current · - previous
+            </span>
+          )}
           <span className="picker-hint">
             <Keys keys="Enter" /> choose
           </span>

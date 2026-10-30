@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { fixFor, sentence, type ErrorAction, type ErrorExtra, type ErrorRow, rowFor } from "./catalog";
 import type { Problem, ProblemData } from "./classify";
+import { withCode } from "../lock/withCode";
 
 export interface ProblemActions {
   /** Runs a command line (`reconnect`, `check HOST`, `lock`, `find`). */
@@ -14,7 +15,8 @@ export interface ProblemActions {
   copy(text: string): Promise<void>;
 }
 
-function CopyCommand({ text, copy }: { text: string; copy: ProblemActions["copy"] }) {
+/** A command to run, with a Copy button. */
+export function CopyCommand({ text, copy }: { text: string; copy: ProblemActions["copy"] }) {
   const [copied, setCopied] = useState(false);
   return (
     <span className="problem-copy">
@@ -138,12 +140,12 @@ export function ProblemBody({ problem, rows, actions, noActions, notInTab }: Pro
   const data = problem.data ?? {};
   return (
     <>
-      <p className="problem-message">{sentence(problem.message, problem.host)}</p>
+      <p className="problem-message">{withCode(sentence(problem.message, problem.host))}</p>
       <dl className="problem-facts">
         <dt>{WHERE_LABEL}</dt>
         <dd>{row.where.join(", ")}</dd>
         <dt>Fix</dt>
-        <dd>{fixFor(row, problem)}</dd>
+        <dd>{withCode(fixFor(row, problem))}</dd>
       </dl>
       {row.extras?.map((x) => (
         <div key={x}>{extras[x](data)}</div>

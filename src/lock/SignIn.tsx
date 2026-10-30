@@ -21,6 +21,7 @@ import { builtinErrorRows, fixFor, problemFromCallError, rowFor, sentence, type 
 import type { Problem } from "../errors/classify";
 import type { Vault } from "./useVault";
 import { withCode } from "./withCode";
+import { Keys } from "../ui/Keys";
 import "./signin.css";
 
 type Way = SignInStart["method"];
@@ -214,6 +215,7 @@ export function SignIn({
     const { step, via } = screen;
     void run(() => vault.signInAnswer(step.login, { method: m.index }), via);
   };
+  const ssoWait = screen.kind === "step" && screen.step.step === "sso";
 
   return (
     <form ref={form} className="lock-form signin" onSubmit={next} onKeyDown={onKeyDown} aria-busy={busy || undefined}>
@@ -236,10 +238,22 @@ export function SignIn({
         failed={failed}
         advanced={advanced}
         copy={copy}
+        invalid={problem !== null}
       />
       {problem && <SignInProblem problem={problem} rows={errorRows} />}
+      {/* Enter does nothing while waiting on the browser for SSO, so it isn't offered there. */}
       <p className="signin-keys muted">
-        <kbd>Enter</kbd> continues{screen.kind !== "server" && <> · <kbd>Esc</kbd> goes back</>}
+        {!ssoWait && (
+          <>
+            <Keys keys="Enter" /> continues
+          </>
+        )}
+        {!ssoWait && screen.kind !== "server" && " · "}
+        {screen.kind !== "server" && (
+          <>
+            <Keys keys="Escape" /> goes back
+          </>
+        )}
       </p>
     </form>
   );
@@ -261,7 +275,12 @@ interface BodyProps {
   failed(e: unknown, via: Way): void;
   advanced(step: SignInStep, via: Way): void;
   copy?: ((text: string) => Promise<void>) | undefined;
+  /** Bitwarden refused what was typed: the field says so (aria-invalid), described by the error. */
+  invalid: boolean;
 }
+
+/** A field's attributes while the sign-in shows an error, and none without one. */
+const refused = (invalid: boolean) => (invalid ? { "aria-invalid": true, "aria-describedby": "signin-error" } : {});
 
 function Submit({ busy, label = "Continue" }: { busy: boolean; label?: string }) {
   return (
@@ -272,12 +291,13 @@ function Submit({ busy, label = "Continue" }: { busy: boolean; label?: string })
 }
 
 /** A secret field: uncontrolled (never in React state), emptied after every call. */
-function Secret({ name, label, autoComplete = "off", inputMode, busy }: {
+function Secret({ name, label, autoComplete = "off", inputMode, busy, invalid }: {
   name: string;
   label: string;
   autoComplete?: string;
   inputMode?: "numeric" | "text";
   busy: boolean;
+  invalid: boolean;
 }) {
   const id = `signin-${name}`;
   return (
@@ -294,7 +314,7 @@ function Secret({ name, label, autoComplete = "off", inputMode, busy }: {
           readOnly={busy}
           data-secret
           data-autofocus
-          aria-describedby="signin-error"
+          {...refused(invalid)}
         />
         <Submit busy={busy} />
       </div>
@@ -368,6 +388,7 @@ function Body(p: BodyProps) {
               value={p.email}
               onChange={(e) => p.setEmail(e.target.value)}
               data-autofocus
+              {...refused(p.invalid)}
             />
             <Submit busy={busy} />
           </div>
@@ -377,7 +398,7 @@ function Body(p: BodyProps) {
       return (
         <>
           <p className="muted">{p.email}</p>
-          <Secret name="password" label="Master password" busy={busy} />
+          <Secret name="password" label="Master password" busy={busy} invalid={p.invalid} />
         </>
       );
     case "apikey":
@@ -389,7 +410,7 @@ function Body(p: BodyProps) {
           </p>
           <label htmlFor="signin-client_id">client_id</label>
           <input id="signin-client_id" name="client_id" spellCheck={false} autoComplete="off" data-secret data-autofocus />
-          <Secret name="client_secret" label="client_secret" busy={busy} />
+          <Secret name="client_secret" label="client_secret" busy={busy} invalid={p.invalid} />
         </>
       );
     case "sso":
@@ -423,6 +444,7 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
             autoComplete="one-time-code"
             inputMode={step.method?.kind === "yubikey" ? "text" : "numeric"}
             busy={busy}
+            invalid={p.invalid}
           />
         </>
       );
@@ -433,7 +455,14 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
             Bitwarden emailed a code to {step.email ?? (p.email || "your account's email")} because this Box hasn't signed in
             before.
           </p>
-          <Secret name="code" label="New-device code" autoComplete="one-time-code" inputMode="numeric" busy={busy} />
+          <Secret
+            name="code"
+            label="New-device code"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            busy={busy}
+            invalid={p.invalid}
+          />
         </>
       );
     case "sso":
@@ -442,7 +471,7 @@ function Step(p: BodyProps & { step: Asked; via: Way }) {
       return (
         <>
           <p>Signed in. Now unlock the vault with your master password.</p>
-          <Secret name="password" label="Master password" busy={busy} />
+          <Secret name="password" label="Master password" busy={busy} invalid={p.invalid} />
         </>
       );
   }
@@ -476,7 +505,7 @@ function MethodPicker({ methods, busy, pick }: { methods: TwoFactorMethod[]; bus
             onClick={() => pick(m)}
             {...(i === 0 ? { "data-autofocus": true } : {})}
           >
-            <kbd>{i + 1}</kbd> {m.name}
+            <Keys keys={String(i + 1)} /> {m.name}
           </button>
         ))}
       </div>
@@ -522,7 +551,7 @@ function SsoWait({
   }, [login, vault, failed, advanced, via]);
   return (
     <div>
-      <p aria-live="polite">Finish signing in in your browser. roster opened the page on this Box; if it didn't, open this link:</p>
+      <p aria-live="polite">Finish signing in with your browser. roster opened the page on this Box; if it didn't, open this link:</p>
       <p className="signin-link">
         <code>{step.url}</code>
       </p>
@@ -531,7 +560,10 @@ function SsoWait({
           {copied ? "Copied" : "Copy link"}
         </button>
       )}
-      <p className="muted">Waiting for the browser… (up to {Math.round(step.expires_in / 60)} minutes)</p>
+      <p className="muted signin-waiting">
+        <span className="signin-waiting-node" aria-hidden="true" />
+        Waiting for the browser… (up to {Math.round(step.expires_in / 60)} minutes)
+      </p>
     </div>
   );
 }
@@ -539,15 +571,17 @@ function SsoWait({
 function SignInProblem({ problem, rows }: { problem: Problem; rows: readonly ErrorRow[] }) {
   const row = rowFor(rows, problem.code);
   const wrong = problem.code === VaultError.wrongPassword;
+  // No Where: on the lock screen, the problem is the form you're looking at (ticket 29 S10). The
+  // Fix only when it adds to the message.
   return (
     <div id="signin-error" role="alert" className="signin-problem">
       <p className="lock-error">{withCode(sentence(problem.message))}</p>
-      <dl className="signin-facts">
-        <dt>Where</dt>
-        <dd>{row.where.join(", ")}</dd>
-        <dt>Fix</dt>
-        <dd>{withCode(fixFor(row, problem))}</dd>
-      </dl>
+      {!row.fixInMessage && (
+        <dl className="signin-facts">
+          <dt>Fix</dt>
+          <dd>{withCode(fixFor(row, problem))}</dd>
+        </dl>
+      )}
       {!wrong && problem.details && (
         <details>
           <summary>Details</summary>

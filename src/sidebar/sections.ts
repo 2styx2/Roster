@@ -39,7 +39,7 @@ export function buildSections(defs: readonly SidebarSectionDef[], ctx: SidebarCo
     .filter((s): s is SidebarSection => s !== null)
     .map((s) => foldSection(s, ctx.folded));
   const active = ctx.sessions.tabs.find((t) => t.id === ctx.sessions.active);
-  return active ? markOnScreen(sections, active.host) : sections;
+  return active ? markOnScreen(sections, active.host, isLive(active)) : sections;
 }
 
 /** Folds a section: drops the rows under a folded row, and gives each row its parent. */
@@ -62,9 +62,13 @@ function foldSection(section: SidebarSection, folded: ReadonlySet<string>): Side
   return { ...section, rows, folded: folded.has(heading) };
 }
 
+/** A Session that's connected or connecting: not ended, not refused. */
+const isLive = (tab: Tab) => tab.status.state !== "ended" && tab.status.state !== "failed";
+
 /** The on-screen Host is raised where it first shows (a section may have raised its own row
- * already: Sessions raises the tab on screen) and brighter ("also") everywhere else. */
-function markOnScreen(sections: SidebarSection[], host: string): SidebarSection[] {
+ * already: Sessions raises the tab on screen) and brighter ("also") everywhere else. The raised
+ * row is `live` while its Session is (the accent bar, decision Q53). */
+function markOnScreen(sections: SidebarSection[], host: string, live: boolean): SidebarSection[] {
   let seen = sections.some((s) => !s.folded && s.rows.some((r) => r.raised));
   return sections.map((s) =>
     s.folded
@@ -75,7 +79,7 @@ function markOnScreen(sections: SidebarSection[], host: string): SidebarSection[
             if (r.host !== host || r.raised) return r;
             if (seen) return { ...r, also: true };
             seen = true;
-            return { ...r, raised: true };
+            return { ...r, raised: true, ...(live ? { live } : {}) };
           }),
         },
   );
@@ -111,6 +115,7 @@ export const sessionsSection: SidebarSectionDef = {
             ...(statusText(tab) ? { note: statusText(tab) } : {}),
             ...(tab.auth ? { title: `${tab.auth} login` } : {}),
             raised: tab.id === sessions.active,
+            ...(tab.id === sessions.active && isLive(tab) ? { live: true } : {}),
             command: `session ${i + 1}`,
             actions: [{ label: `Close ${tab.label}`, icon: "close", command: `close ${i + 1}` }],
           })),
@@ -159,7 +164,7 @@ export const inventorySection: SidebarSectionDef = {
     id: "inventory",
     title: "Inventory",
     count: hosts.hosts.length,
-    empty: "No Hosts in the Inventory.",
+    empty: "No Hosts yet. Add them in roster.yml.",
     rows: groupsOf(hosts).flatMap(([group, members]) => [
       {
         id: `group:${group}`,

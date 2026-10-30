@@ -107,7 +107,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
           aria-controls={listId}
           aria-activedescendant={activeId}
           aria-autocomplete="list"
-          placeholder="Find a host: name, address, type, product, group…"
+          placeholder="Find a Host: name, address, type, product, group…"
           autoFocus
           spellCheck={false}
           autoComplete="off"
@@ -158,15 +158,21 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
             </li>
           ))}
         </ul>
-        {shown.length === 0 && <p className="picker-empty">No hosts match “{query}”.</p>}
+        {shown.length === 0 && (
+          <p className="picker-empty">
+            {query.trim() === "" && hosts.hosts.length === 0
+              ? "The Inventory has no Hosts yet. Add them to roster.yml and they show up here."
+              : `No Hosts match “${query}”.`}
+          </p>
+        )}
         <div className="picker-footer">
           <span role="status" title={notice || undefined}>
             {notice}
           </span>
           <span className="picker-count">
             {results.length > shown.length
-              ? `${formatCount(shown.length)} of ${countOf(results.length, "host")}`
-              : countOf(results.length, "host")}
+              ? `${formatCount(shown.length)} of ${countOf(results.length, "Host")}`
+              : countOf(results.length, "Host")}
           </span>
           {hints.map(
             ([keys, what]) =>

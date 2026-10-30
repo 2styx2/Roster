@@ -42,7 +42,7 @@ export function SessionBar({ box, snapshot, hostByName, run }: SessionBarProps) 
               tabIndex={-1}
               className={`sessionbar-tab${mark === "*" ? " current" : ""}`}
               aria-current={mark === "*" || undefined}
-              aria-label={`${i + 1}:${tab.label}${mark}`}
+              aria-label={`${i + 1}:${tab.label}${mark === "*" ? ", current" : mark === "-" ? ", previous" : ""}`}
               title={tab.label}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(`session ${i + 1}`)}

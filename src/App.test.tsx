@@ -71,8 +71,8 @@ describe("App", () => {
     const target = screen.getAllByRole("option")[5]!.dataset.host!;
     await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
     expect(pickerOpen()).toBe(false);
-    const sessions = screen.getByRole("region", { name: "Sessions" });
-    expect(within(sessions).getByRole("button", { current: true })).toHaveAccessibleName(new RegExp(`^${target}`));
+    const sessions = screen.getByRole("group", { name: "Sessions" });
+    expect(within(sessions).getByRole("treeitem", { current: true })).toHaveAccessibleName(new RegExp(`^${target}`));
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(target);
   });
@@ -80,7 +80,7 @@ describe("App", () => {
   it("explains a roster that's too old and how to fix it", async () => {
     render(<App backend={fakeBackend(fixtures["roster-too-old"]!)} />);
     expect(await screen.findByRole("heading", { name: /roster is too old/i })).toBeInTheDocument();
-    expect(screen.getByText(/has no `serve` command/)).toBeInTheDocument();
+    expect(screen.getByText("serve", { selector: "code" }).parentElement).toHaveTextContent(/has no serve command/);
     expect(screen.getByText(/ROSTER_DESK_ROSTER/)).toBeInTheDocument();
     expect(screen.getByText(/invalid choice: 'serve'/)).toBeInTheDocument();
   });
