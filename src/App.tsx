@@ -109,6 +109,9 @@ export interface AppProps {
   /** The per-mode layout table (decision Q39); the defaults from the options unless ticket 21's
    * Config passes its own. */
   layouts?: Layouts;
+  /** Hosts to open Sessions to once the Backend is up, in order (a fixture's open Sessions: the
+   * dev page's `?fixture=worst-case`, and the UI tests), once the app is first unlocked. */
+  openAtStart?: readonly string[];
 }
 
 export function App({
@@ -121,6 +124,7 @@ export function App({
   platform: platformProp,
   appearance = defaultAppearance,
   layouts: layoutsProp,
+  openAtStart,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
@@ -302,6 +306,15 @@ export function App({
       mainRef.current?.focus();
     }
   }, [noSessions]);
+
+  // A fixture's Sessions open once the app is first unlocked, as if the user had opened them.
+  const opened = useRef(false);
+  const unlockedOnce = conn.state === "ready" && !vault.locked;
+  useEffect(() => {
+    if (!unlockedOnce || opened.current || !openAtStart) return;
+    opened.current = true;
+    for (const host of openAtStart) tabs.open(host);
+  }, [unlockedOnce, openAtStart, tabs]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);

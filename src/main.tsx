@@ -1,7 +1,8 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { createBackend } from "./backend";
+import { fixtureProps } from "./backend/fixtureProps";
 import { createPlatform } from "./platform";
 import { defaultAppearance } from "./theme/theme";
 // The fonts ship in the bundle (the CSP allows no network fonts): Inter for the UI, Iosevka for
@@ -24,11 +25,20 @@ function fontsLoaded(): Promise<unknown> {
 // Until the Config (ticket 21) picks a Theme: `?theme=nord` in a plain browser, for trying them.
 const appearance = { ...defaultAppearance, theme: new URLSearchParams(location.search).get("theme") ?? defaultAppearance.theme };
 
+// The "Demo data / Worst case" toggle (ticket 27): dev builds only. `import.meta.env.DEV` is
+// false in a production build, so the import below and its chunk are dropped from it.
+const FixtureToggle = import.meta.env.DEV ? lazy(() => import("./dev/FixtureToggle")) : null;
+
 const root = createRoot(document.getElementById("root") as HTMLElement);
-void Promise.all([createBackend(), createPlatform(), fontsLoaded()]).then(([backend, platform]) =>
+void Promise.all([createBackend(), createPlatform(), fontsLoaded()]).then(([{ backend, app }, platform]) =>
   root.render(
     <StrictMode>
-      <App backend={backend} platform={platform} appearance={appearance} />
+      <App backend={backend} appearance={appearance} {...fixtureProps(app, platform)} />
+      {FixtureToggle && (
+        <Suspense>
+          <FixtureToggle />
+        </Suspense>
+      )}
     </StrictMode>,
   ),
 );
