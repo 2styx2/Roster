@@ -97,7 +97,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 49 | 93 | This Box has commits of its own that aren't on the upstream | Infra repo | "this box's infra repo has 1 commit that isn't on origin/main, and roster publishes only its own" | Push or drop them in a terminal |
 | 50 | 94 | The branch has no upstream | Infra repo | "this branch of the infra repo has no upstream, so there's nowhere to publish to" | `git push -u origin main` |
 | 51 | 95 | git refused the commit: no identity, a hook | Infra repo, Box | "git didn't make the commit, so nothing was published" | Set the repo's `user.name`/`user.email`; git's words under Details |
-| 52 | 96 | The push failed, or was rejected because the upstream moved meanwhile; the commit is undone | Network, infra repo | "origin/main moved while roster was publishing, so the push was refused; nothing was published" | Publish again (it fetches first); check your rights to push |
+| 52 | 96 | The push failed, was rejected because the upstream moved meanwhile, or didn't finish in 60 s and didn't get there; the commit is undone. (One that didn't finish but did get there is a Publish.) If roster can't even check, it says so | Network, infra repo | "origin/main moved while roster was publishing, so the push was refused; nothing was published" | Publish again (it fetches first); check your rights to push; for "couldn't check", look at the upstream's last commit first |
 
 
 ## The Live Inventory (ticket 28)

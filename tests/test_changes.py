@@ -472,6 +472,66 @@ def test_a_rejected_push_undoes_the_commit_and_keeps_the_pending_changes(app, bo
     assert result(app.call("changes.diff"))["count"] == 1
 
 
+def hanging_hook(box, name, accept):
+    """A hook on origin that hangs past the push timeout: pre-receive before the ref moves (then refuses),
+    post-receive after it moved."""
+    hook = box.parent / "origin.git" / "hooks" / name
+    hook.write_text(f"#!/bin/sh\nsleep 30\nexit {0 if accept else 1}\n")
+    hook.chmod(0o755)
+
+
+@pytest.fixture
+def quick_push(monkeypatch):
+    from roster import changes
+    monkeypatch.setattr(changes, "PUSH_TIMEOUT", 1)
+    return changes
+
+
+def test_a_push_that_times_out_before_reaching_the_remote_undoes_the_commit(box, quick_push):
+    import time
+    hanging_hook(box, "pre-receive", accept=False)
+    before = git(box, "rev-parse", "HEAD")
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    start = time.monotonic()
+    with pytest.raises(quick_push.Problem) as e:
+        quick_push.publish(box.yml)
+    assert time.monotonic() - start < 15                    # the hook's sleep doesn't hold it up
+    assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is False
+    assert "didn't finish within 1 s" in e.value.message and "nothing was published" in e.value.message
+    assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+    assert origin_log(box) == "inventory"
+
+
+def test_a_push_that_times_out_after_reaching_the_remote_is_a_publish(box, quick_push):
+    hanging_hook(box, "post-receive", accept=True)
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    r = quick_push.publish(box.yml)
+    head = git(box, "rev-parse", "HEAD")
+    assert r["commit"] == head and git(box.parent / "origin.git", "rev-parse", "main") == head
+    assert git(box, "status", "--porcelain", "--untracked-files=no") == ""
+    assert git(box, "rev-parse", "@{u}") == head                         # this box knows it's published
+
+
+def test_a_push_whose_outcome_cant_be_checked_undoes_the_commit_and_says_so(box, quick_push, monkeypatch):
+    hanging_hook(box, "pre-receive", accept=False)
+    real = quick_push.git
+
+    def offline_after_push(repo, *args, **kw):
+        if args[0] == "fetch" and offline_after_push.pushed:
+            return subprocess.CompletedProcess(args, 128, "", "fatal: unable to access")
+        offline_after_push.pushed |= args[0] == "push"
+        return real(repo, *args, **kw)
+    offline_after_push.pushed = False
+    monkeypatch.setattr(quick_push, "git", offline_after_push)
+    before = git(box, "rev-parse", "HEAD")
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    with pytest.raises(quick_push.Problem) as e:
+        quick_push.publish(box.yml)
+    assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is None
+    assert "couldn't check" in e.value.message
+    assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+
+
 def test_a_refused_commit_publishes_nothing(owner, box):
     git(box, "config", "--unset", "user.name")
     git(box, "config", "user.useConfigOnly", "true")
