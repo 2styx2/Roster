@@ -6,12 +6,15 @@ export interface MemoryPlatform extends Platform {
   saved(): unknown;
   /** The clipboard's text. */
   clipboardText(): string;
+  /** Whether the window is fullscreen now. */
+  fullscreen(): boolean;
 }
 
 export function memoryPlatform(start: { state?: unknown; windowsBuild?: number | null; clipboard?: string } = {}): MemoryPlatform {
   let state = start.state ?? {};
   let saved: unknown;
   let clip = start.clipboard ?? "";
+  let full = false;
   return {
     loadState: async () => state,
     async saveState(s) {
@@ -25,6 +28,10 @@ export function memoryPlatform(start: { state?: unknown; windowsBuild?: number |
         clip = text;
       },
     },
+    async setFullscreen(on) {
+      full = on;
+    },
+    fullscreen: () => full,
     saved: () => saved,
     clipboardText: () => clip,
   };

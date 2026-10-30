@@ -7,6 +7,7 @@
 
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { SidebarRow } from "../sidebar/Sidebar";
+import { VIEW_MODES, type ViewMode } from "../view/layout";
 
 export type ListMove = "down" | "up" | "top" | "bottom" | "choose";
 
@@ -51,6 +52,12 @@ export interface CommandContext {
   hostNames(): readonly string[];
   /** A one-line message for the user. */
   say(message: string): void;
+  /** The view mode now (decision Q36). */
+  viewMode(): ViewMode;
+  /** Switches to `mode`, or to the other one. */
+  setViewMode(mode: ViewMode | null): void;
+  /** Opens the Finder over a finder source (`sessions`, `hosts`, `tree`…). */
+  openFinder(source: string): void;
 }
 
 export interface CommandDef extends Entry {
@@ -158,6 +165,28 @@ export const builtinCommands: readonly CommandDef[] = [
   fold("fold", "fold", "Fold, or go to the parent"),
   fold("unfold", "unfold", "Unfold, or go to the first child"),
   fold("togglefold", "toggle", "Fold or unfold"),
+  {
+    id: "mode",
+    source: BUILTIN,
+    area: "View",
+    arg: "text",
+    optionalArg: true,
+    label: (m) => (m ? `Switch to ${m} mode` : "Switch the view mode"),
+    run: (ctx, m) => {
+      if (m === undefined) return ctx.setViewMode(null);
+      const mode = VIEW_MODES.find((v) => v === m.toLowerCase());
+      if (!mode) return ctx.say(`Not a view mode: ${m} (${VIEW_MODES.join(", ")})`);
+      ctx.setViewMode(mode);
+    },
+    complete: (m) => VIEW_MODES.filter((v) => v.startsWith(m.toLowerCase())),
+  },
+  {
+    id: "focus",
+    source: BUILTIN,
+    area: "View",
+    label: () => "Focus mode on or off",
+    run: (ctx) => ctx.setViewMode(ctx.viewMode() === "focus" ? "standard" : "focus"),
+  },
   { id: "cmdline", source: BUILTIN, area: "App", label: () => "Command line", run: (ctx) => ctx.openCommandLine() },
   { id: "keys", source: BUILTIN, area: "App", label: () => "Key bindings", run: (ctx) => ctx.toggleKeys() },
   { id: "statusbar", source: BUILTIN, area: "App", label: () => "Show or hide the status bar", run: (ctx) => ctx.toggleStatusBar() },

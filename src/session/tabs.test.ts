@@ -322,7 +322,7 @@ describe("Tabs", () => {
     expect(tabs.snapshot().active).toBe(c);
     tabs.close(c);
     tabs.close(a);
-    expect(tabs.snapshot()).toEqual({ tabs: [], active: null });
+    expect(tabs.snapshot()).toEqual({ tabs: [], active: null, previous: null });
   });
 
   it("closes a Session that finishes opening after its tab was closed", async () => {
@@ -448,6 +448,18 @@ describe("Tabs selection by order (ticket 07)", () => {
     expect(active()).toBe(ids[0]);
     tabs.selectNth(9);
     expect(active()).toBe(ids[0]);
+  });
+
+  it("remembers the previous Session (the session bar's `-`), forgetting a closed one", () => {
+    const { tabs, ids } = three();
+    const previous = () => tabs.snapshot().previous;
+    expect(previous()).toBe(ids[1]);
+    tabs.selectNth(1);
+    expect(previous()).toBe(ids[2]);
+    tabs.selectNth(1);
+    expect(previous()).toBe(ids[2]);
+    tabs.close(ids[2]!);
+    expect(previous()).toBeNull();
   });
 
   it("does nothing with no tabs", () => {
