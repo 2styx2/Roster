@@ -121,8 +121,10 @@ describe("the worst case", () => {
     await user.keyboard(`${LEADER}f`);
     const picker = screen.getByRole("dialog", { name: "Find a Host" });
     expect(within(picker).getByText("200 of 1,284 Hosts")).toBeInTheDocument();
-    // An unreviewed Host's long notice in the footer.
-    await user.keyboard(`${LONG_NAME}{Enter}`);
+    // An unreviewed Host's long notice in the footer. Long names are pasted: each typed key
+    // filters 1,284 Hosts again, and only where it ends up matters here (#62).
+    await user.paste(LONG_NAME);
+    await user.keyboard("{Enter}");
     expect(within(picker).getByRole("status")).toHaveTextContent(/isn't reviewed yet/);
     expect(cutWithoutTooltip()).toEqual([]);
     await user.keyboard("{Escape}");
@@ -130,7 +132,7 @@ describe("the worst case", () => {
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     expect(within(panel).getAllByTitle(WORST_BINDINGS.source).length).toBeGreaterThan(0);
     await user.keyboard(`${LEADER}:`);
-    await user.keyboard(`folder add ${LONG_NAME_OPEN} `);
+    await user.paste(`folder add ${LONG_NAME_OPEN} `);
     // The count sits under the listbox (its options carry aria-setsize), not inside it.
     expect(document.querySelector(".cmdline-candidates .more")).toHaveTextContent(/\+\d+ more/);
     expect(cutWithoutTooltip()).toEqual([]);
@@ -140,7 +142,8 @@ describe("the worst case", () => {
   it("shows the whole SHA256 fingerprints in :check, and cuts its step messages only with a tooltip", async () => {
     const user = await open("worst-case");
     await user.keyboard(`${LEADER}:`);
-    await user.keyboard(`check ${LONG_NAME_OPEN}{Enter}`);
+    await user.paste(`check ${LONG_NAME_OPEN}`);
+    await user.keyboard("{Enter}");
     const check = await screen.findByRole("region", { name: `Check ${LONG_NAME_OPEN}` });
     for (const f of [...SHA_RECORDED, SHA_OFFERED]) expect(within(check).getByText(f)).toBeInTheDocument();
     expect(cutWithoutTooltip()).toEqual([]);
@@ -180,7 +183,7 @@ describe("one, and none", () => {
     expect(document.querySelector(".statusbar")).not.toHaveTextContent("1 Hosts");
     await user.keyboard(`${LEADER}f`);
     expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("1 Host");
-  }, 120_000); // walks every row of the Key bindings panel, which grows with each command (#62)
+  });
 
   it("has an empty state everywhere, and keeps a key hint's word on its line", async () => {
     const user = await open("worst-case-empty");
