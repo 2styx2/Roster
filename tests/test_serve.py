@@ -7,11 +7,14 @@ import stat
 import subprocess
 import time
 
+import paramiko
 import pytest
 from conftest import EXAMPLES
 
 from roster import __version__
 from roster.cli import main
+from roster.common import known_hosts_file
+from roster.sshops import hk_name
 
 
 def test_inventory_info(serve, isolated):
@@ -22,7 +25,7 @@ def test_inventory_info(serve, isolated):
     assert info["path"] == str(example.resolve())
     assert info["box"] and info["host_count"] == 5
     assert {"bw", "op", "env", "prompt"} <= set(info["providers"])
-    assert info["roster_version"] == __version__ and info["api_version"] == 10
+    assert info["roster_version"] == __version__ and info["api_version"] == 11
     assert s.close() == (0, "", "")
 
 
@@ -130,7 +133,7 @@ def test_an_inventory_that_doesnt_load_is_an_error_not_an_exit(serve, write_conf
     err = s.call("inventory.info")["error"]
     assert err["code"] == 1
     assert err["message"] == "host 'box' has no user (set it on the host, its group, or defaults)"
-    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 10,
+    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 11,
                            "fix": f"fix {path}, or run `roster init` if there's none yet"}
     assert s.call("hosts.list")["error"]["code"] == 1
     assert s.call("host.get", {"name": "box"})["error"]["code"] == 1
@@ -291,17 +294,31 @@ def test_a_lookup_after_vault_lock_reports_locked(write_config, fakes, isolated,
 # ---------------------------------------------------------------- session.prepare (ticket 05)
 
 def synced(write_config, capsys, text=INVENTORY):
-    """roster.yml written and `roster sync` run, so this box's ssh config has every Host's alias."""
-    write_config(text)
+    """roster.yml written and `roster sync` run, so this box's ssh config has every Host's alias, and a host key
+    recorded for each Host, as `roster setup` would (without one, session.prepare asks first: ticket 36)."""
+    path = write_config(text)
     assert main(["sync"]) == 0
     capsys.readouterr()
+    record_keys(path)
+
+
+HOST_KEY = paramiko.ECDSAKey.generate()
+
+
+def record_keys(path):
+    """A host key in roster's known hosts for every Host in the roster.yml at PATH (none of them is ever reached)."""
+    from roster.config import load_config
+    lines = {f"{hk_name(h)} {HOST_KEY.get_name()} {HOST_KEY.get_base64()}\n" for h in load_config(path)["hosts"].values()}
+    known_hosts_file().parent.mkdir(mode=0o700, exist_ok=True)
+    known_hosts_file().write_text("".join(sorted(lines)))
 
 
 def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys, fakes):
     """The ssh command the app starts in a PTY: the ssh-config alias `roster setup`/`sync` writes, no secret."""
     synced(write_config, capsys)
     spec = serve().call("session.prepare", {"host": "box"})["result"]
-    assert spec == {"argv": [shutil.which("ssh"), "-o", "BatchMode=yes", "box"], "env": {},
+    assert spec == {"argv": [shutil.which("ssh"), "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "box"],
+                    "env": {},
                     "host": "box", "auth": "key"}
     assert os.path.isabs(spec["argv"][0])
 
@@ -333,7 +350,7 @@ def test_session_prepare_for_a_password_host_hands_out_a_token_not_a_password(se
     s = unlocked_serve(serve, write_config, capsys)
     spec = s.call("session.prepare", {"host": "esx"})["result"]
     env = spec["env"]
-    assert spec["argv"] == [shutil.which("ssh"), "-o", "NumberOfPasswordPrompts=1",
+    assert spec["argv"] == [shutil.which("ssh"), "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1",
                             "-o", "PreferredAuthentications=password,keyboard-interactive", "esx"]
     assert (spec["host"], spec["auth"]) == ("esx", "password")
     assert set(env) == {"SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "ROSTER_ASKPASS_SOCKET", "ROSTER_ASKPASS_TOKEN"}

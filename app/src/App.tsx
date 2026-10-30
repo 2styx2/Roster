@@ -37,6 +37,7 @@ import {
   type HostList,
   type SaveTarget,
   VAULT_CONFIG_API_VERSION,
+  HOST_KEY_API_VERSION,
   type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
@@ -366,6 +367,8 @@ export function App({
   // `vault` is a new object each render; its `lock` is stable, so the handler is set once.
   const lockVault = vault.lock;
   useEffect(() => tabs.setVaultLockedHandler(() => void lockVault()), [tabs, lockVault]);
+  const asksAboutKeys = conn.state === "ready" && conn.info.inventory.api_version >= HOST_KEY_API_VERSION;
+  useEffect(() => tabs.setAsksAboutKeys(asksAboutKeys), [tabs, asksAboutKeys]);
   const vaultUnlocked = vault.view.state === "unlocked";
   useEffect(() => {
     if (vaultUnlocked) tabs.resumeAfterUnlock();

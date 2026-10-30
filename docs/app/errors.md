@@ -24,7 +24,7 @@ Edits made by hand to `roster.yml` or the vault get the same treatment as anythi
 | 11 | Wrong password or user | Password rotated on the Host but not in the vault, or the reverse | Vault / Host | "esxi-02 refused the password for user root" | Check the item; with Q43, re-save after a successful login |
 | 12 | Key refused | `enroll: true` but the key isn't installed (setup not run, key removed) | Box / Host | "esxi-02 didn't accept this Box's key" | Run `roster setup --only esxi-02`, or set `enroll: false` |
 | 13 | Host key changed | Reinstalled box, or IP reused, or a MITM | Host / network | "esxi-02's host key changed. Not connecting." | Show old and new fingerprints and how to verify. **Never auto-accept.** |
-| 14 | Host key unknown | Fingerprints not recorded for this Host | Box | "No recorded host key for esxi-02" | Run `roster setup`/`sync` to record it, after verifying it |
+| 14 | Host key unknown | Fingerprints not recorded for this Host | Box | "No recorded host key for esxi-02" | Opening a Session asks first (rows 60-63, ticket 36); `:check` says to run `roster setup --only esxi-02` after verifying it |
 | 15 | Name doesn't resolve | Typo in `ip:` or a DNS name | Inventory / network | "Can't resolve 'esxi02.lab'" | Edit the address |
 | 16 | Connection refused | Wrong port, or sshd not running | Inventory / Host | "esxi-02:2222 refused the connection" | Check the port in `roster.yml`; is sshd up? |
 | 17 | Timeout / unreachable | Host down, routing, firewall, **or the 10.19.x SSH rate limiter** (times out for about 4 minutes after many connections) | Network | "esxi-02 didn't answer within 10 s" | Retry later. For 10.19.x, mention the rate limiter and suggest waiting a few minutes, not hammering. |
@@ -113,6 +113,17 @@ Removing, renaming and moving Hosts and groups in the Sidebar (decision Q45) goe
 | 55 | 102 | Deleting a group that still has Hosts, without saying where they go | `roster.yml` | "group lab still has 2 Hosts (esx, nas) - say which group they go to, or move them first" | `:group delete lab OTHER` (the app asks with the command line) |
 | 56 | 103 | A moved Host would come out different in its new group (a service or Login it inherits there) | `roster.yml` | "esx would come out different in group other (services it inherits there) - nothing was written" | Move it by hand, setting those on the Host itself |
 | 57 | none (not an error) | One service entry roster can't use: a bad port or url, an unknown setting, a `login:` type that's neither roster's nor in `web_login_names:`. The file still loads; only that service is left out, and the Host lists it in `problems` (`{service, message, fix}`) | `roster.yml` | "roster.yml loaded, but left out lab-hub2's service web: login: 'appliance' isn't a login type roster knows (roster info lab-hub2 says how to fix it)" | The fix from roster (`roster info HOST`, or the warning `roster hosts` prints); `roster web HOST SERVICE` on it stops with the same words |
+
+## Trusting a new host key (ticket 36)
+
+A Session to a Host whose host key isn't in roster's known hosts asks before anything connects (decision Q60): `session.prepare` refuses with 44, the app fetches the key (`host.scan_key {host}`: one connection, key exchange only) and shows the Host, its address and port, the key type and the SHA256 fingerprint, with "roster hasn't seen this Host's key before". **Trust and connect** (Enter) runs `host.trust_key`, which fetches the key again and records it only if it's still the one shown, then opens the Session. **Cancel** (Esc) records nothing and connects nothing. Sessions check host keys strictly (`StrictHostKeyChecking=yes`), so a key that differs from a recorded one is row 13, never a question. Every failure below ends with nothing recorded and no Session; the question's pane shows it like any refused Session.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 60 | 44 (from `session.prepare`, not shown as an error) | No key recorded for the Host's address: it reached `roster.yml` by a hand edit or a teammate's Publish | Box | The question: "roster hasn't seen this Host's key before" | Compare the fingerprint with the Host's console or owner, then Trust and connect, or Cancel |
+| 61 | 40, 41, 42 | Couldn't fetch the key: the address doesn't resolve, the port refused, or no answer (on 10.19.x often the SSH rate limiter) | Network / Host | "esxi-02 (10.19.77.10:22) didn't answer within 5 s" | Rows 15-17's fixes: check the address or port; for 10.19.x wait a few minutes, don't retry in a loop |
+| 62 | 23 | The key changed between the question and Trust | Host / network | "esxi-02's host key changed while roster was asking - nothing was recorded" | Don't trust it blindly: compare the new fingerprint with the Host's console or owner, then open the Session again to see it |
+| 63 | 43 | A different key got recorded for the address meanwhile (another Session's question, `roster setup`) | Host / network | "esxi-02's host key changed - not connecting" | Row 13's: compare the fingerprints; never accepted automatically |
 
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 

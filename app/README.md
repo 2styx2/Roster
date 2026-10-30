@@ -44,7 +44,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | Windows copy | `%LOCALAPPDATA%\roster-app-dev` | `%LOCALAPPDATA%\roster-app-release` |
 | Stop | `app/scripts/app-stop.sh` | `app/scripts/app-stop.sh --release` (or just close the window) |
 
-Both use the installed `roster` (needs `roster serve`, API 3+) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
+Both use the installed `roster` (needs `roster serve`, API 3+; asking about a new Host's host key needs API 11, Q60) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
 
 Paths below are from the repo root.
 
@@ -130,7 +130,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): in `app/`, `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused). Un-reviewing (API 9): `review`. Connecting (issue #78): `slow-login` (Sessions take 1.2 s to start and 2.5 s to log in).
+`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused). Un-reviewing (API 9): `review`. Connecting (issue #78): `slow-login` (Sessions take 1.2 s to start and 2.5 s to log in). Host keys (ticket 36, API 11): `host-key` (every first Session asks about the Host's key), `host-key-changed` (the key changes before Trust).
 Worst case (ticket 27): `worst-case` (1,284 Hosts, 50 Sessions, 100 Folders, long, odd and missing values),
 `worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; a dev build shows a
 "Demo data / Worst case" toggle at the bottom to switch between them (`&toggle=off` hides it; it works in

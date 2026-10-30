@@ -20,6 +20,10 @@ _Avoid_: client, workstation
 One live terminal connection from a Box to a Host. A Host can have several Sessions open at once.
 _Avoid_: connection profile, saved session
 
+**Host key**:
+The key a Host's sshd proves itself with. roster keeps the ones it trusts in its known hosts (`~/.ssh/roster_known_hosts`), recorded by `roster setup`, a verified add or edit, or a Session's question "roster hasn't seen this Host's key before" (Q60). A key that differs from the recorded one is never accepted.
+_Avoid_: fingerprint (that's the key's SHA256 digest, what the user compares), server key
+
 **Login**:
 A pointer from a Host, or one of its services, to the vault item that opens it. A Login never contains the password itself.
 _Avoid_: credential, account (an account is a kind of resource)

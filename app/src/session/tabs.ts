@@ -6,6 +6,7 @@ import {
   BackendCallError,
   SessionRefusal,
   type Backend,
+  type HostKeyScan,
   type SessionAuth,
   type SessionExit,
   type SessionHandle,
@@ -16,6 +17,9 @@ import { problemFromCallError } from "../errors/catalog";
 
 export type TabStatus =
   | { state: "connecting" }
+  /** roster has no host key recorded for the Host (ticket 36, decision Q60): nothing connects until
+   * the user answers. `key` is null while it's being fetched; `trusting` while it's being recorded. */
+  | { state: "asking"; key: HostKeyScan | null; trusting: boolean }
   | { state: "open" }
   /** roster refused (`session.prepare`) or the PTY couldn't start; `code` is roster's. */
   | { state: "failed"; message: string; code: number | null; problem: Problem }
@@ -97,6 +101,11 @@ interface Entry {
   decoder: TextDecoder;
   sink: Sink | null;
   wiring: TerminalWiring;
+  /** The tab as it was before a reconnect, put back if the user cancels a host key question. */
+  before: Tab | null;
+  /** This open or reconnect has asked about the Host's key already: roster saying "no key" again
+   * after that is an error, not another question. */
+  keyAsked: boolean;
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
    * to ConPTY's cursor-position request, which ConPTY waits for before starting anything. */
   pending: string[];
@@ -112,6 +121,7 @@ export class Tabs {
   private snap: TabsSnapshot = { tabs: [], active: null, previous: null };
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
+  private asksAboutKeys = true;
   private readonly now: () => number;
 
   /** `now`: the clock the pre-auth window is timed with (tests move it). */
@@ -124,6 +134,12 @@ export class Tabs {
    * app shows the lock screen, then calls `resumeAfterUnlock`. */
   setVaultLockedHandler(handler: () => void) {
     this.onVaultLocked = handler;
+  }
+
+  /** Whether roster can be asked about a Host's key (API 11, ticket 36). Without it, roster's "no
+   * host key recorded" (44) is a refusal like any other. */
+  setAsksAboutKeys(asks: boolean) {
+    this.asksAboutKeys = asks;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -215,6 +231,8 @@ export class Tabs {
       late: "",
       decoder: new TextDecoder(),
       sink: null,
+      before: null,
+      keyAsked: false,
       pending: [],
       wiring: {
         attach: (sink) => this.attach(id, sink),
@@ -250,6 +268,8 @@ export class Tabs {
     if (!entry || (state !== "ended" && state !== "failed")) return false;
     const to = host ?? entry.tab.host;
     const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
+    entry.before = entry.tab;
+    entry.keyAsked = false;
     entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1 };
     entry.pending = [];
     this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
@@ -310,18 +330,91 @@ export class Tabs {
         },
         (e: unknown) => {
           if (!current()) return;
-          const code = e instanceof BackendCallError ? e.code : null;
-          const problem = problemFromCallError(host, e);
-          if (code === SessionRefusal.vaultLocked) {
-            const message = "The vault is locked. Unlock it and this Session opens.";
-            this.setStatus(entry, { state: "failed", message, code, problem: { ...problem, message } });
-            this.onVaultLocked();
+          if (e instanceof BackendCallError && e.code === SessionRefusal.hostKeyUnknown && this.asksAboutKeys && !entry.keyAsked) {
+            this.askAboutKey(entry);
             return;
           }
-          const message = e instanceof Error ? e.message : String(e);
-          this.setStatus(entry, { state: "failed", message, code, problem });
+          this.refused(entry, e);
         },
       );
+  }
+
+  /** The tab's Session couldn't start: roster refused, or a step before it failed. */
+  private refused(entry: Entry, e: unknown) {
+    const code = e instanceof BackendCallError ? e.code : null;
+    const problem = problemFromCallError(entry.tab.host, e);
+    if (code === SessionRefusal.vaultLocked) {
+      const message = "The vault is locked. Unlock it and this Session opens.";
+      this.setStatus(entry, { state: "failed", message, code, problem: { ...problem, message } });
+      this.onVaultLocked();
+      return;
+    }
+    const message = e instanceof Error ? e.message : String(e);
+    this.setStatus(entry, { state: "failed", message, code, problem });
+  }
+
+  /** A check that a step started now still belongs to the tab: not closed, cancelled or started
+   * again since. */
+  private turn(entry: Entry): () => boolean {
+    const attempt = entry.attempt;
+    return () => entry.attempt === attempt && !entry.closing;
+  }
+
+  /** Starts the Session again in the same tab (after its key was trusted or turned out recorded). */
+  private restart(entry: Entry) {
+    this.setStatus(entry, { state: "connecting" });
+    this.start(entry);
+  }
+
+  /** roster has no key recorded for the Host (ticket 36): fetch the one it offers and ask. A key
+   * that turns out recorded meanwhile isn't asked about: the Session starts again, and ssh checks
+   * it strictly (a different one is refused, Q44). */
+  private askAboutKey(entry: Entry) {
+    entry.keyAsked = true;
+    const current = this.turn(entry);
+    const { host } = entry.tab;
+    this.setStatus(entry, { state: "asking", key: null, trusting: false });
+    this.backend.scanHostKey(host).then(
+      (key) => {
+        if (!current()) return;
+        if (key.recorded !== "none") return this.restart(entry);
+        this.setStatus(entry, { state: "asking", key, trusting: false });
+      },
+      (e: unknown) => {
+        if (current()) this.refused(entry, e);
+      },
+    );
+  }
+
+  /** The user trusts the key the tab asks about: roster records it (if the Host still offers
+   * exactly that key) and the Session opens. */
+  trustKey(id: number) {
+    const entry = this.find(id);
+    const s = entry?.tab.status;
+    if (!entry || s?.state !== "asking" || !s.key || s.trusting) return;
+    const current = this.turn(entry);
+    this.setStatus(entry, { ...s, trusting: true });
+    this.backend.trustHostKey(entry.tab.host, s.key.fingerprint).then(
+      () => {
+        if (current()) this.restart(entry);
+      },
+      (e: unknown) => {
+        if (current()) this.refused(entry, e);
+      },
+    );
+  }
+
+  /** The user doesn't trust it: nothing is recorded and nothing connects. A new tab closes; a
+   * reconnected one goes back to how it was. */
+  cancelKey(id: number) {
+    const entry = this.find(id);
+    const s = entry?.tab.status;
+    if (!entry || s?.state !== "asking" || s.trusting) return;
+    if (!entry.before) return this.close(id);
+    entry.attempt++; // a key still being fetched is no longer asked about
+    entry.tab = entry.before;
+    entry.before = null;
+    this.changed();
   }
 
   /** Closes the tab and ends its Session (kills ssh). */

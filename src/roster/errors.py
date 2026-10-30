@@ -21,6 +21,8 @@ VAULT_LOCKED = 14           # a secret was needed but the vault is locked (row 7
 NOT_REVIEWED = 20           # session.*: the Host has reviewed: false (row 3)
 NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh, or not in roster's ssh config (row 2)
 NO_ASKPASS = 22             # a password Session, but this process has no askpass channel (in-process use only)
+HOST_KEY_CHANGED_WHILE_ASKED = 23  # host.trust_key: the Host offers another key than the one the user was asked
+                            # about before its Session (ticket 36); nothing is recorded
 
 # Logins: what's wrong with a Host's ssh Login or its vault item (rows 4, 5, 8-10, 18)
 NO_USER = 30                # the Host's ssh user is discover's placeholder CHANGE-ME (row 4)
