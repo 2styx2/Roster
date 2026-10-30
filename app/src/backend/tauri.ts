@@ -14,6 +14,8 @@ import {
   type HostAdd,
   type HostChanges,
   type HostCheck,
+  type HostKeyScan,
+  type HostKeyTrust,
   type HostList,
   type HostUpdate,
   type InventoryChanged,
@@ -138,6 +140,8 @@ export function tauriBackend(): Backend {
     discardChanges: () => call<{ discarded: boolean; backup: string | null }>("changes_discard"),
     publishChanges: (message) => call<PublishResult>("changes_publish", { message }),
     scanKey: (address, port) => call<ScannedKey>("host_scan_key", { address, port }),
+    scanHostKey: (host) => call<HostKeyScan>("host_key_scan", { host }),
+    trustHostKey: (host, fingerprint) => call<HostKeyTrust>("host_key_trust", { host, fingerprint }),
     // A typed password goes once to serve's stdin, like vault_unlock's.
     addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
     reviewHost: (host, reviewed = true) => call<HostUpdate>("host_review", { host, reviewed }),

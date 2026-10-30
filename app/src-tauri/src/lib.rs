@@ -373,6 +373,26 @@ async fn host_scan_key(
     call(&state, "host.scan_key", json!({ "address": address, "port": port })).await
 }
 
+/// The host key a Host offers, for the question a Session asks before its first connection to a
+/// Host roster has no key for (`host.scan_key {host}`, ticket 36). Nothing is recorded.
+#[tauri::command]
+async fn host_key_scan(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.scan_host_key(&host)).await
+}
+
+/// Record the host key the user trusted (`host.trust_key`, ticket 36): serve fetches it again and
+/// refuses if it changed since the question.
+#[tauri::command]
+async fn host_key_trust(
+    state: tauri::State<'_, Arc<BackendState>>,
+    host: String,
+    fingerprint: String,
+) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.trust_host_key(&host, &fingerprint)).await
+}
+
 /// Add a Host (`host.add`, decision Q43): test login, then the Vault item, then the Pending change.
 /// The params can hold a typed password on its way to serve's stdin. Like `vault_unlock`'s, it's
 /// moved into the request and dropped with it: never logged, stored or put in an error.
@@ -654,6 +674,8 @@ pub fn run() {
             host_verify_login,
             host_update,
             host_scan_key,
+            host_key_scan,
+            host_key_trust,
             host_add,
             host_review,
             inventory_call,

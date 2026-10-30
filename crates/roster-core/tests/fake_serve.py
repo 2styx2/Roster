@@ -3,6 +3,7 @@
 The first argument picks a behaviour:
   ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1
   old-api            inventory.info reports api_version 0
+  unknown-key        session.prepare refuses with 44 until host.trust_key records esxi-02's key (host.scan_key shows it)
   no-inventory       every method returns error code 1, like serve without a roster.yml
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
   reverse            holds two requests, then answers them in reverse order
@@ -35,9 +36,12 @@ HOSTS = [
 # shows up in Debug or errors, and that every open asks for a fresh one).
 TOKEN = "tok-3b1f9e2a7c-"
 minted = 0
+FINGERPRINT = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"
+trusted = mode != "unknown-key"
 
 
 def answer(req):
+    global minted, trusted
     m = req["method"]
     if mode == "no-inventory":
         return {"error": {"code": 1, "message": "no roster.yml found here or in ~/.config/roster/",
@@ -55,6 +59,15 @@ def answer(req):
             if h["name"] == req.get("params", {}).get("name"):
                 return {"result": h}
         return {"error": {"code": 2, "message": f"unknown host {req['params'].get('name')!r}"}}
+    if m == "host.scan_key":
+        return {"result": {"host": "esxi-02", "address": "10.19.77.10", "port": 22, "key_type": "ssh-ed25519",
+                           "fingerprint": FINGERPRINT, "recorded": "match" if trusted else "none"}}
+    if m == "host.trust_key":
+        if req["params"].get("fingerprint") != FINGERPRINT:
+            return {"error": {"code": 23, "message": "esxi-02's host key changed while roster was asking - nothing was recorded"}}
+        was, trusted = trusted, True
+        return {"result": {"host": "esxi-02", "address": "10.19.77.10", "port": 22, "key_type": "ssh-ed25519",
+                           "fingerprint": FINGERPRINT, "recorded": not was}}
     if m == "session.prepare":
         name = req.get("params", {}).get("host")
         h = next((h for h in HOSTS if h["name"] == name), None)
@@ -62,6 +75,9 @@ def answer(req):
             return {"error": {"code": 2, "message": f"unknown host {name!r}"}}
         if not h["reviewed"]:
             return {"error": {"code": 20, "message": f"{name} is not reviewed yet (reviewed: false in roster.yml) - not logging in"}}
+        if not trusted:
+            return {"error": {"code": 44, "message": f"roster hasn't seen {name}'s host key before",
+                              "data": {"address": h["ip"], "port": 22}}}
         if h.get("password"):
             if mode == "locked":
                 return {"error": {"code": 14, "message": "Bitwarden vault is locked - unlock it first"}}
@@ -71,16 +87,16 @@ def answer(req):
             if mode == "bad-prepare":
                 return {"result": {"argv": ["/usr/bin/ssh", name], "host": name, "auth": "password",
                                    "env": {"SSH_ASKPASS_REQUIRE": "force", "ROSTER_ASKPASS_TOKEN": 987654321}}}
-            global minted
             minted += 1
             return {"result": {
-                "argv": ["/usr/bin/ssh", "-o", "NumberOfPasswordPrompts=1",
+                "argv": ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1",
                          "-o", "PreferredAuthentications=password,keyboard-interactive", name],
                 "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass", "SSH_ASKPASS_REQUIRE": "force",
                         "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
                         "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"},
                 "host": name, "auth": "password"}}
-        return {"result": {"argv": ["/usr/bin/ssh", "-o", "BatchMode=yes", name], "env": {}, "host": name,
+        return {"result": {"argv": ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", name],
+                           "env": {}, "host": name,
                            "auth": "key"}}
     return {"error": {"code": -32601, "message": f"unknown method {m!r}"}}
 

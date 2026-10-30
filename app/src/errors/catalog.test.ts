@@ -5,7 +5,7 @@ import { builtinErrorRegistry, builtinErrorRows, problemFromCallError, rowFor } 
 import type { Problem } from "./classify";
 
 const rows = builtinErrorRegistry().list();
-const ROSTER_CODES = [1, 2, 3, 11, 12, 14, 20, 21, 22, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48];
+const ROSTER_CODES = [1, 2, 3, 11, 12, 14, 20, 21, 22, 30, 31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 23];
 const p = (code: Problem["code"]): Problem => ({ code, host: "esx", message: "m", details: "d" });
 
 describe("the error catalog", () => {
@@ -21,6 +21,13 @@ describe("the error catalog", () => {
       expect(row.where.length).toBeGreaterThan(0);
       expect(row.fix(p(code))).not.toBe("");
     }
+  });
+
+  it("gives the host key question's own refusal its row (docs/app/errors.md row 62, ticket 36)", () => {
+    const row = rowFor(rows, 23);
+    expect(row.row).toBe(62);
+    // Only Retry, which asks again with the new key: never an action that accepts one.
+    expect(row.actions.map((a) => (a.kind === "run" ? a.line(p(23)) : a.label))).toEqual(["reconnect"]);
   });
 
   it("gives every vault.login code its sign-in row (docs/app/errors.md rows 22-33)", () => {

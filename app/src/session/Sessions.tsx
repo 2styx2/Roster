@@ -2,7 +2,8 @@
 // option shows instead of the Sidebar's Sessions section. Inactive terminals stay mounted, just
 // hidden, so their screens survive switching. Buttons here run command lines (`session N`,
 // `close N`, `reconnect`) like every other way in.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { HostKeyScan } from "../backend/types";
 import type { ErrorRow } from "../errors/catalog";
 import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
 import type { CommandLine } from "../keymap";
@@ -13,11 +14,15 @@ import { CloseGlyph } from "../ui/CloseGlyph";
 
 /** Where a Session is on its way to a shell (issue #78): `starting` while roster prepares it and
  * ssh starts on this Box, `logging-in` once ssh runs and the Host hasn't answered yet, null once
- * it has (or it ended, or was refused). */
-export type ConnectPhase = "starting" | "logging-in";
+ * it has (or it ended, or was refused). For a Host whose key roster hasn't seen (ticket 36):
+ * `checking-key` while its key is fetched, `asking` while the user decides, `trusting` while
+ * roster records it. */
+export type ConnectPhase = "starting" | "logging-in" | "checking-key" | "asking" | "trusting";
 
 export function connectPhase(tab: Tab): ConnectPhase | null {
-  if (tab.status.state === "connecting") return "starting";
+  const s = tab.status;
+  if (s.state === "asking") return !s.key ? "checking-key" : s.trusting ? "trusting" : "asking";
+  if (s.state === "connecting") return "starting";
   if (tab.status.state === "open" && !tab.shell) return "logging-in";
   return null;
 }
@@ -34,6 +39,8 @@ export function statusText(tab: Tab): string {
   switch (s.state) {
     case "connecting":
       return "connecting…";
+    case "asking":
+      return s.key ? "new host key" : "connecting…";
     case "open":
       return tab.shell ? "" : "connecting…";
     case "failed":
@@ -111,7 +118,16 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
 const PHASE_WORDS: Record<ConnectPhase, string> = {
   starting: "Starting ssh on this Box…",
   "logging-in": "Logging in…",
+  "checking-key": "Fetching the Host's key…",
+  asking: "",
+  trusting: "Recording the key…",
 };
+
+/** The host key question's answers (ticket 36), from the tab's store. */
+export interface KeyAnswers {
+  trust(): void;
+  cancel(): void;
+}
 
 /**
  * The pane while its Session connects (issue #78): not a blank terminal, but this Box's square, an
@@ -124,6 +140,9 @@ export function ConnectCard({
   address,
   phase,
   again,
+  hostKey = null,
+  answers,
+  active = true,
 }: {
   host: string;
   address: string | null;
@@ -131,7 +150,28 @@ export function ConnectCard({
   phase: ConnectPhase | null;
   /** A reconnect ("Reconnecting to …"). */
   again: boolean;
+  /** The key to ask about (ticket 36), while `phase` is asking or trusting. */
+  hostKey?: HostKeyScan | null;
+  answers?: KeyAnswers;
+  /** Its pane is the one showing: the question then takes focus. */
+  active?: boolean;
 }) {
+  const card = useRef<HTMLDivElement>(null);
+  const trustButton = useRef<HTMLButtonElement>(null);
+  const question = (phase === "asking" || phase === "trusting") && hostKey !== null && answers !== undefined;
+  // Keyboard first: the question takes focus (after the terminal, which the active pane focuses
+  // first), so Enter trusts and Esc cancels. Once answered, focus goes back to the terminal.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (question && active) trustButton.current?.focus();
+    if (question) asked.current = true;
+    else if (asked.current) {
+      asked.current = false;
+      if (active && (document.activeElement === document.body || document.activeElement === null)) {
+        card.current?.parentElement?.querySelector<HTMLElement>("textarea, input")?.focus();
+      }
+    }
+  }, [question, active]);
   // The last phase, kept while the card fades out after the shell answered; then it's gone.
   const [last, setLast] = useState<ConnectPhase | null>(phase);
   if (phase !== null && phase !== last) setLast(phase);
@@ -144,9 +184,32 @@ export function ConnectCard({
   const words = phase ?? (gone ? null : last);
   if (words === null) return null;
   const title = `${again ? "Reconnecting" : "Connecting"} to ${host}`;
+  const where = question ? `${hostKey.address}:${hostKey.port}` : address;
+  // The question stays in this same card (no new surface, no second entrance): the edge waits,
+  // dashed, short of the Host until the user answers.
   return (
-    <div className={`connect-card${phase === null ? " leaving" : ""}`} role="status" aria-label={phase === null ? undefined : title}>
-      <svg className="connect-map" viewBox="0 0 72 12" width="72" height="12" aria-hidden="true">
+    <div
+      ref={card}
+      className={`connect-card${phase === null ? " leaving" : ""}${question ? " key-question" : ""}`}
+      role={question ? "alertdialog" : "status"}
+      aria-label={question ? `Trust ${host}'s host key?` : phase === null ? undefined : title}
+      onKeyDown={
+        question
+          ? (e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                answers.cancel();
+              } else if (e.key === "Enter" && e.target === e.currentTarget) {
+                e.preventDefault();
+                answers.trust();
+              }
+            }
+          : undefined
+      }
+      tabIndex={question ? -1 : undefined}
+    >
+      <svg className={`connect-map${question ? " waiting" : ""}`} viewBox="0 0 72 12" width="72" height="12" aria-hidden="true">
         <rect className="connect-box" x="1" y="2" width="8" height="8" rx="1.6" />
         <line className="connect-edge" x1="12" y1="6" x2="59" y2="6" />
         <circle className="connect-host" cx="65" cy="6" r="4.25" />
@@ -154,9 +217,36 @@ export function ConnectCard({
       <p className="connect-title">
         <span className="muted">{again ? "Reconnecting to " : "Connecting to "}</span>
         <span className="connect-name">{host}</span>
-        {address && <span className="connect-address"> {address}</span>}
+        {where && <span className="connect-address"> {where}</span>}
       </p>
-      <p className="connect-phase muted">{PHASE_WORDS[words]}</p>
+      {question ? (
+        <>
+          <p className="key-says">roster hasn't seen this Host's key before.</p>
+          <p className="key-print">
+            <span className="key-type">{hostKey.key_type}</span> <span className="key-fingerprint">{hostKey.fingerprint}</span>
+          </p>
+          <p className="muted key-advice">Compare it with the Host's console or its owner before you trust it.</p>
+          <div className="key-actions">
+            <button type="button" className="primary" ref={trustButton} onClick={() => answers.trust()}>
+              Trust and connect
+            </button>
+            <button type="button" onClick={() => answers.cancel()}>
+              Cancel
+            </button>
+          </div>
+          <p className="connect-phase muted" aria-live="polite">
+            {phase === "trusting" ? (
+              PHASE_WORDS.trusting
+            ) : (
+              <span className="key-hint">
+                <Keys keys="Enter" /> trust · <Keys keys="Escape" /> cancel
+              </span>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="connect-phase muted">{PHASE_WORDS[words]}</p>
+      )}
     </div>
   );
 }
@@ -165,7 +255,7 @@ export function ConnectCard({
 const FADE_MS = 120;
 
 export interface SessionPanesProps {
-  tabs: Pick<Tabs, "wiring">;
+  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey">;
   snapshot: TabsSnapshot;
   leader: string;
   terminalView: TerminalViewComponent;
@@ -218,6 +308,9 @@ export function SessionPanes({
                 address={addressOf?.(tab.host) ?? null}
                 phase={connectPhase(tab)}
                 again={tab.attempt > 1}
+                hostKey={s.state === "asking" ? s.key : null}
+                answers={{ trust: () => tabs.trustKey(tab.id), cancel: () => tabs.cancelKey(tab.id) }}
+                active={active}
               />
             )}
             {s.state === "ended" && s.problem && (

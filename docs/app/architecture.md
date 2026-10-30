@@ -40,12 +40,13 @@ JSON-RPC 2.0, one JSON object per line on stdin/stdout. Logging goes to stderr. 
 | `changes.diff`, `changes.discard`, `changes.publish` | 3 | Pending changes and Publish |
 | `vault.create_item` | 4 | Bitwarden only |
 | `quick.prepare`, `quick.save` | 4 | Quick Connect and "Save to vault" |
+| `host.scan_key {host}`, `host.trust_key` | 4 | Ask before trusting a Host's new host key (ticket 36, API 11) |
 
 ## How a Session connects
 
 1. The frontend asks for a Session to a Host. The core calls `session.prepare`.
-2. `serve` checks the Host is reviewed:
-   - **Key-enrolled Host:** returns `ssh -o BatchMode=yes HOST`.
+2. `serve` checks the Host is reviewed, its Login, and that its host key is recorded. With no key recorded it refuses with 44, and the app asks first (ticket 36): `host.scan_key` fetches the key, the connect card shows its type and fingerprint, and Trust runs `host.trust_key` (which fetches it again and records it only if it's unchanged) and then step 1 again; Cancel records nothing. The command always has `-o StrictHostKeyChecking=yes`, so ssh never trusts a key on its own:
+   - **Key-enrolled Host:** returns `ssh -o StrictHostKeyChecking=yes -o BatchMode=yes HOST`.
    - **Password Login:** creates a one-time token, valid for 60 seconds, used once, and cleared on lock. It returns `ssh` with `SSH_ASKPASS=roster askpass`, `SSH_ASKPASS_REQUIRE=force`, `NumberOfPasswordPrompts=1` and the token in the environment.
 3. The core starts that command in a PTY (ConPTY on Windows), wrapped in `wsl.exe -d <distro> --` on the WSL backend.
 4. If `ssh` asks for a password, it runs `roster askpass`. The helper sends the token over serve's private socket and prints the password. It refuses every other kind of prompt, such as host-key questions.

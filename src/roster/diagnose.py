@@ -238,13 +238,19 @@ def step_host_key(ctx):
         sock.close()
     old = recorded.get(key.get_name()) if key else None
     if key is None or old is None or old.asbytes() != key.asbytes():
-        data = {"recorded": [fingerprint(k) for k in recorded.values()], "offered": fingerprint(key) if key else None}
-        raise Problem(errors.HOST_KEY_CHANGED, f"{h['name']}'s host key changed - not connecting", data,
-                      fix="don't accept it blindly: compare the new fingerprint with the Host's console or owner. "
-                          "If the change is expected (reinstall), delete its line in ~/.ssh/roster_known_hosts "
-                          f"and run `roster setup --only {h['name']}`",
-                      details=f"recorded {', '.join(data['recorded'])}; offered {data['offered'] or 'none of those types'}")
+        raise changed_key(h, recorded, key)
     return f"matches the recorded {key.get_name()} key {fingerprint(key)}"
+
+
+def changed_key(h, recorded, key):
+    """Problem 43: H offers KEY (None: none of the recorded types), which isn't one of the RECORDED keys. Never
+    accepted automatically (Q44): the fix says how to check it and where its line is."""
+    data = {"recorded": [fingerprint(k) for k in recorded.values()], "offered": fingerprint(key) if key else None}
+    return Problem(errors.HOST_KEY_CHANGED, f"{h['name']}'s host key changed - not connecting", data,
+                   fix="don't accept it blindly: compare the new fingerprint with the Host's console or owner. "
+                       "If the change is expected (reinstall), delete its line in ~/.ssh/roster_known_hosts "
+                       f"and run `roster setup --only {h['name']}`",
+                   details=f"recorded {', '.join(data['recorded'])}; offered {data['offered'] or 'none of those types'}")
 
 
 def step_auth(ctx):
@@ -482,6 +488,12 @@ def scan_key(h):
     """The host key H's address offers ({key_type, fingerprint}) and how it compares with the one roster recorded
     (recorded: none, match or changed), for the user to confirm before a first login. One connection, key
     exchange only: never logs in, never records anything. Raises Problem 40-42 when it can't get there."""
+    key, state = offered_key(h)
+    return {"key_type": key.get_name(), "fingerprint": fingerprint(key), "recorded": state}
+
+
+def offered_key(h):
+    """scan_key's work: (the paramiko key H's address offers, recorded: none|match|changed)."""
     import paramiko
     ctx = {"h": h}
     step_dns(ctx)
@@ -496,7 +508,7 @@ def scan_key(h):
         ctx["sock"].close()
     old = recorded.get(key.get_name())
     state = "none" if not recorded else "match" if old is not None and old.asbytes() == key.asbytes() else "changed"
-    return {"key_type": key.get_name(), "fingerprint": fingerprint(key), "recorded": state}
+    return key, state
 
 
 def verify_auth(ctx):

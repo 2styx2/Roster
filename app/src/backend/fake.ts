@@ -45,6 +45,7 @@ import {
   type SessionHandle,
   type TermSize,
   SessionRefusal,
+  HostKeyError,
   PublishError,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
@@ -95,6 +96,11 @@ export interface FakeScenario {
   pullRefusal?: Refusal;
   /** Per Host: what `host.verify_login` answers (default: every step ok). */
   verifyResults?: Record<string, HostCheck>;
+  /** Ticket 36: Hosts whose host key roster hasn't recorded: `session.prepare` refuses with 44 until
+   * `host.trust_key` records it. `changesOnTrust`: the Host offers another key by then (23);
+   * `unreachable`: fetching the key times out (42); `recordedAs`: a key got recorded meanwhile
+   * ("changed": another one, so ssh then refuses it as row 13). */
+  unknownKeys?: Record<string, { changesOnTrust?: boolean; unreachable?: boolean; recordedAs?: "match" | "changed" }>;
   /** Ticket 11: per address, what `host.scan_key` answers (default: an unrecorded ed25519 key). */
   scanKeys?: Record<string, Partial<ScannedKey>>;
   /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
@@ -240,6 +246,11 @@ export function makeHosts(n: number): HostList {
   return { hosts, groups };
 }
 
+/** Every Host's key unrecorded (ticket 36's fixtures). */
+function unknownKeysOf(list: HostList, how: NonNullable<FakeScenario["unknownKeys"]>[string] = {}) {
+  return Object.fromEntries(list.hosts.map((h) => [h.name, how]));
+}
+
 const problem = (kind: BackendProblem["kind"], message: string, hint: string, detail: string | null = null) => ({
   kind,
   message,
@@ -300,6 +311,14 @@ export const fixtures: Record<string, FakeScenario> = {
   slow: { hosts: makeHosts(300), delay: 1500 },
   /** Issue #78: Sessions take 1.2 s to start and 2.5 s more to log in, so the connecting state shows. */
   "slow-login": { hosts: makeHosts(12), apiVersion: 9, sessionDelay: 1200, loginMs: 2500 },
+  /** Ticket 36: no Host's key is recorded yet, so every first Session asks (fetching takes 0.8 s). */
+  "host-key": { hosts: makeHosts(12), apiVersion: 11, delay: 800, unknownKeys: unknownKeysOf(makeHosts(12)) },
+  /** Ticket 36: the same, but each Host offers another key by the time it's trusted (row 62). */
+  "host-key-changed": {
+    hosts: makeHosts(12),
+    apiVersion: 11,
+    unknownKeys: unknownKeysOf(makeHosts(12), { changesOnTrust: true }),
+  },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(
@@ -477,6 +496,8 @@ export function passingVerify(host: string): HostCheck {
 /** The password the fake's new Hosts take (`host.add` with a typed password). */
 export const FAKE_HOST_PASSWORD = "host pass";
 export const FAKE_FINGERPRINT = "SHA256:q0Wn8mHc6Yb2kZf1lJx7vQeT4rA9sD3uG5hP2wE8cNo";
+/** The key a Host offers after it changed (ticket 36's `changesOnTrust`). */
+export const FAKE_OTHER_FINGERPRINT = "SHA256:Zk3pLx9qWe7Rt5Yu1Io8Pa2Sd6Fg4Hj0Kl3Zx7Cv9Bn";
 
 /** A failed `host.verify_login`-shaped answer: `step` fails with `code`, the rest are skipped. */
 export function failingVerify(host: string, step: string, code: number, message: string, fix?: string): HostCheck {
@@ -684,6 +705,19 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     });
   const added: Omit<AddHostParams, "password">[] = [];
   let sessions = 0;
+  /** Hosts whose key `host.trust_key` recorded (ticket 36). */
+  const keysTrusted = new Set<string>();
+  const knownHost = (host: string) => {
+    const h = hosts.find((x) => x.name === host);
+    if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
+    return h;
+  };
+  /** host.scan_key / host.trust_key at an address that doesn't answer (roster's 42). */
+  const unanswered = (h: Host) =>
+    new BackendCallError(`${h.name} (${h.ip}:${h.ssh.port}) didn't answer within 5 s`, 42, {
+      fix: "retry later; is the Host up and the network path open? On 10.19.x the SSH rate limiter stops answering for about 4 minutes after many connections: wait a few minutes, don't retry in a loop",
+      details: "timed out",
+    });
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   /** serve answers one request at a time: vault calls queue behind a slow unlock. */
@@ -945,6 +979,13 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         if (scenario.passwordRefusal) throw refuse(scenario.passwordRefusal);
         if (vaultNow() === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
       }
+      if (scenario.unknownKeys?.[host] && !keysTrusted.has(host)) {
+        throw new BackendCallError(`roster hasn't seen ${host}'s host key before`, SessionRefusal.hostKeyUnknown, {
+          address: h.ip,
+          port: h.ssh.port,
+          fix: `compare its fingerprint with the Host's console or owner, then trust it when the app asks, or run \`roster setup --only ${host}\``,
+        });
+      }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
       return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
@@ -1031,6 +1072,36 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         : { ok: true };
       if (scenario.lateAnswers) throw late();
       return { commit: FAKE_COMMIT, upstream: "origin/main", message, hosts: now.hosts, groups: [], pulled: 0, sync };
+    },
+    async scanHostKey(host) {
+      await wait();
+      const h = knownHost(host);
+      const u = scenario.unknownKeys?.[host];
+      if (u?.unreachable) throw unanswered(h);
+      if (u?.recordedAs === "changed") {
+        keysTrusted.add(host);
+        scenario.sshFailures = { ...scenario.sshFailures, [host]: HOST_KEY_CHANGED_OUTPUT };
+      }
+      const recorded = keysTrusted.has(host) || !u ? "match" : (u.recordedAs ?? "none");
+      return { host, address: h.ip, port: h.ssh.port, key_type: "ssh-ed25519", fingerprint: FAKE_FINGERPRINT, recorded };
+    },
+    async trustHostKey(host, fingerprint) {
+      await wait();
+      const h = knownHost(host);
+      const u = scenario.unknownKeys?.[host];
+      if (u?.unreachable) throw unanswered(h);
+      const offered = u?.changesOnTrust ? FAKE_OTHER_FINGERPRINT : FAKE_FINGERPRINT;
+      if (fingerprint !== offered) {
+        throw new BackendCallError(`${host}'s host key changed while roster was asking - nothing was recorded`, HostKeyError.changedWhileAsked, {
+          asked: fingerprint,
+          offered,
+          fix: "don't trust it blindly: compare the new fingerprint with the Host's console or owner, then open the Session again to see it",
+          details: `asked about ${fingerprint}; now offered ssh-ed25519 ${offered}`,
+        });
+      }
+      const recorded = !keysTrusted.has(host);
+      keysTrusted.add(host);
+      return { host, address: h.ip, port: h.ssh.port, key_type: "ssh-ed25519", fingerprint, recorded };
     },
     async scanKey(address, port) {
       await wait();
