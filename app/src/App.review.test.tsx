@@ -140,7 +140,7 @@ describe("S8: command line completions say what they do", () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:c`);
     const options = screen.getAllByRole("option");
-    expect(options.map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual(["check", "close", "cmdline", "connect ", "choose"]);
+    expect(options.map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual(["check", "close", "cmdline", "connect ", "config", "choose"]);
     expect(options[0]).toHaveTextContent(/Check a Host/);
     expect(options[2]).toHaveTextContent(/Command line.*Leader\s*:/);
   });

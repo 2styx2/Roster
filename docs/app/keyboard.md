@@ -24,10 +24,10 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> ]` / `[` | `next` / `prev` | Next / previous Session (wraps) |
 | `<leader> 1`–`9` | `session N` | Go to Session N |
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |
-| `<leader> e` | `sidebar` | Show or hide the Sidebar |
-| `<leader> s` | `statusbar` | Show or hide the status bar |
+| `<leader> e` | `sidebar` | Show or hide the Sidebar, and say the option that keeps it (`modes.standard.sidebar`) |
+| `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and Host names |
-| `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source, filterable |
+| `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
@@ -36,6 +36,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`) if one is open |
 | — | `hidepanel` | Close the topmost side panel (bind it in `init.lua`) |
 | — | `info` | Say the Backend, the Box and the Inventory's path whole (the status bar cuts them) |
+| — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is (ticket 32, [config.md](config.md)) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |

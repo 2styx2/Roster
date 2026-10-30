@@ -67,9 +67,15 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                       ))}
                     </span>
                   </td>
-                  {/* Where it comes from, when it isn't built in (filtering by "builtin" still works). */}
+                  {/* Where it comes from, when it isn't built in (filtering by "builtin" still works),
+                      and its name in init.lua (ticket 32). */}
                   <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>
                     {r.source !== BUILTIN && <span title={r.source}>{r.source}</span>}
+                    {r.options.map((o) => (
+                      <code key={o} className="keys-option" title={`${o} in init.lua`}>
+                        {o}
+                      </code>
+                    ))}
                   </td>
                 </tr>
               ))}
@@ -78,6 +84,9 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
         </table>
         {shown.length === 0 && <p className="panel-empty">No bindings match “{query}”.</p>}
       </div>
+      <p className="panel-foot">
+        Change in init.lua under the name beside each row. <code>:config</code> opens it.
+      </p>
     </aside>
   );
 }

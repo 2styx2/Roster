@@ -829,3 +829,98 @@ fn a_continuous_stream_of_saves_still_reloads_within_half_a_second() {
     );
     writer.join().unwrap();
 }
+
+// `:config` (ticket 32) --------------------------------------------------------------------------
+
+/// The file `:config` creates: examples/init.lua with every line commented out, so creating it
+/// changes nothing until the user uncomments a line.
+#[test]
+fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
+    let starter = config::starter();
+    for line in starter.lines() {
+        assert!(
+            line.trim().is_empty() || line.trim_start().starts_with("--"),
+            "not commented out: {line:?}"
+        );
+    }
+    // Every option of the example is in it, ready to uncomment.
+    assert!(starter.contains("--   theme = \"auto\","));
+    assert!(starter.contains("--     size = 14,"));
+    let dir = with_init("starter", &starter);
+    let mut loaded = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
+    loaded.lines.clear();
+    assert_eq!(loaded, Config::default());
+}
+
+#[test]
+fn ensuring_the_file_creates_it_once_and_never_overwrites_it() {
+    let dir = temp_dir("ensure").join("nested").join("roster");
+    let first = config::ensure_file(&dir).unwrap();
+    assert!(first.created);
+    assert_eq!(first.path, dir.join("init.lua"));
+    assert_eq!(std::fs::read_to_string(&first.path).unwrap(), config::starter());
+
+    std::fs::write(&first.path, "return { vim = false }\n").unwrap();
+    let second = config::ensure_file(&dir).unwrap();
+    assert!(!second.created);
+    assert_eq!(
+        std::fs::read_to_string(&second.path).unwrap(),
+        "return { vim = false }\n"
+    );
+}
+
+#[test]
+fn the_editor_is_the_os_default_or_editor_in_wsl() {
+    assert_eq!(Config::default().editor, config::Editor::Os);
+    let dir = with_init("editor", r#"return { editor = "wsl" }"#);
+    assert_eq!(config::load(&dir).unwrap().editor, config::Editor::Wsl);
+    let dir = with_init("editor-bad", r#"return { editor = "notepad" }"#);
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(1));
+    assert!(e.message.starts_with("editor:"), "{}", e.message);
+}
+
+#[test]
+fn how_the_file_opens_follows_the_editor_and_the_os() {
+    use config::{Editor, OpenWith, Os, open_with};
+    let path = std::path::Path::new(r"C:\Users\me\AppData\Roaming\roster\init.lua");
+    assert_eq!(
+        open_with(Editor::Os, Os::Windows, path, None),
+        Ok(OpenWith::Default(path.to_path_buf()))
+    );
+    assert_eq!(
+        open_with(
+            Editor::Os,
+            Os::Linux,
+            std::path::Path::new("/home/me/.config/roster/init.lua"),
+            None
+        ),
+        Ok(OpenWith::Program {
+            argv: vec!["xdg-open".into(), "/home/me/.config/roster/init.lua".into()],
+            new_console: false,
+        })
+    );
+    // $EDITOR in the Backend's distro, in a console window of its own; the path goes in as an
+    // argument (never into the script), and wslpath turns it into a Linux path.
+    let Ok(OpenWith::Program { argv, new_console }) = open_with(Editor::Wsl, Os::Windows, path, Some("Fedora")) else {
+        panic!("expected a program")
+    };
+    assert!(new_console);
+    assert_eq!(argv[..4], ["wsl.exe", "-d", "Fedora", "--exec"]);
+    assert_eq!(argv.last().unwrap(), &path.display().to_string());
+    assert!(
+        argv.iter()
+            .any(|a| a.contains("${EDITOR:-vi}") && a.contains("wslpath"))
+    );
+    // No distro: WSL's default.
+    let Ok(OpenWith::Program { argv, .. }) = open_with(Editor::Wsl, Os::Windows, path, None) else {
+        panic!("expected a program")
+    };
+    assert_eq!(argv[..2], ["wsl.exe", "--exec"]);
+    // There's no WSL off Windows.
+    assert!(
+        open_with(Editor::Wsl, Os::Linux, path, None)
+            .unwrap_err()
+            .contains("Windows")
+    );
+}

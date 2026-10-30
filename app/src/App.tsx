@@ -69,6 +69,7 @@ import {
   isShown,
   otherMode,
   pick,
+  pieceToggled,
   placed,
   STATUS_SEGMENTS,
   togglePiece,
@@ -155,11 +156,15 @@ export function App({
   // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
   // with the last good Config and the error, so nothing changes but the toast.
   const [report, setReport] = useState<ConfigReport | null>(configProp);
+  // The newest report wins: one that arrives late (or twice) never replaces a newer one.
+  const takeReport = useCallback(
+    (r: ConfigReport) => setReport((cur) => (cur && cur.version >= r.version ? cur : r)),
+    [],
+  );
   useEffect(() => {
     const source = platform.config;
     if (!source) return;
-    // The newest report wins: one that arrives late (or twice) never replaces a newer one.
-    const take = (r: ConfigReport) => setReport((cur) => (cur && cur.version >= r.version ? cur : r));
+    const take = takeReport;
     let live = true;
     // Listen first, then ask again: a save between main.tsx's load and now isn't lost.
     const stop = source.watch(take);
@@ -173,7 +178,7 @@ export function App({
       live = false;
       stop();
     };
-  }, [platform]);
+  }, [platform, takeReport]);
   const config = report?.config ?? null;
   const derived = useMemo(() => (config ? deriveConfig(config) : null), [config]);
   const options = derived?.options ?? optionsProp;
@@ -526,9 +531,15 @@ export function App({
     },
     toggleSidebar: () => {
       if (layout.tree === "finder") return ctx.openFinder("tree");
-      setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], "sidebar") }));
+      const next = togglePiece(layout, "sidebar");
+      setLayouts((l) => ({ ...l, [viewMode]: next }));
+      setMessage(pieceToggled(viewMode, next, "sidebar"));
     },
-    toggleStatusBar: () => setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], l[viewMode].bar) })),
+    toggleStatusBar: () => {
+      const next = togglePiece(layout, layout.bar);
+      setLayouts((l) => ({ ...l, [viewMode]: next }));
+      setMessage(pieceToggled(viewMode, next, layout.bar));
+    },
     openCommandLine: (initial = "") => {
       if (overlay === null) rememberFocus();
       setOverlay({ cmdline: initial });
@@ -577,6 +588,31 @@ export function App({
         const { backend, command, inventory } = conn.info;
         setMessage(`Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")}`);
       }
+    },
+    config: (what) => {
+      const source = platform.config;
+      if (!source) return setMessage("There's no init.lua here: this window isn't the app (a plain browser)");
+      const failed = (e: unknown) => (e instanceof Error ? e.message : String(e));
+      if (what === "path") return setMessage(report ? `init.lua is at ${report.path}` : "init.lua hasn't been read yet");
+      if (what === "reload") {
+        source.reload().then(
+          (r) => {
+            if (r) takeReport(r);
+            setMessage(r?.error ? "init.lua has an error: the last good Config is still in use" : "Reloaded init.lua");
+          },
+          (e: unknown) => setMessage(`Can't reload init.lua: ${failed(e)}`),
+        );
+        return;
+      }
+      source.open().then(
+        ({ path, created }) =>
+          setMessage(
+            created
+              ? `Created ${path} with every option commented out. Uncomment one and save: it applies at once.`
+              : `Opened ${path}. Saving it applies it.`,
+          ),
+        (e: unknown) => setMessage(`Can't open init.lua: ${failed(e)}`),
+      );
     },
     openFinder: (source) => {
       if (!registries.finders.get(source)) return setMessage(`No finder named ${source}`);

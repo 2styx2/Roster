@@ -152,8 +152,8 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
         </ul>
         {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
         <div className="picker-footer">
-          <span role="status" title={notice || source.note?.() || undefined}>
-            {notice || source.note?.()}
+          <span role="status" title={notice || source.note?.(shown[current]) || undefined}>
+            {notice || source.note?.(shown[current])}
           </span>
           {shown.some((i) => i.mark) && (
             <span className="finder-legend" aria-hidden="true">

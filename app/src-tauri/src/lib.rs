@@ -96,6 +96,57 @@ async fn config_load(config: tauri::State<'_, ConfigState>) -> Result<Option<Rep
     blocking(move || Ok(loader.settled_report())).await
 }
 
+/// What `:config` did: the file's path, and whether it was just made (ticket 32).
+#[derive(serde::Serialize)]
+struct ConfigOpened {
+    path: String,
+    created: bool,
+}
+
+/// `:config`: makes init.lua from the commented-out example if there's none (never overwriting
+/// one), then opens it with the Config's `editor`. `$EDITOR` runs in the Backend's WSL distro.
+#[tauri::command]
+async fn config_open(
+    config: tauri::State<'_, ConfigState>,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<ConfigOpened, String> {
+    let Some(loader) = config.0.clone() else {
+        return Err("there's no config folder: the environment names no home".into());
+    };
+    let distro = state.get().ok().and_then(|b| match &b.target {
+        roster_core::detect::Target::Wsl { distro } => Some(distro.clone()),
+        roster_core::detect::Target::Local => None,
+    });
+    blocking(move || {
+        let ensured =
+            config::ensure_file(loader.dir()).map_err(|e| format!("can't create {}: {e}", loader.dir().display()))?;
+        let how = config::open_with(
+            loader.current().editor,
+            config::Os::current(),
+            &ensured.path,
+            distro.as_deref(),
+        )?;
+        config::open(&how).map_err(|e| format!("can't open {}: {e}", ensured.path.display()))?;
+        Ok(ConfigOpened {
+            path: ensured.path.display().to_string(),
+            created: ensured.created,
+        })
+    })
+    .await
+}
+
+/// `:config reload`: reads init.lua again now, and tells every listener as a save would.
+#[tauri::command]
+async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigState>) -> Result<Option<Report>, ()> {
+    use tauri::Emitter;
+    let Some(loader) = config.0.clone() else {
+        return Ok(None);
+    };
+    let report = blocking(move || Ok::<_, ()>(loader.reload())).await?;
+    let _ = app.emit("config-changed", &report);
+    Ok(Some(report))
+}
+
 /// How long the window waits for init.lua before it shows. A slower Config arrives as a
 /// `config-changed` event.
 const CONFIG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -394,7 +445,9 @@ pub fn run() {
             vault_unlock,
             vault_login,
             vault_lock,
-            config_load
+            config_load,
+            config_open,
+            config_reload
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

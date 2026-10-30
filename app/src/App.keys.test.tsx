@@ -227,6 +227,7 @@ describe("The command line", () => {
       "close",
       "cmdline",
       "connect ",
+      "config",
       "choose",
     ]);
     await user.keyboard("{Tab}{Tab}{Tab}{Tab}");
@@ -291,11 +292,11 @@ describe("The Key bindings panel", () => {
     await user.keyboard(`${LEADER}?`);
     const next = rowOf("Next Session");
     expect(next.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/Next Session.*Leader.*\]$/),
+      expect.stringMatching(/Next Session.*Leader.*\]keys\.leader$/),
       expect.stringMatching(/Next Session.*Leader.*t.*init\.lua/),
     ]);
     // A built-in binding doesn't say "builtin" (ticket 29 N1); only another source is named.
-    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space$/);
+    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Spaceleader$/);
     expect(within(panel()).getByRole("searchbox", { name: /filter/i })).toHaveFocus();
     await user.keyboard("close the s");
     const shown = within(panel()).getAllByRole("row").filter((r) => !r.classList.contains("group"));

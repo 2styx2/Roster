@@ -7,6 +7,16 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Windows | `%APPDATA%\roster\init.lua` |
 | Linux | `$XDG_CONFIG_HOME/roster/init.lua`, else `~/.config/roster/init.lua` (the folder roster itself may also keep a `roster.yml` in) |
 
+## `:config` (ticket 32)
+
+| Command | What it does |
+|---|---|
+| `:config` | Opens `init.lua` with the `editor` below. If there's no file yet, it first makes one from [`examples/init.lua`](../../examples/init.lua) with every line commented out, so it changes nothing until you uncomment something. A file that's there is never overwritten |
+| `:config reload` | Reads the file again now (a save already does this; use it when the watcher missed one) |
+| `:config path` | Says where the file is |
+
+Everything configurable says its name where it shows, so you can tell where to change it: each row of the Key bindings panel (`␣ ?`) names its option (`keys.leader`, `keys.list_vim`, `leader`) beside its source (`builtin`, `init.lua`, a Plugin), and the filter finds rows by it; the `:theme` finder says `theme = "<id>"` for the Theme under the cursor; and `␣ e` / `␣ s` say which `modes.<mode>.<piece>` keeps what they just showed or hid.
+
 **Moving from roster-desk.** The app was called roster-desk until it joined the roster repo (decision Q56). The first time the roster app starts, if its config folder has no `init.lua` and no `folders.yml` yet, it copies everything from the old `roster-desk` folder (`%APPDATA%\roster-desk`, `~/.config/roster-desk`) into it, never overwriting a file. The State moves the same way, from the old app-data folder (`dev.roster.desk`) to the new one (`dev.roster.app`), when there's no State there yet. The old folders are left as they are; delete them once you're happy. The development env vars were renamed too (`ROSTER_DESK_*` → `ROSTER_APP_*`); the old names still work when the new ones aren't set.
 
 ## How it works
@@ -124,6 +134,7 @@ They show first in the Folders section, marked "from init.lua", and only `init.l
 | Option | Default | |
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
+| `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app Windows or the desktop opens `.lua` files with; on Windows, Notepad if there's none), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
 
