@@ -26,6 +26,8 @@ pub struct Config {
     pub colors: ThemeColors,
     /// The UI's fonts (decision Q30).
     pub fonts: Fonts,
+    /// The rest of the UI's look.
+    pub ui: Ui,
     pub terminal: Terminal,
     /// The chord that takes the keyboard back from a terminal.
     pub leader: String,
@@ -67,6 +69,7 @@ impl Default for Config {
             themes: BTreeMap::new(),
             colors: ThemeColors::default(),
             fonts: Fonts::default(),
+            ui: Ui::default(),
             terminal: Terminal::default(),
             leader: "Ctrl+Space".into(),
             vim: true,
@@ -83,6 +86,15 @@ impl Default for Config {
             lines: BTreeMap::new(),
         }
     }
+}
+
+/// The UI's look, apart from fonts and colours.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct Ui {
+    /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
+    /// `:hints` decides and the State keeps its choice; set, it wins.
+    pub hints: Option<bool>,
 }
 
 /// A place in a Lua file.

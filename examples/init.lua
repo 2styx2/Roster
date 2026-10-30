@@ -69,6 +69,13 @@ return {
     ui_size = 15, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
   },
 
+  -- The UI -----------------------------------------------------------------------------------
+  ui = {
+    -- The keycap hints (status bar, empty states, panels, Picker footers, menus). Unset, `:hints
+    -- on|off|toggle` decides and the app remembers it; set here, it wins. The keys work either way.
+    -- hints = false,
+  },
+
   -- The terminal ------------------------------------------------------------------------------
   terminal = {
     -- Font families, most wanted first: the first one installed is used, and the bundled

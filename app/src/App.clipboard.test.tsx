@@ -74,6 +74,7 @@ describe("Editing keys in text fields", () => {
     const { user } = await ready(fixtures.edit as FakeScenario);
     await user.keyboard(`${LEADER}:edit linux-1-000{Enter}`);
     const panel = await screen.findByRole("region", { name: "Edit linux-1-000" });
+    await within(panel).findByText("Up to date with origin/main.");
     const title = within(panel).getByLabelText("Title");
     expect(title).toHaveFocus();
     expect(taken(title)).toEqual([]);

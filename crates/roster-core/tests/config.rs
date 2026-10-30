@@ -118,6 +118,18 @@ fn an_out_of_range_value_is_an_error_on_its_line() {
 }
 
 #[test]
+fn ui_hints_is_unset_by_default_and_takes_a_boolean() {
+    // Unset leaves it to `:hints`, whose choice the State keeps (like `theme = "auto"`).
+    assert_eq!(Config::default().ui.hints, None);
+    let dir = with_init("hints", "return { ui = { hints = false } }\n");
+    assert_eq!(config::load(&dir).unwrap().ui.hints, Some(false));
+    let dir = with_init("hints-bad", "return {\n  ui = { hints = \"no\" },\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("ui.hints"), "{e}");
+}
+
+#[test]
 fn the_ui_text_size_is_read_and_kept_in_range() {
     let dir = with_init("uisize", "return { fonts = { ui_size = 16 } }\n");
     assert_eq!(config::load(&dir).unwrap().fonts.ui_size, 16);

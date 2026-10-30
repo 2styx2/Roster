@@ -64,6 +64,16 @@ html, body, #root { height: 100%; margin: 0; overflow: hidden; }
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
 
+/* `ui.hints = false` / `:hints off`: every keycap hint goes out of sight, and stays in what
+   assistive tech reads, so names like "Find a Host, Leader f" don't change. `.key-hint` is a
+   whole hint (a footer's "↵ choose", an empty state's "Press ␣ n to add one."); `.keys` is a
+   keycap on its own (a button's, a menu's shortcut column). The Key bindings panel lists the
+   bindings themselves, so its keys stay. */
+:root[data-hints="off"] .key-hint,
+:root[data-hints="off"] .keys:not(.binding-keys) {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
 /* ---------- Controls ---------- */
 
 button {

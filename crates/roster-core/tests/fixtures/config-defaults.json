@@ -94,6 +94,9 @@
     },
     "theme": "auto",
     "themes": {},
+    "ui": {
+      "hints": null
+    },
     "vim": true
   },
   "terminalColors": [

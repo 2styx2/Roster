@@ -82,6 +82,7 @@ import { chosenAppearance, registerThemePicker, ThemeChoice } from "./theme/pick
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
+import { HintsChoice, HintsShown, registerHints } from "./ui/hints";
 import { Keys } from "./ui/Keys";
 import {
   defaultLayouts,
@@ -290,6 +291,15 @@ export function App({
     themeChoice.setConfigTheme(configTheme);
     themeChoice.setActive(theme.id);
   }, [themeChoice, configTheme, theme.id]);
+  // The keycap hints (iteration 3 feedback): init.lua's `ui.hints`, else `:hints`'s choice in the
+  // State (appState re-renders when it changes), else shown.
+  const [hintsChoice] = useState(() => new HintsChoice(store));
+  const configHints = config?.ui.hints ?? null;
+  hintsChoice.setConfig(configHints);
+  const hintsShown = hintsChoice.shown();
+  useLayoutEffect(() => {
+    document.documentElement.dataset.hints = hintsShown ? "on" : "off";
+  }, [hintsShown]);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   // A new size in the Config is a new zoom reset point, and where the font goes now.
   const [sizeFrom, setSizeFrom] = useState(terminalOptions.fontSize);
@@ -526,6 +536,7 @@ export function App({
     };
   }, [platform, foldersFile, registries, setStale]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
+  useEffect(() => registerHints(registries, hintsChoice), [registries, hintsChoice]);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
   const reportPath = useRef<string | null>(null);
   reportPath.current = report?.path ?? null;
@@ -1039,11 +1050,13 @@ export function App({
     <ConfigToast error={report?.error ?? null} warnings={warnings} onClose={() => setToastClosedFor(report)} />
   );
   const frame = (content: React.ReactNode) => (
-    <div className="window">
-      {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
-      <div className="window-body">{content}</div>
-      {toast}
-    </div>
+    <HintsShown value={hintsShown}>
+      <div className="window">
+        {isShown(layout, "titlebar") && <TitleBar controls={platform.window} />}
+        <div className="window-body">{content}</div>
+        {toast}
+      </div>
+    </HintsShown>
   );
 
   if (conn.state === "connecting") {
@@ -1142,11 +1155,20 @@ export function App({
           <span key={id} className="statusbar-hints">
             {stale.length > 0 && (
               <span className="hint stale" title="Saved, not applied yet: auto_reload is off in init.lua">
-                {stale.join(", ")} changed {sourceKeys ? <Keys keys={sourceKeys} leader={options.leader} /> : <code>:source</code>} apply
+                {stale.join(", ")} changed{" "}
+                {sourceKeys ? (
+                  <span className="key-hint">
+                    <Keys keys={sourceKeys} leader={options.leader} /> apply
+                  </span>
+                ) : (
+                  <>
+                    <code>:source</code> applies
+                  </>
+                )}
               </span>
             )}
             {hints.map(([k, what]) => (
-              <span key={what} className="hint">
+              <span key={what} className="hint key-hint">
                 <Keys keys={k} leader={options.leader} /> {what}
               </span>
             ))}
@@ -1229,7 +1251,7 @@ export function App({
                 Find a Host
               </button>
               {findKeys && (
-                <p className="empty-hint">
+                <p className="empty-hint key-hint">
                   or press <Keys keys={findKeys} leader={options.leader} />
                 </p>
               )}
@@ -1444,7 +1466,7 @@ export function App({
       </div>
       {pieces("bottom")}
       {hint && modeKeys.length > 0 && (
-        <div className="mode-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
+        <div className="mode-hint key-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
           {/* Two ways out, not one sequence: "␣ m or F11", never "␣ m F11". */}
           {modeKeys.map((k, i) => (
             <Fragment key={k}>
@@ -1497,10 +1519,10 @@ export function App({
     <>
       Locks after {options.idleLockMinutes} minutes idle.
       {lockKey && (
-        <>
+        <span className="key-hint">
           {" "}
           <Keys keys={lockKey} leader={options.leader} /> locks now.
-        </>
+        </span>
       )}
     </>
   );
