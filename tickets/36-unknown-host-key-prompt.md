@@ -1,6 +1,6 @@
 # 36: Ask before trusting an unknown host key
 
-**Iteration:** 4 · **Repo:** roster (CLI `serve` and app) · **Issue:** #45 (decision), new issue for the build
+**Iteration:** 4 · **Repo:** roster (CLI `serve` and app) · **Issue:** #45 (decision), [#64](https://github.com/2styx2/roster/issues/64)
 
 **Why:** Decision Q60 (owner, 2026-10-30). Sessions use `StrictHostKeyChecking accept-new`, so a Host with no recorded key is trusted on first contact without the user seeing it.
 
