@@ -55,27 +55,32 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
     )
     .map_err(internal)?;
     lua.set_memory_limit(env.limits.memory).map_err(internal)?;
+    // Running out of time is final: once the deadline has passed, every hook call errors again,
+    // and `pcall` / `xpcall` (sandbox) re-raise it, so no Lua code can catch it and carry on.
     let budget = env.limits.time;
     let deadline = Instant::now() + budget;
-    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |_, debug| {
+    let timed_out: Rc<RefCell<Option<String>>> = Rc::default();
+    let expired = Rc::clone(&timed_out);
+    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
         if Instant::now() < deadline {
             return Ok(VmState::Continue);
         }
-        let file = debug
-            .source()
-            .short_src
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| FILE_NAME.into());
-        let line = debug.current_line().unwrap_or(0);
-        Err(mlua::Error::runtime(format!(
-            "{file}:{line}: took longer than {} ms to run (an endless loop?)",
-            budget.as_millis()
-        )))
+        let message = expired
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let (file, line) = user_frame(lua, debug);
+                format!(
+                    "{file}:{line}: took longer than {} ms to run (an endless loop?)",
+                    budget.as_millis()
+                )
+            })
+            .clone();
+        Err(mlua::Error::runtime(message))
     })
     .map_err(internal)?;
 
     let api = Rc::new(RefCell::new(Vec::new()));
-    sandbox(&lua, dir, env, Rc::clone(&api)).map_err(internal)?;
+    sandbox(&lua, dir, env, Rc::clone(&api), timed_out).map_err(internal)?;
 
     let value: Value = lua
         .load(source)
@@ -110,12 +115,31 @@ fn located_message(path: &[String], message: &str) -> String {
     }
 }
 
+/// Where the Config's own code is: the running function if it's from a `.lua` file, else the
+/// nearest caller that is (the deadline can strike inside the sandbox's own wrappers).
+fn user_frame(lua: &Lua, debug: &mlua::debug::Debug) -> (String, i64) {
+    let here = |d: &mlua::debug::Debug| {
+        let file = d.source().short_src.map(|s| s.to_string())?;
+        file.ends_with(".lua")
+            .then(|| (file, d.current_line().map_or(0, |l| l as i64)))
+    };
+    here(debug)
+        .or_else(|| (1..64).find_map(|level| lua.inspect_stack(level, here).flatten()))
+        .unwrap_or_else(|| (FILE_NAME.into(), 0))
+}
+
 fn internal(e: mlua::Error) -> ConfigError {
     ConfigError::new(None, format!("couldn't start Lua: {e}"))
 }
 
 /// Takes away what a Config must not have, and adds `require` and `roster`.
-fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<()> {
+fn sandbox(
+    lua: &Lua,
+    dir: &Path,
+    env: &Env,
+    api: Rc<RefCell<Vec<ApiEntry>>>,
+    timed_out: Rc<RefCell<Option<String>>>,
+) -> mlua::Result<()> {
     let g = lua.globals();
     for name in ["dofile", "loadfile", "collectgarbage"] {
         g.raw_set(name, Value::Nil)?;
@@ -138,6 +162,21 @@ fn sandbox(lua: &Lua, dir: &Path, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) ->
     )
     .set_name("=sandbox")
     .exec()?;
+    // `pcall` and `xpcall` can't swallow running out of time: once it has, they raise it again.
+    let still_in_time = lua.create_function(move |_, ()| match &*timed_out.borrow() {
+        Some(message) => Err(mlua::Error::runtime(message.clone())),
+        None => Ok(()),
+    })?;
+    lua.load(
+        r##"local raw_pcall, raw_xpcall, still_in_time = pcall, xpcall, ...
+        local function after(...) still_in_time() return ... end
+        pcall = function(...) return after(raw_pcall(...)) end
+        xpcall = function(f, handler, ...)
+          return after(raw_xpcall(f, function(e) still_in_time() return handler(e) end, ...))
+        end"##,
+    )
+    .set_name("=sandbox")
+    .call::<()>(still_in_time)?;
     // print goes to the core's stderr (the `tauri dev` console), never to a file.
     g.raw_set(
         "print",

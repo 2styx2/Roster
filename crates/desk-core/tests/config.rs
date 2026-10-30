@@ -466,3 +466,60 @@ fn the_example_init_lua_loads_and_is_the_defaults() {
     config.lines.clear();
     assert_eq!(config, Config::default());
 }
+
+/// Loads `dir` with a short time limit on another thread, and fails the test (instead of hanging
+/// it) if the load doesn't come back within `within`.
+fn load_quickly(dir: &std::path::Path, within: std::time::Duration) -> Result<Config, config::ConfigError> {
+    let dir = dir.to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let env = config::Env {
+            limits: config::Limits {
+                time: std::time::Duration::from_millis(100),
+                ..config::Limits::default()
+            },
+            ..config::Env::default()
+        };
+        let _ = tx.send(config::load_with(&dir, &env));
+    });
+    rx.recv_timeout(within)
+        .expect("init.lua kept running past its time limit")
+}
+
+#[test]
+fn pcall_and_xpcall_cant_catch_running_out_of_time() {
+    for (name, lua) in [
+        ("pcall", "while true do pcall(function() while true do end end) end"),
+        (
+            "xpcall",
+            "while true do xpcall(function() while true do end end, function(e) return e end) end",
+        ),
+        (
+            "xpcall-handler",
+            "while true do xpcall(function() error('x') end, function() while true do end end) end",
+        ),
+        (
+            "nested",
+            "while true do pcall(pcall, pcall, function() while true do end end) end",
+        ),
+        (
+            "coroutine",
+            "while true do pcall(function() local co = coroutine.wrap(function() while true do end end) co() end) end",
+        ),
+    ] {
+        let dir = with_init(&format!("deadline-{name}"), lua);
+        let e = load_quickly(&dir, std::time::Duration::from_secs(5)).unwrap_err();
+        assert!(e.message.contains("took longer"), "{name}: {e}");
+        assert_eq!(e.line, Some(1), "{name}: {e}");
+    }
+    // In time, they work as usual.
+    assert_eq!(probe("pcall-ok", "select(2, pcall(function() return 7 end))"), "7");
+    assert_eq!(probe("pcall-err", "select(2, pcall(error, 'no', 0))"), "no");
+    assert_eq!(
+        probe(
+            "xpcall-ok",
+            "select(2, xpcall(error, function(e) return 'h:' .. e end, 'no', 0))"
+        ),
+        "h:no"
+    );
+}
