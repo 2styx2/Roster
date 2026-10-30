@@ -1,10 +1,10 @@
 # roster's taste
 
-How the roster app should look, move and talk, so it feels like *ours* and not "Linear with jade". Linear is the discipline we borrow (density, restraint, a quiet surface). `emil-design-eng` and `animate` are the craft. This page is the identity. Every UI change should be explainable with one of these lines. When they conflict with a reference, **this page wins** (except on accessibility).
+How the roster app should look, move and talk, so it feels like *ours* and not "Linear with an accent". Linear is the discipline we borrow (density, restraint, a quiet surface). `emil-design-eng` and `animate` are the craft. This page is the identity. Every UI change should be explainable with one of these lines. When they conflict with a reference, **this page wins** (except on accessibility).
 
 ## The idea: a live map of your network, a fast way into it, and yours to shape
 
-roster *is* the map: Hosts are nodes, and Sessions are live connections between this Box and them. The logo already says this (D1: nodes joined into an R, with the accent node at the end of the leg, the Host you're connecting to). Carry that one motif everywhere instead of decorating.
+roster *is* the map: Hosts are nodes, and Sessions are live connections between this Box and them. The logo already says this (Gap orbit, decision Q57): **the R in its orbit**, nodes joined into a letter, with this Box as the square at the foot of the stem. The leg reaches out to the orbit, and **the orbit is broken where the Host sits: the gap is where the Host connects**. That Host is the one accent node. Carry that one motif everywhere instead of decorating.
 
 And like Neovim or VS Code, **roster is a tool you make your own**. The look, the keys, the layout and the behaviour are opinionated defaults that `init.lua`, themes and Plugins can reshape. Configurability isn't a settings page bolted on; it's part of the identity.
 
@@ -13,9 +13,11 @@ And like Neovim or VS Code, **roster is a tool you make your own**. The look, th
 1. **The terminal is the hero.** Chrome recedes: neutral near-black, hairlines, no gradients, no glass, no shadows on resting surfaces. If a pixel isn't helping you reach or use a shell, it's quiet.
 2. **Nodes and edges are our only ornament.**
    - State dots are *nodes*, and their shapes carry meaning: filled = key, ring = password, dashed = unreviewed, hollow grey = ended.
-   - Empty states, the lock screen and loading use the D1 graph, small and still, never as wallpaper.
+   - Empty states, the lock screen and loading use the Gap orbit mark, small and still, never as wallpaper.
    - "Connecting" is an edge being drawn, a short line from this Box to the Host's node. It isn't a spinner.
-3. **Jade means "live".** The accent is spent only on what's connected or actionable now: the current Session's bar, a live node, the primary button, the cursor. Nothing decorative is jade. A screen with no live connection has almost no jade on it.
+3. **The accent means "live".** The accent is apricot (Apricot flare, Q57), and it's spent only on what's connected or actionable now: the current Session's bar, a live node, the primary button, the cursor, the Host in the logo. Nothing decorative is apricot. A screen with no live connection has almost none on it.
+   - **The second tone (Sea glass) is for place, not action:** this Box's square and the dashed node of an unreviewed Host. Shapes only, never text and never something you can click.
+   - Warn is yellow and error raspberry, so neither is ever mistaken for the accent.
 4. **Two voices of type.**
    - **Iosevka 500** is for *data and the machine*: Host names, addresses, ports, fingerprints, keys, commands and terminal text.
    - **Inter** is for *the app talking to you*: labels, headings and copy.
@@ -37,20 +39,21 @@ What makes roster feel like Neovim or VS Code, and what every feature must respe
 - **Make changing it one step away.** `:config` opens `init.lua`. Every panel that shows a configurable thing hints at its name, for example `theme`, `keys`, `modes.focus.sessionbar`. `examples/init.lua` documents every option. Saving applies live.
 - **Plugins look native.** Plugin pieces render with the same tokens, components, keycaps and voice as built-ins, so a well-made Plugin is indistinguishable from the app. Third-party HTML is out in v1 for this reason, as well as for security.
 - **Breaking your config never breaks the app.** A config mistake shows the file and line, and the last good config keeps running. A misbehaving Plugin is disabled and named, never fatal.
-- **Opinionated, then out of the way.** The defaults (Standard mode, jade, Inter and Iosevka, `␣` as the Leader) are good enough that most people never open `init.lua`. Everyone who does can change all of it.
+- **Opinionated, then out of the way.** The defaults (Standard mode, Apricot flare, Inter and Iosevka, `␣` as the Leader) are good enough that most people never open `init.lua`. Everyone who does can change all of it.
 - **Two lines that never move, whatever the config:** secrets never reach the UI or Plugins, and Inventory changes from Plugins only become Pending changes. Configurability stops at safety.
 
 ## Signature details (do these consistently)
 
 | Detail | Spec |
 |---|---|
-| **Connect** | A 1px edge in jade draws from the Sidebar row's node toward the terminal, over about 120 ms. The node fills when the Session reaches a shell. On failure the edge snaps back and the node turns hollow with the error state. |
+| **Connect** | A 1px edge in the accent draws from the Sidebar row's node toward the terminal, over about 120 ms. The node fills when the Session reaches a shell. On failure the edge snaps back and the node turns hollow with the error state. |
 | **Session ended** | The node empties to a hollow grey ring. The row keeps its place. Nothing jumps. |
-| **Empty states** | The D1 graph (small, 48–64px, muted), one plain sentence, and the keycap for the next action. |
-| **Lock screen** | The D1 mark, the Box name in Iosevka, one field. Nothing else. |
-| **Selection** | Raised fill, plus a 2px jade bar only on the live Session (Q53). The cursor in App mode is raised without the bar. |
+| **Empty states** | The Gap orbit mark (small, 40–64px, muted), one plain sentence, and the keycap for the next action. |
+| **Lock screen** | The Gap orbit mark, the Box name in Iosevka, one field. Nothing else. |
+| **Selection** | Raised fill, plus a 2px accent bar only on the live Session (Q53). The cursor in App mode is raised without the bar. |
 | **Data cells** | IPs, ports and fingerprints in Iosevka at the muted color, tabular numbers, never cut mid-token. |
-| **Status bar** | Reads like a tmux line: `● WSL: FedoraLinux-44  devbox  91 hosts`. Data in Iosevka, hints as keycaps. |
+| **Status bar** | Reads like a tmux line: `● WSL: FedoraLinux-44  ■ devbox  91 hosts`, the `■` being this Box's square in the second tone. Data in Iosevka, hints as keycaps. |
+| **Logo** | Gap orbit, plain (Q57): the R, its orbit and the Box in the text colour, one accent Host in the gap. The app icon is the same mark on an Ink tile; at 24 px and under, the small cut (stem, bowl, leg). Drawn from Theme tokens in the app, never animated, never given a second accent. |
 
 ## Not us
 

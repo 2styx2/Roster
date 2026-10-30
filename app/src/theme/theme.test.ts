@@ -17,7 +17,8 @@ describe("Themes", () => {
 
   it("names CSS variables in kebab case", () => {
     expect(cssVar("raisedLine")).toBe("--raised-line");
-    expect(themeVariables(rosterDark)["--accent"]).toBe("#1f9d68");
+    expect(themeVariables(rosterDark)["--accent"]).toBe("#ff9a70");
+    expect(themeVariables(rosterDark)["--tone"]).toBe("#82ccd5");
   });
 
   it("follows the OS light/dark setting with theme = auto", () => {
@@ -53,7 +54,7 @@ describe("Themes", () => {
   it("puts the tokens and fonts on the document", () => {
     const el = document.createElement("div");
     applyTheme(el, rosterLight, defaultAppearance.fonts);
-    expect(el.style.getPropertyValue("--bg")).toBe("#ffffff");
+    expect(el.style.getPropertyValue("--bg")).toBe("#f2f2f4");
     expect(el.style.getPropertyValue("--font-mono")).toContain("Iosevka");
     expect(el.dataset.theme).toBe("roster-light");
     expect(el.style.colorScheme).toBe("light");

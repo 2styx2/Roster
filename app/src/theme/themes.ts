@@ -1,14 +1,18 @@
-// The bundled Themes. Roster dark and Roster light are the defaults (decision Q29: jade accent,
-// Linear's muted, dark-first palette) and keep the standard ANSI palette (decision Q37). Gruvbox
-// Dark, Nord, Catppuccin Mocha and Tokyo Night (decision Q51, ticket 30) come from their official
-// palettes and bring their own ANSI colours from the same source. docs/app/themes.md credits each
-// source and lists where a token isn't a palette colour.
+// The bundled Themes. Roster dark and Roster light are the defaults (decision Q57: Apricot flare
+// on Ink and Paper, Sea glass as the second tone) and keep the standard ANSI palette (decision
+// Q37). Gruvbox Dark, Nord, Catppuccin Mocha and Tokyo Night (decision Q51, ticket 30) come from
+// their official palettes, second tone included, and bring their own ANSI colours from the same
+// source. docs/app/themes.md credits each source and lists where a token isn't a palette colour.
 import { BUILTIN, Registry } from "../registry";
 import type { Theme, ThemeRegistry } from "./theme";
 
-// Jade (decision Q29). Its button text is near-black in Roster dark, and Roster light uses the
-// darker jade for its fills, so both are 4.5:1 (ticket 30).
-const JADE = "#1f9d68";
+// Apricot flare on Ink and Paper (decision Q57). The accent is apricot (#ff9a70 dark, the deeper
+// #9b411a light, so white text reads on it), Ink #0f1011 is Roster dark's background and Paper
+// #e8e8ea is Roster light's chrome. The second tone, Sea glass, marks this Box and unreviewed
+// Hosts: shapes only, never text. warn is yellow and error raspberry, so neither reads as the
+// apricot (Q57 replaces Q29's jade and the old amber and red).
+const INK = "#0f1011";
+const PAPER = "#e8e8ea";
 
 export const rosterDark: Theme = {
   id: "roster-dark",
@@ -16,36 +20,37 @@ export const rosterDark: Theme = {
   label: "Roster dark",
   appearance: "dark",
   colors: {
-    accent: JADE,
-    accentText: "#08090a",
-    accentInk: "#3fc28a",
-    bg: "#08090a",
-    chrome: "#0f1011",
-    sidebar: "#0f1011",
-    panel: "#131415",
-    raised: "#191a1b",
-    raisedLine: "#28292b",
-    hover: "#151617",
-    line: "#1c1d1f",
-    lineStrong: "#2a2b2e",
-    text: "#f0f1f1",
-    muted: "#8b8d91",
-    faint: "#5f6165",
-    warn: "#d9a53f",
-    error: "#ec5f57",
-    danger: "#c42b1c",
+    accent: "#ff9a70",
+    accentText: INK,
+    accentInk: "#ffa076",
+    tone: "#82ccd5",
+    bg: INK,
+    chrome: "#141617",
+    sidebar: "#141617",
+    panel: "#171819",
+    raised: "#1e1f20",
+    raisedLine: "#2c2d2e",
+    hover: "#18191a",
+    line: "#1f2021",
+    lineStrong: "#282a2b",
+    text: PAPER,
+    muted: "#98989a",
+    faint: "#69696a",
+    warn: "#e9c944",
+    error: "#e25a98",
+    danger: "#b9205c",
     dangerText: "#ffffff",
     backdrop: "rgb(0 0 0 / 0.5)",
     shadow: "rgb(0 0 0 / 0.5)",
   },
   terminal: {
-    background: "#08090a",
-    foreground: "#d6d7d8",
-    cursor: "#d6d7d8",
-    cursorAccent: "#08090a",
-    selectionBackground: "#2c3a35",
-    searchMatch: "#5c4a1a",
-    searchActiveMatch: "#b8860b",
+    background: INK,
+    foreground: "#d4d4d6",
+    cursor: "#d4d4d6",
+    cursorAccent: INK,
+    selectionBackground: "#493128",
+    searchMatch: "#4c441f",
+    searchActiveMatch: "#a89235",
   },
 };
 
@@ -55,42 +60,43 @@ export const rosterLight: Theme = {
   label: "Roster light",
   appearance: "light",
   colors: {
-    accent: "#17845a",
+    accent: "#9b411a",
     accentText: "#ffffff",
-    accentInk: "#157953",
-    bg: "#ffffff",
-    chrome: "#f5f6f8",
-    sidebar: "#f5f6f8",
-    panel: "#ffffff",
-    raised: "#e9ecef",
-    raisedLine: "#d3d7dd",
-    hover: "#eef0f2",
-    line: "#e3e5e9",
-    lineStrong: "#d3d6db",
-    text: "#1d2127",
-    muted: "#5d6570",
-    faint: "#8e959e",
-    warn: "#955f00",
-    error: "#c4302b",
-    danger: "#c42b1c",
+    accentInk: "#9b411a",
+    tone: "#296d82",
+    bg: "#f2f2f4",
+    chrome: PAPER,
+    sidebar: PAPER,
+    panel: "#f7f7f9",
+    raised: "#fcfcfe",
+    raisedLine: "#c7c7c9",
+    hover: "#ededef",
+    line: "#d4d4d6",
+    lineStrong: "#c4c4c6",
+    text: "#1e1f20",
+    muted: "#5a5b5c",
+    faint: "#8b8c8e",
+    warn: "#5d580c",
+    error: "#a11d6c",
+    danger: "#b9205c",
     dangerText: "#ffffff",
     backdrop: "rgb(15 17 21 / 0.22)",
     shadow: "rgb(15 17 21 / 0.16)",
   },
   terminal: {
-    background: "#ffffff",
-    foreground: "#2a2f36",
-    cursor: "#2a2f36",
-    cursorAccent: "#ffffff",
-    selectionBackground: "#cde9db",
-    searchMatch: "#f6e3a1",
-    searchActiveMatch: "#e9b949",
+    background: "#f2f2f4",
+    foreground: "#2a2b2d",
+    cursor: "#2a2b2d",
+    cursorAccent: "#f2f2f4",
+    selectionBackground: "#e1cfc8",
+    searchMatch: "#eee2ae",
+    searchActiveMatch: "#e9c944",
   },
 };
 
 // Gruvbox Dark, medium contrast (morhetz/gruvbox, colors/gruvbox.vim, MIT/X11): bg0 #282828,
-// yellow accent (bright_yellow; orange is the documented alternative, docs/app/themes.md). The ANSI
-// palette is the one gruvbox.vim gives Neovim's terminal.
+// yellow accent (bright_yellow; orange is the documented alternative, docs/app/themes.md), aqua
+// (bright_aqua) second tone. The ANSI palette is the one gruvbox.vim gives Neovim's terminal.
 export const gruvbox: Theme = {
   id: "gruvbox",
   source: BUILTIN,
@@ -100,6 +106,7 @@ export const gruvbox: Theme = {
     accent: "#fabd2f",
     accentText: "#282828",
     accentInk: "#fabd2f",
+    tone: "#8ec07c",
     bg: "#282828",
     chrome: "#1d2021",
     sidebar: "#1d2021",
@@ -149,7 +156,7 @@ export const gruvbox: Theme = {
 };
 
 // Nord (nordtheme/nord, src/nord.css, MIT): Polar Night surfaces, Snow Storm text, frost blue
-// (nord8) accent. Terminal and ANSI colours and the muted text (dim_foreground) from the official
+// (nord8) accent, Aurora purple (nord15) second tone. Terminal and ANSI colours and the muted text (dim_foreground) from the official
 // nordtheme/alacritty port. `faint` is derived (between nord3 and nord4): nord3 is too dark for text.
 export const nord: Theme = {
   id: "nord",
@@ -160,6 +167,7 @@ export const nord: Theme = {
     accent: "#88c0d0",
     accentText: "#2e3440",
     accentInk: "#8fc4d3",
+    tone: "#b48ead",
     bg: "#2e3440",
     chrome: "#2e3440",
     sidebar: "#2e3440",
@@ -209,7 +217,7 @@ export const nord: Theme = {
 };
 
 // Catppuccin Mocha (catppuccin/palette, palette.json, MIT): base/mantle/surface0-2 surfaces,
-// mauve accent with crust text on it, and the palette's own `ansiColors` for the terminal.
+// mauve accent with crust text on it, teal second tone, and the palette's own `ansiColors` for the terminal.
 export const catppuccinMocha: Theme = {
   id: "catppuccin-mocha",
   source: BUILTIN,
@@ -219,6 +227,7 @@ export const catppuccinMocha: Theme = {
     accent: "#cba6f7",
     accentText: "#11111b",
     accentInk: "#cca7f7",
+    tone: "#94e2d5",
     bg: "#1e1e2e",
     chrome: "#181825",
     sidebar: "#181825",
@@ -269,7 +278,7 @@ export const catppuccinMocha: Theme = {
 
 // Tokyo Night, the "night" style (folke/tokyonight.nvim, lua/tokyonight/colors/night.lua over
 // storm.lua, Apache-2.0): bg #1a1b26, blue accent (purple, #bb9af7, is the documented
-// alternative). Terminal and ANSI colours from the repo's extras/kitty/tokyonight_night.conf.
+// alternative), teal second tone. Terminal and ANSI colours from the repo's extras/kitty/tokyonight_night.conf.
 // `hover` is storm's bg_dark (#1f2335), which night overrides: night has no step between bg and
 // bg_highlight.
 export const tokyoNight: Theme = {
@@ -281,6 +290,7 @@ export const tokyoNight: Theme = {
     accent: "#7aa2f7",
     accentText: "#16161e",
     accentInk: "#7aa2f7",
+    tone: "#1abc9c",
     bg: "#1a1b26",
     chrome: "#16161e",
     sidebar: "#16161e",

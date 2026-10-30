@@ -114,6 +114,7 @@
     "accent",
     "accent_text",
     "accent_ink",
+    "tone",
     "bg",
     "chrome",
     "sidebar",

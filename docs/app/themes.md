@@ -1,9 +1,9 @@
 # Themes
 
-A Theme (GLOSSARY) is a named set of colour tokens: 21 UI tokens, the terminal's own colours and,
+A Theme (GLOSSARY) is a named set of colour tokens: 22 UI tokens, the terminal's own colours and,
 optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
 `app/src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
-picks, changes or defines one. Decisions Q29, Q37, Q50 and Q51.
+picks, changes or defines one. Decisions Q37, Q51 and Q57 (which replaced Q29's jade and Q50's values).
 
 ## Choosing one: `:theme`
 
@@ -24,8 +24,8 @@ Order of precedence: a preview, then `init.lua`'s `theme`, then the State's choi
 
 | id | Label | Source | License |
 |---|---|---|---|
-| `roster-dark` | Roster dark | Our own (Q29, Q50) | — |
-| `roster-light` | Roster light | Our own (Q29) | — |
+| `roster-dark` | Roster dark | Our own: Apricot flare on Ink (Q57) | — |
+| `roster-light` | Roster light | Our own: Apricot flare on Paper (Q57) | — |
 | `gruvbox` | Gruvbox Dark | [morhetz/gruvbox](https://github.com/morhetz/gruvbox), `colors/gruvbox.vim` | MIT/X11 (README, `package.json`) |
 | `nord` | Nord | [nordtheme.com](https://www.nordtheme.com/docs/colors-and-palettes), [nordtheme/nord](https://github.com/nordtheme/nord) `app/src/nord.css`, terminal colours from [nordtheme/alacritty](https://github.com/nordtheme/alacritty) | MIT (© Sven Greb) |
 | `catppuccin-mocha` | Catppuccin Mocha | [catppuccin/palette](https://github.com/catppuccin/palette), `palette.json` (`mocha.colors`, `mocha.ansiColors`) | MIT (© Catppuccin) |
@@ -39,24 +39,24 @@ neutral standard ANSI palette (Q37); the others bring their own from the same so
 **Gruvbox Dark**, medium contrast (`bg0` = `dark0`): bg `#282828`, chrome and Sidebar
 `dark0_hard` `#1d2021`, panel and hover `dark0_soft`, raised `dark1`, lines `dark1`/`dark2`, text
 `light1`, muted `light4` (lifted, see below), faint `dark4`. Accent `bright_yellow` `#fabd2f` with
-`dark0` text; warn `bright_orange`, error `bright_red` (lifted), danger `neutral_red`. Terminal: `bg0`/`fg1`, ANSI as
+`dark0` text, tone `bright_aqua` `#8ec07c`; warn `bright_orange`, error `bright_red` (lifted), danger `neutral_red`. Terminal: `bg0`/`fg1`, ANSI as
 `gruvbox.vim` sets `g:terminal_color_0..15`. For the orange accent, in `init.lua`:
 `colors = { accent = "#fe8019", accent_ink = "#fe8019" }` (`#282828` on it is 5.84:1).
 
 **Nord**: bg, chrome and Sidebar `nord0` (as Nord's own editor ports do, with hairlines between),
 panel and hover `nord1`, raised `nord2`, raised line `nord3`, text `nord6`, accent frost `nord8`
-`#88c0d0` with `nord0` text; warn `nord13`, error (lifted) and danger `nord11`. Terminal and ANSI from the
+`#88c0d0` with `nord0` text, tone Aurora purple `nord15` `#b48ead` (3.05:1 on `nord2`, the tightest tone; Aurora green is too close to the frost accent); warn `nord13`, error (lifted) and danger `nord11`. Terminal and ANSI from the
 official Alacritty port; search matches `nord2`, the active one `nord10`.
 
 **Catppuccin Mocha**: bg `base`, chrome, Sidebar and panel `mantle`, hover and lines `surface0`,
 raised `surface1` (line `surface2`), text `text`, muted `subtext0` (lifted), faint `overlay1`. Accent
-`mauve` with `crust` text; warn `yellow`, error (lifted) and danger `red`. Cursor `rosewater`, selection
+`mauve` with `crust` text, tone `teal` `#94e2d5`; warn `yellow`, error (lifted) and danger `red`. Cursor `rosewater`, selection
 `surface2` (the Windows Terminal port's). ANSI from `ansiColors`.
 
 **Tokyo Night** (night, not storm: closest to Roster dark's near-black): bg `#1a1b26`, chrome,
 Sidebar and panel `bg_dark` `#16161e`, raised and lines `bg_highlight`, raised line and strong
 lines `fg_gutter`, text `fg`, muted `fg_dark`, faint `dark5`. Accent `blue` `#7aa2f7` with
-`bg_dark` text (for purple: `accent = "#bb9af7"`); warn `yellow`, error `red`, danger `red1`.
+`bg_dark` text (for purple: `accent = "#bb9af7"`), tone `teal` `#1abc9c`; warn `yellow`, error `red`, danger `red1`.
 Search matches `blue0`, the active one `orange`, as the Neovim theme does.
 
 ### Where a token isn't a palette colour
@@ -69,15 +69,35 @@ Search matches `blue0`, the active one `orange`, as the Neovim theme does.
 | Nord | `accent_ink` | `#8fc4d3` | `nord8`, a touch lighter for 4.5:1 on `nord2` |
 | Gruvbox Dark | `muted`, `error` | `#aea08c`, `#fc7b6c` | `light4` and `bright_red`, lifted to 4.5:1 on `dark1` |
 | Catppuccin Mocha | `muted`, `error`, `accent_ink` | `#afb6ce`, `#f59db5`, `#cca7f7` | `subtext0`, `red`, `mauve`, lifted to 4.5:1 on `surface1` |
-| Roster light | `accent_ink`, `warn` | `#157953`, `#955f00` | darkened to 4.5:1 on `raised` and `hover` (the jade fill stays `#17845a`) |
 | Tokyo Night | `hover` | `#1f2335` | storm's `bg_dark`: night has no step between `bg` and `bg_highlight` |
 | all four | `backdrop`, `shadow` | translucent black (Catppuccin: `crust`) | overlays, not colours |
 
-### Roster dark and light (ticket 30)
+### Roster dark and light (decision Q57)
 
-The contrast test found white on jade `#1f9d68` at 3.45:1. Roster dark keeps the jade fill and
-puts near-black `#08090a` text on it (5.77:1). Roster light fills with the darker jade `#17845a`
-(its `accent_ink` already), with white text (4.68:1). The backgrounds (Q50) are unchanged.
+**Apricot flare** on **Ink** and **Paper**, with **Sea glass** as the second tone:
+
+| Token | Roster dark | Roster light |
+|---|---|---|
+| `accent` | `#ff9a70` (Apricot flare) | `#9b411a` (the deeper apricot, so white reads on it) |
+| `accent_text` | Ink `#0f1011` (9.17:1) | `#ffffff` (6.64:1) |
+| `accent_ink` | `#ffa076` | `#9b411a` |
+| `tone` | `#82ccd5` (Sea glass) | `#296d82` |
+| `bg` | Ink `#0f1011` | `#f2f2f4` |
+| `chrome`, `sidebar` | `#141617` | Paper `#e8e8ea` |
+| `text` | Paper `#e8e8ea` | `#1e1f20` |
+| `warn` | `#e9c944` (yellow) | `#5d580c` |
+| `error` | `#e25a98` (raspberry) | `#a11d6c` |
+| `danger` | `#b9205c`, white glyph | `#b9205c`, white glyph |
+
+**The second tone** (`tone`) marks *place*, never action: this Box's square in the status bar and the
+dashed ring of an unreviewed Host. It's a shape colour only (`app/src/styles.test.ts` fails if a
+rule colours text with `--tone`), held at 3:1 on every surface. Every bundled Theme has one from its
+own palette (above); a Theme of your own that leaves it out gets its base's.
+
+**Warn and error moved off the accent.** Next to the apricot, the old amber warn and red error
+read as the accent (ΔE 7.7–13), so warn is yellow and error raspberry; the contrast test keeps
+both, and danger, at least 12 apart from the accent in Roster dark and light. The terminal keeps the
+standard ANSI palette (Q37); its selection is a dim apricot.
 
 ## The contrast test
 
@@ -86,20 +106,24 @@ puts near-black `#08090a` text on it (5.77:1). Roster light fills with the darke
 - every **text token** (`text`, `muted`, `warn`, `error`, `accent_ink`) at least **4.5:1** on every
   surface text sits on: `bg`, `chrome`, `sidebar`, `panel`, `raised` and `hover`;
 - the accent (the live Session's 2px bar, decision Q53) at least **3:1** against `sidebar` and `raised`;
+- the second tone (`tone`, shapes only) at least **3:1** against every surface, and at least 12
+  (OKLab ΔE ×100) from the accent, so an unreviewed node never looks live;
 - the accent's button text (`accent_text` on `accent`) at least **4.5:1**;
+- the close button's glyph (`danger_text` on `danger`) at least **3:1** (4.5:1 in Roster dark and
+  light, where `warn`, `error` and `danger` must also be at least 12 from the accent);
 - terminal foreground at least **4.5:1** on the terminal background.
 
-The values above that were lifted are the nearest ones (mixed toward white, or black in Roster
-light, so the hue stays) that pass. Lowest ratio of `muted` (the weakest text token in most Themes):
+The values above that were lifted are the nearest ones (mixed toward white, so the hue stays)
+that pass. Lowest ratio of `muted` (the weakest text token in most Themes):
 
-| Theme | muted, lowest | accent text |
-|---|---|---|
-| Roster dark | 5.24 (raised) | 5.77 |
-| Roster light | 4.97 (raised) | 4.68 |
-| Gruvbox Dark | 4.53 (raised) | 8.69 |
-| Nord | 4.52 (raised) | 6.24 |
-| Catppuccin Mocha | 4.52 (raised) | 9.23 |
-| Tokyo Night | 6.36 (raised) | 7.14 |
+| Theme | muted, lowest | accent text | tone, lowest |
+|---|---|---|---|
+| Roster dark | 5.73 (raised) | 9.17 | 9.08 (raised) |
+| Roster light | 5.56 (chrome) | 6.64 | 4.76 (chrome) |
+| Gruvbox Dark | 4.53 (raised) | 8.69 | 5.51 (raised) |
+| Nord | 4.52 (raised) | 6.24 | 3.05 (raised) |
+| Catppuccin Mocha | 4.52 (raised) | 9.23 | 6.12 (raised) |
+| Tokyo Night | 6.36 (raised) | 7.14 | 5.57 (raised) |
 
 **`faint` is not a text colour** (decision Q53): it's for icons, chevrons, dots' outlines and rules
 only, and isn't held to a text ratio. All real text (labels, hints, addresses, counts, headings,
