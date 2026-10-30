@@ -2,7 +2,15 @@
 // (StrictMode mounts twice; ticket 07 will move terminals around), so the store opens and closes
 // Sessions and keeps each one's recent output to replay into whichever terminal attaches.
 // React reads it through useSyncExternalStore (useTabs).
-import { BackendCallError, type Backend, type SessionExit, type SessionHandle, type TermSize } from "../backend/types";
+import {
+  BackendCallError,
+  SessionRefusal,
+  type Backend,
+  type SessionAuth,
+  type SessionExit,
+  type SessionHandle,
+  type TermSize,
+} from "../backend/types";
 
 export type TabStatus =
   | { state: "connecting" }
@@ -17,6 +25,8 @@ export interface Tab {
   /** The Host's name, with " (2)", " (3)"… on further Sessions to the same Host. */
   label: string;
   status: TabStatus;
+  /** How its Session logs in, once one has opened (the tab's state dot: hollow for password). */
+  auth: SessionAuth | null;
 }
 
 export interface TabsSnapshot {
@@ -65,9 +75,16 @@ export class Tabs {
   private lastSize: TermSize = { cols: 80, rows: 24 };
   private snap: TabsSnapshot = { tabs: [], active: null };
   private readonly listeners = new Set<() => void>();
+  private onVaultLocked: () => void = () => {};
 
   constructor(backend: Backend) {
     this.backend = backend;
+  }
+
+  /** Called when a password Host's vault turns out to be locked (`session.prepare` code 14): the
+   * app shows the lock screen, then calls `resumeAfterUnlock`. */
+  setVaultLockedHandler(handler: () => void) {
+    this.onVaultLocked = handler;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -117,7 +134,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" } },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -140,6 +157,15 @@ export class Tabs {
     return id;
   }
 
+  /** Opens again every tab that was waiting for the vault (code 14). Each asks roster afresh, so
+   * a password Session gets a new one-time token. */
+  resumeAfterUnlock() {
+    for (const entry of this.entries) {
+      const s = entry.tab.status;
+      if (s.state === "failed" && s.code === SessionRefusal.vaultLocked) this.reconnect(entry.tab.id);
+    }
+  }
+
   /**
    * Opens a new Session in a tab whose Session has ended or was refused, to the same Host or to
    * `host`. It asks roster again (`session.prepare`), so a fixed problem or a rebooted Host just
@@ -160,7 +186,8 @@ export class Tabs {
     return true;
   }
 
-  /** Asks the Backend for a Session for the tab (it's in the "connecting" state). */
+  /** Asks the Backend for a Session for the tab (it's in the "connecting" state). `openSession`
+   * runs `session.prepare` right before the spawn, so an askpass token is never stale. */
   private start(entry: Entry) {
     const attempt = ++entry.attempt;
     const current = () => entry.attempt === attempt && !entry.closing;
@@ -187,13 +214,20 @@ export class Tabs {
           if (entry.tab.status.state !== "connecting") return;
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
+          entry.tab = { ...entry.tab, auth: session.auth };
           this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },
         (e: unknown) => {
           if (!current()) return;
-          const message = e instanceof Error ? e.message : String(e);
           const code = e instanceof BackendCallError ? e.code : null;
+          if (code === SessionRefusal.vaultLocked) {
+            const message = "The vault is locked. Unlock it and this Session opens.";
+            this.setStatus(entry, { state: "failed", message, code });
+            this.onVaultLocked();
+            return;
+          }
+          const message = e instanceof Error ? e.message : String(e);
           this.setStatus(entry, { state: "failed", message, code });
         },
       );

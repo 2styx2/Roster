@@ -118,6 +118,12 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 .tab .tab-close { padding: 5px 10px 5px 6px; color: var(--muted); }
 .tab .tab-close:hover { color: var(--text); }
 .tab-host { font-family: var(--mono); font-size: 13px; }
+/* State dots (prototype): filled = key login, hollow = password, grey = ended, faint ring = connecting. */
+.st { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; background: var(--accent); }
+.st.pw { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.st.ended { background: var(--muted); }
+.st.pw.ended { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.st.pending { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .tab-status { font-size: 11px; color: var(--muted); }
 .tab.failed .tab-status { color: var(--error); }
 .panes { flex: 1; position: relative; min-height: 0; }

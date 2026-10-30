@@ -15,6 +15,15 @@ export interface SessionsProps {
   reconnectKeys: string | null;
 }
 
+/** The tab's state dot (as in the prototype): filled for a key login, hollow for a password one,
+ * grey once the Session has ended or was refused. */
+function StateDot({ tab }: { tab: Tab }) {
+  const done = tab.status.state === "ended" || tab.status.state === "failed";
+  const auth = tab.auth;
+  const cls = ["st", auth === "password" ? "pw" : "", done ? "ended" : "", auth === null && !done ? "pending" : ""];
+  return <span className={cls.filter(Boolean).join(" ")} aria-hidden="true" />;
+}
+
 function statusText(tab: Tab): string {
   const s = tab.status;
   switch (s.state) {
@@ -54,7 +63,9 @@ export function Sessions({
                 aria-controls={`pane-${tab.id}`}
                 tabIndex={-1}
                 onClick={() => tabs.select(tab.id)}
+                title={tab.auth ? `${tab.auth} login` : undefined}
               >
+                <StateDot tab={tab} />
                 <span className="tab-host">{tab.label}</span>
                 {status && <span className="tab-status"> {status}</span>}
               </button>

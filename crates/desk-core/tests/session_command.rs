@@ -115,3 +115,68 @@ fn debug_output_never_shows_env_values() {
         assert!(shown.contains("ROSTER_ASKPASS_TOKEN"), "{shown}");
     }
 }
+
+/// What `session.prepare` gives for a password-only Host (roster README, "Password Sessions").
+fn password_prepared(token: &str) -> Prepared {
+    serde_json::from_value(json!({
+        "argv": ["/usr/bin/ssh", "-o", "NumberOfPasswordPrompts=1",
+                 "-o", "PreferredAuthentications=password,keyboard-interactive", "sw-core"],
+        "env": {
+            "SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass",
+            "SSH_ASKPASS_REQUIRE": "force",
+            "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
+            "ROSTER_ASKPASS_TOKEN": token,
+        },
+        "host": "sw-core",
+        "auth": "password",
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_password_session_on_wsl_carries_the_askpass_env_through_wsl_exec() {
+    let cmd = session_command(&Target::Wsl { distro: "D".into() }, &password_prepared("tok-1"));
+    assert_eq!(
+        cmd.argv,
+        strings(&[
+            "wsl.exe",
+            "-d",
+            "D",
+            "--cd",
+            "~",
+            "--exec",
+            "env",
+            "TERM=xterm-256color",
+            "COLORTERM=truecolor",
+            "ROSTER_ASKPASS_SOCKET=/run/user/1000/roster-askpass-x1/sock",
+            "ROSTER_ASKPASS_TOKEN=tok-1",
+            "SSH_ASKPASS=/run/user/1000/roster-askpass-x1/askpass",
+            "SSH_ASKPASS_REQUIRE=force",
+            "/usr/bin/ssh",
+            "-o",
+            "NumberOfPasswordPrompts=1",
+            "-o",
+            "PreferredAuthentications=password,keyboard-interactive",
+            "sw-core",
+        ])
+    );
+    assert_eq!(cmd.auth, "password");
+    // No DISPLAY: SSH_ASKPASS_REQUIRE=force doesn't need one.
+    assert!(!cmd.argv.iter().any(|a| a.starts_with("DISPLAY=")));
+}
+
+#[test]
+fn an_error_naming_the_command_line_never_shows_the_token() {
+    // ConPTY's spawn failure quotes the whole command line, env K=V included.
+    let secret = "tok-5f3a9c";
+    for target in [Target::Wsl { distro: "D".into() }, Target::Local] {
+        let cmd = session_command(&target, &password_prepared(secret));
+        let raw = format!("CreateProcessW `{:?}` in cwd `None` failed: 2", cmd.argv.join(" "));
+        let shown = cmd.redact(&raw);
+        assert!(!shown.contains(secret), "{shown}");
+        assert!(
+            shown.contains("ROSTER_ASKPASS_TOKEN=…") || matches!(target, Target::Local),
+            "{shown}"
+        );
+    }
+}
