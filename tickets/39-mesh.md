@@ -1,6 +1,6 @@
 # 39: Mesh: Host-to-Host access from one Box
 
-**Iteration:** 6 · **Repo:** roster (CLI and app) · **Issue:** ISSUE
+**Iteration:** 6 · **Repo:** roster (CLI and app) · **Issue:** [#71](https://github.com/2styx2/roster/issues/71)
 
 **Why:** Decision Q63 (owner, 2026-10-30). Installing and updating roster on every machine so they can reach each other is a chore. roster runs on one Box and sets up the Mesh itself, with nothing installed on the Hosts.
 
