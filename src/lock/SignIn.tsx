@@ -7,7 +7,7 @@
 // Secrets (the master password, codes, the API secret) live only in their inputs, never in React
 // state; every input in the form is emptied as soon as the call it fed returns. Errors are rendered
 // from the errors catalog (docs/errors.md rows 22-33), keyed by roster's code.
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   BackendCallError,
   SignInError,
@@ -93,8 +93,10 @@ export function SignIn({
   const server = choice === "self" ? url.trim() : choice;
   const ways = new Set(info.methods);
 
-  // Each screen (and each error on it) puts the focus on its first field.
-  useEffect(() => {
+  // Each screen (and each error on it) puts the focus on its first field, in the commit that shows
+  // it (as `autoFocus` does): a screen that comes from an answer isn't a discrete event, so a
+  // passive effect would run a task later, and a key pressed in between would go to <body>.
+  useLayoutEffect(() => {
     form.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
   }, [screen, problem]);
 
