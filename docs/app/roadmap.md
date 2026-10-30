@@ -7,8 +7,8 @@ We work in iterations. Each one ends with a hands-on check on the Windows machin
 | 1 | **Thin slice** | 01–08, 17, 26 | You can unlock, pick a Host, and get a working shell on both an enrolled and a password-only Host over the WSL backend, all from the keyboard |
 | 2 | **Design pass + worst-case UI + Lua config + Focus mode** (`/emil-design-eng`, `/animate`, `/break-ui`) | 09, 27, 21, 22, 30 (themes), 31 (sign-in + 2FA), 29 (interface review: the user picks the fixes) | You're happy with how it looks and feels on Windows, and `init.lua` can restyle and rebind it with live reload |
 | 3 | **Inventory writes: verified adds, live two-way Sidebar editing** | 10–13, 28 | You can add or edit a Host, see the diff, Publish, and another Box picks the change up |
-| 4 | **Quick Connect + "Save to vault" + local-only KeePassXC** | 14–16, 25 | A new box reached by IP and password becomes a Vault item plus a Host |
-| 5 | **Host details** → **Release `v0.1.0`** | 18 | Detail panel, opening web services |
+| 4 | **Quick Connect + "Save to vault" + local-only KeePassXC** → **Release `v0.1.0`** | 14–16, 25, 35–38, 41 | A new box reached by IP and password becomes a Vault item plus a Host |
+| 5 | **Host details** | 18 | Detail panel, opening web services |
 | 6 | **Other platforms** | 19–20 | Native Windows backend; Linux under X11, Wayland and WSLg |
 | 7 | **Plugins and Packages** → **Release `v0.2.0`** | 23–24 | A Package from a git URL adds a command, a key and a theme. Built-in Folders run as an internal Plugin. Plugins can't reach secrets. |
 

@@ -1,6 +1,6 @@
 # Releasing
 
-A Release is one version of the whole repo: the CLI and the app ship together, with one version number. The first one is `v0.1.0`, after iteration 5; the next is `v0.2.0`, after iteration 7 (decision Q48). Only the maintainer cuts a Release.
+A Release is one version of the whole repo: the CLI and the app ship together, with one version number. The first one is `v0.1.0`, after iteration 4; the next is `v0.2.0`, after iteration 7 (decisions Q48, Q70). Only the maintainer cuts a Release.
 
 ## What a Release holds
 
