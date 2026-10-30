@@ -11,3 +11,15 @@ describe("hunks", () => {
     expect(hunks(diff).map((l) => `${l.kind}:${l.text}`)).toEqual(["gap:…", "same:4", "same:5", "add:new", "same:6", "same:7", "gap:…"]);
   });
 });
+
+import { render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { ImportPanel } from "./ImportPanel";
+
+describe("ImportPanel", () => {
+  it("says when init.lua already has the profile", () => {
+    const preview = { settingsPath: "s.json", summary: [], diff: [same("return {}")], overridden: [], created: false, base: "b", error: null };
+    render(createElement(ImportPanel, { preview, problem: null, writing: false, onWrite() {}, onClose() {} }));
+    expect(screen.getByText(/already has this profile/)).toBeInTheDocument();
+  });
+});

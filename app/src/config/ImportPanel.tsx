@@ -40,6 +40,7 @@ export function ImportPanel({
   onClose(): void;
 }) {
   const shown = useMemo(() => hunks(preview.diff), [preview.diff]);
+  const unchanged = preview.diff.every((l) => l.kind === "same");
   return (
     <div className="picker-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
@@ -67,6 +68,7 @@ export function ImportPanel({
             <li key={s}>{s}</li>
           ))}
         </ul>
+        {unchanged && <p className="import-notes">init.lua already has this profile: there's nothing to change.</p>}
         {(preview.created || preview.overridden.length > 0 || preview.error || problem) && (
           <div className="import-notes">
             {preview.created && <p>There's no init.lua yet: it's made from the example, every line commented out, with this block at the end.</p>}
