@@ -1,5 +1,5 @@
 // The keycap hints (iteration 3 feedback): on by default, off with `ui.hints = false` in init.lua or
-// `:hints off`, whose choice the State keeps unless init.lua sets it (as `:theme`'s, decision Q51).
+// `:hints off`, whose choice the State keeps unless init.lua sets it, which wins.
 // Hidden hints are only out of sight: the bindings work as before, and the keys stay in what
 // assistive tech reads (styles.css hides `.keys` and `.key-hint` under `data-hints="off"`).
 //

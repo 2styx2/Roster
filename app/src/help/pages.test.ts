@@ -72,6 +72,9 @@ describe("generated pages follow the registries", () => {
     expect(plain(leader?.meta ?? [])).toMatch(/"Ctrl\+Space".*default/);
     const theme = entry(ctxOf(builtinRegistries(), { state: { theme: "nord" } }), "options", "theme");
     expect(plain(theme?.meta ?? [])).toMatch(/"nord".*State/);
+    const pinned = configWith({ set: ["theme"], theme: "gruvbox", lines: { theme: { file: "init.lua", line: 12 } } });
+    const over = entry(ctxOf(builtinRegistries(), { config: pinned, state: { theme: "nord" } }), "options", "theme");
+    expect(plain(over?.meta ?? [])).toMatch(/"nord".*State \(:theme, over init\.lua:12\)/);
   });
 
   it("themes: every registered Theme, the one in use marked", () => {

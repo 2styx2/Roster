@@ -90,7 +90,9 @@ fn the_block_loads_as_the_profile_and_defines_a_theme_for_its_scheme() {
     // intenseTextStyle "bright" (the default): bold text keeps the normal weight, and is bright.
     assert_eq!(c.terminal.bold_weight, 600);
     assert!(c.terminal.bold_is_bright);
-    assert_eq!(c.theme, "wt-my-night");
+    // It defines the Theme but doesn't pin it (decision Q69): the app chooses it as `:theme` does.
+    assert_eq!(c.theme, "auto");
+    assert!(!block.contains("roster.set(\"theme\""), "{block}");
     let theme = &c.themes["wt-my-night"];
     assert_eq!(theme.label.as_deref(), Some("My Night (Windows Terminal)"));
     assert_eq!(theme.appearance, Some(config::Appearance::Dark));
@@ -189,7 +191,27 @@ fn with_no_init_lua_the_preview_starts_from_the_commented_out_example() {
             .unwrap()
             .starts_with(&config::starter())
     );
-    assert_eq!(config::load(&dir).unwrap().theme, "wt-campbell");
+    let c = config::load(&dir).unwrap();
+    assert!(c.themes.contains_key("wt-campbell"));
+    assert_eq!(c.theme, "auto");
+}
+
+#[test]
+fn the_preview_names_the_theme_the_app_chooses_and_keeps_an_init_lua_theme_as_it_is() {
+    let dir = temp_dir("theme");
+    let settings = fixture("defaults-font.json");
+    let init = "roster.set(\"theme\", \"nord\")\n";
+    std::fs::write(dir.join("init.lua"), init).unwrap();
+    let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
+    assert_eq!(pre.theme.as_deref(), Some("wt-campbell"));
+    // Its own theme line is left alone, and isn't "overridden": the import doesn't set theme.
+    assert!(pre.overridden.is_empty(), "{:?}", pre.overridden);
+    assert!(pre.diff.iter().all(|l| l.kind != DiffKind::Remove));
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
+    assert_eq!(config::load(&dir).unwrap().theme, "nord");
+    // No colour scheme to import, no Theme to choose.
+    let p = wt::parse(r#"{ "profiles": { "list": [{ "name": "P", "colorScheme": "Nope" }] } }"#).unwrap();
+    assert!(p.scheme.is_none());
 }
 
 #[test]

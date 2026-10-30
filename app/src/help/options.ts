@@ -2,7 +2,7 @@
 // (the one copy of what each does and its default), with the value in effect from the Config the
 // core sent and where that value came from: the default, init.lua (the core lists what the file
 // set, `Config.set`, with its line), or the State (a choice `:theme` or `:hints` keeps when
-// init.lua leaves it to them).
+// init.lua leaves it to them, and `:theme`'s made over init.lua's own, decision Q69).
 import type { Config, ConfigLocation } from "../config/types";
 import { plain, type Inline } from "./doc";
 import { parseMarkdown } from "./markdown";
@@ -108,6 +108,7 @@ export function luaValue(v: unknown, max = 160): string {
 
 /** What the State holds for the options the app also lets you choose (`:theme`, `:hints`). */
 export interface StateChoices {
+  /** `:theme`'s choice when it's the one in effect: it can be over init.lua's (decision Q69). */
   theme?: string | null;
   hints?: boolean | null;
 }
@@ -115,14 +116,20 @@ export interface StateChoices {
 export type OptionSource =
   | { kind: "default" }
   | { kind: "init.lua"; at?: ConfigLocation }
-  | { kind: "State"; value: unknown };
+  | { kind: "State"; value: unknown; over?: ConfigLocation };
 
 /** Which option names a State choice stands in for, when init.lua doesn't set them. */
 const STATE_KEYS: Record<string, keyof StateChoices> = { theme: "theme", "ui.hints": "hints" };
 
 export function optionSource(config: Config, name: string, state: StateChoices = {}): OptionSource {
   const set = config.set ?? [];
-  if (set.some((p) => p === name || p.startsWith(`${name}.`))) {
+  const fromFile = set.some((p) => p === name || p.startsWith(`${name}.`));
+  // A `:theme` choice in effect wins over init.lua's line until that value changes (Q69).
+  if (name === "theme" && fromFile && typeof state.theme === "string") {
+    const at = config.lines.theme;
+    return at ? { kind: "State", value: state.theme, over: at } : { kind: "State", value: state.theme };
+  }
+  if (fromFile) {
     const at = config.lines[name];
     return at ? { kind: "init.lua", at } : { kind: "init.lua" };
   }

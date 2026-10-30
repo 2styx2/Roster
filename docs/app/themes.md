@@ -3,22 +3,28 @@
 A Theme (GLOSSARY) is a named set of colour tokens: 22 UI tokens, the terminal's own colours and,
 optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
 `app/src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
-picks, changes or defines one. Decisions Q37, Q51 and Q57 (which replaced Q29's jade and Q50's values).
+picks, changes or defines one. Decisions Q37, Q51, Q57 (which replaced Q29's jade and Q50's values) and Q69.
 
 ## Choosing one: `:theme`
 
 - `:theme` (or `:finder themes`) opens a finder over every registered Theme: the bundled ones,
   `init.lua`'s and, later, a Plugin's. The Theme under the cursor is previewed live, terminal
-  included. **Enter** keeps it, **Esc** puts the old one back.
+  included. **Enter** applies it and keeps it, **Esc** puts the old one back.
 - `:theme ID` (`:theme nord`) switches straight away. It completes Theme ids.
-- The choice is kept in the State (key `theme`), not the Config. A stored Theme that's no longer
-  registered is ignored.
-- **`init.lua` wins.** If it names a Theme (`theme = "nord"`), that's the one shown, the finder
-  says "set in init.lua" and only previews, and a choice isn't kept. `theme = "auto"` (the
-  default) leaves the choice to the picker; without a choice it follows the OS with
-  `dark_theme` / `light_theme`.
+- Like Neovim's `:colorscheme`, a choice always applies. It's kept in the State (key `theme`),
+  not the Config. A stored Theme that's no longer registered is ignored.
+- **A choice made over `init.lua`'s `theme` stays until that value changes** (Q69). If `init.lua`
+  names a Theme (`theme = "nord"`), the State also keeps that value (key `themeOver`) with the
+  choice. The choice wins at start-up and on `:source` while `init.lua` still names that same
+  Theme; edit `init.lua`'s `theme` to something else and the file wins again. The finder's note
+  (`init.lua:12 sets "nord"; Enter overrides it until that line changes`) and a one-time message
+  say which line sets it; delete that line to unpin it. `theme = "auto"` (the default) leaves the choice to the picker; without a
+  choice it follows the OS with `dark_theme` / `light_theme`.
+- `:config import-terminal` defines a Theme for Windows Terminal's colour scheme in `init.lua`
+  but doesn't set `theme`: it chooses the Theme as `:theme` does, so `:theme` can change it.
 
-Order of precedence: a preview, then `init.lua`'s `theme`, then the State's choice, then `auto`.
+Order of precedence: a preview, then the State's choice while it wins (as above), then
+`init.lua`'s `theme`, then `auto`.
 
 ## Bundled Themes
 
