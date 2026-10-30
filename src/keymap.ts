@@ -93,8 +93,16 @@ export const defaultBindings: KeymapTables = {
     r: "reconnect",
     Escape: "terminal",
   },
-  list: { ArrowDown: "down", ArrowUp: "up", Home: "top", End: "bottom", Enter: "choose" },
-  listVim: { j: "down", k: "up", "g g": "top", G: "bottom" },
+  list: {
+    ArrowDown: "down",
+    ArrowUp: "up",
+    ArrowLeft: "fold",
+    ArrowRight: "unfold",
+    Home: "top",
+    End: "bottom",
+    Enter: "choose",
+  },
+  listVim: { j: "down", k: "up", h: "fold", l: "unfold", "g g": "top", G: "bottom" },
   picker: {
     ArrowDown: "picker.down",
     ArrowUp: "picker.up",

@@ -7,13 +7,15 @@ import { useId, useMemo, useState, type KeyboardEvent } from "react";
 const SHOWN = 8;
 
 export interface CommandLineProps {
+  /** Typed in already (a command asking for the rest, like `folder add esxi-02 `). */
+  initial?: string;
   complete(input: string): string[];
   onRun(line: string): void;
   onClose(): void;
 }
 
-export function CommandLine({ complete, onRun, onClose }: CommandLineProps) {
-  const [value, setValue] = useState("");
+export function CommandLine({ initial = "", complete, onRun, onClose }: CommandLineProps) {
+  const [value, setValue] = useState(initial);
   /** While cycling with Tab: the candidates for what was typed, and which one is in the input. */
   const [cycle, setCycle] = useState<{ candidates: string[]; index: number } | null>(null);
   const listId = useId();

@@ -6,8 +6,12 @@
 // A command acts through CommandContext, which App provides.
 
 import { BUILTIN, Registry, type Entry } from "../registry";
+import type { SidebarRow } from "../sidebar/Sidebar";
 
 export type ListMove = "down" | "up" | "top" | "bottom" | "choose";
+
+/** h folds (or goes to the parent), l unfolds (or goes to the first child), toggle flips. */
+export type FoldHow = "fold" | "unfold" | "toggle";
 
 /** What commands can ask of the app. */
 export interface CommandContext {
@@ -15,6 +19,8 @@ export interface CommandContext {
   /** Opens a Session to the Host (the app checks it exists and is reviewed); `here`: in the
    * current tab if its Session has ended, else a new one. */
   connect(host: string, here?: boolean): void;
+  /** Goes to the Host's open Session if there is one, else opens one (as `connect`). */
+  open(host: string): void;
   /** Reconnects the current tab if its Session has ended or was refused. */
   reconnect(): void;
   /** The Session `delta` places after the current one, wrapping. */
@@ -25,13 +31,22 @@ export interface CommandContext {
   close(n: number | null): void;
   toggleSidebar(): void;
   toggleStatusBar(): void;
-  openCommandLine(): void;
+  /** The command line, with `initial` typed in already (a prompt for the rest). */
+  openCommandLine(initial?: string): void;
   toggleKeys(): void;
   lock(): void;
   /** Back to Terminal mode. */
   toTerminal(): void;
   /** Moves the list cursor (the Sidebar in Standard), or chooses the row under it. */
   list(move: ListMove): void;
+  /** Folds or unfolds the Sidebar row (or section heading) `id`, or the one under the cursor. */
+  fold(id: string | null, how: FoldHow): void;
+  /** The Sidebar row under the cursor, or null. */
+  cursorRow(): SidebarRow | null;
+  /** The Host the user means: the one under the Sidebar's cursor, else the Session on screen's. */
+  selectedHost(): string | null;
+  /** Every Host's name, in roster.yml order (empty until the Inventory is loaded). */
+  hostNames(): readonly string[];
   /** A one-line message for the user. */
   say(message: string): void;
 }
@@ -41,13 +56,26 @@ export interface CommandDef extends Entry {
   area: string;
   /** What it does, for the Key bindings panel and completion. */
   label(arg?: string): string;
-  arg?: "host" | "number";
+  arg?: "host" | "number" | "text";
   /** The argument may be left out. */
   optionalArg?: boolean;
   /** App mode goes on after it (moving a list); otherwise keys go back to the terminal. */
   staysInAppMode?: boolean;
   run(ctx: CommandContext, arg: string | undefined): void;
+  /** Completions for the argument typed so far (whole arguments), when `arg` is "text". */
+  complete?(arg: string, hostNames: readonly string[]): string[];
 }
+
+const fold = (id: string, how: FoldHow, label: string): CommandDef => ({
+  id,
+  source: BUILTIN,
+  area: "Sidebar",
+  arg: "text",
+  optionalArg: how !== "toggle",
+  label: (row) => (row ? `${label} ${row}` : label),
+  staysInAppMode: true,
+  run: (ctx, row) => ctx.fold(row ?? null, how),
+});
 
 const list = (move: ListMove, label: string): CommandDef => ({
   id: move,
@@ -69,19 +97,12 @@ export const builtinCommands: readonly CommandDef[] = [
     run: (ctx, h) => ctx.connect(h ?? ""),
   },
   {
-    id: "here",
+    id: "open",
     source: BUILTIN,
     area: "Hosts",
     arg: "host",
-    label: (h) => (h ? `Connect to ${h} in this tab` : "Open a Host in this tab, if its Session has ended"),
-    run: (ctx, h) => ctx.connect(h ?? "", true),
-  },
-  {
-    id: "reconnect",
-    source: BUILTIN,
-    area: "Sessions",
-    label: () => "Reconnect an ended Session",
-    run: (ctx) => ctx.reconnect(),
+    label: (h) => (h ? `Open ${h}, or go to its Session` : "Open a Host, or go to its open Session"),
+    run: (ctx, h) => ctx.open(h ?? ""),
   },
   {
     id: "here",
@@ -123,6 +144,9 @@ export const builtinCommands: readonly CommandDef[] = [
   list("top", "Go to the top"),
   list("bottom", "Go to the bottom"),
   list("choose", "Switch to it"),
+  fold("fold", "fold", "Fold, or go to the parent"),
+  fold("unfold", "unfold", "Unfold, or go to the first child"),
+  fold("togglefold", "toggle", "Fold or unfold"),
   { id: "cmdline", source: BUILTIN, area: "App", label: () => "Command line", run: (ctx) => ctx.openCommandLine() },
   { id: "keys", source: BUILTIN, area: "App", label: () => "Key bindings", run: (ctx) => ctx.toggleKeys() },
   { id: "statusbar", source: BUILTIN, area: "App", label: () => "Show or hide the status bar", run: (ctx) => ctx.toggleStatusBar() },
@@ -158,7 +182,8 @@ export function parseLine(commands: Commands, line: string): ParsedLine {
   }
   if (arg === undefined) {
     if (command.optionalArg) return { kind: "ok", command, arg };
-    return { kind: "error", message: `${name} needs ${command.arg === "host" ? "a Host name" : "a number"}` };
+    const what = command.arg === "host" ? "a Host name" : command.arg === "number" ? "a number" : "an argument";
+    return { kind: "error", message: `${name} needs ${what}` };
   }
   if (command.arg === "number" && !/^[1-9]\d*$/.test(arg)) {
     return { kind: "error", message: `${name} needs a number` };
@@ -182,7 +207,8 @@ export function describeLine(commands: Commands, line: string): { area: string; 
   return { area: parsed.command.area, label: parsed.command.label(parsed.arg) };
 }
 
-/** Complete lines for what's typed so far: command names, then Host names after `connect`. */
+/** Complete lines for what's typed so far: command names, then Host names after `connect`, or
+ * what the command itself offers. */
 export function complete(commands: Commands, input: string, hostNames: readonly string[]): string[] {
   const space = input.indexOf(" ");
   if (space < 0) {
@@ -193,6 +219,7 @@ export function complete(commands: Commands, input: string, hostNames: readonly 
       .sort();
   }
   const command = commands.get(input.slice(0, space));
+  if (command?.complete) return command.complete(input.slice(space + 1).trimStart(), hostNames).map((a) => `${command.id} ${a}`);
   if (command?.arg !== "host") return [];
   const word = input.slice(space + 1).trimStart().toLowerCase();
   const sorted = [...hostNames].sort();
