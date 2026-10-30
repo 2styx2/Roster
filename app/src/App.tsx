@@ -84,7 +84,7 @@ import { parseQuickTarget, type QuickTarget } from "./quick/target";
 import { SavePanel } from "./quick/SavePanel";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
-import { buildSections } from "./sidebar/sections";
+import { sectionBuilder } from "./sidebar/sections";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
 import { fontInUse } from "./terminal/fonts";
@@ -426,6 +426,8 @@ export function App({
     () => ({ keys: addKeys, tooOld: addApi >= ADD_API_VERSION ? null : addTooOld }),
     [addKeys, addApi, addTooOld],
   );
+  // Kept between renders: a Session's events rebuild only the sections that show Sessions (#62).
+  const [buildSections] = useState(sectionBuilder);
   const sections = useMemo(
     () =>
       hosts
@@ -440,7 +442,7 @@ export function App({
             addHost,
           })
         : [],
-    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost],
+    [buildSections, shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;

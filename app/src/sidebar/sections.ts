@@ -44,13 +44,52 @@ export type SidebarRegistry = Registry<SidebarSectionDef>;
 
 /** The sections to show, in order, folded as State says, with the on-screen Host marked. */
 export function buildSections(defs: readonly SidebarSectionDef[], ctx: SidebarContext): SidebarSection[] {
-  const sections = [...defs]
-    .sort((a, b) => a.order - b.order)
-    .map((d) => d.build(ctx))
-    .filter((s): s is SidebarSection => s !== null)
-    .map((s) => foldSection(s, ctx.folded));
-  const active = ctx.sessions.tabs.find((t) => t.id === ctx.sessions.active);
-  return active ? markOnScreen(sections, active.host, isLive(active)) : sections;
+  return sectionBuilder()(defs, ctx);
+}
+
+type SectionBuild = (defs: readonly SidebarSectionDef[], ctx: SidebarContext) => SidebarSection[];
+
+/** buildSections that remembers: a section whose entry read only what hasn't changed since the
+ * last build is kept, folded rows and all, so its rows stay the same objects and the memoized rows
+ * don't re-render. A Session's events then re-render the Sessions rows, not a 1,284-Host Inventory
+ * (#62). A section's build reads its context and nothing else (each one is a function of it). */
+export function sectionBuilder(): SectionBuild {
+  interface Kept {
+    build: SidebarSectionDef["build"];
+    /** What the build read from its context, and the values it saw. */
+    reads: Map<PropertyKey, unknown>;
+    section: SidebarSection | null;
+    folded: ReadonlySet<string>;
+    shown: SidebarSection | null;
+  }
+  const kept = new Map<string, Kept>();
+  return (defs, ctx) => {
+    const sections = [...defs]
+      .sort((a, b) => a.order - b.order)
+      .map((d) => {
+        let k = kept.get(d.id);
+        if (!k || k.build !== d.build || [...k.reads].some(([key, v]) => Reflect.get(ctx, key) !== v)) {
+          const reads = new Map<PropertyKey, unknown>();
+          const watched = new Proxy(ctx, {
+            get(target, key, receiver) {
+              const v: unknown = Reflect.get(target, key, receiver);
+              reads.set(key, v);
+              return v;
+            },
+          });
+          k = { build: d.build, reads, section: d.build(watched), folded: ctx.folded, shown: null };
+          kept.set(d.id, k);
+        }
+        if (k.section && (k.shown === null || k.folded !== ctx.folded)) {
+          k.shown = foldSection(k.section, ctx.folded);
+          k.folded = ctx.folded;
+        }
+        return k.shown;
+      })
+      .filter((s): s is SidebarSection => s !== null);
+    const active = ctx.sessions.tabs.find((t) => t.id === ctx.sessions.active);
+    return active ? markOnScreen(sections, active.host, isLive(active)) : sections;
+  };
 }
 
 /** Folds a section: drops the rows under a folded row, and gives each row its parent. */
