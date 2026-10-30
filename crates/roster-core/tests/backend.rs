@@ -253,6 +253,23 @@ fn a_quick_connect_password_goes_to_serve_and_comes_back_as_an_askpass_token() {
 }
 
 #[test]
+fn an_auth_prompt_hosts_typed_password_goes_to_serve_once_and_only_its_held_id_comes_back() {
+    // Ticket 16: serve answers 39 until the app sends the password typed for the Host.
+    let b = Backend::start(&fake("ok")).unwrap();
+    let err = b.session_command("pve").err().unwrap();
+    assert!(
+        matches!(err, roster_core::rpc::CallError::Rpc { code: 39, .. }),
+        "{err:?}"
+    );
+    let s = b.typed_session_command("pve", "typed-pw-123".into(), true).unwrap();
+    assert_eq!(s.held.as_deref(), Some("h1"));
+    assert_eq!(s.command.auth, "password");
+    assert!(!format!("{:?}", s.command).contains("typed-pw-123"));
+    let plain = b.typed_session_command("pve", "typed-pw-123".into(), false).unwrap();
+    assert_eq!(plain.held, None);
+}
+
+#[test]
 fn a_quick_connect_to_save_asks_serve_to_hold_the_password_and_hands_back_its_id() {
     // Ticket 15: with "Save to vault" ticked, serve holds the typed password under an id; the app
     // only ever gets the id, which quick.save refers to.

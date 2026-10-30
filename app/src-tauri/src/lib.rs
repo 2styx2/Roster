@@ -433,7 +433,7 @@ async fn inventory_call(
 
 /// "Save to vault" after a Session's own login (tickets 15, 16): saving the typed password serve
 /// holds, or forgetting it. They carry only ids and names, never the password (serve has it).
-const SAVE_METHODS: &[&str] = &["quick.save", "vault.forget_typed"];
+const SAVE_METHODS: &[&str] = &["quick.save", "host.save_login", "vault.forget_typed"];
 
 #[tauri::command]
 async fn save_call(
@@ -505,12 +505,16 @@ struct OpenedSession {
 /// `events` gets the output as raw bytes, then one JSON message `{"exit": {code, closed}}`.
 /// Refusals keep roster's code (2 unknown, 20 not reviewed, 21 box not set up, 11/12/14 the
 /// password Host's vault). prepare runs right before the spawn: a password Session's askpass
-/// token lives 60 s, so every open (and every reconnect) gets a fresh one.
+/// token lives 60 s, so every open (and every reconnect) gets a fresh one. For an `auth: prompt`
+/// Host (ticket 16) the app sends the `password` the user typed (moved into serve's request and
+/// dropped with it, as `vault_unlock`'s), and `save` asks serve to hold it for "Save to vault".
 #[tauri::command]
 async fn session_open(
     state: tauri::State<'_, Arc<BackendState>>,
     sessions: tauri::State<'_, Arc<SessionManager>>,
     host: String,
+    password: Option<String>,
+    save: Option<bool>,
     cols: u16,
     rows: u16,
     events: Channel<InvokeResponseBody>,
@@ -518,7 +522,13 @@ async fn session_open(
     let backend = state.get()?;
     let sessions = Arc::clone(&sessions);
     blocking(move || {
-        let cmd = backend.session_command(&host)?;
+        let (cmd, held) = match password {
+            Some(password) => {
+                let s = backend.typed_session_command(&host, password, save.unwrap_or(false))?;
+                (s.command, s.held)
+            }
+            None => (backend.session_command(&host)?, None),
+        };
         let id = sessions
             .open(&cmd, Size { cols, rows }, move |event| {
                 let body = match event {
@@ -532,7 +542,7 @@ async fn session_open(
             id,
             auth: cmd.auth,
             quick: None,
-            held: None,
+            held,
         })
     })
     .await

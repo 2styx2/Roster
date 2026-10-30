@@ -38,6 +38,14 @@ pub struct QuickSession {
     pub held: Option<String>,
 }
 
+/// A Session to an `auth: prompt` Host with a typed password (ticket 16): its command, and the id
+/// serve holds the password under for "Save to vault", when asked.
+#[derive(Debug)]
+pub struct HostSession {
+    pub command: SessionCommand,
+    pub held: Option<String>,
+}
+
 /// Is `fingerprint` shaped like `SHA256:<base64>`? Only that is ever sent to be trusted.
 fn sha256_shaped(fingerprint: &str) -> bool {
     let b64 = fingerprint.strip_prefix("SHA256:").unwrap_or("");
@@ -64,6 +72,7 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("host.verify_login", 90),
     ("vault.create_item", 90),
     ("quick.save", 90),
+    ("host.save_login", 90),
     ("vault.login", 100),
 ];
 
@@ -150,6 +159,28 @@ impl Backend {
             ),
         })?;
         Ok(session_command(&self.target, &prepared))
+    }
+
+    /// The command for a Session to an `auth: prompt` Host (ticket 16) with the password the user
+    /// typed: `session.prepare {host, password, save?}`. Like a Quick Connect's, the password is
+    /// moved into the request and dropped with it; it comes back only as an askpass token. With
+    /// `save`, serve holds it for "Save to vault" and only its id comes back, as `held`.
+    pub fn typed_session_command(&self, host: &str, password: String, save: bool) -> Result<HostSession, CallError> {
+        let mut params = json!({ "host": host, "password": password });
+        if save {
+            params["save"] = Value::Bool(true);
+        }
+        let v = self.call("session.prepare", params)?;
+        let prepared: Prepared = serde_json::from_value(v.clone()).map_err(|_| CallError::Io {
+            message: format!(
+                "session.prepare answered something unexpected: {}",
+                prepare_shape_error(&v)
+            ),
+        })?;
+        Ok(HostSession {
+            command: session_command(&self.target, &prepared),
+            held: held_id(&v),
+        })
     }
 
     /// The host key a Host offers, to ask the user about before its first Session (`host.scan_key
