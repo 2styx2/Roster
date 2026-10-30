@@ -181,6 +181,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 97. As a Plugin author, I want a Lua API to add commands, key bindings, themes, Sidebar sections, finder sources, status segments and event hooks, the same registries the built-in features use, so that a Plugin can do anything the app does.
 98. As the user, I want Plugins never to see passwords, and never to Publish Inventory changes without me, so that installing a Package can't leak secrets or change the team's Inventory behind my back.
 
+99. As the user, I want a Host to be added, and its password saved to my vault, only after a test login with exactly that address, user and password has succeeded, so that the Inventory and the vault never fill up with typos, dead boxes or wrong passwords.
+
 ### Host details and web services
 
 78. As the user, I want a toggleable side panel with the host tree grouped like the Inventory, folded with `h`/`l`, so that I can browse when I don't know what I'm looking for.
