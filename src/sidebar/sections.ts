@@ -35,7 +35,9 @@ export function buildSections(defs: readonly SidebarSectionDef[], ctx: SidebarCo
 
 function dotOf(tab: Tab, host: Host | undefined): Dot {
   if (tab.status.state === "ended" || tab.status.state === "failed") return "ended";
-  // An enrolled Host logs in with this Box's key; its `ssh.auth` is only the vault fallback.
+  // How the Session logged in, once it has; until then an enrolled Host will use this Box's key
+  // (its `ssh.auth` is only the vault fallback).
+  if (tab.auth) return tab.auth;
   return host?.enroll ? "key" : "password";
 }
 
@@ -54,13 +56,14 @@ export const sessionsSection: SidebarSectionDef = {
           empty: "No Sessions open.",
           rows: sessions.tabs.map((tab, i) => ({
             id: `session-${tab.id}`,
-            label: tab.host,
+            label: tab.label,
             dot: dotOf(tab, hostByName.get(tab.host)),
             ...(statusText(tab) ? { note: statusText(tab) } : {}),
+            ...(tab.auth ? { title: `${tab.auth} login` } : {}),
             raised: tab.id === sessions.active,
             command: `session ${i + 1}`,
             closeCommand: `close ${i + 1}`,
-            closeLabel: `Close ${tab.host}`,
+            closeLabel: `Close ${tab.label}`,
           })),
         },
 };

@@ -16,7 +16,8 @@ export interface PickerProps {
   recent: readonly string[];
   vim: boolean;
   keymap?: Keymap;
-  onOpen: (host: Host) => void;
+  /** `here`: open it in the current tab if that tab's Session has ended (else a new tab). */
+  onOpen: (host: Host, how?: { here: true }) => void;
   onClose: () => void;
 }
 
@@ -37,13 +38,14 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
     row?.scrollIntoView?.({ block: "nearest" });
   }, [current]);
 
-  function choose(host: Host | undefined) {
+  function choose(host: Host | undefined, here = false) {
     if (!host) return;
     if (!host.reviewed) {
       setNotice(`${host.name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
       return;
     }
-    onOpen(host);
+    if (here) onOpen(host, { here: true });
+    else onOpen(host);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -66,6 +68,9 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
         break;
       case "picker.choose":
         choose(shown[current]?.host);
+        break;
+      case "picker.chooseHere":
+        choose(shown[current]?.host, true);
         break;
       case "picker.close":
         onClose();

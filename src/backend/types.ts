@@ -122,9 +122,14 @@ export interface SessionEvents {
   exit(exit: SessionExit): void;
 }
 
+/** How a Session logs in (`session.prepare`'s `auth`). A password Session's password goes from
+ * roster to ssh over roster's askpass channel; the app never sees it. */
+export type SessionAuth = "key" | "password";
+
 /** A running Session (a PTY with ssh in it), as the core names it. */
 export interface SessionHandle {
   readonly id: number;
+  readonly auth: SessionAuth;
   /** Keystrokes or pasted text, as xterm's onData gives them. */
   write(data: string): Promise<void>;
   resize(size: TermSize): Promise<void>;
@@ -138,6 +143,10 @@ export const SessionRefusal = {
   notReviewed: 20,
   notSetUp: 21,
   noAskpass: 22,
+  /** A password Host's vault: CLI not logged in, not installed, or locked (the VaultError codes). */
+  vaultNotLoggedIn: VaultError.notLoggedIn,
+  vaultCliMissing: VaultError.cliMissing,
+  vaultLocked: VaultError.locked,
 } as const;
 
 export interface Backend {
@@ -154,6 +163,8 @@ export interface Backend {
   /** Forget every secret and lock the vault. Never rejects for a vault reason. */
   lockVault(): Promise<{ locked: string[] }>;
   /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
-   * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output. */
+   * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
+   * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
+   * Session always gets a new one-time askpass token: call it again to reconnect. */
   openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
 }

@@ -14,14 +14,22 @@ export interface BindingRow {
 
 const NAMES: Record<string, string> = { ArrowDown: "↓", ArrowUp: "↑", Escape: "Esc" };
 
-const PICKER_LABELS: Record<string, string> = {
-  "picker.down": "Move down",
-  "picker.up": "Move up",
-  "picker.choose": "Open the Host",
-  "picker.close": "Close the Picker",
+/** The Picker's and the terminal's own actions (not commands). */
+const LOCAL: Record<string, { area: string; label: string }> = {
+  "picker.down": { area: "Picker", label: "Move down" },
+  "picker.up": { area: "Picker", label: "Move up" },
+  "picker.choose": { area: "Picker", label: "Open the Host" },
+  "picker.chooseHere": { area: "Picker", label: "Open it in this tab, if its Session has ended" },
+  "picker.close": { area: "Picker", label: "Close the Picker" },
+  "terminal.copy": { area: "Terminal", label: "Copy" },
+  "terminal.paste": { area: "Terminal", label: "Paste" },
+  "terminal.search": { area: "Terminal", label: "Find" },
+  "terminal.zoomIn": { area: "Terminal", label: "Zoom in" },
+  "terminal.zoomOut": { area: "Terminal", label: "Zoom out" },
+  "terminal.zoomReset": { area: "Terminal", label: "Reset zoom" },
 };
 
-const AREAS = ["Leader", "Hosts", "Sessions", "Sidebar", "App"];
+const AREAS = ["Leader", "Hosts", "Sessions", "Sidebar", "App", "Terminal"];
 
 function display(context: KeymapContext, seq: string): string {
   const keys = seq
@@ -34,18 +42,16 @@ function display(context: KeymapContext, seq: string): string {
 
 export function bindingRows(keymap: Keymap, options: Options, commands: Commands): BindingRow[] {
   const contexts: KeymapContext[] = options.vim
-    ? ["leader", "list", "listVim", "picker", "pickerVim"]
-    : ["leader", "list", "picker"];
+    ? ["leader", "list", "listVim", "picker", "pickerVim", "terminal"]
+    : ["leader", "list", "picker", "terminal"];
   const rows = new Map<string, BindingRow & { rank: number }>();
   const ids = commands.list().map((c) => c.id);
   for (const context of contexts) {
     for (const [seq, { action, source }] of Object.entries(keymap[context])) {
-      const inPicker = context === "picker" || context === "pickerVim";
-      const { area, label } = inPicker
-        ? { area: "Picker", label: PICKER_LABELS[action] ?? action }
-        : describeLine(commands, action);
+      const local = context === "picker" || context === "pickerVim" || context === "terminal";
+      const { area, label } = local ? (LOCAL[action] ?? { area: "Other", label: action }) : describeLine(commands, action);
       const key = `${area}\0${label}\0${source}`;
-      const rank = inPicker ? 1000 + Object.keys(PICKER_LABELS).indexOf(action) : ids.indexOf(action.split(" ")[0] ?? "");
+      const rank = local ? 1000 + Object.keys(LOCAL).indexOf(action) : ids.indexOf(action.split(" ")[0] ?? "");
       const row = rows.get(key) ?? { area, label, keys: [], source, rank };
       row.keys.push(display(context, seq));
       rows.set(key, row);

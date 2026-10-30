@@ -5,15 +5,19 @@
 //
 // App-mode keys map to a command line from the one command table (commands/table.ts), e.g.
 // "session 1" or "close", exactly what you'd type after `:`. The Picker's own keys map to the
-// Picker's local actions. Bindings live in a Registry (ADR 0004), one entry per context and key,
+// Picker's and the terminal's local actions (ticket 08's copy, paste, find, zoom). Bindings live in a Registry (ADR 0004), one entry per context and key,
 // each with its source; Keymap is the resolved view the app reads.
 
 /** A line for the command table: a command name and maybe its argument ("session 1"). */
 export type CommandLine = string;
 
-export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.close";
+export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.chooseHere" | "picker.close";
+
+/** Anything a key can be bound to: a command line, or a Picker or terminal action. */
+export type Action = string;
 
 import { BUILTIN, CONFIG, Registry, type Entry, type Source } from "./registry";
+import { terminalKeys, type TerminalAction } from "./terminal/keymap";
 
 export interface Binding<T extends string = CommandLine> {
   action: T;
@@ -34,6 +38,8 @@ export interface Keymap {
   picker: KeyTable<PickerAction>;
   /** In the Picker's result list, when vim keys are on. */
   pickerVim: KeyTable<PickerAction>;
+  /** In a terminal, before the shell sees the key (ticket 08). */
+  terminal: KeyTable<TerminalAction>;
 }
 
 export type KeymapContext = keyof Keymap;
@@ -84,6 +90,7 @@ export const defaultBindings: KeymapTables = {
     ":": "cmdline",
     "?": "keys",
     L: "lock",
+    r: "reconnect",
     Escape: "terminal",
   },
   list: { ArrowDown: "down", ArrowUp: "up", Home: "top", End: "bottom", Enter: "choose" },
@@ -95,8 +102,10 @@ export const defaultBindings: KeymapTables = {
     "Ctrl+p": "picker.up",
     Enter: "picker.choose",
     Escape: "picker.close",
+    ...terminalKeys.picker,
   },
   pickerVim: { j: "picker.down", k: "picker.up" },
+  terminal: terminalKeys.terminal,
 };
 
 /** One key binding in the keymap registry. `action: null` unbinds the key (shadowing a default). */
@@ -121,9 +130,14 @@ export function registerBindings(registry: KeymapRegistry, tables: KeymapOverrid
   return () => disposers.forEach((d) => d());
 }
 
+/** A table's keys and actions without sources (what the terminal reads). */
+export function actionsOf<T extends string>(table: KeyTable<T>): Record<string, T> {
+  return Object.fromEntries(Object.entries(table).map(([k, b]) => [k, b.action]));
+}
+
 /** The resolved keymap from the registry's entries in effect. */
 export function keymapOf(entries: readonly KeyBindingEntry[]): Keymap {
-  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {} };
+  const keymap: Keymap = { leader: {}, list: {}, listVim: {}, picker: {}, pickerVim: {}, terminal: {} };
   for (const e of entries) {
     if (e.action === null) continue;
     (keymap[e.context] as KeyTable<string>)[e.keys] = { action: e.action, source: e.source };

@@ -19,6 +19,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 |---|---|---|
 | `<leader> f` | `find` | Open the Picker |
 | — | `connect HOST` | Open a Session to HOST |
+| In the Picker: Ctrl+Enter | `here HOST` | Open HOST in the current tab if its Session has ended (else a new one) |
+| `<leader> r` | `reconnect` | Reconnect the current Session if it has ended or was refused |
 | `<leader> ]` / `[` | `next` / `prev` | Next / previous Session (wraps) |
 | `<leader> 1`–`9` | `session N` | Go to Session N |
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |
@@ -31,7 +33,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, switch. `j`/`k`/`g g`/`G` only with vim on |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
-| Terminal: Ctrl+Shift+C/V, select to copy, right-click to paste | — | Clipboard (ticket 08) |
+| Terminal: Ctrl+Shift+C/V, select to copy, right-click to paste; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table) |
 
 Later: `<leader> a` (add to a Folder, ticket 17), `<leader> m` (view mode, ticket 22), `<leader> b` (Session finder, ticket 22).
 

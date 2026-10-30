@@ -12,8 +12,11 @@ export type ListMove = "down" | "up" | "top" | "bottom" | "choose";
 /** What commands can ask of the app. */
 export interface CommandContext {
   openPicker(): void;
-  /** Opens a Session to the Host (the app checks it exists and is reviewed). */
-  connect(host: string): void;
+  /** Opens a Session to the Host (the app checks it exists and is reviewed); `here`: in the
+   * current tab if its Session has ended, else a new one. */
+  connect(host: string, here?: boolean): void;
+  /** Reconnects the current tab if its Session has ended or was refused. */
+  reconnect(): void;
   /** The Session `delta` places after the current one, wrapping. */
   selectRelative(delta: number): void;
   /** The Nth Session, counting from 1. */
@@ -64,6 +67,36 @@ export const builtinCommands: readonly CommandDef[] = [
     arg: "host",
     label: (h) => (h ? `Connect to ${h}` : "Open a Session to a Host"),
     run: (ctx, h) => ctx.connect(h ?? ""),
+  },
+  {
+    id: "here",
+    source: BUILTIN,
+    area: "Hosts",
+    arg: "host",
+    label: (h) => (h ? `Connect to ${h} in this tab` : "Open a Host in this tab, if its Session has ended"),
+    run: (ctx, h) => ctx.connect(h ?? "", true),
+  },
+  {
+    id: "reconnect",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Reconnect an ended Session",
+    run: (ctx) => ctx.reconnect(),
+  },
+  {
+    id: "here",
+    source: BUILTIN,
+    area: "Hosts",
+    arg: "host",
+    label: (h) => (h ? `Connect to ${h} in this tab` : "Open a Host in this tab, if its Session has ended"),
+    run: (ctx, h) => ctx.connect(h ?? "", true),
+  },
+  {
+    id: "reconnect",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Reconnect an ended Session",
+    run: (ctx) => ctx.reconnect(),
   },
   { id: "next", source: BUILTIN, area: "Sessions", label: () => "Next Session", run: (ctx) => ctx.selectRelative(1) },
   { id: "prev", source: BUILTIN, area: "Sessions", label: () => "Previous Session", run: (ctx) => ctx.selectRelative(-1) },

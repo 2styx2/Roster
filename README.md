@@ -9,6 +9,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | Path | What's in it |
 |---|---|
 | [docs/vision.md](docs/vision.md) | Why this exists, how it compares with SecureCRT, Termius, Tabby and XPipe, and what makes it different |
+| [docs/competitors.md](docs/competitors.md) | Sourced competitor analysis (XPipe, Termix, Termius, RDM, Tabby, WezTerm and more): matrix, config and plugins, secrets model, positioning |
 | [docs/architecture.md](docs/architecture.md) | The processes, the `roster serve` API, how Sessions connect, and the backends |
 | [docs/security.md](docs/security.md) | Where secrets go and where they never go, and how locking works |
 | [docs/keyboard.md](docs/keyboard.md) | The leader key, the two focus modes, and the default bindings |
@@ -34,15 +35,21 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
                       start-up and API-version check (backend.rs), error kinds (error.rs), Sessions:
-                      session.prepare → command (wsl --exec env K=V …) and the PTY manager (session.rs)
+                      session.prepare → command (wsl --exec env K=V …) and the PTY manager (session.rs),
+                      the State file (state.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
-                      vault_status/unlock/lock
+                      state_load/state_save, platform_info, vault_status/unlock/lock;
+                      clipboard-manager plugin
 src/backend/          the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
-src/session/          Sessions: tabs.ts (store: open/close/select/replay/resize, outside React), Sessions.tsx
+src/platform/         State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
+src/state/            appState.ts: the State's shape (recent Hosts), parsed leniently
+src/session/          Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
                       (terminal panes + the basic tab strip for `sessions = "tabs"`)
-src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM), keys.ts (Leader filter), StubTerminal (tests)
+src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
+                      options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
+                      keys.ts (Leader filter), StubTerminal (tests)
 src/lock/             the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 src/registry.ts       Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0004; registries.ts = the app's set
 src/commands/         table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)

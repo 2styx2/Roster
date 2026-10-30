@@ -25,15 +25,19 @@ import { press, terminalMode, type KeyState } from "./keyboard/mode";
 import type { Clock } from "./lock/idle";
 import { LockGate } from "./lock/LockScreen";
 import { useVault } from "./lock/useVault";
-import { chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
+import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
 import { builtinRegistries, type Registries } from "./registries";
 import { SessionPanes, TabStrip } from "./session/Sessions";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { buildSections } from "./sidebar/sections";
-import { TerminalView, type TerminalViewComponent } from "./terminal/TerminalView";
+import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
+import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
+import { memoryPlatform } from "./platform/memory";
+import type { Platform } from "./platform/types";
+import { emptyState, parseState, usedHost, type AppState } from "./state/appState";
 
 type Conn =
   | { state: "connecting" }
@@ -66,6 +70,9 @@ export interface AppProps {
   clock?: Clock;
   /** The terminal each Session draws in (tests pass a stub; xterm needs a real browser). */
   terminalView?: TerminalViewComponent;
+  terminalOptions?: TerminalOptions;
+  /** The State file, clipboard and Windows build (tests: an in-memory one). */
+  platform?: Platform;
 }
 
 export function App({
@@ -74,8 +81,11 @@ export function App({
   registries: given,
   clock,
   terminalView = TerminalView,
+  terminalOptions = defaultTerminalOptions,
+  platform: platformProp,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
+  const [platform] = useState(() => platformProp ?? memoryPlatform());
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
@@ -94,12 +104,21 @@ export function App({
   const [sidebarVisible, setSidebarVisible] = useState(options.sidebar.visible);
   const [statusVisible, setStatusVisible] = useState(options.statusBar.visible);
   const [message, setMessage] = useState("");
-  const [recent, setRecent] = useState<string[]>([]);
+  const [appState, setAppState] = useState<AppState>(emptyState);
+  const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
+  const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
   const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
+  // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
+  // screen; the tab opens by itself once the vault is unlocked again.
+  useEffect(() => tabs.setVaultLockedHandler(() => void vault.lock()), [tabs, vault]);
+  const vaultUnlocked = vault.view.state === "unlocked";
+  useEffect(() => {
+    if (vaultUnlocked) tabs.resumeAfterUnlock();
+  }, [vaultUnlocked, tabs]);
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
@@ -128,6 +147,54 @@ export function App({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- connecting is the effect
     void connect(false);
   }, [connect]);
+
+  // The State file and the Windows build, once. Hosts picked before the file is read stay first.
+  useEffect(() => {
+    let live = true;
+    platform.loadState().then(
+      (json) => {
+        if (!live) return;
+        const loaded = parseState(json);
+        setAppState((now) => now.recentHosts.reduceRight(usedHost, loaded));
+      },
+      () => {},
+    );
+    platform.windowsBuild().then(
+      (build) => live && setWindowsBuild(build),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [platform]);
+
+  const onZoom = useCallback(
+    (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
+    [terminalOptions],
+  );
+  const terminalKeys = useMemo(() => actionsOf(keymap.terminal), [keymap]);
+  const terminalEnv = useMemo<TerminalEnv>(
+    () => ({ options: terminalOptions, fontSize, windowsBuild, keys: terminalKeys, clipboard: platform.clipboard, onZoom }),
+    [terminalOptions, fontSize, windowsBuild, terminalKeys, platform, onZoom],
+  );
+
+  const stateChanged = useRef(false);
+  const openHost = useCallback(
+    (host: string, here: boolean) => {
+      const current = tabs.snapshot().active;
+      if (!(here && current !== null && tabs.reconnect(current, host))) tabs.open(host);
+      stateChanged.current = true;
+      setAppState((s) => usedHost(s, host));
+    },
+    [tabs],
+  );
+
+  // Write the State file after the user changed something (not after loading it).
+  useEffect(() => {
+    if (!stateChanged.current) return;
+    stateChanged.current = false;
+    void platform.saveState(appState).catch(() => {});
+  }, [appState, platform]);
 
   useEffect(() => {
     if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
@@ -176,12 +243,14 @@ export function App({
       if (overlay === null) rememberFocus();
       setOverlay("picker");
     },
-    connect: (name) => {
+    connect: (name, here = false) => {
       const host = hostByName.get(name);
       if (!host) return setMessage(`No Host named ${name}`);
       if (!host.reviewed) return setMessage(`${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
-      setRecent((r) => [name, ...r.filter((n) => n !== name)]);
-      tabs.open(name);
+      openHost(name, here);
+    },
+    reconnect: () => {
+      if (sessions.active !== null) tabs.reconnect(sessions.active);
     },
     selectRelative: (delta) => tabs.selectRelative(delta),
     selectNth: (n) => tabs.selectNth(n),
@@ -260,6 +329,7 @@ export function App({
   }
 
   const { info } = conn;
+  const reconnectKey = hintFor(keymap, "reconnect");
   const appMode = keyState.mode === "app" && overlay === null;
   const hints = [
     [hintFor(keymap, "find"), "find"],
@@ -303,7 +373,15 @@ export function App({
               </p>
             </div>
           ) : (
-            <SessionPanes tabs={tabs} snapshot={sessions} leader={options.leader} terminalView={terminalView} />
+            <SessionPanes
+              tabs={tabs}
+              snapshot={sessions}
+              leader={options.leader}
+              terminalView={terminalView}
+              terminalEnv={terminalEnv}
+              reconnectKeys={reconnectKey ? `${options.leader} ${reconnectKey.slice(2)}` : null}
+              run={run}
+            />
           )}
         </main>
         {keysOpen && (
@@ -347,13 +425,13 @@ export function App({
       {overlay === "picker" && !vault.locked && (
         <Picker
           hosts={conn.hosts}
-          recent={recent}
+          recent={appState.recentHosts}
           vim={options.vim}
           keymap={keymap}
           onClose={closeOverlay}
-          onOpen={(host) => {
+          onOpen={(host, how) => {
             closeOverlay();
-            run(`connect ${host.name}`);
+            run(`${how?.here ? "here" : "connect"} ${host.name}`);
           }}
         />
       )}

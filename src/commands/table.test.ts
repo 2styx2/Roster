@@ -13,7 +13,8 @@ function recorder() {
   const calls: string[] = [];
   const ctx: CommandContext = {
     openPicker: () => calls.push("picker"),
-    connect: (h) => calls.push(`connect ${h}`),
+    connect: (h, here) => calls.push(`connect ${h}${here ? " here" : ""}`),
+    reconnect: () => calls.push("reconnect"),
     selectRelative: (d) => calls.push(`relative ${d}`),
     selectNth: (n) => calls.push(`nth ${n}`),
     close: (n) => calls.push(`close ${n ?? "current"}`),
@@ -41,7 +42,19 @@ describe("runLine", () => {
     runLine(ctx, "next");
     runLine(ctx, "prev");
     runLine(ctx, "lock");
-    expect(calls).toEqual(["connect esxi-02", "nth 3", "close current", "close 2", "relative 1", "relative -1", "lock"]);
+    runLine(ctx, "here hub2");
+    runLine(ctx, "reconnect");
+    expect(calls).toEqual([
+      "connect esxi-02",
+      "nth 3",
+      "close current",
+      "close 2",
+      "relative 1",
+      "relative -1",
+      "lock",
+      "connect hub2 here",
+      "reconnect",
+    ]);
   });
 
   it("says what's wrong with a bad line, and ignores an empty one", () => {

@@ -15,6 +15,8 @@ export interface SidebarRow {
   dot?: Dot;
   /** A short status after the label ("connecting…", "ended (code 0)"). */
   note?: string;
+  /** A tooltip (and accessible description), e.g. "password login". */
+  title?: string;
   /** The item on screen (GLOSSARY decision Q31: the raised style). */
   raised?: boolean;
   /** Tree depth, for ticket 17's groups and Folders. */
@@ -75,6 +77,7 @@ export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProp
                     type="button"
                     className="sb-item"
                     aria-current={row.raised ? "true" : undefined}
+                    title={row.title}
                     tabIndex={-1}
                     onMouseDown={keepFocus}
                     onClick={() => run(row.command)}
