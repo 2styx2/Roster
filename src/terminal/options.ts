@@ -1,5 +1,6 @@
 // The terminal's look and behaviour as plain data, so the Config (ADR 0002, ticket 21) and
-// Themes can override any of it. Decision Q37: the user's terminal config wins, so the 16 ANSI
+// Themes can override any of it. Its colours come from the Theme (theme/theme.ts terminalTheme),
+// with `colors` from the Config over them. Decision Q37: the user's terminal config wins, so the 16 ANSI
 // colours are a neutral, standard palette (Windows Terminal's default, Campbell), never tinted
 // with the app's accent; remote prompts, LS_COLORS and vim schemes look as they do there.
 
@@ -46,7 +47,8 @@ export interface TerminalOptions {
   copyOnSelect: boolean;
   /** Right-click copies the selection, or pastes when nothing is selected (as Windows Terminal). */
   rightClickCopyPaste: boolean;
-  theme: TerminalTheme;
+  /** Colours set over the Theme's (the Config's `terminal.colors`). */
+  colors?: Partial<TerminalTheme>;
 }
 
 /** Windows Terminal's default scheme (Campbell): the neutral standard 16 colours. */
@@ -70,7 +72,7 @@ export const standardAnsi: AnsiPalette = {
 };
 
 export const defaultTerminalOptions: TerminalOptions = {
-  fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, ui-monospace, monospace',
+  fontFamily: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
   fontSize: 14,
   minFontSize: 6,
   maxFontSize: 40,
@@ -78,16 +80,6 @@ export const defaultTerminalOptions: TerminalOptions = {
   scrollback: 10000,
   copyOnSelect: true,
   rightClickCopyPaste: true,
-  theme: {
-    ...standardAnsi,
-    background: "#16181d",
-    foreground: "#cccccc",
-    cursor: "#cccccc",
-    cursorAccent: "#16181d",
-    selectionBackground: "#4a5060",
-    searchMatch: "#5c4a1a",
-    searchActiveMatch: "#b8860b",
-  },
 };
 
 export type ZoomAction = "terminal.zoomIn" | "terminal.zoomOut" | "terminal.zoomReset";

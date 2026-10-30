@@ -6,7 +6,9 @@ import type { ErrorRow } from "../errors/catalog";
 import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
 import type { CommandLine } from "../keymap";
 import type { TerminalEnv, TerminalViewComponent } from "../terminal/TerminalView";
+import { Keys } from "../ui/Keys";
 import type { Tab, Tabs, TabsSnapshot } from "./tabs";
+import { CloseGlyph } from "../ui/CloseGlyph";
 
 export function statusText(tab: Tab): string {
   const s = tab.status;
@@ -68,7 +70,7 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(`close ${i + 1}`)}
             >
-              ×
+              <CloseGlyph />
             </button>
           </div>
         );
@@ -84,7 +86,7 @@ export interface SessionPanesProps {
   terminalView: TerminalViewComponent;
   /** Shared by every terminal (options, keys, clipboard). */
   terminalEnv: TerminalEnv;
-  /** The keys that reconnect an ended tab ("Ctrl+Space r"), if the keymap has them. */
+  /** The keys that reconnect an ended tab ("␣ r"), if the keymap has them. */
   reconnectKeys: string | null;
   /** Runs a command line (the Retry and Reconnect buttons run `reconnect`). */
   run(line: CommandLine): void;
@@ -133,7 +135,7 @@ export function SessionPanes({
                 {reconnectKeys && (
                   <span className="muted">
                     {" "}
-                    · <kbd>{reconnectKeys}</kbd> or
+                    · <Keys keys={reconnectKeys} leader={leader} /> or
                   </span>
                 )}{" "}
                 <button type="button" className="reconnect" onClick={() => run("reconnect")}>

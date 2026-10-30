@@ -6,6 +6,8 @@ import { finderCommand } from "./finder/command";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { builtinKeymap, type KeymapRegistry } from "./keymap";
 import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections";
+import type { ThemeRegistry } from "./theme/theme";
+import { builtinThemeRegistry } from "./theme/themes";
 
 export interface Registries {
   commands: CommandRegistry;
@@ -13,6 +15,8 @@ export interface Registries {
   sidebar: SidebarRegistry;
   /** The connection-error catalog (docs/errors.md), ticket 26. */
   errors: ErrorRegistry;
+  /** Themes (GLOSSARY): the bundled ones, ticket 09; the Config and Plugins add more. */
+  themes: ThemeRegistry;
   /** What the Finder overlay searches (ticket 22): Sessions, Hosts, the Sidebar's tree. */
   finders: FinderRegistry;
 }
@@ -21,5 +25,12 @@ export function builtinRegistries(): Registries {
   const finders = builtinFinderRegistry();
   const commands = builtinCommandRegistry();
   commands.register(finderCommand(finders));
-  return { commands, keymap: builtinKeymap(), sidebar: builtinSidebarRegistry(), errors: builtinErrorRegistry(), finders };
+  return {
+    commands,
+    keymap: builtinKeymap(),
+    sidebar: builtinSidebarRegistry(),
+    errors: builtinErrorRegistry(),
+    themes: builtinThemeRegistry(),
+    finders,
+  };
 }

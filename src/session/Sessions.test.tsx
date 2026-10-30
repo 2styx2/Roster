@@ -101,7 +101,7 @@ describe("Sessions", () => {
     await user.keyboard("exit{Enter}");
     const panel = await screen.findByRole("group", { name: `Session ${reviewed[0]!.name}` });
     await within(panel).findByText(/ended \(code 0\)/);
-    expect(within(panel).getByText(/Ctrl\+Space/)).toBeInTheDocument();
+    expect(within(panel).getByTitle(/Leader \(Ctrl\+Space\)/)).toBeInTheDocument();
     await user.keyboard("{Control>} {/Control}r");
     expect(await within(sidebar()).findByRole("button", { name: reviewed[0]!.name })).toBeInTheDocument();
     expect(within(panel).queryByText(/ended/)).toBeNull();

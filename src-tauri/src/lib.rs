@@ -206,6 +206,33 @@ fn disable_browser_accelerators(window: &tauri::WebviewWindow) {
     });
 }
 
+/// Puts the window where the State says it was (desk-core window.rs), then shows it. The window
+/// starts hidden (tauri.conf.json `visible: false`) so it never jumps; it's shown whatever happens.
+fn restore_and_show(app: &tauri::App, window: &tauri::WebviewWindow) {
+    use desk_core::window::{Rect, placement};
+    use tauri::{PhysicalPosition, PhysicalSize};
+    let state = state_file(app.handle()).map(|f| f.load()).unwrap_or(Value::Null);
+    let monitors: Vec<Rect> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| Rect {
+            x: m.position().x,
+            y: m.position().y,
+            width: m.size().width,
+            height: m.size().height,
+        })
+        .collect();
+    if let Some(p) = placement(&state, &monitors) {
+        let _ = window.set_size(PhysicalSize::new(p.rect.width, p.rect.height));
+        let _ = window.set_position(PhysicalPosition::new(p.rect.x, p.rect.y));
+        if p.maximized {
+            let _ = window.maximize();
+        }
+    }
+    let _ = window.show();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sessions = Arc::new(SessionManager::new());
@@ -213,10 +240,11 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(BackendState::default()))
         .manage(Arc::clone(&sessions))
-        .setup(|_app| {
-            #[cfg(windows)]
-            if let Some(w) = tauri::Manager::get_webview_window(_app, "main") {
+        .setup(|app| {
+            if let Some(w) = tauri::Manager::get_webview_window(app, "main") {
+                #[cfg(windows)]
                 disable_browser_accelerators(&w);
+                restore_and_show(app, &w);
             }
             Ok(())
         })

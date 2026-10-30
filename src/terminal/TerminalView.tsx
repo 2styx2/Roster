@@ -20,6 +20,8 @@ import { SearchBar, type SearchResults } from "./SearchBar";
  * Session list only passes it through. */
 export interface TerminalEnv {
   options: TerminalOptions;
+  /** The colours: the Theme's, with the options' `colors` over them. */
+  theme: TerminalTheme;
   /** The current (zoomed) font size. */
   fontSize: number;
   /** For xterm's ConPTY handling; null off Windows (or not known yet). */
@@ -80,7 +82,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       fontFamily: options.fontFamily,
       fontSize: cb.current.env.fontSize,
       lineHeight: options.lineHeight,
-      theme: xtermTheme(options.theme),
+      theme: xtermTheme(cb.current.env.theme),
     });
     const f = new FitAddon();
     const s = new SearchAddon();
@@ -210,7 +212,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
 
   // ConPTY sits between us and the shell on Windows (WSL included); xterm adapts its reflow to
   // the real build (>= 21376 keeps reflow on).
-  const { windowsBuild, fontSize, options } = env;
+  const { windowsBuild, fontSize, options, theme } = env;
   useEffect(() => {
     const t = term.current;
     if (!t) return;
@@ -222,10 +224,10 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     if (!t) return;
     t.options.fontFamily = options.fontFamily;
     t.options.lineHeight = options.lineHeight;
-    t.options.theme = xtermTheme(options.theme);
+    t.options.theme = xtermTheme(theme);
     if (t.options.fontSize !== fontSize) t.options.fontSize = fontSize;
     if (el.current?.offsetParent !== null) fit.current?.fit();
-  }, [fontSize, options]);
+  }, [fontSize, options, theme]);
 
   // A view mode change resizes the window (OS fullscreen) after the layout does, so fit again
   // once it has settled; the ResizeObserver catches most of it, this catches the rest.
@@ -267,7 +269,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       setResults(null);
       return;
     }
-    const { searchMatch, searchActiveMatch } = env.options.theme;
+    const { searchMatch, searchActiveMatch } = env.theme;
     const opts = {
       decorations: {
         matchBackground: searchMatch,

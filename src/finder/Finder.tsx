@@ -6,6 +6,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
+import { Keys } from "../ui/Keys";
 
 /** Rows actually rendered; the rest are counted. */
 const MAX_ROWS = 200;
@@ -128,7 +129,12 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
         {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
         <div className="picker-footer">
           <span role="status">{notice}</span>
-          <span>Enter choose · Esc close</span>
+          <span className="picker-hint">
+            <Keys keys="Enter" /> choose
+          </span>
+          <span className="picker-hint">
+            <Keys keys="Escape" /> close
+          </span>
         </div>
       </div>
     </div>

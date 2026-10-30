@@ -164,6 +164,7 @@ export const inventorySection: SidebarSectionDef = {
         id: `group:${group}`,
         label: group,
         detail: String(members.length),
+        icon: "group" as const,
         ...(hosts.groups[group]?.title ? { title: hosts.groups[group].title } : {}),
         level: 0,
         foldable: true,
