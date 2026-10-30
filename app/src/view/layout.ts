@@ -38,7 +38,7 @@ export interface ModeLayout {
 /** The status bar's segments, in their default order. */
 export const STATUS_SEGMENTS = ["backend", "box", "hosts", "path", "hints", "mode"] as const;
 
-/** One mode's pieces as the Config says them (desk-core config schema.rs ModeLayout). */
+/** One mode's pieces as the Config says them (roster-core config schema.rs ModeLayout). */
 export interface ModePieces {
   fullscreen: boolean;
   titlebar: boolean;

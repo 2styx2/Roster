@@ -619,19 +619,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "desk-core"
-version = "0.1.0"
-dependencies = [
- "libc",
- "mlua",
- "notify",
- "portable-pty",
- "serde",
- "serde_json",
- "serde_path_to_error",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2872,10 +2859,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "roster-desk"
+name = "roster-app"
 version = "0.1.0"
 dependencies = [
- "desk-core",
+ "roster-core",
  "serde",
  "serde_json",
  "tauri",
@@ -2883,6 +2870,19 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "webview2-com",
  "windows",
+]
+
+[[package]]
+name = "roster-core"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "mlua",
+ "notify",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
 ]
 
 [[package]]

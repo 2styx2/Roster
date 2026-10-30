@@ -1,4 +1,4 @@
-"""Stand-in for `roster serve` in desk-core's tests. JSON-RPC 2.0, one object per line.
+"""Stand-in for `roster serve` in roster-core's tests. JSON-RPC 2.0, one object per line.
 
 The first argument picks a behaviour:
   ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1

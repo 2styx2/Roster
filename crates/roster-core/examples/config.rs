@@ -4,9 +4,9 @@ fn main() {
     let dir = std::env::args()
         .nth(1)
         .map(std::path::PathBuf::from)
-        .or_else(desk_core::config::dir)
+        .or_else(roster_core::config::dir)
         .expect("no config dir");
-    let report = desk_core::config::Loader::new(&dir).reload();
+    let report = roster_core::config::Loader::new(&dir).reload();
     match &report.error {
         Some(e) => println!("error: {e}"),
         None => println!("{}", serde_json::to_string_pretty(&report.config).unwrap()),

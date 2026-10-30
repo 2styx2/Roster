@@ -1,5 +1,5 @@
 // The real Backend: Tauri commands in src-tauri/src/lib.rs, which drive `roster serve` through
-// desk-core. Only imported when running inside Tauri (see index.ts).
+// roster-core. Only imported when running inside Tauri (see index.ts).
 import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   BackendCallError,
@@ -21,7 +21,7 @@ import {
   type TermSize,
 } from "./types";
 
-/** desk-core's CallError, as serde sends it. */
+/** roster-core's CallError, as serde sends it. */
 type CallErrorWire =
   | { kind: "rpc"; code: number; message: string; data?: unknown }
   | { kind: "exited"; code: number | null; stderr: string }

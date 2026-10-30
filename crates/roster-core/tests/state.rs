@@ -1,13 +1,13 @@
 //! The State file (GLOSSARY: State): what the app remembers on its own between runs, as one JSON
 //! object in the app-data dir. Never Config, never secrets.
 
-use desk_core::state::StateFile;
+use roster_core::state::StateFile;
 use serde_json::json;
 use std::path::PathBuf;
 
 /// A fresh, empty directory for one test.
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("desk-core-state-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("roster-core-state-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }

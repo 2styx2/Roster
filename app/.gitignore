@@ -1,7 +1,7 @@
 node_modules
 dist
-target
 src-tauri/gen/schemas
+src-tauri/tauri.dev-port.json
 *.local
 test-results
 playwright-report

@@ -66,7 +66,7 @@ describe("the Lock", () => {
   });
 
   it("locks serve again when an unlock times out but serve finishes it anyway", async () => {
-    // desk-core gives up on a call after 60 s, but serve carries on: the UI stays locked, so serve
+    // roster-core gives up on a call after 60 s, but serve carries on: the UI stays locked, so serve
     // must not be left holding an unlocked vault.
     const scenario: FakeScenario = { hosts: makeHosts(12), slowUnlock: { failAfterMs: 20, completesAfterMs: 80 } };
     const { user, backend } = await start(scenario);

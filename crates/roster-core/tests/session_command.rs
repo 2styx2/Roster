@@ -4,8 +4,8 @@
 //! never go in the argv, which any process can read for the Session's life
 //! (docs/dev/tauri-pty-wsl.md, docs/security.md).
 
-use desk_core::detect::Target;
-use desk_core::session::{Prepared, SessionCommand, session_command, wslenv};
+use roster_core::detect::Target;
+use roster_core::session::{Prepared, SessionCommand, session_command, wslenv};
 use serde_json::json;
 
 /// The value of `name` in the command's process env.

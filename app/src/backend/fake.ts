@@ -68,7 +68,7 @@ export interface FakeScenario {
    * roster command), so the next password Session meets code 14. */
   relockAfterMs?: number;
   /** `vault.unlock` with the right password takes `completesAfterMs`, but the call gives up
-   * after `failAfterMs` (desk-core's timeout) while serve carries on and unlocks anyway. Like
+   * after `failAfterMs` (roster-core's timeout) while serve carries on and unlocks anyway. Like
    * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
   slowUnlock?: { failAfterMs: number; completesAfterMs: number };
   /** The account `vault.login` signs in to, when the vault is `not-logged-in` (ticket 31). Without

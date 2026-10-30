@@ -1,6 +1,6 @@
 //! The JSON-RPC client against a stub `roster serve` (tests/fake_serve.py).
 
-use desk_core::rpc::{CallError, RpcClient};
+use roster_core::rpc::{CallError, RpcClient};
 use serde_json::json;
 use std::process::Command;
 

@@ -3,7 +3,7 @@
 //! (docs/dev/tauri-pty-wsl.md), which these tests don't send.
 #![cfg(unix)]
 
-use desk_core::session::{Exit, SessionCommand, SessionEvent, SessionManager, Size};
+use roster_core::session::{Exit, SessionCommand, SessionEvent, SessionManager, Size};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 

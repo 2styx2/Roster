@@ -1,5 +1,5 @@
 // The State (GLOSSARY): what the app remembers on its own between runs, kept in the State file
-// (desk-core state.rs: `state.json` in the OS app-data dir). Never the Config, never secrets.
+// (roster-core state.rs: `state.json` in the OS app-data dir). Never the Config, never secrets.
 // Keys this version doesn't know are kept as they are, so an older and a newer app can share it.
 
 export interface AppState {

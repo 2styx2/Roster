@@ -1,8 +1,8 @@
 //! Starting `roster serve` and checking it: a stub serve (tests/fake_serve.py) in each failure mode
 //! must come out as the error the error screen explains.
 
-use desk_core::backend::Backend;
-use desk_core::detect::{Candidate, ErrorKind, Target};
+use roster_core::backend::Backend;
+use roster_core::detect::{Candidate, ErrorKind, Target};
 
 fn fake(mode: &str) -> Candidate {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py");
@@ -70,7 +70,7 @@ fn a_session_command_comes_from_session_prepare_with_term_set() {
 fn session_prepare_refusals_keep_roster_code_and_wording() {
     let b = Backend::start(&fake("ok")).unwrap();
     match b.session_command("scan-1").err().unwrap() {
-        desk_core::rpc::CallError::Rpc { code, message, .. } => {
+        roster_core::rpc::CallError::Rpc { code, message, .. } => {
             assert_eq!(code, 20);
             assert!(message.contains("is not reviewed yet"), "{message}");
         }
@@ -81,7 +81,7 @@ fn session_prepare_refusals_keep_roster_code_and_wording() {
 /// How fake_serve.py's one-time askpass tokens start (a counter follows).
 const TOKEN: &str = "tok-3b1f9e2a7c";
 
-fn token(cmd: &desk_core::session::SessionCommand) -> String {
+fn token(cmd: &roster_core::session::SessionCommand) -> String {
     cmd.env
         .iter()
         .find(|(k, _)| k == "ROSTER_ASKPASS_TOKEN")
@@ -118,7 +118,7 @@ fn a_key_host_says_key() {
 fn a_locked_vault_keeps_code_14_for_the_lock_screen() {
     let b = Backend::start(&fake("locked")).unwrap();
     match b.session_command("sw-core").err().unwrap() {
-        desk_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 14),
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 14),
         other => panic!("{other:?}"),
     }
 }
@@ -130,7 +130,7 @@ fn a_refusal_keeps_roster_data_for_the_error_panel() {
     let b = Backend::start(&fake("missing-item")).unwrap();
     let err = b.session_command("sw-core").err().unwrap();
     match &err {
-        desk_core::rpc::CallError::Rpc { code, data, .. } => {
+        roster_core::rpc::CallError::Rpc { code, data, .. } => {
             assert_eq!(*code, 32);
             let data = data.as_ref().expect("data");
             assert_eq!(data["near"], serde_json::json!(["sw-core ssh"]));

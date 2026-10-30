@@ -11,7 +11,7 @@ export interface Clipboard {
 }
 
 /** Where the window is and how big (physical pixels), for the State: the Tauri shell puts it
- * back there at the next start (desk-core window.rs). */
+ * back there at the next start (roster-core window.rs). */
 export interface WindowGeometry {
   x: number;
   y: number;

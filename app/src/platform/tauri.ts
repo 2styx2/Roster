@@ -1,5 +1,5 @@
 // The Platform inside Tauri: the State file, the Config and the Windows build come from src-tauri
-// (desk-core state.rs, config/, platform.rs); the window's controls from Tauri's window API (tauriWindow.ts); the
+// (roster-core state.rs, config/, platform.rs); the window's controls from Tauri's window API (tauriWindow.ts); the
 // clipboard from the clipboard-manager plugin, because WebView2 won't let the page read the
 // clipboard itself.
 import { invoke } from "@tauri-apps/api/core";
@@ -21,7 +21,7 @@ export function tauriPlatform(): Platform {
     },
     window: tauriWindow(),
     setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
-    // desk-core config.rs: read at start, then a `config-changed` event after every save.
+    // roster-core config.rs: read at start, then a `config-changed` event after every save.
     config: {
       load: () => invoke<ConfigReport | null>("config_load"),
       watch(onChange) {

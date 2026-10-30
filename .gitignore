@@ -23,3 +23,7 @@ report.xml
 
 # Playwright MCP snapshots
 .playwright-mcp/
+
+# Rust (the Cargo workspace builds into /target) and the app (app/.gitignore has the rest)
+/target/
+node_modules/

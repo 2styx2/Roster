@@ -1,20 +1,20 @@
-//! The Tauri shell: window setup and thin `#[tauri::command]` wrappers over desk-core (Backend
+//! The Tauri shell: window setup and thin `#[tauri::command]` wrappers over roster-core (Backend
 //! calls, Sessions).
-//! All logic lives in desk-core so it can be tested without Tauri (docs/dev/testing.md).
+//! All logic lives in roster-core so it can be tested without Tauri (docs/dev/testing.md).
 
-use desk_core::backend::{Backend, BackendInfo};
-use desk_core::config::{self, Config, Loader, Report};
-use desk_core::detect::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR, Platform, SystemRunner, detect};
-use desk_core::rpc::CallError;
-use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
-use desk_core::slot::Slot;
-use desk_core::state::StateFile;
+use roster_core::backend::{Backend, BackendInfo};
+use roster_core::config::{self, Config, Loader, Report};
+use roster_core::detect::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR, Platform, SystemRunner, detect};
+use roster_core::rpc::CallError;
+use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
+use roster_core::slot::Slot;
+use roster_core::state::StateFile;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 
 /// The one `roster serve` for this app launch, once started. Starting happens outside the lock
-/// that `get` takes (desk-core's Slot), so commands on the async workers never wait for a start.
+/// that `get` takes (roster-core's Slot), so commands on the async workers never wait for a start.
 #[derive(Default)]
 struct BackendState(Slot<Backend>);
 
@@ -76,7 +76,7 @@ async fn backend_connect(
     .await
 }
 
-/// The Config (`init.lua`, desk-core config/): None when there's no config dir. desk-core's
+/// The Config (`init.lua`, roster-core config/): None when there's no config dir. roster-core's
 /// Loader runs Lua outside the locks its readers take, so nothing here waits on Lua except
 /// on a blocking thread.
 struct ConfigState(Option<Arc<Loader>>);
@@ -266,7 +266,7 @@ fn state_save(app: tauri::AppHandle, state: Value) -> Result<(), String> {
 /// Facts about this machine the terminal needs: the Windows build, for xterm's `windowsPty`.
 #[tauri::command]
 fn platform_info() -> Value {
-    json!({ "windowsBuild": desk_core::platform::windows_build() })
+    json!({ "windowsBuild": roster_core::platform::windows_build() })
 }
 
 /// WebView2's own shortcuts (Ctrl+F find, Ctrl+R reload, Ctrl+P print, F12…) would take keys
@@ -286,10 +286,10 @@ fn disable_browser_accelerators(window: &tauri::WebviewWindow) {
     });
 }
 
-/// Puts the window where the State says it was (desk-core window.rs), then shows it. The window
+/// Puts the window where the State says it was (roster-core window.rs), then shows it. The window
 /// starts hidden (tauri.conf.json `visible: false`) so it never jumps; it's shown whatever happens.
 fn restore_and_show(app: &tauri::App, window: &tauri::WebviewWindow) {
-    use desk_core::window::{Rect, placement};
+    use roster_core::window::{Rect, placement};
     use tauri::{PhysicalPosition, PhysicalSize};
     let state = state_file(app.handle()).map(|f| f.load()).unwrap_or(Value::Null);
     let monitors: Vec<Rect> = window

@@ -2,12 +2,12 @@
 //! sandboxed Lua 5.4, checked against a schema, layered over the defaults. These tests drive the
 //! public loader the Tauri shell uses, with real files in a temp dir.
 
-use desk_core::config::{self, Config, Loader};
+use roster_core::config::{self, Config, Loader};
 use std::path::PathBuf;
 
 /// A fresh, empty config dir for one test.
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("desk-core-config-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("roster-core-config-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -427,7 +427,7 @@ fn the_defaults_fixture_is_current() {
 #[test]
 fn the_env_vars_win_over_the_configs_backend_and_roster_command() {
     use config::{BackendChoice, RosterCommand, backend_plan};
-    use desk_core::detect::Platform;
+    use roster_core::detect::Platform;
     let c = Config {
         roster_command: Some(RosterCommand(vec!["uv".into(), "run".into(), "roster".into()])),
         backend: BackendChoice::Wsl(Some("Ubuntu".into())),
@@ -643,7 +643,7 @@ fn roster_command_from_init_lua_must_run_roster() {
 #[test]
 fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_may_wrap() {
     use config::{RosterCommand, backend_plan};
-    use desk_core::detect::Platform;
+    use roster_core::detect::Platform;
     let c = Config {
         roster_command: Some(RosterCommand(vec!["sh".into(), "-c".into(), "roster".into()])),
         ..Config::default()

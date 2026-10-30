@@ -2,7 +2,7 @@
 //! `cargo run --example session -- wsl.exe -d FedoraLinux-44 --exec sh -c 'stty size; exit 3'`.
 //! Answers ConPTY's cursor-position request (`ESC[6n`) the way xterm.js does.
 
-use desk_core::session::{SessionCommand, SessionEvent, SessionManager, Size};
+use roster_core::session::{SessionCommand, SessionEvent, SessionManager, Size};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 

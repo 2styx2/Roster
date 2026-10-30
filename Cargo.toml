@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/desk-core"]
+members = ["app/src-tauri", "crates/roster-core"]
 # `cargo test` in WSL builds only the Tauri-free core (src-tauri needs webkit2gtk there).
-default-members = ["crates/desk-core"]
+default-members = ["crates/roster-core"]
 
 [profile.release]
 codegen-units = 1

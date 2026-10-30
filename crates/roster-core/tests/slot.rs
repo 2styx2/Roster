@@ -2,7 +2,7 @@
 //! first answer), and Tauri's async commands read the slot meanwhile, so a read must never wait
 //! for a start.
 
-use desk_core::slot::Slot;
+use roster_core::slot::Slot;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};

@@ -1,7 +1,7 @@
 //! Finding the Backend: which WSL distro (or the local machine) has roster and an Inventory, and
 //! the exact argv that starts `roster serve` there. Driven through a scripted command runner.
 
-use desk_core::detect::{Candidate, ErrorKind, Output, Platform, Runner, Target, detect, roster_command};
+use roster_core::detect::{Candidate, ErrorKind, Output, Platform, Runner, Target, detect, roster_command};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -424,7 +424,7 @@ impl Runner for WithHome {
         let mut all = env.to_vec();
         all.push(("HOME", home));
         all.push(("ROSTER_CONFIG", ""));
-        desk_core::detect::SystemRunner.run(argv, &all)
+        roster_core::detect::SystemRunner.run(argv, &all)
     }
 }
 

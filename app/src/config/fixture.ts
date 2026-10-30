@@ -1,7 +1,7 @@
 // For tests: the Config's defaults exactly as the core sends them, read from the core's own
-// fixture (crates/desk-core/tests/fixtures/config-defaults.json, checked by a Rust test), so the
+// fixture (crates/roster-core/tests/fixtures/config-defaults.json, checked by a Rust test), so the
 // Rust and TypeScript defaults can't drift apart.
-import defaults from "../../crates/desk-core/tests/fixtures/config-defaults.json";
+import defaults from "../../../crates/roster-core/tests/fixtures/config-defaults.json";
 import type { Config } from "./types";
 
 export const configFixture = defaults as unknown as {

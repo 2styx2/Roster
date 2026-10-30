@@ -3,7 +3,7 @@
 //! Its own test binary, so no other test's `session-1-read` thread is in the process.
 #![cfg(target_os = "linux")]
 
-use desk_core::session::{SessionCommand, SessionEvent, SessionManager, Size};
+use roster_core::session::{SessionCommand, SessionEvent, SessionManager, Size};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
