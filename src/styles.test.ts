@@ -14,10 +14,11 @@ const SHEETS: [string, string][] = [
 /** Selectors whose element holds only an icon (an SVG drawn in `currentColor`), never text. */
 const ICON_ONLY = new Set([".sb-icon", ".picker-search-icon"]);
 
-/** Every innermost rule of a stylesheet as [selector, declarations], nesting flattened. */
-function rules(css: string): [string, string][] {
+/** Every innermost rule of a stylesheet as [selector, declarations, the at-rules around it],
+ * nesting flattened. */
+function rules(css: string): [string, string, string[]][] {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const out: [string, string][] = [];
+  const out: [string, string, string[]][] = [];
   const stack: { selector: string; body: string }[] = [];
   let buf = "";
   for (const ch of text) {
@@ -28,7 +29,8 @@ function rules(css: string): [string, string][] {
       const top = stack.pop();
       if (!top) continue;
       const body = top.body + buf;
-      if (!top.selector.startsWith("@")) out.push([top.selector, body]);
+      const at = stack.map((s) => s.selector).filter((s) => s.startsWith("@"));
+      if (!top.selector.startsWith("@")) out.push([top.selector, body, at]);
       buf = "";
     } else if (ch === ";" && stack.length) {
       const top = stack.at(-1);
@@ -52,7 +54,11 @@ function faintText(css: string): string[] {
 describe("the stylesheets", () => {
   it("finds rules inside @media and nested blocks", () => {
     const css = "a { color: red; } @media (x) { .b { color: var(--faint); } } .c { x: 1; @starting-style { y: 2; } }";
-    expect(rules(css).map(([s]) => s)).toEqual(["a", ".b", ".c"]);
+    expect(rules(css).map(([s, , at]) => [s, at])).toEqual([
+      ["a", []],
+      [".b", ["@media (x)"]],
+      [".c", []],
+    ]);
   });
 
   it("catches a text rule that uses --faint, and lets an icon rule through", () => {
@@ -71,5 +77,33 @@ describe("native controls (S6)", () => {
   it("take the Theme's accent, not the browser's blue", () => {
     const root = rules(stylesCss).find(([selector]) => selector === ":root");
     expect(root?.[1]).toMatch(/accent-color\s*:\s*var\(--accent\)/);
+  });
+});
+
+describe("type sizes (N6)", () => {
+  /** Every font size in px a rule sets, through `font-size` or the `font` shorthand. */
+  const sizes = (css: string) =>
+    rules(css).flatMap(([selector, body]) =>
+      [...body.matchAll(/(?:^|;)\s*font(?:-size)?\s*:[^;]*?(\d+(?:\.\d+)?)px/g)].map((m) => [selector, Number(m[1])] as const),
+    );
+
+  it("finds sizes in font-size and in the font shorthand", () => {
+    expect(sizes(".a { font-size: 10px; } .b { font: 500 10.5px/1 var(--mono); } .c { width: 7px; }")).toEqual([
+      [".a", 10],
+      [".b", 10.5],
+    ]);
+  });
+
+  it.each(SHEETS)("%s sets no text below the scale's 11 px step", (_name, css) => {
+    expect(sizes(css).filter(([, px]) => px < 11)).toEqual([]);
+  });
+});
+
+describe("hover (N8)", () => {
+  it.each(SHEETS)("%s keeps every :hover rule for a real pointer", (_name, css) => {
+    const loose = rules(css)
+      .filter(([selector, , at]) => selector.includes(":hover") && !at.some((a) => /hover:\s*hover/.test(a)))
+      .map(([selector]) => selector);
+    expect(loose).toEqual([]);
   });
 });
