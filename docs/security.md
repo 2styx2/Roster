@@ -40,6 +40,10 @@ roster-desk never stores secrets: there's no built-in vault, now or later (decis
 
 `session.prepare` hands back a one-time token (60 s, spent on first use) in the Session's env. The Rust core sets it on the Session's process and never in an argv: a command line is readable by any process and logged by process-creation auditing for the process's whole life, while the environment is only readable by the same user. On WSL that means setting it on `wsl.exe` and naming it in `WSLENV` (`docs/dev/tauri-pty-wsl.md`, section 2). It never appears in Debug output or error text: names only, and spawn errors are redacted.
 
+## The webview
+
+The built app runs under a Content Security Policy (`src-tauri/tauri.conf.json`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'`. So no remote script, style, font or connection, no inline script and no `eval`. Tauri adds hashes for its own inline scripts. `style-src` keeps `'unsafe-inline'` for the `<style>` elements xterm.js creates, and `dangerousDisableAssetCspModification: ["style-src"]` stops Tauri from adding a style nonce, which would void `'unsafe-inline'`. Fonts (Inter, Iosevka) are bundled, never fetched. On desktop, `tauri dev` loads the Vite dev server directly and Tauri adds no CSP header there (only to embedded assets), so HMR needs no `devCsp`.
+
 ## Connections
 
 - Unreviewed Hosts are never connected to (the same rule as `roster run`).
