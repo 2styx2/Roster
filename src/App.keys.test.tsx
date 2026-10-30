@@ -221,8 +221,15 @@ describe("The command line", () => {
   it("shows the candidates and cycles through them with Tab", async () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:c`);
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["check", "choose", "close", "cmdline", "connect "]);
-    await user.keyboard("{Tab}{Tab}{Tab}{Tab}{Tab}");
+    // List motions (choose) come last (ticket 29 S8).
+    expect(screen.getAllByRole("option").map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual([
+      "check",
+      "close",
+      "cmdline",
+      "connect ",
+      "choose",
+    ]);
+    await user.keyboard("{Tab}{Tab}{Tab}{Tab}");
     expect(cmdline()).toHaveValue("connect ");
   });
 
@@ -284,10 +291,11 @@ describe("The Key bindings panel", () => {
     await user.keyboard(`${LEADER}?`);
     const next = rowOf("Next Session");
     expect(next.map((r) => r.textContent)).toEqual([
-      expect.stringMatching(/Next Session.*Leader.*\].*builtin/),
+      expect.stringMatching(/Next Session.*Leader.*\]$/),
       expect.stringMatching(/Next Session.*Leader.*t.*init\.lua/),
     ]);
-    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space.*builtin/);
+    // A built-in binding doesn't say "builtin" (ticket 29 N1); only another source is named.
+    expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+Space$/);
     expect(within(panel()).getByRole("searchbox", { name: /filter/i })).toHaveFocus();
     await user.keyboard("close the s");
     const shown = within(panel()).getAllByRole("row").filter((r) => !r.classList.contains("group"));

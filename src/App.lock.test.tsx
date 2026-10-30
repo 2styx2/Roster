@@ -84,11 +84,11 @@ describe("the Lock", () => {
 
   it("explains a vault CLI that isn't logged in, with the command to run", async () => {
     const { user } = await start(fixtures["not-logged-in"]);
-    expect(await screen.findByText("bw login", { selector: "code" })).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: /locked/i })).toHaveTextContent(/isn't logged in/i);
+    expect((await screen.findAllByText("bw login", { selector: "code" })).length).toBeGreaterThan(0);
+    expect(screen.getByRole("dialog", { name: /isn't signed in on this box/i })).toHaveTextContent(/isn't logged in/i);
     expect(screen.queryByLabelText(/master password/i)).toBeNull();
     await user.click(screen.getByRole("button", { name: /check again/i }));
-    expect(await screen.findByText("bw login", { selector: "code" })).toBeInTheDocument();
+    expect((await screen.findAllByText("bw login", { selector: "code" })).length).toBeGreaterThan(0);
   });
 
   it("explains a missing vault CLI", async () => {

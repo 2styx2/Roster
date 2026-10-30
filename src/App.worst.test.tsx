@@ -90,7 +90,7 @@ describe("the worst case", () => {
     expect(bareLeaders()).toEqual([]);
 
     const bar = document.querySelector(".statusbar") as HTMLElement;
-    expect(bar).toHaveTextContent("1,284 hosts");
+    expect(bar).toHaveTextContent("1,284 Hosts");
     const heading = (name: string) => within(screen.getByRole("group", { name })).getAllByRole("treeitem", { name })[0];
     expect(heading("Inventory")).toHaveTextContent("1,284");
     expect(heading("Sessions")).toHaveTextContent("50");
@@ -120,7 +120,7 @@ describe("the worst case", () => {
     const user = await open("worst-case");
     await user.keyboard(`${LEADER}f`);
     const picker = screen.getByRole("dialog", { name: "Find a Host" });
-    expect(within(picker).getByText("200 of 1,284 hosts")).toBeInTheDocument();
+    expect(within(picker).getByText("200 of 1,284 Hosts")).toBeInTheDocument();
     // An unreviewed Host's long notice in the footer.
     await user.keyboard(`${LONG_NAME}{Enter}`);
     expect(within(picker).getByRole("status")).toHaveTextContent(/isn't reviewed yet/);
@@ -173,23 +173,23 @@ describe("the worst case", () => {
 });
 
 describe("one, and none", () => {
-  it("says 1 host, not 1 hosts", async () => {
+  it("says 1 Host, not 1 Hosts", async () => {
     const user = await open("worst-case-one");
-    expect(document.querySelector(".statusbar")).toHaveTextContent("1 host");
-    expect(document.querySelector(".statusbar")).not.toHaveTextContent("1 hosts");
+    expect(document.querySelector(".statusbar")).toHaveTextContent("1 Host");
+    expect(document.querySelector(".statusbar")).not.toHaveTextContent("1 Hosts");
     await user.keyboard(`${LEADER}f`);
-    expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("1 host");
+    expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("1 Host");
   });
 
   it("has an empty state everywhere, and keeps a key hint's word on its line", async () => {
     const user = await open("worst-case-empty");
-    expect(document.querySelector(".statusbar")).toHaveTextContent("0 hosts");
-    expect(screen.getByText("No Hosts in the Inventory.")).toBeInTheDocument();
+    expect(document.querySelector(".statusbar")).toHaveTextContent("0 Hosts");
+    expect(screen.getByText("No Hosts yet. Add them in roster.yml.")).toBeInTheDocument();
     const hint = document.querySelector(".sb-empty .keys-with-word");
     expect(hint).toHaveTextContent(/^press/);
     expect(hint?.querySelector(".keycap-leader")).not.toBeNull();
     await user.keyboard(`${LEADER}f`);
-    expect(screen.getByText(/No hosts match/)).toBeInTheDocument();
+    expect(screen.getByText(/The Inventory has no Hosts yet/)).toBeInTheDocument();
     expect(leaked()).toEqual([]);
     expect(bareLeaders()).toEqual([]);
   });

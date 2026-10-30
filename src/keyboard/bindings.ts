@@ -71,7 +71,21 @@ export function bindingRows(keymap: Keymap, options: Options, commands: Commands
     keys: [options.leader],
     source: options.leader === defaultOptions.leader ? BUILTIN : CONFIG,
   };
-  return [leader, ...sorted.map(({ area, label, keys, source }) => ({ area, label, keys, source }))];
+  return [leader, ...foldSessionDigits(sorted.map(({ area, label, keys, source }) => ({ area, label, keys, source })))];
+}
+
+/** The built-in "Go to Session 1" … "9" rows as one: "Go to Session 1–9", "␣ 1…9". */
+function foldSessionDigits(rows: BindingRow[]): BindingRow[] {
+  const digit = (r: BindingRow) => {
+    const m = /^Go to Session (\d)$/.exec(r.label);
+    return m && r.source === BUILTIN && r.keys.length === 1 && r.keys[0] === `␣ ${m[1]}` ? Number(m[1]) : null;
+  };
+  const digits = rows.map(digit).filter((d): d is number => d !== null);
+  if (digits.length < 2) return rows;
+  const [lo, hi] = [Math.min(...digits), Math.max(...digits)];
+  const at = rows.findIndex((r) => digit(r) !== null);
+  const folded: BindingRow = { ...(rows[at] as BindingRow), label: `Go to Session ${lo}–${hi}`, keys: [`␣ ${lo}…${hi}`] };
+  return rows.flatMap((r, i) => (i === at ? [folded] : digit(r) === null ? [r] : []));
 }
 
 export function filterRows(rows: readonly BindingRow[], query: string): BindingRow[] {

@@ -553,6 +553,11 @@ export function App({
     say: setMessage,
     viewMode: () => viewMode,
     setViewMode: (mode) => setViewMode(mode ?? otherMode(viewMode)),
+    showInfo: () => {
+      if (conn.state === "ready") {
+        setMessage(`Backend ${conn.info.backend} · Box ${conn.info.inventory.box} · Inventory ${conn.info.inventory.path}`);
+      }
+    },
     openFinder: (source) => {
       if (!registries.finders.get(source)) return setMessage(`No finder named ${source}`);
       if (overlay === null) rememberFocus();
@@ -697,7 +702,7 @@ export function App({
       case "hosts":
         return (
           <span key={id} className="count">
-            {countOf(conn.hosts.hosts.length, "host")}
+            {countOf(conn.hosts.hosts.length, "Host")}
           </span>
         );
       case "path":
@@ -777,7 +782,16 @@ export function App({
           }}
         >
           {options.sessions === "tabs" && !noSessions && <TabStrip snapshot={sessions} run={run} />}
-          {noSessions ? (
+          {noSessions && conn.hosts.hosts.length === 0 ? (
+            // Nothing to find yet: say where Hosts come from (S7), not "Find a Host".
+            <div className="empty">
+              <Logo size={40} className="empty-mark" />
+              <p className="empty-title">No Hosts in the Inventory yet.</p>
+              <p className="empty-hint">
+                Add them to <code>{info.inventory.path}</code> and they show up here.
+              </p>
+            </div>
+          ) : noSessions ? (
             <div className="empty">
               <Logo size={40} className="empty-mark" />
               <p className="empty-title">No Sessions open</p>
@@ -824,6 +838,13 @@ export function App({
           key={overlay.cmdline}
           initial={overlay.cmdline}
           complete={(input) => complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [])}
+          describe={(candidate) => {
+            // A command name (not a command and its argument): its label and key.
+            const [id = "", arg = ""] = candidate.split(" ");
+            const command = arg === "" ? commands.get(id) : undefined;
+            return command ? { label: command.label(), keys: hintFor(keymap, id) } : null;
+          }}
+          leader={options.leader}
           onClose={closeOverlay}
           onRun={(line) => {
             closeOverlay();

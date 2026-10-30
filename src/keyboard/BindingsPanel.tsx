@@ -67,8 +67,9 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                       ))}
                     </span>
                   </td>
+                  {/* Where it comes from, when it isn't built in (filtering by "builtin" still works). */}
                   <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>
-                    <span title={r.source}>{r.source}</span>
+                    {r.source !== BUILTIN && <span title={r.source}>{r.source}</span>}
                   </td>
                 </tr>
               ))}

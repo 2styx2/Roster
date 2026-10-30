@@ -110,3 +110,120 @@ describe("S5: sign-in fields say when they were refused", () => {
     expect(pw).toHaveAccessibleDescription(/didn't accept that email and master password/i);
   });
 });
+
+describe("S7: an empty Inventory says what to do", () => {
+  const empty: FakeScenario = { hosts: { hosts: [], groups: {} }, vault: { status: "unsupported" } };
+
+  it("the Picker, the Sidebar and the workspace point at roster.yml", async () => {
+    const user = start(empty);
+    const main = await screen.findByRole("main", { name: /workspace/i });
+    expect(main).toHaveTextContent(/No Hosts in the Inventory yet/);
+    expect(main).toHaveTextContent("~/infra/roster.yml");
+    expect(within(main).queryByRole("button", { name: /find a host/i })).toBeNull();
+    expect(within(screen.getByRole("group", { name: "Inventory" })).getByText(/No Hosts yet\. Add them in roster\.yml\./)).toBeInTheDocument();
+    await user.keyboard(`${LEADER}f`);
+    const picker = screen.getByRole("dialog", { name: "Find a Host" });
+    expect(picker).toHaveTextContent("The Inventory has no Hosts yet. Add them to roster.yml and they show up here.");
+    expect(picker).not.toHaveTextContent("“”");
+  });
+
+  it("keeps the no-match line for a real query", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}f`);
+    await user.keyboard("zzzz");
+    expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("No Hosts match “zzzz”.");
+  });
+});
+
+describe("S8: command line completions say what they do", () => {
+  it("lists each command with its label and key, list motions last", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:c`);
+    const options = screen.getAllByRole("option");
+    expect(options.map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual(["check", "close", "cmdline", "connect ", "choose"]);
+    expect(options[0]).toHaveTextContent(/Check a Host/);
+    expect(options[2]).toHaveTextContent(/Command line.*Leader\s*:/);
+  });
+});
+
+describe("S10: lock and sign-in copy", () => {
+  it("says the CLI isn't signed in, rather than Locked, with the command to copy", async () => {
+    const platform = memoryPlatform();
+    const user = start(fixtures["not-logged-in"] as FakeScenario, platform);
+    const dialog = await screen.findByRole("dialog", { name: "Bitwarden isn't signed in on this Box" });
+    await user.click(within(dialog).getByRole("button", { name: "Copy" }));
+    expect(platform.clipboardText()).toBe("bw login");
+  });
+
+  it("says the CLI isn't installed", async () => {
+    start(fixtures["missing-cli"] as FakeScenario);
+    expect(await screen.findByRole("dialog", { name: "The Bitwarden CLI isn't installed" })).toBeInTheDocument();
+  });
+
+  it("draws the step keys as keycaps, and drops Where and a Fix that repeats the message", async () => {
+    const user = start(fixtures["sign-in-rate-limited"] as FakeScenario);
+    const dialog = await screen.findByRole("dialog", { name: /sign in/i });
+    expect(dialog.querySelector(".signin-keys .keycap")).not.toBeNull();
+    await user.keyboard("{Enter}");
+    await user.type(within(dialog).getByLabelText(/email/i), `${FAKE_EMAIL}{Enter}`);
+    await user.type(within(dialog).getByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent(/too many sign-in attempts/i);
+    expect(within(alert).queryByText("Where")).toBeNull();
+    expect(within(alert).queryByText("Fix")).toBeNull();
+  });
+});
+
+describe("S12: the :theme finder shows the current Theme", () => {
+  it("marks it current and opens on it", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:theme{Enter}`);
+    const selected = screen.getByRole("option", { selected: true });
+    expect(selected).toHaveTextContent(/Roster (dark|light).*current/);
+    expect(screen.getAllByRole("option").filter((o) => /current/.test(o.textContent ?? ""))).toHaveLength(1);
+  });
+});
+
+describe("N1: the Key bindings panel without the noise", () => {
+  it("shows a source only when it isn't builtin, and one row for Go to Session 1–9", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}?`);
+    const panel = screen.getByRole("complementary", { name: "Key bindings" });
+    expect(within(panel).queryAllByText("builtin")).toHaveLength(0);
+    expect(within(panel).getAllByText(/^Go to Session/)).toHaveLength(1);
+    expect(within(panel).getByText("Go to Session 1–9")).toBeInTheDocument();
+    await user.keyboard("builtin");
+    expect(within(panel).getByText("Next Session")).toBeInTheDocument();
+  });
+});
+
+describe("N2: domain terms are capitalised as in the glossary", () => {
+  it("writes Host and Box with capitals in the app's own strings", async () => {
+    const user = await ready();
+    expect(screen.getByText("12 Hosts")).toBeInTheDocument();
+    await user.keyboard(`${LEADER}f`);
+    expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "Find a Host: name, address, type, product, group…");
+    expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("12 Hosts");
+  });
+});
+
+describe("N7: the Sessions finder explains its marks", () => {
+  it("names the current and previous Session, and has a legend", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:connect linux-1-000{Enter}`);
+    await user.keyboard(`${LEADER}:connect esxi-2-001{Enter}`);
+    await user.keyboard(`${LEADER}b`);
+    const dialog = screen.getByRole("dialog", { name: /session/i });
+    expect(within(dialog).getByRole("option", { name: /esxi-2-001.*current/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: /linux-1-000.*previous/ })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("* current · - previous");
+  });
+});
+
+describe("M6: the status bar's path, whole, from the keyboard", () => {
+  it(":info says the Backend, the Box and the Inventory's path", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:info{Enter}`);
+    expect(screen.getByRole("status")).toHaveTextContent(/~\/infra\/roster\.yml/);
+  });
+});

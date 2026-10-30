@@ -60,6 +60,8 @@ export interface CommandContext {
   setViewMode(mode: ViewMode | null): void;
   /** Opens the Finder over a finder source (`sessions`, `hosts`, `tree`…). */
   openFinder(source: string): void;
+  /** Says the Backend, the Box and the Inventory's path, whole (the status bar cuts them). */
+  showInfo(): void;
 }
 
 export interface CommandDef extends Entry {
@@ -72,6 +74,8 @@ export interface CommandDef extends Entry {
   optionalArg?: boolean;
   /** App mode goes on after it (moving a list); otherwise keys go back to the terminal. */
   staysInAppMode?: boolean;
+  /** A list or tree motion (j, k, h, l…): ranked last in completion, as it's meant for keys. */
+  motion?: boolean;
   run(ctx: CommandContext, arg: string | undefined): void;
   /** Completions for the argument typed so far (whole arguments), when `arg` is "text". */
   complete?(arg: string, hostNames: readonly string[]): string[];
@@ -85,6 +89,7 @@ const fold = (id: string, how: FoldHow, label: string): CommandDef => ({
   optionalArg: how !== "toggle",
   label: (row) => (row ? `${label} ${row}` : label),
   staysInAppMode: true,
+  motion: true,
   run: (ctx, row) => ctx.fold(row ?? null, how),
 });
 
@@ -94,6 +99,7 @@ const list = (move: ListMove, label: string): CommandDef => ({
   area: "Sidebar",
   label: () => label,
   staysInAppMode: move !== "choose",
+  motion: true,
   run: (ctx) => ctx.list(move),
 });
 
@@ -195,6 +201,13 @@ export const builtinCommands: readonly CommandDef[] = [
   { id: "lock", source: BUILTIN, area: "App", label: () => "Lock", run: (ctx) => ctx.lock() },
   { id: "terminal", source: BUILTIN, area: "App", label: () => "Back to the terminal", run: (ctx) => ctx.toTerminal() },
   { id: "hidepanel", source: BUILTIN, area: "App", label: () => "Close the side panel", run: (ctx) => ctx.closePanel() },
+  {
+    id: "info",
+    source: BUILTIN,
+    area: "App",
+    label: () => "Show the Backend, the Box and the Inventory's path",
+    run: (ctx) => ctx.showInfo(),
+  },
 ];
 
 export type CommandRegistry = Registry<CommandDef>;
@@ -255,11 +268,12 @@ export function describeLine(commands: Commands, line: string): { area: string; 
 export function complete(commands: Commands, input: string, hostNames: readonly string[]): string[] {
   const space = input.indexOf(" ");
   if (space < 0) {
+    // List and tree motions last: they're there to be run, but they're meant for keys.
     return commands
       .list()
       .filter((c) => c.id.startsWith(input))
-      .map((c) => (c.arg && !c.optionalArg ? `${c.id} ` : c.id))
-      .sort();
+      .sort((a, b) => Number(a.motion ?? false) - Number(b.motion ?? false) || a.id.localeCompare(b.id))
+      .map((c) => (c.arg && !c.optionalArg ? `${c.id} ` : c.id));
   }
   const command = commands.get(input.slice(0, space));
   if (command?.complete) return command.complete(input.slice(space + 1).trimStart(), hostNames).map((a) => `${command.id} ${a}`);

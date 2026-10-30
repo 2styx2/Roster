@@ -9,7 +9,16 @@
 .signin-actions button { height: 32px; }
 .signin-methods { display: flex; flex-direction: column; gap: 6px; }
 .signin-methods button { height: 34px; text-align: left; display: flex; align-items: center; gap: 10px; }
-.signin-link code { display: block; overflow-wrap: anywhere; font-size: var(--text-xs); color: var(--muted); }
+.signin-link code { display: block; overflow-wrap: anywhere; font-size: var(--text-sm); color: var(--muted); }
+/* SSO: a quiet sign that the wait is alive, a node breathing (taste.md: a node, not a spinner).
+   Constant motion (animate: linear), slow, opacity only; under reduced motion it stays still. */
+.signin-waiting { display: flex; align-items: center; gap: 8px; }
+.signin-waiting-node {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  animation: signin-waiting 1.6s linear infinite;
+}
+@keyframes signin-waiting { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .signin-waiting-node { animation: none; } }
 .signin-problem { display: flex; flex-direction: column; gap: 4px; }
 .signin-problem p { margin: 0; }
 .signin-facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; font-size: var(--text-sm); }
@@ -18,4 +27,3 @@
 .signin-problem details { font-size: var(--text-xs); color: var(--muted); }
 .signin-problem pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0 0; }
 .signin-keys { font-size: var(--text-xs); color: var(--muted); margin-top: 4px; }
-.signin kbd { font-family: inherit; font-size: var(--text-xs); color: var(--muted); }

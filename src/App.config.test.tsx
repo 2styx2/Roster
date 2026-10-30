@@ -184,7 +184,7 @@ describe("Layout from init.lua (decision Q39)", () => {
       .getAllByRole("group")
       .map((r) => r.getAttribute("aria-label"));
     expect(sections).toEqual(["Folders", "Sessions"]);
-    expect(screen.getByText("12 hosts")).toBeInTheDocument();
+    expect(screen.getByText("12 Hosts")).toBeInTheDocument();
     expect(document.querySelector(".statusbar .backend")).toBeNull();
     await user.keyboard(`${LEADER}m`);
     expect(screen.getByRole("navigation", { name: "Session bar" })).toBeInTheDocument();

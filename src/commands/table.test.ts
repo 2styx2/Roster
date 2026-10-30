@@ -37,6 +37,7 @@ function recorder(mode: ViewMode = "standard") {
     viewMode: () => mode,
     setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
     openFinder: (id) => calls.push(`finder ${id}`),
+    showInfo: () => calls.push("info"),
   };
   return { ctx, calls };
 }

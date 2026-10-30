@@ -164,7 +164,7 @@ export const inventorySection: SidebarSectionDef = {
     id: "inventory",
     title: "Inventory",
     count: hosts.hosts.length,
-    empty: "No Hosts in the Inventory.",
+    empty: "No Hosts yet. Add them in roster.yml.",
     rows: groupsOf(hosts).flatMap(([group, members]) => [
       {
         id: `group:${group}`,
