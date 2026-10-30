@@ -115,7 +115,7 @@ describe("Option names where configurable things show", () => {
     expect(within(rowOf(/^Leader: take the keys back/)).getByText("leader", { selector: "code" })).toBeInTheDocument();
     expect(rowOf(/^Lock/)).toHaveTextContent("keys.leader");
     expect(rowOf(/^Copy/)).toHaveTextContent("keys.terminal");
-    expect(within(panel).getByText(/change in init\.lua/i)).toBeInTheDocument();
+    expect(within(panel).getByText(/in init\.lua: the name is under each one/)).toBeInTheDocument();
     // The filter finds bindings by option name.
     await user.type(within(panel).getByRole("searchbox"), "keys.terminal");
     expect(within(panel).queryByText(/^Lock$/)).toBeNull();

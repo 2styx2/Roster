@@ -56,7 +56,13 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
               </tr>
               {list.map((r) => (
                 <tr key={`${r.label}\0${r.source}`}>
-                  <td>{r.label}</td>
+                  <td>
+                    {r.label}
+                    {/* Its name in init.lua (ticket 32), under the label. */}
+                    <code className="keys-option" title="Change it in init.lua">
+                      {r.options.join(" ")}
+                    </code>
+                  </td>
                   <td className="keys-keys">
                     <span className="keys-list">
                       {r.keys.map((k, i) => (
@@ -68,14 +74,9 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                     </span>
                   </td>
                   {/* Where it comes from, when it isn't built in (filtering by "builtin" still works),
-                      and its name in init.lua (ticket 32). */}
+                      */}
                   <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>
                     {r.source !== BUILTIN && <span title={r.source}>{r.source}</span>}
-                    {r.options.map((o) => (
-                      <code key={o} className="keys-option" title={`${o} in init.lua`}>
-                        {o}
-                      </code>
-                    ))}
                   </td>
                 </tr>
               ))}
@@ -85,7 +86,7 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
         {shown.length === 0 && <p className="panel-empty">No bindings match “{query}”.</p>}
       </div>
       <p className="panel-foot">
-        Change in init.lua under the name beside each row. <code>:config</code> opens it.
+        Change any of these in init.lua: the name is under each one. <code>:config</code> opens it.
       </p>
     </aside>
   );

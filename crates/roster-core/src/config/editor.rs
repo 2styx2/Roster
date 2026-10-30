@@ -130,10 +130,11 @@ pub fn open(how: &OpenWith) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn open_default(path: &Path) -> std::io::Result<()> {
-    if win::shell_open(path) {
+    // With no app for .lua files, ShellExecute would put up Windows' "Pick an app" and wait on
+    // it; Notepad is always there, so go straight to it.
+    if win::has_app(path) && win::shell_open(path) {
         return Ok(());
     }
-    // No app for .lua files: Notepad is always there.
     std::process::Command::new("notepad.exe").arg(path).spawn().map(|_| ())
 }
 
@@ -161,6 +162,43 @@ mod win {
             dir: *const u16,
             show: i32,
         ) -> isize;
+    }
+
+    #[link(name = "shlwapi")]
+    unsafe extern "system" {
+        fn AssocQueryStringW(
+            flags: u32,
+            what: u32,
+            assoc: *const u16,
+            extra: *const u16,
+            out: *mut u16,
+            out_len: *mut u32,
+        ) -> i32;
+    }
+
+    /// Whether Windows has an app that opens files like `path` (its extension's "open" verb).
+    pub fn has_app(path: &Path) -> bool {
+        let Some(ext) = path.extension() else { return false };
+        let mut dotted = std::ffi::OsString::from(".");
+        dotted.push(ext);
+        let assoc = wide(&dotted);
+        let verb = wide(std::ffi::OsStr::new("open"));
+        const ASSOCSTR_EXECUTABLE: u32 = 2;
+        // Without it, an unknown extension "has" OpenWith.exe, the "Pick an app" dialog.
+        const ASSOCF_INIT_IGNOREUNKNOWN: u32 = 0x400;
+        let mut len = 0u32;
+        // SAFETY: NUL-terminated UTF-16 strings; a null `out` asks only for the length.
+        let hr = unsafe {
+            AssocQueryStringW(
+                ASSOCF_INIT_IGNOREUNKNOWN,
+                ASSOCSTR_EXECUTABLE,
+                assoc.as_ptr(),
+                verb.as_ptr(),
+                std::ptr::null_mut(),
+                &mut len,
+            )
+        };
+        hr >= 0
     }
 
     #[link(name = "ole32")]
