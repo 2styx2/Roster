@@ -1,5 +1,6 @@
 """Bitwarden CLI provider:  auth: bw:ITEM  /  bw:ITEM#FIELD"""
 
+import base64
 import json
 import os
 import shutil
@@ -7,12 +8,14 @@ import shutil
 from ..common import say, user_config_dir
 from . import (
     PROVIDERS,
+    ItemExists,
     ItemNotFound,
     NoField,
     NotLoggedIn,
     SecretError,
     SeveralItems,
     VaultLocked,
+    WriteFailed,
     WrongPassword,
     errtext,
     manual_unlock,
@@ -23,8 +26,8 @@ from . import (
 
 # ---- built-in: Bitwarden
 
-def _bw(ctx, *args, env=None):
-    return ctx.run(["bw", *args, "--nointeraction"], env=env)
+def _bw(ctx, *args, env=None, input=None):
+    return ctx.run(["bw", *args, "--nointeraction"], env=env, input=input)
 
 
 NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login` once"
@@ -179,4 +182,59 @@ def _bitwarden(spec, ctx):
     return val
 
 
-PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status, not_logged_in=NOT_LOGGED_IN)
+# ---- writing: "Save to vault" (ticket 13). `bw create item` takes the item as base64 JSON, the way
+# `bw encode` makes it, on stdin when no argument is given (bw 2026.9.1's create.command.ts), so the
+# password never goes on a command line. bw prints the new item back, password and all: only its id is kept.
+
+def _scrub(text, *values):
+    for v in values:
+        if v:
+            text = text.replace(v, "…")
+    return text
+
+
+def _bw_create(item, ctx):
+    _bw_ready(ctx)
+    name, password = item["name"], item["password"]
+    if _bw(ctx, "sync").returncode != 0:                   # see items made elsewhere since this run's first sync
+        say("warning      `bw sync` failed - checking for a duplicate name in the vault as last synced")
+    r = _bw(ctx, "list", "items", "--search", name)
+    try:
+        listed = json.loads(r.stdout) if r.returncode == 0 else None
+    except json.JSONDecodeError:
+        listed = None
+    if listed is None:
+        raise WriteFailed(f"couldn't check the vault for an item named '{name}': {errtext(r)}")
+    same = [_bw_summary(i) for i in listed if i.get("name") == name]
+    if same:
+        raise ItemExists(f"a Bitwarden item named '{name}' already exists - Logins look items up by exact name, "
+                         "so roster won't make a second one", name, same)
+    login = {"username": item["username"] or None, "password": password, "totp": None,
+             "uris": [{"uri": item["uri"], "match": None}] if item["uri"] else []}
+    encoded = base64.b64encode(json.dumps({
+        "type": 1, "name": name, "notes": None, "favorite": False, "fields": [], "reprompt": 0,
+        "organizationId": None, "folderId": None, "login": login}).encode()).decode()
+    r = _bw(ctx, "create", "item", input=encoded)
+    if r.returncode != 0:                                  # stderr only: stdout would be the item itself
+        err = _scrub(" ".join(r.stderr.split()), password, encoded)[:160]
+        raise WriteFailed(f"Bitwarden didn't create '{name}': {err or f'exit {r.returncode}'}")
+    try:
+        made = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        made = {}
+    if not made.get("id"):                                 # bw's answer didn't parse: find it, so it can be undone
+        made = next((i for i in _bw_list(ctx, name) if i.get("name") == name), None)
+        if made is None:
+            raise WriteFailed(f"Bitwarden said it created '{name}' but it isn't in the vault - check it there")
+    return {"id": made["id"], "name": made.get("name", name)}
+
+
+def _bw_delete(item_id, ctx):
+    _bw_ready(ctx)
+    r = _bw(ctx, "delete", "item", item_id)
+    if r.returncode != 0:
+        raise WriteFailed(f"Bitwarden didn't delete item {item_id}: {errtext(r)}")
+
+
+PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status, not_logged_in=NOT_LOGGED_IN,
+                       create=_bw_create, delete=_bw_delete)

@@ -92,12 +92,12 @@ app/src/cmdline/      CommandLine.tsx (␣ :, Tab completion from the command ta
 app/src/theme/        Themes (ticket 09): theme.ts (the colour-token set, AppearanceOptions, terminal colours), themes.ts
                       (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/app/themes.md),
                       useTheme.ts (tokens → CSS variables, follows the OS), picker.ts (`:theme` and the `themes` finder,
-                      ticket 30), contrast.ts (WCAG ratios for the contrast test)
-app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (mark D1 in Theme colours)
+                      ticket 30), contrast.ts (WCAG ratios and OKLab ΔE for the contrast test)
+app/src/chrome/       TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (the Gap orbit mark in Theme colours)
 app/src/ui/           Keys.tsx (keycaps for every key hint), StateDot.tsx (state nodes: shape + words), CloseGlyph.tsx
 app/src/styles.css    the whole look, written only against Theme tokens (no colour literals); styles.test.ts lints it
-                      (no text in `--faint`, nothing under 11 px, :hover only for a real pointer)
-app/assets/           logo.svg (D1 master) + logo-small.svg (16–32 px cut); `npm run icons` renders src-tauri/icons
+                      (no text in `--faint` or `--tone`, nothing under 11 px, :hover only for a real pointer)
+app/assets/           logo.svg (Gap orbit app icon master) + logo-small.svg (16–32 px cut), logo-mark*.svg (no tile), logo-mono*.svg (one colour); `npm run icons` renders src-tauri/icons
 docs/app/design/      taste.md, the interface review, Theme screenshots (themes/, made from the fake Backend)
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)

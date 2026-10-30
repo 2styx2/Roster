@@ -54,8 +54,9 @@ return {
   },
 
   -- Colour tokens set over whichever Theme is in use. Every token:
-  --   accent, accent_text, accent_ink, bg, chrome, sidebar, panel, raised, raised_line, hover,
-  --   line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop, shadow
+  --   accent, accent_text, accent_ink, tone, bg, chrome, sidebar, panel, raised, raised_line,
+  --   hover, line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop,
+  --   shadow
   -- e.g. colors = { accent = "#e0803a" }
   colors = {},
 

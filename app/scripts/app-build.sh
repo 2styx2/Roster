@@ -44,5 +44,8 @@ if [ "$installer" = 1 ]; then
   echo "installers: $win_local\\$WIN_DIR\\src\\target\\release\\bundle\\ (nsis\\*-setup.exe, msi\\*.msi)"
 fi
 if [ "$run" = 1 ]; then
-  wincmd "start \"\" \"$exe\""
+  # Start it detached through PowerShell: `cmd /c start "" "<exe>"` loses its quotes on the way
+  # from WSL (Windows then tries to open "\\" and says "Access is denied").
+  (cd /mnt/c && winexe powershell.exe -NoProfile -Command "Start-Process -FilePath '$exe'")
+  echo "started: $exe"
 fi

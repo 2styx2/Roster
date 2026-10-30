@@ -52,6 +52,17 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 32 | 58 | API key not accepted, or an organization key | Sign-in form | "Bitwarden didn't accept that API key (client_id or client_secret)" | Copy the personal key again from the web vault |
 | 33 | 59 | Anything else; bw's own words | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same |
 
+## Saving to the vault (ticket 13)
+
+"Save to vault" creates a Vault item through roster's `vault.create_item` (roster README "Saving to the vault"). It runs after the test login succeeds and before the Pending change is added (Q43); if adding the Pending change fails, `vault.undo_create` removes the item again.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 34 | 60 | An item with exactly that name already exists | Vault | "a Bitwarden item named 'esx-02 ssh' already exists - …" | Point the Login at the existing item, or pick another name |
+| 35 | 61 | The provider can only read Logins (1Password, `pass`, `env`, …) | Box | "provider 'op' can't save to the vault - …" | Save to `bw`, or make the item by hand |
+| 36 | 62 | The vault CLI refused: no rights to the collection, an organization policy, the server | Vault | "Bitwarden didn't create 'esx-02 ssh': …" | See Details; check your rights |
+| 37 | 63 | An undo for an item this `roster serve` didn't create, or one already undone | roster | "item … wasn't created by this roster serve …" | Nothing to undo |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.

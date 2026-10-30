@@ -1,22 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
-  <!-- logo D1 for 16-32 px: the same mark with heavier edges and nodes so it survives small sizes. -->
-  <rect x="1" y="1" width="62" height="62" rx="12" fill="#13161b"/>
-  <g stroke="#e3e7ec" stroke-width="4.4" stroke-linecap="round" opacity="0.62">
-    <line x1="20" y1="14" x2="20" y2="32"/>
-    <line x1="20" y1="32" x2="20" y2="50"/>
-    <line x1="20" y1="14" x2="38" y2="14"/>
-    <line x1="38" y1="14" x2="45" y2="23"/>
-    <line x1="45" y1="23" x2="38" y2="32"/>
-    <line x1="38" y1="32" x2="20" y2="32"/>
-    <line x1="38" y1="32" x2="46" y2="50"/>
-  </g>
-  <g fill="#e3e7ec">
-    <circle cx="20" cy="14" r="5.2"/>
-    <circle cx="20" cy="32" r="5.2"/>
-    <circle cx="20" cy="50" r="5.2"/>
-    <circle cx="38" cy="14" r="5.2"/>
-    <circle cx="45" cy="23" r="5.2"/>
-    <circle cx="38" cy="32" r="5.2"/>
-  </g>
-  <circle cx="46" cy="50" r="6.6" fill="#1f9d68"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- Gap orbit for 16-32 px: the R as stem, bowl and leg, with heavier strokes and a wider gap so it survives small sizes. -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f1011" stroke="#2c2d2e" stroke-width="1"/>
+  <path d="M32.92 57.98A26 26 0 1 1 57.43 37.41" fill="none" stroke="#e8e8ea" stroke-width="3.74" stroke-linecap="round" opacity="0.55"/>
+  <path d="M22 46V18M22 18H32A8 8 0 0 1 32 34H22M31 34L42.74 45.87" fill="none" stroke="#e8e8ea" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>
+  <rect x="16.32" y="40.32" width="11.36" height="11.36" rx="2.2" fill="#e8e8ea"/>
+  <circle cx="48.71" cy="51.92" r="7.5" fill="none" stroke="#ff9a70" stroke-width="4"/>
 </svg>

@@ -751,8 +751,9 @@ export function App({
         );
       case "box":
         return (
-          <span key={id} className="statusbar-cut box" title={info.inventory.box}>
-            {info.inventory.box}
+          <span key={id} className="box" title={info.inventory.box}>
+            <span className="box-mark" aria-hidden="true" />
+            <span className="statusbar-cut">{info.inventory.box}</span>
           </span>
         );
       case "hosts":

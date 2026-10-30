@@ -10,12 +10,16 @@ import { standardAnsi, type AnsiPalette, type TerminalTheme } from "../terminal/
 
 /** The UI's colour tokens. Names are what the CSS reads, in kebab case (`--raised-line`). */
 export interface ThemeColors {
-  /** The one accent: the Picker's search pill, focus rings, key-login dots, "from init.lua". */
+  /** The one accent, for what's live or actionable now: the Picker's search pill, focus rings,
+   * key-login dots, "from init.lua". */
   accent: string;
   /** Text or glyphs drawn on an accent fill. */
   accentText: string;
   /** Accent-coloured text on `bg` (darker than `accent` in light themes, for contrast). */
   accentInk: string;
+  /** The second tone (decision Q57): this Box's marker and unreviewed Hosts' nodes. Shapes only,
+   * never text or anything you can act on; 3:1 on every surface, like the accent bar. */
+  tone: string;
   /** The workspace behind the terminal and the lock screen. */
   bg: string;
   /** The title bar and the status bar. */
