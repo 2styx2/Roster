@@ -6,8 +6,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The fake `bw` supports create. pytest covers a successful create, a refused duplicate, and the item's fields.
-- [ ] The password is passed to `bw` without ever appearing in a command line.
-- [ ] Other providers report that they can't write.
+- [x] The fake `bw` supports create. pytest covers a successful create, a refused duplicate, and the item's fields.
+- [x] The password is passed to `bw` without ever appearing in a command line.
+- [x] Other providers report that they can't write.
