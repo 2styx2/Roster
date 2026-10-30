@@ -35,7 +35,7 @@ async function open(user: ReturnType<typeof userEvent.setup>, name: string) {
 
 /** The Session's row in the Sidebar. */
 const tab = (name: string) =>
-  within(screen.getByRole("region", { name: "Sessions" })).getByRole("button", { name: new RegExp(`^${name}`) });
+  within(screen.getByRole("group", { name: "Sessions" })).getByRole("treeitem", { name: new RegExp(`^${name}`) });
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
 
 describe("password Sessions", () => {

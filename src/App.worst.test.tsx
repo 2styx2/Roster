@@ -39,7 +39,7 @@ async function open(name: string, options: Partial<Options> = {}) {
 }
 
 async function sessionsOpen(n: number) {
-  const list = screen.getByRole("region", { name: "Sessions" });
+  const list = screen.getByRole("group", { name: "Sessions" });
   await expect.poll(() => within(list).queryAllByRole("button", { name: /^Close / }).length, { timeout: 10_000 }).toBe(n);
 }
 
@@ -91,7 +91,7 @@ describe("the worst case", () => {
 
     const bar = document.querySelector(".statusbar") as HTMLElement;
     expect(bar).toHaveTextContent("1,284 hosts");
-    const heading = (name: string) => within(screen.getByRole("region", { name })).getAllByRole("button", { name })[0];
+    const heading = (name: string) => within(screen.getByRole("group", { name })).getAllByRole("treeitem", { name })[0];
     expect(heading("Inventory")).toHaveTextContent("1,284");
     expect(heading("Sessions")).toHaveTextContent("50");
     expect(heading("Folders")).toHaveTextContent("100");

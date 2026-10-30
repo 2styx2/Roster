@@ -68,14 +68,14 @@ describe("Switching view modes", () => {
     await user.keyboard(`${LEADER}m`);
     expect(view()).toBe("focus");
     expect(platform.fullscreen()).toBe(true);
-    expect(screen.queryByRole("region", { name: "Sessions" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Sessions" })).toBeNull();
     expect(screen.queryByText(/12 hosts/)).toBeNull();
     expect(visibleSession()).toBe(`Session ${h1}`);
     expect(document.activeElement).toHaveAccessibleName("terminal input");
     await user.keyboard(`${LEADER}m`);
     expect(view()).toBe("standard");
     expect(platform.fullscreen()).toBe(false);
-    expect(screen.getByRole("region", { name: "Sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Sessions" })).toBeInTheDocument();
     expect(visibleSession()).toBe(`Session ${h1}`);
     expect(onScreen()).toBeInTheDocument();
   });

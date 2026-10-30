@@ -5,16 +5,20 @@
 // command table, so nothing here is a Sidebar-only action (decision Q36). The mouse works on every
 // row without taking focus from the terminal.
 //
+// For assistive tech (ticket 29 M4) the rows are an ARIA tree: the scroller is the tree, each
+// section a group, each row a treeitem with its level, and the App-mode cursor is the tree's
+// aria-activedescendant while App takes focus there. Each row's name says its state in words
+// (M3), and App mode shows the cursor row whole below the tree (M6).
+//
 // 91 Hosts is a few hundred elements: rows are memoized on their object (sections are rebuilt only
 // when what they show changes), so moving the cursor re-renders two rows, not the tree.
 import { memo, useCallback, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { CommandLine } from "../keymap";
 import { formatCount } from "../ui/format";
 import { Keys, WithKeys } from "../ui/Keys";
+import { DOT_WORDS, StateDot, type Dot } from "../ui/StateDot";
 
-/** A row's state dot: key or password login, a Session that has ended, or a Host that can't be
- * opened (unreviewed). */
-export type Dot = "key" | "password" | "ended" | "off";
+export type { Dot } from "../ui/StateDot";
 
 /** A small button on a row or heading (close, rename, delete, new). */
 export interface RowAction {
@@ -52,6 +56,9 @@ export interface SidebarRow {
   raised?: boolean;
   /** The on-screen Host where it appears again: brighter, not raised (set by buildSections). */
   also?: boolean;
+  /** The raised row stands for a live Session (connected or connecting, not ended): it gets the
+   * accent bar (decision Q53). Set by the Sessions section, or by buildSections. */
+  live?: boolean;
   /** Tree depth within its section; rows after a row with a lower level are its children. */
   level?: number;
   /** It has children that h/l (or its chevron) fold and unfold. */
@@ -101,7 +108,35 @@ export interface SidebarProps {
   findKeys?: string | null;
   /** Runs a command line: for rows, and the buttons at the top and bottom. */
   run(line: CommandLine): void;
+  /** Gets the tree element (App focuses it in App mode). */
+  treeRef?(el: HTMLDivElement | null): void;
+  /** The tree took focus from outside (Tab, a click): App enters App mode. */
+  onTreeFocus?(from: Element | null): void;
+  /** Focus left the tree for somewhere outside it. */
+  onTreeBlur?(to: Element | null): void;
 }
+
+/** A row's DOM id, for aria-activedescendant: any row id, made a valid id. */
+export const rowDomId = (id: string) => `sb-${Array.from(id, (c) => (/[\w-]/.test(c) ? c : `_${c.codePointAt(0)}_`)).join("")}`;
+
+const hostsCount = (n: number) => `${formatCount(n)} ${n === 1 ? "Host" : "Hosts"}`;
+
+/** What a row says about itself, beyond its label: its state in words (never only a dot's colour),
+ * its note, a badge, its address, its count. */
+export function rowFacts(row: SidebarRow): string[] {
+  const facts: string[] = [];
+  // An ended Session's note already says how it ended.
+  if (row.dot && !(row.dot === "ended" && row.note)) facts.push(DOT_WORDS[row.dot]);
+  if (row.note) facts.push(row.note);
+  // An unreviewed Host's badge is what its dot already said.
+  if (row.badge && row.dot !== "off") facts.push(row.badge);
+  if (row.detail) facts.push(row.detail);
+  if (row.count !== undefined) facts.push(hostsCount(row.count));
+  return facts;
+}
+
+/** The row's accessible name: "esxi-02, password login, 10.19.77.5". */
+export const rowName = (row: SidebarRow) => [row.label, ...rowFacts(row)].join(", ");
 
 const SearchIcon = () => (
   <svg className="sb-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
@@ -188,9 +223,11 @@ const RowIcon = ({ name }: { name: NonNullable<SidebarRow["icon"]> }) => (
 
 
 const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cursor: boolean; run: Run; drag: Drag }) {
-  const cls = `sb-row${row.raised ? " raised" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}`;
+  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}`;
+  const cut = row.tail !== undefined && row.label.endsWith(row.tail);
   return (
     <li
+      role="none"
       className={cls}
       data-row={row.id}
       style={row.level ? { paddingLeft: `${row.level * 18}px` } : undefined}
@@ -202,8 +239,12 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
       onDrop={row.drop ? (e) => drag.drop(e, row.drop) : undefined}
     >
       <div
-        role="button"
+        role="treeitem"
+        id={rowDomId(row.id)}
         className="sb-item"
+        aria-level={(row.level ?? 0) + 2}
+        aria-label={rowName(row)}
+        aria-selected={cursor ? true : undefined}
         aria-current={row.raised ? "true" : undefined}
         aria-expanded={row.foldable ? !row.folded : undefined}
         title={row.title}
@@ -215,18 +256,20 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
       >
         {row.foldable && <Chevron folded={row.folded ?? false} />}
         {row.icon && <RowIcon name={row.icon} />}
-        {row.dot && <span className={`dot ${row.dot}`} aria-hidden="true" />}
+        {row.dot && <StateDot dot={row.dot} />}
         {/* The name first: what follows it in here drops out whole (to a hidden second line)
             when there's no room, and the name is cut only when it alone is too long. */}
         {/* Hovering the text shows the whole name (it may be cut off), then the row's tooltip. */}
         <span className="sb-text" title={row.title ? `${row.label}\n${row.title}` : row.label}>
+          {/* A note ("ended (code 0)") stays beside the name like the " (2)" tail: when the name
+              is cut, the label gives way, never the state. */}
           <span className="sb-name">
             <span className="sb-label" dir="auto">
-              {row.tail && row.label.endsWith(row.tail) ? row.label.slice(0, -row.tail.length) : row.label}
+              {cut ? row.label.slice(0, -(row.tail as string).length) : row.label}
             </span>
-            {row.tail && row.label.endsWith(row.tail) && <span className="sb-tail">{row.tail}</span>}
+            {cut && <span className="sb-tail">{row.tail}</span>}
+            {row.note && <span className="sb-note"> {row.note}</span>}
           </span>
-          {row.note && <span className="sb-note"> {row.note}</span>}
           {row.badge && <span className="sb-badge"> {row.badge}</span>}
           {row.detail && <span className="sb-detail"> {row.detail}</span>}
         </span>
@@ -253,36 +296,41 @@ const Section = memo(function Section({
 }) {
   const id = headingId(section.id);
   const folded = section.folded ?? false;
+  const emptyShown = !folded && section.rows.length === 0 && section.empty !== undefined;
   return (
     <section
+      role="group"
       className="sb-section"
       aria-label={section.title}
       onDragOver={section.drop ? (e) => drag.over(e, section.drop) : undefined}
       onDrop={section.drop ? (e) => drag.drop(e, section.drop) : undefined}
     >
-      <div className={`sb-heading${cursor === id ? " cursor" : ""}`} data-row={id}>
-        <button
-          type="button"
+      <div className={`sb-heading${cursor === id ? " cursor" : ""}`} data-row={id} role="none">
+        <div
+          role="treeitem"
+          id={rowDomId(id)}
           className="sb-heading-button"
+          aria-level={1}
           aria-expanded={!folded}
           aria-label={section.title}
-          tabIndex={-1}
+          aria-selected={cursor === id ? true : undefined}
+          aria-describedby={emptyShown ? `${rowDomId(id)}-empty` : undefined}
           onMouseDown={keepFocus}
           onClick={() => run(`togglefold ${id}`)}
         >
           <Chevron folded={folded} />
           <h2>{section.title}</h2>
           {section.count !== undefined && <span className="sb-count">{formatCount(section.count)}</span>}
-        </button>
+        </div>
         {section.actions && <Actions actions={section.actions} run={run} />}
       </div>
-      {!folded && section.rows.length === 0 && section.empty && (
-        <p className="sb-empty">
-          <WithKeys text={section.empty} leader={leader} />
+      {emptyShown && (
+        <p className="sb-empty" id={`${rowDomId(id)}-empty`}>
+          <WithKeys text={section.empty ?? ""} leader={leader} />
         </p>
       )}
       {!folded && (
-        <ul className="sb-rows">
+        <ul className="sb-rows" role="none">
           {section.rows.map((row) => (
             <Row key={row.id} row={row} cursor={row.id === cursor} run={run} drag={drag} />
           ))}
@@ -292,7 +340,21 @@ const Section = memo(function Section({
   );
 });
 
-export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f", run }: SidebarProps) {
+/** The cursor row, whole (M6): a cut-off name, its state and address, readable from the keyboard.
+ * It repeats what the tree item's name already tells assistive tech, so it's hidden from it. */
+function Details({ row }: { row: SidebarRow }) {
+  const facts = rowFacts(row);
+  return (
+    <div className="sb-details" data-testid="sidebar-details" aria-hidden="true">
+      <p className={`sb-details-name${row.dot ? " data" : ""}`} dir="auto">
+        {row.label}
+      </p>
+      {(facts.length > 0 || row.title) && <p className="sb-details-facts">{[...facts, ...(row.title ? [row.title] : [])].join(" · ")}</p>}
+    </div>
+  );
+}
+
+export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f", run, treeRef, onTreeFocus, onTreeBlur }: SidebarProps) {
   // A stable `run` for the memoized rows; it always calls the latest one.
   const runRef = useRef(run);
   useLayoutEffect(() => {
@@ -301,7 +363,14 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
   const stableRun = useCallback((line: CommandLine) => runRef.current(line), []);
 
   // Keep the cursor row in view as j/k walk a long tree.
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const setTree = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollRef.current = el;
+      treeRef?.(el);
+    },
+    [treeRef],
+  );
   useLayoutEffect(() => {
     if (cursor === null) return;
     const el = scrollRef.current?.querySelector(`[data-row="${CSS.escape(cursor)}"]`);
@@ -312,6 +381,8 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
   // some data for a drag to start).
   const dragged = useRef<SidebarRow | null>(null);
   const focusBefore = useRef<Element | null>(null);
+  const cursorRow = cursor === null ? null : (allRows(sections).find((r) => r.id === cursor) ?? null);
+
   const [drag] = useState<Drag>(() => ({
     press(row, e) {
       if (row.drag === undefined) return e.preventDefault();
@@ -351,7 +422,17 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
       </button>
       <div
         className="sb-scroll"
-        ref={scrollRef}
+        ref={setTree}
+        role="tree"
+        aria-label="Sessions and Hosts"
+        tabIndex={0}
+        aria-activedescendant={cursor !== null ? rowDomId(cursor) : undefined}
+        onFocus={(e) => {
+          if (e.target === e.currentTarget && !e.currentTarget.contains(e.relatedTarget)) onTreeFocus?.(e.relatedTarget);
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) onTreeBlur?.(e.relatedTarget);
+        }}
         onDragOver={(e) => drag.over(e, undefined)}
         onDrop={(e) => drag.drop(e, undefined)}
         onDragEnd={() => {
@@ -370,6 +451,7 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
           />
         ))}
       </div>
+      {cursorRow && <Details row={cursorRow} />}
       <div className="sb-foot">
         <button type="button" onMouseDown={keepFocus} onClick={() => run("keys")}>
           Keys

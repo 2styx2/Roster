@@ -71,8 +71,8 @@ describe("App", () => {
     const target = screen.getAllByRole("option")[5]!.dataset.host!;
     await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
     expect(pickerOpen()).toBe(false);
-    const sessions = screen.getByRole("region", { name: "Sessions" });
-    expect(within(sessions).getByRole("button", { current: true })).toHaveAccessibleName(new RegExp(`^${target}`));
+    const sessions = screen.getByRole("group", { name: "Sessions" });
+    expect(within(sessions).getByRole("treeitem", { current: true })).toHaveAccessibleName(new RegExp(`^${target}`));
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(target);
   });

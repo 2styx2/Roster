@@ -57,9 +57,9 @@ async function connect(user: User, name: string, leader = LEADER) {
 
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
 const terminal = () => output().parentElement as HTMLElement;
-const sessionList = () => screen.getByRole("region", { name: "Sessions" });
-const row = (name: string) => within(sessionList()).getByRole("button", { name: new RegExp(`^${name}`) });
-const current = () => within(sessionList()).getByRole("button", { current: true });
+const sessionList = () => screen.getByRole("group", { name: "Sessions" });
+const row = (name: string) => within(sessionList()).getByRole("treeitem", { name: new RegExp(`^${name}`) });
+const current = () => within(sessionList()).getByRole("treeitem", { current: true });
 const root = () => document.documentElement;
 const problem = () => screen.queryByRole("alert", { name: "Config problem" });
 
@@ -181,7 +181,7 @@ describe("Layout from init.lua (decision Q39)", () => {
     await connect(user, h0);
     expect(screen.getByRole("navigation", { name: "Sidebar" })).toHaveClass("side-right");
     const sections = within(screen.getByRole("navigation", { name: "Sidebar" }))
-      .getAllByRole("region")
+      .getAllByRole("group")
       .map((r) => r.getAttribute("aria-label"));
     expect(sections).toEqual(["Folders", "Sessions"]);
     expect(screen.getByText("12 hosts")).toBeInTheDocument();
@@ -199,13 +199,13 @@ describe("Layout from init.lua (decision Q39)", () => {
 describe("Folders from init.lua (decision Q46)", () => {
   it("show first, marked, and can only be changed in init.lua", async () => {
     const { user } = await ready(configWith({ folders: [{ name: "Lab ESXi", hosts: [h0] }] }));
-    const folders = screen.getByRole("region", { name: "Folders" });
-    const head = within(folders).getByRole("button", { name: /^Lab ESXi/ });
+    const folders = screen.getByRole("group", { name: "Folders" });
+    const head = within(folders).getByRole("treeitem", { name: /^Lab ESXi/ });
     expect(head).toHaveTextContent(/from init\.lua/);
-    expect(within(folders).getByRole("button", { name: new RegExp(`^${h0}`) })).toBeInTheDocument();
+    expect(within(folders).getByRole("treeitem", { name: new RegExp(`^${h0}`) })).toBeInTheDocument();
     expect(within(folders).queryByRole("button", { name: "Delete Folder Lab ESXi" })).toBeNull();
     await user.keyboard(`${LEADER}:folder delete Lab ESXi{Enter}`);
     expect(screen.getByRole("status")).toHaveTextContent("Lab ESXi is defined in init.lua: change it there");
-    expect(within(folders).getByRole("button", { name: /^Lab ESXi/ })).toBeInTheDocument();
+    expect(within(folders).getByRole("treeitem", { name: /^Lab ESXi/ })).toBeInTheDocument();
   });
 });

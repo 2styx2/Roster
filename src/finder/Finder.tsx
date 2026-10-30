@@ -8,6 +8,7 @@ import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
 import { formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
+import { StateDot } from "../ui/StateDot";
 
 /** Rows actually rendered; the rest are counted. */
 const MAX_ROWS = 200;
@@ -125,7 +126,7 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
               onMouseMove={() => i !== current && setMoved(i)}
               onClick={() => choose(item)}
             >
-              {item.dot && <span className={`dot ${item.dot}`} aria-hidden="true" />}
+              {item.dot && <StateDot dot={item.dot} />}
               <span className="finder-label" title={item.label}>
                 <span className="finder-name" dir="auto">
                   {item.label}

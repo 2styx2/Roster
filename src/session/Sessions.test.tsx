@@ -29,8 +29,8 @@ async function openFromPicker(user: ReturnType<typeof userEvent.setup>, name: st
   await user.keyboard("{Enter}");
 }
 
-const sidebar = () => screen.getByRole("region", { name: "Sessions" });
-const current = () => within(sidebar()).getByRole("button", { current: true });
+const sidebar = () => screen.getByRole("group", { name: "Sessions" });
+const current = () => within(sidebar()).getByRole("treeitem", { current: true });
 
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
 
@@ -68,12 +68,12 @@ describe("Sessions", () => {
     await openFromPicker(user, a);
     await openFromPicker(user, b);
     expect(current()).toHaveAccessibleName(new RegExp(`^${b}`));
-    await user.click(within(sidebar()).getByRole("button", { name: new RegExp(`^${a}`) }));
+    await user.click(within(sidebar()).getByRole("treeitem", { name: new RegExp(`^${a}`) }));
     expect(current()).toHaveAccessibleName(new RegExp(`^${a}`));
     await user.click(screen.getByRole("button", { name: `Close ${a}` }));
     expect(current()).toHaveAccessibleName(new RegExp(`^${b}`));
     await user.click(screen.getByRole("button", { name: `Close ${b}` }));
-    expect(within(sidebar()).queryByRole("button", { current: true })).toBeNull();
+    expect(within(sidebar()).queryByRole("treeitem", { current: true })).toBeNull();
     expect(within(screen.getByRole("main")).getByText(/No Sessions open/)).toBeInTheDocument();
   });
 
@@ -90,7 +90,7 @@ describe("Sessions", () => {
     await openFromPicker(user, reviewed[0]!.name);
     await within(output()).findByText(/Connected to/);
     await user.keyboard("exit{Enter}");
-    expect(await within(sidebar()).findByRole("button", { name: /ended \(code 0\)/ })).toBeInTheDocument();
+    expect(await within(sidebar()).findByRole("treeitem", { name: /ended \(code 0\)/ })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: `Session ${reviewed[0]!.name}` })).toHaveTextContent("ended (code 0)");
   });
 
@@ -103,11 +103,11 @@ describe("Sessions", () => {
     await within(panel).findByText(/ended \(code 0\)/);
     expect(within(panel).getByTitle(/Leader \(Ctrl\+Space\)/)).toBeInTheDocument();
     await user.keyboard("{Control>} {/Control}r");
-    expect(await within(sidebar()).findByRole("button", { name: reviewed[0]!.name })).toBeInTheDocument();
+    expect(await within(sidebar()).findByRole("treeitem", { name: new RegExp(`^${reviewed[0]!.name},`) })).toBeInTheDocument();
     expect(within(panel).queryByText(/ended/)).toBeNull();
     expect(output().textContent).toMatch(/exit\r?\n.*reconnecting.*Connected to/s);
-    expect(within(sidebar()).getAllByRole("button", { current: true })).toHaveLength(1);
-    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(sidebar()).getAllByRole("treeitem", { current: true })).toHaveLength(1);
+    expect(within(sidebar()).getAllByRole("treeitem", { name: /^(?!Sessions$)/ })).toHaveLength(1);
   });
 
   it("an ended tab reconnects with its button too", async () => {
@@ -145,12 +145,12 @@ describe("Sessions", () => {
     await openFromPicker(user, reviewed[0]!.name);
     await within(output()).findByText(/Connected to/);
     await user.keyboard("exit{Enter}");
-    await within(sidebar()).findByRole("button", { name: /ended/ });
+    await within(sidebar()).findByRole("treeitem", { name: /ended/ });
     await user.keyboard("{Control>} {/Control}f");
     await user.keyboard(reviewed[1]!.name);
     await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(await within(sidebar()).findByRole("button", { name: reviewed[1]!.name })).toBeInTheDocument();
-    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(1);
+    expect(await within(sidebar()).findByRole("treeitem", { name: new RegExp(`^${reviewed[1]!.name},`) })).toBeInTheDocument();
+    expect(within(sidebar()).getAllByRole("treeitem", { name: /^(?!Sessions$)/ })).toHaveLength(1);
     await waitFor(() => expect(output().textContent).toContain(`Connected to ${reviewed[1]!.name}`));
   });
 
@@ -160,14 +160,14 @@ describe("Sessions", () => {
     await user.keyboard("{Control>} {/Control}f");
     await user.keyboard(reviewed[1]!.name);
     await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(sidebar()).getAllByRole("treeitem", { name: /^(?!Sessions$)/ })).toHaveLength(2);
   });
 
   it("opens several Sessions to the same Host", async () => {
     const user = await ready();
     await openFromPicker(user, reviewed[0]!.name);
     await openFromPicker(user, reviewed[0]!.name);
-    expect(within(sidebar()).getAllByRole("listitem").map((t) => t.textContent)).toEqual([
+    expect(within(sidebar()).getAllByRole("treeitem", { name: /^(?!Sessions$)/ }).map((t) => t.textContent)).toEqual([
       expect.stringContaining(reviewed[0]!.name),
       expect.stringContaining(`${reviewed[0]!.name} (2)`),
     ]);
@@ -184,7 +184,7 @@ describe("Sessions", () => {
     await user.type(screen.getByLabelText(/master password/i), "typed-while-locked{Enter}");
     await screen.findByText(/wrong master password/i);
     await unlock(user);
-    expect(current()).toHaveAccessibleName(new RegExp(`^${reviewed[0]!.name}$`));
+    expect(current()).toHaveAccessibleName(new RegExp(`^${reviewed[0]!.name},`));
     expect(output()).toHaveTextContent(/Connected to/);
     expect(output().textContent).not.toMatch(/typed-while-locked/);
   });

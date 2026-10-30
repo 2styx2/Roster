@@ -404,9 +404,18 @@ export function App({
     setKeyState(next);
   }, []);
 
+  // The Sidebar's tree takes focus in App mode, so assistive tech follows its cursor (ticket 29
+  // M4); `beforeTree` is where focus was (the terminal), and where it goes back to.
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const beforeTree = useRef<Element | null>(null);
+  const inTree = () => treeRef.current?.contains(document.activeElement) ?? false;
+  const setTree = useCallback((el: HTMLDivElement | null) => {
+    treeRef.current = el;
+  }, []);
+
   /** Remembers where focus was (the terminal), for when an overlay or panel closes. */
   const rememberFocus = () => {
-    returnFocus.current = document.activeElement;
+    returnFocus.current = inTree() ? beforeTree.current : document.activeElement;
   };
   const restoreFocus = () => {
     const el = returnFocus.current;
@@ -567,6 +576,30 @@ export function App({
     if (r.action) run(r.action);
   });
 
+  // App mode with the Sidebar shown puts focus on its tree (the cursor is its active descendant);
+  // back in Terminal mode, focus goes back where it was. An overlay or panel that took focus
+  // keeps it, and a Session that became active has taken it already.
+  const treeMode = keyState.mode === "app" && overlay === null;
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (treeMode) {
+      if (tree && !tree.contains(document.activeElement)) {
+        beforeTree.current = document.activeElement;
+        tree.focus({ preventScroll: true });
+      }
+      return;
+    }
+    const back = beforeTree.current;
+    if (keyState.mode !== "terminal" || back === null) return;
+    beforeTree.current = null;
+    // Focus is still on the tree, or was lost with it (the Sidebar hid with the view mode).
+    const focused = document.activeElement;
+    const lost = !focused || focused === document.body || (tree?.contains(focused) ?? false);
+    if (!lost) return;
+    if (back instanceof HTMLElement && back.isConnected) back.focus();
+    if (document.activeElement === focused) mainRef.current?.focus();
+  }, [treeMode, keyState.mode]);
+
   // Caught before anything else sees it, the terminal included (capture phase on window). While
   // locked, keys belong to the lock screen alone.
   const ready = conn.state === "ready" && !vault.locked;
@@ -708,6 +741,18 @@ export function App({
             run={(line) => {
               setMode(terminalMode);
               run(line);
+            }}
+            treeRef={setTree}
+            onTreeFocus={(from) => {
+              // Tab (or a screen reader) reached the tree: it's App mode, as after the Leader.
+              if (keyRef.current.mode !== "terminal") return;
+              beforeTree.current = from;
+              setCursor(rows.find((row) => row.raised)?.id ?? rows[0]?.id ?? null);
+              setMode({ mode: "app", pending: [] });
+            }}
+            onTreeBlur={(to) => {
+              // Focus went elsewhere (Tab on, a click): keys are the terminal's again.
+              if (keyRef.current.mode === "app" && to !== null && !to.closest(".picker-backdrop, .cmdline")) setMode(terminalMode);
             }}
           />
         )}
