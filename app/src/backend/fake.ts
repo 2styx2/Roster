@@ -1,6 +1,8 @@
 // The fake Backend: same interface as the real one, answering from fixtures. Used by the UI tests
 // and by `npm run dev` in a plain browser, where `?fixture=<name>` picks a scenario.
 import {
+  AddError,
+  type AddHostParams,
   BackendCallError,
   BackendStartError,
   type Backend,
@@ -10,12 +12,14 @@ import {
   CHECK_STEPS,
   EditError,
   type Host,
+  type HostChange,
   type HostChanges,
   type HostCheck,
   type HostFields,
   type HostList,
   LOGIN_FIELDS,
   type PendingChanges,
+  type ScannedKey,
   VERIFY_STEPS,
   type ProviderStatus,
   type SignInAnswer,
@@ -31,7 +35,6 @@ import {
   type SessionHandle,
   type TermSize,
   SessionRefusal,
-  type HostChange,
   PublishError,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
@@ -76,6 +79,11 @@ export interface FakeScenario {
   pullRefusal?: Refusal;
   /** Per Host: what `host.verify_login` answers (default: every step ok). */
   verifyResults?: Record<string, HostCheck>;
+  /** Ticket 11: per address, what `host.scan_key` answers (default: an unrecorded ed25519 key). */
+  scanKeys?: Record<string, Partial<ScannedKey>>;
+  /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
+   * is FAKE_HOST_PASSWORD, or an existing item is named). */
+  addVerify?: Record<string, HostCheck>;
   /** Edits already made on this Box when the app starts (Pending changes), per Host. */
   pending?: Record<string, HostChanges>;
   /** Ticket 12: `changes.publish` refuses with this (82 someone else published, 86 push rejected…). */
@@ -219,20 +227,22 @@ const signingIn = (signIn: FakeAccount): FakeScenario => ({
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
-  /** Ticket 10: a roster that can edit and publish (api 6), no Pending changes yet. */
-  edit: { hosts: makeHosts(12), apiVersion: 6 },
+  /** Ticket 10: a roster that can edit and publish (api 7), no Pending changes yet. */
+  edit: { hosts: makeHosts(12), apiVersion: 7 },
   /** Ticket 12: the same, under the name the Publish tests use. */
-  publish: { hosts: makeHosts(12), apiVersion: 6 },
+  publish: { hosts: makeHosts(12), apiVersion: 7 },
+  /** Ticket 11: a roster that can add Hosts (api 6). The new Host's password is FAKE_HOST_PASSWORD. */
+  add: { hosts: makeHosts(12), apiVersion: 6 },
   /** Two Pending changes already made on this Box. */
   "edit-pending": {
     hosts: makeHosts(12),
-    apiVersion: 6,
+    apiVersion: 7,
     pending: { "linux-1-000": { title: "Build box", description: "rack 1, top" }, "esxi-2-001": { type: "esxi8" } },
   },
   /** Ticket 12: two Pending changes, and someone else published roster.yml meanwhile. */
   "publish-moved": {
     hosts: makeHosts(12),
-    apiVersion: 6,
+    apiVersion: 7,
     pending: { "linux-1-000": { title: "Build box" }, "esxi-2-001": { type: "esxi8" } },
     publishRefusal: {
       code: PublishError.remoteMoved,
@@ -247,7 +257,7 @@ export const fixtures: Record<string, FakeScenario> = {
   /** The pull before an edit fails: the branch has diverged. */
   "edit-diverged": {
     hosts: makeHosts(12),
-    apiVersion: 6,
+    apiVersion: 7,
     pullRefusal: {
       code: EditError.diverged,
       message: "this box's infra repo and origin/main have diverged (1 local and 2 new commits there), so roster won't pull",
@@ -402,6 +412,26 @@ export function passingVerify(host: string): HostCheck {
   return { host, ok: true, steps: VERIFY_STEPS.map((step) => ({ step, status: "ok" as const, message: `${step} is fine` })) };
 }
 
+/** The password the fake's new Hosts take (`host.add` with a typed password). */
+export const FAKE_HOST_PASSWORD = "host pass";
+export const FAKE_FINGERPRINT = "SHA256:q0Wn8mHc6Yb2kZf1lJx7vQeT4rA9sD3uG5hP2wE8cNo";
+
+/** A failed `host.verify_login`-shaped answer: `step` fails with `code`, the rest are skipped. */
+export function failingVerify(host: string, step: string, code: number, message: string, fix?: string): HostCheck {
+  const at = VERIFY_STEPS.indexOf(step as (typeof VERIFY_STEPS)[number]);
+  return {
+    host,
+    ok: false,
+    steps: VERIFY_STEPS.map((s, i) =>
+      i < at
+        ? { step: s, status: "ok" as const, message: `${s} is fine` }
+        : i === at
+          ? { step: s, status: "fail" as const, code, message, ...(fix ? { fix } : {}) }
+          : { step: s, status: "skipped" as const, message: "an earlier step failed" },
+    ),
+  };
+}
+
 export const fieldsOf = (h: Host): HostFields => ({
   title: h.title,
   description: h.description,
@@ -424,7 +454,13 @@ function fakeDiff(before: Host[], after: Host[]): string {
   after.forEach((h, i) => {
     const a = old.get(h.name);
     const b = fieldsOf(h);
-    if (!a) return;
+    if (!a) {
+      const body = [`+      ${h.name}:`, `+        ip: ${h.ip}`, `+        user: ${h.ssh.user}`, `+        auth: ${h.ssh.auth}`,
+        ...(h.reviewed ? [] : ["+        reviewed: false"])];
+      const start = 10 + i * 6;
+      hunks.push(`@@ -${start},0 +${start},${body.length} @@ ${h.group}:`, ...body);
+      return;
+    }
     const keys = (Object.keys(b) as (keyof HostFields)[]).filter((k) => a[k] !== b[k]);
     if (keys.length === 0) return;
     const line = (k: keyof HostFields, v: string | number) => `        ${k}: ${v === "" ? '""' : v}`;
@@ -460,14 +496,17 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
   const verified = new Set<string>();
   const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
+  let groups = scenario.hosts.groups;
   const pending = (): PendingChanges => {
     const diff = fakeDiff(committed, hosts);
-    const before = new Map(committed.map((h) => [h.name, fieldsOf(h)]));
-    const changed = hosts.flatMap((h) => {
-      const a = before.get(h.name);
-      const b = fieldsOf(h);
-      const fields = a ? (Object.keys(b) as (keyof HostFields)[]).filter((k) => a[k] !== b[k]) : [];
-      return fields.length ? [{ host: h.name, change: "changed" as const, fields }] : [];
+    const before = new Map(committed.map((h) => [h.name, h]));
+    const changed = hosts.flatMap((h): HostChange[] => {
+      const old = before.get(h.name);
+      if (!old) return [{ host: h.name, change: "added", fields: [] }];
+      const a = { ...fieldsOf(old), reviewed: old.reviewed };
+      const b = { ...fieldsOf(h), reviewed: h.reviewed };
+      const fields = (Object.keys(b) as (keyof typeof b)[]).filter((k) => a[k] !== b[k]);
+      return fields.length ? [{ host: h.name, change: "changed", fields }] : [];
     });
     return {
       path: scenario.info?.path ?? "~/infra/roster.yml",
@@ -665,7 +704,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
     },
     async listHosts() {
       await wait();
-      return { hosts, groups: scenario.hosts.groups };
+      return { hosts, groups };
     },
     async getHost(name: string) {
       await wait();
@@ -789,6 +828,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       await wait();
       if (pending().count === 0) return { discarded: false, backup: null };
       hosts = committed;
+      groups = scenario.hosts.groups;
       return { discarded: true, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
     async publishChanges(message) {
@@ -805,6 +845,85 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         ? { ok: false, error: scenario.publishSyncError, fix: "run `roster sync` on this box" }
         : { ok: true };
       return { commit: FAKE_COMMIT, upstream: "origin/main", message, hosts: now.hosts, groups: [], pulled: 0, sync };
+    },
+    async scanKey(address, port) {
+      await wait();
+      return { address, port, key_type: "ssh-ed25519", fingerprint: FAKE_FINGERPRINT, recorded: "none", ...scenario.scanKeys?.[address] };
+    },
+    async addHost(p: AddHostParams) {
+      await wait();
+      const fail = (code: number, message: string, data: CallErrorData = {}) => new BackendCallError(message, code, data);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(p.name)) {
+        throw fail(AddError.invalidHost, `bad host name '${p.name}' (use letters, digits, . _ -)`, { field: "name" });
+      }
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(p.group)) {
+        throw fail(AddError.invalidHost, `bad group name '${p.group}' (use letters, digits, . _ -)`, { field: "group" });
+      }
+      const there = hosts.find((h) => h.name === p.name);
+      if (there) {
+        throw fail(AddError.hostExists, `host '${p.name}' is already in the Inventory (group ${there.group})`, {
+          group: there.group,
+          fix: "pick another name, or edit that Host",
+        });
+      }
+      const port = p.port ?? 22;
+      const login = p.password !== undefined || (p.auth ?? "").includes(":");
+      const item = p.password !== undefined ? (p.item ?? `${p.name} ssh`) : null;
+      if (login) {
+        const key = { recorded: "none", fingerprint: FAKE_FINGERPRINT, ...scenario.scanKeys?.[p.address] };
+        const typedLocked = p.password !== undefined && vault !== "unlocked";
+        const result =
+          scenario.addVerify?.[p.name] ??
+          (typedLocked
+            ? failingVerify(p.name, "provider", VaultError.locked, VAULT_LOCKED, "unlock the vault")
+            : key.recorded === "none" && p.host_key === undefined
+              ? failingVerify(p.name, "host-key", 44, `no recorded host key for ${p.name} at ${p.address}`, "scan the host key and confirm it")
+              : key.recorded === "changed" || (p.host_key !== undefined && p.host_key !== key.fingerprint)
+                ? failingVerify(p.name, "host-key", 43, `${p.name}'s host key at ${p.address} isn't the one you confirmed - not logging in`)
+                : p.password !== undefined && p.password !== FAKE_HOST_PASSWORD
+                  ? failingVerify(p.name, "auth", 45, `${p.name} refused the password for user ${p.user ?? "admin"}`,
+                      "check the user and the vault item: the password may have changed on the Host")
+                  : passingVerify(p.name));
+        const failed = result.steps.find((s) => s.status === "fail");
+        if (failed) {
+          throw fail(failed.code ?? 48, `${p.name} wasn't added: ${failed.message} - nothing was saved`, {
+            step: failed.step,
+            steps: result.steps,
+            ...(failed.fix ? { fix: failed.fix } : {}),
+          });
+        }
+      }
+      const added: Host = {
+        name: p.name,
+        group: p.group,
+        ip: p.address,
+        type: p.type ?? "",
+        product: "",
+        title: p.title ?? "",
+        description: "",
+        reviewed: login,
+        enroll: p.enroll ?? true,
+        ssh: { user: p.user ?? "admin", port, auth: item ? `bw:${item}` : (p.auth ?? "prompt") },
+        web: null,
+      };
+      hosts = [...hosts, added];
+      if (!(p.group in groups)) groups = { ...groups, [p.group]: { title: "", description: "" } };
+      return {
+        added: true,
+        host: added,
+        backup: "~/infra/.git/roster/roster.yml.bak",
+        verify: login ? passingVerify(p.name) : null,
+        item: item ? { provider: "bw", id: `fake-${p.name}`, name: item } : null,
+      };
+    },
+    async reviewHost(host) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      if (h.reviewed) return { changed: false, host: h, backup: null };
+      const updated = { ...h, reviewed: true };
+      hosts = hosts.map((x) => (x.name === host ? updated : x));
+      return { changed: true, host: updated, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
   };
 }

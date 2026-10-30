@@ -29,7 +29,7 @@ export interface ChangesPanelProps {
   /** The key that opens the edit form, for the empty state ("␣ E"). */
   editKeys: string | null;
   leader: string;
-  /** roster speaks `changes.publish` (API 6). */
+  /** roster speaks `changes.publish` (API 7). */
   canPublish: boolean;
   rows: readonly ErrorRow[];
   actions: ProblemActions;
@@ -259,7 +259,7 @@ export function ChangesPanel(props: ChangesPanelProps) {
                 Discard…
               </button>
               {!canPublish && (
-                <span className="edit-keys muted">This roster can&rsquo;t publish (it needs API 6); they stay on this Box.</span>
+                <span className="edit-keys muted">This roster can&rsquo;t publish (it needs API 7); they stay on this Box.</span>
               )}
             </div>
           )}

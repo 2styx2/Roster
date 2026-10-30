@@ -12,7 +12,8 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Command | What it does |
 |---|---|
 | `:config` | Opens `init.lua` with the `editor` below. If there's no file yet, it first makes one from [`examples/init.lua`](../../examples/init.lua) with every line commented out, so it changes nothing until you uncomment something. A file that's there is never overwritten |
-| `:config reload` | Reads the file again now (a save already does this; use it when the watcher missed one) |
+| `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules (and, with ticket 28, `folders.yml` and `roster.yml`). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
+| `:config reload` | The same as `:source init.lua` |
 | `:config path` | Says where the file is |
 
 Everything configurable says its name where it shows, so you can tell where to change it: each row of the Key bindings panel (`␣ ?`) names its option (`keys.leader`, `keys.list_vim`, `leader`) under its label, next to its source (`builtin`, `init.lua`, a Plugin), and the filter finds rows by it; the `:theme` finder says `theme = "<id>"` for the Theme under the cursor; and `␣ e` / `␣ s` say which `modes.<mode>.<piece>` keeps what they just showed or hid.
@@ -24,8 +25,9 @@ Everything configurable says its name where it shows, so you can tell where to c
 - The Rust core runs the file with Lua 5.4 (mlua, built in). The file returns a table. Anything it leaves out keeps the built-in default.
 - The table is checked against a schema (`crates/roster-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`app/src/config/types.ts`). The frontend never runs Lua.
 - The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
-- **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a save does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
-- **Saving reloads it live.** The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second.
+- **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a `:source` does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
+- **`:source` reloads it (decision Q58).** Saving doesn't apply it by itself, as in Neovim: a half-written Config never takes effect mid-edit. The status bar says "init.lua changed" until you `:source` (`␣ S`).
+- **`auto_reload = true` reloads on every save** instead. The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second. Turning it on takes one `:source`, since the Config in effect decides.
 - **Errors.** A Lua error (syntax or runtime), or a name or value the schema doesn't accept, shows a message with the file and line, for example `init.lua:12: terminal.size: 400 is out of range (6 to 40)`. The last good Config stays in use. A misspelled name is an error, not silently ignored.
 - **Warnings.** Some things only the app can check: an action that isn't a command, a Theme name that isn't registered, a Sidebar section or status segment it doesn't know. These show as a warning, and the rest of the Config still applies.
 - **Line numbers** come from Lua for Lua errors and for `roster.*` calls. For a value in the returned table, the core finds the key in the source (`size =`, `["d d"] =`) after its parent keys. That's a best effort: a value built in a loop or in a required module may get its parent's line, or no line.
@@ -98,7 +100,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `vim` | `true` | j/k/h/l/gg/G in lists and the Picker |
 | `keys` | `{}` | Per context, `key = action`. The action is a command line, exactly what you'd type after `:` (`"close"`, `"session 1"`, `"finder sessions"`). `false` unbinds a default. Sequences are chords separated by spaces: `["d d"]` |
 
-Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (actions `picker.down`, `picker.up`, `picker.choose`, `picker.chooseHere`, `picker.close`), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ ?`) lists every binding with its source: `builtin` or `init.lua`.
+Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (actions `picker.down`, `picker.up`, `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.close`), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ ?`) lists every binding with its source: `builtin` or `init.lua`.
 
 ### Layout (decisions Q36, Q39)
 
@@ -118,7 +120,7 @@ The pieces of a mode:
 | `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"changes"` (the Pending changes count, shown only when there are some), `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
 | `fullscreen` | `true` / `false`: OS fullscreen | `false` | `true` |
 
-`␣ e` shows or hides the Sidebar, and `␣ s` the mode's bar (the status bar in Standard, the session bar in Focus). Focus without a Sidebar reaches the tree with `␣ e` as a finder. A save that changes `modes` resets what those keys toggled. A save that changes anything else keeps it.
+`␣ e` shows or hides the Sidebar, and `␣ s` the mode's bar (the status bar in Standard, the session bar in Focus). Focus without a Sidebar reaches the tree with `␣ e` as a finder. A reload that changes `modes` resets what those keys toggled. A reload that changes anything else keeps it.
 
 The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. Decision Q36's earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
 
@@ -135,6 +137,7 @@ They show first in the Folders section, marked "from init.lua", and only `init.l
 | Option | Default | |
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
+| `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config. Off: `:source` reloads (decision Q58) |
 | `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app Windows or the desktop opens `.lua` files with; on Windows, Notepad if there's none), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |

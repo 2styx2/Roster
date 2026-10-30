@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 57 57" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- roster app icon, 40 px and up (decision Q59): Gap orbit, plain, with no tile, on a transparent background, drawn at the in-app full cut's weights (chrome/Logo.tsx). One mid-tone neutral #808183 for the R, its orbit and the Box (4.2:1 on the dark Windows taskbar #202020, 3.5:1 on the light one #f3f3f3) and a mid apricot Host #cc5c2b (4.0:1 and 3.7:1): a transparent icon can't know which taskbar it sits on, and Paper vanishes on light, Ink on dark, and neither Theme accent passes both. Solid, no fades. `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
+  <path d="M38.33 57.22A26 26 0 1 1 55.74 42.61" fill="none" stroke="#808183" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M25 17.5V45.5M25 17.5H38L44 24.5L38 31.5H25M38 31.5L45.84 46.44" fill="none" stroke="#808183" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#808183"><circle cx="25" cy="17.5" r="4.6"/><circle cx="25" cy="31.5" r="4.6"/><circle cx="38" cy="17.5" r="4.6"/><circle cx="44" cy="24.5" r="4.6"/><circle cx="38" cy="31.5" r="4.6"/></g>
+  <rect x="20.49" y="40.99" width="9.02" height="9.02" rx="1.75" fill="#808183"/>
+  <circle cx="48.71" cy="51.92" r="5.7" fill="none" stroke="#cc5c2b" stroke-width="3.32"/>
+</svg>

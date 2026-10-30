@@ -455,6 +455,17 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .edit-actions button { height: 26px; padding: 0 10px; font-size: var(--text-sm); }
 .edit-keys { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; font-size: var(--text-xs); }
+
+/* ---------- Adding a Host (ticket 11) ---------- */
+
+.add-login { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 0; padding: 8px 0 0; border: 0; border-top: 1px solid var(--line); min-width: 0; }
+.add-login legend { padding: 0; color: var(--muted); font-size: var(--text-xs); }
+.add-ways { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.add-way, .add-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); }
+.edit-hint { color: var(--muted); font-size: var(--text-xs); }
+.add-key { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.add-key .edit-status { margin: 0; }
+.add-fingerprint { margin: 0; padding: 6px 8px; background: var(--raised); border-radius: 4px; overflow-wrap: anywhere; font-size: var(--text-sm); user-select: all; }
 button.danger { background: var(--danger); color: var(--danger-text); border-color: transparent; }
 @media (hover: hover) and (pointer: fine) {
   button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, var(--text)); }

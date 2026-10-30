@@ -412,7 +412,7 @@ def pending_as_before(box, title="mine"):
 
 def test_publish_with_nothing_pending_is_refused(app, box):
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 80 and "nothing to publish" in err["message"]
+    assert err["code"] == 90 and "nothing to publish" in err["message"]
 
 
 def test_publish_takes_the_message_given(owner, box):
@@ -427,7 +427,7 @@ def test_publish_refuses_when_someone_else_published_roster_yml(app, box):
     box.commit((box.other / "roster.yml").read_text() + "# theirs\n", where=box.other, msg="theirs")
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 82 and "since this box pulled" in err["message"] and err["data"]["behind"] == 1
+    assert err["code"] == 92 and "since this box pulled" in err["message"] and err["data"]["behind"] == 1
     assert "stash" in err["data"]["fix"]
     assert origin_log(box) == "theirs" and pending_as_before(box)
 
@@ -448,7 +448,7 @@ def test_publish_refuses_other_uncommitted_files(app, box):
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     (box / "README.md").write_text("half done\n")
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 81 and err["data"]["files"] == ["README.md"] and "git -C" in err["data"]["fix"]
+    assert err["code"] == 91 and err["data"]["files"] == ["README.md"] and "git -C" in err["data"]["fix"]
     assert origin_log(box) == "inventory"
 
 
@@ -457,7 +457,7 @@ def test_publish_refuses_local_commits_it_didnt_make(app, box):
     git(box, "commit", "-qam", "local")
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 83 and err["data"]["ahead"] == 1 and origin_log(box) == "inventory"
+    assert err["code"] == 93 and err["data"]["ahead"] == 1 and origin_log(box) == "inventory"
 
 
 def test_a_rejected_push_undoes_the_commit_and_keeps_the_pending_changes(app, box):
@@ -467,7 +467,7 @@ def test_a_rejected_push_undoes_the_commit_and_keeps_the_pending_changes(app, bo
     before = git(box, "rev-parse", "HEAD")
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 86 and "nothing was published" in err["message"] and "protected branch" in err["data"]["details"]
+    assert err["code"] == 96 and "nothing was published" in err["message"] and "protected branch" in err["data"]["details"]
     assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
     assert result(app.call("changes.diff"))["count"] == 1
 
@@ -477,7 +477,7 @@ def test_a_refused_commit_publishes_nothing(owner, box):
     git(box, "config", "user.useConfigOnly", "true")
     result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = owner.call("changes.publish")["error"]
-    assert err["code"] == 85 and "user.name" in err["data"]["fix"] and pending_as_before(box)
+    assert err["code"] == 95 and "user.name" in err["data"]["fix"] and pending_as_before(box)
     assert origin_log(box) == "inventory"
 
 
@@ -485,7 +485,7 @@ def test_publish_without_an_upstream(app, box):
     git(box, "branch", "--unset-upstream")
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = app.call("changes.publish")["error"]
-    assert err["code"] == 84 and "push -u origin main" in err["data"]["fix"]
+    assert err["code"] == 94 and "push -u origin main" in err["data"]["fix"]
 
 
 def test_a_roster_yml_that_doesnt_load_isnt_published(app, box):

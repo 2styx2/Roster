@@ -135,7 +135,7 @@ async fn config_open(
     .await
 }
 
-/// `:config reload`: reads init.lua again now, and tells every listener as a save would.
+/// `:source` (and `:config reload`): reads init.lua again now, and tells every listener.
 #[tauri::command]
 async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigState>) -> Result<Option<Report>, ()> {
     use tauri::Emitter;
@@ -151,8 +151,9 @@ async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigSta
 /// `config-changed` event.
 const CONFIG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 
-/// Reads init.lua (waiting at most CONFIG_STARTUP_WAIT), then watches its dir and emits
-/// `config-changed` after every save, and once the first load is done.
+/// Reads init.lua (waiting at most CONFIG_STARTUP_WAIT), then watches its dir: after a save it
+/// emits `config-changed` (with `auto_reload = true`) or `config-stale`. `config-changed` also
+/// comes once the first load is done.
 fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watcher> {
     use tauri::Emitter;
     let handle = app.handle().clone();
@@ -164,8 +165,15 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     });
     let handle = app.handle().clone();
     let l = Arc::clone(loader);
-    match config::watch(loader.dir(), move || {
-        let _ = handle.emit("config-changed", l.reload());
+    // A save reloads only with `auto_reload = true` (decision Q58); otherwise the frontend
+    // hears that the file changed, and `:source` applies it.
+    match config::watch(loader.dir(), move || match l.on_save() {
+        Some(report) => {
+            let _ = handle.emit("config-changed", report);
+        }
+        None => {
+            let _ = handle.emit("config-stale", ());
+        }
     }) {
         Ok(w) => Some(w),
         Err(e) => {
@@ -281,6 +289,36 @@ async fn changes_publish(state: tauri::State<'_, Arc<BackendState>>, message: St
 
 /// roster's publish waits up to 60 s for each of git's fetch and push, and the sync after.
 const PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+/// The host key an address offers (`host.scan_key`, ticket 11): key exchange only, never a login.
+#[tauri::command]
+async fn host_scan_key(
+    state: tauri::State<'_, Arc<BackendState>>,
+    address: String,
+    port: u16,
+) -> Result<Value, CallError> {
+    call(&state, "host.scan_key", json!({ "address": address, "port": port })).await
+}
+
+/// Add a Host (`host.add`, decision Q43): test login, then the Vault item, then the Pending change.
+/// The params can hold a typed password on its way to serve's stdin. Like `vault_unlock`'s, it's
+/// moved into the request and dropped with it: never logged, stored or put in an error.
+#[tauri::command]
+async fn host_add(
+    state: tauri::State<'_, Arc<BackendState>>,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.call_timeout("host.add", Value::Object(params), ADD_TIMEOUT)).await
+}
+
+/// One connection with a 10 s login, then bw's sync and create (each up to 40 s).
+const ADD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change.
+#[tauri::command]
+async fn host_review(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
+    call(&state, "host.review", json!({ "host": host })).await
+}
 
 /// roster waits up to 60 s for git's fetch.
 const EDIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
@@ -492,6 +530,9 @@ pub fn run() {
             inventory_pull,
             host_verify_login,
             host_update,
+            host_scan_key,
+            host_add,
+            host_review,
             changes_diff,
             changes_discard,
             changes_publish,

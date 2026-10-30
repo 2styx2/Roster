@@ -8,7 +8,7 @@
 -- keeps its default. Every value below IS the default, unless a comment says otherwise, so
 -- deleting a line changes nothing.
 --
--- Saving the file applies it at once. A mistake (a Lua error, or a name or value the app doesn't
+-- :source (Leader S) applies it; saving alone doesn't, unless auto_reload = true below. A mistake (a Lua error, or a name or value the app doesn't
 -- know) shows a message with the file and line, and the last good Config stays in use.
 --
 -- The Lua here runs in a sandbox: no io, no os.execute or os.getenv, no debug, no C modules, and
@@ -154,6 +154,9 @@ return {
   -- it's unset, in a console window of its own). :config reload reads it again, :config path
   -- says where it is.
   editor = "os",
+  -- Reload on every save of this file (or a module it requires). Off, as in Neovim: :source
+  -- (Leader S) reloads, and the status bar says when a save isn't applied yet.
+  auto_reload = false,
 
   -- Which roster runs (read when the backend starts: Retry, or restart the app, after changing).
   -- "auto" detects it: on Windows, the default WSL distro, then running ones. "wsl:<distro>"

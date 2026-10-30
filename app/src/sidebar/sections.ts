@@ -137,7 +137,13 @@ export function hostRow(host: Host, id: string, level: number): SidebarRow {
     host: host.name,
     dot: hostDot(host),
     detail: host.ip,
-    ...(host.reviewed ? {} : { badge: "unreviewed", title: "Not reviewed yet: can't be opened" }),
+    ...(host.reviewed
+      ? {}
+      : {
+          badge: "unreviewed",
+          title: "Not reviewed yet: can't be opened",
+          actions: [{ label: `Mark ${host.name} reviewed`, icon: "review" as const, command: `review ${host.name}` }],
+        }),
     level,
     command: `open ${host.name}`,
     drag: host.name,

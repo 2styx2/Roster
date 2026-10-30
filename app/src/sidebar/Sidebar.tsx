@@ -24,7 +24,7 @@ export type { Dot } from "../ui/StateDot";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  icon: "close" | "edit" | "add";
+  icon: "close" | "edit" | "add" | "review";
   command: CommandLine;
 }
 
@@ -191,6 +191,7 @@ const ICONS: Record<RowAction["icon"], string> = {
   close: "M4 4l8 8M12 4l-8 8",
   edit: "M3 13l1-3.5L10.5 3 13 5.5 6.5 12z",
   add: "M8 3v10M3 8h10",
+  review: "M3.5 8.5l3 3 6-7",
 };
 
 const Icon = ({ name }: { name: RowAction["icon"] }) => (

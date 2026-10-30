@@ -123,11 +123,11 @@ describe(":publish", () => {
     expect(screen.queryByRole("form", { name: "Publish the Pending changes" })).toBeNull();
   });
 
-  it("needs a roster that speaks API 6", async () => {
-    const { user } = await ready({ ...pendingScenario, apiVersion: 5 });
+  it("needs a roster that speaks API 7", async () => {
+    const { user } = await ready({ ...pendingScenario, apiVersion: 6 });
     await within(statusbar()).findByRole("button", { name: /2 Pending changes/ });
     await user.keyboard(`${LEADER}:publish{Enter}`);
-    expect(await screen.findByText(/:publish needs a newer roster \(API version 6; this one speaks 5\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/:publish needs a newer roster \(API version 7; this one speaks 6\)/)).toBeInTheDocument();
     await user.click(within(statusbar()).getByRole("button", { name: /2 Pending changes/ }));
     expect(within(await panel()).queryByRole("button", { name: "Publish…" })).toBeNull();
   });

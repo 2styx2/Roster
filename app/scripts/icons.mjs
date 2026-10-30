@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Regenerates the app icon set in src-tauri/icons from the SVG masters in assets/ (Gap orbit,
-// plain, decision Q57). `tauri icon` renders every size from assets/logo.svg; then the 16, 24
-// and 32 px images (the taskbar, the title bar of Explorer windows, the tray) are redrawn from
-// assets/logo-small.svg, whose heavier strokes and wider gap survive small sizes, and icon.ico is
-// repacked with them. Run: `npm run icons` in app/ (or node app/scripts/icons.mjs)
+// plain, decisions Q57 and Q59). The icon has no tile: a transparent mark in one mid-tone neutral
+// and a mid apricot Host, so it reads on the light and the dark Windows taskbar alike.
+// `tauri icon` renders every size from assets/logo-icon.svg; then the 16, 20, 24 and 32 px images
+// (the taskbar, title bars, Alt+Tab, the tray) are redrawn from assets/logo-icon-small.svg, whose
+// heavier strokes survive small sizes, and icon.ico is repacked with them plus 40, 48, 64 and 256
+// from the full cut. Run: `npm run icons` in app/ (or node app/scripts/icons.mjs)
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,19 +15,21 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const icons = join(root, "src-tauri", "icons");
 const tauri = (...args) => execFileSync("npx", ["tauri", "icon", ...args], { cwd: root, stdio: "inherit" });
+const SMALL = [16, 20, 24, 32];
+const FULL = [40, 48, 64, 256];
 
-tauri("assets/logo.svg", "-o", icons);
+tauri("assets/logo-icon.svg", "-o", icons);
 // Desktop only: the mobile sets aren't used.
 rmSync(join(icons, "android"), { recursive: true, force: true });
 rmSync(join(icons, "ios"), { recursive: true, force: true });
 
 const tmp = mkdtempSync(join(tmpdir(), "roster-icons-"));
 try {
-  tauri("assets/logo-small.svg", "-o", join(tmp, "small"), "-p", "16,24,32");
-  tauri("assets/logo.svg", "-o", join(tmp, "big"), "-p", "48,64,256");
+  tauri("assets/logo-icon-small.svg", "-o", join(tmp, "small"), "-p", SMALL.join(","));
+  tauri("assets/logo-icon.svg", "-o", join(tmp, "big"), "-p", FULL.join(","));
   const layers = [
-    ...[16, 24, 32].map((s) => [s, join(tmp, "small", `${s}x${s}.png`)]),
-    ...[48, 64, 256].map((s) => [s, join(tmp, "big", `${s}x${s}.png`)]),
+    ...SMALL.map((s) => [s, join(tmp, "small", `${s}x${s}.png`)]),
+    ...FULL.map((s) => [s, join(tmp, "big", `${s}x${s}.png`)]),
   ];
   writeFileSync(join(icons, "icon.ico"), ico(layers.map(([size, file]) => [size, readFileSync(file)])));
   copyFileSync(join(tmp, "small", "32x32.png"), join(icons, "32x32.png"));

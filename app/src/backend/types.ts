@@ -114,7 +114,7 @@ export interface HostCheck {
 export const EDIT_API_VERSION = 5;
 
 /** The first `api_version` with `changes.publish` and `changes.diff`'s `message` (ticket 12). */
-export const PUBLISH_API_VERSION = 6;
+export const PUBLISH_API_VERSION = 7;
 
 /** The Host fields the edit form changes (`host.update`'s `changes`). */
 export interface HostFields {
@@ -166,11 +166,11 @@ export interface PendingChanges {
   /** git's unified diff of roster.yml against the last commit ("" when there are none). */
   diff: string;
   hosts: HostChange[];
-  /** Groups added, removed, or retitled (API 6). */
+  /** Groups added, removed, or retitled (API 7). */
   groups?: GroupChange[];
   /** How many Pending changes: changed Hosts (1 for an edit that touches none, such as a comment). */
   count: number;
-  /** The commit message `changes.publish` would write, naming what changed (API 6; "" when none). */
+  /** The commit message `changes.publish` would write, naming what changed (API 7; "" when none). */
   message?: string;
 }
 
@@ -194,15 +194,15 @@ export interface PublishResult {
   sync: { ok: boolean; error?: string; fix?: string };
 }
 
-/** roster's codes for publishing (ticket 12; docs/app/errors.md rows 44-50). A failed fetch is 73. */
+/** roster's codes for publishing (ticket 12; docs/app/errors.md rows 46-52). A failed fetch is 73. */
 export const PublishError = {
-  nothingPending: 80,
-  otherChanges: 81,
-  remoteMoved: 82,
-  unpushed: 83,
-  noUpstream: 84,
-  commitFailed: 85,
-  pushFailed: 86,
+  nothingPending: 90,
+  otherChanges: 91,
+  remoteMoved: 92,
+  unpushed: 93,
+  noUpstream: 94,
+  commitFailed: 95,
+  pushFailed: 96,
 } as const;
 
 /** roster's codes for editing the Inventory (ticket 10; docs/app/errors.md rows 38-43). */
@@ -213,6 +213,55 @@ export const EditError = {
   pullFailed: 73,
   invalidEdit: 74,
   notVerified: 75,
+} as const;
+
+/** The first `api_version` with `host.add`, `host.scan_key` and `host.review` (ticket 11). */
+export const ADD_API_VERSION = 6;
+
+/** `host.add`'s params. A Login is either `auth` (an existing vault item, `bw:<host> ssh`) or
+ * `password` (typed into the form, saved as `item` after the test login). Without one the Host
+ * goes in unreviewed. `host_key` is the fingerprint the user confirmed for a new address. */
+export interface AddHostParams {
+  name: string;
+  group: string;
+  address: string;
+  user?: string;
+  port?: number;
+  type?: string;
+  title?: string;
+  enroll?: boolean;
+  auth?: string;
+  password?: string;
+  item?: string;
+  host_key?: string;
+  /** Where a typed password is saved (ticket 35 adds the choice; roster's default vault until then). */
+  provider?: string;
+}
+
+/** `host.add`: the Host as roster.yml has it now, the test login (null without a Login) and the
+ * Vault item it made (null unless a password was typed). */
+export interface HostAdd {
+  added: true;
+  host: Host;
+  backup: string;
+  verify: HostCheck | null;
+  item: { provider: string; id: string; name: string } | null;
+}
+
+/** `host.scan_key`: the key the address offers, and how it compares with the recorded one. */
+export interface ScannedKey {
+  address: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  recorded: "none" | "match" | "changed";
+}
+
+/** roster's codes for adding a Host (ticket 11). A failed test login answers with its step's own
+ * code (40-48, 30-35) and `data.steps`. */
+export const AddError = {
+  invalidHost: 80,
+  hostExists: 81,
 } as const;
 
 /** Where a vault provider stands (`vault.status`). */
@@ -397,4 +446,11 @@ export interface Backend {
   /** `changes.publish`: commit roster.yml with `message` and push it (never forced), then
    * `roster sync`. Rejects with a PublishError code (or 73 fetch failed, 1 roster.yml broken). */
   publishChanges(message: string): Promise<PublishResult>;
+  /** `host.scan_key`: the host key an address offers, for the user to confirm before a first login. */
+  scanKey(address: string, port: number): Promise<ScannedKey>;
+  /** `host.add`: test the Login, save a typed password to the vault, add the Host as a Pending
+   * change (decision Q43). Rejects with the failed step's code and `data.steps`, or AddError. */
+  addHost(params: AddHostParams): Promise<HostAdd>;
+  /** `host.review`: mark a Host reviewed (only that flag), as a Pending change. */
+  reviewHost(host: string): Promise<HostUpdate>;
 }

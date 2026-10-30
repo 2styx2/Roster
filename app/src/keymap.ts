@@ -11,7 +11,7 @@
 /** A line for the command table: a command name and maybe its argument ("session 1"). */
 export type CommandLine = string;
 
-export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.chooseHere" | "picker.close";
+export type PickerAction = "picker.down" | "picker.up" | "picker.choose" | "picker.chooseHere" | "picker.review" | "picker.close";
 
 /** Anything a key can be bound to: a command line, or a Picker or terminal action. */
 export type Action = string;
@@ -99,8 +99,10 @@ export const defaultBindings: KeymapTables = {
     s: "statusbar",
     ":": "cmdline",
     "?": "keys",
+    S: "source",
     L: "lock",
     E: "edit",
+    "+": "host add",
     c: "changes",
     r: "reconnect",
     m: "mode",
@@ -123,6 +125,7 @@ export const defaultBindings: KeymapTables = {
     "Ctrl+n": "picker.down",
     "Ctrl+p": "picker.up",
     Enter: "picker.choose",
+    "Ctrl+r": "picker.review",
     Escape: "picker.close",
     ...terminalKeys.picker,
   },
