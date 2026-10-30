@@ -68,9 +68,10 @@ jobs:
       # The CLI's own files with install.sh, for boxes without git: unpack and run ./install.sh in it.
       - name: roster-cli tarball
         run: |
-          git archive --format=tar.gz --prefix="roster-cli-$VERSION/" -o "out/roster-cli-$VERSION.tar.gz" HEAD \
-            pyproject.toml uv.lock .python-version README.md install.sh src examples \
-            docs/cli-reference.md docs/serve-api.md docs/new-box.md docs/adding-hosts.md
+          files=(pyproject.toml uv.lock .python-version README.md install.sh src examples
+                 docs/cli-reference.md docs/serve-api.md docs/new-box.md docs/adding-hosts.md)
+          [ -f LICENSE ] && files+=(LICENSE)
+          git archive --format=tar.gz --prefix="roster-cli-$VERSION/" -o "out/roster-cli-$VERSION.tar.gz" HEAD "${files[@]}"
       - run: ls -l out
       - uses: actions/upload-artifact@v4
         with:
@@ -141,6 +142,7 @@ jobs:
           cp "$d"/bundle/nsis/*-setup.exe "out/$p-setup.exe"
           cp "$d"/bundle/msi/*.msi "out/$p.msi"
           7z a -tzip "out/$p.zip" "./$d/roster-app.exe" > /dev/null
+          if [ -f LICENSE ]; then 7z a -tzip "out/$p.zip" ./LICENSE > /dev/null; fi
       - name: Collect (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -148,14 +150,17 @@ jobs:
           mkdir -p out
           cp "$d"/bundle/appimage/*.AppImage "out/$p.AppImage"
           cp "$d"/bundle/deb/*.deb "out/$p.deb"
-          tar -czf "out/$p.tar.gz" -C "$d" roster-app
+          cp "$d/roster-app" out/roster-app; [ -f LICENSE ] && cp LICENSE out/LICENSE
+          tar -czf "out/$p.tar.gz" -C out roster-app $( [ -f LICENSE ] && echo LICENSE )
+          rm -f out/roster-app out/LICENSE
       - name: Collect (macOS)
         if: runner.os == 'macOS'
         run: |
           d="${{ matrix.target_dir }}"; p="roster-app-$VERSION-macos"
           mkdir -p out
           cp "$d"/bundle/dmg/*.dmg "out/$p-universal.dmg"
-          tar -czf "out/$p.tar.gz" -C "$d/bundle/macos" Roster.app
+          mkdir -p pack && cp -R "$d/bundle/macos/Roster.app" pack/; [ -f LICENSE ] && cp LICENSE pack/
+          tar -czf "out/$p.tar.gz" -C pack .
       - run: ls -l out
       - uses: actions/upload-artifact@v4
         with:
