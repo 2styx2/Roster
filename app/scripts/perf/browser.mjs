@@ -3,7 +3,7 @@
 //
 //   node app/scripts/perf/browser.mjs http://localhost:5181/ [--json]
 //
-// Phases: idle (no Sessions), busy (12 Sessions printing 100 lines/s each, the 1,284-Host worst case),
+// Phases: idle (no Sessions), opening 12 Sessions at start (commits and renders), busy (12 Sessions printing 100 lines/s each, the 1,284-Host worst case),
 // typing in the Picker, typing in a terminal, Focus mode, and closing every Session (what's left after a
 // forced GC). For each: main-thread busy % (CDP Performance.TaskDuration), timer and animation-frame
 // callbacks a second, React commits and the components that rendered (a devtools hook counts them), and
@@ -149,6 +149,8 @@ async function main() {
 
     // Busy: 12 streaming Sessions, the Sidebar showing them.
     const { page, cdp } = await run(SESSIONS);
+    // From the first paint until 12 Sessions are open and printing: what opening them re-rendered.
+    results.start = await snapshot(page);
     const before = await gcHeap(page, cdp);
     results.busy = await measure(page, cdp, WINDOW_MS);
     results.busy.gc = before;
@@ -220,6 +222,7 @@ function print(r) {
   row("terminal keys", r.terminalKeys);
   row("focus, busy", r.focus);
   row("after close", r.closed.idle);
+  console.log(`opening 12 Sessions:   ${r.start.commits} commits; ${top(r.start.renders)}`);
   console.log(`renders idle:          ${top(r.idle.renders) || "none"}`);
   console.log(`renders busy (10 s):   ${top(r.busy.renders) || "none"}`);
   console.log(`renders per Picker key: ${top(r.picker.perKey) || "none"}`);
