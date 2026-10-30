@@ -89,19 +89,9 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     t.loadAddon(f);
     t.loadAddon(s);
     t.open(host);
-    // data-renderer says which one it got (for `:info` later, and devtools now).
+    // data-renderer says which one it got (for `:info` later, and devtools now). WebGL comes
+    // and goes with `active` (below).
     host.dataset.renderer = "dom";
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        host.dataset.renderer = "dom";
-      });
-      t.loadAddon(webgl);
-      host.dataset.renderer = "webgl";
-    } catch {
-      // no WebGL2: the DOM renderer it is
-    }
 
     const copy = () => {
       const text = t.getSelection();
@@ -209,6 +199,34 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     // attach belongs to this tab for its whole life
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The WebGL renderer only while the terminal is on screen. A browser keeps about 16 WebGL
+  // contexts and drops the oldest past that, so 50 open Sessions each holding one left blank,
+  // lost canvases behind (ticket 27). A hidden terminal draws nothing, so it gives its context
+  // back and the DOM renderer keeps its state; showing it again takes a fresh one.
+  const noWebgl = useRef(false);
+  useEffect(() => {
+    const t = term.current;
+    const host = el.current;
+    if (!active || !t || !host || noWebgl.current) return;
+    let webgl: WebglAddon | null = null;
+    const drop = () => {
+      webgl?.dispose();
+      webgl = null;
+      host.dataset.renderer = "dom";
+    };
+    try {
+      webgl = new WebglAddon();
+      webgl.onContextLoss(drop);
+      t.loadAddon(webgl);
+      host.dataset.renderer = "webgl";
+    } catch {
+      // no WebGL2: the DOM renderer it is, for good
+      noWebgl.current = true;
+      webgl = null;
+    }
+    return drop;
+  }, [active]);
 
   // ConPTY sits between us and the shell on Windows (WSL included); xterm adapts its reflow to
   // the real build (>= 21376 keeps reflow on).

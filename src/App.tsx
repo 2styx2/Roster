@@ -9,6 +9,7 @@
 // which is also what the command line and every button run. The commands, keymap and Sidebar
 // sections are registries (ADR 0004), read live.
 import {
+  Fragment,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -56,6 +57,7 @@ import { StateStore } from "./state/store";
 import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./theme/theme";
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
+import { countOf } from "./ui/format";
 import { Keys } from "./ui/Keys";
 import { defaultLayouts, isShown, otherMode, placed, togglePiece, type Layouts, type Place, type ViewMode } from "./view/layout";
 import { SessionBar } from "./view/SessionBar";
@@ -551,21 +553,25 @@ export function App({
 
   const statusBar = (
     <footer key="statusbar" className="statusbar">
-      <span className="backend">
+      <span className="backend" title={info.backend}>
         <span className="status-dot" aria-hidden="true" />
-        {info.backend}
+        <span className="statusbar-cut">{info.backend}</span>
       </span>
-      <span>{info.inventory.box}</span>
-      <span>{conn.hosts.hosts.length} hosts</span>
-      <span className="path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
+      <span className="statusbar-cut box" title={info.inventory.box}>
+        {info.inventory.box}
+      </span>
+      <span className="count">{countOf(conn.hosts.hosts.length, "host")}</span>
+      <span className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
         {info.inventory.path}
       </span>
-      <span className="grow" />
-      {hints.map(([k, what]) => (
-        <span key={what} className="hint">
-          <Keys keys={k} leader={options.leader} /> {what}
-        </span>
-      ))}
+      {/* The hints drop out whole, last first, when the bar runs out of room (never cut mid-key). */}
+      <span className="statusbar-hints">
+        {hints.map(([k, what]) => (
+          <span key={what} className="hint">
+            <Keys keys={k} leader={options.leader} /> {what}
+          </span>
+        ))}
+      </span>
       {appMode && (
         <span className="mode">
           APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
@@ -661,8 +667,12 @@ export function App({
       {pieces("bottom")}
       {hint && modeKeys.length > 0 && (
         <div className="mode-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
-          {modeKeys.map((k) => (
-            <Keys key={k} keys={k} leader={options.leader} />
+          {/* Two ways out, not one sequence: "␣ m or F11", never "␣ m F11". */}
+          {modeKeys.map((k, i) => (
+            <Fragment key={k}>
+              {i > 0 && <span className="muted"> or </span>}
+              <Keys keys={k} leader={options.leader} />
+            </Fragment>
           ))}{" "}
           leave {viewMode === "focus" ? "Focus" : "this mode"}
         </div>

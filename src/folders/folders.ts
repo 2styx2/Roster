@@ -253,7 +253,7 @@ function folderRows(folder: Folder, hostByName: ReadonlyMap<string, Host>): Side
   const head: SidebarRow = {
     id,
     label: folder.name,
-    detail: String(folder.hosts.length),
+    count: folder.hosts.length,
     icon: "folder",
     level: 0,
     foldable: true,

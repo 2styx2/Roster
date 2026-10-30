@@ -96,8 +96,9 @@ export const defaultAppearance: AppearanceOptions = {
   dark: "roster-dark",
   light: "roster-light",
   fonts: {
-    ui: '"Inter", system-ui, "Segoe UI", sans-serif',
-    mono: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
+    // The emoji fonts last, so a Host named "🦊-lab" draws its fox wherever one is installed.
+    ui: '"Inter", system-ui, "Segoe UI", sans-serif, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"',
+    mono: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace, "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"',
   },
 };
 

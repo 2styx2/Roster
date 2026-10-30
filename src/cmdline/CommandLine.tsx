@@ -2,6 +2,7 @@
 // table and the Inventory (cycling through the candidates, Shift+Tab back), Enter runs the line,
 // Esc closes it.
 import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { formatCount } from "../ui/format";
 
 /** Candidates listed at most; Tab still cycles through all of them. */
 const SHOWN = 8;
@@ -49,7 +50,7 @@ export function CommandLine({ initial = "", complete, onRun, onClose }: CommandL
               {c}
             </li>
           ))}
-          {candidates.length > SHOWN && <li className="more">+{candidates.length - SHOWN} more</li>}
+          {candidates.length > SHOWN && <li className="more">+{formatCount(candidates.length - SHOWN)} more</li>}
         </ul>
       )}
       <div className="cmdline-input">

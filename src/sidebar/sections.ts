@@ -105,6 +105,7 @@ export const sessionsSection: SidebarSectionDef = {
           rows: sessions.tabs.map((tab, i) => ({
             id: `session-${tab.id}`,
             label: tab.label,
+            ...(tab.label !== tab.host ? { tail: tab.label.slice(tab.host.length) } : {}),
             host: tab.host,
             dot: dotOf(tab, hostByName.get(tab.host)),
             ...(statusText(tab) ? { note: statusText(tab) } : {}),
@@ -163,7 +164,7 @@ export const inventorySection: SidebarSectionDef = {
       {
         id: `group:${group}`,
         label: group,
-        detail: String(members.length),
+        count: members.length,
         icon: "group" as const,
         ...(hosts.groups[group]?.title ? { title: hosts.groups[group].title } : {}),
         level: 0,
