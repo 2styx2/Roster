@@ -45,6 +45,11 @@ roster web esxi api POST /sdk -d @q.xml # web API call made with the service's s
 | [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
 | [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, and testing the logins |
 | [examples/roster.example.yml](examples/roster.example.yml) | Fully commented `roster.yml` (also produced by `roster init`) |
+| [app/README.md](app/README.md) | The roster app: the desktop app in `app/` (Tauri, React, xterm.js) that opens terminals on your Hosts through `roster serve` |
+| [docs/app/](docs/app/) | The app's design: spec, architecture, security, Config (`init.lua`), themes, keyboard, errors catalog, decisions |
+| [docs/adr/](docs/adr/) | Architecture decisions for the CLI and the app |
+| [tickets/](tickets/) | Work tickets; [tickets/README.md](tickets/README.md) is the board |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch model and pull requests; [GLOSSARY.md](GLOSSARY.md) has the words |
 
 ## Install
 
@@ -336,7 +341,7 @@ skip dns         an earlier step failed
 
 ## `roster serve` API
 
-`roster serve` is the backend for the desktop app (roster-desk). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+`roster serve` is the backend for the desktop app (the roster app, [`app/`](app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
 
 Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
 
@@ -403,7 +408,7 @@ It runs the steps of [`roster check HOST`](#roster-check-host) in order: `invent
 
 `api_version` is currently 3 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`). roster-desk's `docs/errors.md` is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`). [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -473,7 +478,7 @@ Requests without an `id` (notifications) run but get no reply.
 
 ### Signing in: `vault.login`
 
-A new Box's vault CLI isn't logged in (`vault.status`: `not-logged-in`). `vault.login` signs it in from the app, a step at a time, and leaves the vault unlocked. roster-desk's `docs/dev/vault-auth.md` has the research: which methods each CLI can do, and why it works this way.
+A new Box's vault CLI isn't logged in (`vault.status`: `not-logged-in`). `vault.login` signs it in from the app, a step at a time, and leaves the vault unlocked. [`docs/app/dev/vault-auth.md`](docs/app/dev/vault-auth.md) has the research: which methods each CLI can do, and why it works this way.
 
 | Params | Result |
 |---|---|
@@ -572,9 +577,12 @@ src/roster/
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword;
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
 examples/           commented roster.yml, plugin template
-docs/               team guides: setting up a new box, adding hosts
+docs/               team guides: setting up a new box, adding hosts; docs/app/ for the app, docs/adr/ for decisions
 tests/              pytest suite + fake password-manager CLIs
+app/                the roster app (frontend + app/src-tauri); its Rust core is crates/roster-core (app/README.md)
 ```
+
+The app's checks are in [app/README.md](app/README.md#development) (`npm run check` in `app/`, `cargo test` at the root). CI runs both halves on every pull request (`.github/workflows/ci.yml`); [CONTRIBUTING.md](CONTRIBUTING.md) has the branch model.
 
 ### Trying it safely
 

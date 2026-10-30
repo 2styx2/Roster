@@ -1,0 +1,750 @@
+/* The roster app's look (ticket 09). Linear is the reference: dense, quiet, one accent, 1px hairlines,
+   ~13px type, motion of 150 ms or less.
+
+   Every colour here is a Theme token (src/theme/theme.ts) set on :root by useTheme, so nothing
+   below names a colour: the Config and Plugins can restyle everything by changing tokens. What's
+   fixed here is shape: sizes, spacing, radii, type scale and motion. */
+
+:root {
+  /* Type. --font-ui and --font-mono come from the appearance options (decision Q30). */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --row-h: 26px;
+  --titlebar-h: 32px;
+  --statusbar-h: 24px;
+  --sidebar-width: 248px;
+  --keys-width: 320px;
+
+  /* Motion (the animate skill): strong ease-out, 150 ms or less, transform and opacity only.
+     --dur-move drives transforms; --dur-fade opacity and colour. Reduced motion drops the
+     movement and keeps the fades. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --dur-press: 120ms;
+  --dur-move: 150ms;
+  --dur-fade: 120ms;
+  --press-scale: 0.97;
+  --enter-y: 4px;
+
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: var(--text-md);
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "calt";
+  /* Native radios and checkboxes take the Theme's accent (ticket 29 S6). */
+  accent-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-move: 0ms;
+    --dur-press: 0ms;
+    --press-scale: 1;
+    --enter-y: 0px;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: var(--raised-line) transparent; }
+
+.muted { color: var(--muted); }
+.grow { flex: 1; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---------- Controls ---------- */
+
+button {
+  font: inherit; font-weight: 500; color: var(--text); background: var(--raised);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  height: 28px; padding: 0 12px; cursor: default; white-space: nowrap;
+  transition: background-color var(--dur-fade) ease, color var(--dur-fade) ease, border-color var(--dur-fade) ease,
+    transform var(--dur-press) var(--ease-out);
+}
+button:active:not(:disabled) { transform: scale(var(--press-scale)); }
+button:disabled { opacity: 0.6; }
+button:focus-visible, input:focus-visible { outline: none; }
+button:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  button:hover:not(:disabled) { background: var(--hover); }
+}
+button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
+}
+
+/* A borderless square button for a glyph (close a panel). */
+.icon-button {
+  width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center;
+  background: transparent; border-color: transparent; color: var(--muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+}
+
+input {
+  font: inherit; color: var(--text); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  transition: border-color var(--dur-fade) ease, box-shadow var(--dur-fade) ease;
+}
+input::placeholder { color: var(--muted); }
+input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+code { font-family: var(--font-mono); font-size: 0.95em; }
+
+/* Keycaps (ui/Keys.tsx): every key hint. */
+.keys { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; white-space: nowrap; }
+.chord { display: inline-flex; gap: 2px; }
+.keycap {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
+  font: 500 var(--text-xs)/1 var(--font-mono); color: var(--muted);
+  background: var(--raised); border: 1px solid var(--line-strong); border-bottom-width: 1.5px;
+  border-radius: var(--radius-sm);
+}
+.keycap-leader { padding: 0 3px; }
+
+/* ---------- The window: title bar, body ---------- */
+
+.window { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+/* Clipped, not just hidden: nothing (a terminal's helper elements, scrollIntoView) can scroll
+   the window's own frame and push the title bar out of view. */
+.window-body { flex: 1; min-height: 0; position: relative; overflow: clip; }
+
+.titlebar {
+  flex: none; height: var(--titlebar-h); display: flex; align-items: center; justify-content: space-between;
+  background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none;
+}
+.titlebar-mark { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; flex: 1; }
+/* Clicks on the mark fall through to the drag region. */
+.titlebar-mark * { pointer-events: none; }
+.wordmark { font: 500 var(--text-sm) var(--font-mono); color: var(--muted); letter-spacing: 0.01em; }
+.window-controls { display: flex; height: 100%; }
+.window-controls button {
+  width: 46px; height: 100%; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: 0; background: transparent; color: var(--muted);
+}
+.window-controls button:active:not(:disabled) { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .window-controls button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .window-controls button.close:hover:not(:disabled) { background: var(--danger); color: var(--danger-text); }
+}
+
+/* The mark (chrome/Logo.tsx) in the Theme's colours. */
+.logo { flex: none; display: block; }
+.logo-edges { stroke: var(--text); opacity: 0.55; }
+.logo-node { fill: var(--text); }
+.logo-target { fill: var(--accent); }
+
+/* ---------- Screens ---------- */
+
+.screen { height: 100%; display: flex; flex-direction: column; }
+.screen.center { align-items: center; justify-content: center; padding: 24px; }
+.starting { font-size: var(--text-sm); }
+
+/* The backend didn't start: the clean error's parts (.problem-*, below), on the bare window. */
+.error { width: min(560px, 100%); display: flex; flex-direction: column; gap: 10px; }
+.error h1 { font-size: var(--text-lg); font-weight: 600; margin: 0; color: var(--error); overflow-wrap: anywhere; }
+.error p { margin: 0; }
+.error .problem-message, .error .problem-facts, .error .problem-actions { margin: 0; overflow-wrap: anywhere; }
+
+/* ---------- Standard layout: [Sidebar | workspace | side panel], command line, status bar ---------- */
+
+.body { flex: 1; display: flex; min-height: 0; }
+.body.sidebar-right .sidebar { order: 3; border-right: 0; border-left: 1px solid var(--line); }
+.workspace {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  outline: none; min-width: 0; min-height: 0; background: var(--bg);
+}
+.workspace:has(.panes) { align-items: stretch; justify-content: stretch; }
+
+.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; text-align: center; }
+.empty p { margin: 0; }
+.empty-mark { opacity: 0.35; margin-bottom: 6px; }
+.empty-title { font-weight: 500; color: var(--muted); }
+.empty-hint { font-size: var(--text-sm); color: var(--muted); }
+
+.statusbar {
+  flex: none; height: var(--statusbar-h); display: flex; align-items: center; gap: 16px; padding: 0 12px;
+  background: var(--chrome); border-top: 1px solid var(--line);
+  color: var(--muted); font-size: var(--text-xs); white-space: nowrap; overflow: hidden;
+}
+.statusbar > * { flex: none; }
+.statusbar .backend { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+/* Long values give way in order: the path first (it only gets the room left over), then the
+   hints, then the Box's name. The Backend, the Host count and the mode never do. Each cut value
+   has its whole text in a tooltip. */
+.statusbar-cut { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.statusbar .box { flex: 0 1 auto; min-width: 6ch; }
+.statusbar .path { flex: 1 1 0; }
+.statusbar .count { font-variant-numeric: tabular-nums; }
+/* The hints and the mode, at the right end whatever the layout shows before them. */
+.statusbar-right { margin-left: auto; flex: 0 1000 auto; min-width: 0; display: flex; align-items: center; gap: 16px; }
+.statusbar-hints {
+  flex: 0 1000 auto; min-width: 0; height: var(--statusbar-h); overflow: hidden;
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center;
+}
+/* A zero-width first item: with it on the first line, a hint that doesn't fit wraps to the
+   hidden second line whole, even the first one, instead of being cut after its keycaps (N3). */
+.statusbar-hints::before { content: ""; width: 0; height: var(--statusbar-h); }
+.statusbar .hint { flex: none; display: inline-flex; align-items: center; gap: 5px; height: var(--statusbar-h); }
+.statusbar .hint + .hint { margin-left: 16px; }
+.statusbar .keycap { height: 16px; min-width: 16px; color: var(--muted); }
+.statusbar .mode { color: var(--accent-ink); font-weight: 600; letter-spacing: 0.04em; }
+.statusbar .mode .pending { font-family: var(--font-mono); font-weight: 400; }
+
+.message-line:empty { display: none; }
+.message-line {
+  flex: none; padding: 4px 12px; font-size: var(--text-sm); color: var(--warn);
+  background: var(--chrome); border-top: 1px solid var(--line);
+  transition: opacity var(--dur-fade) ease;
+  @starting-style { opacity: 0; }
+}
+
+/* ---------- The Sidebar ---------- */
+
+.sidebar {
+  width: var(--sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--sidebar); border-right: 1px solid var(--line); font-size: var(--text-md);
+}
+.sidebar button {
+  height: auto; border: 0; background: transparent; border-radius: var(--radius); padding: 0; text-align: left;
+  font-weight: 400; transition: none;
+}
+.sidebar button:active { transform: none; }
+.sidebar .sb-find {
+  margin: 10px 10px 6px; height: 30px; padding: 0 6px 0 8px; display: flex; align-items: center; gap: 8px;
+  color: var(--muted); border: 1px solid var(--line); background: var(--bg);
+}
+.sb-find-label { flex: 1; font-size: var(--text-sm); }
+@media (hover: hover) and (pointer: fine) {
+  .sidebar .sb-find:hover { color: var(--text); border-color: var(--line-strong); background: var(--bg); }
+}
+.sb-icon { flex: none; color: var(--faint); }
+
+.sb-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 10px; outline: none; }
+.sb-section { margin-top: 10px; }
+.sb-heading { display: flex; align-items: center; height: 24px; border-radius: var(--radius); color: var(--muted); }
+.sidebar .sb-heading-button {
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px; color: inherit;
+  border-radius: var(--radius); cursor: default;
+  font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.sb-heading h2 { margin: 0; font: inherit; }
+@media (hover: hover) and (pointer: fine) {
+  .sb-heading:hover { color: var(--text); }
+}
+.sb-count { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.sb-empty { margin: 2px 8px 4px 24px; color: var(--muted); font-size: var(--text-sm); line-height: 1.7; text-wrap: balance; }
+.sb-empty .keys { margin: 0 1px; }
+.keys-with-word { white-space: nowrap; }
+
+.sb-rows { list-style: none; margin: 0; padding: 0; }
+.sb-row { position: relative; display: flex; align-items: center; height: var(--row-h); border-radius: var(--radius); color: var(--muted); }
+@media (hover: hover) and (pointer: fine) {
+  .sb-row:hover { background: var(--hover); color: var(--text); }
+}
+/* The on-screen Host elsewhere in the tree: brighter, not raised. */
+.sb-row.also { color: var(--text); }
+/* The raised style (decision Q31): a lighter fill and a 1px outline. */
+.sb-row.raised { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+/* The live Session (decision Q53, S11): the raised row plus a 2px jade bar at its start, 3:1
+   against the Sidebar in every Theme. Jade only for what's live (taste.md): an ended Session on
+   screen is raised without it. It moves with a key, so it doesn't animate. */
+.sb-row.live::before {
+  content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 2px; border-radius: 1px;
+  background: var(--accent);
+}
+/* The App-mode cursor: raised, with the accent outline and no bar. */
+.sb-row.cursor, .sb-heading.cursor { background: var(--raised); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
+/* Forced colours drop fills and box-shadows: keep the bar and the cursor visible. */
+@media (forced-colors: active) {
+  .sb-row.live::before { forced-color-adjust: none; background: Highlight; }
+  .sb-row.cursor, .sb-heading.cursor { outline: 1px solid Highlight; outline-offset: -1px; }
+}
+.sidebar .sb-item {
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: inherit;
+}
+.sb-chev { flex: none; color: var(--muted); }
+.sb-chev.folded { transform: rotate(-90deg); }
+/* The name wins the room. What follows it (a note, the badge, the address) shares a wrapping
+   line box one row high: anything that doesn't fit beside the name drops to a second line that
+   is clipped, so it shows whole or not at all, never as "10.1…". The name alone is cut only
+   when it's longer than the row; the row's tooltip has it whole. */
+.sb-text {
+  flex: 1 1 auto; min-width: 0; height: var(--row-h); overflow: hidden;
+  display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; column-gap: 8px;
+}
+.sb-text > * { line-height: var(--row-h); }
+.sb-name { flex: 0 1 auto; min-width: 0; display: flex; }
+.sb-label {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  unicode-bidi: isolate;
+}
+/* A Session's " (2)": it tells two Sessions to one long-named Host apart, so it's never cut. */
+.sb-tail { flex: none; white-space: pre; color: var(--muted); }
+.sb-row:has(.dot) .sb-name { font-family: var(--font-mono); font-size: var(--text-md); }
+/* An unreviewed Host: its dashed node says so, and its badge shows only when you look at the row
+   (ticket 27). A Session's note ("ended (code 0)") sits in the name's line and is never cut: the
+   label is. */
+.sb-note { flex: none; margin-left: 8px; font: var(--text-xs) var(--font-ui); color: var(--muted); white-space: nowrap; }
+.sb-detail {
+  margin-left: auto; flex: none;
+  color: var(--muted); font: var(--text-xs) var(--font-mono); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.sb-detail, .sb-note { line-height: var(--row-h); }
+.sb-num {
+  margin-left: auto; padding-left: 8px; flex: none;
+  color: var(--muted); font: var(--text-xs) var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.sb-badge {
+  display: none; margin-left: auto; flex: none; font-size: var(--text-xs); line-height: 15px; color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm); padding: 0 4px;
+  white-space: nowrap;
+}
+.sb-row.raised .sb-badge, .sb-row.cursor .sb-badge { display: block; }
+.sb-badge + .sb-detail { display: none; }
+.sidebar .sb-action {
+  display: none; flex: none; width: 22px; height: 22px; margin-right: 2px; place-items: center; color: var(--muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .sidebar .sb-action:hover { color: var(--text); background: var(--hover); }
+}
+.sb-row.raised .sb-action { display: grid; }
+.sb-row.has-actions.raised .sb-detail, .sb-row.has-actions.raised .sb-num, .sb-row.has-actions.raised .sb-badge { display: none; }
+/* Hover shows the same (a real pointer only: a tap mustn't leave them stuck, N8). */
+@media (hover: hover) and (pointer: fine) {
+  .sb-row:hover .sb-badge { display: block; }
+  .sb-row:hover .sb-action, .sb-heading:hover .sb-action { display: grid; }
+  .sb-row.has-actions:hover .sb-detail, .sb-row.has-actions:hover .sb-num, .sb-row.has-actions:hover .sb-badge { display: none; }
+}
+
+/* State nodes (ui/StateDot.tsx, decision Q53): the shape carries the state, colour only adds to
+   it. Filled jade = key login, jade ring = password login, grey ring = ended, dashed grey ring =
+   unreviewed. Grey is `muted`, so a node reads at 3:1 or more on every surface. */
+.dot { flex: none; overflow: visible; }
+.dot circle { fill: var(--accent); stroke: none; }
+.dot.password circle, .dot.ended circle, .dot.off circle { fill: none; stroke-width: 1.5px; }
+.dot.password circle { stroke: var(--accent); }
+.dot.ended circle, .dot.off circle { stroke: var(--muted); }
+/* Four dashes round the 3.25 px circle (2πr ≈ 20.4). */
+.dot.off circle { stroke-dasharray: 2.55 2.55; }
+
+/* App mode: the cursor row whole (M6), its name wrapped, its state and address below. */
+.sb-details {
+  flex: none; padding: 8px 14px; border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--muted);
+}
+.sb-details p { margin: 0; overflow-wrap: anywhere; }
+.sb-details-name { font-size: var(--text-sm); color: var(--text); unicode-bidi: isolate; }
+.sb-details-name.data { font-family: var(--font-mono); }
+.sb-details-facts { margin-top: 2px; }
+
+.sb-foot { display: flex; gap: 2px; padding: 6px; border-top: 1px solid var(--line); }
+.sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--muted); font-size: var(--text-sm); }
+@media (hover: hover) and (pointer: fine) {
+  .sidebar .sb-foot button:hover { background: var(--hover); color: var(--text); }
+}
+
+/* ---------- Side panels: Key bindings, :check ---------- */
+
+.keys-panel {
+  width: var(--keys-width); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--sidebar); border-left: 1px solid var(--line); font-size: var(--text-sm);
+}
+.keys-panel header { display: flex; align-items: center; padding: 10px 10px 8px 14px; }
+.keys-panel h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.keys-close { margin-left: auto; }
+.keys-filter { margin: 0 12px 8px; height: 28px; padding: 0 8px; font-size: var(--text-sm); }
+.keys-scroll { flex: 1; overflow: auto; }
+.keys-panel table { width: 100%; border-collapse: collapse; }
+.keys-panel td { padding: 6px 0; border-top: 1px solid var(--line); vertical-align: top; line-height: 18px; }
+.keys-panel td:first-child { color: var(--muted); padding: 6px 8px 6px 14px; }
+.keys-keys { text-align: right; }
+.keys-list { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 6px; }
+/* Where the binding comes from: builtin, init.lua or a Plugin. */
+.keys-panel td.keys-source {
+  width: 1%; padding: 6px 14px 6px 10px; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; text-align: right;
+}
+.keys-panel td.keys-source.config { color: var(--accent-ink); }
+/* A Plugin's name can be long: it gives way to the binding's label, whole in its tooltip. */
+.keys-source span { display: block; max-width: 8em; overflow: hidden; text-overflow: ellipsis; }
+/* A long chord (a Plugin's Ctrl+Shift+Alt+PageDown) wraps between its caps rather than widening
+   the table past the panel. */
+.keys-panel .keys, .keys-panel .chord { flex-wrap: wrap; justify-content: flex-end; }
+.keys-panel tr.group th {
+  text-align: left; padding: 14px 14px 5px; font-size: var(--text-xs); font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.panel-empty { margin: 0; padding: 12px 14px; color: var(--muted); }
+
+.check-panel {
+  width: var(--keys-width); flex: none; overflow: auto; padding: 10px 14px;
+  background: var(--sidebar); border-left: 1px solid var(--line); font-size: var(--text-sm);
+}
+.check-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.check-panel h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.check-ok { color: var(--accent-ink); margin: 0 0 8px; }
+.check-panel > p { margin: 0 0 8px; }
+.check-steps { list-style: none; margin: 0; padding: 0; }
+.check-step { padding: 6px 0; border-top: 1px solid var(--line); }
+.check-line { display: flex; gap: 8px; align-items: baseline; }
+.check-mark { width: 14px; flex: none; text-align: center; font-family: var(--font-mono); }
+.check-step.ok .check-mark { color: var(--accent-ink); }
+.check-step.fail .check-mark { color: var(--error); }
+.check-step.skipped { color: var(--muted); }
+.check-name { flex: none; }
+.check-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+.check-problem { margin: 8px 0 0 22px; }
+.check-problem .problem-message { margin-bottom: 8px; }
+
+/* ---------- The command line ---------- */
+
+.cmdline { flex: none; border-top: 1px solid var(--line); background: var(--chrome); font: var(--text-md) var(--font-mono); }
+.cmdline-candidates {
+  list-style: none; margin: 0; padding: 4px; border-bottom: 1px solid var(--line); max-height: 40vh; overflow: auto;
+}
+/* A fixed line height: a fallback font (Arabic, CJK) mustn't make its row taller than the rest. */
+.cmdline-candidates li { line-height: 20px; padding: 1px 8px; color: var(--muted); border-radius: var(--radius-sm); }
+.cmdline-candidates li.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.cmdline-candidates li.more { color: var(--muted); }
+/* A candidate: the command, what it does, its key (S8). */
+.cmdline-candidates li:not(.more) { display: flex; align-items: center; gap: 12px; }
+.cmd-id { flex: none; min-width: 12ch; white-space: pre; }
+.cmd-label {
+  flex: 1 1 auto; min-width: 0; color: var(--muted); font: var(--text-sm) var(--font-ui);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmdline-candidates li.selected .cmd-label { color: var(--text); }
+.cmd-keys { margin-left: auto; flex: none; }
+.cmdline-input { display: flex; align-items: center; gap: 4px; padding: 5px 12px; color: var(--accent-ink); }
+.cmdline-input input { flex: 1; height: auto; padding: 0; border: 0; background: transparent; color: var(--text); }
+.cmdline-input input:focus-visible { box-shadow: none; }
+
+/* ---------- The Picker: Linear's ⌘K. No open/close motion: it's a key, used all day. ---------- */
+
+.picker-backdrop {
+  position: absolute; inset: 0; z-index: 10; background: var(--backdrop);
+  display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh;
+}
+.picker {
+  width: min(680px, calc(100% - 32px)); max-height: 68vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px var(--shadow), 0 2px 8px var(--shadow);
+}
+.picker-search { flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.picker-search-icon { flex: none; color: var(--faint); }
+.picker-query {
+  flex: 1; min-width: 0; height: 50px; padding: 0; font-size: var(--text-lg);
+  border: 0; background: transparent; border-radius: 0;
+}
+.picker-query:focus-visible { box-shadow: none; }
+.picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
+.picker-row {
+  display: grid; grid-template-columns: minmax(0, 2fr) 9.5em minmax(0, 1fr) minmax(0, 6em) 6.5em;
+  gap: 12px; align-items: center; min-height: 34px; padding: 8px 10px; border-radius: var(--radius); color: var(--muted);
+}
+.picker-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-row.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+/* The selected row shows its whole name, wrapped (M6): two long Hosts that differ at the end can
+   be told apart from the keyboard. */
+.picker-row.selected > .host-name { white-space: normal; overflow-wrap: anywhere; }
+.picker-row .host-name { font-family: var(--font-mono); color: var(--text); unicode-bidi: isolate; }
+.picker-row .host-ip { font: var(--text-sm) var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.picker-row .host-group, .picker-row .host-type { font-size: var(--text-sm); color: var(--muted); }
+.picker-row.unreviewed { cursor: not-allowed; }
+.picker-row.unreviewed .host-name { color: var(--muted); }
+.picker-row > .badge { justify-self: end; overflow: visible; }
+.badge {
+  font-size: var(--text-xs); line-height: 15px; color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm); padding: 0 5px;
+}
+.picker-empty { margin: 0; padding: 18px 16px; color: var(--muted); }
+.picker-footer {
+  display: flex; align-items: center; gap: 14px; padding: 0 14px; height: 34px; flex: none;
+  border-top: 1px solid var(--line); font-size: var(--text-xs); color: var(--muted);
+}
+.picker-footer [role="status"] {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--warn);
+}
+.picker-count { font-variant-numeric: tabular-nums; }
+.picker-hint { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ---------- The Lock: covers the window at once. No fade: hiding Sessions must not lag. ---------- */
+
+.lock-gate { height: 100%; }
+.lock-gate[data-locked] { visibility: hidden; }
+.lock {
+  position: absolute; inset: 0; z-index: 20; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.lock-panel { width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; }
+.lock-mark { margin-bottom: 6px; }
+.lock-panel h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.lock-panel p { margin: 0; }
+.lock-form { display: flex; flex-direction: column; gap: 8px; }
+.lock-form > p { color: var(--muted); margin-bottom: 6px; }
+.lock-form label { color: var(--muted); font-size: var(--text-xs); font-weight: 500; }
+.lock-row { display: flex; gap: 8px; }
+.lock-row input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; }
+.lock-row input[aria-invalid] { border-color: var(--error); }
+.lock-row button { height: 32px; }
+.lock-error { color: var(--error); font-size: var(--text-sm); }
+.lock-problem { color: var(--warn); }
+.lock-problem code, .lock-error code { color: var(--text); }
+.lock-panel > button { align-self: flex-start; }
+.lock-panel .lock-hint { margin-top: 8px; font-size: var(--text-xs); color: var(--muted); line-height: 1.8; }
+
+/* ---------- Sessions: the tab strip option, panes, terminals ---------- */
+
+.tabstrip {
+  display: flex; gap: 2px; padding: 4px 6px 0; background: var(--chrome); border-bottom: 1px solid var(--line);
+  overflow-x: auto; flex: none;
+}
+.tab {
+  display: flex; align-items: center; height: 28px; border-radius: var(--radius) var(--radius) 0 0; color: var(--muted);
+}
+.tab.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.tab button {
+  height: 100%; border: 0; background: transparent; border-radius: inherit; padding: 0 4px 0 12px;
+  font-weight: 400; color: inherit;
+}
+.tab button:active { transform: none; }
+.tab .tab-close { padding: 0 10px 0 6px; color: var(--muted); }
+@media (hover: hover) and (pointer: fine) {
+  .tab:not(.selected):hover { background: var(--hover); }
+  .tab .tab-close:hover { color: var(--text); background: transparent; }
+}
+.tab-host { display: inline-flex; max-width: 28ch; vertical-align: bottom; font-family: var(--font-mono); }
+.tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; unicode-bidi: isolate; }
+.tab-tail { flex: none; white-space: pre; }
+/* State dots in the tab strip. */
+.st {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: 1px;
+  background: var(--accent);
+}
+.st.pw { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.st.ended, .st.pw.ended { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.st.pending { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.tab-status { font-size: var(--text-xs); color: var(--muted); }
+.tab.failed .tab-status { color: var(--error); }
+
+.panes { flex: 1; position: relative; min-height: 0; }
+.pane { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.pane[hidden] { display: none; }
+.term-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; background: var(--bg); }
+/* The padding goes on xterm's own element, which FitAddon takes off before counting columns: on
+   .term-host it was counted as room, so the last column ran flush to the edge (N5). */
+.term-host { flex: 1; min-height: 0; }
+.term-host > .xterm { height: 100%; padding: 8px 12px 0; }
+/* xterm's viewport is black by default and now spans the padding: let the pane's colour show. */
+.term-host .xterm .xterm-viewport { background-color: transparent; }
+
+/* Find in the scrollback. It opens from a key: no motion. */
+.term-search {
+  position: absolute; top: 10px; right: 22px; z-index: 2; display: flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: var(--radius-lg); background: var(--panel); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+.term-search input { font: var(--text-md) var(--font-mono); height: 26px; padding: 0 8px; width: 220px; margin-right: 4px; }
+.term-search button {
+  width: 26px; height: 26px; padding: 0; display: grid; place-items: center;
+  background: transparent; border-color: transparent; color: var(--muted);
+}
+.term-search-count {
+  font-size: var(--text-xs); color: var(--muted); min-width: 72px; text-align: right; padding-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Notes and errors over a Session come from the system (a connection ended or failed), not a
+   key, so they ease in (150 ms, a 4 px rise) instead of popping. */
+.session-note {
+  position: absolute; right: 16px; bottom: 14px; max-width: calc(100% - 32px); overflow-wrap: anywhere; display: flex; align-items: center; gap: 6px;
+  padding: 4px 4px 4px 12px; min-height: 32px; border-radius: var(--radius-lg);
+  background: var(--panel); color: var(--muted); font-size: var(--text-sm);
+  border: 1px solid var(--line-strong); box-shadow: 0 8px 24px var(--shadow);
+  transition: opacity var(--dur-move) var(--ease-out), transform var(--dur-move) var(--ease-out);
+  @starting-style { opacity: 0; transform: translateY(var(--enter-y)); }
+}
+.session-note:not(.ended) { padding-right: 12px; }
+.session-note.ended > span:first-child { color: var(--warn); }
+.session-note .reconnect { height: 24px; padding: 0 10px; font-size: var(--text-sm); }
+.session-error { margin: 40px auto; width: min(680px, calc(100% - 32px)); }
+.session-error.overlay {
+  position: absolute; inset: auto 16px 16px 16px; margin: 0 auto; width: auto; max-width: 680px;
+  max-height: calc(100% - 32px); overflow: auto;
+  transition: opacity var(--dur-move) var(--ease-out), transform var(--dur-move) var(--ease-out);
+  @starting-style { opacity: 0; transform: translateY(var(--enter-y)); }
+}
+
+/* ---------- Clean connection errors (ticket 26) ---------- */
+
+.problem {
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg);
+  padding: 14px 16px; box-shadow: 0 8px 24px var(--shadow); font-size: var(--text-md);
+}
+.check-problem .problem, .check-panel .problem { box-shadow: none; }
+.problem h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: var(--text-md); font-weight: 600; }
+.problem h2::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--error); flex: none; }
+.problem h2 .muted { font-weight: 400; flex: none; }
+.problem h2 { overflow-wrap: anywhere; }
+.problem-message { margin: 0 0 12px; color: var(--text); }
+.problem-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
+.problem-facts dt { color: var(--muted); }
+.problem-facts dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.problem-facts dd code { display: block; color: var(--text); }
+.problem code { font-size: var(--text-sm); }
+.problem-extra { margin: 0 0 12px; color: var(--muted); }
+.problem-extra p { margin: 6px 0 0; }
+.problem-extra ul { margin: 4px 0 0; padding-left: 18px; }
+.problem-matches { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.problem-matches th { text-align: left; color: var(--muted); font-weight: 500; }
+.problem-matches th, .problem-matches td { padding: 4px 8px 4px 0; border-top: 1px solid var(--line); }
+.problem-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+.problem-actions button, .problem-copy button { height: 26px; padding: 0 10px; font-size: var(--text-sm); }
+.problem-copy {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 2px 2px 2px 10px;
+}
+.problem-copy code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-details summary { cursor: default; color: var(--muted); font-size: var(--text-sm); width: max-content; }
+@media (hover: hover) and (pointer: fine) {
+  .problem-details summary:hover { color: var(--text); }
+}
+.problem-details pre {
+  margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+  font: var(--text-sm)/1.5 var(--font-mono); color: var(--muted);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto;
+}
+
+/* xterm's own scrollbar follows the Theme. */
+.xterm .xterm-viewport { scrollbar-color: var(--raised-line) transparent; }
+
+/* ---------- View modes (ticket 22) ---------- */
+
+/* Focus: only the terminal; panels float over it instead of beside it, so opening one doesn't
+   resize the terminal. */
+.body { position: relative; }
+.screen[data-view="focus"] .keys-panel,
+.screen[data-view="focus"] .check-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
+  border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+}
+
+/* Too narrow for the Sidebar, a side panel and a usable terminal (1040 = 248 + 320 + 472, about
+   64 columns): the panels float over the terminal, as in Focus, instead of squeezing it (M5).
+   They open from a key, so they don't animate. */
+@media (max-width: 1040px) {
+  .keys-panel, .check-panel {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
+    border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+  }
+}
+
+/* The hint on entering a mode: it comes on its own and leaves on its own (2 s), so it eases in
+   and fades out; under reduced motion it only fades. */
+/* At the top centre, clear of a side panel's heading (N4). */
+.mode-hint {
+  position: fixed; top: 12px; left: 0; right: 0; margin: 0 auto; width: max-content; z-index: 20; display: flex; gap: 6px; align-items: center;
+  padding: 5px 10px; border-radius: var(--radius-lg); font-size: var(--text-sm); color: var(--muted); pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px var(--shadow);
+  animation: mode-hint 2s var(--ease-out) both;
+}
+@keyframes mode-hint {
+  from { opacity: 0; transform: translateY(calc(-1 * var(--enter-y))); }
+  8% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* The session bar: tmux's status line, drawn with the app's tokens. */
+.sessionbar {
+  display: flex; align-items: center; gap: 4px; height: var(--statusbar-h); padding: 0 8px; flex: none;
+  font: var(--text-sm) var(--font-mono); color: var(--muted); background: var(--chrome); white-space: nowrap; overflow: hidden;
+}
+.piece[data-place="bottom"] .sessionbar { border-top: 1px solid var(--line); }
+.piece[data-place="top"] .sessionbar { border-bottom: 1px solid var(--line); }
+.sessionbar-box { flex: 0 1 auto; min-width: 6ch; max-width: 34ch; display: flex; margin-right: 6px; color: var(--accent-ink); }
+.sessionbar-box-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The Sessions scroll sideways (no scrollbar: it follows the current one); the box and the
+   current Session's address keep their place at either end. */
+.sessionbar-tabs {
+  flex: 0 1000 auto; min-width: 0; display: flex; align-items: center; gap: 4px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.sessionbar .sessionbar-tab {
+  flex: none; display: flex; max-width: 32ch; height: 18px; font: inherit; color: var(--muted); background: transparent; border: 0;
+  border-radius: var(--radius-sm); padding: 0 6px; transition: none;
+}
+.sessionbar-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; unicode-bidi: isolate; }
+.sessionbar-tab > span:not(.sessionbar-name) { flex: none; white-space: pre; }
+.sessionbar .sessionbar-tab:active { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .sessionbar .sessionbar-tab:hover { color: var(--text); background: var(--hover); }
+}
+/* The current Session: the raised style, as everywhere else (decision Q31). */
+.sessionbar .sessionbar-tab.current { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.sessionbar-info {
+  flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* The Finder: the Picker's frame, one line per item. */
+.finder-query {
+  flex: none; display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 16px; border-bottom: 1px solid var(--line);
+  font: var(--text-lg) var(--font-mono);
+}
+.finder-query input { flex: 1; min-width: 0; height: auto; padding: 0; font: inherit; border: 0; background: transparent; }
+.finder-query input:focus-visible { box-shadow: none; }
+.finder-prompt { color: var(--accent-ink); font-size: var(--text-md); }
+.finder-count { color: var(--muted); font: var(--text-xs) var(--font-ui); font-variant-numeric: tabular-nums; }
+.finder-row {
+  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 7px 10px; border-radius: var(--radius);
+  font: var(--text-md) var(--font-mono); color: var(--muted);
+}
+.finder-row.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.finder-row.selected .finder-label, .finder-row.selected .finder-path { white-space: normal; }
+.finder-row.selected .finder-name, .finder-row.selected .finder-path { overflow-wrap: anywhere; }
+.finder-row.unreviewed { cursor: not-allowed; color: var(--muted); }
+.finder-label { flex: 0 1 auto; min-width: 0; display: flex; white-space: nowrap; }
+.finder-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; unicode-bidi: isolate; }
+/* The session bar's `*` and `-`: kept in view when the name is cut. */
+.finder-mark { flex: none; color: var(--accent-ink); }
+.finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
+.finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); }
+.finder-legend { font-family: var(--font-mono); white-space: nowrap; }
+
+/* ---------- The Config's problems (ticket 21) ---------- */
+
+.config-toast {
+  position: fixed; right: 14px; bottom: 14px; z-index: 40; width: min(520px, calc(100vw - 28px));
+  padding: 10px 12px; border-radius: var(--radius-lg); font-size: var(--text-sm); color: var(--text);
+  background: var(--panel); border: 1px solid var(--line-strong); border-left: 3px solid var(--warn);
+  box-shadow: 0 8px 24px var(--shadow);
+  transition: opacity var(--dur-fade) ease, transform var(--dur-fade) var(--ease-out);
+  @starting-style { opacity: 0; transform: translateY(var(--enter-y)); }
+}
+.config-toast.error { border-left-color: var(--error); }
+.config-toast-head { display: flex; align-items: center; gap: 8px; }
+.config-toast-title { flex: 1; font-weight: 500; }
+.config-toast-close {
+  display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: var(--radius-sm);
+  color: var(--muted); background: transparent; cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .config-toast-close:hover { background: var(--hover); color: var(--text); }
+}
+.config-toast-lines {
+  margin: 6px 0 0; padding: 0; list-style: none; font-family: var(--font-mono); color: var(--muted);
+  overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto;
+}
+.config-toast-lines li + li { margin-top: 3px; }

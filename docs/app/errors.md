@@ -1,0 +1,57 @@
+# Connection errors: the catalog
+
+Every way opening a Session can fail must end in a **clean error**, never a hang or a raw stack trace. A clean error:
+- names the Host;
+- says what went wrong, in plain words;
+- says where the problem lives: `roster.yml`, the vault, this Box, the network, or the Host;
+- gives the exact fix;
+- keeps the raw message (ssh's stderr, or roster's message) one click away under "Details".
+
+Edits made by hand to `roster.yml` or the vault get the same treatment as anything made in the app. Ticket 26 builds this; `roster check HOST` and `:check HOST` run the same diagnostics on demand.
+
+| # | What happened | Typical cause | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 1 | `roster.yml` doesn't load | Bad YAML or a missing field after a hand edit | Inventory | "roster.yml has an error at line N: …" | Open the file; show roster's message |
+| 2 | Host not in this Box's ssh config | `roster.yml` was edited but `roster sync` wasn't run | Box | "esxi-02 isn't in this Box's ssh config yet" | Button: run `roster sync` |
+| 3 | Host is `reviewed: false` | Came from `discover` | Inventory | "esxi-02 hasn't been reviewed" | Review it (ticket 11) |
+| 4 | No user set | Hand edit left the user out, or `CHANGE-ME` | Inventory | "No SSH user for esxi-02" | Edit the Host |
+| 5 | Login points at a provider that isn't set up | `auth: kp:…` with no KeePassXC configured, or a typo in the prefix | Inventory | "esxi-02's Login uses `kp:`, which isn't set up on this Box" | Show the provider list (`roster providers`) |
+| 6 | Vault CLI missing / not logged in | New Box | Box | roster's wording, e.g. "Bitwarden CLI isn't logged in - run `bw login` once" | Show the command |
+| 7 | Vault locked | Idle lock, or locked elsewhere | Vault | (lock screen) | Unlock; the Session opens afterwards (ticket 06) |
+| 8 | Vault item not found | Typo in `bw:NAME`, item renamed or deleted | Vault / Inventory | "No vault item named 'esxi-02 ssh' (Login of esxi-02)" | Show near-matching item names; edit the Login |
+| 9 | Several vault items match | Duplicate names | Vault | "Two vault items are named 'esxi-02 ssh'" | List them (name, last edited, URI); fix in the vault |
+| 10 | Item has no password / no such field | Item made without a password, or `#FIELD` typo | Vault | "Vault item 'esxi-02 ssh' has no password" | Edit the item in the vault |
+| 11 | Wrong password or user | Password rotated on the Host but not in the vault, or the reverse | Vault / Host | "esxi-02 refused the password for user root" | Check the item; with Q43, re-save after a successful login |
+| 12 | Key refused | `enroll: true` but the key isn't installed (setup not run, key removed) | Box / Host | "esxi-02 didn't accept this Box's key" | Run `roster setup --only esxi-02`, or set `enroll: false` |
+| 13 | Host key changed | Reinstalled box, or IP reused, or a MITM | Host / network | "esxi-02's host key changed. Not connecting." | Show old and new fingerprints and how to verify. **Never auto-accept.** |
+| 14 | Host key unknown | Fingerprints not recorded for this Host | Box | "No recorded host key for esxi-02" | Run `roster setup`/`sync` to record it, after verifying it |
+| 15 | Name doesn't resolve | Typo in `ip:` or a DNS name | Inventory / network | "Can't resolve 'esxi02.lab'" | Edit the address |
+| 16 | Connection refused | Wrong port, or sshd not running | Inventory / Host | "esxi-02:2222 refused the connection" | Check the port in `roster.yml`; is sshd up? |
+| 17 | Timeout / unreachable | Host down, routing, firewall, **or the 10.19.x SSH rate limiter** (times out for about 4 minutes after many connections) | Network | "esxi-02 didn't answer within 10 s" | Retry later. For 10.19.x, mention the rate limiter and suggest waiting a few minutes, not hammering. |
+| 18 | Unexpected password prompt | Password expired or change required, OTP, or unusual keyboard-interactive wording | Host | "esxi-02 asked something roster won't answer: '<prompt>'" | Log in by hand once (Quick Connect) to handle it |
+| 19 | Too many auth failures | The ssh agent offers many keys before the password | Box | "esxi-02 cut the connection after too many key attempts" | Fix: `IdentitiesOnly` in roster's ssh config (roster-side) |
+| 20 | Session dropped | Network blip, Host reboot | Network / Host | "Session ended (code 255): connection reset" | Reconnect (`␣ r`) |
+| 21 | `roster serve` died | Crash, WSL restart | Box | "Lost the connection to roster" | Restart the backend; open Sessions keep running |
+
+## Signing in (ticket 31)
+
+The lock screen signs a new Box's vault CLI in through roster's `vault.login` (roster README "Signing in: vault.login"; the research is in `docs/app/dev/vault-auth.md`). Its failures come from the same catalog, keyed by roster's code. The lock screen shows the message, where it lives, the fix, and roster's text under Details. A 50, and a 10 at the master-password step, keep the sign-in on its step with the field emptied. Every other failure ends the sign-in and goes back to the screen it started from: the server choice for 53 and 57, the unlock form for 54.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 22 | 10 | Wrong email or master password (or the account is on another server) | Vault, sign-in form | "Bitwarden didn't accept that email and master password (on bitwarden.com)" | Check the email, the password and the server |
+| 23 | 13 | The provider has no sign-in roster can drive (1Password, `env`, …) | Box | "1Password signs in through its desktop app, not here: …" | Set it up on the Box the way the message says |
+| 24 | 50 | Two-step or new-device code wrong or expired (Bitwarden doesn't tell those apart) | Sign-in form | "Bitwarden didn't accept that code (wrong or expired) - a new code is on its way to your email" | Type the current code (stays on the step) |
+| 25 | 51 | The account's only two-step methods are ones the CLI can't do (FIDO2/WebAuthn, Duo), or SSO with trusted-device or passkey decryption | Vault | "the Bitwarden CLI can't do this account's two-step login: FIDO2 security keys and Duo aren't supported by the CLI - …" | Use an API key, or add an authenticator app, email or YubiKey OTP in the web vault |
+| 26 | 52 | Too many attempts | Vault | "bitwarden.com refused: too many sign-in attempts" | Wait a few minutes |
+| 27 | 53 | Server unreachable: DNS, refused, TLS, no answer in 40 s | Network, sign-in form | "can't reach the Bitwarden server vault.example.com (…)" | Check the address and the network |
+| 28 | 54 | The CLI is already logged in on this Box | Box | "the Bitwarden CLI is already logged in on this box as … - unlock it instead" | Unlock (the app switches to the unlock form); `bw logout` to switch account |
+| 29 | 55 | No sign-in in progress: finished, cancelled, replaced, or 10 minutes idle | roster | "no sign-in in progress (…) - start again" | Start again |
+| 30 | 56 | SSO failed in the browser or wasn't finished within 5 minutes | Vault | "the SSO sign-in failed in the browser - try again" | Start SSO again |
+| 31 | 57 | The self-hosted address isn't one | Sign-in form | "'vault example com' isn't a server address - …" | Pick cloud or EU, or type an https:// address |
+| 32 | 58 | API key not accepted, or an organization key | Sign-in form | "Bitwarden didn't accept that API key (client_id or client_secret)" | Copy the personal key again from the web vault |
+| 33 | 59 | Anything else; bw's own words | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same |
+
+Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
+
+**What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.

@@ -1,6 +1,6 @@
 # The desktop app talks to roster only through `roster serve`
 
-The desktop app (roster-desk, a separate repo) never reads `roster.yml` or a vault itself. It starts one `roster serve` process per launch and speaks JSON-RPC to it over stdin/stdout. That process holds the unlocked vault for the app's lifetime, answers queries with the same host, group and resource objects `load_config` already builds, and makes every Inventory write. roster stays the one place that understands the Inventory and touches secrets, so the CLI and the app cannot drift apart, and the Rust and UI layers never hold a password.
+The desktop app (in `app/`; until 2026-10-30 the separate roster-desk repo, see ADR 0007) never reads `roster.yml` or a vault itself. It starts one `roster serve` process per launch and speaks JSON-RPC to it over stdin/stdout. That process holds the unlocked vault for the app's lifetime, answers queries with the same host, group and resource objects `load_config` already builds, and makes every Inventory write. roster stays the one place that understands the Inventory and touches secrets, so the CLI and the app cannot drift apart, and the Rust and UI layers never hold a password.
 
 ## Considered Options
 
