@@ -1,4 +1,4 @@
-# xterm.js setup for roster-desk (checked 2026-10-29)
+# xterm.js setup for the roster app (checked 2026-10-29)
 
 ## Packages (npm, current)
 
@@ -16,7 +16,7 @@ Old unscoped `xterm` / `xterm-addon-*` names are dead. Use `@xterm/*`. The addon
 
 ## The "canvas fallback" in ticket 05 doesn't exist any more
 
-The xterm 6.0.0 release notes (#5105) say the canvas addon "no longer exists and we recommend using either the DOM renderer or WebGL". The fallback is now **the built-in DOM renderer**, which is what you get when no renderer addon is loaded. Update ticket 05 and ADR 0001's wording when the scaffold lands.
+The xterm 6.0.0 release notes (#5105) say the canvas addon "no longer exists and we recommend using either the DOM renderer or WebGL". The fallback is now **the built-in DOM renderer**, which is what you get when no renderer addon is loaded. Update ticket 05 and ADR 0003's wording when the scaffold lands.
 
 ```ts
 const term = new Terminal({
@@ -36,7 +36,7 @@ try {
 new ResizeObserver(() => fit.fit()).observe(el);   // then send term.cols/rows to session_resize (debounce ~50ms)
 term.onResize(({ cols, rows }) => resizeSession(id, cols, rows));
 ```
-Load WebGL **after** `open()`. Show `renderer` in `:info` so ticket 20 can measure it. Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. The build number comes from Rust: `desk_core::platform::windows_build()` (`RtlGetVersion`) through the `platform_info` command, 10.0.**26200** here (ticket 08).
+Load WebGL **after** `open()`. Show `renderer` in `:info` so ticket 20 can measure it. Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. The build number comes from Rust: `roster_core::platform::windows_build()` (`RtlGetVersion`) through the `platform_info` command, 10.0.**26200** here (ticket 08).
 
 ## Keys: everything goes to the shell except the leader
 
@@ -71,4 +71,4 @@ term.attachCustomKeyEventHandler((ev) => {
 
 ## Search
 
-`const search = new SearchAddon(); term.loadAddon(search); search.findNext(q, { incremental: true, decorations: {...} })`. `decorations` needs `allowProposedApi: true`. `incremental` only affects `findNext`. roster-desk searches upwards (`findPrevious`), as Windows Terminal does, and clears the selection on each keystroke, so typing always shows the newest match (`@xterm/addon-search` 0.16.0, ticket 08).
+`const search = new SearchAddon(); term.loadAddon(search); search.findNext(q, { incremental: true, decorations: {...} })`. `decorations` needs `allowProposedApi: true`. `incremental` only affects `findNext`. The roster app searches upwards (`findPrevious`), as Windows Terminal does, and clears the selection on each keystroke, so typing always shows the newest match (`@xterm/addon-search` 0.16.0, ticket 08).

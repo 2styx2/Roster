@@ -1,5 +1,5 @@
 """Ticket 26: every Inventory- and vault-side way a Session can fail ends in its own stable code and roster's
-wording (docs: roster-desk docs/errors.md rows 1-10, 18, 19), from session.prepare, askpass and host.check.
+wording (docs: docs/app/errors.md rows 1-10, 18, 19), from session.prepare, askpass and host.check.
 The Inventory and the vault are edited by hand here, as a person would."""
 
 import json

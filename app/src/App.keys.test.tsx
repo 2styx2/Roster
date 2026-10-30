@@ -319,7 +319,7 @@ describe("The Key bindings panel", () => {
   });
 });
 
-describe("Registries (ADR 0004)", () => {
+describe("Registries (ADR 0006)", () => {
   it("shows a Sidebar section another source registers, and its rows run commands", async () => {
     const user = userEvent.setup();
     const registries = builtinRegistries();

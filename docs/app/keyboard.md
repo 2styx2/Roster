@@ -1,6 +1,6 @@
 # Keyboard
 
-Keyboard first, with vim keys and full mouse support. Every binding lives in one keymap. Your `init.lua` ([docs/config.md](config.md)) can change the Leader, rebind any key to an action (`keys = { leader = { t = "next" } }`), and turn vim bindings off.
+Keyboard first, with vim keys and full mouse support. Every binding lives in one keymap. Your `init.lua` ([docs/app/config.md](config.md)) can change the Leader, rebind any key to an action (`keys = { leader = { t = "next" } }`), and turn vim bindings off.
 
 ## Two modes
 
@@ -9,7 +9,7 @@ Keyboard first, with vim keys and full mouse support. Every binding lives in one
 
 ## How keys become actions
 
-Every action is a command in one command table (`src/commands/table.ts`), named as the `:` command line names it. The keymap maps a key, or a sequence such as `d d`, to a command line (`session 1`, `close`), so a binding, a typed `:` command and a button (the Sidebar's rows, the tab strip) all run the same command. View modes (ticket 22) only change how commands are shown. Commands, bindings and Sidebar sections are registries (ADR 0004): each entry carries its source (`builtin`, `init.lua`, or a Plugin), which the Key bindings panel shows.
+Every action is a command in one command table (`app/src/commands/table.ts`), named as the `:` command line names it. The keymap maps a key, or a sequence such as `d d`, to a command line (`session 1`, `close`), so a binding, a typed `:` command and a button (the Sidebar's rows, the tab strip) all run the same command. View modes (ticket 22) only change how commands are shown. Commands, bindings and Sidebar sections are registries (ADR 0006): each entry carries its source (`builtin`, `init.lua`, or a Plugin), which the Key bindings panel shows.
 
 After the Leader you're in App mode until Esc, or until a command that isn't list movement runs: `␣ ]` switches and hands the keys straight back to the new Session's terminal, while `␣ j` / `␣ k` move the Sidebar's cursor and stay in App mode until Enter (switch) or Esc. An unbound key in App mode is swallowed, never sent to the shell. The Picker, the command line and the bindings filter take their own keys.
 
@@ -51,7 +51,7 @@ With the mouse: click a Host to open it (or go to its Session), drag it onto a F
 
 ## View modes (ticket 22)
 
-Standard and Focus (decision Q36) differ only in their layout (decision Q39, `src/view/layout.ts`); every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
+Standard and Focus (decision Q36) differ only in their layout (decision Q39, `app/src/view/layout.ts`); every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
 
 | Keys | In Standard | In Focus |
 |---|---|---|

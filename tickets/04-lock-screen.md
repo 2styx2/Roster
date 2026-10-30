@@ -1,6 +1,6 @@
 # 04: Lock screen and idle lock
 
-**Iteration:** 1 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 1–9)
+**Iteration:** 1 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 1–9)
 
 **What to build:** `serve` gains `vault.status`, `vault.unlock` and `vault.lock`, built on ticket 01. The app opens on a lock screen that asks for the master password of the Inventory's provider. The password field clears as soon as the call returns. Errors are worded for a person:
 - wrong password
@@ -32,13 +32,13 @@ The leader key followed by the lock key, or `:lock`, locks the app. So does 15 m
 
 **App side is done** (`feat/04-lock-screen`):
 - Backend client: `vaultStatus()`, `unlockVault(password)`, `lockVault()`, plus `VaultError` (codes 10 to 14). Tauri commands: `vault_status`, `vault_unlock`, `vault_lock`.
-- `src/lock/`: `useVault` (lock state), `LockGate`/`LockScreen` (it covers and inerts the app, and children stay mounted so Sessions keep running), and `idle.ts` (the idle timer, with an injectable Clock).
+- `app/src/lock/`: `useVault` (lock state), `LockGate`/`LockScreen` (it covers and inerts the app, and children stay mounted so Sessions keep running), and `idle.ts` (the idle timer, with an injectable Clock).
 - `<leader> L` is `app.lock` in the keymap. `idleLockMinutes: 15` is in the options table, for the Lua Config to override later. `:lock` comes with the command line (ticket 07).
-- Decisions (in `docs/security.md`):
+- Decisions (in `docs/app/security.md`):
   - The app always opens locked, and calls `vault.lock` if serve was left unlocked.
   - If the vault is `unsupported`, there's no lock screen and no idle lock, and the lock key says "nothing to lock".
   - For `not-logged-in` and `missing-cli`, the lock screen shows roster's message and a "Check again" button, with no password field.
-  - The idle timer lives in the frontend, tested with a manual Clock (`src/lock/idle.test.ts`, plus App tests).
+  - The idle timer lives in the frontend, tested with a manual Clock (`app/src/lock/idle.test.ts`, plus App tests).
 - Fake backend: the master password is `correct horse`. Fixtures: `locked`, `not-logged-in`, `missing-cli` and `no-vault`.
 - Fix found on Windows: `wsl.exe --exec` gave serve a bare PATH without `~/.local/bin`, so roster couldn't find `bw` and the lock screen said "not installed". detect now has the probe report the login shell's PATH, and serve starts as `/usr/bin/env PATH=<login PATH> roster ... serve`. Ticket 06 needs this too: askpass lookups run inside serve.
 - Checked in the real app on Windows, against the real roster (serve-stack) and the real vault:

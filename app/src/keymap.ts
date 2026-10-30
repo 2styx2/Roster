@@ -1,11 +1,11 @@
-// Keys and options as plain data tables, so the Lua Config (ADR 0002, ticket 21) can override
+// Keys and options as plain data tables, so the Lua Config (ADR 0004, ticket 21) can override
 // them later without code changes. Chords are written as chordOf() names them: modifiers in the
 // order Ctrl, Alt, Meta, Shift, then the key ("Ctrl+Space", "Ctrl+n", "j", "G", "ArrowDown").
 // A sequence is chords separated by spaces ("d d", "g g").
 //
 // App-mode keys map to a command line from the one command table (commands/table.ts), e.g.
 // "session 1" or "close", exactly what you'd type after `:`. The Picker's own keys map to the
-// Picker's and the terminal's local actions (ticket 08's copy, paste, find, zoom). Bindings live in a Registry (ADR 0004), one entry per context and key,
+// Picker's and the terminal's local actions (ticket 08's copy, paste, find, zoom). Bindings live in a Registry (ADR 0006), one entry per context and key,
 // each with its source; Keymap is the resolved view the app reads.
 
 /** A line for the command table: a command name and maybe its argument ("session 1"). */
@@ -67,7 +67,7 @@ export interface Options {
   sessions: "sidebar" | "tabs";
   /** The status bar, shown at start. `␣ s` toggles it. */
   statusBar: { visible: boolean };
-  /** Lock after this many minutes without input (docs/security.md). */
+  /** Lock after this many minutes without input (docs/app/security.md). */
   idleLockMinutes: number;
   /** The view mode at start (decision Q36): `default_mode` in init.lua. */
   defaultMode: ViewMode;

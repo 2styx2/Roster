@@ -1,6 +1,6 @@
 # 15: "Save to vault" on Quick Connect
 
-**Iteration:** 4 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 70–75)
+**Iteration:** 4 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 70–75)
 
 **What to build:** A "Save to vault" checkbox on the Quick Connect password prompt. Only after the Session reaches a shell, the app asks for a Host name, pre-filled from the box's hostname. Then `quick.save`:
 1. Creates the Vault item `<host> ssh`, with the username in the username field and the address in the URI field.

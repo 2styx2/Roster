@@ -231,7 +231,7 @@ export interface SessionHandle {
 }
 
 /** `session.prepare`'s error codes (roster README): the message is roster's, ready to show.
- * Every code has its row in src/errors/catalog.ts (docs/errors.md). */
+ * Every code has its row in src/errors/catalog.ts (docs/app/errors.md). */
 export const SessionRefusal = {
   inventory: 1,
   unknownHost: 2,

@@ -1,5 +1,5 @@
 // The Config (ticket 21) on the frontend: the typed object from the core is turned into the
-// app's options and pushed through the registries (ADR 0004). The defaults come from the core's
+// app's options and pushed through the registries (ADR 0006). The defaults come from the core's
 // own fixture (crates/roster-core/tests/fixtures/config-defaults.json), so the Rust and TypeScript
 // defaults can't drift apart.
 import { describe, expect, it } from "vitest";

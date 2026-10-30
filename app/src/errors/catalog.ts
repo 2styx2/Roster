@@ -1,7 +1,7 @@
-// docs/errors.md as data: one row per way opening a Session can fail, keyed by roster's codes
+// docs/app/errors.md as data: one row per way opening a Session can fail, keyed by roster's codes
 // (and the app's own for a dropped Session or a lost `serve`). A row says where the problem lives,
 // the fix, the actions the panel offers, and which extras it shows (near names, matching items,
-// fingerprints). It's a Registry (ADR 0004), so the Config (ticket 21) and Plugins (ticket 23)
+// fingerprints). It's a Registry (ADR 0006), so the Config (ticket 21) and Plugins (ticket 23)
 // can add rows or reword one by registering the same id.
 //
 // Actions either run a command line (the same command table as keys and the command line) or
@@ -11,7 +11,7 @@ import { BackendCallError } from "../backend/types";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { Problem, ProblemCode, ProblemData } from "./classify";
 
-/** Where a problem lives (docs/errors.md "Where it lives"). */
+/** Where a problem lives (docs/app/errors.md "Where it lives"). */
 export type Where = "roster.yml" | "the vault" | "this Box" | "the network" | "the Host" | "roster" | "the sign-in form";
 
 export type ErrorAction =
@@ -24,7 +24,7 @@ export type ErrorAction =
 export type ErrorExtra = "near" | "matches" | "fingerprints";
 
 export interface ErrorRow extends Entry {
-  /** docs/errors.md's row number, if it has one. */
+  /** docs/app/errors.md's row number, if it has one. */
   row: number | null;
   codes: readonly ProblemCode[];
   where: readonly Where[];
@@ -236,7 +236,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "See the details: ssh's own message.",
     actions: [retry, check],
   }),
-  // Signing the vault CLI in from the lock screen (`vault.login`, ticket 31): docs/errors.md rows
+  // Signing the vault CLI in from the lock screen (`vault.login`, ticket 31): docs/app/errors.md rows
   // 22-33. The lock screen shows the message, where and fix; a 50 (and a 10 at the master-password
   // step) keeps the sign-in on its step.
   row("sign-in-wrong-password", {

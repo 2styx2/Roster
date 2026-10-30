@@ -1,17 +1,19 @@
 # The Config: `init.lua`
 
-roster-desk is configured by one Lua file, the way WezTerm and Neovim are (ADR 0002). There's no Settings screen. [`examples/init.lua`](../examples/init.lua) has every option with its default value and a comment; copy it and change what you like.
+The roster app is configured by one Lua file, the way WezTerm and Neovim are (ADR 0004). There's no Settings screen. [`examples/init.lua`](../../examples/init.lua) has every option with its default value and a comment; copy it and change what you like.
 
 | OS | Where |
 |---|---|
-| Windows | `%APPDATA%\roster-desk\init.lua` |
-| Linux | `$XDG_CONFIG_HOME/roster-desk/init.lua`, else `~/.config/roster-desk/init.lua` |
+| Windows | `%APPDATA%\roster\init.lua` |
+| Linux | `$XDG_CONFIG_HOME/roster/init.lua`, else `~/.config/roster/init.lua` (the folder roster itself may also keep a `roster.yml` in) |
+
+**Moving from roster-desk.** The app was called roster-desk until it joined the roster repo (decision Q56). The first time the roster app starts, if its config folder has no `init.lua` and no `folders.yml` yet, it copies everything from the old `roster-desk` folder (`%APPDATA%\roster-desk`, `~/.config/roster-desk`) into it, never overwriting a file. The State moves the same way, from the old app-data folder (`dev.roster.desk`) to the new one (`dev.roster.app`), when there's no State there yet. The old folders are left as they are; delete them once you're happy. The development env vars were renamed too (`ROSTER_DESK_*` â†’ `ROSTER_APP_*`); the old names still work when the new ones aren't set.
 
 ## How it works
 
 - The Rust core runs the file with Lua 5.4 (mlua, built in). The file returns a table. Anything it leaves out keeps the built-in default.
-- The table is checked against a schema (`crates/desk-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`src/config/types.ts`). The frontend never runs Lua.
-- The frontend applies it **through the registries** (ADR 0004), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`src/config/apply.ts`).
+- The table is checked against a schema (`crates/roster-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`app/src/config/types.ts`). The frontend never runs Lua.
+- The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
 - **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a save does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
 - **Saving reloads it live.** The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second.
 - **Errors.** A Lua error (syntax or runtime), or a name or value the schema doesn't accept, shows a message with the file and line, for example `init.lua:12: terminal.size: 400 is out of range (6 to 40)`. The last good Config stays in use. A misspelled name is an error, not silently ignored.
@@ -20,7 +22,7 @@ roster-desk is configured by one Lua file, the way WezTerm and Neovim are (ADR 0
 
 ## The sandbox
 
-The Lua code runs in the Rust core, which never holds a secret (docs/security.md), and it gets less than the core has:
+The Lua code runs in the Rust core, which never holds a secret (docs/app/security.md), and it gets less than the core has:
 
 - **Libraries:** the base functions, `string` (without `string.dump`), `table`, `math`, `utf8`, and an `os` with only `time`, `clock`, `date` and `difftime`.
 - **Not there:** `io`, `os.execute`, `os.getenv`, `os.remove`, `os.exit`, `debug`, `package` (so no C modules), `dofile`, `loadfile`, `collectgarbage`. `load` takes text only, never bytecode.
@@ -57,7 +59,7 @@ Names are snake_case in Lua. The frontend's object is camelCase (`bold_weight` â
 
 The bundled Themes are `roster-dark`, `roster-light`, `gruvbox`, `nord`, `catppuccin-mocha` and `tokyo-night` ([themes.md](themes.md)). A `theme` that names one wins over the `:theme` picker's choice, which is kept in the State; `"auto"` leaves it to the picker.
 
-UI tokens (`colors`, `themes.*.colors`): `accent`, `accent_text`, `accent_ink`, `bg`, `chrome`, `sidebar`, `panel`, `raised`, `raised_line`, `hover`, `line`, `line_strong`, `text`, `muted`, `faint`, `warn`, `error`, `danger`, `danger_text`, `backdrop`, `shadow`. `src/theme/theme.ts` says what each one colours.
+UI tokens (`colors`, `themes.*.colors`): `accent`, `accent_text`, `accent_ink`, `bg`, `chrome`, `sidebar`, `panel`, `raised`, `raised_line`, `hover`, `line`, `line_strong`, `text`, `muted`, `faint`, `warn`, `error`, `danger`, `danger_text`, `backdrop`, `shadow`. `app/src/theme/theme.ts` says what each one colours.
 
 Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `cursor_accent`, `selection_background`, `search_match`, `search_active_match`. ANSI colours (`themes.*.ansi`): `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `bright_` versions of each. `terminal.colors` takes both sets.
 
@@ -125,7 +127,7 @@ They show first in the Folders section, marked "from init.lua", and only `init.l
 | `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
 
-**Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_APP_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
+**Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/app/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_APP_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
 
 `backend` and `roster_command` are read when the backend starts. After changing them, use Retry on the error screen or restart the app. The env vars still win, for development: `ROSTER_APP_ROSTER` over `roster_command`, and `ROSTER_APP_WSL_DISTRO` over `backend = "wsl:<distro>"`.
 

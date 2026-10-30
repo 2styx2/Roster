@@ -683,7 +683,7 @@ pub struct FolderDef {
 pub struct RosterCommand(pub Vec<String>);
 
 impl RosterCommand {
-    /// The forms init.lua may use (docs/security.md): roster itself (`roster`, or a path ending
+    /// The forms init.lua may use (docs/app/security.md): roster itself (`roster`, or a path ending
     /// in `/roster`), or `uv run [--project P | --directory P | --frozen | --locked | --offline |
     /// --no-sync | -q | --quiet]… roster`. This program gets the master password, two-step codes
     /// and the API secret on its stdin, so the Config can't put anything else in front of them;

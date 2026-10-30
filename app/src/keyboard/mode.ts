@@ -1,4 +1,4 @@
-// The two focus modes (GLOSSARY, docs/keyboard.md) as a pure state machine over chords.
+// The two focus modes (GLOSSARY, docs/app/keyboard.md) as a pure state machine over chords.
 // Terminal mode: every key goes to the Session's shell, except the Leader, which enters App mode.
 // Global keys (F11) are caught in either mode, with no Leader.
 // App mode: the keymap applies (the Leader's table, plus list keys for the Sidebar); keys never

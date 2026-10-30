@@ -1,6 +1,6 @@
 //! The Tauri shell: window setup and thin `#[tauri::command]` wrappers over roster-core (Backend
 //! calls, Sessions).
-//! All logic lives in roster-core so it can be tested without Tauri (docs/dev/testing.md).
+//! All logic lives in roster-core so it can be tested without Tauri (docs/app/dev/testing.md).
 
 use roster_core::backend::{Backend, BackendInfo};
 use roster_core::config::{self, Config, Loader, Report};
@@ -29,7 +29,11 @@ impl BackendState {
             let env_distro = roster_core::env::wsl_distro();
             let plan = config::backend_plan(config, Platform::current(), env_cmd.as_deref(), env_distro.as_deref())
                 .map_err(|m| {
-                    BackendError::new(ErrorKind::Failed, m, "Fix it in init.lua (docs/config.md), then Retry.")
+                    BackendError::new(
+                        ErrorKind::Failed,
+                        m,
+                        "Fix it in init.lua (docs/app/config.md), then Retry.",
+                    )
                 })?;
             let candidate = detect(
                 &SystemRunner,

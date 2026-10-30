@@ -1,7 +1,7 @@
 // The Config (GLOSSARY: Config) as the Rust core sends it: init.lua's table, checked against the
 // schema and laid over the defaults (crates/roster-core/src/config/schema.rs, the source of truth;
 // this mirrors it, camelCase). The frontend never runs Lua; it gets this object at start
-// (`config_load`) and again after every save (`config-changed`). docs/config.md documents each
+// (`config_load`) and again after every save (`config-changed`). docs/app/config.md documents each
 // option as it's written in init.lua.
 import type { KeymapContext } from "../keymap";
 import type { AnsiPalette, TerminalTheme } from "../terminal/options";

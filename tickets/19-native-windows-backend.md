@@ -1,6 +1,6 @@
 # 19: Native Windows backend
 
-**Iteration:** 6 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 51, 55)
+**Iteration:** 6 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 51, 55)
 
 **What to build:** Make roster run natively on Windows:
 - Process launching: no reliance on `os.execvp`.

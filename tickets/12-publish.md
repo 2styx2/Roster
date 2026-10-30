@@ -1,6 +1,6 @@
 # 12: Publish
 
-**Iteration:** 3 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 65–67)
+**Iteration:** 3 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 65–67)
 
 **What to build:** `serve` gains `changes.publish`, which commits the Pending changes with a message describing them and pushes to infra `main`. If the remote has moved, or the push fails, it stops and says so, and never forces. After a successful Publish it runs `roster sync`. The app's Publish button and `:publish` show the diff for one last look before publishing.
 

@@ -1,5 +1,5 @@
 """Stable error codes and the Problem they come in: what `roster serve`, the askpass channel and
-`roster check HOST` report when opening a Session can't work (roster-desk docs/errors.md is the catalog).
+`roster check HOST` report when opening a Session can't work (docs/app/errors.md is the catalog).
 The app switches on the code; the message is roster's usual wording, ready to show to a person, and never
 holds a secret. `fix` says what to do about it, in a sentence."""
 
@@ -45,7 +45,7 @@ KEY_REFUSED = 46            # the Host refused this box's key (row 12)
 TOO_MANY_AUTH = 47          # the Host cut the connection after too many key attempts (row 19)
 AUTH_FAILED = 48            # the login failed some other way; details has ssh's own message
 
-# vault.login: signing the vault CLI in on this box (ticket 31; roster-desk docs/dev/vault-auth.md).
+# vault.login: signing the vault CLI in on this box (ticket 31; docs/app/dev/vault-auth.md).
 # A wrong email or master password is 10, a provider with no sign-in here 13, no CLI 12.
 CODE_REJECTED = 50          # the two-step or new-device code was wrong or expired; data.step: type a new one
 METHOD_UNSUPPORTED = 51     # the account's two-step method (FIDO2, Duo) or SSO decryption isn't one the CLI can do

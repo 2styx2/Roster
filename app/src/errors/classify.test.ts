@@ -1,5 +1,5 @@
 // classifyExit against real OpenSSH 9/10 stderr, as it lands in the PTY (CRLF line ends), and
-// roster's askpass lines. Expected codes are docs/errors.md's rows, in roster's code numbers.
+// roster's askpass lines. Expected codes are docs/app/errors.md's rows, in roster's code numbers.
 import { describe, expect, it } from "vitest";
 import { classifyExit, terminalTail, type ProblemCode } from "./classify";
 

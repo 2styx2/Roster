@@ -1,7 +1,7 @@
 // Themes (GLOSSARY: Theme): named sets of colour tokens. Every colour the UI draws with is one of
 // these tokens, set as a CSS variable on the document (`colors.raisedLine` → `--raised-line`), so
 // components never hard-code a colour and the Config (ticket 21) or a Plugin (ticket 23) can
-// change any token or register a whole new Theme (ADR 0002, ADR 0004).
+// change any token or register a whole new Theme (ADR 0004, ADR 0006).
 //
 // A Theme also colours the terminal's background, text, cursor and selection. Its 16 ANSI colours
 // stay the neutral standard palette (decision Q37) unless the Theme brings its own `ansi`.

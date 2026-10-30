@@ -1,6 +1,6 @@
 // One Session's terminal: xterm.js with the WebGL renderer (the DOM renderer when WebGL isn't
 // there or its context is lost), fit, and search. Every key goes to the shell except the Leader
-// and the keymap's `terminal` chords (copy, paste, find, zoom); see docs/dev/xterm-setup.md.
+// and the keymap's `terminal` chords (copy, paste, find, zoom); see docs/app/dev/xterm-setup.md.
 // Nothing is added to or rewritten in what the shell prints (decision Q37). Tests substitute a
 // stub for this component (App's `terminalView`).
 import { useEffect, useRef, useState } from "react";

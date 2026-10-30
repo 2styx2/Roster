@@ -3,7 +3,7 @@
 // keep it readable: nothing is cut off without its whole text in a tooltip, counts are grouped
 // and pluralized, a missing field never prints as "undefined", the Leader is always a keycap.
 // jsdom has no layout, so "cut off" means "styled to be cut off": every element a styles.css rule
-// gives `text-overflow: ellipsis`. The screenshots in docs/design/break-ui/ show the layout.
+// gives `text-overflow: ellipsis`. The screenshots in docs/app/design/break-ui/ show the layout.
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

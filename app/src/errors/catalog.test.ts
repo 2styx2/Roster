@@ -1,4 +1,4 @@
-// The catalog covers docs/errors.md and every code roster's README lists.
+// The catalog covers docs/app/errors.md and every code roster's README lists.
 import { describe, expect, it } from "vitest";
 import { BackendCallError } from "../backend/types";
 import { builtinErrorRegistry, builtinErrorRows, problemFromCallError, rowFor } from "./catalog";
@@ -9,7 +9,7 @@ const ROSTER_CODES = [1, 2, 3, 11, 12, 14, 20, 21, 22, 30, 31, 32, 33, 34, 35, 3
 const p = (code: Problem["code"]): Problem => ({ code, host: "esx", message: "m", details: "d" });
 
 describe("the error catalog", () => {
-  it("has a row for every one of docs/errors.md's 21 rows", () => {
+  it("has a row for every one of docs/app/errors.md's 21 rows", () => {
     const covered = new Set(builtinErrorRows.map((r) => r.row));
     for (let n = 1; n <= 21; n++) expect(covered.has(n), `row ${n}`).toBe(true);
   });
@@ -23,7 +23,7 @@ describe("the error catalog", () => {
     }
   });
 
-  it("gives every vault.login code its sign-in row (docs/errors.md rows 22-33)", () => {
+  it("gives every vault.login code its sign-in row (docs/app/errors.md rows 22-33)", () => {
     const covered = new Set(builtinErrorRows.map((r) => r.row));
     for (let n = 22; n <= 33; n++) expect(covered.has(n), `row ${n}`).toBe(true);
     for (const code of [10, 13, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]) {

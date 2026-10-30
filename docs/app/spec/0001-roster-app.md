@@ -1,4 +1,4 @@
-# Spec 0001: roster-desk
+# Spec 0001: the roster app
 
 Status: ready-for-agent · Created 2026-10-29 · Vocabulary: roster `GLOSSARY.md` · Decisions: roster `docs/adr/0001`, `0002`
 
@@ -8,7 +8,7 @@ I spend my day getting into terminals on the hosts in our Inventory. roster alre
 
 ## Solution
 
-**roster-desk** is a fast, keyboard-first desktop app that gets me into a terminal on any Host in a few keystrokes, using roster as its only backend.
+**The roster app** is a fast, keyboard-first desktop app that gets me into a terminal on any Host in a few keystrokes, using roster as its only backend.
 
 **What it looks like**
 - The terminal fills the window. A fuzzy picker finds Hosts by name, address, type or group.
@@ -175,7 +175,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
 93. As the user, I want every default (theme colours, fonts, Sidebar or tabs, status bar, title bar contents, keys) to be changeable from `init.lua`, so that the app is as configurable as my editor.
 
 94. As the user, I want two view modes toggled with `␣ m`: Standard (the default, with the Sidebar), and Focus (true fullscreen, with Neovim-style Leader keys and Telescope-like fuzzy finders for Sessions (`␣ b`) and Hosts (`␣ f`), and an optional tmux-style session bar). That way I can live in the terminal when I want to, without losing anything roster can do.
-95. As the user, I want my own shell config (`.bashrc`, prompt, `LS_COLORS`, vim and truecolor colour schemes) to render exactly as it does in any good terminal, so that roster-desk never fights my setup.
+95. As the user, I want my own shell config (`.bashrc`, prompt, `LS_COLORS`, vim and truecolor colour schemes) to render exactly as it does in any good terminal, so that the roster app never fights my setup.
 
 96. As the user, I want to install Packages (Plugins from git repos) by listing them in `init.lua`, pinned to a commit, the way lazy.nvim does it, so that I can add features other people wrote.
 97. As a Plugin author, I want a Lua API to add commands, key bindings, themes, Sidebar sections, finder sources, status segments and event hooks, the same registries the built-in features use, so that a Plugin can do anything the app does.
@@ -197,8 +197,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 **Architecture** (ADR 0001, ADR 0002)
 - There are two codebases:
   - **roster** (Python) gains a `serve` command and a few supporting capabilities.
-  - **roster-desk** is a separate local repo: a Tauri app with a Rust core and a React + Vite + TypeScript frontend.
-- roster-desk never reads `roster.yml`, a vault, or a password. All Inventory knowledge and all secrets stay in roster.
+  - **The roster app** (then roster-desk) was a separate local repo, and now lives in the roster repo's `app/` (decision Q56, ADR 0007): a Tauri app with a Rust core and a React + Vite + TypeScript frontend.
+- The roster app never reads `roster.yml`, a vault, or a password. All Inventory knowledge and all secrets stay in roster.
 - The Rust core owns process management, the PTYs and the window. The frontend owns everything you see.
 
 **`roster serve`: the backend API**
@@ -232,14 +232,14 @@ We build it in iterations. Each one is tested by hand before the next starts:
 - Sessions set `SSH_ASKPASS_REQUIRE=force` and `NumberOfPasswordPrompts=1`. Key-enrolled Hosts use `BatchMode=yes`, so a broken key fails loudly instead of falling back to a prompt.
 - The password goes from the provider to `serve`, over the channel, to the helper, and into ssh. It never passes through the Rust core or the frontend.
 
-**roster-desk Rust core**
+**The app's Rust core**
 - **Backend runner:** starts `roster serve` (natively, or as `wsl.exe -d <distro> -- roster serve`), handles JSON-RPC calls from the frontend, and restarts or reports a dead backend.
 - **Backend detection on Windows:** use a WSL distro if roster is on its PATH there and its Inventory resolves. Otherwise fall back to native roster. The Config can override this.
 - **Session manager:** opens a PTY (ConPTY on Windows) running the ssh command from `session.prepare`, wrapped in `wsl.exe` on the WSL backend. It streams output to and input from the frontend, handles resize, closes cleanly, and reports exit status. One PTY per Session, with Session IDs owned by the core.
 - **Idle lock timer:** counts input across all windows and Sessions. On timeout it calls `vault.lock` and tells the frontend to show the lock screen. Session PTYs keep running.
-- **Config:** `init.lua` in the user config dir, run with mlua, with no Settings screen (ADR 0002, ticket 21). **State** (window, recent Hosts) is a separate app-managed file. Neither ever holds secrets.
+- **Config:** `init.lua` in the user config dir, run with mlua, with no Settings screen (ADR 0004, ticket 21). **State** (window, recent Hosts) is a separate app-managed file. Neither ever holds secrets.
 
-**roster-desk frontend**
+**The app's frontend**
 - React + TypeScript, built with Vite.
 - **The terminal:** xterm.js with the WebGL renderer, falling back to xterm 6's DOM renderer when WebGL is missing (xterm 6 dropped the canvas renderer) (likely on WebKitGTK and WSLg).
 - **One typed backend interface:** a TypeScript client wraps every Tauri command and event (backend calls, Session I/O, lock events). All UI code goes through it, and it's the seam the UI tests fake.
@@ -281,7 +281,7 @@ We build it in iterations. Each one is tested by hand before the next starts:
   - tab lifecycle
 - **Rust core:** a few integration tests. The backend runner talks to a stub `serve` script. The session manager runs a stub command in a PTY and checks I/O, resize and exit.
 - **No real network in automated tests.** Each iteration ends with a manual check on my Windows machine against real Hosts: one key-enrolled, one password-only, one unreviewed. Later iterations also cover the Linux VM.
-- roster's existing checks (`ruff`, `pytest`) must keep passing. roster-desk gets matching checks: `tsc --noEmit`, the linter, Vitest, `cargo test`.
+- roster's existing checks (`ruff`, `pytest`) must keep passing. The roster app gets matching checks: `tsc --noEmit`, the linter, Vitest, `cargo test`.
 
 ## Out of Scope
 
@@ -297,9 +297,9 @@ We build it in iterations. Each one is tested by hand before the next starts:
 - Creating Vault items other than Quick Connect's `<host> ssh`
 - Merge requests instead of a direct push on Publish
 - Vim-style editing inside form fields
-- A Settings screen (the Config file is the only way to configure; ADR 0002)
-- Lua event hooks, custom commands and Picker sources in the *Config itself* (v1 Config is values plus key bindings). These arrive with the Plugin API in iteration 7 (ADR 0004).
-- Plugin-supplied HTML/JS panels (ADR 0004)
+- A Settings screen (the Config file is the only way to configure; ADR 0004)
+- Lua event hooks, custom commands and Picker sources in the *Config itself* (v1 Config is values plus key bindings). These arrive with the Plugin API in iteration 7 (ADR 0006).
+- Plugin-supplied HTML/JS panels (ADR 0006)
 - Mobile
 - Sync or accounts of our own
 - Packaging, installers, auto-update and distribution to the team
@@ -307,8 +307,8 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 ## Further Notes
 
-- **Competitors.** XPipe is the closest existing tool: a cross-platform connection hub that reads passwords from Bitwarden. roster-desk differs in having a team Inventory kept in git, per-service Logins, a review gate for discovered Hosts, and secrets that the frontend never sees. Those are what's worth protecting if this is ever open-sourced.
+- **Competitors.** XPipe is the closest existing tool: a cross-platform connection hub that reads passwords from Bitwarden. The roster app differs in having a team Inventory kept in git, per-service Logins, a review gate for discovered Hosts, and secrets that the frontend never sees. Those are what's worth protecting if this is ever open-sourced.
 - **Linux webview risk.** On Linux, Tauri uses WebKitGTK. The terminal's WebGL path and typing latency need checking on Linux in the first week of the Linux iteration.
 - **Askpass and the ADRs.** The askpass channel is a deliberate, narrow exception to ADR 0001's stdio-only rule. If it grows beyond askpass, write a new ADR.
-- **Tauri ADR.** Record the choice of Tauri over Electron as roster-desk's first ADR. Tauri gives a small, fast app with a Rust core, at the cost of WebKitGTK on Linux.
+- **Tauri ADR.** Record the choice of Tauri over Electron as the roster app's first ADR. Tauri gives a small, fast app with a Rust core, at the cost of WebKitGTK on Linux.
 - **Watch the scope.** This is a personal tool first. Choose what feels best to use every day over what would sell.

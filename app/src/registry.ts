@@ -1,4 +1,4 @@
-// A registry (ADR 0004): entries by id, each saying where it came from ("builtin", "init.lua",
+// A registry (ADR 0006): entries by id, each saying where it came from ("builtin", "init.lua",
 // or a Plugin's name). The built-in features register here exactly as the Config (ticket 21) and
 // Plugins (ticket 23) will. Registering an id again shadows the earlier entry until it's
 // unregistered, so the Config can override a built-in and reloading it brings the built-in back.

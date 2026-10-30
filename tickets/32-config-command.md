@@ -1,6 +1,6 @@
 # 32: `:config`, and configuration made discoverable
 
-**Iteration:** 3 · **Repo:** roster-desk · **Decision:** Q54 (taste: "Made to be made yours")
+**Iteration:** 3 · **Repo:** roster (app) · **Decision:** Q54 (taste: "Made to be made yours")
 
 **What to build:**
 - **`:config`** opens `init.lua` in the user's editor (the OS default, or `$EDITOR` inside WSL if set in the Config). If the file doesn't exist yet, it first creates one from `examples/init.lua`, with everything commented out.

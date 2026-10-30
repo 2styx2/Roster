@@ -7,7 +7,7 @@
 // Keys: the focus-mode machine (keyboard/mode.ts) decides whether a key is the terminal's or the
 // app's; the app's keys are command lines run through the one command table (commands/table.ts),
 // which is also what the command line and every button run. The commands, keymap and Sidebar
-// sections are registries (ADR 0004), read live.
+// sections are registries (ADR 0006), read live.
 import {
   Fragment,
   useCallback,
@@ -358,7 +358,7 @@ export function App({
   // The window's size and place go in the State; the Tauri shell restores them at the next start.
   useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
 
-  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0004).
+  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0006).
   useEffect(() => registerFolders(registries, store), [registries, store]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
 

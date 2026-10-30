@@ -1,6 +1,6 @@
 # 18: Host details and web services
 
-**Iteration:** 5 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 79–80)
+**Iteration:** 5 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 79–80)
 
 **What to build:** A Host detail panel, opened with `:info` or from the tree or picker, showing what `roster info` shows:
 - address, type, product, description

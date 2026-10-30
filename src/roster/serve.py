@@ -1,4 +1,4 @@
-"""`roster serve`: the backend API for the desktop app (roster-desk). JSON-RPC 2.0 over stdin/stdout,
+"""`roster serve`: the backend API for the desktop app (the roster app, app/). JSON-RPC 2.0 over stdin/stdout,
 one JSON object per line. Only responses go to stdout; anything else roster prints goes to stderr.
 The one other channel is askpass (roster/askpass.py): a private Unix socket, open while serve runs, that
 hands a password Session's ssh its password.

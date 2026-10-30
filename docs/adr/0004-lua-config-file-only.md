@@ -1,6 +1,8 @@
 # Configuration is a Lua file, and there's no Settings screen
 
-roster-desk is configured by one `init.lua` in the user config directory. It works like WezTerm and Neovim: the file returns a table that the Rust core evaluates with mlua (Lua 5.4 built in), and it reloads on save. There is no Settings screen. The user wants a terminal-first, keyboard-first tool whose setup is code they can keep in dotfiles, and Lua leaves room for logic and, later, hooks without a format migration.
+_Formerly roster-desk ADR 0002; renumbered when the app joined the roster repo (ADR 0007)._
+
+The roster app is configured by one `init.lua` in the user config directory. It works like WezTerm and Neovim: the file returns a table that the Rust core evaluates with mlua (Lua 5.4 built in), and it reloads on save. There is no Settings screen. The user wants a terminal-first, keyboard-first tool whose setup is code they can keep in dotfiles, and Lua leaves room for logic and, later, hooks without a format migration.
 
 ## Considered Options
 
@@ -11,7 +13,7 @@ roster-desk is configured by one `init.lua` in the user config directory. It wor
 
 - **Everything visible is a default the Config can change** (decision Q33): color tokens and themes, fonts, the keymap, and layout pieces such as the sidebar, Sessions as a sidebar or as tabs, the status bar and the title bar contents. Build each of these as data read from the resolved Config, never hard-coded.
 
-- The Lua code runs in the Rust core, which never holds secrets (ADR 0001 in roster), so a config can't read a password.
+- The Lua code runs in the Rust core, which never holds secrets (ADR 0001), so a config can't read a password.
 - The frontend never runs Lua. It gets a checked, typed Config object from the core.
 - Window size, recent Hosts and similar things are **State**, kept in a separate app-managed file, never in `init.lua`.
 - The keymap and options must be data tables from day one so that the Config can override them.

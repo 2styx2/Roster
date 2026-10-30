@@ -1,7 +1,7 @@
 // The bundled Themes. Roster dark and Roster light are the defaults (decision Q29: jade accent,
 // Linear's muted, dark-first palette) and keep the standard ANSI palette (decision Q37). Gruvbox
 // Dark, Nord, Catppuccin Mocha and Tokyo Night (decision Q51, ticket 30) come from their official
-// palettes and bring their own ANSI colours from the same source. docs/themes.md credits each
+// palettes and bring their own ANSI colours from the same source. docs/app/themes.md credits each
 // source and lists where a token isn't a palette colour.
 import { BUILTIN, Registry } from "../registry";
 import type { Theme, ThemeRegistry } from "./theme";
@@ -89,7 +89,7 @@ export const rosterLight: Theme = {
 };
 
 // Gruvbox Dark, medium contrast (morhetz/gruvbox, colors/gruvbox.vim, MIT/X11): bg0 #282828,
-// yellow accent (bright_yellow; orange is the documented alternative, docs/themes.md). The ANSI
+// yellow accent (bright_yellow; orange is the documented alternative, docs/app/themes.md). The ANSI
 // palette is the one gruvbox.vim gives Neovim's terminal.
 export const gruvbox: Theme = {
   id: "gruvbox",

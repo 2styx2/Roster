@@ -1,4 +1,4 @@
-// Clean connection errors (ticket 26, docs/errors.md) through the App with the fake Backend: the
+// Clean connection errors (ticket 26, docs/app/errors.md) through the App with the fake Backend: the
 // Session pane's error panel for roster's refusals and ssh's failures, and `:check HOST`.
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";

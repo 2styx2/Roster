@@ -6,7 +6,7 @@
 //
 // Secrets (the master password, codes, the API secret) live only in their inputs, never in React
 // state; every input in the form is emptied as soon as the call it fed returns. Errors are rendered
-// from the errors catalog (docs/errors.md rows 22-33), keyed by roster's code.
+// from the errors catalog (docs/app/errors.md rows 22-33), keyed by roster's code.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   BackendCallError,

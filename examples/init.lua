@@ -13,7 +13,7 @@
 --
 -- The Lua here runs in a sandbox: no io, no os.execute or os.getenv, no debug, no C modules, and
 -- `require` loads only files from this folder (`require("keys")` reads keys.lua or lua/keys.lua).
--- It never sees a password: the app's core holds none (docs/security.md).
+-- It never sees a password: the app's core holds none (docs/app/security.md).
 
 -- `roster` is the app's Lua table (also `require("roster")`):
 --   roster.os                              "windows", "linux" or "macos"
@@ -155,6 +155,6 @@ return {
   -- The command that runs roster, for development: a command line or a list of words. The
   -- ROSTER_APP_ROSTER env var wins over this. Leave it out for "roster". It must run roster
   -- itself ("roster", a path to it, or "uv run --project <dir> roster"): it gets the master
-  -- password. For any other wrapper, set ROSTER_APP_ROSTER instead (docs/config.md).
+  -- password. For any other wrapper, set ROSTER_APP_ROSTER instead (docs/app/config.md).
   -- roster_command = "uv run --project /home/you/work/roster roster",
 }

@@ -5,7 +5,7 @@
 // kept, and the finder says to change it there. `theme = "auto"` (the default) leaves the choice
 // to the State.
 //
-// It registers its finder source and command through the registries, as a Plugin would (ADR 0004).
+// It registers its finder source and command through the registries, as a Plugin would (ADR 0006).
 import type { CommandDef } from "../commands/table";
 import type { FinderItem, FinderSourceDef } from "../finder/sources";
 import type { Registries } from "../registries";

@@ -1,6 +1,6 @@
 # 28: Live Inventory: add, remove and rename Hosts and groups in the Sidebar, two-way with `roster.yml`
 
-**Iteration:** 3 · **Repos:** roster + roster-desk · **Decisions:** Q43, Q45, Q46
+**Iteration:** 3 · **Repos:** roster (CLI + app) · **Decisions:** Q43, Q45, Q46
 
 **What to build:**
 

@@ -1,10 +1,10 @@
 # 33: The terminal looks like your Windows Terminal
 
-**Iteration:** 3 · **Repo:** roster-desk · **Decision:** Q55
+**Iteration:** 3 · **Repo:** roster (app) · **Decision:** Q55
 
-**Why:** With "the same font", the user's Windows Terminal and roster-desk look different. Measured on 2026-10-30:
+**Why:** With "the same font", the user's Windows Terminal and the roster app look different. Measured on 2026-10-30:
 
-| | Windows Terminal | roster-desk |
+| | Windows Terminal | The roster app |
 |---|---|---|
 | Font file | the installed Iosevka Nerd Font (Medium and Bold) | the bundled web Iosevka (no Nerd glyphs) |
 | Size | 16 pt (about 21 px) | 14 px |
@@ -22,6 +22,6 @@
 
 **Status:** ready-for-agent
 
-- [ ] Side-by-side screenshots against Windows Terminal (same Host, `ls --color`, vim, the user's Nerd Font prompt) at 100% and 150%, with both renderers, in `docs/design/terminal-vs-wt/`.
+- [ ] Side-by-side screenshots against Windows Terminal (same Host, `ls --color`, vim, the user's Nerd Font prompt) at 100% and 150%, with both renderers, in `docs/app/design/terminal-vs-wt/`.
 - [ ] Tests: font resolution order, pt→px conversion, the WT `settings.json` parser (with fixtures for profiles, defaults and schemes), and the import diff.
 - [ ] Manual check: after `:config import-terminal`, the user's terminal looks like their Windows Terminal.

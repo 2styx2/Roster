@@ -1,6 +1,6 @@
 // The mark (logo D1, "Network R", decision Q29) for use inside the app: no tile, drawn in the
 // Theme's text colour with the accent node, so it follows every Theme. The app icon is the tiled
-// version, rendered from assets/logo.svg (scripts/icons.mjs).
+// version, rendered from assets/logo.svg (app/scripts/icons.mjs).
 
 const NODES = [
   [20, 14],

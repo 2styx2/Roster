@@ -1,13 +1,15 @@
 # Lua plugins and packages, Neovim-style, built on the same registries the app uses
 
-roster-desk can be extended the way Neovim is. A **Plugin** is Lua code, loaded through the same mlua runtime as the Config (ADR 0002), that adds to the app's registries: commands, key bindings, themes, Sidebar sections, Picker and finder sources, status-line segments, and event hooks (`on_session_open`, `on_session_exit`, `on_host_selected`, `on_lock`, …). A **Package** is a Plugin fetched from a git repo. `init.lua` lists the Packages it wants, and each is pinned to a commit in a lock file, the way lazy.nvim works. The built-in features use exactly these registries too, so a Plugin can do anything the app itself does, and the app's own code proves the API is complete.
+_Formerly roster-desk ADR 0004; renumbered when the app joined the roster repo (ADR 0007)._
+
+The roster app can be extended the way Neovim is. A **Plugin** is Lua code, loaded through the same mlua runtime as the Config (ADR 0004), that adds to the app's registries: commands, key bindings, themes, Sidebar sections, Picker and finder sources, status-line segments, and event hooks (`on_session_open`, `on_session_exit`, `on_host_selected`, `on_lock`, …). A **Package** is a Plugin fetched from a git repo. `init.lua` lists the Packages it wants, and each is pinned to a commit in a lock file, the way lazy.nvim works. The built-in features use exactly these registries too, so a Plugin can do anything the app itself does, and the app's own code proves the API is complete.
 
 ## Boundaries
 
 - **Never secrets.** Plugins run in the Rust core, which never holds a password (roster ADR 0001). They get Hosts and Login *references* through `roster serve`'s read methods, and can open Sessions through the normal command table. They never see a password, a vault session or an askpass token.
 - **Inventory writes only as Pending changes.** A Plugin may call the same write methods as the UI, but changes always land as Pending changes that the user reviews and Publishes. A Plugin can never Publish by itself.
 - **Declarative UI in v1.** Plugins add UI through the registries (commands, Sidebar sections, finder sources, status segments, themes). Plugin-supplied HTML/JS panels are not supported in v1; that would give arbitrary code the webview, and is a later decision.
-- **Explicit trust.** Packages are third-party code. Nothing installs unless it's named in `init.lua`. Every Package is pinned to a commit in `roster-desk.lock`, and updating shows a diff of what changed.
+- **Explicit trust.** Packages are third-party code. Nothing installs unless it's named in `init.lua`. Every Package is pinned to a commit in `roster.lock`, and updating shows a diff of what changed.
 
 ## Considered Options
 

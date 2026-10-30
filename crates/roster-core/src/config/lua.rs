@@ -1,4 +1,4 @@
-//! Running `init.lua` in a sandbox (docs/security.md, ADR 0002). The Rust core never holds a
+//! Running `init.lua` in a sandbox (docs/app/security.md, ADR 0004). The Rust core never holds a
 //! secret, and the Lua state gets even less than the core has:
 //!
 //! - Libraries: the base functions, `string`, `table`, `math`, `utf8`, and an `os` with only
@@ -11,7 +11,7 @@
 //! - A time budget (an instruction-count hook checks a deadline) and a memory limit, so a loop or
 //!   a runaway table can't hang or eat the app.
 //!
-//! The `roster` table is the start of the Lua API that Plugins get in ticket 23 (ADR 0004):
+//! The `roster` table is the start of the Lua API that Plugins get in ticket 23 (ADR 0006):
 //! registrations go into the same places as the returned table's values, and from there through
 //! the frontend's registries.
 

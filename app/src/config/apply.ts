@@ -1,6 +1,6 @@
 // The Config's way into the app. Values become the app's options (deriveConfig), and keys,
 // Themes and Folders go through the registries with source "init.lua" (registerConfig), the
-// same registries Plugins get in ticket 23 (ADR 0004): the Config is their first user. A reload
+// same registries Plugins get in ticket 23 (ADR 0006): the Config is their first user. A reload
 // removes everything the last Config registered and registers the new one, so the built-ins
 // come back for whatever the file no longer sets.
 //

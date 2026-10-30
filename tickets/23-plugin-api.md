@@ -1,6 +1,6 @@
 # 23: Lua Plugin API
 
-**Iteration:** 7 · **Repo:** roster-desk · **Spec:** 0001 (stories 97–98) · **ADR:** roster-desk 0004
+**Iteration:** 7 · **Repo:** roster (app) · **Spec:** 0001 (stories 97–98) · **ADR:** 0006
 
 **What to build:** Expose the app's registries to Lua: commands, keymap, themes, Sidebar sections, finder sources (for `␣ f`, `␣ b` and Plugin-defined finders), status-line segments, and events (`on_session_open`, `on_session_exit`, `on_host_selected`, `on_lock`, `on_unlock`, `on_config_reload`). The API is a `roster` Lua module with a version number. Plugins can read Hosts, groups and Login references through `roster serve`'s read methods, open Sessions through commands, and propose Inventory edits, which only become Pending changes. Errors in a Plugin are isolated: a toast names the Plugin and the line, the Plugin is disabled, and the app keeps running.
 

@@ -1,4 +1,4 @@
-//! The Lua Config (GLOSSARY: Config, ADR 0002): `init.lua` in the user config dir, run in a
+//! The Lua Config (GLOSSARY: Config, ADR 0004): `init.lua` in the user config dir, run in a
 //! sandboxed Lua 5.4, checked against a schema, layered over the defaults. These tests drive the
 //! public loader the Tauri shell uses, with real files in a temp dir.
 

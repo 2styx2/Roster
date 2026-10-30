@@ -1,4 +1,4 @@
-// The interface review's fixes (ticket 29, docs/design/interface-review.md), through the App with
+// The interface review's fixes (ticket 29, docs/app/design/interface-review.md), through the App with
 // the fake Backend and a stub terminal: copy, accessible names and keys, item by item.
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";

@@ -1,6 +1,6 @@
 # 10: Edit a Host → Pending change → diff / discard
 
-**Iteration:** 3 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 56, 58, 61–64)
+**Iteration:** 3 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 56, 58, 61–64)
 
 **What to build:**
 - `serve` gains `inventory.pull`, `host.update`, `changes.diff` and `changes.discard`.

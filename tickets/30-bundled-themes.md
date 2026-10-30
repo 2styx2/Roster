@@ -1,6 +1,6 @@
 # 30: Bundled themes and a `:theme` picker
 
-**Iteration:** 2 · **Repo:** roster-desk · **Decision:** Q51
+**Iteration:** 2 · **Repo:** roster (app) · **Decision:** Q51
 
 **What to build:** Ship a few complete alternatives to Roster dark and light. Each has its own background, surfaces, accent (primary), text, and terminal colors, taken from the official palette definitions:
 - **Gruvbox Dark:** already bundled. Finish it from the official palette, using the medium variant with yellow/orange accent options.
@@ -17,6 +17,6 @@ Each theme brings its own `ansi` 16 colors from the same source, so the terminal
 **Status:** done
 
 - [x] Every theme passes a contrast test: body text at least 4.5:1 on bg/sidebar/raised, secondary text at least 3:1, and the accent on its button text at least 4.5:1.
-- [x] Each theme credits its palette source and license in `docs/themes.md`, with screenshots of Standard and the Picker in each theme.
+- [x] Each theme credits its palette source and license in `docs/app/themes.md`, with screenshots of Standard and the Picker in each theme.
 - [x] UI tests: the picker previews live, Esc reverts, Enter persists in State, `init.lua` wins, and `:theme NAME` works in both modes.
 - [ ] Manual check on Windows: switch through every theme with a Session open, and the terminal colors follow.  _Not done in the agent run (browser only; the UI tests check the terminal colours follow). Left for the hand test._

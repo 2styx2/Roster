@@ -1,6 +1,6 @@
 # roster's taste
 
-How roster-desk should look, move and talk, so it feels like *ours* and not "Linear with jade". Linear is the discipline we borrow (density, restraint, a quiet surface). `emil-design-eng` and `animate` are the craft. This page is the identity. Every UI change should be explainable with one of these lines. When they conflict with a reference, **this page wins** (except on accessibility).
+How the roster app should look, move and talk, so it feels like *ours* and not "Linear with jade". Linear is the discipline we borrow (density, restraint, a quiet surface). `emil-design-eng` and `animate` are the craft. This page is the identity. Every UI change should be explainable with one of these lines. When they conflict with a reference, **this page wins** (except on accessibility).
 
 ## The idea: a live map of your network, a fast way into it, and yours to shape
 
@@ -31,7 +31,7 @@ And like Neovim or VS Code, **roster is a tool you make your own**. The look, th
 
 What makes roster feel like Neovim or VS Code, and what every feature must respect:
 
-- **Code, not a settings screen.** Configuration is `init.lua` (Lua, versioned in your dotfiles) plus Packages pinned in a lock file (ADR 0002, ADR 0004). There's no hidden preference that only a GUI can reach.
+- **Code, not a settings screen.** Configuration is `init.lua` (Lua, versioned in your dotfiles) plus Packages pinned in a lock file (ADR 0004, ADR 0006). There's no hidden preference that only a GUI can reach.
 - **Everything is a registry entry.** Built-in features register commands, keys, themes, Sidebar sections, finder sources, status segments and error rows through the same registries Plugins use. If the app can do it, a Plugin can do it, and a Plugin can undo it. *(Built-in Folders proves it: ticket 23 re-implements it as an internal Plugin.)*
 - **Always say where a thing comes from.** Every binding, theme, Folder and setting shows its source (`builtin`, `init.lua`, or the Plugin's name), as the Key bindings panel already does. The user can always answer "why is it like this, and where do I change it?"
 - **Make changing it one step away.** `:config` opens `init.lua`. Every panel that shows a configurable thing hints at its name, for example `theme`, `keys`, `modes.focus.sessionbar`. `examples/init.lua` documents every option. Saving applies live.
@@ -61,4 +61,4 @@ What makes roster feel like Neovim or VS Code, and what every feature must respe
 - Emoji in our own copy (users' Host names may have them; we render them properly).
 - "Dashboard" cards and charts. roster is a map and a terminal, not analytics.
 
-*Proposed 2026-10-30 from decisions Q26–Q53. Refine it as the product grows, and record changes in `docs/decisions.md`.*
+*Proposed 2026-10-30 from decisions Q26–Q53. Refine it as the product grows, and record changes in `docs/app/decisions.md`.*

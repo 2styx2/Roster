@@ -1,6 +1,6 @@
 # 06: Sessions to password-only Hosts (askpass channel)
 
-**Iteration:** 1 · **Repos:** roster + roster-desk · **Spec:** 0001 (Implementation Decisions › askpass channel; stories 21–22, 24) · **ADR:** roster 0002
+**Iteration:** 1 · **Repos:** roster (CLI + app) · **Spec:** 0001 (Implementation Decisions › askpass channel; stories 21–22, 24) · **ADR:** 0002
 
 **What to build:** While it runs, `serve` listens on a private askpass channel: a Unix socket in a user-only runtime directory. For password-only Hosts, `session.prepare` creates a one-time token for that Host's ssh Login. The token expires when used, after 60 seconds, or on lock. It returns an ssh command with `SSH_ASKPASS` pointing at a new `roster askpass` helper, `SSH_ASKPASS_REQUIRE=force` and `NumberOfPasswordPrompts=1`. The helper sends the token over the channel and prints the password to ssh. It answers only password prompts and refuses host-key and every other prompt. The password goes from roster to ssh and never passes through the Rust core or the UI.
 
@@ -34,4 +34,4 @@
 - `session_open` returns `{id, auth}`; the tab shows the prototype's state dot (filled: key, hollow: password, grey: ended).
 - Code 14 from `session.prepare` locks the app (lock screen); once unlocked, the waiting tabs ask roster again and open, each with a fresh token. 11 and 12 show roster's message in the tab.
 - Every open (and every reconnect, which goes through `openSession`) runs `session.prepare` right before the spawn, so a token is never reused or stale.
-- desk-core tests: the `wsl --exec env K=V … ssh` shape for a password Prepared, no `DISPLAY`, `auth` passed through, a fresh token per call, and neither `Debug` nor a spawn error (ConPTY's quotes the whole command line) shows the token.
+- roster-core tests: the `wsl --exec env K=V … ssh` shape for a password Prepared, no `DISPLAY`, `auth` passed through, a fresh token per call, and neither `Debug` nor a spawn error (ConPTY's quotes the whole command line) shows the token.

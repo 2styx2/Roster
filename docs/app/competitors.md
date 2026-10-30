@@ -2,12 +2,12 @@
 
 Checked **2026-10-29** against primary sources: official docs, pricing pages, GitHub/GitLab repos, release notes and changelogs. Every claim links its source. **UNVERIFIED** marks anything a primary source didn't confirm. Prices are list prices on that date, excluding tax.
 
-roster-desk is early (iteration 1, see [roadmap.md](roadmap.md)). Where this doc compares, "roster-desk" means **roster + roster-desk as decided** in [decisions.md](decisions.md). Anything not built yet is tagged *(planned, it. N)*. roster's CLI already ships the Inventory, providers, `discover`, `setup`, `run`, `web` and `serve`.
+The roster app is early (iteration 1, see [roadmap.md](roadmap.md)). Where this doc compares, "roster" means **the roster CLI + the roster app as decided** in [decisions.md](decisions.md). Anything not built yet is tagged *(planned, it. N)*. roster's CLI already ships the Inventory, providers, `discover`, `setup`, `run`, `web` and `serve`.
 
 ## Contents
 
 1. [Findings that matter](#findings-that-matter)
-2. [roster-desk baseline](#roster-desk-baseline)
+2. [roster baseline](#roster-baseline)
 3. [Overview matrix](#overview-matrix)
 4. Competitors: [XPipe](#xpipe) · [Termix](#termix) · [Termius](#termius) · [Devolutions RDM](#devolutions-remote-desktop-manager) · [Royal TS/TSX](#royal-ts--royal-tsx) · [Tabby](#tabby) · [Warp](#warp) · [Wave](#wave-terminal) · [WezTerm](#wezterm) · [SecureCRT](#securecrt) · [MobaXterm](#mobaxterm) · [Electerm](#electerm) · [mRemoteNG](#mremoteng) · [Ásbrú](#ásbrú-connection-manager) · [Remmina](#remmina) · [Adjacent tools](#adjacent-tools)
 5. [Customizability and extensibility](#customizability-and-extensibility)
@@ -58,13 +58,13 @@ roster-desk is early (iteration 1, see [roadmap.md](roadmap.md)). Where this doc
    - Tabby plugins are unsandboxed npm/Angular packages ([HACKING.md](https://github.com/Eugeny/tabby/blob/master/HACKING.md)).
    - Electerm widgets run with full Node privileges in the main process ([guide](https://github.com/electerm/electerm/wiki/User-widget-guide)).
    - XPipe, Termius, SecureCRT and Royal TS have no third-party plugin API.
-   - ADR 0004's Lua Packages, pinned in `roster-desk.lock`, never shown secrets, and writing only Pending changes, are a real gap in this market. It is also a niche taste.
+   - ADR 0006's Lua Packages, pinned in `roster.lock`, never shown secrets, and writing only Pending changes, are a real gap in this market. It is also a niche taste.
 
-## roster-desk baseline
+## roster baseline
 
-The values every "vs roster-desk" cell below is compared against.
+The values every "vs roster" cell below is compared against.
 
-| Dimension | roster + roster-desk |
+| Dimension | roster CLI + app |
 |---|---|
 | Inventory and sharing | One `roster.yml` in the team's git repo (`~/infra`). Edits become Pending changes, then Publish (commit and push to `main`) *(planned, it. 3)*. Every Box pulls. Personal Folders stay in local State (Q34). |
 | Secrets | **No vault of our own (Q40).** Logins are references (`bw:esxi-02 ssh+web`, `op:…`) to the user's Bitwarden, 1Password or `pass`, or to an env var or any command. KeePassXC (`keepassxc-cli`) is the local-only option *(planned, Q41, ticket 25)*. A secret goes from the vault to `roster serve` to askpass to `ssh`, and never reaches the UI ([security.md](security.md)). |
@@ -72,8 +72,8 @@ The values every "vs roster-desk" cell below is compared against.
 | Discovery | `roster discover` (nmap) writes Hosts with `reviewed: false`, which can't be connected to until reviewed. Quick Connect plus "Save to vault" turns a first login into a Vault item and a Host *(planned, it. 4)*. |
 | Keys | `roster setup` gives each Box its own key, tagged with the Box's name, and installs it with the vault password once. You can revoke one Box. Host keys are recorded, and enrolled Hosts use `BatchMode=yes`. |
 | Automation and AI | roster CLI; `roster serve` JSON-RPC; `ROSTER.md` tells Claude which Hosts exist. Claude uses `ssh`, `roster run` and `roster web` and sees only the output. |
-| Customizability | `init.lua` (Lua 5.4 through mlua), reloaded on save, with **no Settings screen** (ADR 0002). Themes are sets of tokens. Keymap, leader, vim keys, fonts, and a layout table per view mode (Q33, Q36, Q39) *(planned, it. 2)*. |
-| Extensibility | Lua Plugins on the app's own registries, and Packages from git pinned in `roster-desk.lock`. Plugins never see secrets, and their writes become Pending changes only. No plugin HTML/JS in v1 (ADR 0004) *(planned, it. 7)*. |
+| Customizability | `init.lua` (Lua 5.4 through mlua), reloaded on save, with **no Settings screen** (ADR 0004). Themes are sets of tokens. Keymap, leader, vim keys, fonts, and a layout table per view mode (Q33, Q36, Q39) *(planned, it. 2)*. |
+| Extensibility | Lua Plugins on the app's own registries, and Packages from git pinned in `roster.lock`. Plugins never see secrets, and their writes become Pending changes only. No plugin HTML/JS in v1 (ADR 0006) *(planned, it. 7)*. |
 | Setup sync | Plain files synced through git dotfiles; no vendor cloud (Q42). |
 | Platforms | Windows (native, or with roster in WSL) and Linux (X11, Wayland, WSLg). macOS later. |
 | Licence and price | Private, personal tool. Might be open-sourced or get a small subscription later. |
@@ -85,7 +85,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 | | Team inventory in git | PM references (no own vault) | `pass` / KeePassXC | Per-service logins (SSH / web / API) | Discovery → review gate | Per-device keys + revoke | AI without secrets | Text config file | Plugin API | Open source | Cross-platform desktop |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **roster-desk** | ✓ (readable YAML) | ✓ | ✓ / ✓ *(planned)* | ✓ | ✓ / ✓ | ✓ | ✓ (CLI) | ✓ Lua | ✓ Lua *(planned)* | not yet | Win, Linux |
+| **roster** | ✓ (readable YAML) | ✓ | ✓ / ✓ *(planned)* | ✓ | ✓ / ✓ | ✓ | ✓ (CLI) | ✓ Lua | ✓ Lua *(planned)* | not yet | Win, Linux |
 | XPipe | ◐ encrypted vault in git; team = Pro | ◐ PM or own vault | ✗ / ✓ | ✗ | ◐ scan, no gate | ✗ | ◐ MCP, secrets not stated | ✗ | ✗ | ◐ open core | ✓ |
 | Termix | ✓ hosts file (server-side) | ◐ refs or server store | ✗ / ✗ | ✗ | ✗ import only | ✗ | ✓ | ◐ YAML hosts file | ✓ TS | ✓ | ✓ + web, mobile |
 | Termius | ✗ own cloud | ✗ own vault | ✗ / ✗ | ✗ | ✗ import only | ◐ SSH ID | ? | ✗ | ✗ | ✗ | ✓ + mobile |
@@ -108,7 +108,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** a cross-platform connection hub over the tools you already have (ssh, docker, k8s, hypervisors), installing nothing on remote hosts. **This is the closest desktop rival.** ([repo](https://github.com/xpipe-io/xpipe))
 
-| Dimension | XPipe | vs roster-desk |
+| Dimension | XPipe | vs roster |
 |---|---|---|
 | Inventory and sharing | Local encrypted vault ("no servers involved"). **Git vault sync** to your own repo is in the free Community tier; by default only secrets are encrypted ([sync](https://docs.xpipe.io/guide/sync), [pricing](https://xpipe.io/pricing)). **Team vaults** (Professional): "a git repository of encrypted files", RBAC since XPipe 24 (Sep 2026), each role's key handed out through the team's password manager ([team vault](https://docs.xpipe.io/guide/team-vault), [blog](https://xpipe.io/blog)). | Both use git. XPipe's repo is app-managed encrypted files. Ours is a hand-readable `roster.yml` with a diff and Publish step. XPipe has no read-only role ("anyone with access to a role can view and modify"). |
 | Secrets | Reads from 15 password managers through their CLIs: 1Password (`op` + SSH agent), Bitwarden/Vaultwarden (`bw` + SSH agent), KeePassXC (browser protocol), Keeper, Proton Pass, HashiCorp Vault, OpenBao, Passbolt, Dashlane, Passwork, Psono, LastPass, Enpass, Windows Credential Manager, custom command ([list](https://docs.xpipe.io/guide/password-manager)). Can also store passwords in its own vault. **No `pass`.** | Same "point at your vault" idea, with more managers. We have `pass`, no own vault at all (Q40), and secrets kept out of the UI process. |
@@ -129,7 +129,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "a free, self-hosted Termius". A web server with desktop, iOS and Android clients. **This is the closest conceptually.** ([repo](https://github.com/Termix-SSH/Termix), v26.10.6, 2026-10-29)
 
-| Dimension | Termix | vs roster-desk |
+| Dimension | Termix | vs roster |
 |---|---|---|
 | Inventory and sharing | Hosts in the server database, shared with users or roles at four levels (connect, view, edit, manage). The **Hosts Config** plugin makes a YAML/JSON file the source of truth, "for example in git": hosts from it are locked in the app; the file is reloaded and validated with the last good load kept; it carries its own share list; `strict: true` blocks manual hosts ([docs](https://docs.termix.site/plugins/hosts-config)). | Very close to our model. Differences: the file lives on a server, edits happen outside the app (no in-app edit, diff and Publish), and sharing is server RBAC rather than git access. |
 | Secrets | Secrets are stored encrypted on the server, or fetched at connect time through **Secret Sources**: `op://` (1Password Connect), `bw://` (through `bw serve`), `bws://`, `vault://` (HashiCorp Vault / OpenBao), `infisical://`, cached for one minute ([docs](https://docs.termix.site/plugins/secret-sources)). The hosts file must not contain secrets ([docs](https://docs.termix.site/plugins/hosts-config)). Where secrets resolve isn't stated; it looks like the server (inference). | Same reference idea. Termix needs a 1Password Connect server or `bw serve` running beside the server. We use the user's own local vault session. No `pass` or KeePassXC. |
@@ -149,7 +149,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** a polished cross-platform SSH client with its own end-to-end encrypted cloud vault, including mobile ([pricing](https://termius.com/pricing)).
 
-| Dimension | Termius | vs roster-desk |
+| Dimension | Termius | vs roster |
 |---|---|---|
 | Inventory and sharing | Local vault (Starter); personal cloud vault (Pro); team vault (Team); several vaults with access control (Business). Synced through Termius Cloud ([pricing](https://termius.com/pricing), [encryption](https://docs.termius.com/security/encryption-overview.md)). No git, no file store. | Opposite model: a vendor cloud vs your git. |
 | Secrets | Own end-to-end encrypted vault (X25519, XSalsa20-Poly1305, Argon2id) ([encryption](https://docs.termius.com/security/encryption-overview.md)). **No documented external password-manager integration** ([docs index](https://docs.termius.com/llms.txt)). | This is exactly what Q40 rejects. |
@@ -169,7 +169,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "one application for every remote connection", a 150+ protocol enterprise workspace with credentials and auditing ([product](https://devolutions.net/remote-desktop-manager/)). Version 2026.3.
 
-| Dimension | RDM | vs roster-desk |
+| Dimension | RDM | vs roster |
 |---|---|---|
 | Inventory and sharing | "Workspaces": local XML/SQLite, SQL Server/Azure SQL, Devolutions Server, Devolutions Cloud ([types](https://docs.devolutions.net/rdm/getting-started/workspaces/workspace-types)). Dropbox and OneDrive sources removed in 2026 ([notes](https://devolutions.net/remote-desktop-manager/release-notes/)). No git. | Database or server, against our git. |
 | Secrets | Own vault with RBAC and audit (Team). **31 external password managers**, including 1Password, Bitwarden, KeePass, Keeper, LastPass, Passbolt, Proton Pass, HashiCorp Vault, CyberArk and Delinea; "RDM does not keep credentials in memory" ([integrations](https://docs.devolutions.net/rdm/concepts/intermediate-concepts/external-password-managers-integration/)). **Team edition only** ([Bitwarden](https://docs.devolutions.net/rdm/kb/how-to-articles/configure-bitwarden-entry)). Bitwarden uses an API client ID plus the master password; whether it uses `bw`: UNVERIFIED. | The broadest reference model, but paid and enterprise-shaped. No `pass`. |
@@ -189,7 +189,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** a multi-protocol connection manager built on shareable document files, so teams share connection lists without sharing personal credentials ([features](https://www.royalapps.com/ts/win/features)).
 
-| Dimension | Royal TS/TSX | vs roster-desk |
+| Dimension | Royal TS/TSX | vs roster |
 |---|---|---|
 | Inventory and sharing | Encrypted `.rtsx` documents shared through a network share or cloud storage, with "no SQL back end"; Royal Server optional ([features](https://www.royalapps.com/ts/win/features), [docs](https://docs.royalapps.com/r2023/royalts/getting-started/documents-and-files.html)). Git possible as a file; diffability UNVERIFIED. | Closest "shared file" model among the older tools. Not readable text, and no review step. |
 | Secrets | Own credential objects, referenced by link or name and inherited from folders; personal credentials in a separate document. **Dynamic Credential and Dynamic Folder scripts** (Bash, Python, PowerShell, …) fetch secrets when a connection opens ([dynamic folders](https://docs.royalapps.com/r2023/scripting/rjson/dynamic-folders.html)). The official toolbox has 1Password, **Bitwarden (calls `bw`)**, Keeper, Delinea, Passwordstate and others ([toolbox](https://github.com/royalapplications/toolbox/tree/master/Dynamic%20Folder)). KeePass import; LastPass as an external vault ([import](https://docs.royalapps.com/r2023/royalts/advanced/import.html)). | Its Bitwarden script works the same way roster does, but as a user-maintained script, not a core model. |
@@ -209,7 +209,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "a terminal for a more modern age". A free, configurable terminal, SSH and serial client ([repo](https://github.com/Eugeny/tabby), v1.0.238, 2026-10-07).
 
-| Dimension | Tabby | vs roster-desk |
+| Dimension | Tabby | vs roster |
 |---|---|---|
 | Inventory and sharing | Profiles in local YAML config ([config.service.ts](https://github.com/Eugeny/tabby/blob/master/tabby-core/src/services/config.service.ts)). Config sync to Tabby Web through a REST API, encrypted ([configSync](https://github.com/Eugeny/tabby/blob/master/tabby-settings/src/services/configSync.service.ts)). No team model. | Personal only. |
 | Secrets | Own vault (AES-256-CBC, PBKDF2) or the OS keychain ([vault.service.ts](https://github.com/Eugeny/tabby/blob/master/tabby-core/src/services/vault.service.ts)). Password managers only through community plugins (`tabby-keepass-ssh`, `tabby-vault-keepassxc`, agent-socket plugins) ([npm](https://registry.npmjs.org/-/v1/search?text=keywords:tabby-plugin)). | — |
@@ -218,7 +218,7 @@ The values every "vs roster-desk" cell below is compared against.
 | Keys | Agent forwarding, Pageant and the Windows agent ([repo](https://github.com/Eugeny/tabby)). Key generation: UNVERIFIED. | — |
 | Automation and AI | Core: `tabby://` URLs. Community MCP and AI plugins ([repo](https://github.com/Eugeny/tabby)). | — |
 | Customizability | YAML config **plus** settings GUI; fully configurable hotkeys including multi-chord; themes; splits; Quake console ([repo](https://github.com/Eugeny/tabby)). Vim mode not found. | Closest "config file" UX among Electron terminals, but GUI-first. |
-| Extensibility | npm packages tagged `tabby-plugin`, TypeScript/Angular `NgModule`s, about 186 on npm; installed in-app; **no sandbox** (full Electron/Node) ([HACKING.md](https://github.com/Eugeny/tabby/blob/master/HACKING.md)). Plugins can use the vault (v1.0.238) ([releases](https://github.com/Eugeny/tabby/releases)). | A plugin ecosystem that already exists. ADR 0004 rejected exactly this model (webview JS beside the password field). |
+| Extensibility | npm packages tagged `tabby-plugin`, TypeScript/Angular `NgModule`s, about 186 on npm; installed in-app; **no sandbox** (full Electron/Node) ([HACKING.md](https://github.com/Eugeny/tabby/blob/master/HACKING.md)). Plugins can use the vault (v1.0.238) ([releases](https://github.com/Eugeny/tabby/releases)). | A plugin ecosystem that already exists. ADR 0006 rejected exactly this model (webview JS beside the password field). |
 | Platforms | Windows, macOS, Linux; Tabby Web (self-hostable). | — |
 | Licence and pricing | MIT; free. | — |
 
@@ -229,7 +229,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "an agentic development environment, born out of the terminal" ([repo](https://github.com/warpdotdev/warp)). Not a connection manager.
 
-| Dimension | Warp | vs roster-desk |
+| Dimension | Warp | vs roster |
 |---|---|---|
 | Inventory and sharing | **No host inventory.** It wraps your own `ssh` command ([SSH](https://docs.warp.dev/terminal/warpify/ssh)). Warp Drive syncs workflows, notebooks, prompts and env vars to its cloud, with team permissions ([Drive](https://docs.warp.dev/knowledge-and-collaboration/warp-drive)). | Different category. |
 | Secrets | Dynamic env vars from 1Password, LastPass or a custom command; "never stores secrets used in dynamic variables" ([env vars](https://docs.warp.dev/knowledge-and-collaboration/warp-drive/environment-variables)). Secret redaction is regex-based, off by default, best effort ([redaction](https://docs.warp.dev/privacy/secret-redaction)). | Agents see terminal context; we keep secrets structurally out of it. |
@@ -248,7 +248,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "open-source, AI-integrated terminal… No accounts required", with tiling blocks for terminals, files, web and AI ([repo](https://github.com/wavetermdev/waveterm)). Latest release v0.14.5, 2026-04-16; commits continue ([releases](https://github.com/wavetermdev/waveterm/releases)).
 
-| Dimension | Wave | vs roster-desk |
+| Dimension | Wave | vs roster |
 |---|---|---|
 | Inventory and sharing | `~/.config/waveterm/connections.json` merged with `~/.ssh/config` ([connections](https://docs.waveterm.dev/connections)). No sharing. | — |
 | Secrets | Own encrypted secret store, its key held in the OS keychain; `ssh:passwordsecretname` ([secrets](https://docs.waveterm.dev/secrets)). No password-manager integration. | — |
@@ -264,17 +264,17 @@ The values every "vs roster-desk" cell below is compared against.
 
 ## WezTerm
 
-**Positioning:** a GPU-accelerated terminal and multiplexer **configured entirely in Lua**. It is the reference for ADR 0002 ([site](https://wezterm.org)). The last tagged stable release is 20240203; development ships as continuous nightlies, which the changelog calls "usually the best available version" ([changelog](https://wezterm.org/changelog.html)).
+**Positioning:** a GPU-accelerated terminal and multiplexer **configured entirely in Lua**. It is the reference for ADR 0004 ([site](https://wezterm.org)). The last tagged stable release is 20240203; development ships as continuous nightlies, which the changelog calls "usually the best available version" ([changelog](https://wezterm.org/changelog.html)).
 
-| Dimension | WezTerm | vs roster-desk |
+| Dimension | WezTerm | vs roster |
 |---|---|---|
 | Inventory and sharing | No inventory. `ssh_domains` in Lua, defaulting to entries derived from ssh config; `wezterm.enumerate_ssh_hosts()` lets Lua build domains from any file ([ssh_domains](https://wezterm.org/config/lua/config/ssh_domains.html), [enumerate](https://wezterm.org/config/lua/wezterm/enumerate_ssh_hosts.html)). | A user could hand-roll a roster.yml reader in Lua; we make it the product. |
 | Secrets | None. `run_child_process` can call any CLI ([docs](https://wezterm.org/config/lua/wezterm/run_child_process.html)). | — |
 | What a host describes | Local, SSH, SSH multiplexer domains, unix and TLS domains ([multiplexing](https://wezterm.org/multiplexing.html)). | Persistent remote mux is something we don't have. |
 | Discovery and keys | Parses ssh config, including Include and most options ([ssh](https://wezterm.org/ssh.html)). No key management. | — |
 | Automation | `wezterm.on` events ([on](https://wezterm.org/config/lua/wezterm/on.html)); `wezterm cli` (spawn, split-pane, send-text, get-text, list…) ([cli](https://wezterm.org/cli/cli/index.html)). No AI. | Its CLI is richer than our planned app-side API. |
-| Customizability | `wezterm.lua`; `config_builder()` warns on unknown keys; automatic reload on save; leader key, modal `key_tables`, vim-like copy mode, workspaces, splits; **no settings GUI** ([files](https://wezterm.org/config/files.html), [builder](https://wezterm.org/config/lua/config/config_builder.html), [reload](https://wezterm.org/config/lua/config/automatically_reload_config.html), [key tables](https://wezterm.org/config/lua/config/key_tables.html)). | Same model as ADR 0002. |
-| Extensibility | `wezterm.plugin.require('https://…')` clones the repo and **checks out the default branch**; "not automatically updated"; `update_all()` pulls everything; **no version pinning, no lock file, no sandbox** ([plugins](https://wezterm.org/config/plugins.html), [require](https://wezterm.org/config/lua/wezterm.plugin/require.html)). Index: [awesome-wezterm](https://github.com/michaelbrusegard/awesome-wezterm). | Our lock file and update diff (ADR 0004) fix exactly this gap. |
+| Customizability | `wezterm.lua`; `config_builder()` warns on unknown keys; automatic reload on save; leader key, modal `key_tables`, vim-like copy mode, workspaces, splits; **no settings GUI** ([files](https://wezterm.org/config/files.html), [builder](https://wezterm.org/config/lua/config/config_builder.html), [reload](https://wezterm.org/config/lua/config/automatically_reload_config.html), [key tables](https://wezterm.org/config/lua/config/key_tables.html)). | Same model as ADR 0004. |
+| Extensibility | `wezterm.plugin.require('https://…')` clones the repo and **checks out the default branch**; "not automatically updated"; `update_all()` pulls everything; **no version pinning, no lock file, no sandbox** ([plugins](https://wezterm.org/config/plugins.html), [require](https://wezterm.org/config/lua/wezterm.plugin/require.html)). Index: [awesome-wezterm](https://github.com/michaelbrusegard/awesome-wezterm). | Our lock file and update diff (ADR 0006) fix exactly this gap. |
 | Platforms, licence, price | Linux, macOS, Windows, FreeBSD, NetBSD; MIT; free. | — |
 
 **Better than us:** a mature Lua API, multiplexing, CLI control, splits.
@@ -284,7 +284,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** "rock-solid terminal emulation for computing professionals". The skeleton we started from (vision.md) ([product](https://www.vandyke.com/products/securecrt/index.html)). Version 9.7.3, 2026-07-01.
 
-| Dimension | SecureCRT | vs roster-desk |
+| Dimension | SecureCRT | vs roster |
 |---|---|---|
 | Inventory and sharing | One `.ini` per session in `Config/Sessions/`, folders map to the tree ([scripting](https://vandyke.com/support/scripting/scripting-examples/interate-over-saved-sessions.html)). A personal data folder separates credentials so config can sit on a share ([features](https://vandyke.com/products/securecrt/features.html)). No team server. | Per-session ini files are git-friendly in principle, but there's no workflow for it. |
 | Secrets | Built-in Credentials Manager (9.2+). No external password-manager integration ([features](https://vandyke.com/products/securecrt/features.html), [history](https://www.vandyke.com/products/securecrt/history.txt)). | — |
@@ -304,7 +304,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** an all-in-one Windows remote toolbox: X server, tabbed SSH, SFTP, RDP/VNC and Unix tools ([features](https://mobaxterm.mobatek.net/features.html)). Version 26.6, 2026-10-25.
 
-| Dimension | MobaXterm | vs roster-desk |
+| Dimension | MobaXterm | vs roster |
 |---|---|---|
 | Inventory and sharing | `MobaXterm.ini` ([config](https://blog.mobatek.net/post/mobaxterm-configuration-settings/)). "Share these sessions with my team" writes a `.mxtsessions` file to a share; protection is by folder ACLs ([shared sessions](https://blog.mobatek.net/post/configure-shared-sessions/)). | A shared file without review or history. |
 | Secrets | Own vault with a master password; Windows Hello. No external password manager ([changelog](https://mobaxterm.mobatek.net/download-home-edition.html)). | — |
@@ -323,7 +323,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** an open-source terminal, SSH, SFTP, telnet, serial, RDP, VNC and FTP client on desktop and mobile ([repo](https://github.com/electerm/electerm), v5.7.21, 2026-10-27, releases weekly).
 
-| Dimension | Electerm | vs roster-desk |
+| Dimension | Electerm | vs roster |
 |---|---|---|
 | Inventory and sharing | Bookmarks in a local DB (SQLite or NeDB) ([db.js](https://github.com/electerm/electerm/blob/master/src/app/lib/db.js)). Sync to a GitHub or Gitee secret gist, WebDAV, a custom server or electerm cloud ([sync](https://github.com/electerm/electerm/wiki/Auto-data-Sync)). | Gist sync is git underneath, but not a reviewable team inventory. |
 | Secrets | Own encryption through Electron `safeStorage` (falls back to plaintext if unavailable) ([safe-storage.js](https://github.com/electerm/electerm/blob/master/src/app/lib/safe-storage.js)). No password manager. | — |
@@ -341,7 +341,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** an open-source, multi-protocol, tabbed connection manager for Windows ([repo](https://github.com/mRemoteNG/mRemoteNG)). The last stable release is 1.76.20 (2019); 1.78.2 ships as nightlies (latest 2026-10-02) ([releases](https://github.com/mRemoteNG/mRemoteNG/releases)).
 
-| Dimension | mRemoteNG | vs roster-desk |
+| Dimension | mRemoteNG | vs roster |
 |---|---|---|
 | Inventory and sharing | `confCons.xml` tree with inheritance; optional SQL Server/MySQL/PostgreSQL (marked "early beta") ([SQL](https://mremoteng.readthedocs.io/en/latest/sql_configuration.html)). | — |
 | Secrets | Own encryption ([security](https://mremoteng.readthedocs.io/en/latest/registry/security_settings.html)). **External credential connectors:** Delinea Secret Server, Passwordstate, **1Password via `op` with `op://vault/item`** ([credvault](https://mremoteng.readthedocs.io/en/latest/howtos/credvault.html)), OpenBao/Vault (1.78.2) ([CHANGELOG](https://github.com/mRemoteNG/mRemoteNG/blob/v1.78.2-dev/CHANGELOG.md)). No Bitwarden, KeePassXC or `pass`. | The same reference idea as our `op:` Logins, on Windows. |
@@ -360,7 +360,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** a Perl/GTK3 Linux connection organiser with automation, successor to PAC Manager ([repo](https://github.com/asbru-cm/asbru-cm)). Maintenance mode: v6.4.1 (2026-04-04) is packaging only; 6.4.0 was 2022-11 ([release](https://github.com/asbru-cm/asbru-cm/releases/tag/v6.4.1)).
 
-| Dimension | Ásbrú | vs roster-desk |
+| Dimension | Ásbrú | vs roster |
 |---|---|---|
 | Inventory and sharing | `~/.config/asbru/asbru.yml`; `--config-dir` "could be a shared directory"; `--readonly` ([CLI](https://docs.asbru-cm.net/Manual/CommandLine/)). | YAML, but secrets inside it are only encoded. |
 | Secrets | "No real protection… simply encoded" ([notice](https://docs.asbru-cm.net/General/sensitive-info-notice/)). **KeePassXC through `keepassxc-cli`** (6.2+), with entries addressed by unique path; `<field\|/path/to/entry>` substitution in any field ([KeePassXC](https://docs.asbru-cm.net/Manual/Preferences/KeePassXC/), [substitutions](https://docs.asbru-cm.net/Manual/Substitutions/)). `<CMD:…>` runs any command. | **Prior art for Q41.** Its KeePassXC entries are addressed by path because the CLI can't search by UUID, which ticket 25 should note. |
@@ -378,7 +378,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 **Positioning:** a Linux remote desktop client for RDP, VNC, SPICE, X2Go, SSH, WWW and EXEC ([repo](https://gitlab.com/Remmina/Remmina), v1.4.43, 2026-02-20).
 
-| Dimension | Remmina | vs roster-desk |
+| Dimension | Remmina | vs roster |
 |---|---|---|
 | Inventory and sharing | One `.remmina` INI file per profile in `~/.local/share/remmina` ([FAQ](https://remmina.org/faq/)). No sharing. | — |
 | Secrets | 3DES-encrypted in files, or libsecret (GNOME Keyring) or KWallet through plugins ([FAQ](https://remmina.org/faq/)). No Bitwarden, 1Password or KeePassXC (except through Secret Service). | — |
@@ -396,7 +396,7 @@ The values every "vs roster-desk" cell below is compared against.
 
 Not direct rivals, but each overlaps one differentiator.
 
-| Tool | Overlap | Gap vs roster-desk |
+| Tool | Overlap | Gap vs roster |
 |---|---|---|
 | **1Password SSH Bookmarks** (beta) | Attaches `ssh://` URLs to SSH Key items, opens them from a Bookmarks tab, and can generate `~/.ssh/1Password/config` that maps each host to its key ([docs](https://www.1password.dev/ssh/bookmarks/)). | One key per host, SSH only, personal or vault-scoped, no git, no web/API Logins. **The password-manager vendors are moving towards host lists.** |
 | **1Password for Claude / for Agents** (Jul and Oct 2026) | The agent gets metadata and success/failure, never the secret ([press](https://1password.com/press/2026/july/1password-for-claude), [security](https://support.1password.com/1password-claude-security/), [blog](https://1password.com/blog/1password-for-ai-agents)). | Browser logins only, not SSH or terminals. |
@@ -417,7 +417,7 @@ Not direct rivals, but each overlaps one differentiator.
 
 | Tool | Config | Live reload | Keymap | Vim | Layout control | Settings GUI |
 |---|---|---|---|---|---|---|
-| **roster-desk** | `init.lua` (Lua 5.4) | ✓ (last good Config kept) | ✓ leader + data table | ✓ app-wide | ✓ per-mode layout tables (Q39) | ✗ by design |
+| **roster** | `init.lua` (Lua 5.4) | ✓ (last good Config kept) | ✓ leader + data table | ✓ app-wide | ✓ per-mode layout tables (Q39) | ✗ by design |
 | WezTerm | `wezterm.lua` | ✓ | ✓ leader + `key_tables` | copy mode | splits, workspaces | ✗ |
 | Warp | `settings.toml`, YAML themes, `keybindings.yaml` | ✓ | ✓ | input editor | splits, tabs | ✓ |
 | Tabby | YAML | UNVERIFIED | ✓ multi-chord | ✗ | splits | ✓ |
@@ -430,7 +430,7 @@ Not direct rivals, but each overlaps one differentiator.
 
 | Tool | Language | What a plugin can do | Distribution | Pinning | Sandbox / secret boundary |
 |---|---|---|---|---|---|
-| **roster-desk** (ADR 0004) | Lua, same runtime as the Config | Commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks | git repos listed in `init.lua` | ✓ `roster-desk.lock`, update shows a diff | Runs in the core, which has no secrets; writes become Pending changes only; no HTML/JS in v1 |
+| **roster** (ADR 0006) | Lua, same runtime as the Config | Commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks | git repos listed in `init.lua` | ✓ `roster.lock`, update shows a diff | Runs in the core, which has no secrets; writes become Pending changes only; no HTML/JS in v1 |
 | WezTerm | Lua | Anything the config can do | `plugin.require(git URL)` | ✗ default branch, `update_all()` | ✗ |
 | Tabby | TypeScript/Angular | Providers for profiles, tabs, settings, themes, hotkeys | npm `tabby-plugin` (~186), in-app manager | npm semver | ✗ full Electron/Node |
 | Termix | TypeScript | Hosts config, secret sources, AI, certificates (~50) | built-in plugin catalogue | UNVERIFIED | Server-side; permission-gated |
@@ -445,7 +445,7 @@ Not direct rivals, but each overlaps one differentiator.
 
 ### What to copy, and what to avoid
 
-Consistent with ADR 0002 and ADR 0004. Items marked *proposal* are new and not decided.
+Consistent with ADR 0004 and ADR 0006. Items marked *proposal* are new and not decided.
 
 **Copy**
 - WezTerm's `config_builder()`: **warn on unknown keys**. architecture.md already checks the result against a schema; make the error name the bad key.
@@ -456,7 +456,7 @@ Consistent with ADR 0002 and ADR 0004. Items marked *proposal* are new and not d
 
 **Avoid**
 - WezTerm's unpinned default-branch plugins. Keep the lock file and the update diff.
-- Tabby's and Electerm's full-privilege JS plugins in the UI process. ADR 0004 already rejects this, and the survey supports that.
+- Tabby's and Electerm's full-privilege JS plugins in the UI process. ADR 0006 already rejects this, and the survey supports that.
 - A Settings GUI next to the file (Tabby, Warp, Wave). Q24 holds. Two sources of truth is the usual complaint.
 - Vendor-cloud config sync (Termius, Warp Drive, Tabby Web, electerm cloud). Q42 covers this: git dotfiles.
 
@@ -466,7 +466,7 @@ Consistent with ADR 0002 and ADR 0004. Items marked *proposal* are new and not d
 |---|---|---|
 | **Own vault only** | Termius, Tabby (vault or keychain), Wave, Electerm, SecureCRT, MobaXterm, Remmina (file or keyring), Nexterm | The app owns encryption, recovery and sync. Q40 rejects this. |
 | **Own vault plus password-manager integration** | Devolutions RDM (31 managers, Team only), XPipe (15, via CLI), Royal TS (scripts), mRemoteNG (1Password, Delinea, Passwordstate, OpenBao), Termix (op, bw, bws, vault, infisical; server-side), Ásbrú (KeePassXC) | The common pattern today. Most of these still keep a vault as the default. |
-| **References only, no vault at all** | **roster-desk** (bw, op, pass, env, command; KeePassXC planned) | Only roster-desk. XPipe comes closest: it can run vault-less, but always has its own encrypted store. |
+| **References only, no vault at all** | **roster** (bw, op, pass, env, command; KeePassXC planned) | Only roster. XPipe comes closest: it can run vault-less, but always has its own encrypted store. |
 | **No stored secrets (certificates or identity)** | Teleport, Tailscale SSH, Pomerium | No password manager needed, but you have to run their infrastructure. Doesn't cover password-only network gear, which is a core roster case. |
 | **None** | WezTerm, Warp (env vars from 1Password or LastPass only) | — |
 
@@ -500,7 +500,7 @@ Three things set our model apart from the integrations above:
 **Deliberately not chasing** (from the docs):
 - A built-in vault or vendor cloud sync (Q40, Q42).
 - A Settings screen (Q24).
-- Plugin HTML/JS panels in v1, and JS or webview plugins in general (ADR 0004).
+- Plugin HTML/JS panels in v1, and JS or webview plugins in general (ADR 0006).
 - RDP, VNC and the protocol zoo (RDM, Royal TS, MobaXterm, Remmina). Out of scope by Q3; no decision says otherwise.
 - Mobile and a web/server edition (Termius, Termix). Nothing in the docs plans them.
 - Generic AI agent features inside the terminal (Warp, Wave). The agent uses roster from outside.

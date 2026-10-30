@@ -2,7 +2,7 @@
 //! target. On WSL the env is set on wsl.exe's own process and its names listed in `WSLENV` (with
 //! `/u`, no path translation), because Windows-side variables only cross into WSL that way; values
 //! never go in the argv, which any process can read for the Session's life
-//! (docs/dev/tauri-pty-wsl.md, docs/security.md).
+//! (docs/app/dev/tauri-pty-wsl.md, docs/app/security.md).
 
 use roster_core::detect::Target;
 use roster_core::session::{Prepared, SessionCommand, session_command, wslenv};

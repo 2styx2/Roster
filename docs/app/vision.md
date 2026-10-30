@@ -2,7 +2,7 @@
 
 ## Why
 
-Most of the day goes into getting a shell on hosts in the team Inventory. roster already knows every Host, how to reach it and which Login opens it. Today, though, reaching one means typing `roster hosts --find`, remembering exact names, switching terminals, and doing a separate vault step for password-only gear. roster-desk is **a GUI whose whole job is getting you into the terminal quickly, then getting out of the way**.
+Most of the day goes into getting a shell on hosts in the team Inventory. roster already knows every Host, how to reach it and which Login opens it. Today, though, reaching one means typing `roster hosts --find`, remembering exact names, switching terminals, and doing a separate vault step for password-only gear. The roster app is **a GUI whose whole job is getting you into the terminal quickly, then getting out of the way**.
 
 SecureCRT is the reference point for the skeleton: saved Hosts, tabs, and logging in for you. It is not the model for the look or the workflow. Those are our own taste: terminal first, keyboard first with vim keys, and quiet, fast motion.
 

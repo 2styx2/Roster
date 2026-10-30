@@ -1,9 +1,9 @@
 # 24: Packages (lazy.nvim-style)
 
-**Iteration:** 7 · **Repo:** roster-desk · **Spec:** 0001 (story 96) · **ADR:** roster-desk 0004
+**Iteration:** 7 · **Repo:** roster (app) · **Spec:** 0001 (story 96) · **ADR:** 0006
 
 **What to build:**
-- **Declaring Packages:** `init.lua` declares Packages as `{ "owner/repo", tag = …, config = function() … end }`, or with a full git URL. The app clones each one into its data dir and pins the commit in `roster-desk.lock`, next to `init.lua`, so the lock file can live in dotfiles.
+- **Declaring Packages:** `init.lua` declares Packages as `{ "owner/repo", tag = …, config = function() … end }`, or with a full git URL. The app clones each one into its data dir and pins the commit in `roster.lock`, next to `init.lua`, so the lock file can live in dotfiles.
 - **Loading:** the app loads each Package as a Plugin (ticket 23).
 - **Commands:**
   - `:packages`: lists installed Packages, their state and any errors.

@@ -1,6 +1,8 @@
 # Tauri, not Electron, for the desktop shell
 
-roster-desk is a Tauri app: a Rust core with the system webview, using WebView2 on Windows and WebKitGTK on Linux. It's small, starts fast, and the Rust core is a natural home for PTYs and process management. That fits "fast, responsive, feels native" better than shipping a whole Chromium.
+_Formerly roster-desk ADR 0001; renumbered when the app joined the roster repo (ADR 0007)._
+
+The roster app is a Tauri app: a Rust core with the system webview, using WebView2 on Windows and WebKitGTK on Linux. It's small, starts fast, and the Rust core is a natural home for PTYs and process management. That fits "fast, responsive, feels native" better than shipping a whole Chromium.
 
 ## Consequences
 

@@ -1,4 +1,4 @@
-//! The Config (GLOSSARY: Config, ADR 0002): the user's `init.lua`, in the user config dir
+//! The Config (GLOSSARY: Config, ADR 0004): the user's `init.lua`, in the user config dir
 //! (`%APPDATA%\roster` on Windows, `$XDG_CONFIG_HOME/roster` or `~/.config/roster` elsewhere;
 //! a Config left in the old `roster-desk` dir is copied over once, see [`crate::migrate`]). It runs in a sandboxed Lua 5.4 (lua.rs), returns a
 //! table that's checked against the schema (schema.rs) and layered over the defaults, and the
@@ -240,7 +240,7 @@ pub(crate) fn located_message(path: &[String], message: &str) -> String {
 /// serde's "expected one of `a`, `b`, …" lists every name; the docs have them, so keep it short.
 fn shorten(message: &str) -> String {
     let m = match message.split_once(", expected one of") {
-        Some((head, _)) => format!("{head} (see docs/config.md for the names)"),
+        Some((head, _)) => format!("{head} (see docs/app/config.md for the names)"),
         None => message.to_string(),
     };
     m.replace("expected u32", "expected a whole number")

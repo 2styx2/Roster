@@ -1,6 +1,6 @@
 //! The session manager runs a stub command in a real PTY: output, input, resize, exit status,
 //! and closing. Unix only for now: on Windows ConPTY first waits for an answer to `ESC[6n`
-//! (docs/dev/tauri-pty-wsl.md), which these tests don't send.
+//! (docs/app/dev/tauri-pty-wsl.md), which these tests don't send.
 #![cfg(unix)]
 
 use roster_core::session::{Exit, SessionCommand, SessionEvent, SessionManager, Size};

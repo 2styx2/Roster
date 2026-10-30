@@ -1,11 +1,11 @@
 # Architecture
 
-Decisions: roster ADR 0001 (`roster serve`) and ADR 0002 (system ssh and askpass), roster-desk ADR 0001 (Tauri).
+Decisions: ADR 0001 (`roster serve`), ADR 0002 (system ssh and askpass), ADR 0003 (Tauri).
 
 ## Processes
 
 ```
-┌──────────────── roster-desk (Tauri) ─────────────────┐
+┌──────────────── roster app (Tauri) ──────────────────┐
 │  Frontend (React + TS, xterm.js)                     │
 │     │  one typed client: backend calls, Session I/O  │
 │  Rust core                                           │
@@ -62,12 +62,12 @@ The askpass socket is the one deliberate exception to stdio-only. If it grows be
 
 ## Config (`init.lua`)
 
-This follows WezTerm's model (roster-desk ADR 0002):
-- `~/.config/roster-desk/init.lua` (`%APPDATA%\roster-desk\init.lua` on Windows) returns a table, and the Rust core runs it with mlua (Lua 5.4 built in).
+This follows WezTerm's model (ADR 0004):
+- `~/.config/roster/init.lua` (`%APPDATA%\roster\init.lua` on Windows) returns a table, and the Rust core runs it with mlua (Lua 5.4 built in).
 - It's layered: built-in defaults, then `init.lua`. There's no Settings screen.
 - Saving the file reloads it. An error shows a toast with the file and line, and the last good Config stays active.
 - The core checks the result against a schema and sends a plain typed object to the frontend, which never runs Lua.
-- **v1 covers values only:** fonts, colors and theme tokens, Themes, leader key, keymap (key → action name), vim on/off, per-mode layout, Folders, idle timeout, backend, roster command. Every option, the sandbox and the small `roster` table are in [config.md](config.md); the code is `crates/desk-core/src/config/` and `src/config/`.
+- **v1 covers values only:** fonts, colors and theme tokens, Themes, leader key, keymap (key → action name), vim on/off, per-mode layout, Folders, idle timeout, backend, roster command. Every option, the sandbox and the small `roster` table are in [config.md](config.md); the code is `crates/roster-core/src/config/` and `app/src/config/`.
 - **Later:** event hooks (`on_session_open`), custom `:` commands, and extra Picker sources.
 - **State** (window size, recent Hosts, open panels) is saved separately by the app and never put in `init.lua`.
 

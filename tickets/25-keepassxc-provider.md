@@ -1,6 +1,6 @@
 # 25: KeePassXC provider (local-only secrets)
 
-**Iteration:** 4 · **Repos:** roster (+ roster-desk lock screen text) · **Decisions:** Q40, Q41
+**Iteration:** 4 · **Repos:** roster CLI (+ the app's lock screen text) · **Decisions:** Q40, Q41
 
 **What to build:** A roster password provider for KeePassXC, through `keepassxc-cli` and a local `.kdbx` database, so people without a team password manager have a local-only option that keeps roster's secret model.
 - **Read:** `auth: kp:ENTRY` and `kp:ENTRY#FIELD`, where the database path comes from `providers:` in `roster.yml` or `init.lua`.
@@ -16,4 +16,4 @@
 - [ ] A fake `keepassxc-cli` in `tests/fakes/` covers read, field read, wrong master password, a locked database, create, and a duplicate name refused.
 - [ ] `vault.status`, `vault.unlock` and `vault.lock` work with `kp` exactly as with `bw`. The lock screen names KeePassXC.
 - [ ] The README provider table and `docs/adding-hosts.md` cover KeePassXC. `roster providers` lists it.
-- [ ] Manual check: a local `.kdbx` with one SSH Login opens a password Session in roster-desk, and "Save to vault" adds an entry to it.
+- [ ] Manual check: a local `.kdbx` with one SSH Login opens a password Session in the roster app, and "Save to vault" adds an entry to it.

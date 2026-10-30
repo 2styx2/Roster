@@ -1,4 +1,4 @@
-// How a Session ended, in docs/errors.md's terms. ssh writes its errors into the PTY, so all the
+// How a Session ended, in docs/app/errors.md's terms. ssh writes its errors into the PTY, so all the
 // app has is the terminal output's last lines and the exit code; roster's askpass helper adds one
 // line of its own (`roster askpass: [CODE] REASON`). classifyExit turns those into a Problem: a
 // catalog code (roster's numbers, so a Session error and `:check` share one table), a plain
@@ -28,7 +28,7 @@ export interface ProblemData {
   [key: string]: unknown;
 }
 
-/** A clean error (docs/errors.md): the code picks the catalog row (where it lives, what to do). */
+/** A clean error (docs/app/errors.md): the code picks the catalog row (where it lives, what to do). */
 export interface Problem {
   code: ProblemCode;
   host: string;

@@ -1,7 +1,7 @@
 //! The State file (GLOSSARY: State): what the app remembers on its own between runs, such as
 //! recently used Hosts. One JSON object, `state.json` in the OS app-data dir, shared by every
 //! window. The frontend owns its shape; the core only keeps it safe on disk. It is never the
-//! Config (ADR 0002) and never holds secrets.
+//! Config (ADR 0004) and never holds secrets.
 
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};

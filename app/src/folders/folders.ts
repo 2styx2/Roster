@@ -1,7 +1,7 @@
 // Folders (GLOSSARY): the user's own groupings of Hosts, kept in this Box's State under `folders`
 // and nowhere else: never sent to `roster serve`, never in roster.yml (decision Q34).
 //
-// This module stands apart from the app on purpose (ADR 0004): registerFolders adds a Sidebar
+// This module stands apart from the app on purpose (ADR 0006): registerFolders adds a Sidebar
 // section, one `folder` command and two key bindings through the public registries, and keeps
 // its data through the State store's get/set, exactly as a Plugin would. Ticket 23 re-implements
 // it as an internal Plugin on the Lua API, with the same commands.

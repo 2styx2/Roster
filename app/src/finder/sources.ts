@@ -1,4 +1,4 @@
-// Finder sources (GLOSSARY: Plugin lists them among the registries; ADR 0004): what the Finder
+// Finder sources (GLOSSARY: Plugin lists them among the registries; ADR 0006): what the Finder
 // overlay can search. Each source is a registry entry that lists items from what the app knows
 // right now; an item is a label and the command line Enter runs, so choosing in a finder is the
 // same as typing that command (decision Q36: a mode only changes how commands are shown).

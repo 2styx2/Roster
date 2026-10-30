@@ -1,8 +1,8 @@
 # 26: Clean connection errors and `check HOST`
 
-**Iteration:** 1 · **Repos:** roster + roster-desk · **Doc:** `docs/errors.md` (the catalog is the definition of done)
+**Iteration:** 1 · **Repos:** roster (CLI + app) · **Doc:** `docs/app/errors.md` (the catalog is the definition of done)
 
-**What to build:** Every row of `docs/errors.md` ends in a clean error: Host named, plain words, where the problem lives, the exact fix, and the raw message under Details. This holds whether the Host and its Vault item came from the app or were typed by hand into `roster.yml` or the vault.
+**What to build:** Every row of `docs/app/errors.md` ends in a clean error: Host named, plain words, where the problem lives, the exact fix, and the raw message under Details. This holds whether the Host and its Vault item came from the app or were typed by hand into `roster.yml` or the vault.
 
 **roster side:**
 - **Stable codes:** `session.prepare` and the askpass channel return a stable code plus roster's wording for every Inventory- and vault-side case (rows 1–10, 18), instead of failing later inside ssh. For example, item not found, several items match, and no password are distinct codes. Wherever possible the check happens at prepare time: confirm the Login's vault item exists and is unique without handing the secret to anyone but serve.
@@ -30,7 +30,7 @@
 
 - [x] pytest: rows 1–10 and 18 each produce their own code and message from `session.prepare`, askpass or `host.check`, with hand-edited `roster.yml` fixtures and fake vault items (missing, duplicate, no password, wrong field). (roster MR !17)
 - [x] pytest: `host.check` stops at the first failure and makes no connection when an earlier step fails. (roster MR !17)
-- [x] App tests: `classifyExit` maps real ssh stderr samples for rows 11–17 and 19–20 to the right row. Each row renders its message, fix action and Details. (`src/errors/*.test.ts*`; the catalog test checks every docs/errors.md row and roster code has a row, and that no action accepts a host key.)
+- [x] App tests: `classifyExit` maps real ssh stderr samples for rows 11–17 and 19–20 to the right row. Each row renders its message, fix action and Details. (`app/src/errors/*.test.ts*`; the catalog test checks every docs/app/errors.md row and roster code has a row, and that no action accepts a host key.)
 - [x] The password never appears in any message, Details text or log.
 - [x] Manual check: put deliberately broken entries in a scratch `roster.yml` and fake vault items (typo'd item name, duplicate, wrong port, unknown host) and see each clean error. Don't hammer 10.19.
 

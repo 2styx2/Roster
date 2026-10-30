@@ -1,4 +1,4 @@
-// A clean error (docs/errors.md): the Host, what happened in plain words, where it lives, the fix
+// A clean error (docs/app/errors.md): the Host, what happened in plain words, where it lives, the fix
 // as an action where the app can do it (or the command to copy where it can't), the row's extras,
 // and the raw text under Details. The Session pane shows it for a refused or failed Session, and
 // `:check` shows the same body for its failing step. Everything comes from the catalog row, so a

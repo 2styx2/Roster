@@ -1,6 +1,6 @@
 # 07: Keyboard model and the Session Sidebar
 
-**Iteration:** 1 · **Repo:** roster-desk · **Spec:** 0001 (stories 34–43, 88–93) · **Decisions:** Q31–Q35
+**Iteration:** 1 · **Repo:** roster (app) · **Spec:** 0001 (stories 34–43, 88–93) · **Decisions:** Q31–Q35
 
 **What to build:** The full keyboard model, plus the **Sidebar** as the default way to see and switch Sessions. It replaces any tab strip that ticket 05 left behind.
 

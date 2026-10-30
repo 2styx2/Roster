@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Tauri dev expects a fixed port (1420, strictPort). Browser runs in WSL use another one,
-// e.g. `npm run dev -- --port 5179`, so the two never collide (docs/dev/testing.md).
+// e.g. `npm run dev -- --port 5179`, so the two never collide (docs/app/dev/testing.md).
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,

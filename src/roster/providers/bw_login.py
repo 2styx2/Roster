@@ -1,5 +1,5 @@
-"""Signing the Bitwarden CLI in, one step at a time, for `roster serve`'s vault.login (roster-desk
-docs/dev/vault-auth.md has the research behind every choice here).
+"""Signing the Bitwarden CLI in, one step at a time, for `roster serve`'s vault.login
+(docs/app/dev/vault-auth.md has the research behind every choice here).
 
 `bw login` is one-shot and has no flag for the new-device code, so the password and SSO flows run it on a
 PTY and answer its own prompts (Email address, Two-step login method, Two-step login code, New device

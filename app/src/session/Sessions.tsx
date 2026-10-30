@@ -93,7 +93,7 @@ export interface SessionPanesProps {
   reconnectKeys: string | null;
   /** Runs a command line (the Retry and Reconnect buttons run `reconnect`). */
   run(line: CommandLine): void;
-  /** The error catalog's rows (docs/errors.md), for a refused or failed Session. */
+  /** The error catalog's rows (docs/app/errors.md), for a refused or failed Session. */
   errorRows: readonly ErrorRow[];
   /** Puts a command from an error's fix on the clipboard. */
   copy(text: string): Promise<void>;

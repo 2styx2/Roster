@@ -1,4 +1,4 @@
-// The Sidebar section registry (ADR 0004). Each section is an entry that builds its rows from
+// The Sidebar section registry (ADR 0006). Each section is an entry that builds its rows from
 // what the app knows right now; the Sidebar shows them in `order`. Ticket 07 registers Sessions;
 // ticket 17 registers the Inventory the same way, and Folders (folders/) from outside, as a Plugin
 // will. Sections only say what rows they have; buildSections folds them by State, finds each

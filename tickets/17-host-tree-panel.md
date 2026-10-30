@@ -1,6 +1,6 @@
 # 17: Inventory tree and Folders in the Sidebar
 
-**Iteration:** 1 (moved up from 5; decision Q35) · **Repo:** roster-desk · **Spec:** 0001 (story 78, 88–93) · **Decisions:** Q32–Q34
+**Iteration:** 1 (moved up from 5; decision Q35) · **Repo:** roster (app) · **Spec:** 0001 (story 78, 88–93) · **Decisions:** Q32–Q34
 
 **What to build:** Two more Sidebar sections under Sessions. The prototype is `prototype-shell.html` on branch `prototype/logos`; variant A is the tree style.
 
@@ -27,4 +27,4 @@
 - [x] Folders are never sent to `roster serve` and never touch `roster.yml`.
 - [x] Manual check on Windows with the real Inventory (91 Hosts): the tree scrolls smoothly and folding is instant.
 
-**Done (2026-10-29):** `src/App.tree.test.tsx` (the UI tests above), `src/folders/` (Folders as a self-contained registrant: section, `folder` command, `␣ a` / `␣ A`), `src/state/store.ts` (State store). Commands are in `docs/keyboard.md`. State: `{version, recentHosts, folded: [row ids], folders: [{name, hosts}]}`, unknown keys kept. Checked on Windows (WebView2) with the real 91-Host Inventory through a scratch copy with the vault references removed (so no lock screen): moving the cursor takes one frame, folding about 10 ms, the cursor row scrolls into view, real-mouse drags into and out of a Folder work (Tauri's `dragDropEnabled` is off for that), and Folders and folds survive a restart. The 91-Host fake fixture (`?fixture=91-hosts`) was checked the same way in Chromium.
+**Done (2026-10-29):** `app/src/App.tree.test.tsx` (the UI tests above), `app/src/folders/` (Folders as a self-contained registrant: section, `folder` command, `␣ a` / `␣ A`), `app/src/state/store.ts` (State store). Commands are in `docs/app/keyboard.md`. State: `{version, recentHosts, folded: [row ids], folders: [{name, hosts}]}`, unknown keys kept. Checked on Windows (WebView2) with the real 91-Host Inventory through a scratch copy with the vault references removed (so no lock screen): moving the cursor takes one frame, folding about 10 ms, the cursor row scrolls into view, real-mouse drags into and out of a Folder work (Tauri's `dragDropEnabled` is off for that), and Folders and folds survive a restart. The 91-Host fake fixture (`?fixture=91-hosts`) was checked the same way in Chromium.

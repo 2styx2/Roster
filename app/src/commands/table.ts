@@ -1,5 +1,5 @@
 // The one command table (ticket 07, decision Q36): every app action is a command here, its id
-// being its `:` command-line name. It's a Registry (ADR 0004): built-ins register as "builtin",
+// being its `:` command-line name. It's a Registry (ADR 0006): built-ins register as "builtin",
 // and the Config and Plugins can add or shadow commands the same way. Keys (the keymap maps a key to a command line such as
 // "session 1"), the command line and buttons (the Sidebar, the tab strip) all run commands
 // through runLine, so a view mode only changes how commands are presented, never which exist.

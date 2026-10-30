@@ -1,4 +1,4 @@
-// The terminal's look and behaviour as plain data, so the Config (ADR 0002, ticket 21) and
+// The terminal's look and behaviour as plain data, so the Config (ADR 0004, ticket 21) and
 // Themes can override any of it. Its colours come from the Theme (theme/theme.ts terminalTheme),
 // with `colors` from the Config over them. Decision Q37: the user's terminal config wins, so the 16 ANSI
 // colours are a neutral, standard palette (Windows Terminal's default, Campbell), never tinted

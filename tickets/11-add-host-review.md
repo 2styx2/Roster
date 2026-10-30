@@ -1,6 +1,6 @@
 # 11: Add a Host and mark it reviewed
 
-**Iteration:** 3 · **Repos:** roster + roster-desk · **Spec:** 0001 (stories 57, 59–60)
+**Iteration:** 3 · **Repos:** roster (CLI + app) · **Spec:** 0001 (stories 57, 59–60)
 
 **What to build:** `serve` gains `host.add` and `host.review`. The app has an add-Host form with name, address, group, type, user, Login and enroll, and a "mark reviewed" action on unreviewed Hosts in the picker and the forms. Login fields suggest Vault item names that follow `<host> <what it opens>`.
 
