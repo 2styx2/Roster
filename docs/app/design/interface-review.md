@@ -1,5 +1,7 @@
 # Interface review (ticket 29)
 
+> **Screenshots.** The `review/` screenshots this review names (before, `after/` and `windows/`) were not carried over when the app joined the roster repo. Each browser one can be reproduced from the fake Backend: its file name gives the screen, the fixture and the Theme (`app/README.md`, "UI in a plain browser"). Current Theme screenshots are in [themes.md](../themes.md#screenshots).
+
 Run of `interfaces:better-interface` over the whole app on `dev` at `4435601` (after 09, 21, 22, 26, 27, 30, 31).
 **The user picked all 26 items, and all are fixed** (decision Q53; how each was fixed is under [Fixes](#fixes) at the
 end). The **Pick** column records the choice on each flagged item.
@@ -16,12 +18,12 @@ end). The **Pick** column records the choice on each flagged item.
   `:check`; the start-error screens; Focus (mode hint, Sessions finder, Picker and Key bindings over the terminal);
   `worst-case`, `worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; widths 800, 640 (= 1280 at
   200 % zoom) and 320 px.
-- **Stack:** React 19 + TypeScript, plain CSS in `src/styles.css` (+ `src/lock/signin.css`) written only against
-  Theme tokens (`src/theme/themes.ts` → CSS variables), xterm.js for terminals, Inter + Iosevka bundled. Tauri shell;
-  the window's minimum size is 480 × 320 (`src-tauri/tauri.conf.json:20`).
-- **Project conventions read:** `docs/decisions.md` Q26–Q52 (Linear-like, neutral near-black, jade, Inter + Iosevka 500,
+- **Stack:** React 19 + TypeScript, plain CSS in `app/src/styles.css` (+ `app/src/lock/signin.css`) written only against
+  Theme tokens (`app/src/theme/themes.ts` → CSS variables), xterm.js for terminals, Inter + Iosevka bundled. Tauri shell;
+  the window's minimum size is 480 × 320 (`app/src-tauri/tauri.conf.json:20`).
+- **Project conventions read:** `docs/app/decisions.md` Q26–Q52 (Linear-like, neutral near-black, jade, Inter + Iosevka 500,
   raised selection, keyboard-first, everything Config-overridable), `GLOSSARY.md`, `README.md` Development,
-  `docs/design/` (09), `docs/design/break-ui/` (27), `docs/design/themes/` (30), `src/theme/contrast.test.ts`.
+  `docs/app/design/` (09), `docs/app/design/break-ui/` (27), `docs/app/design/themes/` (30), `app/src/theme/contrast.test.ts`.
   No separate design-system or writing style guide exists; the decisions log plays that role.
 - **Boundary:** Not reviewed live: the tab-strip layout (`sessions = "tabs"`), the right-hand Sidebar, the Focus
   session bar (both need an `init.lua`, which a plain browser can't load: reviewed from source and the 22 Windows
@@ -90,8 +92,8 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### M1 · The `faint` token fails 4.5:1 and carries text everywhere (Colour, M) ⚠
 
-- **Where:** `src/theme/themes.ts:33, 72, 114, 174, 233, 295` (`faint` in each Theme), used as text colour about 50
-  times in `src/styles.css`, including the status bar (182), Sidebar headings (236), empty states (177, 246), Host
+- **Where:** `app/src/theme/themes.ts:33, 72, 114, 174, 233, 295` (`faint` in each Theme), used as text colour about 50
+  times in `app/src/styles.css`, including the status bar (182), Sidebar headings (236), empty states (177, 246), Host
   addresses and counts (288, 293), the Sidebar footer buttons "Keys"/"Lock" (320), binding sources (343), group
   headings (352), Picker address/group/type columns (417–418), the Picker footer (429), lock and sign-in field labels
   (451, `signin.css:5`), the lock hint (460), error facts (553), Details (570), the session bar (613) and finder paths
@@ -99,7 +101,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 - **Measured (WCAG 2):** faint on bg / chrome / panel / raised = Roster dark 3.21 / 3.07 / 2.97 / 2.81; Roster light
   3.02 / 2.80 / 3.02 / 2.55; Gruvbox 3.03 / 3.37 / 2.70 / 2.38; Nord 3.50 / 3.50 / 2.82 / 2.42; Catppuccin 4.44 /
   4.75 / 4.75 / 2.47; Tokyo Night 4.10 / 4.31 / 4.31 / 3.22. Text at 11–13 px needs 4.5:1 (1.4.3). The contrast test
-  (`src/theme/contrast.test.ts:19–22`) checks `text` and `muted` (at 3:1), never `faint`.
+  (`app/src/theme/contrast.test.ts:19–22`) checks `text` and `muted` (at 3:1), never `faint`.
 - **Why it matters:** the status bar, every label on the lock and sign-in forms, Host addresses and all the hints are
   hard to read on a dim screen or for low vision. It's one token, so one fix reaches every screen.
 - **Fix, option A (keep three greys):** lift `faint` to the lowest value that passes on bg, chrome, sidebar and panel:
@@ -132,7 +134,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### M3 · Sidebar state by colour alone, hidden from screen readers (Accessibility, M) ⚠
 
-- **Where:** `src/sidebar/Sidebar.tsx:218` (`<span className="dot …" aria-hidden="true" />` with no text alternative);
+- **Where:** `app/src/sidebar/Sidebar.tsx:218` (`<span className="dot …" aria-hidden="true" />` with no text alternative);
   `styles.css:296–301` (the "unreviewed" badge is `display: none` until hover or cursor, and hides the address);
   `styles.css:270–274` (a Session's "failed"/"ended" note drops to the hidden second line when the name is long).
 - **What's wrong:** in the Inventory an unreviewed Host (hollow *grey* ring) and a password Host (hollow *jade* ring)
@@ -193,10 +195,10 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S1 · Raw Markdown backticks in errors (Typography, S)
 
-- **Where:** `src/errors/ErrorPanel.tsx:141` (`sentence(problem.message, …)`) and `:146` (`fixFor(row, problem)`),
-  `src/ErrorScreen.tsx:16–17`. Screens: `review/error-not-set-up-dark.png` ("run `` `roster sync` ``, or
+- **Where:** `app/src/errors/ErrorPanel.tsx:141` (`sentence(problem.message, …)`) and `:146` (`fixFor(row, problem)`),
+  `app/src/ErrorScreen.tsx:16–17`. Screens: `review/error-not-set-up-dark.png` ("run `` `roster sync` ``, or
   `` `roster setup` ``"), `review/start-roster-too-old-dark.png`.
-- **Fix:** wrap both in `withCode()` (`src/lock/withCode.tsx`), as `LockScreen.tsx:71` and `SignIn.tsx:544, 549`
+- **Fix:** wrap both in `withCode()` (`app/src/lock/withCode.tsx`), as `LockScreen.tsx:71` and `SignIn.tsx:544, 549`
   already do. Reuse, no new code.
 
 #### S2 · No key closes the `:check` panel (Accessibility, S)
@@ -209,21 +211,21 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S3 · The Leader keycap reads as "open box" (Accessibility, S)
 
-- **Where:** `src/ui/Keys.tsx:41` (`<span className="visually-hidden">{LEADER}</span>`, where `LEADER = "␣"`).
+- **Where:** `app/src/ui/Keys.tsx:41` (`<span className="visually-hidden">{LEADER}</span>`, where `LEADER = "␣"`).
   Accessible names come out as `Find a Host ␣ f`; the status bar and the empty states read the same way.
 - **Fix:** hidden text "Leader" (the glossary term), so a name reads "Find a Host, Leader f". The title already says
   `Leader (Ctrl+Space)`.
 
 #### S4 · `:check` step results aren't announced (Accessibility, S)
 
-- **Where:** `src/errors/CheckPanel.tsx:58` (`<span className="check-mark" aria-label={s.status}>✓</span>`). An
+- **Where:** `app/src/errors/CheckPanel.tsx:58` (`<span className="check-mark" aria-label={s.status}>✓</span>`). An
   `aria-label` on a generic span is ignored; the tree reads "✓ Inventory entry …".
 - **Fix:** `<span className="check-mark" aria-hidden="true">{MARK[s.status]}</span><span
   className="visually-hidden">{passed | failed | skipped}</span>`.
 
 #### S5 · Sign-in fields never get `aria-invalid` (Accessibility, S)
 
-- **Where:** `src/lock/SignIn.tsx:287–298` (Secret) and `:362–371` (email) set `aria-describedby="signin-error"` but
+- **Where:** `app/src/lock/SignIn.tsx:287–298` (Secret) and `:362–371` (email) set `aria-describedby="signin-error"` but
   never `aria-invalid`; the unlock form does (`LockScreen.tsx:123–124`). Screens: `review/signin-3-wrong-password-*.png`,
   `review/signin-6-code-error-*.png`.
 - **Fix:** pass `invalid={problem !== null}` into `Secret` and the email field and set `aria-invalid`. The red border
@@ -231,7 +233,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S6 · Native radios ignore the Theme (Colour, S)
 
-- **Where:** `:root` in `src/styles.css:8–40` has no `accent-color`, so the sign-in server radios
+- **Where:** `:root` in `app/src/styles.css:8–40` has no `accent-color`, so the sign-in server radios
   (`SignIn.tsx:316`) are Chromium blue in every Theme (`review/signin-1-server-dark.png`).
 - **Fix:** `:root { accent-color: var(--accent); }`. One line, and it covers any future checkbox too.
 
@@ -246,7 +248,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S8 · Command line completions are bare ids (UI, M)
 
-- **Where:** `src/cmdline/CommandLine.tsx:48–52` renders `{c}` only. Screen: `review/cmdline-complete-dark.png`:
+- **Where:** `app/src/cmdline/CommandLine.tsx:48–52` renders `{c}` only. Screen: `review/cmdline-complete-dark.png`:
   `bottom, check, choose, close, cmdline, connect, down, find, +21 more`.
 - **Why:** the command line is the discovery surface of a keyboard-first app, but it lists list-motion internals
   (`down`, `bottom`, `choose`, `cmdline`) first and says nothing about what a command does.
@@ -255,7 +257,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S9 · The start-error screen isn't the error system (UI, M)
 
-- **Where:** `src/ErrorScreen.tsx:12–25`, `styles.css:152–161`. A 220 px traceback is always open
+- **Where:** `app/src/ErrorScreen.tsx:12–25`, `styles.css:152–161`. A 220 px traceback is always open
   (`review/start-worst-case-start-light.png`), the fix command can't be copied, and there's no Where, while Session
   errors (`ProblemBody`) put the raw text under **Details** with a Copy button.
 - **Fix:** build the start error from `ProblemBody`-style parts: message, Where ("this Box: WSL FedoraLinux-44"),
@@ -291,7 +293,7 @@ accessibility evidence comes from the ARIA tree and keyboard walks.
 
 #### S12 · The `:theme` finder doesn't show the current Theme (UI, S)
 
-- **Where:** `src/theme/picker.ts:107` (detail is only `dark`/`light`); `review/theme-finder-dark.png`.
+- **Where:** `app/src/theme/picker.ts:107` (detail is only `dark`/`light`); `review/theme-finder-dark.png`.
 - **Fix:** detail `dark · current` on the active Theme, and open the finder with it selected, so Esc after previewing
   reads as "back to this one".
 
@@ -357,7 +359,7 @@ Passed or run:
   and `raised` for all six Themes, computed from `themes.ts` (script in the session scratchpad; the values are
   quoted above). The fix values were found the same way and are the nearest at ≥ 4.5:1 (≥ 3:1 for S11).
 - Screens: Vite dev server on port 5179 with the fake Backend, driven by Playwright (Chromium 1248 headless), 1280 ×
-  800 at 1×, colour scheme matched to the Theme. 126 screenshots in [`review/`](review/).
+  800 at 1×, colour scheme matched to the Theme. 126 screenshots in `review/`.
 - Keyboard: Tab and Shift+Tab walk from the Sidebar; Leader + f, :, ?, m, b, e, arrow keys; Esc on every overlay;
   number keys in the method picker; Enter on radios.
 - ARIA: `ariaSnapshot()` of the lock screen, each sign-in step, Standard, the Picker, the command line, Key bindings,
@@ -377,7 +379,7 @@ Not verified:
 
 ## Screenshots
 
-All in [`review/`](review/), named `<screen>-<dark|light>.png`:
+All in `review/`, named `<screen>-<dark|light>.png`:
 
 - Lock: `lock-*`, `lock-wrong-password-*`, `missing-cli-*`, `worst-case-vault-*`.
 - Sign-in: `signin-1-server-*`, `signin-1b-selfhosted-*`, `signin-2-email-*`, `signin-3-wrong-password-*`,
@@ -399,14 +401,14 @@ All in [`review/`](review/), named `<screen>-<dark|light>.png`:
 ## Fixes
 
 All 26 picked, all done on `feat/29-interface-review`, test-first. Commits are tagged `(ticket 29, <IDs>)`.
-Before and after: [`review/`](review/) and [`review/after/`](review/after/) use the same file names; the Windows
-check is in [`review/windows/`](review/windows/). Design calls follow `emil-design-eng`, `animate` and
+Before and after: `review/` and `review/after/` use the same file names; the Windows
+check is in `review/windows/`. Design calls follow `emil-design-eng`, `animate` and
 [taste.md](taste.md) (Q54).
 
 | ID | Done | How (and where it differs from the proposal) |
 | --- | --- | --- |
-| M1 | ✓ | Option B. Every text rule moved from `faint` to `muted`; `faint` colours only decorative icons (search, row icons). The fold chevron and the close/edit glyphs went to `muted` too, since they act or show state (1.4.11). `src/styles.test.ts` fails on any rule that colours text with `--faint`. |
-| M2 | ✓ | Values recomputed so every text token (`text`, `muted`, `warn`, `error`, `accentInk`) reads at 4.5:1 on **all six** surfaces, `hover` included (the proposal measured five), mixing toward white (black in Roster light) to keep the hue: Roster light accentInk `#157953`, warn `#955f00`; Gruvbox muted `#aea08c`, error `#fc7b6c`; Nord muted `#b7bcc5`, error `#dfb0b5`, accentInk `#8fc4d3`; Catppuccin muted `#afb6ce`, error `#f59db5`, accentInk `#cca7f7`. Nord's error is noticeably paler than `nord11`; listed in `docs/themes.md`. |
+| M1 | ✓ | Option B. Every text rule moved from `faint` to `muted`; `faint` colours only decorative icons (search, row icons). The fold chevron and the close/edit glyphs went to `muted` too, since they act or show state (1.4.11). `app/src/styles.test.ts` fails on any rule that colours text with `--faint`. |
+| M2 | ✓ | Values recomputed so every text token (`text`, `muted`, `warn`, `error`, `accentInk`) reads at 4.5:1 on **all six** surfaces, `hover` included (the proposal measured five), mixing toward white (black in Roster light) to keep the hue: Roster light accentInk `#157953`, warn `#955f00`; Gruvbox muted `#aea08c`, error `#fc7b6c`; Nord muted `#b7bcc5`, error `#dfb0b5`, accentInk `#8fc4d3`; Catppuccin muted `#afb6ce`, error `#f59db5`, accentInk `#cca7f7`. Nord's error is noticeably paler than `nord11`; listed in `docs/app/themes.md`. |
 | M3 | ✓ | `ui/StateDot.tsx`: SVG nodes, filled / ring / hollow grey / dashed grey (Sidebar and finders). Every tree item's name carries its state ("linux-1-000, password login, 10.19.1.2"; "…, unreviewed, can't be opened, …"; "…, ended (code 0)"). A Session's note sits beside the name and is never cut. Badge rule from ticket 27 kept. |
 | M4 | ✓ | The Sidebar's scroller is `role="tree"` ("Sessions and Hosts"), sections are `group`s, rows and headings `treeitem`s with `aria-level`, `aria-expanded`, `aria-current`, `aria-selected`. App mode puts focus on the tree with the cursor as `aria-activedescendant` and gives it back on leaving (or to the workspace if the Sidebar went away with `␣ m`). Tab from Find a Host reaches the tree and enters App mode. |
 | M5 | ✓ | Below 1040 px the Key bindings and `:check` panels float over the terminal, as in Focus. Not done: hiding the Sidebar on its own below ~720 px ("also consider"); `␣ e` still does it by hand. |
@@ -428,7 +430,7 @@ check is in [`review/windows/`](review/windows/). Design calls follow `emil-desi
 | N3 | ✓ | A zero-width first flex item makes a hint that doesn't fit wrap away whole. |
 | N4 | ✓ | Top centre. |
 | N5 | ✓ | The cause was the padding on `.term-host`, which FitAddon counted as room; the padding moved onto xterm's own element (which FitAddon subtracts), and xterm's black default viewport is transparent. |
-| N6 | ✓ | Everything at `--text-xs` or above; `src/styles.test.ts` fails on any font size under 11 px. |
+| N6 | ✓ | Everything at `--text-xs` or above; `app/src/styles.test.ts` fails on any font size under 11 px. |
 | N7 | ✓ | Hidden "current" / "previous", a footer legend `* current · - previous`, and the session bar's names say it too. |
 | N8 | ✓ | Every `:hover` rule inside `@media (hover: hover) and (pointer: fine)` (test). The press scale stays **0.97**: that's emil-design-eng's and animate's value, which win over the interfaces skill's 0.96 on motion. |
 
@@ -437,10 +439,10 @@ check is in [`review/windows/`](review/windows/). Design calls follow `emil-desi
 - `npm run check` (tsc, eslint, Vitest) and `cargo test`, `cargo clippy`, `cargo fmt --check` pass; see the ticket's
   commits for the counts.
 - Screens: the Vite dev server with the fake Backend in Playwright's Chromium, 1280 × 800 (800 and 640 for the narrow
-  ones), dark and light, plus Nord, Gruvbox, Catppuccin Mocha and Tokyo Night spot checks: [`review/after/`](review/after/).
-- Windows (WebView2, `tauri dev` from `%LOCALAPPDATA%\roster-desk-dev-29` on port 1434 with its own
+  ones), dark and light, plus Nord, Gruvbox, Catppuccin Mocha and Tokyo Night spot checks: `review/after/`.
+- Windows (WebView2, `tauri dev` from `%LOCALAPPDATA%\roster-app-dev-29` on port 1434 with its own
   `WEBVIEW2_USER_DATA_FOLDER`, the fake Backend's `few-hosts` fixture, no real vault), driven over CDP:
-  [`review/windows/`](review/windows/). Checked: the lock screen, the jade bar on the live Session
+  `review/windows/`. Checked: the lock screen, the jade bar on the live Session
   (`w-session-live-bar`), the node shapes and the App-mode cursor with its details line (`w-app-mode-cursor`), the Key
   bindings panel floating at a 640 px viewport (`w-640-keys-panel`), and locking again. WebView2's own accessibility
   tree (CDP `Accessibility.getFullAXTree`) shows `tree "Sessions and Hosts"` focused in App mode with

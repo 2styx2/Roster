@@ -1,6 +1,6 @@
 # 27: Worst-case UI pass (`/break-ui`)
 
-**Iteration:** 2 · **Repo:** roster-desk · **Decision:** Q47 · **Runs with:** ticket 09 (design pass)
+**Iteration:** 2 · **Repo:** roster (app) · **Decision:** Q47 · **Runs with:** ticket 09 (design pass)
 
 **What to build:** Run the `break-ui` skill over every screen: the Sidebar (Sessions, Folders, Inventory), the Picker, the command line, the Key bindings panel, the lock screen, the error and `:check` panels, the status bar, and Focus mode once 22 lands. Feed each one worst-case data behind a "Demo data / Worst case" toggle:
 - **Long and unbreakable text:** names like `server-10-19-77-202-very-long-discovered-name`, long group names and long error messages.
@@ -19,15 +19,16 @@ Fix everything that breaks. Already seen:
 **Status:** done
 
 - [x] The worst-case fixture is selectable in the app (`?fixture=worst-case`, and a dev-only toggle) and in UI tests.
-- [x] A screenshot of each screen in the worst case, before and after, goes in `docs/design/break-ui/`.
+- [x] A screenshot of each screen in the worst case, before and after, goes in `docs/app/design/break-ui/`.
 - [x] Every issue found is fixed, or listed with a reason.
 - [x] Truncated names always show the full name on hover and in the Host details. No text overlaps at 800px or at 150% scaling.
 
 ## What broke, and what was done
 
-Fixtures: `src/backend/worstCase.ts` (`?fixture=worst-case`, `-empty`, `-one`, `-start`, `-vault`), built
-into the App by `src/backend/fixtureProps.ts` for the dev page and `src/App.worst.test.tsx`. The toggle is
-`src/dev/FixtureToggle.tsx` (dev builds only). Screenshots: `docs/design/break-ui/before/` and `after/`
+Fixtures: `app/src/backend/worstCase.ts` (`?fixture=worst-case`, `-empty`, `-one`, `-start`, `-vault`), built
+into the App by `app/src/backend/fixtureProps.ts` for the dev page and `app/src/App.worst.test.tsx`. The toggle is
+`app/src/dev/FixtureToggle.tsx` (dev builds only). Screenshots were in `docs/app/design/break-ui/before/` and `after/`
+(not carried over into the roster repo; the fixtures above reproduce every screen)
 (Playwright Chromium: `-wide-dark`/`-wide-light` 1180×740, `-narrow` 800×600, `-scaled` 800×500 CSS px at
 1.5×), and `windows-worst-*-150.png` (the real WebView2 window at 150 % Windows scaling, 1180 and 800 px).
 The "before" dark shots predate the neutral dark background (029067c); "after" uses it.
@@ -42,7 +43,7 @@ The "before" dark shots predate the neutral dark background (029067c); "after" u
 | 6 | Ugly | Sidebar | long name next to "unreviewed" (seen in 09) | the badge squeezed the name to ~13 chars | the name wins; the badge, address and note drop out whole when they don't fit; the reason is in the tooltip |
 | 7 | Ugly | Sidebar | IPv6 / long names | addresses cut to "10.1…", "fe80…" | shown whole or not at all (wrapping line box) |
 | 8 | Broken | Sidebar Folders/Inventory | a long Folder or group name | its Host count vanished | counts are their own element (`count`), never cut |
-| 9 | Ugly | everywhere | 1,284 Hosts, 1 Host | "1284 hosts", "1 hosts", "200 of 1284" | `src/ui/format.ts` (Intl.NumberFormat, Intl.PluralRules) |
+| 9 | Ugly | everywhere | 1,284 Hosts, 1 Host | "1284 hosts", "1 hosts", "200 of 1284" | `app/src/ui/format.ts` (Intl.NumberFormat, Intl.PluralRules) |
 | 10 | Broken | status bar | long Box name and path at 800 px | the path vanished first but "hide this bar" was cut mid-word | the path gets only the leftover room, hints drop out whole, then the Box name is cut with a tooltip |
 | 11 | Ugly | Focus hint | ␣ m and F11 | "␣ m F11" read as one sequence | "␣ m or F11" |
 | 12 | Ugly | Folders empty state (seen in 09) | 248 px Sidebar | "press" and its keycaps split across lines | the word before keycaps stays with them; `text-wrap: balance` |

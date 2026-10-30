@@ -1,8 +1,8 @@
 # Themes
 
 A Theme (GLOSSARY) is a named set of colour tokens: 21 UI tokens, the terminal's own colours and,
-optionally, its 16 ANSI colours. `src/theme/theme.ts` says what each token colours,
-`src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
+optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
+`app/src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
 picks, changes or defines one. Decisions Q29, Q37, Q50 and Q51.
 
 ## Choosing one: `:theme`
@@ -27,7 +27,7 @@ Order of precedence: a preview, then `init.lua`'s `theme`, then the State's choi
 | `roster-dark` | Roster dark | Our own (Q29, Q50) | — |
 | `roster-light` | Roster light | Our own (Q29) | — |
 | `gruvbox` | Gruvbox Dark | [morhetz/gruvbox](https://github.com/morhetz/gruvbox), `colors/gruvbox.vim` | MIT/X11 (README, `package.json`) |
-| `nord` | Nord | [nordtheme.com](https://www.nordtheme.com/docs/colors-and-palettes), [nordtheme/nord](https://github.com/nordtheme/nord) `src/nord.css`, terminal colours from [nordtheme/alacritty](https://github.com/nordtheme/alacritty) | MIT (© Sven Greb) |
+| `nord` | Nord | [nordtheme.com](https://www.nordtheme.com/docs/colors-and-palettes), [nordtheme/nord](https://github.com/nordtheme/nord) `app/src/nord.css`, terminal colours from [nordtheme/alacritty](https://github.com/nordtheme/alacritty) | MIT (© Sven Greb) |
 | `catppuccin-mocha` | Catppuccin Mocha | [catppuccin/palette](https://github.com/catppuccin/palette), `palette.json` (`mocha.colors`, `mocha.ansiColors`) | MIT (© Catppuccin) |
 | `tokyo-night` | Tokyo Night | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim), the **night** style: `lua/tokyonight/colors/night.lua` over `storm.lua`; terminal and ANSI colours from `extras/kitty/tokyonight_night.conf` | Apache-2.0 (the repo's `LICENSE`; the generated extras say MIT) |
 
@@ -81,7 +81,7 @@ puts near-black `#08090a` text on it (5.77:1). Roster light fills with the darke
 
 ## The contrast test
 
-`src/theme/contrast.test.ts` measures WCAG 2 ratios for every bundled Theme (tickets 30 and 29):
+`app/src/theme/contrast.test.ts` measures WCAG 2 ratios for every bundled Theme (tickets 30 and 29):
 
 - every **text token** (`text`, `muted`, `warn`, `error`, `accent_ink`) at least **4.5:1** on every
   surface text sits on: `bg`, `chrome`, `sidebar`, `panel`, `raised` and `hover`;
@@ -103,13 +103,17 @@ light, so the hue stays) that pass. Lowest ratio of `muted` (the weakest text to
 
 **`faint` is not a text colour** (decision Q53): it's for icons, chevrons, dots' outlines and rules
 only, and isn't held to a text ratio. All real text (labels, hints, addresses, counts, headings,
-the status bar) uses `muted`, and hierarchy comes from size and weight. `src/styles.test.ts` fails
+the status bar) uses `muted`, and hierarchy comes from size and weight. `app/src/styles.test.ts` fails
 if a stylesheet rule colours text with `--faint`. A Theme of your own should keep `muted` at 4.5:1.
 
 ## Screenshots
 
-Standard with a Session open, and the picker, in each Theme (browser, fake Backend), in
-[design/themes/](design/themes/): `<id>-standard.png` and `<id>-picker.png`.
+Standard with a Session open, and the picker, in each Theme, in
+[design/themes/](design/themes/): `<id>-standard.png` and `<id>-picker.png`. They are made with
+Playwright (Chromium, 1180×740) against the Vite dev server and the fake Backend, so they show only
+fixture data: in `app/`, `npm run dev -- --port 5179`, open
+`http://localhost:5179/?fixture=few-hosts&theme=<id>&toggle=off`, unlock with `correct horse`, open
+`linux-1-000` from the Picker, then open the Picker again and type `esxi`.
 
 | Theme | Standard | Picker |
 |---|---|---|
