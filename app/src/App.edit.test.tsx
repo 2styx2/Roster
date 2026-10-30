@@ -169,6 +169,17 @@ describe("Pending changes", () => {
     expect(statusbar()).not.toHaveTextContent(/Pending change/);
   });
 
+  it(":discard asks even when the panel is already open", async () => {
+    const { user } = await ready(fixtures["edit-pending"] as FakeScenario);
+    await user.click(await within(statusbar()).findByRole("button", { name: /2 Pending changes/ }));
+    await screen.findByRole("region", { name: "Pending changes" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    const diff = screen.getByLabelText("The diff of roster.yml");
+    expect(diff).not.toHaveTextContent("diff --git");
+    await user.keyboard(`${LEADER}:discard{Enter}`);
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+  });
+
   it("Esc backs out of the question, then closes the panel", async () => {
     const { user, backend } = await ready(fixtures["edit-pending"] as FakeScenario);
     await within(statusbar()).findByRole("button", { name: /2 Pending changes/ });

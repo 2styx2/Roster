@@ -955,7 +955,7 @@ export function App({
               refreshPending();
               setMessage(
                 update.changed
-                  ? `Saved ${update.host.name} as a Pending change. Sessions use it after \`roster sync\`.`
+                  ? `Saved ${update.host.name} as a Pending change. Sessions use it after roster sync.`
                   : `Nothing changed on ${update.host.name}.`,
               );
             }}
@@ -964,6 +964,7 @@ export function App({
         )}
         {changesView && pending && (
           <ChangesPanel
+            key={changesView.confirm ? "ask" : "show"}
             changes={pending}
             confirm={changesView.confirm}
             editKeys={hintFor(keymap, "edit")}

@@ -51,7 +51,11 @@ export function ChangesPanel({ changes, confirm: confirmAtStart, editKeys, leade
     else panel.current?.focus({ preventScroll: true });
   }, [asking]);
 
-  const lines = changes.state === "done" ? changes.changes.diff.split("\n").filter((l, i, all) => l !== "" || i < all.length - 1) : [];
+  // The file is named above, so git's header lines (diff, index, ---, +++) are left out.
+  const lines =
+    changes.state === "done"
+      ? changes.changes.diff.split("\n").filter((l, i, all) => kindOf(l) !== "meta" && (l !== "" || i < all.length - 1))
+      : [];
   return (
     <section
       ref={panel}
