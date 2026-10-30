@@ -138,6 +138,7 @@ describe("the add form", () => {
     expect(alert).toHaveTextContent("refused the password for user root");
     expect(within(panel).getByLabelText("Password")).toHaveValue("");
     expect(document.body.innerHTML).not.toContain("wrong-password");
+    expect(within(panel).queryByText(/Type the password/)).toBeNull();
     expect((await backend.pendingChanges()).count).toBe(0);
     await expect(backend.getHost("nas-01")).rejects.toThrow();
   });

@@ -70,10 +70,10 @@ interface FieldDef {
 }
 
 const FIELDS: readonly FieldDef[] = [
-  { name: "name", label: "Name", mono: true, placeholder: "esx-02" },
-  { name: "address", label: "Address", mono: true, placeholder: "10.19.77.5" },
+  { name: "name", label: "Name", mono: true, placeholder: "e.g. esx-02" },
+  { name: "address", label: "Address", mono: true, placeholder: "e.g. 10.19.77.5" },
   { name: "port", label: "Port", mono: true },
-  { name: "user", label: "User", mono: true, placeholder: "root" },
+  { name: "user", label: "User", mono: true, placeholder: "e.g. root" },
   { name: "group", label: "Group", mono: true },
   { name: "type", label: "Type", mono: true, placeholder: "esxi, switch, linux…" },
   { name: "title", label: "Title", mono: false },
@@ -146,6 +146,8 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
   const forgetPassword = () => {
     if (password.current) password.current.value = "";
     setHasPassword(false);
+    // Emptied on purpose: no "type the password" nag until the next try.
+    setTouched((t) => new Set([...t].filter((f) => f !== "password" && f !== "*")));
   };
 
   const add = async (hostKey?: string) => {
