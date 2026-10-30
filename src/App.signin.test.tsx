@@ -187,6 +187,38 @@ describe("signing in from the lock screen", () => {
     await workspace();
   });
 
+  it("keeps exactly one SSO poll in flight while the App re-renders (review 2)", async () => {
+    const backend = fakeBackend({ ...(fixtures["sign-in-sso"] as FakeScenario), signIn: { sso: "ok", ssoMs: 200 } });
+    const answer = backend.signInAnswer.bind(backend);
+    let inFlight = 0;
+    let most = 0;
+    let calls = 0;
+    backend.signInAnswer = async (id, a) => {
+      calls++;
+      most = Math.max(most, ++inFlight);
+      try {
+        return await answer(id, a);
+      } finally {
+        inFlight--;
+      }
+    };
+    const clock = manualClock();
+    const user = userEvent.setup();
+    const { rerender } = render(<App backend={backend} clock={clock} />);
+    await screen.findByRole("dialog", { name: /sign in/i });
+    await user.click(within(dialog()).getByRole("button", { name: /use sso/i }));
+    await user.keyboard("{Enter}");
+    await within(dialog()).findByText(/finish signing in with your browser/i);
+    // The parent re-renders (any App state change does this) while the poll waits.
+    for (let i = 0; i < 5; i++) rerender(<App backend={backend} clock={clock} />);
+    const pw = await within(dialog()).findByLabelText<HTMLInputElement>(/master password/i);
+    expect(most).toBe(1);
+    expect(calls).toBe(1);
+    expect(within(dialog()).queryByRole("alert")).toBeNull();
+    await user.type(pw, `${FAKE_PASSWORD}{Enter}`);
+    await workspace();
+  });
+
   it("reports SSO that fails in the browser and goes back to the SSO screen", async () => {
     const { user } = await start({ ...(fixtures["sign-in-sso"] as FakeScenario), signIn: { sso: "fail", ssoMs: 20 } });
     await user.click(within(dialog()).getByRole("button", { name: /use sso/i }));

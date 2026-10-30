@@ -513,7 +513,9 @@ function MethodPicker({ methods, busy, pick }: { methods: TwoFactorMethod[]; bus
   );
 }
 
-/** SSO: show the link, and keep asking roster (it waits up to 20 s a call) until the browser is done. */
+/** SSO: show the link, and keep asking roster (it waits up to 20 s a call) until the browser is done.
+ * Exactly one poll is in flight per sign-in: re-renders of the App (which hand down new callbacks)
+ * never start another, and a poll whose screen has gone is left to finish with its result ignored. */
 function SsoWait({
   step,
   via,
@@ -531,24 +533,41 @@ function SsoWait({
 }) {
   const [copied, setCopied] = useState(false);
   const { login } = step;
+  // The newest props, for the poll to answer with; it never restarts because they changed.
+  const latest = useRef({ vault, failed, advanced, via });
   useEffect(() => {
-    let alive = true;
+    latest.current = { vault, failed, advanced, via };
+  });
+  const poll = useRef<{ login: string; wanted: boolean } | null>(null);
+  useEffect(() => {
+    const running = poll.current;
+    if (running?.login === login) {
+      // Still asking for this sign-in (StrictMode runs effects twice): carry on with that poll.
+      running.wanted = true;
+      return () => {
+        running.wanted = false;
+      };
+    }
+    const mine = { login, wanted: true };
+    poll.current = mine;
     void (async () => {
       try {
         let s: SignInStep;
         do {
-          s = await vault.signInAnswer(login, {});
-          if (!alive) return;
+          s = await latest.current.vault.signInAnswer(login, {});
+          if (!mine.wanted) return;
         } while (s.step === "sso");
-        advanced(s, via);
+        latest.current.advanced(s, latest.current.via);
       } catch (e) {
-        if (alive) failed(e, via);
+        if (mine.wanted) latest.current.failed(e, latest.current.via);
+      } finally {
+        if (poll.current === mine) poll.current = null;
       }
     })();
     return () => {
-      alive = false;
+      mine.wanted = false;
     };
-  }, [login, vault, failed, advanced, via]);
+  }, [login]);
   return (
     <div>
       <p aria-live="polite">Finish signing in with your browser. roster opened the page on this Box; if it didn't, open this link:</p>
