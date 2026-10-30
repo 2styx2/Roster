@@ -26,3 +26,17 @@ One repo, two halves: the Python CLI at the root (`src/roster/`, `tests/`) and t
 
 - Branch model: `CONTRIBUTING.md`. Work only on Work branches (`feat/NN-slug` after the ticket, `fix/…`, `docs/…`, `chore/…`) cut from `dev`. Changes land through a GitHub pull request to `dev` (`gh pr create --base dev`); the maintainer reviews and merges. Never push to `dev` or `main` directly.
 - Commits and pull requests carry no `Co-Authored-By` trailer and no Claude/AI attribution line.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues on `2styx2/roster` via `gh`: tickets titled `TNN: …`, one milestone per iteration, `Blocked by #N`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md`, `docs/adr/` and `docs/app/decisions.md`. See `docs/agents/domain.md`.
