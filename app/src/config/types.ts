@@ -86,8 +86,18 @@ export interface Config {
   folders: { name: string; hosts: string[] }[];
   rosterCommand: string[] | null;
   backend: string;
+  /** What `:config` opens init.lua with: the OS's app, or `$EDITOR` inside WSL (ticket 32). */
+  editor: "os" | "wsl";
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
+}
+
+/** What `:config` did (ticket 32). */
+export interface ConfigOpened {
+  /** init.lua's full path. */
+  path: string;
+  /** The file was just made, from the example with every option commented out. */
+  created: boolean;
 }
 
 /** Where the app gets the Config: the core in Tauri; tests push their own. */
@@ -96,4 +106,9 @@ export interface ConfigSource {
   load(): Promise<ConfigReport | null>;
   /** Calls `onChange` after every save of init.lua; returns stop. */
   watch(onChange: (report: ConfigReport) => void): () => void;
+  /** `:config`: makes init.lua if there's none (never overwriting one), then opens it in the
+   * Config's `editor`. Rejects with why it couldn't. */
+  open(): Promise<ConfigOpened>;
+  /** `:config reload`: reads init.lua again now (watchers get it too). */
+  reload(): Promise<ConfigReport | null>;
 }

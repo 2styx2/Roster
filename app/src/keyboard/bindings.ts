@@ -10,7 +10,20 @@ export interface BindingRow {
   label: string;
   keys: string[];
   source: Source;
+  /** Where init.lua changes it (ticket 32): `keys.leader`, `keys.list_vim`, or `leader`. */
+  options: string[];
 }
+
+/** A keymap context's name in init.lua (`keys.<name>`, docs/app/config.md). */
+export const CONTEXT_OPTION: Record<KeymapContext, string> = {
+  leader: "keys.leader",
+  global: "keys.global",
+  list: "keys.list",
+  listVim: "keys.list_vim",
+  picker: "keys.picker",
+  pickerVim: "keys.picker_vim",
+  terminal: "keys.terminal",
+};
 
 const NAMES: Record<string, string> = { ArrowDown: "↓", ArrowUp: "↑", Escape: "Esc" };
 
@@ -52,8 +65,9 @@ export function bindingRows(keymap: Keymap, options: Options, commands: Commands
       const { area, label } = local ? (LOCAL[action] ?? { area: "Other", label: action }) : describeLine(commands, action);
       const key = `${area}\0${label}\0${source}`;
       const rank = local ? 1000 + Object.keys(LOCAL).indexOf(action) : ids.indexOf(action.split(" ")[0] ?? "");
-      const row = rows.get(key) ?? { area, label, keys: [], source, rank };
+      const row = rows.get(key) ?? { area, label, keys: [], source, rank, options: [] };
       row.keys.push(display(context, seq));
+      if (!row.options.includes(CONTEXT_OPTION[context])) row.options.push(CONTEXT_OPTION[context]);
       rows.set(key, row);
     }
   }
@@ -70,8 +84,12 @@ export function bindingRows(keymap: Keymap, options: Options, commands: Commands
     label: "Leader: take the keys back from the terminal",
     keys: [options.leader],
     source: options.leader === defaultOptions.leader ? BUILTIN : CONFIG,
+    options: ["leader"],
   };
-  return [leader, ...foldSessionDigits(sorted.map(({ area, label, keys, source }) => ({ area, label, keys, source })))];
+  return [
+    leader,
+    ...foldSessionDigits(sorted.map(({ area, label, keys, source, options }) => ({ area, label, keys, source, options }))),
+  ];
 }
 
 /** The built-in "Go to Session 1" … "9" rows as one: "Go to Session 1–9", "␣ 1…9". */
@@ -91,5 +109,5 @@ function foldSessionDigits(rows: BindingRow[]): BindingRow[] {
 export function filterRows(rows: readonly BindingRow[], query: string): BindingRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...rows];
-  return rows.filter((r) => [r.area, r.label, r.source, ...r.keys].some((t) => t.toLowerCase().includes(q)));
+  return rows.filter((r) => [r.area, r.label, r.source, ...r.keys, ...r.options].some((t) => t.toLowerCase().includes(q)));
 }

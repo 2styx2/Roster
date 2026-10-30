@@ -62,7 +62,16 @@ export interface CommandContext {
   openFinder(source: string): void;
   /** Says the Backend, the Box and the Inventory's path, whole (the status bar cuts them). */
   showInfo(): void;
+  /** `:config` (ticket 32): opens init.lua (making it first if there's none), reads it again,
+   * or says where it is. */
+  config(what: ConfigAction): void;
 }
+
+/** What `:config` does: `:config`, `:config reload`, `:config path`. */
+export const CONFIG_ACTIONS = ["open", "reload", "path"] as const;
+export type ConfigAction = (typeof CONFIG_ACTIONS)[number];
+/** The ones typed after `config` (open is `:config` alone). */
+const CONFIG_SUBCOMMANDS: readonly string[] = CONFIG_ACTIONS.filter((a) => a !== "open");
 
 export interface CommandDef extends Entry {
   /** id: the `:` name, and what the keymap binds keys to. */
@@ -76,6 +85,9 @@ export interface CommandDef extends Entry {
   staysInAppMode?: boolean;
   /** A list or tree motion (j, k, h, l…): ranked last in completion, as it's meant for keys. */
   motion?: boolean;
+  /** Typed now and then (`config`): ranked after the everyday commands in completion, so `co`
+   * still completes `connect` first. */
+  seldom?: boolean;
   run(ctx: CommandContext, arg: string | undefined): void;
   /** Completions for the argument typed so far (whole arguments), when `arg` is "text". */
   complete?(arg: string, hostNames: readonly string[]): string[];
@@ -202,6 +214,23 @@ export const builtinCommands: readonly CommandDef[] = [
   { id: "terminal", source: BUILTIN, area: "App", label: () => "Back to the terminal", run: (ctx) => ctx.toTerminal() },
   { id: "hidepanel", source: BUILTIN, area: "App", label: () => "Close the side panel", run: (ctx) => ctx.closePanel() },
   {
+    id: "config",
+    source: BUILTIN,
+    area: "App",
+    seldom: true,
+    arg: "text",
+    optionalArg: true,
+    label: (what) =>
+      what === "reload" ? "Read init.lua again" : what === "path" ? "Say where init.lua is" : "Open init.lua, the Config",
+    run: (ctx, what) => {
+      if (what === undefined) return ctx.config("open");
+      const action = CONFIG_SUBCOMMANDS.find((a) => a === what.toLowerCase()) as ConfigAction | undefined;
+      if (!action) return ctx.say(`config takes nothing, ${CONFIG_SUBCOMMANDS.join(" or ")}`);
+      ctx.config(action);
+    },
+    complete: (what) => CONFIG_SUBCOMMANDS.filter((a) => a.startsWith(what.toLowerCase())),
+  },
+  {
     id: "info",
     source: BUILTIN,
     area: "App",
@@ -263,6 +292,9 @@ export function describeLine(commands: Commands, line: string): { area: string; 
   return { area: parsed.command.area, label: parsed.command.label(parsed.arg) };
 }
 
+/** Everyday commands first, then seldom ones, then list and tree motions. */
+const rankOf = (c: CommandDef) => (c.motion ? 2 : c.seldom ? 1 : 0);
+
 /** Complete lines for what's typed so far: command names, then Host names after `connect`, or
  * what the command itself offers. */
 export function complete(commands: Commands, input: string, hostNames: readonly string[]): string[] {
@@ -272,7 +304,7 @@ export function complete(commands: Commands, input: string, hostNames: readonly 
     return commands
       .list()
       .filter((c) => c.id.startsWith(input))
-      .sort((a, b) => Number(a.motion ?? false) - Number(b.motion ?? false) || a.id.localeCompare(b.id))
+      .sort((a, b) => rankOf(a) - rankOf(b) || a.id.localeCompare(b.id))
       .map((c) => (c.arg && !c.optionalArg ? `${c.id} ` : c.id));
   }
   const command = commands.get(input.slice(0, space));

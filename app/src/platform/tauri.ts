@@ -4,7 +4,7 @@
 // clipboard itself.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ConfigReport } from "../config/types";
+import type { ConfigOpened, ConfigReport } from "../config/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { tauriWindow } from "./tauriWindow";
@@ -28,6 +28,8 @@ export function tauriPlatform(): Platform {
         const stop = listen<ConfigReport>("config-changed", (e) => onChange(e.payload));
         return () => void stop.then((f) => f());
       },
+      open: () => invoke<ConfigOpened>("config_open"),
+      reload: () => invoke<ConfigReport | null>("config_reload"),
     },
   };
 }

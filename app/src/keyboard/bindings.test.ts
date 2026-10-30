@@ -16,8 +16,8 @@ describe("bindingRows", () => {
 
   it("lists each action's keys, split by where they came from", () => {
     expect(find("Next Session")).toEqual([
-      { area: "Sessions", label: "Next Session", keys: ["␣ ]"], source: "builtin" },
-      { area: "Sessions", label: "Next Session", keys: ["␣ t"], source: "init.lua" },
+      { area: "Sessions", label: "Next Session", keys: ["␣ ]"], source: "builtin", options: ["keys.leader"] },
+      { area: "Sessions", label: "Next Session", keys: ["␣ t"], source: "init.lua", options: ["keys.leader"] },
     ]);
     expect(find("Close the Session")[0]?.keys).toEqual(["␣ d d"]);
     expect(find("Back to the terminal")[0]?.keys).toEqual(["Esc"]);

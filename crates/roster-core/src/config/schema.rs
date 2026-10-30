@@ -47,6 +47,8 @@ pub struct Config {
     pub roster_command: Option<RosterCommand>,
     /// "auto", "local", "wsl" or "wsl:<distro>". `ROSTER_APP_WSL_DISTRO` wins.
     pub backend: BackendChoice,
+    /// What `:config` opens init.lua with (ticket 32).
+    pub editor: Editor,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -73,6 +75,7 @@ impl Default for Config {
             folders: Vec::new(),
             roster_command: None,
             backend: BackendChoice::Auto,
+            editor: Editor::Os,
             lines: BTreeMap::new(),
         }
     }
@@ -264,6 +267,15 @@ impl<'de> Deserialize<'de> for AnsiChoice {
         }
         d.deserialize_any(V)
     }
+}
+
+/// What `:config` opens init.lua with: the OS's app for the file, or `$EDITOR` inside WSL (in a
+/// console window of its own).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Editor {
+    Os,
+    Wsl,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

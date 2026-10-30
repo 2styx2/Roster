@@ -11,10 +11,28 @@ export interface MemoryPlatform extends Platform {
   fullscreen(): boolean;
   /** Acts as a save of init.lua: the app gets `report` as a live change. */
   saveConfig(report: ConfigReport): void;
+  /** Changes what's on disk with no save event; `:config reload` reads it. */
+  writeConfig(report: ConfigReport): void;
+  /** init.lua's text, or null while there's no file. */
+  configFile(): string | null;
+  /** The paths `:config` opened, in order. */
+  opened(): string[];
+  /** Makes the next `:config` fail with `message`. */
+  failOpen(message: string): void;
 }
 
+/** What the core writes the first time (roster-core config/editor.rs starter): commented out. */
+const STARTER = "-- Made by the roster app's :config from its example (examples/init.lua).\n";
+
 export function memoryPlatform(
-  start: { state?: unknown; windowsBuild?: number | null; clipboard?: string; config?: ConfigReport } = {},
+  start: {
+    state?: unknown;
+    windowsBuild?: number | null;
+    clipboard?: string;
+    config?: ConfigReport;
+    /** init.lua's text (default: no file). */
+    configFile?: string | null;
+  } = {},
 ): MemoryPlatform {
   let state = start.state ?? {};
   let config = start.config ?? null;
@@ -22,6 +40,13 @@ export function memoryPlatform(
   let saved: unknown;
   let clip = start.clipboard ?? "";
   let full = false;
+  let file = start.configFile ?? null;
+  const opened: string[] = [];
+  let openError: string | null = null;
+  const path = () => config?.path ?? "/home/you/.config/roster/init.lua";
+  const emit = (report: ConfigReport) => {
+    for (const w of watchers) w(report);
+  };
   return {
     loadState: async () => state,
     async saveState(s) {
@@ -45,10 +70,33 @@ export function memoryPlatform(
         watchers.add(onChange);
         return () => watchers.delete(onChange);
       },
+      async open() {
+        if (openError !== null) {
+          const message = openError;
+          openError = null;
+          throw new Error(message);
+        }
+        const created = file === null;
+        if (created) file = STARTER;
+        opened.push(path());
+        return { path: path(), created };
+      },
+      async reload() {
+        if (config) emit(config);
+        return config;
+      },
     },
     saveConfig(report) {
       config = report;
-      for (const w of watchers) w(report);
+      emit(report);
+    },
+    writeConfig(report) {
+      config = report;
+    },
+    configFile: () => file,
+    opened: () => [...opened],
+    failOpen(message) {
+      openError = message;
     },
     saved: () => saved,
     clipboardText: () => clip,

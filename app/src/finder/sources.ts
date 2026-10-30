@@ -52,8 +52,9 @@ export interface FinderSourceDef extends Entry {
   move?(item: FinderItem | undefined): void;
   /** The Finder closed, chosen or not (after Enter's command has run): undo a preview. */
   close?(): void;
-  /** A line for the footer while the Finder is open ("set in init.lua"). */
-  note?(): string | undefined;
+  /** A line for the footer while the Finder is open ("set in init.lua"), for the item under
+   * the cursor (undefined when nothing matches). */
+  note?(item: FinderItem | undefined): string | undefined;
 }
 
 export type FinderRegistry = Registry<FinderSourceDef>;

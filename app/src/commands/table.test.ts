@@ -38,6 +38,7 @@ function recorder(mode: ViewMode = "standard") {
     setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
     openFinder: (id) => calls.push(`finder ${id}`),
     showInfo: () => calls.push("info"),
+    config: (what) => calls.push(`config ${what}`),
   };
   return { ctx, calls };
 }
@@ -138,7 +139,8 @@ describe("complete", () => {
   });
 
   it("completes a command name, with a space when it needs an argument", () => {
-    expect(complete("co", hosts)).toEqual(["connect "]);
+    // A seldom command (config) comes after the everyday ones.
+    expect(complete("co", hosts)).toEqual(["connect ", "config"]);
     expect(complete("l", hosts)).toEqual(["lock"]);
     expect(complete("cl", hosts)).toEqual(["close"]);
   });
