@@ -519,6 +519,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .edit-field input[aria-invalid="true"] { border-color: var(--error); }
 .edit-field-problem { color: var(--error); font-size: var(--text-xs); }
 .edit-note { margin: 0; color: var(--muted); }
+/* "Save to vault" says what it saves before its fields (ticket 15). */
+.save-panel > .edit-note { margin-bottom: 12px; }
+.save-panel p.edit-hint { margin: 0; }
 .edit-problem { border-top: 1px solid var(--line); padding-top: 8px; }
 .edit-problem .problem-message { margin-bottom: 8px; }
 .edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
@@ -798,6 +801,13 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .quick-password .connect-name { color: var(--text); }
 .quick-password input { height: 32px; padding: 0 10px; min-width: 0; }
 .quick-keys { font-size: var(--text-xs); text-align: left; }
+/* "Save to vault" (ticket 15): a plain choice under the password, before anything connects. */
+.quick-save { align-self: flex-start; color: var(--text); font-size: var(--text-xs); }
+/* Its offer, once the Session logged in with that password: a session note (it eases in like the
+   others, from the system, never from a key), quiet until the user turns to it. Leaves at once. */
+.session-note.save-offer { padding-right: 4px; }
+.session-note.save-offer > span:first-child { color: var(--text); }
+.session-note.save-offer .key-hint { margin-left: 4px; }
 
 .session-error { margin: 40px auto; width: min(680px, calc(100% - 32px)); }
 .session-error.overlay {

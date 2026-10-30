@@ -33,6 +33,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     INVALID_HOST,
     INVENTORY_ERROR,
     ITEM_EXISTS,
+    LOGIN_NOT_SEEN,
     NAME_TAKEN,
     NO_ASKPASS,
     NO_SIGN_IN,
@@ -41,6 +42,8 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NOT_REVIEWED,
     NOT_SET_UP,
     NOT_VERIFIED,
+    NOTHING_HELD,
+    PASSWORD_NEEDED,
     READ_ONLY_TARGET,
     ROSTER_ERROR,
     UNKNOWN_GROUP,
@@ -60,7 +63,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 12            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 13            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -91,6 +94,7 @@ class State:
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         self.quick = {}                     # quick.prepare's Quick Connects by id: where, and the key confirmed (T15)
+        self.held = {}                      # typed passwords held for "Save to vault", by id: Held (T15, T16)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -206,6 +210,11 @@ def session_prepare(state, params):
     if not in_ssh_config(h["name"]):
         raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
+    if not h["enroll"] and prompted(h):
+        return prompt_session(state, h, ssh, params)
+    if params.get("password") is not None or params.get("save") is not None:
+        raise RpcError(INVALID_PARAMS, f"params.password and params.save are only for a Host whose Login is auth: "
+                                       f"prompt; {h['name']}'s password comes from its Login")
     if not h["enroll"] and diagnose.password_login(h):
         return password_session(state, h, ssh)
     known_key(h)
@@ -243,6 +252,47 @@ def password_session(state, h, ssh):
     return {"argv": [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
+
+
+def prompted(h):
+    """Is the Host's ssh Login `auth: prompt`: a password nobody saved, which the user types (ticket 16)?"""
+    login = diagnose.password_login(h)
+    return login is not None and str(login["auth"]).partition(":")[0].strip() == "prompt"
+
+
+def prompt_session(state, h, ssh, params):
+    """A Session to an `auth: prompt` Host (ticket 16): roster has no password to look up, so the app asks for it
+    (39 until it's sent) and it goes to ssh through an askpass token, like a vault password. With save: true serve
+    holds it for "Save to vault" (host.save_login) until that Session has logged in with it; that Session then
+    never reuses a shared connection (ControlPath=none), so the login really is made with the typed password."""
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
+                                   "need `roster serve`")
+    diagnose.check_user(h)
+    known_key(h)
+    password = params.get("password")
+    if password is None:
+        raise RpcError(PASSWORD_NEEDED, f"{h['name']}'s Login is auth: prompt - type its password",
+                       {"user": h["ssh"]["user"], "address": h["ip"], "port": h["ssh"]["port"]},
+                       fix="type the password when the app asks; tick Save to vault to keep it in the vault "
+                           "once it has logged in")
+    if not isinstance(password, str) or not password:
+        raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string")
+    save = save_param(params, password)
+    if save:
+        saving_provider(state, params)
+    typed = askpass.Typed(password)
+    del password
+    argv = [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
+            "-o", "PreferredAuthentications=password,keyboard-interactive"]
+    held = {}
+    if save:
+        held = {"held": hold(state, secrets.token_hex(8), typed, "host", h["name"],
+                             {"host": h["name"], "login": login_key(h)})}
+        argv += [*state.askpass.login_options(), "-o", "ControlPath=none"]
+    token = state.askpass.mint(typed, h["name"])
+    return {"argv": [*argv, h["name"]], "env": state.askpass.env(token), "host": h["name"], "auth": "password",
+            **held}
 
 
 askpass_lookup = diagnose.askpass_lookup
@@ -510,6 +560,9 @@ def quick_prepare(state, params):
     if password is not None and (not isinstance(password, str) or not password):
         raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string, or left out to log in with "
                                        "this box's keys")
+    save = save_param(params, password)
+    if save:
+        saving_provider(state, params)
     ssh = shutil.which("ssh")
     if ssh is None:
         raise RpcError(NOT_SET_UP, "there's no ssh on this box's PATH - install OpenSSH's client")
@@ -543,18 +596,240 @@ def quick_prepare(state, params):
     argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(known)}", "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", f"HostKeyAlias={alias}", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none",
             "-o", "ConnectTimeout=10"]
+    held = {}
     if password is None:
         argv += ["-o", "BatchMode=yes"]
         env, auth = {}, "key"
     else:
         argv += ["-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive",
                  "-o", "PubkeyAuthentication=no"]
-        token = state.askpass.mint(askpass.Typed(password), label)
+        typed = askpass.Typed(password)
         del password
+        if save:
+            held = {"held": hold(state, qid, typed, "quick", label)}
+            argv += state.askpass.login_options()
+        token = state.askpass.mint(typed, label)
         env, auth = state.askpass.env(token), "password"
     argv += ["-p", str(port), "-l", user, "--", address]
     return {"argv": argv, "env": env, "host": label, "auth": auth, "quick": qid, "user": user, "address": address,
-            "port": port, "key_type": key.get_name(), "fingerprint": offered}
+            "port": port, "key_type": key.get_name(), "fingerprint": offered, **held}
+
+
+# ---------------------------------------------------------------- "Save to vault" after the Session's login (T15, T16)
+# Q43 says a password enters the vault only after a login with exactly it succeeded. For a Session that's that
+# Session's own login: with save: true, serve keeps the typed password in memory, bound to an id (the Quick Connect's,
+# or the Host Session's), and ssh runs askpass's logged-in script as its LocalCommand, which ssh does only once it has
+# logged in. The report counts only if that Session's token handed this password to ssh. The save then refers to
+# the id; the password is never sent again. It's forgotten after one save, by vault.forget_typed (the Session ended
+# without saving), by vault.lock, or HOLD_FOR after it was typed.
+
+HOLD_FOR = 600              # s: how long a typed password waits for its "Save to vault"
+
+
+class Held:
+    """A typed password held for "Save to vault": what it's for, and whether its Session has logged in with it."""
+
+    __slots__ = ("typed", "kind", "label", "target", "until", "logged_in")
+
+    def __init__(self, typed, kind, label, target):
+        self.typed, self.kind, self.label, self.target = typed, kind, label, target
+        self.until, self.logged_in = time.monotonic() + HOLD_FOR, False
+
+    def forget(self):
+        self.typed.password, self.typed.on_login = None, None
+
+
+def save_param(params, password):
+    save = params.get("save", False)
+    if not isinstance(save, bool):
+        raise RpcError(INVALID_PARAMS, "params.save must be true or false")
+    if save and password is None:
+        raise RpcError(INVALID_PARAMS, "params.save needs params.password: only a typed password can be saved")
+    return save
+
+
+def saving_provider(state, params):
+    """The provider "Save to vault" will save in (params.provider, else the Inventory's vault), checked before the
+    Session starts: it must be one that can save (61)."""
+    name = vault_provider(state, params)
+    if not providers.can_write(name):
+        raise write_problem(providers.CantWrite(
+            f"provider '{name}' can't save to the vault - roster only reads its Logins; connect without Save to "
+            "vault and create the item in the password manager itself"))
+    return name
+
+
+def hold(state, hid, typed, kind, label, target=None):
+    """Hold TYPED under HID until it's saved or forgotten; its Session's login report marks it (and tells the app:
+    the session.logged_in notification)."""
+    prune_held(state)
+    held = Held(typed, kind, label, target)
+
+    def on_login():
+        if state.held.get(hid) is held and held.typed.password is not None:
+            held.logged_in = True
+            if state.notify:
+                state.notify("session.logged_in", {"held": hid})
+    typed.on_login = on_login
+    state.held[hid] = held
+    return hid
+
+
+def prune_held(state):
+    now = time.monotonic()
+    for hid, held in list(state.held.items()):
+        if held.until <= now:
+            held.forget()
+            del state.held[hid]
+
+
+def logged_in_with(state, hid, kind):
+    """The Held for HID, once its Session logged in with it (66 before, 67 if there's none)."""
+    prune_held(state)
+    held = state.held.get(hid) if isinstance(hid, str) else None
+    if held is None or held.kind != kind:
+        raise RpcError(NOTHING_HELD, "there's no typed password to save for that Session: it was saved already, or "
+                                     "forgotten (the Session ended, the vault was locked, or 10 minutes passed)",
+                       fix="connect again with Save to vault ticked")
+    if not held.logged_in:
+        raise RpcError(LOGIN_NOT_SEEN, f"{held.label} hasn't logged in with that password - roster saves it only "
+                                       "after the login succeeded",
+                       fix="wait until the Session has logged in; if the box refused the password, nothing is saved")
+    return held
+
+
+def forget_held(state, hid=None):
+    """Forget one held password (HID; whether there was one), or all of them (vault.lock)."""
+    found = False
+    for key in [hid] if hid is not None else list(state.held):
+        held = state.held.pop(key, None)
+        if held is not None:
+            held.forget()
+            found = True
+    return found
+
+
+def vault_forget_typed(state, params):
+    """Forget the typed password held for a Session's "Save to vault" (the Session ended, or the offer was turned
+    down). Never fails."""
+    hid = text_param(params, "held")
+    return {"forgotten": forget_held(state, hid)}
+
+
+def make_item(provider, item, password, user, address, port, save_to):
+    """The Vault item for a password that just logged in: the user in its username field, ssh://address[:port] in
+    its URI field. Raises the write_problem (60-65, 14) when the vault refuses."""
+    uri = f"ssh://{address}" + ("" if port == 22 else f":{port}")
+    try:
+        made = providers.create_item(provider, name=item, password=password, username=user, uri=uri,
+                                     save_to=save_to)
+    except providers.SecretError as e:
+        raise write_problem(e) from None
+    return {"provider": provider, **made}
+
+
+def item_param(params, name):
+    item = params.get("item") or f"{name} ssh"
+    if not isinstance(item, str) or not item.strip() or "\n" in item or ":" in item:
+        raise RpcError(INVALID_PARAMS, "params.item must be one line, without ':' (e.g. 'esx-02 ssh')")
+    return " ".join(item.split())
+
+
+def quick_save(state, params):
+    """Save a Quick Connect that logged in (ticket 15, Q43): its typed password as the Vault item `<name> ssh`, then
+    the box as the Host NAME in GROUP (reviewed, enroll: false, its Login that item) as a Pending change, then the
+    host key the user confirmed for the Session recorded for it. The item is taken back out if the Host can't be
+    written. The password is forgotten once it's saved."""
+    try:
+        return save_quick(state, params)
+    except (RpcError, SystemExit):
+        raise
+    except Exception as e:                      # never let the generic handler log text that might hold the password
+        raise RpcError(INTERNAL_ERROR, f"saving the Quick Connect failed: {type(e).__name__}") from None
+
+
+def save_quick(state, params):
+    hid = text_param(params, "quick")
+    name, group = text_param(params, "name"), text_param(params, "group")
+    item = item_param(params, name)
+    save_to = save_to_param(params)
+    held = logged_in_with(state, hid, "quick")
+    provider = saving_provider(state, params)
+    q = state.quick[hid]
+    fields = {"ip": q["address"], "user": q["user"], "port": q["port"], "auth": f"{provider}:{item}",
+              "enroll": False, "reviewed": True}
+    for f in ("title", "type", "description"):
+        if params.get(f):
+            fields[f] = params[f]
+    try:
+        fields = {f: edit.check_new(f, v) if f != "reviewed" else v for f, v in fields.items()}
+    except ValueError as e:
+        raise RpcError(INVALID_PARAMS, f"params: {e}") from None
+    state.fresh()
+    repo = changes.Repo(state.path)
+    _, _, h = edit.added(repo.path, group, name, fields)      # a dry run: the name and group, before the vault
+    made = make_item(provider, item, held.typed.password, q["user"], q["address"], q["port"], save_to)
+    try:                                        # until the Host is written, any failure takes the item back out
+        old_text, new_text, _ = edit.added(repo.path, group, name, fields)
+        backup = repo.backup(old_text)
+        edit.replace_file(repo.path, new_text)
+    except BaseException as e:
+        raise take_back(made, write_failed(name, repo.path, e)) from None
+    forget_held(state, hid)
+    warnings = []
+    try:                                        # the key the user confirmed for this Session, never a fresh scan
+        record_host_key(h, q["key_type"], q["base64"])
+    except Exception as e:
+        warnings.append(f"{name} was added, but its host key couldn't be recorded in ~/.ssh/roster_known_hosts "
+                        f"({failure_text(e)}) - the first Session to it will ask about the key")
+    state.reload()
+    return {"added": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "item": made,
+            "warnings": warnings}
+
+
+def host_save_login(state, params):
+    """Save an `auth: prompt` Host's typed password once its Session logged in with it (ticket 16, Q43): the Vault
+    item `<host> ssh`, then the Host's Login pointed at it, as a Pending change (comments and every other byte kept).
+    The item is taken back out if the Host can't be changed. Refused (75) if the Host's address, user, port or Login
+    changed since that Session logged in: it would save a password for a login nobody tested."""
+    try:
+        return save_login(state, params)
+    except (RpcError, SystemExit):
+        raise
+    except Exception as e:                      # never let the generic handler log text that might hold the password
+        raise RpcError(INTERNAL_ERROR, f"saving the Login failed: {type(e).__name__}") from None
+
+
+def save_login(state, params):
+    hid = text_param(params, "held")
+    held = logged_in_with(state, hid, "host")
+    name = held.target["host"]
+    item = item_param(params, name)
+    save_to = save_to_param(params)
+    provider = saving_provider(state, params)
+    h = state.fresh()["hosts"].get(name)
+    if h is None or login_key(h) != held.target["login"]:
+        raise RpcError(NOT_VERIFIED, f"{name} changed since its Session logged in (its address, user, port or "
+                                     "Login) - nothing was saved",
+                       fix=f"open a new Session to {name} and save from there")
+    wanted = {"auth": f"{provider}:{item}"}
+    repo = changes.Repo(state.path)
+    edit.edited(repo.path, name, wanted)        # a dry run: the edit must be possible before the vault is touched
+    made = make_item(provider, item, held.typed.password, h["ssh"]["user"], h["ip"], h["ssh"]["port"], save_to)
+    try:                                        # until the Login is written, any failure takes the item back out
+        old_text, new_text, _ = edit.edited(repo.path, name, wanted)
+        backup = repo.backup(old_text)
+        edit.replace_file(repo.path, new_text)
+    except BaseException as e:
+        problem = e if isinstance(e, Problem) else Problem(
+            ROSTER_ERROR, f"{name}'s Login wasn't changed: "
+                          + (die_message(e) if isinstance(e, SystemExit) else
+                             f"couldn't write {repo.path} ({failure_text(e)})"))
+        raise take_back(made, problem) from None
+    forget_held(state, hid)
+    state.reload()
+    return {"changed": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "item": made,
+            "warnings": []}
 
 
 def quick_label(user, address, port):
@@ -880,6 +1155,9 @@ METHODS["inventory.watch"] = inventory_watch
 METHODS["host.scan_key"] = host_scan_key
 METHODS["host.trust_key"] = host_trust_key
 METHODS["quick.prepare"] = quick_prepare
+METHODS["quick.save"] = quick_save
+METHODS["host.save_login"] = host_save_login
+METHODS["vault.forget_typed"] = vault_forget_typed
 METHODS["host.add"] = host_add
 METHODS["host.review"] = host_review
 METHODS["inventory.pull"] = inventory_pull
@@ -985,6 +1263,7 @@ def forget_askpass_tokens(state):
 
 
 ON_VAULT_LOCK.append(forget_askpass_tokens)
+ON_VAULT_LOCK.append(forget_held)
 
 
 def vault_lock(state, params):
@@ -1214,7 +1493,8 @@ METHODS["vault.login"] = vault_login
 # to take a new Vault item back out). So serve
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
-             "host.verify_login": 45, "vault.create_item": 45}
+             "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
+             "host.save_login": 45}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 

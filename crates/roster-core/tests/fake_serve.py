@@ -1,11 +1,13 @@
 """Stand-in for `roster serve` in roster-core's tests. JSON-RPC 2.0, one object per line.
 
 The first argument picks a behaviour:
-  ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1
+  ok                 answers inventory.info / hosts.list / host.get / session.prepare like roster api 1 (pve's
+                     Login is auth: prompt: 39 until a password comes, save: true adds held: "h1", ticket 16)
   old-api            inventory.info reports api_version 0
   unknown-key        session.prepare refuses with 44 until host.trust_key records esxi-02's key (host.scan_key shows it)
   quick              quick.prepare (Quick Connect, ticket 14): FINGERPRINT goes through, any other is 23; a
-                     password gets an askpass token in env, and the password itself is never echoed back
+                     password gets an askpass token in env, and the password itself is never echoed back;
+                     save: true (ticket 15) adds held: "q1" and the LocalCommand options
   no-inventory       every method returns error code 1, like serve without a roster.yml
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
   reverse            holds two requests, then answers them in reverse order
@@ -33,6 +35,9 @@ HOSTS = [
     {"name": "sw-core", "ip": "10.19.1.2", "group": "lab", "type": "switch", "product": "", "title": "",
      "reviewed": True, "password": True},
 ]
+# An auth: prompt Host (ticket 16), only for session.prepare (hosts.list keeps its three).
+PROMPTED = {"name": "pve", "ip": "10.19.1.9", "group": "lab", "type": "linux", "product": "", "title": "",
+            "reviewed": True, "prompt": True}
 
 # A password Session's token: a new one per session.prepare, like roster's (tests check it never
 # shows up in Debug or errors, and that every open asks for a fresh one).
@@ -83,14 +88,16 @@ def answer(req):
         if "password" not in p:
             return {"result": {"argv": [*base, "-o", "BatchMode=yes", *tail], "env": {}, "auth": "key", **common}}
         minted += 1
-        return {"result": {"argv": [*base, "-o", "NumberOfPasswordPrompts=1", *tail], "auth": "password", **common,
+        held = {"held": "q1"} if p.get("save") is True else {}
+        local = ["-o", "PermitLocalCommand=yes", "-o", "LocalCommand=/run/user/1000/roster-askpass-x1/logged-in"] if held else []
+        return {"result": {"argv": [*base, "-o", "NumberOfPasswordPrompts=1", *local, *tail], "auth": "password", **common, **held,
                            "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass",
                                    "SSH_ASKPASS_REQUIRE": "force",
                                    "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
                                    "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"}}}
     if m == "session.prepare":
         name = req.get("params", {}).get("host")
-        h = next((h for h in HOSTS if h["name"] == name), None)
+        h = next((h for h in [*HOSTS, PROMPTED] if h["name"] == name), None)
         if h is None:
             return {"error": {"code": 2, "message": f"unknown host {name!r}"}}
         if not h["reviewed"]:
@@ -98,6 +105,19 @@ def answer(req):
         if not trusted:
             return {"error": {"code": 44, "message": f"roster hasn't seen {name}'s host key before",
                               "data": {"address": h["ip"], "port": 22}}}
+        p = req.get("params", {})
+        if h.get("prompt"):
+            if "password" not in p:
+                return {"error": {"code": 39, "message": f"{name}'s Login is auth: prompt - type its password",
+                                  "data": {"user": "root", "address": h["ip"], "port": 22}}}
+            minted += 1
+            held = {"held": "h1"} if p.get("save") is True else {}
+            return {"result": {
+                "argv": ["/usr/bin/ssh", "-o", "NumberOfPasswordPrompts=1", name],
+                "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass", "SSH_ASKPASS_REQUIRE": "force",
+                        "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
+                        "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"},
+                "host": name, "auth": "password", **held}}
         if h.get("password"):
             if mode == "locked":
                 return {"error": {"code": 14, "message": "Bitwarden vault is locked - unlock it first"}}

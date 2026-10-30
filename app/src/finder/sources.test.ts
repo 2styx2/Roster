@@ -19,6 +19,7 @@ const tab = (id: number, host: string, status: Tab["status"] = { state: "open" }
   shell: true,
   attempt: 1,
   quick: null,
+  save: null,
 });
 
 function context(sessions: TabsSnapshot = { tabs: [], active: null, previous: null }, state: Record<string, unknown> = {}): FinderContext {

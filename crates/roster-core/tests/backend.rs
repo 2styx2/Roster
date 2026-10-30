@@ -235,8 +235,11 @@ fn a_quick_connect_password_goes_to_serve_and_comes_back_as_an_askpass_token() {
         port: 2222,
         fingerprint: "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8".into(),
     };
-    let q = b.quick_session_command(&to, Some("typed-pw-123".into())).unwrap();
+    let q = b
+        .quick_session_command(&to, Some("typed-pw-123".into()), false)
+        .unwrap();
     assert_eq!(q.quick, "q1");
+    assert_eq!(q.held, None);
     assert_eq!(q.command.auth, "password");
     assert_eq!(
         q.command.argv[q.command.argv.len() - 4..],
@@ -245,8 +248,43 @@ fn a_quick_connect_password_goes_to_serve_and_comes_back_as_an_askpass_token() {
     assert!(q.command.env.iter().any(|(k, _)| k == "ROSTER_ASKPASS_TOKEN"));
     let shown = format!("{:?}", q.command);
     assert!(!shown.contains("typed-pw-123") && !shown.contains("tok-3b1f9e2a7c-"));
-    let key = b.quick_session_command(&to, None).unwrap();
+    let key = b.quick_session_command(&to, None, false).unwrap();
     assert_eq!(key.command.auth, "key");
+}
+
+#[test]
+fn an_auth_prompt_hosts_typed_password_goes_to_serve_once_and_only_its_held_id_comes_back() {
+    // Ticket 16: serve answers 39 until the app sends the password typed for the Host.
+    let b = Backend::start(&fake("ok")).unwrap();
+    let err = b.session_command("pve").err().unwrap();
+    assert!(
+        matches!(err, roster_core::rpc::CallError::Rpc { code: 39, .. }),
+        "{err:?}"
+    );
+    let s = b.typed_session_command("pve", "typed-pw-123".into(), true).unwrap();
+    assert_eq!(s.held.as_deref(), Some("h1"));
+    assert_eq!(s.command.auth, "password");
+    assert!(!format!("{:?}", s.command).contains("typed-pw-123"));
+    let plain = b.typed_session_command("pve", "typed-pw-123".into(), false).unwrap();
+    assert_eq!(plain.held, None);
+}
+
+#[test]
+fn a_quick_connect_to_save_asks_serve_to_hold_the_password_and_hands_back_its_id() {
+    // Ticket 15: with "Save to vault" ticked, serve holds the typed password under an id; the app
+    // only ever gets the id, which quick.save refers to.
+    use roster_core::backend::QuickTarget;
+    let b = Backend::start(&fake("quick")).unwrap();
+    let to = QuickTarget {
+        user: "root".into(),
+        address: "10.0.0.5".into(),
+        port: 22,
+        fingerprint: "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8".into(),
+    };
+    let q = b.quick_session_command(&to, Some("typed-pw-123".into()), true).unwrap();
+    assert_eq!(q.held.as_deref(), Some("q1"));
+    assert!(q.command.argv.iter().any(|a| a == "PermitLocalCommand=yes"));
+    assert!(!format!("{:?}", q.command).contains("typed-pw-123"));
 }
 
 #[test]
@@ -259,7 +297,10 @@ fn a_quick_connect_with_a_key_that_changed_keeps_serves_code_and_never_the_passw
         port: 22,
         fingerprint: "SHA256:AAAAbbbbCCCCddddEEEEffffGGGGhhhhIIIIjjjjKKK".into(),
     };
-    let err = b.quick_session_command(&to, Some("typed-pw-123".into())).err().unwrap();
+    let err = b
+        .quick_session_command(&to, Some("typed-pw-123".into()), false)
+        .err()
+        .unwrap();
     assert!(
         matches!(err, roster_core::rpc::CallError::Rpc { code: 23, .. }),
         "{err:?}"
@@ -271,7 +312,7 @@ fn a_quick_connect_with_a_key_that_changed_keeps_serves_code_and_never_the_passw
         ..to
     };
     assert!(matches!(
-        b.quick_session_command(&bad, None).err().unwrap(),
+        b.quick_session_command(&bad, None, false).err().unwrap(),
         roster_core::rpc::CallError::Io { .. }
     ));
 }

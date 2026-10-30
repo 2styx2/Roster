@@ -39,6 +39,7 @@ import {
   VAULT_CONFIG_API_VERSION,
   HOST_KEY_API_VERSION,
   QUICK_CONNECT_API_VERSION,
+  SAVE_TO_VAULT_API_VERSION,
   type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
@@ -80,6 +81,7 @@ import { builtinRegistries, type Registries } from "./registries";
 import { BUILTIN } from "./registry";
 import { SessionPanes, TabStrip } from "./session/Sessions";
 import { parseQuickTarget, type QuickTarget } from "./quick/target";
+import { SavePanel } from "./quick/SavePanel";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { buildSections } from "./sidebar/sections";
@@ -270,6 +272,8 @@ export function App({
   const [pending, setPending] = useState<ChangesState | null>(null);
   // Ticket 11: the add-Host form, with the group it starts in.
   const [adding, setAdding] = useState<{ group: string } | null>(null);
+  // Ticket 15: "Save to vault" for a Session's typed password, once it logged in (the tab's id).
+  const [saving, setSaving] = useState<number | null>(null);
   // Ticket 28: removing a Host asks first.
   const [confirming, setConfirming] = useState<{ host: string; group: string } | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
@@ -337,6 +341,7 @@ export function App({
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
+  const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
   // init.lua's vault settings reach roster (`vault.configure`, API 10; tickets 35 and 41) before the
@@ -508,6 +513,7 @@ export function App({
   const canPublish = apiVersion >= PUBLISH_API_VERSION;
   const canAdd = apiVersion >= ADD_API_VERSION;
   const canLive = apiVersion >= LIVE_API_VERSION;
+  const canSave = apiVersion >= SAVE_TO_VAULT_API_VERSION && vault.view.state === "unlocked";
   const refreshPending = useCallback(() => {
     if (!canEdit) return;
     backend.pendingChanges().then(
@@ -765,6 +771,10 @@ export function App({
     setAdding(null);
     restoreFocus();
   };
+  const closeSave = () => {
+    setSaving(null);
+    restoreFocus();
+  };
   const closeConfirm = () => {
     setConfirming(null);
     restoreFocus();
@@ -906,6 +916,7 @@ export function App({
       if (confirming) return closeConfirm();
       if (editing !== null) return closeEdit();
       if (adding) return closeAdd();
+      if (saving !== null) return closeSave();
       if (changesView) return closeChanges();
       if (check) {
         checkRun.current++;
@@ -976,6 +987,7 @@ export function App({
       if (editing === null && !changesView && !adding) rememberFocus();
       setChangesView(null);
       setAdding(null);
+      setSaving(null);
       setEditing(host);
     },
     addHost: (inGroup) => {
@@ -985,7 +997,22 @@ export function App({
       const group = inGroup ?? (selected && hostByName.get(selected)?.group) ?? Object.keys(hosts?.groups ?? {})[0] ?? "";
       setChangesView(null);
       setEditing(null);
+      setSaving(null);
       setAdding({ group });
+    },
+    saveSession: () => {
+      const tab = sessions.tabs.find((t) => t.id === sessions.active);
+      if (apiVersion < SAVE_TO_VAULT_API_VERSION) {
+        return setMessage(`Save to vault needs a newer roster (API version ${SAVE_TO_VAULT_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      if (!tab?.save) return setMessage("Nothing to save: tick Save to vault when you type a Session's password.");
+      if (tab.save.saved !== null) return setMessage(`Already saved as ${tab.save.saved}.`);
+      if (!tab.save.loggedIn) return setMessage(`${tab.host} hasn't logged in yet: roster saves the password only after it works.`);
+      if (editing === null && !changesView && !adding && saving === null) rememberFocus();
+      setChangesView(null);
+      setEditing(null);
+      setAdding(null);
+      setSaving(tab.id);
     },
     review: (name, reviewed = true) => {
       const verb = reviewed ? "review" : "unreview";
@@ -1438,6 +1465,8 @@ export function App({
               errorRows={errorRows}
               copy={copy}
               addressOf={(name) => hostByName.get(name)?.ip ?? null}
+              canSave={canSave}
+              saveKeys={hintFor(keymap, "save")}
             />
           )}
         </main>
@@ -1564,6 +1593,38 @@ export function App({
               );
             }}
             onClose={closeAdd}
+          />
+        )}
+        {saveTab?.save && hosts && (
+          <SavePanel
+            key={saveTab.id}
+            backend={backend}
+            hosts={hosts}
+            what={
+              saveTab.quick
+                ? { quick: { id: saveTab.save.held, to: saveTab.quick.to, hostname: saveTab.save.hostname } }
+                : { host: { held: saveTab.save.held, name: saveTab.host } }
+            }
+            group={Object.keys(hosts.groups)[0] ?? ""}
+            pendingCount={pendingCount}
+            rows={errorRows}
+            actions={{ run, copy }}
+            onPulled={() => reloadHosts()}
+            chooseTarget={configuresVault}
+            targetsVersion={targetsVersion}
+            onSaved={(r) => {
+              tabs.saved(saveTab.id, r.host.name);
+              closeSave();
+              reloadHosts();
+              refreshPending();
+              setMessage(
+                ("added" in r
+                  ? `Saved ${r.host.name} to ${r.host.group} as a Pending change; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}.`
+                  : `Saved ${r.host.name}'s password to the vault as ${r.item.name}${savedIn(r.item.target)}; its Login points at it now, as a Pending change.`) +
+                  (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
+              );
+            }}
+            onClose={closeSave}
           />
         )}
         {changesView && pending && (

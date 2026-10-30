@@ -34,6 +34,7 @@ NO_FIELD = 34               # the item has no password, or no such #FIELD (row 1
 # 36 UNEXPECTED_PROMPT      askpass: the Host asked something other than the Login password (row 18)
 # 37 TOKEN_SPENT            askpass: the one-time token is used, expired or cleared by vault.lock
 # 38 NO_SERVE               askpass: the helper couldn't reach `roster serve`
+PASSWORD_NEEDED = 39        # session.prepare: the Host's Login is auth: prompt, so the app asks for its password (T16)
 from .askpass import LOOKUP_FAILED, NO_SERVE, TOKEN_SPENT, UNEXPECTED_PROMPT  # noqa: E402,F401 (stdlib-only helper)
 
 # host.check's network and Host steps (rows 11-17, 19)
@@ -68,6 +69,9 @@ NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that i
 UNKNOWN_TARGET = 64         # save_to names an organization, collection or group that isn't there (ticket 35); the
                             #   message names the setting (roster.yml's, init.lua's, or the choice)
 READ_ONLY_TARGET = 65       # save_to names a collection the account may only read; nothing was left behind
+# "Save to vault" after a Session's own login (tickets 15, 16; Q43): quick.save and host.save_login
+LOGIN_NOT_SEEN = 66         # the Session hasn't logged in with the typed password (yet, or it was refused)
+NOTHING_HELD = 67           # no typed password held for that Session: never asked for, already saved, or forgotten
 
 # Editing the Inventory: Pending changes (ticket 10). The verify_login steps reuse 30-48.
 NOT_A_REPO = 70             # roster.yml isn't tracked in a git repo, so it can't have Pending changes

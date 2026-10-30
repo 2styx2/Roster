@@ -180,7 +180,7 @@ describe("one, and none", () => {
     expect(document.querySelector(".statusbar")).not.toHaveTextContent("1 Hosts");
     await user.keyboard(`${LEADER}f`);
     expect(screen.getByRole("dialog", { name: "Find a Host" })).toHaveTextContent("1 Host");
-  });
+  }, 120_000); // walks every row of the Key bindings panel, which grows with each command (#62)
 
   it("has an empty state everywhere, and keeps a key hint's word on its line", async () => {
     const user = await open("worst-case-empty");

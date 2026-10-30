@@ -6,11 +6,16 @@ quick.prepare mints one for a password the user typed (Typed, Quick Connect): th
 with the token (spent, expired and pruned, or vault.lock).
 Helper side (main, run by ssh as SSH_ASKPASS with the prompt as argv[1]): answers only a Login password
 prompt, by sending the token over the socket and printing the password ssh asked for.
+Login reports (ticket 15, "Save to vault"): a Session whose typed password is held for saving runs ssh with
+LocalCommand set to the channel's `logged-in` script, which ssh runs only once it has logged in. It reports the
+Session's token, and serve counts that as a login with the typed password only if that token's password was the one
+handed to ssh.
 
 Wire format, one exchange per connection, then serve closes:
   helper: "TOKEN\\n"                   serve: "ok\\nPASSWORD", or "no CODE\\nREASON"
   helper: "prompt TOKEN PROMPT\\n"     serve: "no 36\\nREASON"   (a prompt the helper won't answer, reported
                                                                so serve can log it; the token isn't spent)
+  helper: "login TOKEN\\n"             serve: "ok\\n" or "no\\n"   (the logged-in script: ssh has logged in)
 REASON is safe to show in the terminal; CODE is one of errors.py's stable codes. The helper prints it as
 the one line "roster askpass: [CODE] REASON" on stderr, which the app's classifier parses.
 
@@ -30,6 +35,7 @@ import threading
 import time
 
 SOCKET_ENV, TOKEN_ENV = "ROSTER_ASKPASS_SOCKET", "ROSTER_ASKPASS_TOKEN"
+LOGIN_ENV = "ROSTER_ASKPASS_LOGGED_IN"     # set only by the logged-in script, never by ssh or the app
 TTL = 60.0                  # seconds a token lives; ROSTER_ASKPASS_TTL may shorten it (tests), never lengthen
 REPLY_TIMEOUT = 30          # the helper waits this long for serve (a vault lookup can take a few seconds)
 PROMPT_LIMIT = 300          # characters of an unexpected prompt that are reported (it comes from the Host)
@@ -81,6 +87,8 @@ def refused_prompt_reason(label, prompt):
 def main(argv=None):
     """`roster askpass PROMPT`: print the Login password and exit 0, or print nothing and exit 1."""
     argv = sys.argv[1:] if argv is None else argv
+    if os.environ.get(LOGIN_ENV) == "1" and not argv:
+        return report_login()
     if len(argv) != 1:
         return 1
     prompt, path, token = argv[0], os.environ.get(SOCKET_ENV), os.environ.get(TOKEN_ENV)
@@ -107,6 +115,23 @@ def main(argv=None):
         return complain(int(code) if code.isdigit() else UNEXPECTED_PROMPT if not expected else TOKEN_SPENT, reason)
     sys.stdout.buffer.write(body + b"\n")
     sys.stdout.flush()
+    return 0
+
+
+def report_login():
+    """The logged-in script, run by ssh as its LocalCommand once it has logged in: tell serve, with the Session's
+    token. It prints nothing (the terminal is the Session's) and never fails the Session."""
+    path, token = os.environ.get(SOCKET_ENV), os.environ.get(TOKEN_ENV)
+    if path and token:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
+                s.connect(path)
+                s.sendall(f"login {token}\n".encode())
+                while s.recv(64):
+                    pass
+        except OSError:
+            pass
     return 0
 
 
@@ -139,12 +164,13 @@ def ttl():
 class Typed:
     """A password the user typed (Quick Connect, ticket 14), as a token's login: the Channel answers with it as is,
     without a lookup. It lives only as long as its token (spent, expired, or forgotten by vault.lock) and never
-    shows in a repr."""
+    shows in a repr, unless serve holds it for "Save to vault" (ticket 15). Then on_login is called (on the channel's
+    thread) when the Session reports its login after this password was handed to ssh."""
 
-    __slots__ = ("password",)
+    __slots__ = ("password", "on_login")
 
-    def __init__(self, password):
-        self.password = password
+    def __init__(self, password, on_login=None):
+        self.password, self.on_login = password, on_login
 
     def __repr__(self):
         return "Typed(...)"
@@ -159,11 +185,13 @@ class Channel:
         self.ttl = ttl()
         self.tokens = {}                     # token -> (login, label, expires at: time.monotonic())
         self.labels = {}                     # token -> (label, until): names a spent token's prompt reports
+        self.handed = {}                     # token -> (Typed, label, until): handed to ssh, awaiting its login report
         self.lock = threading.Lock()
         self.dir = runtime_dir()
         os.chmod(self.dir, 0o700)
         self.socket_path = os.path.join(self.dir, "socket")
         self.helper = os.path.join(self.dir, "askpass")
+        self.login_helper = os.path.join(self.dir, "logged-in")         # ssh's LocalCommand (Save to vault)
         self.known_hosts = os.path.join(self.dir, "quick_known_hosts")   # Quick Connect's keys (serve writes it)
         self.stopping = threading.Event()
         old = os.umask(0o177)                # the socket is created 0600
@@ -176,6 +204,7 @@ class Channel:
         self.server.listen(8)
         self.server.settimeout(0.2)          # so close() can stop the accept loop
         write_helper(self.helper)
+        write_helper(self.login_helper, login=True)
         self.thread = threading.Thread(target=self._accept_loop, name="askpass", daemon=True)
         self.thread.start()
 
@@ -217,10 +246,31 @@ class Channel:
         with self.lock:
             self.tokens.clear()
             self.labels.clear()
+            self.handed.clear()
 
     def env(self, token):
         return {"SSH_ASKPASS": self.helper, "SSH_ASKPASS_REQUIRE": "force",
                 SOCKET_ENV: self.socket_path, TOKEN_ENV: token}
+
+    def login_options(self):
+        """ssh's options that run the logged-in script once it has logged in (ssh runs LocalCommand with the user's
+        shell, after authentication; '%' is its escape)."""
+        return ["-o", "PermitLocalCommand=yes", "-o", f"LocalCommand={shlex.quote(self.login_helper).replace('%', '%%')}"]
+
+    def logged_in(self, token):
+        """The Session with this token has logged in: tell its Typed (once), if this token handed it to ssh."""
+        with self.lock:
+            entry = self.handed.pop(token, None)
+        if entry is None or entry[2] <= time.monotonic():
+            self.log("askpass: a login report for no password roster handed out - ignored")
+            return False
+        typed, label, _ = entry
+        self.log(f"askpass: {label}: logged in")
+        try:
+            typed.on_login()
+        except Exception as e:                  # never let a report break the channel
+            self.log(f"askpass: {label}: handling the login failed: {type(e).__name__}")
+        return True
 
     # ---- the socket
 
@@ -252,6 +302,8 @@ class Channel:
                 pass
 
     def _reply(self, request):
+        if request.startswith("login "):
+            return b"ok\n" if self.logged_in(request.split(" ", 1)[1]) else b"no\n"
         if request.startswith("prompt "):
             _, token, prompt = (request.split(" ", 2) + [""])[:3]
             label = self.label(token)
@@ -275,6 +327,9 @@ class Channel:
             self.log(f"askpass: {label}: {reason}")
             return f"no {code}\n{reason}".encode()
         self.log(f"askpass: {label}: password handed to ssh")
+        if isinstance(login, Typed) and login.on_login is not None:
+            with self.lock:
+                self.handed[request] = (login, label, time.monotonic() + 2 * self.ttl)
         return b"ok\n" + password.encode()
 
     def close(self):
@@ -282,7 +337,7 @@ class Channel:
         self.thread.join(timeout=2)
         self.server.close()
         self.forget()
-        for f in (self.socket_path, self.helper, self.known_hosts):
+        for f in (self.socket_path, self.helper, self.login_helper, self.known_hosts):
             try:
                 os.unlink(f)
             except FileNotFoundError:
@@ -308,13 +363,17 @@ def same_user(conn):
     return uid == os.getuid()
 
 
-def write_helper(path):
+def write_helper(path, login=False):
     """SSH_ASKPASS must be one absolute executable (ssh runs it without a shell or the login PATH):
     a two-line script that runs this module with the Python serve runs on. -I keeps ssh's working
-    directory and PYTHON* variables out of the import path."""
+    directory and PYTHON* variables out of the import path. The logged-in script (login=True) says so in
+    an env var, never in an argument: an askpass argument is a prompt, which the Host may choose."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
     with os.fdopen(fd, "w") as f:
-        f.write(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -m roster.askpass "$@"\n')
+        if login:
+            f.write(f'#!/bin/sh\nexport {LOGIN_ENV}=1\nexec {shlex.quote(sys.executable)} -I -m roster.askpass\n')
+        else:
+            f.write(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -m roster.askpass "$@"\n')
 
 
 if __name__ == "__main__":

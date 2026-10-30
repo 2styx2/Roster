@@ -17,6 +17,7 @@ import {
 } from "../backend/types";
 import { classifyDrop, classifyExit, terminalTail, type Problem } from "../errors/classify";
 import { problemFromCallError } from "../errors/catalog";
+import { hostnameIn } from "../quick/hostname";
 import { formatQuickTarget, type QuickTarget } from "../quick/target";
 
 export type TabStatus =
@@ -24,6 +25,9 @@ export type TabStatus =
   /** roster has no host key recorded for the Host (ticket 36, decision Q60): nothing connects until
    * the user answers. `key` is null while it's being fetched; `trusting` while it's being recorded. */
   | { state: "asking"; key: HostKeyScan | null; trusting: boolean }
+  /** The Host's Login is `auth: prompt` (ticket 16): roster has no password for it, so the tab asks
+   * for one (`connectPrompted`) before anything connects. */
+  | { state: "password"; user: string; address: string; port: number }
   | { state: "open" }
   /** roster refused (`session.prepare`) or the PTY couldn't start; `code` is roster's. */
   | { state: "failed"; message: string; code: number | null; problem: Problem }
@@ -49,6 +53,17 @@ export interface Tab {
    * `user@address`), and serve's id for it once a Session has opened (ticket 15's "Save to vault"
    * refers to it). Null for a Session to a Host. */
   quick: { to: QuickTarget; id: string | null } | null;
+  /** "Save to vault" (tickets 15, 16): serve holds the password typed for this Session under
+   * `held`. `loggedIn` once the Session logged in with it (serve says so), `hostname` what the
+   * box's shell calls it, `saved` the Host it was saved as. Null when nothing is held. */
+  save: SaveOffer | null;
+}
+
+export interface SaveOffer {
+  held: string;
+  loggedIn: boolean;
+  hostname: string | null;
+  saved: string | null;
 }
 
 export interface TabsSnapshot {
@@ -117,7 +132,12 @@ interface Entry {
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
    * to ConPTY's cursor-position request, which ConPTY waits for before starting anything. */
   pending: string[];
+  /** The output since the login, while a save is offered: where the box's name is read from. */
+  saveScan: string;
 }
+
+/** How much of the output after the login is searched for the box's name. */
+const SAVE_SCAN_LIMIT = 4 * 1024;
 
 export class Tabs {
   private readonly backend: Backend;
@@ -132,10 +152,60 @@ export class Tabs {
   private asksAboutKeys = true;
   private readonly now: () => number;
 
+  /** Held ids serve said logged in before their tab knew it held them. */
+  private readonly loggedInEarly = new Set<string>();
+
   /** `now`: the clock the pre-auth window is timed with (tests move it). */
   constructor(backend: Backend, { now = Date.now }: { now?: () => number } = {}) {
     this.backend = backend;
     this.now = now;
+    backend.onLoggedIn?.((held) => this.loggedIn(held));
+  }
+
+  /** serve says the Session holding `held` has logged in with its typed password (Q43). */
+  private loggedIn(held: string) {
+    const entry = this.entries.find((e) => e.tab.save?.held === held);
+    if (!entry?.tab.save) {
+      this.loggedInEarly.add(held);
+      return;
+    }
+    entry.tab = { ...entry.tab, save: { ...entry.tab.save, loggedIn: true } };
+    this.changed();
+  }
+
+  /** Tells serve to forget the password it holds for the tab's Session, unless it was saved. */
+  private dropSave(entry: Entry) {
+    const save = entry.tab.save;
+    if (!save) return;
+    entry.tab = { ...entry.tab, save: null };
+    entry.saveScan = "";
+    if (save.saved === null) void this.backend.forgetTyped(save.held).catch(() => {});
+  }
+
+  /** The user turned the offer down: serve forgets the password now. */
+  dismissSave(id: number) {
+    const entry = this.find(id);
+    if (!entry?.tab.save) return;
+    this.dropSave(entry);
+    this.changed();
+  }
+
+  /** The tab's Session was saved as Host `name` (serve forgot the password itself). */
+  saved(id: number, name: string) {
+    const entry = this.find(id);
+    if (!entry?.tab.save) return;
+    entry.tab = { ...entry.tab, save: { ...entry.tab.save, saved: name } };
+    this.changed();
+  }
+
+  /** Reads the box's name from what its shell printed since the login. */
+  private scanForName(entry: Entry, text: string) {
+    const save = entry.tab.save;
+    if (!save?.loggedIn || save.saved !== null) return;
+    entry.saveScan = (entry.saveScan + text).slice(-SAVE_SCAN_LIMIT);
+    const user = entry.tab.quick?.to.user;
+    const name = user ? hostnameIn(entry.saveScan, user) : null;
+    if (name && name !== save.hostname) entry.tab = { ...entry.tab, save: { ...save, hostname: name } };
   }
 
   /** Called when a password Host's vault turns out to be locked (`session.prepare` code 14): the
@@ -251,7 +321,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -268,6 +338,7 @@ export class Tabs {
       before: null,
       keyAsked: false,
       pending: [],
+      saveScan: "",
       wiring: {
         attach: (sink) => this.attach(id, sink),
         onData: (data) => this.write(id, data),
@@ -301,6 +372,7 @@ export class Tabs {
     if (!entry || (state !== "ended" && state !== "failed")) return false;
     const to = host ?? entry.tab.host;
     const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
+    this.dropSave(entry);
     entry.before = entry.tab;
     entry.keyAsked = false;
     // A Quick Connect asks again, key and password (it keeps neither); to a Host, it's a Host's tab.
@@ -333,16 +405,18 @@ export class Tabs {
     open(entry.size, {
         output: (data) => {
           if (!current()) return;
+          const before = entry.tab;
           this.keepTail(entry, data);
+          if (entry.tab.save) this.scanForName(entry, new TextDecoder().decode(data));
           this.output(entry, data);
-          if (!entry.tab.shell && data.length > 0) {
-            entry.tab = { ...entry.tab, shell: true };
-            this.changed();
-          }
+          if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
+          if (entry.tab !== before) this.changed();
         },
         exit: (exit) => {
           if (!current()) return;
           entry.session = null;
+          // A Session that ends without saving: serve forgets the password it held for it.
+          this.dropSave(entry);
           if (this.find(id)) this.setStatus(entry, { state: "ended", exit, problem: this.classify(entry, exit) });
         },
       })
@@ -356,6 +430,7 @@ export class Tabs {
           // knowing the auth now tells a refused password from a refused key.
           const s = entry.tab.status;
           if (s.state === "ended") {
+            if (session.held !== undefined) void this.backend.forgetTyped(session.held).catch(() => {});
             entry.tab = { ...entry.tab, auth: session.auth };
             this.setStatus(entry, { ...s, problem: this.classify(entry, s.exit) });
             return;
@@ -364,7 +439,10 @@ export class Tabs {
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
           const quick = entry.tab.quick && { ...entry.tab.quick, id: session.quick ?? null };
-          entry.tab = { ...entry.tab, auth: session.auth, quick };
+          const held = session.held;
+          const save: SaveOffer | null =
+            held === undefined ? null : { held, loggedIn: this.loggedInEarly.delete(held), hostname: null, saved: null };
+          entry.tab = { ...entry.tab, auth: session.auth, quick, save };
           this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },
@@ -372,6 +450,14 @@ export class Tabs {
           if (!current()) return;
           if (e instanceof BackendCallError && e.code === SessionRefusal.hostKeyUnknown && this.asksAboutKeys && !entry.keyAsked) {
             this.askAboutKey(entry);
+            return;
+          }
+          if (e instanceof BackendCallError && e.code === SessionRefusal.passwordNeeded && !entry.tab.quick) {
+            const d = e.data ?? {};
+            const user = typeof d["user"] === "string" ? d["user"] : "";
+            const address = typeof d["address"] === "string" ? d["address"] : "";
+            const port = typeof d["port"] === "number" ? d["port"] : 22;
+            this.setStatus(entry, { state: "password", user, address, port });
             return;
           }
           this.refused(entry, e);
@@ -457,8 +543,9 @@ export class Tabs {
   }
 
   /** The user confirmed the Quick Connect's key and typed the password (empty: log in with this
-   * Box's keys). It goes straight to the Backend, once; the tab keeps no copy. */
-  connectQuick(id: number, password: string) {
+   * Box's keys). It goes straight to the Backend, once; the tab keeps no copy. With `save` ("Save
+   * to vault", ticket 15), serve holds it until the Session has logged in and it's saved. */
+  connectQuick(id: number, password: string, save = false) {
     const entry = this.find(id);
     const s = entry?.tab.status;
     const quick = entry?.tab.quick;
@@ -466,7 +553,19 @@ export class Tabs {
     const to: QuickConnect = { ...quick.to, fingerprint: s.key.fingerprint };
     const typed = password === "" ? null : password;
     this.setStatus(entry, { state: "connecting" });
-    this.start(entry, (size, events) => this.backend.openQuickSession(to, typed, size, events));
+    const options = save && typed !== null ? { save: true } : {};
+    this.start(entry, (size, events) => this.backend.openQuickSession(to, typed, size, events, options));
+  }
+
+  /** The user typed the password for an `auth: prompt` Host (ticket 16). It goes straight to the
+   * Backend, once; the tab keeps no copy. With `save`, roster holds it until the Session has logged
+   * in and it's saved. */
+  connectPrompted(id: number, password: string, save = false) {
+    const entry = this.find(id);
+    if (!entry || entry.tab.status.state !== "password" || password === "") return;
+    const typed = save ? { password, save: true } : { password };
+    this.setStatus(entry, { state: "connecting" });
+    this.start(entry, (size, events) => this.backend.openSession(entry.tab.host, size, events, typed));
   }
 
   /** The user trusts the key the tab asks about: roster records it (if the Host still offers
@@ -492,7 +591,7 @@ export class Tabs {
   cancelKey(id: number) {
     const entry = this.find(id);
     const s = entry?.tab.status;
-    if (!entry || s?.state !== "asking" || s.trusting) return;
+    if (!entry || !(s?.state === "password" || (s?.state === "asking" && !s.trusting))) return;
     if (!entry.before) return this.close(id);
     entry.attempt++; // a key still being fetched is no longer asked about
     entry.tab = entry.before;
@@ -506,6 +605,7 @@ export class Tabs {
     const entry = this.entries[i];
     if (!entry) return;
     entry.closing = true;
+    this.dropSave(entry);
     entry.sink = null;
     void entry.session?.close().catch(() => {});
     entry.session = null;
