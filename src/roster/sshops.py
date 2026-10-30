@@ -63,6 +63,16 @@ def offered_host_key(sock, key_types, timeout=10):
     """Key exchange only, over an open socket: the host key the server offers, preferring KEY_TYPES (the
     recorded ones, so a Host with several keys shows the one we can compare). Never authenticates, never
     records anything. Raises paramiko.SSHException if the exchange fails."""
+    t = start_transport(sock, key_types, timeout)
+    try:
+        return t.get_remote_server_key()
+    finally:
+        t.close()
+
+
+def start_transport(sock, key_types, timeout=10):
+    """An SSH transport over SOCK with the key exchange done (preferring host keys of KEY_TYPES) and nobody
+    logged in yet: the caller compares t.get_remote_server_key() before it tries a login, and closes it."""
     import paramiko
     wanted = [t for kt in key_types for t in
               (("rsa-sha2-512", "rsa-sha2-256", "ssh-rsa") if kt == "ssh-rsa" else (kt,))]
@@ -73,9 +83,10 @@ def offered_host_key(sock, key_types, timeout=10):
         if usable:
             options.key_types = usable
         t.start_client(timeout=timeout)
-        return t.get_remote_server_key()
-    finally:
+    except BaseException:
         t.close()
+        raise
+    return t
 
 
 def in_ssh_config(name):

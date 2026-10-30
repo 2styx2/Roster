@@ -64,6 +64,14 @@ CANT_WRITE = 61             # the provider can only read Logins (only bw can cre
 WRITE_FAILED = 62           # the vault CLI refused the create or delete; the message has its words, never a value
 NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that item, or it's already undone
 
+# Editing the Inventory: Pending changes (ticket 10). The verify_login steps reuse 30-48.
+NOT_A_REPO = 70             # roster.yml isn't tracked in a git repo, so it can't have Pending changes
+DIRTY = 71                  # inventory.pull: uncommitted changes (Pending changes, or other files); data.files
+DIVERGED = 72               # inventory.pull: this box's branch and its upstream both have new commits
+PULL_FAILED = 73            # inventory.pull: the fetch or the fast-forward failed (network, access, a file in the way)
+INVALID_EDIT = 74           # host.update: the result wouldn't load, or would change more than asked; nothing written
+NOT_VERIFIED = 75           # host.update: address, user or Login changed without a test login that just succeeded
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""

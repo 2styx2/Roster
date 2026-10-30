@@ -647,7 +647,7 @@ impl<'de> Deserialize<'de> for SessionBarPiece {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct StatusBarPiece {
     pub shown: bool,
-    /// Segment ids in order ("backend", "box", "hosts", "path", "hints", "mode"); null: all.
+    /// Segment ids in order ("backend", "box", "hosts", "path", "changes", "hints", "mode"); null: all.
     pub segments: Option<Vec<String>>,
 }
 

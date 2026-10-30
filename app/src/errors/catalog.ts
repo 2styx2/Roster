@@ -12,7 +12,15 @@ import { BUILTIN, Registry, type Entry } from "../registry";
 import type { Problem, ProblemCode, ProblemData } from "./classify";
 
 /** Where a problem lives (docs/app/errors.md "Where it lives"). */
-export type Where = "roster.yml" | "the vault" | "this Box" | "the network" | "the Host" | "roster" | "the sign-in form";
+export type Where =
+  | "roster.yml"
+  | "the vault"
+  | "this Box"
+  | "the network"
+  | "the Host"
+  | "roster"
+  | "the sign-in form"
+  | "the infra repo";
 
 export type ErrorAction =
   /** Runs a command line: `reconnect`, `check HOST`, `lock` (the lock screen), `find`. */
@@ -323,6 +331,49 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     codes: [59],
     where: ["the vault"],
     fix: () => "See Bitwarden's message under Details; `bw login` in a terminal shows the same.",
+    actions: [],
+  }),
+  // Editing the Inventory (ticket 10): the pull before an edit, the edit itself, Q43's gate.
+  row("edit-not-a-repo", {
+    row: 38,
+    codes: [70],
+    where: ["roster.yml", "this Box"],
+    fix: () => "Keep roster.yml in the infra repo (a git clone) to edit it here, or edit it by hand.",
+    actions: [],
+  }),
+  row("edit-dirty", {
+    row: 39,
+    codes: [71],
+    where: ["the infra repo"],
+    fix: () => "Publish or discard the Pending changes; commit or stash any other changed file in a terminal.",
+    actions: [{ kind: "run", label: "Show Pending changes", line: () => "changes" }],
+  }),
+  row("edit-diverged", {
+    row: 40,
+    codes: [72],
+    where: ["the infra repo"],
+    fix: () => "Merge or rebase in a terminal (`git pull --rebase`), then edit again.",
+    actions: [],
+  }),
+  row("edit-pull-failed", {
+    row: 41,
+    codes: [73],
+    where: ["the network", "the infra repo"],
+    fix: () => "Check the network and your access to the infra repo, then try again.",
+    actions: [],
+  }),
+  row("edit-invalid", {
+    row: 42,
+    codes: [74],
+    where: ["roster.yml"],
+    fix: () => "Make this edit by hand in roster.yml; nothing was written.",
+    actions: [],
+  }),
+  row("edit-not-verified", {
+    row: 43,
+    codes: [75],
+    where: ["roster"],
+    fix: () => "Test the login with the new values, then save again.",
     actions: [],
   }),
   row("other", {

@@ -8,9 +8,15 @@ import {
   type BackendProblem,
   type CallErrorData,
   CHECK_STEPS,
+  EditError,
   type Host,
+  type HostChanges,
   type HostCheck,
+  type HostFields,
   type HostList,
+  LOGIN_FIELDS,
+  type PendingChanges,
+  VERIFY_STEPS,
   type ProviderStatus,
   type SignInAnswer,
   SignInError,
@@ -62,8 +68,14 @@ export interface FakeScenario {
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
   checks?: Record<string, HostCheck>;
-  /** `inventory.info`'s api_version (default 2). */
+  /** `inventory.info`'s api_version (default 2; editing needs 5). */
   apiVersion?: number;
+  /** Ticket 10: `inventory.pull` refuses with this (62 diverged, 63 offline…). */
+  pullRefusal?: Refusal;
+  /** Per Host: what `host.verify_login` answers (default: every step ok). */
+  verifyResults?: Record<string, HostCheck>;
+  /** Edits already made on this Box when the app starts (Pending changes), per Host. */
+  pending?: Record<string, HostChanges>;
   /** The vault locks itself again this many ms after each unlock (bw's own timeout, another
    * roster command), so the next password Session meets code 14. */
   relockAfterMs?: number;
@@ -201,6 +213,24 @@ const signingIn = (signIn: FakeAccount): FakeScenario => ({
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
+  /** Ticket 10: a roster that can edit (api 5), no Pending changes yet. */
+  edit: { hosts: makeHosts(12), apiVersion: 5 },
+  /** Two Pending changes already made on this Box. */
+  "edit-pending": {
+    hosts: makeHosts(12),
+    apiVersion: 5,
+    pending: { "linux-1-000": { title: "Build box", description: "rack 1, top" }, "esxi-2-001": { type: "esxi8" } },
+  },
+  /** The pull before an edit fails: the branch has diverged. */
+  "edit-diverged": {
+    hosts: makeHosts(12),
+    apiVersion: 5,
+    pullRefusal: {
+      code: EditError.diverged,
+      message: "this box's infra repo and origin/main have diverged (1 local and 2 new commits there), so roster won't pull",
+      data: { fix: "merge or rebase in a terminal: git -C /home/you/infra pull --rebase", upstream: "origin/main", ahead: 1, behind: 2 },
+    },
+  },
   /** As many Hosts as the real Inventory (ticket 17's tree check). */
   "91-hosts": { hosts: makeHosts(91) },
   slow: { hosts: makeHosts(300), delay: 1500 },
@@ -344,8 +374,65 @@ function fakeSession(id: number, host: string, auth: SessionAuth, size: TermSize
   };
 }
 
+/** A `host.verify_login` answer with every step ok. */
+export function passingVerify(host: string): HostCheck {
+  return { host, ok: true, steps: VERIFY_STEPS.map((step) => ({ step, status: "ok" as const, message: `${step} is fine` })) };
+}
+
+export const fieldsOf = (h: Host): HostFields => ({
+  title: h.title,
+  description: h.description,
+  type: h.type,
+  ip: h.ip,
+  user: h.ssh.user,
+  port: h.ssh.port,
+  auth: h.ssh.auth,
+});
+
+const withFields = (h: Host, c: HostChanges): Host => {
+  const f = { ...fieldsOf(h), ...c };
+  return { ...h, title: f.title, description: f.description, type: f.type, ip: f.ip, ssh: { user: f.user, port: f.port, auth: f.auth } };
+};
+
+/** A unified diff of the fields that differ, as git would show a block-style Host in roster.yml. */
+function fakeDiff(before: Host[], after: Host[]): string {
+  const old = new Map(before.map((h) => [h.name, fieldsOf(h)]));
+  const hunks: string[] = [];
+  after.forEach((h, i) => {
+    const a = old.get(h.name);
+    const b = fieldsOf(h);
+    if (!a) return;
+    const keys = (Object.keys(b) as (keyof HostFields)[]).filter((k) => a[k] !== b[k]);
+    if (keys.length === 0) return;
+    const line = (k: keyof HostFields, v: string | number) => `        ${k}: ${v === "" ? '""' : v}`;
+    const body = [
+      `       ${h.name}:`,
+      ...keys.flatMap((k) => [...(a[k] === "" ? [] : [`-${line(k, a[k])}`]), ...(b[k] === "" ? [] : [`+${line(k, b[k])}`])]),
+    ];
+    const start = 10 + i * 6;
+    hunks.push(`@@ -${start},${body.length} +${start},${body.length} @@ ${h.group}:`, ...body);
+  });
+  return hunks.length ? ["diff --git a/roster.yml b/roster.yml", "--- a/roster.yml", "+++ b/roster.yml", ...hunks, ""].join("\n") : "";
+}
+
 export function fakeBackend(scenario: FakeScenario): Backend {
   let failures = 0;
+  // ---- the Inventory as committed, and as edited on this Box (ticket 10)
+  const committed = scenario.hosts.hosts;
+  let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
+  const verified = new Set<string>();
+  const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
+  const pending = (): PendingChanges => {
+    const diff = fakeDiff(committed, hosts);
+    const before = new Map(committed.map((h) => [h.name, fieldsOf(h)]));
+    const changed = hosts.flatMap((h) => {
+      const a = before.get(h.name);
+      const b = fieldsOf(h);
+      const fields = a ? (Object.keys(b) as (keyof HostFields)[]).filter((k) => a[k] !== b[k]) : [];
+      return fields.length ? [{ host: h.name, change: "changed" as const, fields }] : [];
+    });
+    return { path: scenario.info?.path ?? "~/infra/roster.yml", repo: "~/infra", diff, hosts: changed, count: changed.length };
+  };
   let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
   const vaultMessage = () =>
     vault === "not-logged-in"
@@ -532,11 +619,11 @@ export function fakeBackend(scenario: FakeScenario): Backend {
     },
     async listHosts() {
       await wait();
-      return scenario.hosts;
+      return { hosts, groups: scenario.hosts.groups };
     },
     async getHost(name: string) {
       await wait();
-      const h = scenario.hosts.hosts.find((x) => x.name === name);
+      const h = hosts.find((x) => x.name === name);
       if (!h) throw new BackendCallError(`unknown host '${name}'`, 2);
       return h;
     },
@@ -574,7 +661,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       }),
     async openSession(host, size, events) {
       await wait();
-      const h = scenario.hosts.hosts.find((x) => x.name === host);
+      const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
       if (!h.reviewed) {
         throw new BackendCallError(
@@ -598,7 +685,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
       await wait();
       const given = scenario.checks?.[host];
       if (given) return given;
-      const h = scenario.hosts.hosts.find((x) => x.name === host);
+      const h = hosts.find((x) => x.name === host);
       if (!h) {
         const steps = CHECK_STEPS.map((step, i) =>
           i === 0
@@ -608,6 +695,55 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         return { host, ok: false, steps };
       }
       return passingCheck(h);
+    },
+    async pullInventory() {
+      await wait();
+      if (scenario.pullRefusal) throw refuse(scenario.pullRefusal);
+      if (pending().count > 0) {
+        throw new BackendCallError("roster.yml has Pending changes, so roster won't pull over them", EditError.dirty, {
+          files: ["roster.yml"],
+          fix: "Publish or discard the Pending changes first",
+        });
+      }
+      return { updated: false, upstream: "origin/main", commits: 0, ahead: 0 };
+    },
+    async verifyLogin(host, changes) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      const result = scenario.verifyResults?.[host] ?? passingVerify(host);
+      if (result.ok) verified.add(loginKey(host, { ...fieldsOf(h), ...changes }));
+      return result;
+    },
+    async updateHost(host, changes) {
+      await wait();
+      const h = hosts.find((x) => x.name === host);
+      if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
+      const now = fieldsOf(h);
+      const wanted = Object.fromEntries(Object.entries(changes).filter(([k, v]) => now[k as keyof HostFields] !== v));
+      if (Object.keys(wanted).length === 0) return { changed: false, host: h, backup: null };
+      const key = loginKey(host, { ...now, ...wanted });
+      if (LOGIN_FIELDS.some((k) => k in wanted)) {
+        if (!verified.has(key)) {
+          throw new BackendCallError(`${host}'s new address, user or Login hasn't passed a test login`, EditError.notVerified, {
+            fix: "test the login (host.verify_login) with these values, then save again",
+          });
+        }
+        verified.delete(key);
+      }
+      const updated = withFields(h, wanted);
+      hosts = hosts.map((x) => (x.name === host ? updated : x));
+      return { changed: true, host: updated, backup: "~/infra/.git/roster/roster.yml.bak" };
+    },
+    async pendingChanges() {
+      await wait();
+      return pending();
+    },
+    async discardChanges() {
+      await wait();
+      if (pending().count === 0) return { discarded: false, backup: null };
+      hosts = committed;
+      return { discarded: true, backup: "~/infra/.git/roster/roster.yml.bak" };
     },
   };
 }

@@ -31,7 +31,8 @@ class Sshd:
         self.accepts = 0
         self.listener.settimeout(0.2)
         self.running = True
-        threading.Thread(target=self._loop, daemon=True).start()
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
 
     def _loop(self):
         while self.running:
@@ -59,6 +60,7 @@ class Sshd:
 
     def close(self):
         self.running = False
+        self.thread.join()          # an accept() still waiting would take one more connection after close()
         self.listener.close()
 
 

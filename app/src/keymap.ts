@@ -100,6 +100,8 @@ export const defaultBindings: KeymapTables = {
     ":": "cmdline",
     "?": "keys",
     L: "lock",
+    E: "edit",
+    c: "changes",
     r: "reconnect",
     m: "mode",
     b: "finder sessions",

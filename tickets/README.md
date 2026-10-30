@@ -21,7 +21,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 30 | [Bundled themes and a `:theme` picker](30-bundled-themes.md) | 2 | 21 | done |
 | 31 | [Vault sign-in with two-factor (every supported method)](31-vault-sign-in-2fa.md) | 2 | 04 | done (manual real-account check pending) |
 | 29 | [Interface review (`/interfaces:better-interface`) and fixes](29-interface-review.md) | 2 | 09, 27, 21, 22 | done |
-| 10 | [Edit a Host → Pending change → diff/discard](10-edit-host-pending-changes.md) | 3 | 04 | ready |
+| 10 | [Edit a Host → Pending change → diff/discard](10-edit-host-pending-changes.md) | 3 | 04 | done (pending review) |
 | 11 | [Add a Host and mark it reviewed](11-add-host-review.md) | 3 | 10, 13 | ready |
 | 12 | [Publish](12-publish.md) | 3 | 10 | ready |
 | 32 | [`:config` and discoverable configuration](32-config-command.md) | 3 | 21, 29 | done |

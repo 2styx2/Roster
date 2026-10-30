@@ -119,7 +119,7 @@ return {
   --              (sections picks and orders them; leave it out for all). Leader e shows or hides it.
   --   sessionbar false, "bottom" or "top": the thin tmux-style bar of open Sessions
   --   statusbar  false, true, or a list of segments in order:
-  --              "backend", "box", "hosts", "path", "hints", "mode" (the last two sit on the right).
+  --              "backend", "box", "hosts", "path", "changes", "hints", "mode" (the last two sit on the right).
   --              Leader s shows or hides it (in Focus, the session bar).
   --   fullscreen OS fullscreen
   modes = {

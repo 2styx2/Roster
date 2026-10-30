@@ -1,7 +1,7 @@
 // `:check HOST`: roster's `host.check` steps as a list, each ok, failed or skipped, with the
 // failing one expanded into the same clean error a Session shows (where, fix, extras, Details).
 // roster runs the steps; this only shows them. A check makes at most one connection and one login.
-import type { HostCheck } from "../backend/types";
+import type { CheckStep, HostCheck } from "../backend/types";
 import { problemFromStep, type ErrorRow } from "./catalog";
 import { ProblemBody, type ProblemActions } from "./ErrorPanel";
 import { CloseGlyph } from "../ui/CloseGlyph";
@@ -13,6 +13,7 @@ export type CheckState =
 
 const STEP_LABEL: Record<string, string> = {
   inventory: "Inventory entry",
+  user: "User",
   "ssh-config": "ssh config",
   provider: "Provider ready",
   "vault-item": "Vault item",
@@ -53,31 +54,46 @@ export function CheckPanel({ check, rows, actions, onClose }: CheckPanelProps) {
           <p className={check.result.ok ? "check-ok" : "muted"}>
             {check.result.ok ? "All checks passed." : "Stopped at the first failure; later steps were skipped."}
           </p>
-          <ol className="check-steps">
-            {check.result.steps.map((s) => (
-              <li key={s.step} data-step={s.step} data-status={s.status} className={`check-step ${s.status}`}>
-                <div className="check-line">
-                  <span className="check-mark" aria-hidden="true">
-                    {MARK[s.status]}
-                  </span>
-                  <span className="visually-hidden">{RESULT[s.status]}: </span>
-                  <span className="check-name">{STEP_LABEL[s.step] ?? s.step}</span>
-                  {s.status !== "fail" && (
-                    <span className="check-msg muted" title={s.message}>
-                      {s.message}
-                    </span>
-                  )}
-                </div>
-                {s.status === "fail" && (
-                  <div className="check-problem">
-                    <ProblemBody problem={problemFromStep(host, s)} rows={rows} actions={actions} notInTab />
-                  </div>
-                )}
-              </li>
-            ))}
-          </ol>
+          <CheckSteps host={host} steps={check.result.steps} rows={rows} actions={actions} />
         </>
       )}
     </section>
+  );
+}
+
+export interface CheckStepsProps {
+  host: string;
+  steps: readonly CheckStep[];
+  rows: readonly ErrorRow[];
+  actions: ProblemActions;
+}
+
+/** Steps as a list, ok, failed or skipped, the failing one as a clean error (`host.check`, and the
+ * edit form's test login, `host.verify_login`). */
+export function CheckSteps({ host, steps, rows, actions }: CheckStepsProps) {
+  return (
+    <ol className="check-steps">
+      {steps.map((s) => (
+        <li key={s.step} data-step={s.step} data-status={s.status} className={`check-step ${s.status}`}>
+          <div className="check-line">
+            <span className="check-mark" aria-hidden="true">
+              {MARK[s.status]}
+            </span>
+            <span className="visually-hidden">{RESULT[s.status]}: </span>
+            <span className="check-name">{STEP_LABEL[s.step] ?? s.step}</span>
+            {s.status !== "fail" && (
+              <span className="check-msg muted" title={s.message}>
+                {s.message}
+              </span>
+            )}
+          </div>
+          {s.status === "fail" && (
+            <div className="check-problem">
+              <ProblemBody problem={problemFromStep(host, s)} rows={rows} actions={actions} notInTab />
+            </div>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }

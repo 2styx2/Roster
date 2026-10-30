@@ -230,6 +230,50 @@ async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) ->
     call(&state, "host.check", json!({ "host": host })).await
 }
 
+/// Fast-forward the infra repo before an edit (`inventory.pull`, api 4, ticket 10). A fetch can take
+/// a while on a slow link; roster gives git 60 s.
+#[tauri::command]
+async fn inventory_pull(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.call_timeout("inventory.pull", json!({}), EDIT_TIMEOUT)).await
+}
+
+/// One test login with a Host's new address, user or Login (`host.verify_login`, decision Q43):
+/// one connection, one attempt. The password stays in roster.
+#[tauri::command]
+async fn host_verify_login(
+    state: tauri::State<'_, Arc<BackendState>>,
+    host: String,
+    changes: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    call(&state, "host.verify_login", json!({ "host": host, "changes": changes })).await
+}
+
+/// The edit, written into roster.yml as a Pending change (`host.update`).
+#[tauri::command]
+async fn host_update(
+    state: tauri::State<'_, Arc<BackendState>>,
+    host: String,
+    changes: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    call(&state, "host.update", json!({ "host": host, "changes": changes })).await
+}
+
+/// The Pending changes: roster.yml's uncommitted diff (`changes.diff`).
+#[tauri::command]
+async fn changes_diff(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "changes.diff", json!({})).await
+}
+
+/// roster.yml back as the last commit has it (`changes.discard`).
+#[tauri::command]
+async fn changes_discard(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "changes.discard", json!({})).await
+}
+
+/// roster waits up to 60 s for git's fetch.
+const EDIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
 fn session_error(e: SessionError) -> CallError {
     CallError::Io { message: e.to_string() }
 }
@@ -434,6 +478,11 @@ pub fn run() {
             hosts_list,
             host_get,
             host_check,
+            inventory_pull,
+            host_verify_login,
+            host_update,
+            changes_diff,
+            changes_discard,
             session_open,
             session_write,
             session_resize,
