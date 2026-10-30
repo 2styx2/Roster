@@ -46,12 +46,19 @@ src/backend/          the one typed Backend client: types.ts (interface), tauri.
 src/picker/           the Picker: match.ts (fuzzy ranking), Picker.tsx
 src/platform/         State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
 src/state/            appState.ts: the State's shape (recent Hosts), parsed leniently
-src/session/          Session tabs: tabs.ts (store: open/close/reconnect/replay/resize, outside React), Sessions.tsx
+src/session/          Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
+                      (terminal panes + the basic tab strip for `sessions = "tabs"`)
 src/terminal/         TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
                       options.ts (font, theme, standard ANSI palette as data), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
 src/lock/             the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
-src/App.tsx           connect → error screen or empty state; Leader handling. keymap.ts = keys/options as data
+src/registry.ts       Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0004; registries.ts = the app's set
+src/commands/         table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)
+src/keymap.ts         keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)
+src/keyboard/         mode.ts (Terminal mode / App mode machine, key sequences), bindings.ts + BindingsPanel (␣ ?)
+src/sidebar/          Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
+src/cmdline/          CommandLine.tsx (␣ :, Tab completion from the command table and Host names)
+src/App.tsx           connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 scripts/win-*.sh      Windows build loop from WSL (sync, tauri dev, stop)
 ```
 
@@ -79,7 +86,10 @@ scripts/win-stop.sh         # stop node, the tauri CLI and the app (killing the 
 ```
 
 Parallel worktrees each get their own Windows copy with `ROSTER_DESK_WIN_DIR=roster-desk-dev-NN` (default
-`roster-desk-dev`) on all three scripts; only one `tauri dev` can hold port 1420 at a time.
+`roster-desk-dev`) on all three scripts; only one `tauri dev` can hold port 1420 at a time, so give the others
+`ROSTER_DESK_WIN_PORT=14NN`. Two app windows at once also need separate WebView2 profiles, or the second fails
+with WebView2 error 0x8007139F: `export WEBVIEW2_USER_DATA_FOLDER='C:\Users\you\AppData\Local\roster-desk-dev-NN\webview2'
+WSLENV=WEBVIEW2_USER_DATA_FOLDER` before `scripts/win-dev.sh`.
 
 **Which roster runs.** On Windows the app probes the default WSL distro first, then only distros that are
 already Running (`wsl -l -v`); it never starts a stopped non-default distro, because booting one can break WSL

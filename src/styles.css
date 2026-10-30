@@ -8,6 +8,16 @@
   --accent: #6ea8fe;
   --warn: #e0a84f;
   --error: #f07178;
+  /* The raised style (decision Q31) for the item on screen: a lighter fill and a 1px outline. */
+  --raised: #2a2f39;
+  --raised-line: #3d4452;
+  --hover: #22262e;
+  --line: #2c3039;
+  --sidebar-bg: var(--panel);
+  --sidebar-width: 240px;
+  --keys-width: 320px;
+  --dot-key: var(--accent);
+  --dot-ended: #5c6370;
   --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
   color-scheme: dark;
   font-family: system-ui, "Segoe UI", sans-serif;
@@ -29,7 +39,14 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 .screen { height: 100%; display: flex; flex-direction: column; }
 .screen.center { align-items: center; justify-content: center; padding: 24px; }
 
-.workspace { flex: 1; display: flex; align-items: center; justify-content: center; outline: none; }
+/* Standard layout: [Sidebar | workspace | Key bindings], then the command line and status bar. */
+.body { flex: 1; display: flex; min-height: 0; }
+.body.sidebar-right .sidebar { order: 3; border-right: 0; border-left: 1px solid var(--line); }
+.workspace {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  outline: none; min-width: 0; min-height: 0;
+}
+.workspace:has(.panes) { align-items: stretch; justify-content: stretch; }
 .empty { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .empty p { margin: 0; }
 .message { color: var(--muted); font-family: var(--mono); }
@@ -40,7 +57,12 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 }
 .statusbar .backend { color: var(--text); }
 .statusbar .path { overflow: hidden; text-overflow: ellipsis; }
-.statusbar .leader { margin-left: auto; color: var(--accent); font-weight: 600; }
+.statusbar .grow { flex: 1; }
+.statusbar .hint b { color: var(--text); font-weight: 500; }
+.statusbar .mode { color: var(--accent); font-weight: 600; }
+.statusbar .mode .pending { font-family: var(--mono); font-weight: 400; }
+.message-line:empty { display: none; }
+.message-line { padding: 3px 12px; font-size: 12px; color: var(--warn); background: var(--bg); border-top: 1px solid var(--line); }
 
 .error { max-width: 640px; }
 .error h1 { font-size: 20px; margin: 0 0 12px; color: var(--error); }
@@ -108,12 +130,78 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 .lock-panel button:active { transform: scale(0.97); }
 .lock-hint { font-size: 12px; }
 
-/* Session tabs (minimal; the full tab model is ticket 07). */
-.workspace:has(.sessions) { align-items: stretch; justify-content: stretch; min-height: 0; }
-.sessions { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* The Sidebar (layout only; the look is ticket 09). */
+.sidebar {
+  width: var(--sidebar-width); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--sidebar-bg); border-right: 1px solid var(--line); font-size: 13px;
+}
+.sidebar button { border: 0; background: transparent; border-radius: 6px; padding: 0; text-align: left; }
+.sidebar .sb-find {
+  margin: 10px 10px 6px; height: 28px; padding: 0 8px; display: flex; align-items: center;
+  justify-content: space-between; color: var(--muted); border: 1px solid var(--line); background: var(--bg);
+}
+.sb-find kbd, .keys-panel kbd { font-size: 11px; padding: 0 4px; }
+.sb-scroll { flex: 1; overflow: auto; padding: 2px 6px 8px; }
+.sb-section { margin-top: 8px; }
+.sb-heading {
+  display: flex; margin: 0; padding: 4px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted);
+}
+.sb-count { margin-left: auto; font-weight: 500; }
+.sb-empty { margin: 2px 8px; color: var(--muted); font-size: 12px; }
+.sb-rows { list-style: none; margin: 0; padding: 0; }
+.sb-row { display: flex; align-items: center; height: 26px; border-radius: 6px; color: var(--muted); }
+.sb-row:hover { background: var(--hover); color: var(--text); }
+.sb-row.raised { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.sb-row.cursor { box-shadow: inset 0 0 0 1px var(--accent); }
+.sidebar .sb-item { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: inherit; }
+.sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
+.sb-note { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.sidebar .sb-close { visibility: hidden; padding: 0 8px; color: var(--muted); }
+.sb-row:hover .sb-close, .sb-row.raised .sb-close { visibility: visible; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dot-key); }
+.dot.password { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dot-key); }
+.dot.ended { background: var(--dot-ended); }
+.sb-foot { display: flex; gap: 2px; padding: 6px; border-top: 1px solid var(--line); }
+.sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--muted); font-size: 12px; }
+.sb-foot button:hover { background: var(--hover); color: var(--text); }
+
+/* The Key bindings panel. */
+.keys-panel {
+  width: var(--keys-width); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--sidebar-bg); border-left: 1px solid var(--line); font-size: 12px;
+}
+.keys-panel header { display: flex; align-items: center; padding: 10px 12px 6px; }
+.keys-panel h2 { margin: 0; font-size: 13px; }
+.keys-close { margin-left: auto; border: 0; background: transparent; padding: 0 6px; }
+.keys-filter {
+  margin: 0 12px 8px; height: 26px; padding: 0 8px; font: inherit; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; outline: none;
+}
+.keys-scroll { flex: 1; overflow: auto; }
+.keys-panel table { width: 100%; border-collapse: collapse; }
+.keys-panel td { padding: 5px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+.keys-panel td:first-child { color: var(--muted); }
+.keys-keys { text-align: right; white-space: nowrap; }
+.keys-source { display: block; font-size: 10px; color: var(--muted); }
+.keys-source.config { color: var(--accent); }
+.keys-panel tr.group th {
+  text-align: left; padding: 12px 12px 4px; font-size: 10.5px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+/* The command line. */
+.cmdline { border-top: 1px solid var(--line); background: var(--panel); font-family: var(--mono); font-size: 13px; }
+.cmdline-candidates { list-style: none; margin: 0; padding: 4px 0; border-bottom: 1px solid var(--line); max-height: 40vh; overflow: auto; }
+.cmdline-candidates li { padding: 1px 12px; color: var(--muted); }
+.cmdline-candidates li.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
+.cmdline-input { display: flex; align-items: center; gap: 2px; padding: 4px 10px; }
+.cmdline-input input { flex: 1; font: inherit; color: var(--text); background: transparent; border: 0; outline: none; }
+
+/* The basic tab strip (the `sessions = "tabs"` option). */
 .tabstrip { display: flex; gap: 2px; padding: 4px 6px 0; background: var(--panel); overflow-x: auto; flex: none; }
 .tab { display: flex; align-items: center; border-radius: 6px 6px 0 0; color: var(--muted); }
-.tab.selected { background: var(--bg); color: var(--text); }
+.tab.selected { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
 .tab button { border: 0; background: transparent; border-radius: 6px 6px 0 0; padding: 5px 4px 5px 12px; }
 .tab .tab-close { padding: 5px 10px 5px 6px; color: var(--muted); }
 .tab .tab-close:hover { color: var(--text); }

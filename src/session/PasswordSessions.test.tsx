@@ -33,16 +33,18 @@ async function open(user: ReturnType<typeof userEvent.setup>, name: string) {
   await user.keyboard("{Enter}");
 }
 
-const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(name) });
+/** The Session's row in the Sidebar. */
+const tab = (name: string) =>
+  within(screen.getByRole("region", { name: "Sessions" })).getByRole("button", { name: new RegExp(`^${name}`) });
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
 
 describe("password Sessions", () => {
-  it("open with no typing and show a hollow (password) dot on the tab", async () => {
+  it("open with no typing and show a hollow (password) dot in the Sidebar", async () => {
     const { user } = await ready();
     await open(user, passwordHost.name);
     expect(await within(output()).findByText(/Connected to/)).toBeInTheDocument();
     expect(tab(passwordHost.name)).toHaveAccessibleDescription("password login");
-    expect(tab(passwordHost.name).querySelector(".st")).toHaveClass("pw");
+    expect(tab(passwordHost.name).querySelector(".dot")).toHaveClass("password");
   });
 
   it("show a filled (key) dot for a key-enrolled Host", async () => {
@@ -50,7 +52,7 @@ describe("password Sessions", () => {
     await open(user, keyHost.name);
     await within(output()).findByText(/Connected to/);
     expect(tab(keyHost.name)).toHaveAccessibleDescription("key login");
-    expect(tab(keyHost.name).querySelector(".st")).not.toHaveClass("pw");
+    expect(tab(keyHost.name).querySelector(".dot")).toHaveClass("key");
   });
 
   it("bring up the lock screen when serve's vault is locked (14), and open once unlocked", async () => {

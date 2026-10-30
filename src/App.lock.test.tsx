@@ -5,6 +5,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts, type FakeScenario } from "./backend/fake";
+import { defaultOptions } from "./keymap";
 import { manualClock } from "./lock/manualClock";
 
 const MIN = 60_000;
@@ -126,7 +127,7 @@ describe("the Lock", () => {
     const backend = fakeBackend({ hosts: makeHosts(12) });
     const clock = manualClock();
     const user = userEvent.setup();
-    render(<App backend={backend} clock={clock} options={{ leader: "Ctrl+Space", vim: true, idleLockMinutes: 2 }} />);
+    render(<App backend={backend} clock={clock} options={{ ...defaultOptions, idleLockMinutes: 2 }} />);
     await unlock(user);
     await screen.findByRole("main", { name: /workspace/i });
     act(() => clock.advance(2 * MIN));

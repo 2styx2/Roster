@@ -1,4 +1,4 @@
-// Sessions in tabs, through the App with the fake Backend and a stub terminal (xterm itself
+// Sessions, listed in the Sidebar, through the App with the fake Backend and a stub terminal (xterm itself
 // isn't run in jsdom; its key filter is tested in terminal/keys.test.ts).
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -29,14 +29,17 @@ async function openFromPicker(user: ReturnType<typeof userEvent.setup>, name: st
   await user.keyboard("{Enter}");
 }
 
+const sidebar = () => screen.getByRole("region", { name: "Sessions" });
+const current = () => within(sidebar()).getByRole("button", { current: true });
+
 const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
 
 describe("Sessions", () => {
-  it("Enter in the Picker opens the Host in a new tab with its terminal focused", async () => {
+  it("Enter in the Picker opens the Host in a new Session with its terminal focused", async () => {
     const user = await ready();
     await openFromPicker(user, reviewed[0]!.name);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("tab", { name: new RegExp(reviewed[0]!.name) })).toHaveAttribute("aria-selected", "true");
+    expect(current()).toHaveAccessibleName(new RegExp(`^${reviewed[0]!.name}`));
     expect(await within(output()).findByText(/Connected to/)).toBeInTheDocument();
     expect(document.activeElement).toHaveAccessibleName("terminal input");
   });
@@ -59,23 +62,22 @@ describe("Sessions", () => {
     expect(document.activeElement).toHaveAccessibleName("terminal input");
   });
 
-  it("switches and closes tabs, ending the Session", async () => {
+  it("switches and closes Sessions, ending the Session", async () => {
     const user = await ready();
-    await openFromPicker(user, reviewed[0]!.name);
-    await openFromPicker(user, reviewed[1]!.name);
-    const [first, second] = screen.getAllByRole("tab");
-    expect(second).toHaveAttribute("aria-selected", "true");
-    await user.click(first!);
-    expect(first).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByRole("button", { name: `Close ${reviewed[0]!.name}` }));
-    expect(screen.getAllByRole("tab")).toHaveLength(1);
-    expect(screen.getByRole("tab")).toHaveAttribute("aria-selected", "true");
-    await user.click(screen.getByRole("button", { name: `Close ${reviewed[1]!.name}` }));
-    expect(screen.queryByRole("tab")).toBeNull();
-    expect(screen.getByText(/No Sessions open/)).toBeInTheDocument();
+    const [a, b] = [reviewed[0]!.name, reviewed[1]!.name];
+    await openFromPicker(user, a);
+    await openFromPicker(user, b);
+    expect(current()).toHaveAccessibleName(new RegExp(`^${b}`));
+    await user.click(within(sidebar()).getByRole("button", { name: new RegExp(`^${a}`) }));
+    expect(current()).toHaveAccessibleName(new RegExp(`^${a}`));
+    await user.click(screen.getByRole("button", { name: `Close ${a}` }));
+    expect(current()).toHaveAccessibleName(new RegExp(`^${b}`));
+    await user.click(screen.getByRole("button", { name: `Close ${b}` }));
+    expect(within(sidebar()).queryByRole("button", { current: true })).toBeNull();
+    expect(within(screen.getByRole("main")).getByText(/No Sessions open/)).toBeInTheDocument();
   });
 
-  it("shows roster's refusal inline in the tab", async () => {
+  it("shows roster's refusal inline in the Session", async () => {
     const user = await ready(fixtures["not-set-up"]!);
     await openFromPicker(user, reviewed[0]!.name);
     const alert = await screen.findByRole("alert");
@@ -88,8 +90,8 @@ describe("Sessions", () => {
     await openFromPicker(user, reviewed[0]!.name);
     await within(output()).findByText(/Connected to/);
     await user.keyboard("exit{Enter}");
-    expect(await screen.findByRole("tab", { name: /ended \(code 0\)/ })).toBeInTheDocument();
-    expect(screen.getByRole("tabpanel")).toHaveTextContent("ended (code 0)");
+    expect(await within(sidebar()).findByRole("button", { name: /ended \(code 0\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: `Session ${reviewed[0]!.name}` })).toHaveTextContent("ended (code 0)");
   });
 
   it("an ended tab says so, and the Leader then r reconnects it", async () => {
@@ -97,14 +99,15 @@ describe("Sessions", () => {
     await openFromPicker(user, reviewed[0]!.name);
     await within(output()).findByText(/Connected to/);
     await user.keyboard("exit{Enter}");
-    const panel = await screen.findByRole("tabpanel");
+    const panel = await screen.findByRole("group", { name: `Session ${reviewed[0]!.name}` });
     await within(panel).findByText(/ended \(code 0\)/);
     expect(within(panel).getByText(/Ctrl\+Space/)).toBeInTheDocument();
     await user.keyboard("{Control>} {/Control}r");
-    expect(await screen.findByRole("tab", { name: reviewed[0]!.name })).toBeInTheDocument();
+    expect(await within(sidebar()).findByRole("button", { name: reviewed[0]!.name })).toBeInTheDocument();
     expect(within(panel).queryByText(/ended/)).toBeNull();
     expect(output().textContent).toMatch(/exit\r?\n.*reconnecting.*Connected to/s);
-    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(within(sidebar()).getAllByRole("button", { current: true })).toHaveLength(1);
+    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("an ended tab reconnects with its button too", async () => {
@@ -142,12 +145,12 @@ describe("Sessions", () => {
     await openFromPicker(user, reviewed[0]!.name);
     await within(output()).findByText(/Connected to/);
     await user.keyboard("exit{Enter}");
-    await screen.findByRole("tab", { name: /ended/ });
+    await within(sidebar()).findByRole("button", { name: /ended/ });
     await user.keyboard("{Control>} {/Control}f");
     await user.keyboard(reviewed[1]!.name);
     await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(await screen.findByRole("tab", { name: reviewed[1]!.name })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(await within(sidebar()).findByRole("button", { name: reviewed[1]!.name })).toBeInTheDocument();
+    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(1);
     await waitFor(() => expect(output().textContent).toContain(`Connected to ${reviewed[1]!.name}`));
   });
 
@@ -157,14 +160,14 @@ describe("Sessions", () => {
     await user.keyboard("{Control>} {/Control}f");
     await user.keyboard(reviewed[1]!.name);
     await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(within(sidebar()).getAllByRole("listitem")).toHaveLength(2);
   });
 
   it("opens several Sessions to the same Host", async () => {
     const user = await ready();
     await openFromPicker(user, reviewed[0]!.name);
     await openFromPicker(user, reviewed[0]!.name);
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+    expect(within(sidebar()).getAllByRole("listitem").map((t) => t.textContent)).toEqual([
       expect.stringContaining(reviewed[0]!.name),
       expect.stringContaining(`${reviewed[0]!.name} (2)`),
     ]);
@@ -176,12 +179,12 @@ describe("Sessions", () => {
     await within(output()).findByText(/Connected to/);
     await user.keyboard("{Control>} {/Control}L");
     expect(await screen.findByRole("dialog", { name: /locked/i })).toBeInTheDocument();
-    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Sidebar" })).toBeNull();
     // Keys typed while locked go to the lock screen, never to the shell.
     await user.type(screen.getByLabelText(/master password/i), "typed-while-locked{Enter}");
     await screen.findByText(/wrong master password/i);
     await unlock(user);
-    expect(screen.getByRole("tab", { name: new RegExp(reviewed[0]!.name) })).not.toHaveAccessibleName(/ended/);
+    expect(current()).toHaveAccessibleName(new RegExp(`^${reviewed[0]!.name}$`));
     expect(output()).toHaveTextContent(/Connected to/);
     expect(output().textContent).not.toMatch(/typed-while-locked/);
   });

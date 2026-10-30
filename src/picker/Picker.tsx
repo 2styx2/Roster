@@ -50,7 +50,7 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const chord = chordOf(e);
-    const action = keymap.picker[chord] ?? (vim && inList ? keymap.pickerVim[chord] : undefined);
+    const action = (keymap.picker[chord] ?? (vim && inList ? keymap.pickerVim[chord] : undefined))?.action;
     if (!action) {
       if (chord.length === 1 || chord === "Backspace") setInList(false);
       return;

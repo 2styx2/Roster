@@ -1,16 +1,37 @@
-// The app shell: connect to the Backend, then Session tabs (or an empty state) with the Picker on
-// <leader> f or a click; Enter there opens a Session in a new tab. A Backend that can't start gets
-// an error screen that says what to fix.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+// The app shell: connect to the Backend, then the Standard layout: the Sidebar, the Sessions'
+// terminals (or an empty state), the Key bindings panel, the command line and the status bar.
+// A Backend that can't start gets an error screen that says what to fix.
+//
+// Keys: the focus-mode machine (keyboard/mode.ts) decides whether a key is the terminal's or the
+// app's; the app's keys are command lines run through the one command table (commands/table.ts),
+// which is also what the command line and every button run. The commands, keymap and Sidebar
+// sections are registries (ADR 0004), read live.
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { BackendStartError, type Backend, type BackendInfo, type BackendProblem, type HostList } from "./backend/types";
-import { chordOf, defaultKeymap, defaultOptions, type Keymap, type Options } from "./keymap";
-import { Picker } from "./picker/Picker";
+import { CommandLine } from "./cmdline/CommandLine";
+import { complete, runLine, type CommandContext, type Commands } from "./commands/table";
 import { ErrorScreen } from "./ErrorScreen";
+import { BindingsPanel } from "./keyboard/BindingsPanel";
+import { bindingRows } from "./keyboard/bindings";
+import { press, terminalMode, type KeyState } from "./keyboard/mode";
 import type { Clock } from "./lock/idle";
 import { LockGate } from "./lock/LockScreen";
 import { useVault } from "./lock/useVault";
-import { Sessions } from "./session/Sessions";
+import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
+import { Picker } from "./picker/Picker";
+import { builtinRegistries, type Registries } from "./registries";
+import { SessionPanes, TabStrip } from "./session/Sessions";
 import { Tabs } from "./session/tabs";
+import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
+import { buildSections } from "./sidebar/sections";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
@@ -23,6 +44,9 @@ type Conn =
   | { state: "failed"; problem: BackendProblem }
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
+/** An overlay with its own input, which takes the keys while it's open. */
+type Overlay = "picker" | "cmdline" | null;
+
 const MODIFIERS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "CapsLock"]);
 
 function asProblem(e: unknown): BackendProblem {
@@ -31,42 +55,58 @@ function asProblem(e: unknown): BackendProblem {
   return { kind: "failed", message, hint: "Retry, or run the backend command in a terminal to see why.", detail: null };
 }
 
+/** The first key bound to `line` after the Leader, as the status bar hints write it. */
+function hintFor(keymap: Keymap, line: Line): string | null {
+  const key = Object.entries(keymap.leader).find(([, b]) => b.action === line)?.[0];
+  return key ? `␣ ${key}` : null;
+}
+
 export interface AppProps {
   backend: Backend;
   options?: Options;
-  keymap?: Keymap;
+  /** Commands, keymap and Sidebar sections; the built-ins unless a test (or ticket 21) passes its own. */
+  registries?: Registries;
   /** For the idle lock; tests pass a manual one. */
   clock?: Clock;
-  /** The terminal each Session tab draws in (tests pass a stub; xterm needs a real browser). */
+  /** The terminal each Session draws in (tests pass a stub; xterm needs a real browser). */
   terminalView?: TerminalViewComponent;
   terminalOptions?: TerminalOptions;
   /** The State file, clipboard and Windows build (tests: an in-memory one). */
   platform?: Platform;
 }
 
-/** The keys after the Leader that do `action`, as the user would type them ("Ctrl+Space r"). */
-function leaderKeysFor(keymap: Keymap, leader: string, action: string): string | null {
-  const key = Object.entries(keymap.leader).find(([, a]) => a === action)?.[0];
-  return key ? `${leader} ${key}` : null;
-}
-
 export function App({
   backend,
   options = defaultOptions,
-  keymap = defaultKeymap,
+  registries: given,
   clock,
   terminalView = TerminalView,
   terminalOptions = defaultTerminalOptions,
   platform: platformProp,
 }: AppProps) {
+  const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
+  const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
+  const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
+  const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
+  const commands: Commands = useMemo(
+    () => ({ get: (id) => registries.commands.get(id), list: () => commandList }),
+    [registries, commandList],
+  );
+  const keymap = useMemo(() => keymapOf(bindingList), [bindingList]);
+
   const [conn, setConn] = useState<Conn>({ state: "connecting" });
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [leader, setLeader] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [keyState, setKeyState] = useState<KeyState>(terminalMode);
+  const keyRef = useRef<KeyState>(terminalMode);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(options.sidebar.visible);
+  const [statusVisible, setStatusVisible] = useState(options.statusBar.visible);
+  const [message, setMessage] = useState("");
   const [appState, setAppState] = useState<AppState>(emptyState);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
-  const [notice, setNotice] = useState("");
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
@@ -79,6 +119,15 @@ export function App({
   useEffect(() => {
     if (vaultUnlocked) tabs.resumeAfterUnlock();
   }, [vaultUnlocked, tabs]);
+
+  const hosts = conn.state === "ready" ? conn.hosts : null;
+  const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
+  const sections = useMemo(
+    () => (hosts ? buildSections(sectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions }) : []),
+    [sectionDefs, sessions, hosts, hostByName, options.sessions],
+  );
+  const rows = useMemo(() => allRows(sections), [sections]);
+  const sidebarShown = sidebarVisible && sections.length > 0;
 
   const connect = useCallback(
     async (restart: boolean) => {
@@ -123,16 +172,10 @@ export function App({
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
     [terminalOptions],
   );
+  const terminalKeys = useMemo(() => actionsOf(keymap.terminal), [keymap]);
   const terminalEnv = useMemo<TerminalEnv>(
-    () => ({
-      options: terminalOptions,
-      fontSize,
-      windowsBuild,
-      keys: keymap.terminal,
-      clipboard: platform.clipboard,
-      onZoom,
-    }),
-    [terminalOptions, fontSize, windowsBuild, keymap, platform, onZoom],
+    () => ({ options: terminalOptions, fontSize, windowsBuild, keys: terminalKeys, clipboard: platform.clipboard, onZoom }),
+    [terminalOptions, fontSize, windowsBuild, terminalKeys, platform, onZoom],
   );
 
   const stateChanged = useRef(false);
@@ -157,46 +200,122 @@ export function App({
     if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
   }, [conn.state, vault.locked]);
 
+  // With the last Session closed, the keys need somewhere to go.
+  const noSessions = sessions.tabs.length === 0;
+  useEffect(() => {
+    if (noSessions && (document.activeElement === document.body || document.activeElement === null)) {
+      mainRef.current?.focus();
+    }
+  }, [noSessions]);
+
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
 
-  const openPicker = useCallback(() => {
+  const setMode = useCallback((next: KeyState) => {
+    keyRef.current = next;
+    setKeyState(next);
+  }, []);
+
+  /** Remembers where focus was (the terminal), for when an overlay or panel closes. */
+  const rememberFocus = () => {
     returnFocus.current = document.activeElement;
-    setPickerOpen(true);
-  }, []);
-
-  const closePicker = useCallback(() => {
-    setPickerOpen(false);
+  };
+  const restoreFocus = () => {
     const el = returnFocus.current;
-    if (el instanceof HTMLElement) el.focus();
-  }, []);
+    if (el instanceof HTMLElement && el.isConnected) el.focus();
+    else mainRef.current?.focus();
+  };
 
-  // The Leader: caught before anything else sees it (a terminal will sit under this later).
-  useEffect(() => {
-    if (conn.state !== "ready" || vault.locked) return;
-    function onKey(e: KeyboardEvent) {
-      const chord = chordOf(e);
-      if (isLeaderKey(e, options.leader)) {
-        e.preventDefault();
-        e.stopPropagation();
-        setLeader(true);
-        return;
-      }
-      if (!leader || MODIFIERS.has(e.key)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setLeader(false);
-      const action = keymap.leader[chord];
-      if (action === "picker.open") openPicker();
-      else if (action === "session.reconnect") {
-        const current = tabs.snapshot().active;
-        if (current !== null) tabs.reconnect(current);
-      } else if (action === "app.lock" && !vault.lock())
-        setNotice("Nothing to lock: no Host Login uses a vault with a master password.");
+  const closeOverlay = () => {
+    setOverlay(null);
+    setMode(terminalMode);
+    restoreFocus();
+  };
+
+  const closeKeys = () => {
+    setKeysOpen(false);
+    if (document.activeElement?.closest(".keys-panel")) restoreFocus();
+  };
+
+  // What commands act on. Rebuilt each render, so it always sees the current state.
+  const ctx: CommandContext = {
+    openPicker: () => {
+      if (overlay === null) rememberFocus();
+      setOverlay("picker");
+    },
+    connect: (name, here = false) => {
+      const host = hostByName.get(name);
+      if (!host) return setMessage(`No Host named ${name}`);
+      if (!host.reviewed) return setMessage(`${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
+      openHost(name, here);
+    },
+    reconnect: () => {
+      if (sessions.active !== null) tabs.reconnect(sessions.active);
+    },
+    selectRelative: (delta) => tabs.selectRelative(delta),
+    selectNth: (n) => tabs.selectNth(n),
+    close: (n) => {
+      const id = n === null ? sessions.active : (sessions.tabs[n - 1]?.id ?? null);
+      if (id !== null) tabs.close(id);
+    },
+    toggleSidebar: () => setSidebarVisible((v) => !v),
+    toggleStatusBar: () => setStatusVisible((v) => !v),
+    openCommandLine: () => {
+      if (overlay === null) rememberFocus();
+      setOverlay("cmdline");
+    },
+    toggleKeys: () => {
+      if (keysOpen) return closeKeys();
+      rememberFocus();
+      setKeysOpen(true);
+    },
+    lock: () => {
+      if (!vault.lock()) setMessage("Nothing to lock: no Host Login uses a vault with a master password.");
+    },
+    toTerminal: () => setMode(terminalMode),
+    list: (move) => {
+      if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
+      const row = rows.find((r) => r.id === cursor);
+      setMode(terminalMode);
+      if (row) run(row.command);
+    },
+    say: setMessage,
+  };
+
+  function run(line: Line) {
+    setMessage("");
+    runLine(commands, ctx, line);
+  }
+
+  const staysInAppMode = (line: Line) => commands.get(line.split(" ")[0] ?? "")?.staysInAppMode ?? false;
+
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (MODIFIERS.has(e.key)) return;
+    // An overlay (the Picker, the command line, the bindings filter) opens in Terminal mode, so its
+    // input gets the keys as a terminal would, until the Leader.
+    const leaderKey = isLeaderKey(e, options.leader);
+    const chord = leaderKey ? options.leader : chordOf(e);
+    const before = keyRef.current;
+    const r = press(before, chord, { keymap, leader: options.leader, vim: options.vim, staysInAppMode });
+    if (!r.consumed) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (before.mode === "terminal" && r.state.mode === "app") {
+      setCursor(rows.find((row) => row.raised)?.id ?? rows[0]?.id ?? null);
     }
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [conn.state, leader, options.leader, keymap, openPicker, tabs, vault]);
+    setMode(r.state);
+    if (r.action) run(r.action);
+  });
+
+  // Caught before anything else sees it, the terminal included (capture phase on window). While
+  // locked, keys belong to the lock screen alone.
+  const ready = conn.state === "ready" && !vault.locked;
+  useEffect(() => {
+    if (!ready) return;
+    const handler = (e: KeyboardEvent) => onKey(e);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [ready]);
 
   if (conn.state === "connecting") {
     return (
@@ -209,59 +328,125 @@ export function App({
     return <ErrorScreen problem={conn.problem} onRetry={() => void connect(true)} />;
   }
 
-  const { info, hosts } = conn;
+  const { info } = conn;
+  const reconnectKey = hintFor(keymap, "reconnect");
+  const appMode = keyState.mode === "app" && overlay === null;
+  const hints = [
+    [hintFor(keymap, "find"), "find"],
+    [hintFor(keymap, "keys"), "keys"],
+    [hintFor(keymap, "statusbar"), "hide this bar"],
+  ].filter(([k]) => k);
+
   const shell = (
-    <div className="screen app">
-      <main className="workspace" ref={mainRef} tabIndex={-1} aria-label="Workspace">
-        {sessions.tabs.length > 0 ? (
-          <Sessions
-            tabs={tabs}
-            snapshot={sessions}
-            leader={options.leader}
-            terminalView={terminalView}
-            terminalEnv={terminalEnv}
-            reconnectKeys={leaderKeysFor(keymap, options.leader, "session.reconnect")}
+    <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`}>
+      <div className={`body sidebar-${options.sidebar.side}`}>
+        {sidebarShown && (
+          <Sidebar
+            sections={sections}
+            side={options.sidebar.side}
+            cursor={appMode ? cursor : null}
+            leaderHint={options.leader}
+            run={(line) => {
+              setMode(terminalMode);
+              run(line);
+            }}
           />
-        ) : (
-          <div className="empty">
-            <p>No Sessions open.</p>
-            <button type="button" className="find" onClick={openPicker}>
-              Find a host
-            </button>
-            <p className="muted">
-              or press <kbd>{options.leader}</kbd> then <kbd>f</kbd>
-            </p>
-          </div>
         )}
-      </main>
-      <footer className="statusbar">
-        <span className="backend">{info.backend}</span>
-        <span>{info.inventory.box}</span>
-        <span>{hosts.hosts.length} hosts</span>
-        <span className="path" title={info.command.join(" ")}>
-          {info.inventory.path}
-        </span>
-        {notice && <span className="notice">{notice}</span>}
-        {leader && <span className="leader">LEADER</span>}
-      </footer>
-      {pickerOpen && !vault.locked && (
+        <main
+          className="workspace"
+          ref={mainRef}
+          tabIndex={-1}
+          aria-label="Workspace"
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).closest(".pane")) setMode(terminalMode);
+          }}
+        >
+          {options.sessions === "tabs" && !noSessions && <TabStrip snapshot={sessions} run={run} />}
+          {noSessions ? (
+            <div className="empty">
+              <p>No Sessions open.</p>
+              <button type="button" className="find" onClick={() => run("find")}>
+                Find a host
+              </button>
+              <p className="muted">
+                or press <kbd>{options.leader}</kbd> then <kbd>f</kbd>
+              </p>
+            </div>
+          ) : (
+            <SessionPanes
+              tabs={tabs}
+              snapshot={sessions}
+              leader={options.leader}
+              terminalView={terminalView}
+              terminalEnv={terminalEnv}
+              reconnectKeys={reconnectKey ? `${options.leader} ${reconnectKey.slice(2)}` : null}
+              run={run}
+            />
+          )}
+        </main>
+        {keysOpen && (
+          <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
+        )}
+      </div>
+      {overlay === "cmdline" && (
+        <CommandLine
+          complete={(input) => complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [])}
+          onClose={closeOverlay}
+          onRun={(line) => {
+            closeOverlay();
+            run(line);
+          }}
+        />
+      )}
+      <div className="message-line" role="status">
+        {message}
+      </div>
+      {statusVisible && (
+        <footer className="statusbar">
+          <span className="backend">{info.backend}</span>
+          <span>{info.inventory.box}</span>
+          <span>{conn.hosts.hosts.length} hosts</span>
+          <span className="path" title={info.command.join(" ")}>
+            {info.inventory.path}
+          </span>
+          <span className="grow" />
+          {hints.map(([k, what]) => (
+            <span key={what} className="hint">
+              <b>{k}</b> {what}
+            </span>
+          ))}
+          {appMode && (
+            <span className="mode">
+              APP{keyState.pending.length > 0 && <span className="pending"> {keyState.pending.join(" ")}</span>}
+            </span>
+          )}
+        </footer>
+      )}
+      {overlay === "picker" && !vault.locked && (
         <Picker
-          hosts={hosts}
+          hosts={conn.hosts}
           recent={appState.recentHosts}
           vim={options.vim}
           keymap={keymap}
-          onClose={closePicker}
+          onClose={closeOverlay}
           onOpen={(host, how) => {
-            closePicker();
-            openHost(host.name, how?.here ?? false);
+            closeOverlay();
+            run(`${how?.here ? "here" : "connect"} ${host.name}`);
           }}
         />
       )}
     </div>
   );
+  const lockKey = hintFor(keymap, "lock");
   const lockHint = (
     <>
-      Locks after {options.idleLockMinutes} minutes idle. <kbd>{options.leader}</kbd> then <kbd>L</kbd> locks now.
+      Locks after {options.idleLockMinutes} minutes idle.
+      {lockKey && (
+        <>
+          {" "}
+          <kbd>{options.leader}</kbd> then <kbd>{lockKey.slice(2)}</kbd> locks now.
+        </>
+      )}
     </>
   );
   return (

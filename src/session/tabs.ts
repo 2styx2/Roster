@@ -260,6 +260,21 @@ export class Tabs {
     this.changed();
   }
 
+  /** Selects the tab `delta` places after the active one (negative: before), wrapping around. */
+  selectRelative(delta: number) {
+    const n = this.entries.length;
+    if (n === 0) return;
+    const i = this.entries.findIndex((e) => e.tab.id === this.active);
+    const next = this.entries[(((i + delta) % n) + n) % n];
+    if (next) this.select(next.tab.id);
+  }
+
+  /** Selects the `n`th tab, counting from 1; a number past the end does nothing. */
+  selectNth(n: number) {
+    const entry = this.entries[n - 1];
+    if (entry) this.select(entry.tab.id);
+  }
+
   /** Stable callbacks for the tab's terminal (so it never re-attaches on a re-render). */
   wiring(id: number): TerminalWiring | undefined {
     return this.find(id)?.wiring;
