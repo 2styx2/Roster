@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 from .common import NAME_RE, oneline
-from .config import GROUP_ONLY, first, load_config, resolve_ssh
+from .config import GROUP_ONLY, first, load_config_text, resolve_ssh
 from .errors import (
     GROUP_NOT_EMPTY,
     HOST_EXISTS,
@@ -275,17 +275,12 @@ def replace_file(path, text):
 
 
 def load_text(path, text):
-    """load_config of TEXT as if it were PATH (a temporary file beside it). Raises Problem(INVALID_EDIT)."""
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".new", dir=path.parent)
-    os.close(fd)
+    """load_config of TEXT as if it were PATH, in memory (nothing written anywhere). Raises Problem(INVALID_EDIT)."""
     try:
-        write_text(tmp, text)
-        return load_config(tmp)
+        return load_config_text(text, path)
     except SystemExit as e:
         msg = str(e.code).removeprefix("error: ")
-        raise refuse("the result wouldn't load", msg.replace(str(Path(tmp).resolve()), path.name)) from None
-    finally:
-        Path(tmp).unlink(missing_ok=True)
+        raise refuse("the result wouldn't load", msg.replace(str(Path(path).resolve()), path.name)) from None
 
 
 def same_except(before, after, name):
@@ -369,13 +364,7 @@ def block_step(mapping, default=2):
 def add_text(text, group, name, entry):
     """roster.yml's TEXT with Host NAME: ENTRY ({key: value}, written as given) added at the end of GROUP's hosts,
     or in a new GROUP after the last one."""
-    try:
-        root = yaml.compose(text)
-    except yaml.YAMLError as e:
-        raise refuse("roster.yml doesn't parse", str(e)) from None
-    _, groups = child(root, "groups") if isinstance(root, yaml.MappingNode) else (None, None)
-    if not isinstance(groups, yaml.MappingNode) or groups.flow_style or not groups.value:
-        raise refuse("roster.yml's groups: isn't a block of groups")
+    groups = groups_node(text)
     t = Text(text)
     fields = [f"{k}: {render(v)}" for k, v in entry.items()]
     _, gnode = child(groups, group)
@@ -649,24 +638,30 @@ def own_keys(text, group, name):
 PINNED = ("user", "port", "auth", "enroll", "reviewed", *TEXT)       # what a move writes on the Host to keep it
 
 
-def moved_text(path, text, before, name, group):
-    """move_text, then whatever the Host would now inherit differently (its user, Login, flags, text) written on
-    the Host itself, so it comes out the same but for its group. Returns (new text, the fields pinned)."""
-    old = current(before["hosts"][name])
-    was, will = inherited(text, before["hosts"][name]["group"]), inherited(text, group)
-    own = own_keys(text, before["hosts"][name]["group"], name)
+def pinned_move(text, was_host, name, group):
+    """move_text, then whatever Host NAME (WAS_HOST, as loaded before) would now inherit differently (its user,
+    Login, flags, text) written on the Host itself, so it comes out the same but for its group. Text only: nothing
+    is loaded (check_moved checks the result). Returns (new text, the fields pinned)."""
+    old = current(was_host)
+    was, will = inherited(text, was_host["group"]), inherited(text, group)
+    own = own_keys(text, was_host["group"], name)
     pin = {k: old[k] for k in PINNED if was[k] != will[k] and old[k] != will[k] and k not in own}
     new_text = move_text(text, name, group)
     if pin:
         new_text = edit_text(new_text, name, pin, drop_empty=False)
-    after = load_text(path, new_text)
-    h = after["hosts"].get(name)
-    differs = sorted(k for k in before["hosts"][name] if k != "group" and (h or {}).get(k) != before["hosts"][name][k])
-    if h is None or h["group"] != group or differs:
-        raise Problem(WOULD_CHANGE, f"{name} would come out different in group {group} ({', '.join(differs)} it "
-                                    "inherits there) - nothing was written", {"host": name, "fields": differs},
-                      fix=f"move it by hand in roster.yml, setting {', '.join(differs)} on {name} itself")
     return new_text, sorted(pin)
+
+
+def check_moved(before, after, names, group):
+    """Each of Hosts NAMES came out in AFTER as it was in BEFORE but for its group, or Problem(WOULD_CHANGE)."""
+    for name in names:
+        h = after["hosts"].get(name)
+        differs = sorted(k for k in before["hosts"][name]
+                         if k != "group" and (h or {}).get(k) != before["hosts"][name][k])
+        if h is None or h["group"] != group or differs:
+            raise Problem(WOULD_CHANGE, f"{name} would come out different in group {group} ({', '.join(differs)} it "
+                                        "inherits there) - nothing was written", {"host": name, "fields": differs},
+                          fix=f"move it by hand in roster.yml, setting {', '.join(differs)} on {name} itself")
 
 
 def moved(path, name, group):
@@ -681,8 +676,9 @@ def moved(path, name, group):
     group_entry(groups_node(text), group)
     if h["group"] == group:
         return text, text, h, []
-    new_text, pinned = moved_text(path, text, before, name, group)
+    new_text, pinned = pinned_move(text, h, name, group)
     after = load_text(path, new_text)
+    check_moved(before, after, [name], group)
     if without(after["hosts"], name) != without(before["hosts"], name) or not others_same(before, after, hosts=False):
         raise refuse("the result loads differently than asked")
     return text, new_text, after["hosts"][name], pinned
@@ -752,9 +748,8 @@ def group_deleted(path, group, to=None):
             raise invalid("to", f"the Hosts of {group} can't move to {group} itself")
         group_entry(groups_node(text), to)
     new_text = text
-    for name in members:
-        current_cfg = load_text(path, new_text)
-        new_text, _ = moved_text(path, new_text, current_cfg, name, to)
+    for name in members:                                # as text only; the result is loaded once, below
+        new_text, _ = pinned_move(new_text, before["hosts"][name], name, to)
     groups = groups_node(new_text)
     gk, g = group_entry(groups, group)
     t = Text(new_text)
@@ -762,6 +757,7 @@ def group_deleted(path, group, to=None):
     t.replace(start, end, "")
     new_text = t.result()
     after = load_text(path, new_text)
+    check_moved(before, after, members, to)
     hosts = {n: {**h, "group": to} if h["group"] == group else h for n, h in before["hosts"].items()}
     if after["hosts"] != hosts or after["groups"] != without(before["groups"], group) or \
             not others_same(before, after, hosts=False, groups=False):

@@ -42,8 +42,18 @@ def load_config(path):
     path = Path(path).expanduser().resolve()
     if not path.exists():
         die(f"{path} not found - run `roster init` to create one")
+    return parse_config(path.read_text(), path)
+
+
+def load_config_text(text, path):
+    """load_config of TEXT as if it were PATH's (an edit checked before it's written): no file is read or written."""
+    return parse_config(text.replace("\r\n", "\n").replace("\r", "\n"), Path(path).expanduser().resolve())
+
+
+def parse_config(text, path):
+    """roster.yml's TEXT (read from PATH, or as it would be there), loaded and checked."""
     try:
-        raw = yaml.safe_load(path.read_text()) or {}
+        raw = yaml.safe_load(text) or {}
     except yaml.YAMLError as e:
         die(f"{path} is not valid YAML:\n{e}")
     defaults = {**HOST_DEFAULTS, **(raw.get("defaults") or {})}
