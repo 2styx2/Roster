@@ -35,7 +35,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 ```
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
 crates/desk-core/     Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
-                      start-up and API-version check (backend.rs), error kinds (error.rs), Sessions:
+                      start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:
                       session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs),
                       the State file (state.rs), the Windows build (platform.rs)
 src-tauri/            thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
