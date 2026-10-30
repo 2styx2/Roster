@@ -115,6 +115,16 @@ fn an_out_of_range_value_is_an_error_on_its_line() {
 }
 
 #[test]
+fn the_ui_text_size_is_read_and_kept_in_range() {
+    let dir = with_init("uisize", "return { fonts = { ui_size = 16 } }\n");
+    assert_eq!(config::load(&dir).unwrap().fonts.ui_size, 16);
+    let dir = with_init("uisize-range", "return {\n  fonts = { ui_size = 9 },\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("fonts.ui_size"), "{e}");
+}
+
+#[test]
 fn returning_something_other_than_a_table_is_an_error() {
     let dir = with_init("notable", "return 42\n");
     assert!(config::load(&dir).unwrap_err().message.contains("must return a table"));

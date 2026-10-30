@@ -90,12 +90,14 @@ pub struct Location {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
 pub struct Fonts {
     /// A family name ("Inter") or a whole CSS font stack (anything with a comma).
     pub ui: String,
     /// The wordmark's and code-like UI text's font.
     pub mono: String,
+    /// The UI's body text size in px; the rest of the type scale and the row height follow it.
+    pub ui_size: u32,
 }
 
 impl Default for Fonts {
@@ -103,6 +105,7 @@ impl Default for Fonts {
         Fonts {
             ui: "Inter".into(),
             mono: "Iosevka".into(),
+            ui_size: 14,
         }
     }
 }

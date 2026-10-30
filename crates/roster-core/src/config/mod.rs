@@ -298,6 +298,12 @@ fn at(path: &[&str], message: impl Into<String>) -> Invalid {
 
 /// What the schema's types can't say: ranges, non-empty names, unique Folders.
 fn validate(c: &Config) -> Result<(), Invalid> {
+    if !(11..=20).contains(&c.fonts.ui_size) {
+        return Err(at(
+            &["fonts", "ui_size"],
+            format!("{} is out of range (11 to 20)", c.fonts.ui_size),
+        ));
+    }
     let t = &c.terminal;
     if !(6..=40).contains(&t.size) {
         return Err(at(

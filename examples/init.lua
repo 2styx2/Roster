@@ -66,6 +66,7 @@ return {
   fonts = {
     ui = "Inter",
     mono = "Iosevka", -- the wordmark and code-like text in the UI
+    ui_size = 14, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
   },
 
   -- The terminal ------------------------------------------------------------------------------

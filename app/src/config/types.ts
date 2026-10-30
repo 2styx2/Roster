@@ -64,7 +64,7 @@ export interface Config {
   lightTheme: string;
   themes: Record<string, ThemeDef>;
   colors: Partial<ThemeColors>;
-  fonts: { ui: string; mono: string };
+  fonts: { ui: string; mono: string; uiSize: number };
   terminal: {
     font: string;
     size: number;
