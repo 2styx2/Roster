@@ -94,19 +94,39 @@ def test_long_form_url_service_is_the_web_ui(write_config):
     assert h["services"]["gui"]["port"] == 8080 and h["services"]["gui"]["verify"] is False
 
 
-@pytest.mark.parametrize("hostyml, err", [
-    ("{ip: 10.0.0.1, services: {pg: 70000}}", "bad port 70000"),
-    ("{ip: 10.0.0.1, services: {pg: true}}", "bad port True"),
-    ("{ip: 10.0.0.1, ssh: {port: 0}}", "bad port 0"),
-    ("{ip: 10.0.0.1, services: {'bad name': 1}}", "bad service name 'bad name'"),
-    ("{ip: 10.0.0.1, services: {gui: {url: 'ftp://x'}}}", "bad url 'ftp://x'"),
-    ("{ip: 10.0.0.1, services: {gui: {url: 'https://x:99999'}}}", "bad url"),
-    ("{ip: 10.0.0.1, services: {gui: {url: 'https://x', port: 80}}}", "doesn't match url"),
-    ("{ip: 10.0.0.1, services: {gui: {user: x}}}", "needs a port or a url"),
-    ("{ip: 10.0.0.1, services: {gui: {port: 1, pasword: x}}}", "unknown setting pasword"),
-    ("{ip: 10.0.0.1, ssh: {passwd: x}}", "ssh: must be a mapping"),
+@pytest.mark.parametrize("hostyml, service, err", [
+    ("{ip: 10.0.0.1, services: {pg: 70000}}", "pg", "bad port 70000"),
+    ("{ip: 10.0.0.1, services: {pg: true}}", "pg", "bad port True"),
+    ("{ip: 10.0.0.1, services: {'bad name': 1}}", "bad name", "bad service name 'bad name'"),
+    ("{ip: 10.0.0.1, services: {gui: {url: 'ftp://x'}}}", "gui", "bad url 'ftp://x'"),
+    ("{ip: 10.0.0.1, services: {gui: {url: 'https://x:99999'}}}", "gui", "bad url"),
+    ("{ip: 10.0.0.1, services: {gui: {url: 'https://x', port: 80}}}", "gui", "doesn't match url"),
+    ("{ip: 10.0.0.1, services: {gui: {user: x}}}", "gui", "needs a port or a url"),
+    ("{ip: 10.0.0.1, services: {gui: {port: 1, pasword: x}}}", "gui", "unknown setting pasword"),
 ])
-def test_bad_service_settings_fail_clearly(write_config, hostyml, err):
+def test_a_bad_service_is_left_out_with_its_problem_and_the_host_stays(write_config, hostyml, service, err):
+    hosts = load_config(write_config(f"groups:\n  a:\n    user: u\n    hosts:\n      h1: {hostyml}\n"
+                                     "      h2: {ip: 10.0.0.2, services: {pg: 5432}}\n"))["hosts"]
+    h1 = hosts["h1"]
+    assert service not in h1["services"]
+    [p] = h1["problems"]
+    assert p["service"] == service and err in p["message"] and p["fix"]
+    assert hosts["h2"]["problems"] == [] and hosts["h2"]["services"]["pg"]["port"] == 5432
+
+
+def test_only_the_bad_service_is_left_out(write_config):
+    h = load_config(write_config("groups:\n  a:\n    user: u\n    hosts:\n"
+                                 "      h1: {ip: 10.0.0.1, services: {pg: 5432, gui: {url: 'ftp://x'}}}\n"))["hosts"]["h1"]
+    assert list(h["services"]) == ["pg"] and [p["service"] for p in h["problems"]] == ["gui"]
+
+
+@pytest.mark.parametrize("hostyml, err", [
+    ("{ip: 10.0.0.1, ssh: {port: 0}}", "bad port 0"),
+    ("{ip: 10.0.0.1, ssh: {passwd: x}}", "ssh: must be a mapping"),
+    ("{ip: 10.0.0.1, services: [pg]}", "services: must be a mapping"),
+    ("{ip: 10.0.0.1, port: abc}", "bad port 'abc'"),
+])
+def test_host_level_errors_still_fail_the_load(write_config, hostyml, err):
     with pytest.raises(SystemExit, match=err):
         load_config(write_config(f"groups:\n  a:\n    user: u\n    hosts:\n      h1: {hostyml}\n"))
 

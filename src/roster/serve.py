@@ -748,13 +748,17 @@ def provider_status(name):
     return result | ({"message": message} if message else {})
 
 
+def main_vault(names):
+    """The vault to unlock: the most used provider that has a master password, or None."""
+    return next((n for n in names if PROVIDERS[n].get("unlock")), None)
+
+
 def vault_status(state, params):
-    """The vault to unlock (the most used provider that has a master password) and where every provider
-    the Inventory uses stands."""
+    """The vault to unlock (main_vault) and where every provider the Inventory uses stands."""
     names = referenced_providers(state.inventory())
-    lockable = [n for n in names if PROVIDERS[n].get("unlock")]
-    main = provider_status(lockable[0]) if lockable else {"provider": None, "status": "unsupported",
-                                                          "can_write": False}
+    lockable = main_vault(names)
+    main = provider_status(lockable) if lockable else {"provider": None, "status": "unsupported",
+                                                       "can_write": False}
     return {**main, "providers": [main if n == main["provider"] else provider_status(n) for n in sorted(names)]}
 
 
@@ -770,7 +774,7 @@ def vault_provider(state, params):
     """params.provider, or the Inventory's vault (vault.status's "provider")."""
     name = params.get("provider")
     if name is None:
-        name = vault_status(state, params)["provider"]
+        name = main_vault(referenced_providers(state.inventory()))     # no status call: that'd be a `bw` run
         if name is None:
             raise RpcError(UNSUPPORTED, "no Host Login uses a vault with a master password")
     if not isinstance(name, str) or name not in PROVIDERS:
@@ -790,7 +794,7 @@ def vault_unlock(state, params):
     except Exception as e:                      # never let the generic handler log text that might hold it
         raise RpcError(INTERNAL_ERROR, f"unlocking {name} failed: {type(e).__name__}") from None
     state.unlocked.add(name)
-    return provider_status(name)
+    return {"provider": name, "status": "unlocked", "can_write": providers.can_write(name)}   # no second `bw status`
 
 
 ON_VAULT_LOCK = []          # fn(state) run by vault.lock: whatever else holds secrets (askpass tokens) forgets them

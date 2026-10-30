@@ -12,6 +12,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { TermSize } from "../backend/types";
 import { chordOf, type Action } from "../keymap";
 import type { Clipboard } from "../platform/types";
+import { copyIfSelected, copySelection, pasteClipboard, rightClick } from "./clipboard";
 import { isLeaderKey } from "./keys";
 import { deviceAdvance, lineHeightFor, roundedCellSpacing } from "./fonts";
 import type { TerminalOptions, TerminalTheme, ZoomAction } from "./options";
@@ -121,17 +122,8 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     // and goes with `active` (below).
     host.dataset.renderer = "dom";
 
-    const copy = () => {
-      const text = t.getSelection();
-      if (text) void cb.current.env.clipboard.writeText(text).catch(() => {});
-      return Boolean(text);
-    };
-    const paste = () => {
-      void cb.current.env.clipboard
-        .readText()
-        .then((text) => text && t.paste(text))
-        .catch(() => {});
-    };
+    const copy = () => copySelection(t, cb.current.env.clipboard);
+    const paste = () => void pasteClipboard(t, cb.current.env.clipboard);
 
     // The Leader never reaches the shell (Ctrl+Space would send NUL); App's keymap acts on it.
     // The keymap's terminal chords don't either; they act on keydown only.
@@ -142,6 +134,12 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       }
       const action = cb.current.env.keys[chordOf(e)];
       if (!action?.startsWith("terminal.")) return true;
+      if (action === "terminal.copyIfSelected") {
+        // Only a keydown with a selection is ours; anything else (^C) goes to the shell.
+        if (e.type !== "keydown" || !copyIfSelected(t, cb.current.env.clipboard)) return true;
+        e.preventDefault();
+        return false;
+      }
       e.preventDefault();
       if (e.type !== "keydown") return false;
       switch (action) {
@@ -174,12 +172,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     const onContextMenu = (e: MouseEvent) => {
       if (!cb.current.env.options.rightClickCopyPaste) return;
       e.preventDefault();
-      if (t.hasSelection()) {
-        copy();
-        t.clearSelection();
-      } else {
-        paste();
-      }
+      void rightClick(t, cb.current.env.clipboard);
       t.focus();
     };
     // Ctrl+wheel zooms the terminal, not the page.

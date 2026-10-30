@@ -21,9 +21,9 @@ fn load(name: &str, lua: &str) -> Result<Config, config::ConfigError> {
 fn the_default_font_list_tries_the_installed_iosevkas_before_the_bundled_one() {
     let t = Config::default().terminal;
     assert_eq!(t.font.0, ["Iosevka Nerd Font", "Iosevka Term", "Iosevka"]);
-    // Windows Terminal's default size (12 pt), and its usual cell height.
-    assert_eq!(t.size, FontSize::Pt(12.0));
-    assert_eq!(t.size.px(), 16.0);
+    // A step above Windows Terminal's default 12 pt (decision Q61).
+    assert_eq!(t.size, FontSize::Pt(13.0));
+    assert!((t.size.px() - 17.333).abs() < 0.001);
     assert_eq!(t.renderer, Renderer::Webgl);
     assert_eq!(t.cursor_style, CursorStyle::Block);
     assert!(t.bold_is_bright);

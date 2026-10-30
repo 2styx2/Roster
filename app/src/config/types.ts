@@ -65,6 +65,8 @@ export interface Config {
   themes: Record<string, ThemeDef>;
   colors: Partial<ThemeColors>;
   fonts: { ui: string; mono: string; uiSize: number };
+  /** `ui.hints`: null when init.lua leaves it to `:hints` (and the State). */
+  ui: { hints: boolean | null };
   terminal: {
     /** Families, most wanted first (ticket 33). */
     font: string[];

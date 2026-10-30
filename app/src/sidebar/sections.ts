@@ -23,6 +23,9 @@ export interface SidebarContext {
   /** The Live Inventory (ticket 28): roster can add, remove, rename and move Hosts and groups
    * (API 8), and what's added and not Published yet (shown dimmed, with a dot). */
   live?: { pendingHosts: ReadonlySet<string>; pendingGroups: ReadonlySet<string> };
+  /** Adding a Host (ticket 11, API 6): its keys ("␣ +"), or why this roster can't. Left out, the
+   * Inventory heading has no "Add a Host" button. */
+  addHost?: { keys: string | null; tooOld: string | null };
 }
 
 export interface SidebarSectionDef extends Entry {
@@ -171,12 +174,31 @@ export const inventorySection: SidebarSectionDef = {
   id: "inventory",
   source: BUILTIN,
   order: 300,
-  build: ({ hosts, hostByName, live }) => ({
+  build: ({ hosts, hostByName, live, addHost }) => ({
     id: "inventory",
     title: "Inventory",
     count: hosts.hosts.length,
     empty: live ? "No Hosts yet. Press `␣ n` to add one." : "No Hosts yet. Add them in roster.yml.",
-    ...(live ? { actions: [{ label: "New group", icon: "add" as const, command: "group new" }] } : {}),
+    // "Add a Host" is always shown, last so hover's "New group" never moves it (iteration 3
+    // feedback: `␣ +` alone was too hard to find). On a roster too old for it, it stays and says why.
+    ...(live || addHost
+      ? {
+          actions: [
+            ...(live ? [{ label: "New group", icon: "addGroup" as const, command: "group new" }] : []),
+            ...(addHost
+              ? [
+                  {
+                    label: "Add a Host",
+                    icon: "add" as const,
+                    command: "host add",
+                    pinned: true,
+                    ...(addHost.tooOld ? { title: addHost.tooOld } : addHost.keys ? { keys: addHost.keys } : {}),
+                  },
+                ]
+              : []),
+          ],
+        }
+      : {}),
     rows: groupsOf(hosts).flatMap(([group, members]): SidebarRow[] => {
       const data = { group };
       const drop = (host: string) => (hostByName.has(host) && hostByName.get(host)?.group !== group ? `host move ${host} ${group}` : null);

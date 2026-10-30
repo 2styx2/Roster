@@ -142,11 +142,23 @@ def test_unreachable_names_reference_not_value(write_config, monkeypatch):
     assert "can't reach" in str(e.value) and SECRET not in str(e.value)
 
 
-def test_bad_login_setting(write_config):
+def test_a_bad_login_setting_warns_and_only_that_service_refuses(write_config, capsys):
     write_config("groups:\n  g:\n    user: u\n    hosts:\n      box:\n        ip: 127.0.0.1\n"
                  "        services: {gui: {port: 443, login: form}}\n")
-    with pytest.raises(SystemExit, match="login: 'form'"):
-        main(["hosts"])
+    assert main(["hosts"]) == 0
+    out, err = capsys.readouterr()
+    assert "box" in out
+    assert "warning: box service 'gui': login: 'form' isn't a login type" in err and "fix:" in err
+    with pytest.raises(SystemExit, match="box service 'gui': login: 'form'") as e:
+        main(["web", "box", "gui", "GET", "/"])
+    assert "web_login_names" in str(e.value)
+
+
+def test_the_default_web_service_broken_says_why(write_config):
+    write_config("groups:\n  g:\n    user: u\n    hosts:\n      box:\n        ip: 127.0.0.1\n"
+                 "        services: {web: {url: 'https://127.0.0.1', login: form}}\n")
+    with pytest.raises(SystemExit, match="box service 'web': login: 'form'"):
+        main(["web", "box", "GET", "/"])
 
 
 class FakeVsphere(http.server.BaseHTTPRequestHandler):

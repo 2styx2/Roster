@@ -112,6 +112,7 @@ def cmd_sync(cfg, args):
 
 def cmd_check(cfg, args):
     hosts = selected(cfg, args.only)
+    warn_problems(hosts)
 
     def check(h):
         res = {"ssh": ssh_ok(h["name"]) if h["enroll"] else tcp_ok(h["ip"], h["ssh"]["port"])}
@@ -180,8 +181,17 @@ def logins_label(h):
     return ", ".join(parts)
 
 
+def warn_problems(hosts):
+    """Service entries roster left out of the Inventory (bad port, url, login...), on stderr: the rest still works."""
+    for h in sorted(hosts, key=lambda h: h["name"]):
+        for p in h["problems"]:
+            print(f"warning: {h['name']} {p['message']} - left out\n         fix: {p['fix']}", file=sys.stderr,
+                  flush=True)
+
+
 def cmd_hosts(cfg, args):
     hosts, rs = selected(cfg, args.only, resources=True)
+    warn_problems(hosts)
     if args.find:
         hosts = [h for h in hosts if matches(h, args.find)]
         rs = [r for r in rs if resource_matches(r, args.find)]
@@ -316,6 +326,8 @@ def cmd_info(cfg, args):
     for i, r in enumerate(rows):
         say(f"{'services' if i == 0 else '':<12} " + "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=False))
             + "  " + r[-1])
+    for i, p in enumerate(h["problems"]):
+        say(f"{'problems' if i == 0 else '':<12} {p['message']} - left out; fix: {p['fix']}")
     return 0
 
 
@@ -430,6 +442,7 @@ def cmd_providers(cfg, args):
 def cmd_auth_check(cfg, args):
     uses = {}                                    # (ref, group) -> [(service, host, user)]
     hosts, resources = selected(cfg, args.only, resources=True)
+    warn_problems(hosts)
     for h in hosts:
         for svc, s in [("ssh", h["ssh"]), *h["services"].items()]:
             if svc == "ssh" or s["auth"] is not None:

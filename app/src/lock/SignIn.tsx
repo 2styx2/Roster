@@ -264,7 +264,7 @@ export function SignIn({
       />
       {problem && <SignInProblem problem={problem} rows={errorRows} />}
       {/* Enter does nothing while waiting on the browser for SSO, so it isn't offered there. */}
-      <p className="signin-keys muted">
+      <p className="signin-keys muted key-hint">
         {!ssoWait && (
           <>
             <Keys keys="Enter" /> continues

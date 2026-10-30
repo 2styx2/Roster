@@ -4,6 +4,8 @@
 /** Keys caught in a terminal before the shell sees them (Windows Terminal's defaults). */
 export type TerminalAction =
   | "terminal.copy"
+  /** Copy and clear the selection if there is one; else the key goes on to the shell. */
+  | "terminal.copyIfSelected"
   | "terminal.paste"
   | "terminal.search"
   | "terminal.zoomIn"
@@ -16,7 +18,11 @@ export const terminalKeys = {
   /** In Terminal mode: these chords never reach the shell. */
   terminal: {
     "Ctrl+Shift+c": "terminal.copy",
+    // With a selection only, as Windows Terminal: without one, Ctrl+C is the shell's interrupt.
+    "Ctrl+c": "terminal.copyIfSelected",
+    "Ctrl+Insert": "terminal.copy",
     "Ctrl+Shift+v": "terminal.paste",
+    "Shift+Insert": "terminal.paste",
     "Ctrl+Shift+f": "terminal.search",
     "Ctrl+=": "terminal.zoomIn",
     "Ctrl++": "terminal.zoomIn",
