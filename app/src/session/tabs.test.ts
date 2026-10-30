@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import { QUICK_CONNECT_API_VERSION, type SessionEvents } from "../backend/types";
+import { QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, type SessionEvents } from "../backend/types";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -767,5 +767,86 @@ describe("Quick Connect (ticket 14)", () => {
     await asked(tabs);
     expect(backend.quickConnects()).toHaveLength(1);
     expect(tabs.snapshot().tabs[0]!.quick).toEqual({ to, id: null });
+  });
+});
+
+describe('"Save to vault" on Quick Connect (ticket 15)', () => {
+  const to = { user: "root", address: "10.0.0.5", port: 22 };
+  function saving(extra: Partial<FakeScenario> = {}) {
+    const backend = fakeBackend({
+      ...unlocked,
+      hosts,
+      apiVersion: SAVE_TO_VAULT_API_VERSION,
+      quickBoxes: { "10.0.0.5": { hostname: "nas-01" } },
+      ...extra,
+    });
+    return { backend, tabs: new Tabs(backend) };
+  }
+  const tab = (tabs: Tabs) => tabs.snapshot().tabs[0]!;
+  async function connected(tabs: Tabs, password = FAKE_HOST_PASSWORD, save = true) {
+    const id = tabs.openQuick(to);
+    await vi.waitFor(() => {
+      const s = tab(tabs).status;
+      if (s.state !== "asking" || !s.key) throw new Error("not asking yet");
+    });
+    tabs.connectQuick(id, password, save);
+    return id;
+  }
+
+  it("asks serve to hold the password, and offers the save once the Session logged in with it", async () => {
+    const { backend, tabs } = saving();
+    await connected(tabs);
+    await vi.waitFor(() => expect(tab(tabs).save).toMatchObject({ held: "q1", loggedIn: true }));
+    expect(backend.held()).toEqual(["q1"]);
+    // the box's own name, from the window title its shell set after the login
+    await vi.waitFor(() => expect(tab(tabs).save?.hostname).toBe("nas-01"));
+    expect(JSON.stringify(tabs.snapshot())).not.toContain(FAKE_HOST_PASSWORD);
+  });
+
+  it("holds nothing without the tick", async () => {
+    const { backend, tabs } = saving();
+    await connected(tabs, FAKE_HOST_PASSWORD, false);
+    await vi.waitFor(() => expect(tab(tabs).status.state).toBe("open"));
+    expect(tab(tabs).save).toBeNull();
+    expect(backend.held()).toEqual([]);
+  });
+
+  it("forgets the password when the Session ends without saving", async () => {
+    const { backend, tabs } = saving();
+    const id = await connected(tabs);
+    await vi.waitFor(() => expect(tab(tabs).save?.loggedIn).toBe(true));
+    tabs.write(id, "exit\r");
+    await vi.waitFor(() => expect(backend.forgotten()).toEqual(["q1"]));
+    expect(tab(tabs).save).toBeNull();
+  });
+
+  it("forgets it when the box refused the password: nothing to save", async () => {
+    const { backend, tabs } = saving();
+    await connected(tabs, "nope");
+    await vi.waitFor(() => expect(tab(tabs).status.state).toBe("ended"));
+    await vi.waitFor(() => expect(backend.forgotten()).toEqual(["q1"]));
+    expect(tab(tabs).save).toBeNull();
+  });
+
+  it("forgets it when the user turns the offer down, or closes the tab", async () => {
+    const { backend, tabs } = saving();
+    const id = await connected(tabs);
+    await vi.waitFor(() => expect(tab(tabs).save?.loggedIn).toBe(true));
+    tabs.dismissSave(id);
+    expect(tab(tabs).save).toBeNull();
+    expect(backend.forgotten()).toEqual(["q1"]);
+    tabs.close(id);
+    expect(backend.forgotten()).toEqual(["q1"]);
+  });
+
+  it("keeps the saved Host's name, and forgets nothing more once saved", async () => {
+    const { backend, tabs } = saving();
+    const id = await connected(tabs);
+    await vi.waitFor(() => expect(tab(tabs).save?.loggedIn).toBe(true));
+    tabs.saved(id, "nas-01");
+    expect(tab(tabs).save).toMatchObject({ saved: "nas-01" });
+    tabs.close(id);
+    await settle();
+    expect(backend.forgotten()).toEqual([]);
   });
 });

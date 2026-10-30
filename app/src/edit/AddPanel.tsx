@@ -23,7 +23,6 @@ import {
   type CheckStep,
   type HostAdd,
   type HostList,
-  type SaveTargets,
   type ScannedKey,
 } from "../backend/types";
 import { problemFromCallError, type ErrorRow } from "../errors/catalog";
@@ -32,6 +31,7 @@ import { CheckSteps } from "../errors/CheckPanel";
 import { ProblemBody, type ProblemActions } from "../errors/ErrorPanel";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
+import { SaveToField, useSaveTo } from "./SaveTo";
 import {
   addParams,
   addProblem,
@@ -74,8 +74,6 @@ export interface AddPanelProps {
   /** Changes when the vault settings may have (a `:source` of init.lua or roster.yml): list again. */
   targetsVersion?: number;
 }
-
-type Targets = { at: "loading" } | { at: "done"; found: SaveTargets } | { at: "failed"; message: string };
 
 const LOGIN_WAYS: { way: LoginWay; label: string }[] = [
   { way: "password", label: "Type its password" },
@@ -162,25 +160,9 @@ export function AddPanel({
 
   // ---- Save to (ticket 35)
   const choosing = chooseTarget && open && login === "password";
-  const [targets, setTargets] = useState<Targets>({ at: "loading" });
-  /** The target picked here; null: the default. */
-  const [chosen, setChosen] = useState<string | null>(null);
+  const saveTo = useSaveTo(backend, choosing, targetsVersion);
+  const { found, target } = saveTo;
   const [pickMissing, setPickMissing] = useState(false);
-  useEffect(() => {
-    if (!choosing) return;
-    let current = true;
-    backend.saveTargets().then(
-      (found) => current && setTargets({ at: "done", found }),
-      (e: unknown) => current && setTargets({ at: "failed", message: e instanceof Error ? e.message : String(e) }),
-    );
-    return () => {
-      current = false;
-    };
-  }, [backend, choosing, targetsVersion]);
-  const found = choosing && targets.at === "done" ? targets.found : null;
-  const target = found
-    ? (found.targets.find((t) => t.id === chosen) ?? found.targets.find((t) => t.id === found.default) ?? null)
-    : null;
   const name = draft.name.trim() || "the Host";
   const newGroup = isNewGroup(draft, hosts);
   const suggestions = itemSuggestions(draft, hosts);
@@ -241,7 +223,7 @@ export function AddPanel({
     if (found && !target) {
       // The default names a place that isn't there: this Host's choice has to be made here.
       setPickMissing(true);
-      document.querySelector<HTMLInputElement>(`input[name="${ids}-saveto"]`)?.focus();
+      document.querySelector<HTMLInputElement>(`input[name="${fieldId("saveto")}-saveto"]`)?.focus();
       return;
     }
     if (login === "none") return add();
@@ -435,50 +417,7 @@ export function AddPanel({
                 </div>
               )}
               {choosing && (
-                <div className="add-save-to">
-                  <span id={fieldId("saveto")} className="add-save-to-label">
-                    Save to
-                  </span>
-                  {targets.at === "loading" && <span className="edit-hint">Reading where the vault can save…</span>}
-                  {targets.at === "failed" && (
-                    <span className="edit-hint">
-                      roster saves it where its settings say (it couldn't list the other places: {targets.message})
-                    </span>
-                  )}
-                  {found && (
-                    <div
-                      className="add-targets"
-                      role="radiogroup"
-                      aria-labelledby={fieldId("saveto")}
-                      aria-describedby={found.problem ? `${fieldId("saveto")}-problem` : undefined}
-                    >
-                      {found.targets.map((t) => (
-                        <label key={t.id} className="add-way">
-                          <input
-                            type="radio"
-                            name={`${ids}-saveto`}
-                            value={t.id}
-                            checked={target?.id === t.id}
-                            onChange={() => {
-                              setChosen(t.id);
-                              setPickMissing(false);
-                            }}
-                          />
-                          {t.label}
-                          {t.id === found.default && (
-                            <span className="add-target-from"> · default{found.from ? `, from ${found.from}` : ""}</span>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {found?.problem && (
-                    <span id={`${fieldId("saveto")}-problem`} className={pickMissing && !target ? "edit-field-problem" : "edit-hint"}>
-                      {pickMissing && !target ? "Pick where to save it. " : ""}
-                      {found.problem.message}
-                    </span>
-                  )}
-                </div>
+                <SaveToField id={fieldId("saveto")} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
               )}
               <label className="add-check">
                 <input type="checkbox" checked={draft.enroll} onChange={(e) => set({ enroll: e.target.checked })} />

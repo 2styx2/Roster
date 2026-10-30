@@ -43,6 +43,7 @@ function recorder(mode: ViewMode = "standard") {
     showChanges: (then) => calls.push(then ? `changes ${then}` : "changes"),
     pull: () => calls.push("pull"),
     addHost: (g) => calls.push(g ? `add ${g}` : "add"),
+    saveSession: () => calls.push("save"),
     inventory: (op) => calls.push(`inventory ${JSON.stringify(op)}`),
     groupNames: () => ["lab", "net"],
     review: (h, reviewed = true) => calls.push(`${reviewed ? "review" : "unreview"} ${h ?? "selected"}`),

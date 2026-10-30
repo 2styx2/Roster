@@ -18,6 +18,8 @@ import {
   type HostKeyTrust,
   type HostList,
   type QuickConnect,
+  type QuickSave,
+  type QuickSaveParams,
   type HostUpdate,
   type InventoryChanged,
   type InventoryReload,
@@ -110,10 +112,12 @@ async function openQuickSession(
   password: string | null,
   size: TermSize,
   events: SessionEvents,
+  options: { save?: boolean } = {},
 ): Promise<SessionHandle> {
-  const { id, auth, quick } = await call<{ id: number; auth: SessionAuth; quick?: string }>("quick_session_open", {
+  const { id, auth, quick, held } = await call<{ id: number; auth: SessionAuth; quick?: string; held?: string }>("quick_session_open", {
     to,
     password,
+    save: options.save === true,
     cols: size.cols,
     rows: size.rows,
     events: sessionChannel(events),
@@ -122,6 +126,7 @@ async function openQuickSession(
     id,
     auth,
     ...(quick === undefined ? {} : { quick }),
+    ...(held === undefined ? {} : { held }),
     write: (data) => call("session_write", { id, data }),
     resize: ({ cols, rows }) => call("session_resize", { id, cols, rows }),
     close: () => call("session_close", { id }),
@@ -180,6 +185,16 @@ export function tauriBackend(): Backend {
     deleteGroup: (group, to) => inventoryCall("group.delete", { group, ...(to ? { to } : {}) }),
     reloadInventory: () => inventoryCall<InventoryReload>("inventory.reload", {}),
     watchInventory: (auto) => inventoryCall("inventory.watch", { auto }),
+    // "Save to vault" after a Session's own login (tickets 15, 16): ids and names only.
+    saveQuick: (params: QuickSaveParams) => call<QuickSave>("save_call", { method: "quick.save", params }),
+    forgetTyped: (held) => call<{ forgotten: boolean }>("save_call", { method: "vault.forget_typed", params: { held } }),
+    onLoggedIn(onLogin) {
+      const stop = listen<{ method: string; params: { held?: unknown } }>("roster-notification", (e) => {
+        const held = e.payload.params?.held;
+        if (e.payload.method === "session.logged_in" && typeof held === "string") onLogin(held);
+      });
+      return () => void stop.then((f) => f());
+    },
     onInventoryChanged(onChange) {
       const stop = listen<{ method: string; params: unknown }>("roster-notification", (e) => {
         if (e.payload.method === "inventory.changed") onChange(e.payload.params as InventoryChanged);

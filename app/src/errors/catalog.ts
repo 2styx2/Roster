@@ -431,6 +431,22 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Pick a place you can write to in Save to, or ask an organization admin for write access.",
     actions: [],
   }),
+  // "Save to vault" after a Session's own login (tickets 15, 16): roster saves only a password that
+  // just logged in (Q43), and holds it only so long.
+  row("save-not-logged-in", {
+    row: 68,
+    codes: [66],
+    where: ["roster"],
+    fix: () => "Wait until the Session has logged in. If the box refused the password, nothing is saved: check it and connect again.",
+    actions: [],
+  }),
+  row("save-nothing-held", {
+    row: 69,
+    codes: [67],
+    where: ["roster"],
+    fix: () => "Connect again with Save to vault ticked: roster forgets the password once the Session ends, the vault locks, or 10 minutes pass.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

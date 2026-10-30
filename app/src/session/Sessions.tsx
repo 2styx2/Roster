@@ -129,8 +129,8 @@ export interface KeyAnswers {
   trust(): void;
   cancel(): void;
   /** A Quick Connect's answer (ticket 14): the key is confirmed, with the password typed (empty:
-   * this Box's keys). */
-  connect?(password: string): void;
+   * this Box's keys), and whether to save it to the vault once it logs in (ticket 15). */
+  connect?(password: string, save: boolean): void;
 }
 
 /**
@@ -148,6 +148,7 @@ export function ConnectCard({
   answers,
   active = true,
   quick = null,
+  canSave = false,
 }: {
   host: string;
   address: string | null;
@@ -162,6 +163,8 @@ export function ConnectCard({
   active?: boolean;
   /** A Quick Connect (ticket 14): the question asks for the password too. */
   quick?: QuickTarget | null;
+  /** roster can save a typed password once the Session logs in (API 13, ticket 15): offer it. */
+  canSave?: boolean;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const trustButton = useRef<HTMLButtonElement>(null);
@@ -169,6 +172,8 @@ export function ConnectCard({
   // and the field emptied at once (docs/app/security.md).
   const passwordField = useRef<HTMLInputElement>(null);
   const keysNote = useId();
+  // Whether to save the password once it logs in: a choice, not a secret, so plain state.
+  const [save, setSave] = useState(false);
   const question = (phase === "asking" || phase === "trusting") && hostKey !== null && answers !== undefined;
   // Keyboard first: the question takes focus (after the terminal, which the active pane focuses
   // first), so Enter trusts and Esc cancels. Once answered, focus goes back to the terminal.
@@ -202,7 +207,7 @@ export function ConnectCard({
     const field = passwordField.current;
     const typed = field?.value ?? "";
     if (field) field.value = "";
-    answers?.connect?.(typed);
+    answers?.connect?.(typed, canSave && save && typed !== "");
   };
   // The question stays in this same card (no new surface, no second entrance): the edge waits,
   // dashed, short of the Host until the user answers.
@@ -266,6 +271,12 @@ export function ConnectCard({
             <p className="muted quick-keys" id={keysNote}>
               Leave it empty to log in with this Box's keys.
             </p>
+            {canSave && (
+              <label className="add-check quick-save">
+                <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+                Save to vault once it logs in
+              </label>
+            )}
             <div className="key-actions">
               <button type="submit" className="primary" ref={trustButton}>
                 Trust and connect
@@ -313,6 +324,42 @@ export function ConnectCard({
   );
 }
 
+/** "Save to vault" (ticket 15): the Session logged in with the password typed for it, so roster can
+ * save it now. A quiet note in the pane's corner, like "Session ended": it never takes the
+ * terminal's focus, since the user just reached a shell. */
+function SaveOffer({
+  host,
+  saveKeys,
+  leader,
+  run,
+  dismiss,
+}: {
+  host: string;
+  saveKeys: string | null;
+  leader: string;
+  run(line: CommandLine): void;
+  dismiss(): void;
+}) {
+  return (
+    <div className="session-note save-offer" role="status" aria-label="Save to vault">
+      <span>
+        <span className="connect-name">{host}</span> logged in with the password you typed.
+      </span>
+      {saveKeys && (
+        <span className="muted key-hint">
+          <Keys keys={saveKeys} leader={leader} />
+        </span>
+      )}
+      <button type="button" className="reconnect primary" onClick={() => run("save")}>
+        Save…
+      </button>
+      <button type="button" className="reconnect" onClick={dismiss}>
+        Not now
+      </button>
+    </div>
+  );
+}
+
 /** address:port as ssh would write it ([address]:port for IPv6). */
 function endpoint({ address, port }: QuickTarget): string {
   return `${address.includes(":") ? `[${address}]` : address}:${port}`;
@@ -322,7 +369,7 @@ function endpoint({ address, port }: QuickTarget): string {
 const FADE_MS = 120;
 
 export interface SessionPanesProps {
-  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey" | "connectQuick">;
+  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey" | "connectQuick" | "dismissSave">;
   snapshot: TabsSnapshot;
   leader: string;
   terminalView: TerminalViewComponent;
@@ -338,6 +385,10 @@ export interface SessionPanesProps {
   copy(text: string): Promise<void>;
   /** A Host's address, for the connect card ("10.0.0.6"), or null. */
   addressOf?(host: string): string | null;
+  /** roster can save a typed password once its Session logs in (API 13, tickets 15 and 16). */
+  canSave?: boolean;
+  /** The keys that open the save form (`:save`), if the keymap has them. */
+  saveKeys?: string | null;
 }
 
 export function SessionPanes({
@@ -351,6 +402,8 @@ export function SessionPanes({
   errorRows,
   copy,
   addressOf,
+  canSave = false,
+  saveKeys = null,
 }: SessionPanesProps) {
   const actions: ProblemActions = { run, copy };
   return (
@@ -379,11 +432,15 @@ export function SessionPanes({
                 answers={{
                   trust: () => tabs.trustKey(tab.id),
                   cancel: () => tabs.cancelKey(tab.id),
-                  connect: (password) => tabs.connectQuick(tab.id, password),
+                  connect: (password, save) => tabs.connectQuick(tab.id, password, save),
                 }}
                 active={active}
                 quick={tab.quick?.to ?? null}
+                canSave={canSave}
               />
+            )}
+            {tab.save?.loggedIn && tab.save.saved === null && s.state === "open" && (
+              <SaveOffer host={tab.host} saveKeys={saveKeys} leader={leader} run={run} dismiss={() => tabs.dismissSave(tab.id)} />
             )}
             {s.state === "ended" && s.problem && (
               <div className="session-error overlay">

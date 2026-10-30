@@ -67,6 +67,12 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 92).where).toContain("the infra repo");
   });
 
+  it("gives Save to vault's own codes their rows (docs/app/errors.md rows 68-69, ticket 15)", () => {
+    expect(rowFor(rows, 66)).toMatchObject({ row: 68, id: "save-not-logged-in" });
+    expect(rowFor(rows, 67)).toMatchObject({ row: 69, id: "save-nothing-held" });
+    expect(rowFor(rows, 67).fix(p(67))).toMatch(/Save to vault/);
+  });
+
   it("gives every Live Inventory code its row (docs/app/errors.md rows 53-56, ticket 28)", () => {
     const covered = new Set(builtinErrorRows.map((r) => r.row));
     for (let n = 53; n <= 56; n++) expect(covered.has(n), `row ${n}`).toBe(true);

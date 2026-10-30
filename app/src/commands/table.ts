@@ -70,6 +70,9 @@ export interface CommandContext {
   edit(host: string | null): void;
   /** Opens the add-Host form (ticket 11), in `group` (else the selected Host's). */
   addHost(group?: string): void;
+  /** Opens "Save to vault" for the current Session, once it logged in with a password typed for it
+   * (tickets 15, 16). */
+  saveSession(): void;
   /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
    * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
   inventory(op: InventoryOp): void;
@@ -191,6 +194,13 @@ export const builtinCommands: readonly CommandDef[] = [
     optionalArg: true,
     label: (t) => (t ? `Quick Connect to ${t}` : "Quick Connect: a Session to user@address[:port], not in the Inventory"),
     run: (ctx, t) => ctx.quickConnect(t ?? null),
+  },
+  {
+    id: "save",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Save to vault: the password typed for this Session, once it logged in",
+    run: (ctx) => ctx.saveSession(),
   },
   {
     id: "reconnect",

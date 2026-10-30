@@ -47,7 +47,11 @@ import {
   SessionRefusal,
   HostKeyError,
   type QuickConnect,
+  type QuickSave,
+  type QuickSaveParams,
   PublishError,
+  SAVE_TO_VAULT_API_VERSION,
+  SaveLoginError,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
 import { formatQuickTarget } from "../quick/target";
@@ -108,7 +112,9 @@ export interface FakeScenario {
    * `quick.prepare` then refuses with 43) and takes FAKE_HOST_PASSWORD for any user, or no password
    * (this Box's keys). `changesOnConnect`: the box offers another key by `quick.prepare` (23);
    * `unreachable`: it doesn't answer (42). */
-  quickBoxes?: Record<string, { changesOnConnect?: boolean; unreachable?: boolean }>;
+  quickBoxes?: Record<string, { changesOnConnect?: boolean; unreachable?: boolean; hostname?: string }>;
+  /** Vault item names already there ("Save to vault" refuses them: 60). */
+  vaultItems?: string[];
   /** Ticket 11: per address, what `host.scan_key` answers (default: an unrecorded ed25519 key). */
   scanKeys?: Record<string, Partial<ScannedKey>>;
   /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
@@ -337,6 +343,16 @@ export const fixtures: Record<string, FakeScenario> = {
     quickBoxes: { "10.0.0.66": { unreachable: true }, "10.0.0.23": { changesOnConnect: true } },
     scanKeys: { "10.0.0.43": { recorded: "changed" } },
   },
+  /** Ticket 15: Quick Connect with "Save to vault" (API 13). 10.0.0.5's shell names it nas-01 (its
+   * window title, which pre-fills the Host's name); a vault item "dup ssh" is already there. */
+  "quick-save": {
+    hosts: makeHosts(12),
+    apiVersion: 13,
+    delay: 300,
+    loginMs: 800,
+    quickBoxes: { "10.0.0.5": { hostname: "nas-01" }, "10.0.0.66": { unreachable: true } },
+    vaultItems: ["dup ssh"],
+  },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(
@@ -451,6 +467,7 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
+  extra: { onLogin?: () => void; title?: string } = {},
 ): SessionHandle {
   let line = "";
   let ended = false;
@@ -466,6 +483,9 @@ function fakeSession(
   const sayResized = (s: TermSize) => events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
   setTimeout(() => {
     loggedIn = true;
+    extra.onLogin?.();
+    // A shell that names its box in the window title, as most Linux prompts do (OSC 0).
+    if (extra.title) events.output(encode(`\x1b]0;${extra.title}\x07`));
     events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
     if (resized && !ended) sayResized(resized);
   }, loginMs);
@@ -604,6 +624,11 @@ export interface FakeBackend extends Backend {
   /** Every `quick.prepare` so far (ticket 14): where, and whether a password came with it (never
    * the password itself). */
   quickConnects(): (QuickConnect & { password: boolean })[];
+  /** Every `quick.prepare` that asked to save (ticket 15), by held id, and every `quick.save` and
+   * `vault.forget_typed` so far. */
+  held(): string[];
+  quickSaves(): QuickSaveParams[];
+  forgotten(): string[];
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;
@@ -727,6 +752,20 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   const added: Omit<AddHostParams, "password">[] = [];
   let sessions = 0;
   const quick: (QuickConnect & { password: boolean })[] = [];
+  // ---- "Save to vault" after a Session's own login (tickets 15, 16)
+  /** Typed passwords serve holds, by id: whether that Session logged in with it, and for what. */
+  const holding = new Map<string, { loggedIn: boolean; to: QuickConnect }>();
+  const heldIds: string[] = [];
+  const saves: QuickSaveParams[] = [];
+  const forgets: string[] = [];
+  const loginWatchers = new Set<(held: string) => void>();
+  let items = [...(scenario.vaultItems ?? [])];
+  const loggedIn = (held: string) => {
+    const h = holding.get(held);
+    if (!h) return;
+    h.loggedIn = true;
+    for (const w of loginWatchers) w(held);
+  };
   /** Hosts whose key `host.trust_key` recorded (ticket 36). */
   const keysTrusted = new Set<string>();
   const knownHost = (host: string) => {
@@ -943,6 +982,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         await wait();
         if (vaultNow() !== "locked" && vaultNow() !== "unlocked") return { locked: [] };
         vaultWord = "locked";
+        holding.clear(); // serve forgets every typed password it held (vault.lock)
         return { locked: [vaultName] };
       }),
     configureVault: (next) =>
@@ -1012,7 +1052,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
       return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
     },
-    async openQuickSession(to, password, size, events) {
+    async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
       quick.push({ ...to, password: password !== null });
       const label = formatQuickTarget(to);
@@ -1043,12 +1083,88 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const id = ++sessions;
       const auth: SessionAuth = password === null ? "key" : "password";
+      const qid = `q${quick.length}`;
+      const saving = options.save === true && password !== null && (scenario.apiVersion ?? 2) >= SAVE_TO_VAULT_API_VERSION;
+      if (saving) {
+        holding.set(qid, { loggedIn: false, to });
+        heldIds.push(qid);
+      }
+      const hostname = box?.hostname;
       // Like ssh: a password the box doesn't take, or no key it does, ends the Session at once.
       const handle =
         password === null || password === FAKE_HOST_PASSWORD
-          ? fakeSession(id, label, auth, size, events, scenario.loginMs)
+          ? fakeSession(id, label, auth, size, events, scenario.loginMs, {
+              ...(saving ? { onLogin: () => loggedIn(qid) } : {}),
+              ...(hostname ? { title: `${to.user}@${hostname}: ~` } : {}),
+            })
           : failingSession(id, auth, `${to.user}@${to.address}: Permission denied (publickey,password).\r\n`, events);
-      return { ...handle, quick: `q${quick.length}` };
+      return { ...handle, quick: qid, ...(saving ? { held: qid } : {}) };
+    },
+    async saveQuick(p: QuickSaveParams): Promise<QuickSave> {
+      await wait();
+      saves.push(p);
+      const fail = (code: number, message: string, data: CallErrorData = {}) => new BackendCallError(message, code, data);
+      const h = holding.get(p.quick);
+      if (!h) {
+        throw fail(SaveLoginError.nothingHeld, "there's no typed password to save for that Session: it was saved already, or forgotten (the Session ended, the vault was locked, or 10 minutes passed)", {
+          fix: "connect again with Save to vault ticked",
+        });
+      }
+      if (!h.loggedIn) {
+        throw fail(SaveLoginError.notLoggedIn, `${formatQuickTarget(h.to)} hasn't logged in with that password - roster saves it only after the login succeeded`, {
+          fix: "wait until the Session has logged in; if the box refused the password, nothing is saved",
+        });
+      }
+      for (const [field, v] of [["name", p.name], ["group", p.group]] as const) {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v)) {
+          throw fail(AddError.invalidHost, `bad ${field === "name" ? "host" : "group"} name '${v}' (use letters, digits, . _ -)`, { field });
+        }
+      }
+      const there = hosts.find((x) => x.name === p.name);
+      if (there) {
+        throw fail(AddError.hostExists, `host '${p.name}' is already in the Inventory (group ${there.group})`, {
+          group: there.group,
+          fix: "pick another name, or edit that Host",
+        });
+      }
+      const item = p.item ?? `${p.name} ssh`;
+      if (vaultNow() !== "unlocked") throw new BackendCallError(VAULT_LOCKED, VaultError.locked);
+      if (items.includes(item)) {
+        throw fail(60, `a Bitwarden item named '${item}' already exists - pick another name, or point the Login at that item`, {
+          matches: [{ name: item, revised: "2026-10-01", uris: [] }],
+          fix: "pick another name for the Host or the item",
+        });
+      }
+      const target = targetFor(p.save_to ?? defaultSetting().setting);
+      if (!target) throw unknownTarget(p.save_to ? "save_to" : "vault.save_to in init.lua");
+      items = [...items, item];
+      holding.delete(p.quick);
+      const host: Host = {
+        name: p.name,
+        group: p.group,
+        ip: h.to.address,
+        type: "",
+        product: "",
+        title: p.title ?? "",
+        description: "",
+        reviewed: true,
+        enroll: false,
+        ssh: { user: h.to.user, port: h.to.port, auth: `bw:${item}` },
+        web: null,
+      };
+      hosts = [...hosts, host];
+      if (!(p.group in groups)) groups = { ...groups, [p.group]: { title: "", description: "" } };
+      const { save_to: _s, ...shown } = target;
+      void _s;
+      return { added: true, host, backup: "/home/you/infra/.git/roster/roster.yml.bak", item: { provider: "bw", id: `fake-${item}`, name: item, target: shown }, warnings: [] };
+    },
+    async forgetTyped(held: string) {
+      forgets.push(held);
+      return { forgotten: holding.delete(held) };
+    },
+    onLoggedIn(onLogin) {
+      loginWatchers.add(onLogin);
+      return () => loginWatchers.delete(onLogin);
     },
     async checkHost(host) {
       await wait();
@@ -1354,5 +1470,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     vaultSettings: () => settings,
     adds: () => added,
     quickConnects: () => [...quick],
+    held: () => [...heldIds],
+    quickSaves: () => [...saves],
+    forgotten: () => [...forgets],
   };
 }
