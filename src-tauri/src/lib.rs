@@ -28,7 +28,9 @@ impl BackendState {
             let env_cmd = std::env::var(OVERRIDE_VAR).ok();
             let env_distro = std::env::var(DISTRO_VAR).ok();
             let plan = config::backend_plan(config, Platform::current(), env_cmd.as_deref(), env_distro.as_deref())
-                .map_err(|m| BackendError::new(ErrorKind::Failed, m, "Fix it in init.lua (docs/config.md), then Retry."))?;
+                .map_err(|m| {
+                    BackendError::new(ErrorKind::Failed, m, "Fix it in init.lua (docs/config.md), then Retry.")
+                })?;
             let candidate = detect(
                 &SystemRunner,
                 Platform::current(),
