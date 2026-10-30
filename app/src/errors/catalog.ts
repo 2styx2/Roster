@@ -20,7 +20,8 @@ export type Where =
   | "the Host"
   | "roster"
   | "the sign-in form"
-  | "the infra repo";
+  | "the infra repo"
+  | "init.lua";
 
 export type ErrorAction =
   /** Runs a command line: `reconnect`, `check HOST`, `lock` (the lock screen), `find`. */
@@ -403,6 +404,21 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     codes: [63],
     where: ["roster"],
     fix: () => "Nothing to undo: roster only takes back the items it just saved.",
+    actions: [],
+  }),
+  // Where it goes (ticket 35): the Save to setting or choice.
+  row("vault-unknown-target", {
+    row: 58,
+    codes: [64],
+    where: ["roster.yml", "init.lua"],
+    fix: () => "Fix the save_to setting roster names, or pick another place in Save to.",
+    actions: [],
+  }),
+  row("vault-read-only-target", {
+    row: 59,
+    codes: [65],
+    where: ["the vault"],
+    fix: () => "Pick a place you can write to in Save to, or ask an organization admin for write access.",
     actions: [],
   }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.

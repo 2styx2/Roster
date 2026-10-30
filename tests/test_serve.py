@@ -22,7 +22,7 @@ def test_inventory_info(serve, isolated):
     assert info["path"] == str(example.resolve())
     assert info["box"] and info["host_count"] == 5
     assert {"bw", "op", "env", "prompt"} <= set(info["providers"])
-    assert info["roster_version"] == __version__ and info["api_version"] == 9
+    assert info["roster_version"] == __version__ and info["api_version"] == 10
     assert s.close() == (0, "", "")
 
 
@@ -130,7 +130,7 @@ def test_an_inventory_that_doesnt_load_is_an_error_not_an_exit(serve, write_conf
     err = s.call("inventory.info")["error"]
     assert err["code"] == 1
     assert err["message"] == "host 'box' has no user (set it on the host, its group, or defaults)"
-    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 9,
+    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 10,
                            "fix": f"fix {path}, or run `roster init` if there's none yet"}
     assert s.call("hosts.list")["error"]["code"] == 1
     assert s.call("host.get", {"name": "box"})["error"]["code"] == 1
@@ -156,6 +156,7 @@ def test_vault_status_names_the_inventorys_vault(serve, write_config, fakes):
     write_config(INVENTORY)
     assert serve().call("vault.status")["result"] == {
         "provider": "bw", "status": "locked", "can_write": True,
+        "save_to": {"setting": "personal", "from": "default"},             # where "Save to vault" goes (ticket 35)
         "providers": [{"provider": "bw", "status": "locked", "can_write": True},
                       {"provider": "env", "status": "unsupported", "can_write": False},
                       {"provider": "prompt", "status": "unsupported", "can_write": False}]}
@@ -599,7 +600,7 @@ def test_a_create_that_times_out_after_saving_counts_as_made_and_can_be_undone(w
     state, r = in_process(write_config, "vault.create_item", {"name": "box ssh", "password": NEW_PW})
     made = r["result"]
     item = next(i for i in json.loads(vault.read_text()) if i["name"] == "box ssh")
-    assert made == {"provider": "bw", "id": item["id"], "name": "box ssh"}
+    assert made == {"provider": "bw", "id": item["id"], "name": "box ssh", "target": {"id": "personal", "kind": "personal", "label": "Personal vault"}}
     monkeypatch.delenv("FAKE_BW_CREATE_HANG")
     _, r = in_process(write_config, "vault.undo_create", {"id": made["id"]}, state)
     assert r["result"]["id"] == made["id"] and "box ssh" not in vault.read_text()

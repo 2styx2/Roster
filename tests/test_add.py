@@ -112,6 +112,28 @@ def test_the_item_name_can_be_chosen(app, box, sshd, vault):
     assert r["host"]["ssh"]["auth"] == "bw:nas ssh+web" and "nas ssh+web" in items(vault)
 
 
+def test_a_typed_password_goes_where_save_to_says(serve, box, sshd, vault, monkeypatch):
+    """Ticket 35: the add form's "Save to" choice reaches the Vault item; a bad one is refused after nothing was
+    written, and the test login's password stays out of every output."""
+    from test_save_to import ORGS
+    monkeypatch.setenv("FAKE_BW_ORGS", json.dumps(ORGS))
+    app = serve("-c", str(box.yml))
+    app.call("vault.unlock", {"password": "hunter2"})
+    team = {"organization": "My Team", "collection": "Infra logins"}
+    r = result(add(app, name="nas", port=sshd.port, password=SECRET, enroll=False, save_to=team))
+    assert r["item"]["target"]["label"] == "My Team / Infra logins"
+    made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
+    assert (made["organizationId"], made["collectionIds"]) == ("0rg-team", ["c0l-infra"])
+    assert r["host"]["ssh"]["auth"] == "bw:nas ssh"
+    err = add(app, name="nas2", port=sshd.port, password=SECRET, enroll=False,
+              save_to={"organization": "My Team", "collection": "Nope"})["error"]
+    assert err["code"] == 64 and "save_to.collection" in err["message"]
+    assert "nas2" not in box.yml.read_text() and "nas2 ssh" not in items(vault)
+    assert add(app, name="nas3", password=SECRET, save_to="team")["error"]["code"] == -32602
+    _, out, err = app.close()
+    assert not [x for x in ALL_SECRETS if x in "".join(app.responses) + out + err]
+
+
 def test_an_existing_vault_item_is_tested_and_the_host_added(app, box, sshd, vault):
     r = result(add(app, name="esx2", port=sshd.port, auth="bw:esx ssh", enroll=False))
     assert r["verify"]["ok"] and r["item"] is None and r["host"]["reviewed"] is True
@@ -275,7 +297,7 @@ def test_a_vault_item_saved_by_a_create_that_timed_out_is_used_for_the_add(box, 
     r = add_in_process(state, sshd)
     res = r["result"]
     made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
-    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh"}
+    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh", "target": {"id": "personal", "kind": "personal", "label": "Personal vault"}}
     assert res["host"]["ssh"]["auth"] == "bw:nas ssh"
 
 

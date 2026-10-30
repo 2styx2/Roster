@@ -63,6 +63,9 @@ ITEM_EXISTS = 60            # a vault item by exactly that name already exists; 
 CANT_WRITE = 61             # the provider can only read Logins (bw and kp can create items)
 WRITE_FAILED = 62           # the vault CLI refused the create or delete; the message has its words, never a value
 NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that item, or it's already undone
+UNKNOWN_TARGET = 64         # save_to names an organization, collection or group that isn't there (ticket 35); the
+                            #   message names the setting (roster.yml's, init.lua's, or the choice)
+READ_ONLY_TARGET = 65       # save_to names a collection the account may only read; nothing was left behind
 
 # Editing the Inventory: Pending changes (ticket 10). The verify_login steps reuse 30-48.
 NOT_A_REPO = 70             # roster.yml isn't tracked in a git repo, so it can't have Pending changes
@@ -121,6 +124,11 @@ def write_problem(e):
         return Problem(CANT_WRITE, str(e), fix="save to a provider that can write (bw, kp), or make the item by hand")
     if isinstance(e, providers.WriteFailed):
         return Problem(WRITE_FAILED, str(e), fix="see the message; check your rights to the vault or collection")
+    if isinstance(e, providers.UnknownTarget):
+        return Problem(UNKNOWN_TARGET, str(e), fix="fix the setting the message names, or pick where to save it")
+    if isinstance(e, providers.ReadOnlyTarget):
+        return Problem(READ_ONLY_TARGET, str(e),
+                       fix="save it somewhere you can write to, or ask an organization admin for write access")
     return vault_problem(e)
 
 

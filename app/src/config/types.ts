@@ -3,6 +3,7 @@
 // this mirrors it, camelCase). The frontend never runs Lua; it gets this object at start
 // (`config_load`) and again after every save (`config-changed`). docs/app/config.md documents each
 // option as it's written in init.lua.
+import type { SaveTo } from "../backend/types";
 import type { KeymapContext } from "../keymap";
 import type { AnsiPalette, TerminalTheme } from "../terminal/options";
 import type { TerminalColors, ThemeColors } from "../theme/theme";
@@ -105,8 +106,19 @@ export interface Config {
   editor: "os" | "wsl";
   /** Reload on every save (decision Q58); off: `:source` reloads. */
   autoReload: boolean;
+  /** This Box's own vault settings, sent to roster (`vault.configure`) at start and on every
+   * `:source`; they win over roster.yml's. Paths on the Backend's Box, never a secret. */
+  vault: VaultConfig;
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
+}
+
+/** init.lua's `vault` table (tickets 35, 41). */
+export interface VaultConfig {
+  /** Where "Save to vault" puts a new item by default (ticket 35); null: roster.yml's. */
+  saveTo: SaveTo | null;
+  /** KeePassXC's database and key file (ticket 41): absolute or `~/` paths on the Backend's Box. */
+  kp: { database: string | null; keyFile: string | null };
 }
 
 /** What `:config` did (ticket 32). */

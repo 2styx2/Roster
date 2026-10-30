@@ -54,6 +54,8 @@ pub struct Config {
     /// Reload on every save of a `.lua` file. Off by default: `:source` reloads, as in Neovim
     /// (decision Q58).
     pub auto_reload: bool,
+    /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
+    pub vault: Vault,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -83,6 +85,7 @@ impl Default for Config {
             backend: BackendChoice::Auto,
             editor: Editor::Os,
             auto_reload: false,
+            vault: Vault::default(),
             lines: BTreeMap::new(),
         }
     }
@@ -95,6 +98,110 @@ pub struct Ui {
     /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
     /// `:hints` decides and the State keeps its choice; set, it wins.
     pub hints: Option<bool>,
+}
+
+/// What init.lua says about the vault: this Box's own settings, which win over roster.yml's
+/// `providers:`. The app sends them to roster serve (`vault.configure`) at start and after every
+/// `:source`. Paths and choices only, never a secret (docs/app/security.md).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct Vault {
+    /// Where "Save to vault" puts new Vault items by default (ticket 35). None: roster.yml's.
+    pub save_to: Option<SaveTo>,
+    /// KeePassXC (ticket 41): a local database is this Box's, not the team's.
+    pub kp: KeePassXc,
+}
+
+/// `save_to`: the personal vault, an organization's collection (Bitwarden, by name or id), or a
+/// group (KeePassXC). The same shape as roster.yml's `providers: NAME: save_to:`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum SaveTo {
+    #[serde(serialize_with = "personal")]
+    Personal,
+    Collection {
+        organization: String,
+        collection: String,
+    },
+    Group {
+        group: String,
+    },
+}
+
+fn personal<S: serde::Serializer>(s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str("personal")
+}
+
+impl<'de> Deserialize<'de> for SaveTo {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = SaveTo;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(
+                    "\"personal\", { organization = …, collection = … } (Bitwarden) or { group = … } (KeePassXC)",
+                )
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<SaveTo, E> {
+                match v {
+                    "personal" => Ok(SaveTo::Personal),
+                    _ => Err(E::custom(format!(
+                        "{v:?}: say \"personal\", or give {{ organization = …, collection = … }} or {{ group = … }}"
+                    ))),
+                }
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<SaveTo, A::Error> {
+                let mut fields: BTreeMap<String, String> = BTreeMap::new();
+                while let Some((k, v)) = map.next_entry::<String, String>()? {
+                    if v.trim().is_empty() {
+                        return Err(de::Error::custom(format!("{k} can't be empty")));
+                    }
+                    fields.insert(k, v.trim().to_string());
+                }
+                let keys: Vec<&str> = fields.keys().map(String::as_str).collect();
+                match keys.as_slice() {
+                    ["collection", "organization"] => Ok(SaveTo::Collection {
+                        organization: fields["organization"].clone(),
+                        collection: fields["collection"].clone(),
+                    }),
+                    ["group"] => Ok(SaveTo::Group {
+                        group: fields["group"].clone(),
+                    }),
+                    _ => Err(de::Error::custom(format!(
+                        "{{ {} }}: give {{ organization = …, collection = … }} (Bitwarden) or {{ group = … }} (KeePassXC)",
+                        keys.join(", ")
+                    ))),
+                }
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct KeePassXc {
+    /// The `.kdbx`, on the Box roster runs on (WSL's file system for a WSL Backend).
+    #[serde(deserialize_with = "backend_path")]
+    pub database: Option<String>,
+    /// A key file used with the master password, on the same Box.
+    #[serde(deserialize_with = "backend_path")]
+    pub key_file: Option<String>,
+}
+
+/// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to.
+fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let s = String::deserialize(d)?;
+    let t = s.trim();
+    let b = t.as_bytes();
+    let drive = b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+    if t.starts_with('/') || t.starts_with('~') || t.starts_with("\\\\") || drive {
+        return Ok(Some(t.to_string()));
+    }
+    Err(de::Error::custom(format!(
+        "{s:?} isn't an absolute path: give the path on the Box roster runs on, starting with / or ~"
+    )))
 }
 
 /// A place in a Lua file.

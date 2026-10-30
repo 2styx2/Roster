@@ -107,6 +107,13 @@
     "ui": {
       "hints": null
     },
+    "vault": {
+      "kp": {
+        "database": null,
+        "keyFile": null
+      },
+      "saveTo": null
+    },
     "vim": true
   },
   "terminalColors": [

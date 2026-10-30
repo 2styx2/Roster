@@ -16,7 +16,7 @@ Edits made by hand to `roster.yml` or the vault get the same treatment as anythi
 | 3 | Host is `reviewed: false` | Came from `discover` | Inventory | "esxi-02 hasn't been reviewed" | Review it (ticket 11) |
 | 4 | No user set | Hand edit left the user out, or `CHANGE-ME` | Inventory | "No SSH user for esxi-02" | Edit the Host |
 | 5 | Login points at a provider that isn't set up | `auth: keeper:…` (a provider roster doesn't have), or a typo in the prefix | Inventory | "esxi-02's Login uses `keeper:`, which isn't set up on this Box" | Show the provider list (`roster providers`) |
-| 6 | Vault CLI missing / not logged in | New Box; for KeePassXC, no `providers: kp: database:` or the `.kdbx` (or key file) isn't on this Box | Box | roster's wording, e.g. "Bitwarden CLI isn't logged in - run `bw login` once", "KeePassXC database /home/you/roster.kdbx isn't there - …" | Show the command |
+| 6 | Vault CLI missing / not logged in | New Box; for KeePassXC, no `providers: kp: database:` (or `vault.kp.database` in init.lua) or the `.kdbx` (or key file) isn't on this Box | Box | roster's wording, e.g. "Bitwarden CLI isn't logged in - run `bw login` once", "KeePassXC database /home/you/roster.kdbx isn't there - …" | Show the command |
 | 7 | Vault locked | Idle lock, or locked elsewhere | Vault | (lock screen) | Unlock; the Session opens afterwards (ticket 06) |
 | 8 | Vault item not found | Typo in `bw:NAME`, item renamed or deleted | Vault / Inventory | "No vault item named 'esxi-02 ssh' (Login of esxi-02)" | Show near-matching item names; edit the Login |
 | 9 | Several vault items match | Duplicate names | Vault | "Two vault items are named 'esxi-02 ssh'" | List them (name, last edited, URI); fix in the vault |
@@ -62,6 +62,8 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 35 | 61 | The provider can only read Logins (1Password, `pass`, `env`, …) | Box | "provider 'op' can't save to the vault - …" | Save to `bw` or `kp`, or make the item by hand |
 | 36 | 62 | The vault CLI refused: no rights to the collection, an organization policy, the server; for KeePassXC a read-only `.kdbx`, a missing `group`, or a title with `/` | Vault | "Bitwarden didn't create 'esx-02 ssh': …" | See Details; check your rights |
 | 37 | 63 | An undo for an item this `roster serve` didn't create, or one already undone | roster | "item … wasn't created by this roster serve …" | Nothing to undo |
+| 58 | 64 | `save_to` names an organization, collection or KeePassXC group that isn't there, an organization you're only invited to, or a shape the provider doesn't have (ticket 35) | `roster.yml`, init.lua, or the form's Save to | "no Bitwarden organization 'My Tem' that you can save to (yours: My Team) - fix providers: bw: save_to: organization: in roster.yml" | Fix that setting, or pick another place in Save to. In the form it shows under Save to, which then needs a choice |
+| 59 | 65 | The collection is one you may only read. bw's CLI doesn't say so beforehand: the item came back outside it, so roster took it out again | Vault | "you can only read the Bitwarden collection My Team / Audit, so nothing can be saved there; 'esx-02 ssh' was taken back out" | Pick a place you can write to, or ask an organization admin. That collection isn't offered again until the vault is locked |
 
 ## Editing the Inventory (ticket 10)
 

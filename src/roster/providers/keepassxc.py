@@ -3,7 +3,9 @@
 keepassxc-cli has no session: every call opens the database again with the master password, which it reads as the
 first line of its stdin (never an argument). So "unlocked" means this process holds the master password in memory
 (the provider's state), checked against the database once; lock forgets it. The database and an optional key file
-come from roster.yml:  providers: { kp: { database: ~/roster.kdbx, key_file: ~/roster.key, group: Hosts } }.
+come from roster.yml:  providers: { kp: { database: ~/roster.kdbx, key_file: ~/roster.key, group: Hosts } }, or from
+the app's init.lua (vault = { kp = { database = ..., key_file = ... } }, through serve's vault.configure), which wins:
+a local database is this Box's own, not the team's.
 
 Checked against keepassxc-cli 2.8.0: prompts go to stderr ("Enter password to unlock DB: "), a value printed by
 `show -a ATTR` is on stdout with a newline, every failure is one line on stderr and exit 1. No -q: it also silences
@@ -22,12 +24,15 @@ from . import (
     SecretError,
     SeveralItems,
     TimedOut,
+    UnknownTarget,
     VaultLocked,
     WriteFailed,
     WrongPassword,
     manual_unlock,
     near_names,
     register,
+    resolve_target,
+    setting_name,
     split_field,
 )
 
@@ -50,10 +55,11 @@ def _database(ctx):
     db = _path(ctx, "database")
     if db is None:
         raise NotLoggedIn(f"{NAME} has no database set on this box - add  providers: {{kp: {{database: "
-                          "~/roster.kdbx}}}}  to roster.yml")
+                          "~/roster.kdbx}}}}  to roster.yml, or  vault = {{ kp = {{ database = \"~/roster.kdbx\" }} }}  "
+                          "to the app's init.lua")
     if not db.is_file():
-        raise NotLoggedIn(f"{NAME} database {db} isn't there - create it in KeePassXC, or fix providers: kp: "
-                          "database: in roster.yml")
+        raise NotLoggedIn(f"{NAME} database {db} isn't there - create it in KeePassXC, or fix "
+                          f"{setting_name(ctx, 'database')}")
     return db
 
 
@@ -88,7 +94,7 @@ def _kp(ctx, command, *options, entry=None, password=None, then="", floor=1):
         ctx.state.pop("password", None)                  # it no longer opens the database (changed meanwhile?)
         raise WrongPassword(f"{NAME} unlock failed (wrong master password{' or key file' if key else ''}?)")
     if r.returncode != 0 and "Failed to load key file" in err:
-        raise NotLoggedIn(f"{NAME} can't read the key file {key} - fix providers: kp: key_file: in roster.yml")
+        raise NotLoggedIn(f"{NAME} can't read the key file {key} - fix {setting_name(ctx, 'key_file')}")
     if r.returncode != 0 and "Failed to open database file" in err:
         raise NotLoggedIn(f"{NAME} can't open the database {db}: {err}")
     return r
@@ -128,14 +134,24 @@ def _lock(ctx):
     ctx.state.pop("password", None)                      # lock() already dropped the state; nothing to run
 
 
-def _entries(ctx, floor=1):
-    """Every entry's path (GROUP/…/TITLE), outside the recycle bin."""
+def _listing(ctx, floor=1):
+    """Every group (GROUP/) and entry (GROUP/…/TITLE) path, outside the recycle bin."""
     r = _kp(ctx, "ls", "-R", "-f", floor=floor)
     if r.returncode != 0:
         raise SecretError(f"{NAME} couldn't list the database: {_errtext(r) or f'exit {r.returncode}'}")
     trash = str(ctx.settings.get("recycle_bin", "Recycle Bin")) + "/"
     return [p for p in (x.rstrip("\r") for x in r.stdout.splitlines())
-            if p and not p.endswith("/") and not p.endswith("[empty]") and not p.startswith(trash)]
+            if p and not p.endswith("[empty]") and not p.startswith(trash)]
+
+
+def _entries(ctx, floor=1):
+    """Every entry's path (GROUP/…/TITLE), outside the recycle bin."""
+    return [p for p in _listing(ctx, floor) if not p.endswith("/")]
+
+
+def _groups(ctx):
+    """Every group's path (GROUP/SUB), outside the recycle bin."""
+    return [p.rstrip("/") for p in _listing(ctx) if p.endswith("/")]
 
 
 def _summary(path):
@@ -192,9 +208,39 @@ def _scrub(text, *values):
     return text
 
 
+# ---- where it goes (ticket 35): the top level, or a group. The default is save_to (init.lua's, then roster.yml's),
+# else roster.yml's older `group:`.
+
+TOP = {"id": "personal", "kind": "personal", "label": "Top level", "save_to": "personal"}
+
+
+def _group_target(group):
+    return {"id": f"group:{group}", "kind": "group", "label": group, "save_to": {"group": group}}
+
+
+def _targets(ctx):
+    _ready(ctx)
+    return [TOP] + [_group_target(g) for g in _groups(ctx)]
+
+
+def _resolve(setting, field, ctx):
+    if setting == "personal":
+        return TOP
+    if "group" not in setting:
+        raise UnknownTarget(f"{field()} names a Bitwarden organization and collection, but {NAME} saves to the top "
+                            "level of its database or a group")
+    group = setting["group"].strip("/")
+    groups = _groups(ctx)
+    if group not in groups:
+        raise UnknownTarget(f"no {NAME} group '{group}' in the database (groups: {', '.join(groups) or 'none'}) - "
+                            f"fix {field('group')}")
+    return _group_target(group)
+
+
 def _create(item, ctx):
     _ready(ctx)
     name, password = item["name"], item["password"]
+    target = resolve_target(ctx, *item["save_to"])
     if "/" in name:
         raise WriteFailed(f"{NAME} entry titles can't contain '/' (it separates groups) - '{name}' wasn't created")
     if "\n" in password or "\r" in password:              # stdin is read a line at a time
@@ -203,18 +249,18 @@ def _create(item, ctx):
     if same:
         raise ItemExists(f"a {NAME} entry titled '{name}' already exists ({', '.join(same)}) - Logins look entries "
                          "up by exact title, so roster won't make a second one", name, [_summary(p) for p in same])
-    group = str(ctx.settings.get("group") or "").strip("/")
+    group = target["save_to"]["group"] if target["kind"] == "group" else ""
     path = f"{group}/{name}" if group else name
     options = [*(["-u", item["username"]] if item["username"] else []), *(["--url", item["uri"]] if item["uri"] else [])]
     try:
         r = _kp(ctx, "add", *options, "-p", entry=path, then=f"{password}\n")
     except TimedOut:                                     # stopped: the entry may be saved all the same
-        return _created_anyway(ctx, name, path)
+        return {**_created_anyway(ctx, name, path), "target": target}
     if r.returncode != 0:
         err = _scrub(_errtext(r), password, ctx.state.get("password"))
         raise WriteFailed(f"{NAME} didn't create '{name}': {err or f'exit {r.returncode}'}"
                           + (f" (is there a group '{group}'?)" if group and "Could not create entry" in err else ""))
-    return {"id": path, "name": name}
+    return {"id": path, "name": name, "target": target}
 
 
 LOOKUP_FLOOR = 7            # s for the look-up after a create timed out, even past serve's deadline
@@ -244,5 +290,6 @@ def _delete(item_id, ctx):
 
 PROVIDERS["kp"].update(unlock=_unlock, lock=_lock, status=_status, not_logged_in=not_set_up,
                        login_help=f"{NAME} has no sign-in, only a master password: set providers: kp: database: in "
-                                  "roster.yml, then unlock",
-                       create=_create, delete=_delete)
+                                  "roster.yml (or vault.kp.database in the app's init.lua), then unlock",
+                       create=_create, delete=_delete, targets=_targets, resolve=_resolve,
+                       box_paths=("database", "key_file"))

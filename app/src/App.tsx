@@ -15,6 +15,7 @@ import {
   useEffectEvent,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -34,6 +35,9 @@ import {
   type BackendProblem,
   type Host,
   type HostList,
+  type SaveTarget,
+  VAULT_CONFIG_API_VERSION,
+  type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
@@ -42,6 +46,7 @@ import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply
 import { ConfigToast } from "./config/ConfigToast";
 import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
+import { vaultSettingsOf } from "./config/vault";
 import { ImportPanel } from "./config/ImportPanel";
 import { registerFolders } from "./folders/folders";
 import { FOLDERS_FILE, FoldersFile } from "./folders/file";
@@ -323,7 +328,39 @@ export function App({
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
-  const vault = useVault(backend, conn.state === "ready", { idleMs: options.idleLockMinutes * 60_000, clock });
+  // init.lua's vault settings reach roster (`vault.configure`, API 10; tickets 35 and 41) before the
+  // lock screen asks where the vault stands (a KeePassXC database may be init.lua's), and again on
+  // every `:source`.
+  const connInfo = conn.state === "ready" ? conn.info : null;
+  const configuresVault = connInfo !== null && connInfo.inventory.api_version >= VAULT_CONFIG_API_VERSION;
+  const vaultSettingsKey = JSON.stringify(vaultSettingsOf(config?.vault));
+  const [vaultConfiguredFor, setVaultConfiguredFor] = useState<BackendInfo | null>(null);
+  /** Goes up when where "Save to vault" can go may have changed (ticket 35): the add form lists again. */
+  const [targetsVersion, bumpTargets] = useReducer((n: number) => n + 1, 0);
+  const vaultActive = connInfo !== null && (!configuresVault || vaultConfiguredFor === connInfo);
+  const vault = useVault(backend, vaultActive, { idleMs: options.idleLockMinutes * 60_000, clock });
+  const checkVault = vault.check;
+  useEffect(() => {
+    if (!connInfo || !configuresVault) return;
+    let live = true;
+    backend.configureVault(JSON.parse(vaultSettingsKey) as VaultSettings).then(
+      (r) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        bumpTargets();
+        // A KeePassXC database that changed forgot the master password: the lock screen again.
+        if (r.locked.length) void checkVault();
+      },
+      (e: unknown) => {
+        if (!live) return;
+        setVaultConfiguredFor(connInfo);
+        setMessage(`roster didn't take init.lua's vault settings: ${e instanceof Error ? e.message : String(e)}`);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, connInfo, configuresVault, vaultSettingsKey, checkVault]);
   // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
   // screen; the tab opens by itself once the vault is unlocked again.
   // `vault` is a new object each render; its `lock` is stable, so the handler is set once.
@@ -489,6 +526,7 @@ export function App({
       setStale("roster.yml", false);
       reloadHosts();
       refreshPending();
+      bumpTargets();
       if (change.error) setMessage(inventoryBroken(change.error));
     });
     backend.watchInventory(autoReload).catch(() => {});
@@ -508,6 +546,7 @@ export function App({
         setStale("roster.yml", false);
         reloadHosts();
         refreshPending();
+        bumpTargets();
         return r.error ? inventoryBroken(r.error) : null;
       },
     });
@@ -1442,6 +1481,8 @@ export function App({
             rows={errorRows}
             actions={{ run, copy }}
             onPulled={() => reloadHosts()}
+            chooseTarget={configuresVault}
+            targetsVersion={targetsVersion}
             onAdded={(r) => {
               closeAdd();
               reloadHosts();
@@ -1449,7 +1490,7 @@ export function App({
               const where = `${r.host.name} to ${r.host.group}`;
               setMessage(
                 (r.host.reviewed
-                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
+                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}` : ""}.`
                   : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
                   (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
@@ -1637,6 +1678,11 @@ export function servicesLeftOut(list: HostList): string | null {
 }
 
 /** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */
+/** Where a saved password went, for the add message: said unless it's the personal vault (ticket 35). */
+function savedIn(target: Omit<SaveTarget, "save_to"> | undefined): string {
+  return target && target.kind !== "personal" ? `, in ${target.label}` : "";
+}
+
 export function inventoryBroken(e: InventoryFileError): string {
   const at = `roster.yml${e.line ? `:${e.line}` : ""}`;
   return `${at} has an error (${e.message}): the last good Inventory is still in use`;
