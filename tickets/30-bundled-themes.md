@@ -14,9 +14,9 @@ Each theme brings its own `ansi` 16 colors from the same source, so the terminal
 
 **Blocked by:** 21
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Every theme passes a contrast test: body text at least 4.5:1 on bg/sidebar/raised, secondary text at least 3:1, and the accent on its button text at least 4.5:1.
-- [ ] Each theme credits its palette source and license in `docs/themes.md`, with screenshots of Standard and the Picker in each theme.
-- [ ] UI tests: the picker previews live, Esc reverts, Enter persists in State, `init.lua` wins, and `:theme NAME` works in both modes.
-- [ ] Manual check on Windows: switch through every theme with a Session open, and the terminal colors follow.
+- [x] Every theme passes a contrast test: body text at least 4.5:1 on bg/sidebar/raised, secondary text at least 3:1, and the accent on its button text at least 4.5:1.
+- [x] Each theme credits its palette source and license in `docs/themes.md`, with screenshots of Standard and the Picker in each theme.
+- [x] UI tests: the picker previews live, Esc reverts, Enter persists in State, `init.lua` wins, and `:theme NAME` works in both modes.
+- [ ] Manual check on Windows: switch through every theme with a Session open, and the terminal colors follow.  _Not done in the agent run (browser only; the UI tests check the terminal colours follow). Left for the hand test._

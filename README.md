@@ -70,7 +70,9 @@ src/keyboard/         mode.ts (Terminal mode / App mode machine, key sequences),
 src/sidebar/          Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
 src/cmdline/          CommandLine.tsx (␣ :, Tab completion from the command table and Host names)
 src/theme/            Themes (ticket 09): theme.ts (the colour-token set, AppearanceOptions, terminal colours), themes.ts
-                      (Roster dark/light, Gruvbox, Nord as a registry), useTheme.ts (tokens → CSS variables, follows the OS)
+                      (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/themes.md),
+                      useTheme.ts (tokens → CSS variables, follows the OS), picker.ts (`:theme` and the `themes` finder,
+                      ticket 30), contrast.ts (WCAG ratios for the contrast test)
 src/chrome/           TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (mark D1 in Theme colours)
 src/ui/               Keys.tsx (keycaps for every key hint), CloseGlyph.tsx
 src/styles.css        the whole look, written only against Theme tokens (no colour literals)
@@ -93,7 +95,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. `&theme=roster-light|gruvbox|nord` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
+`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
 
 **The real app on Windows** (from the WSL checkout; see `docs/dev/windows-build-loop.md`):
 
