@@ -3,7 +3,7 @@
 // Ctrl+N/P, then j/k with vim on once you've moved); Enter or a click runs the item's command
 // line, Esc closes. It's the same in every view mode; Focus leans on it to reach what the Sidebar
 // shows in Standard (decision Q36).
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
 import { Keys } from "../ui/Keys";
@@ -33,6 +33,12 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
   const results = useMemo(() => finderResults(source, ctx, query), [source, ctx, query]);
   const shown = results.items.slice(0, MAX_ROWS);
   const current = Math.max(0, Math.min(moved ?? results.selected, shown.length - 1));
+
+  // A source may preview the selected item (the `themes` finder), and undo it when the Finder
+  // closes, however it closes.
+  const selectedItem = shown[current];
+  useEffect(() => source.move?.(selectedItem), [source, selectedItem]);
+  useEffect(() => () => source.close?.(), [source]);
 
   useLayoutEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${current}"]`)?.scrollIntoView?.({ block: "nearest" });
@@ -128,7 +134,7 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
         </ul>
         {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
         <div className="picker-footer">
-          <span role="status">{notice}</span>
+          <span role="status">{notice || source.note?.()}</span>
           <span className="picker-hint">
             <Keys keys="Enter" /> choose
           </span>

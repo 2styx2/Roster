@@ -47,6 +47,13 @@ export interface FinderSourceDef extends Entry {
   search?(ctx: FinderContext, query: string): FinderItem[];
   /** The item selected on opening, in the empty query's list (default the first). */
   initial?(items: readonly FinderItem[]): number;
+  /** The selected item changed (a live preview, as the `themes` finder does); undefined when
+   * nothing matches. */
+  move?(item: FinderItem | undefined): void;
+  /** The Finder closed, chosen or not (after Enter's command has run): undo a preview. */
+  close?(): void;
+  /** A line for the footer while the Finder is open ("set in init.lua"). */
+  note?(): string | undefined;
 }
 
 export type FinderRegistry = Registry<FinderSourceDef>;
