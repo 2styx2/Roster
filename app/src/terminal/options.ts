@@ -90,8 +90,8 @@ const DEFAULT_FONTS = ["Iosevka Nerd Font", "Iosevka Term", "Iosevka"];
 export const defaultTerminalOptions: TerminalOptions = {
   fonts: DEFAULT_FONTS,
   fontFamily: terminalFontStack(DEFAULT_FONTS),
-  // 12 pt, Windows Terminal's default size: 12 × 96/72.
-  fontSize: 16,
+  // 13 pt (decision Q61; Windows Terminal's default is 12): 13 × 96/72.
+  fontSize: (13 * 96) / 72,
   fontWeight: 500,
   fontWeightBold: 700,
   minFontSize: 6,

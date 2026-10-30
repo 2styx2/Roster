@@ -72,7 +72,7 @@ describe(":info and the terminal font", () => {
   it("is the bundled Iosevka when none of the installed ones is there", async () => {
     const { user } = await ready({ platform: { fontInstalled: () => false } });
     await command(user, "info");
-    expect(messageLine()).toHaveTextContent("Terminal Iosevka 16 px, WebGL");
+    expect(messageLine()).toHaveTextContent("Terminal Iosevka 17.33 px, WebGL");
   });
 });
 

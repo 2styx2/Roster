@@ -56,7 +56,7 @@ export function ConfirmPanel({ title, body, action, onConfirm, onClose }: Confir
           <button type="button" onClick={onClose} disabled={busy}>
             Keep it
           </button>
-          <span className="edit-keys muted">
+          <span className="edit-keys muted key-hint">
             <Keys keys="Enter" /> {action.toLowerCase()} <Keys keys="Escape" /> keep
           </span>
         </div>

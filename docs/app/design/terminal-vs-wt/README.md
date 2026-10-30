@@ -14,7 +14,7 @@ Both terminals ran the same local scene in WSL: a stand-in `ssh` that prints a N
 | | Windows Terminal | The app before | The app now |
 |---|---|---|---|
 | Font | installed Iosevka Nerd Font | bundled web Iosevka (no Nerd glyphs) | the first installed family in `terminal.font` (default: Iosevka Nerd Font, Iosevka Term, then the bundled Iosevka). `:info` names the one in use |
-| Size | 16 pt = 21.33 px (DIPs) | 14 px | `"16pt"` = 21.33 CSS px. A CSS px is a DIP, so the display scale applies the same way. Default `"12pt"`, WT's own |
+| Size | 16 pt = 21.33 px (DIPs) | 14 px | `"16pt"` = 21.33 CSS px. A CSS px is a DIP, so the display scale applies the same way. Default `"12pt"`, WT's own (since decision Q61, `"13pt"`) |
 | Row height | 27 px at 100%, 40 px at 150% | 19 px at 14 px | the same: 27 and 40 px |
 | Cell width | 11 px at 100% (10.67 rounded) | 10 px (xterm floors it) | 11 px. The WebGL renderer gets WT's rounding through xterm's `letterSpacing`; see below |
 | Bold (SGR 1) | brighter, not heavier (`intenseTextStyle: "bright"`, WT's default) | heavier and brighter | as WT after the import: `bold_weight` = the normal weight, `bold_is_bright = true` |

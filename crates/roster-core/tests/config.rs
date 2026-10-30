@@ -30,6 +30,9 @@ fn no_file_gives_the_defaults() {
     assert_eq!(config.terminal.weight, 500);
     assert_eq!(config.terminal.bold_weight, 700);
     assert_eq!(config.theme, "auto");
+    // Decision Q61: a size larger than Windows Terminal's 12 pt and Q57's 14 px.
+    assert_eq!(config.terminal.size, config::FontSize::Pt(13.0));
+    assert_eq!(config.fonts.ui_size, 15);
 }
 
 #[test]
@@ -112,6 +115,18 @@ fn an_out_of_range_value_is_an_error_on_its_line() {
     let e = config::load(&dir).unwrap_err();
     assert_eq!(e.line, Some(2), "{e}");
     assert!(e.message.contains("terminal.size"), "{e}");
+}
+
+#[test]
+fn ui_hints_is_unset_by_default_and_takes_a_boolean() {
+    // Unset leaves it to `:hints`, whose choice the State keeps (like `theme = "auto"`).
+    assert_eq!(Config::default().ui.hints, None);
+    let dir = with_init("hints", "return { ui = { hints = false } }\n");
+    assert_eq!(config::load(&dir).unwrap().ui.hints, Some(false));
+    let dir = with_init("hints-bad", "return {\n  ui = { hints = \"no\" },\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("ui.hints"), "{e}");
 }
 
 #[test]
@@ -862,7 +877,7 @@ fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
     }
     // Every option of the example is in it, ready to uncomment.
     assert!(starter.contains("--   theme = \"auto\","));
-    assert!(starter.contains("--     size = \"12pt\","));
+    assert!(starter.contains("--     size = \"13pt\","));
     let dir = with_init("starter", &starter);
     let mut loaded = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
     loaded.lines.clear();

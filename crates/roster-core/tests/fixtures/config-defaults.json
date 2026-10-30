@@ -28,7 +28,7 @@
     "fonts": {
       "mono": "Iosevka",
       "ui": "Inter",
-      "uiSize": 14
+      "uiSize": 15
     },
     "idleLockMinutes": 15,
     "keys": [],
@@ -89,11 +89,14 @@
       "renderer": "webgl",
       "rightClickPaste": true,
       "scrollback": 10000,
-      "size": 16.0,
+      "size": 17.333333333333332,
       "weight": 500
     },
     "theme": "auto",
     "themes": {},
+    "ui": {
+      "hints": null
+    },
     "vim": true
   },
   "terminalColors": [

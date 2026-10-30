@@ -103,11 +103,12 @@ def _bw_ready(ctx):
 
 
 def _bw_unlock(password, ctx):
-    """Unlock with a master password given as a value (from `roster serve`), via the env-var path."""
-    if _bw_status(ctx) == "unauthenticated":
-        raise NotLoggedIn(NOT_LOGGED_IN)
+    """Unlock with a master password given as a value (from `roster serve`), via the env-var path. One `bw`
+    call (each costs about a second of Node start-up): bw itself says "You are not logged in." when it isn't."""
     r = _bw(ctx, "unlock", "--raw", "--passwordenv", "ROSTER_BW_MASTER", env={"ROSTER_BW_MASTER": password})
     if r.returncode != 0 or not r.stdout.strip():
+        if "not logged in" in errtext(r).lower():
+            raise NotLoggedIn(NOT_LOGGED_IN)
         raise WrongPassword("Bitwarden unlock failed (wrong master password?)")
     os.environ["BW_SESSION"] = r.stdout.strip()           # this process only
 
