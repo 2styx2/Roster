@@ -381,3 +381,79 @@ fn a_blank_distro_choice_means_none() {
         }
     );
 }
+
+#[test]
+fn a_leading_tilde_in_the_override_means_the_targets_home() {
+    // No shell runs serve (`wsl.exe --exec`), so `~/work/roster` would reach uv as is; the probe
+    // reports the target's $HOME and the override's arguments are expanded with it.
+    let r = Scripted {
+        distros: Some(list(&[("*", "FedoraLinux-44", "Running")])),
+        probes: HashMap::from([(
+            "FedoraLinux-44".into(),
+            "roster=/usr/bin/uv\nhome=/home/u\ninventory=/home/u/infra/roster.yml\n".into(),
+        )]),
+        ..Default::default()
+    };
+    let cmd = roster_command(Some("uv run --project ~/work/roster roster"));
+    let c = detect(&r, Platform::Windows, &cmd, None).unwrap();
+    assert_eq!(
+        &c.serve_argv[6..10],
+        &s(&["/usr/bin/uv", "run", "--project", "/home/u/work/roster"])[..]
+    );
+}
+
+#[test]
+fn the_roster_missing_hint_gives_an_absolute_override_example() {
+    let r = Scripted {
+        distros: Some(list(&[("*", "A", "Running")])),
+        ..Default::default()
+    };
+    let e = detect(&r, Platform::Windows, &s(&["roster"]), None).unwrap_err();
+    assert!(!e.hint.contains("~/"), "{}", e.hint);
+    assert!(e.hint.contains("--project /home/"), "{}", e.hint);
+}
+
+/// Runs the real probe locally, with `HOME` pointing at a scratch dir.
+#[cfg(unix)]
+struct WithHome(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Runner for WithHome {
+    fn run(&self, argv: &[String], env: &[(&str, &str)]) -> std::io::Result<Output> {
+        let home = self.0.to_str().unwrap();
+        let mut all = env.to_vec();
+        all.push(("HOME", home));
+        all.push(("ROSTER_CONFIG", ""));
+        desk_core::detect::SystemRunner.run(argv, &all)
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn the_real_probe_expands_a_tilde_in_the_program_and_its_arguments() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = std::env::temp_dir().join(format!("desk-detect-home-{}", std::process::id()));
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    std::fs::create_dir_all(home.join("infra")).unwrap();
+    let program = home.join("bin/roster");
+    std::fs::write(&program, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(home.join("infra/roster.yml"), "hosts: []\n").unwrap();
+
+    let cmd = roster_command(Some("~/bin/roster --dir ~/x"));
+    let c = detect(&WithHome(home.clone()), Platform::Linux, &cmd, None);
+    let h = home.to_str().unwrap().to_string();
+    std::fs::remove_dir_all(&home).unwrap();
+    let c = c.unwrap();
+    assert_eq!(
+        &c.serve_argv[2..],
+        &[
+            format!("{h}/bin/roster"),
+            "--dir".into(),
+            format!("{h}/x"),
+            "-c".into(),
+            format!("{h}/infra/roster.yml"),
+            "serve".into()
+        ][..]
+    );
+}

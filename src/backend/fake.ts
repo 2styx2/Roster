@@ -139,7 +139,7 @@ export const fixtures: Record<string, FakeScenario> = {
     startProblem: problem(
       "roster-too-old",
       "This roster has no `serve` command (it predates roster-desk).",
-      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_DESK_ROSTER at a newer one, e.g. `uv run --project ~/work/roster roster`.",
+      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_DESK_ROSTER at a newer one, e.g. `uv run --project /home/you/work/roster roster`.",
       "roster: error: argument cmd: invalid choice: 'serve' (choose from init, setup, sync, ...)",
     ),
   },

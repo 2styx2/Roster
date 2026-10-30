@@ -9,7 +9,9 @@
 //! plus `~/infra/roster.yml`. `serve` then gets `-c <path>` because it isn't started from a login
 //! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it. For the same
 //! reason it gets the login shell's PATH (`env PATH=...`): `wsl.exe --exec` has no `~/.local/bin`,
-//! and roster finds the vault CLI (`bw`) and `ssh` on PATH.
+//! and roster finds the vault CLI (`bw`) and `ssh` on PATH. No shell expands `~` in the override
+//! (`ROSTER_DESK_ROSTER`) either, so the probe reports the target's `$HOME` and a leading `~/` in
+//! the program or its arguments is expanded with it.
 
 pub use crate::error::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR};
 use std::process::Command;
@@ -111,11 +113,14 @@ pub fn roster_command(override_value: Option<&str>) -> Vec<String> {
     if v.is_empty() { vec!["roster".into()] } else { v }
 }
 
-/// Run with `bash -lc PROBE probe <program>`. Prints `roster=<abs path>` if the program resolves,
-/// then `path=<the login PATH>` and `inventory=<path>` (empty when there's none).
+/// Run with `bash -lc PROBE probe <program>`. Prints `roster=<abs path>` if the program resolves
+/// (a leading `~` means the target's home: no shell expands it, as the program comes in quoted),
+/// then `home=$HOME`, `path=<the login PATH>` and `inventory=<path>` (empty when there's none).
 const PROBE: &str = r#"PATH="$HOME/.local/bin:$PATH"
+case $1 in "~" | "~/"*) set -- "$HOME${1#"~"}" ;; esac
 p=$(command -v -- "$1") || exit 0
 echo "roster=$p"
+echo "home=$HOME"
 echo "path=$PATH"
 for f in "$ROSTER_CONFIG" "$HOME/roster.yml" "$HOME/.config/roster/roster.yml" "$HOME/infra/roster.yml"; do
   if [ -n "$f" ] && [ -e "${f/#\~/$HOME}" ]; then echo "inventory=${f/#\~/$HOME}"; exit 0; fi
@@ -128,6 +133,7 @@ struct Probe {
     roster: Option<String>,
     inventory: Option<String>,
     path: Option<String>,
+    home: Option<String>,
 }
 
 fn parse_probe(stdout: &str) -> Probe {
@@ -140,6 +146,8 @@ fn parse_probe(stdout: &str) -> Probe {
             p.inventory = Some(v.to_string());
         } else if let Some(v) = line.strip_prefix("path=").filter(|v| !v.is_empty()) {
             p.path = Some(v.to_string());
+        } else if let Some(v) = line.strip_prefix("home=").filter(|v| !v.is_empty()) {
+            p.home = Some(v.to_string());
         }
     }
     p
@@ -216,13 +224,22 @@ fn list_distros(runner: &dyn Runner) -> Result<Distros, BackendError> {
     Ok(d)
 }
 
+/// `~` or a leading `~/` in `arg` as the target's `home`. serve starts through `wsl.exe --exec` (or
+/// directly on Linux), with no shell to expand it, and tools like uv take `~/work/roster` literally.
+fn expand_home(arg: &str, home: Option<&str>) -> String {
+    match (home, arg.strip_prefix('~')) {
+        (Some(h), Some(rest)) if rest.is_empty() || rest.starts_with('/') => format!("{h}{rest}"),
+        _ => arg.to_string(),
+    }
+}
+
 fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
     let mut argv = match &p.path {
         Some(path) => vec!["/usr/bin/env".into(), format!("PATH={path}")],
         None => vec![],
     };
     argv.push(p.roster.clone().unwrap_or_default());
-    argv.extend_from_slice(&roster_cmd[1..]);
+    argv.extend(roster_cmd[1..].iter().map(|a| expand_home(a, p.home.as_deref())));
     if let Some(inv) = &p.inventory {
         argv.extend(["-c".into(), inv.clone()]);
     }
@@ -283,7 +300,7 @@ pub fn detect(
         let mut hint = format!(
             "Install roster (`uv tool install roster` from the roster repo) so it's on PATH, \
              or set {OVERRIDE_VAR} to the command that runs it, e.g. \
-             `uv run --project ~/work/roster roster`."
+             `uv run --project /home/you/work/roster roster`."
         );
         if !stopped.is_empty() {
             where_ += &format!("; skipped because they're stopped: {}", stopped.join(", "));

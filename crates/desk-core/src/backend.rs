@@ -128,7 +128,7 @@ fn too_old(message: String) -> BackendError {
         message,
         format!(
             "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point \
-             {OVERRIDE_VAR} at a newer one, e.g. `uv run --project ~/work/roster roster`."
+             {OVERRIDE_VAR} at a newer one, e.g. `uv run --project /home/you/work/roster roster`."
         ),
     )
 }
