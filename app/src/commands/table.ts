@@ -21,6 +21,9 @@ export interface CommandContext {
   /** Opens a Session to the Host (the app checks it exists and is reviewed); `here`: in the
    * current tab if its Session has ended, else a new one. */
   connect(host: string, here?: boolean): void;
+  /** Quick Connect (ticket 14): a Session to `user@address[:port]`, a box that isn't in the
+   * Inventory; null opens the Picker to type one. */
+  quickConnect(target: string | null): void;
   /** Goes to the Host's open Session if there is one, else opens one (as `connect`). */
   open(host: string): void;
   /** Reconnects the current tab if its Session has ended or was refused. */
@@ -161,7 +164,7 @@ export const builtinCommands: readonly CommandDef[] = [
     source: BUILTIN,
     area: "Hosts",
     arg: "host",
-    label: (h) => (h ? `Connect to ${h}` : "Open a Session to a Host"),
+    label: (h) => (h ? `Connect to ${h}` : "Open a Session to a Host, or to user@address (Quick Connect)"),
     run: (ctx, h) => ctx.connect(h ?? ""),
   },
   {
@@ -179,6 +182,15 @@ export const builtinCommands: readonly CommandDef[] = [
     arg: "host",
     label: (h) => (h ? `Connect to ${h} in this tab` : "Open a Host in this tab, if its Session has ended"),
     run: (ctx, h) => ctx.connect(h ?? "", true),
+  },
+  {
+    id: "quick",
+    source: BUILTIN,
+    area: "Hosts",
+    arg: "text",
+    optionalArg: true,
+    label: (t) => (t ? `Quick Connect to ${t}` : "Quick Connect: a Session to user@address[:port], not in the Inventory"),
+    run: (ctx, t) => ctx.quickConnect(t ?? null),
   },
   {
     id: "reconnect",

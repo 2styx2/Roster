@@ -2,7 +2,7 @@
 // option shows instead of the Sidebar's Sessions section. Inactive terminals stay mounted, just
 // hidden, so their screens survive switching. Buttons here run command lines (`session N`,
 // `close N`, `reconnect`) like every other way in.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { HostKeyScan } from "../backend/types";
 import type { ErrorRow } from "../errors/catalog";
 import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
@@ -10,6 +10,7 @@ import type { CommandLine } from "../keymap";
 import type { TerminalEnv, TerminalViewComponent } from "../terminal/TerminalView";
 import { Keys } from "../ui/Keys";
 import type { Tab, Tabs, TabsSnapshot } from "./tabs";
+import type { QuickTarget } from "../quick/target";
 import { CloseGlyph } from "../ui/CloseGlyph";
 
 /** Where a Session is on its way to a shell (issue #78): `starting` while roster prepares it and
@@ -127,6 +128,9 @@ const PHASE_WORDS: Record<ConnectPhase, string> = {
 export interface KeyAnswers {
   trust(): void;
   cancel(): void;
+  /** A Quick Connect's answer (ticket 14): the key is confirmed, with the password typed (empty:
+   * this Box's keys). */
+  connect?(password: string): void;
 }
 
 /**
@@ -143,6 +147,7 @@ export function ConnectCard({
   hostKey = null,
   answers,
   active = true,
+  quick = null,
 }: {
   host: string;
   address: string | null;
@@ -155,15 +160,21 @@ export function ConnectCard({
   answers?: KeyAnswers;
   /** Its pane is the one showing: the question then takes focus. */
   active?: boolean;
+  /** A Quick Connect (ticket 14): the question asks for the password too. */
+  quick?: QuickTarget | null;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const trustButton = useRef<HTMLButtonElement>(null);
+  // The typed password lives only in this input (never React state): read once on submit, sent,
+  // and the field emptied at once (docs/app/security.md).
+  const passwordField = useRef<HTMLInputElement>(null);
+  const keysNote = useId();
   const question = (phase === "asking" || phase === "trusting") && hostKey !== null && answers !== undefined;
   // Keyboard first: the question takes focus (after the terminal, which the active pane focuses
   // first), so Enter trusts and Esc cancels. Once answered, focus goes back to the terminal.
   const asked = useRef(false);
   useEffect(() => {
-    if (question && active) trustButton.current?.focus();
+    if (question && active) (passwordField.current ?? trustButton.current)?.focus();
     if (question) asked.current = true;
     else if (asked.current) {
       asked.current = false;
@@ -184,7 +195,15 @@ export function ConnectCard({
   const words = phase ?? (gone ? null : last);
   if (words === null) return null;
   const title = `${again ? "Reconnecting" : "Connecting"} to ${host}`;
-  const where = question ? `${hostKey.address}:${hostKey.port}` : address;
+  // A Quick Connect's name already holds its address (user@address), so the title doesn't repeat it.
+  const where = quick ? null : question ? `${hostKey.address}:${hostKey.port}` : address;
+  const asksQuick = question && quick !== null && answers.connect !== undefined;
+  const connectQuick = () => {
+    const field = passwordField.current;
+    const typed = field?.value ?? "";
+    if (field) field.value = "";
+    answers?.connect?.(typed);
+  };
   // The question stays in this same card (no new surface, no second entrance): the edge waits,
   // dashed, short of the Host until the user answers.
   return (
@@ -192,7 +211,7 @@ export function ConnectCard({
       ref={card}
       className={`connect-card${phase === null ? " leaving" : ""}${question ? " key-question" : ""}`}
       role={question ? "alertdialog" : "status"}
-      aria-label={question ? `Trust ${host}'s host key?` : phase === null ? undefined : title}
+      aria-label={asksQuick ? `Quick Connect to ${host}` : question ? `Trust ${host}'s host key?` : phase === null ? undefined : title}
       onKeyDown={
         question
           ? (e) => {
@@ -202,7 +221,8 @@ export function ConnectCard({
                 answers.cancel();
               } else if (e.key === "Enter" && e.target === e.currentTarget) {
                 e.preventDefault();
-                answers.trust();
+                if (asksQuick) connectQuick();
+                else answers.trust();
               }
             }
           : undefined
@@ -219,7 +239,49 @@ export function ConnectCard({
         <span className="connect-name">{host}</span>
         {where && <span className="connect-address"> {where}</span>}
       </p>
-      {question ? (
+      {asksQuick ? (
+        <>
+          <p className="key-says">
+            {hostKey.recorded === "match" ? "This is the key roster recorded for " : "roster hasn't seen a key at "}
+            <span className="connect-address">{endpoint(quick)}</span>
+            {hostKey.recorded === "match" ? "." : " before."}
+          </p>
+          <p className="key-print">
+            <span className="key-type">{hostKey.key_type}</span> <span className="key-fingerprint">{hostKey.fingerprint}</span>
+          </p>
+          <p className="muted key-advice">Compare it with the machine's console or its owner before you trust it.</p>
+          <form
+            className="quick-login"
+            onSubmit={(e) => {
+              e.preventDefault();
+              connectQuick();
+            }}
+          >
+            <label className="quick-password">
+              <span>
+                Password for <span className="connect-name">{quick.user}</span>
+              </span>
+              <input ref={passwordField} type="password" autoComplete="off" spellCheck={false} aria-describedby={keysNote} />
+            </label>
+            <p className="muted quick-keys" id={keysNote}>
+              Leave it empty to log in with this Box's keys.
+            </p>
+            <div className="key-actions">
+              <button type="submit" className="primary" ref={trustButton}>
+                Trust and connect
+              </button>
+              <button type="button" onClick={() => answers.cancel()}>
+                Cancel
+              </button>
+            </div>
+          </form>
+          <p className="connect-phase muted">
+            <span className="key-hint">
+              <Keys keys="Enter" /> connect · <Keys keys="Escape" /> cancel
+            </span>
+          </p>
+        </>
+      ) : question ? (
         <>
           <p className="key-says">roster hasn't seen this Host's key before.</p>
           <p className="key-print">
@@ -251,11 +313,16 @@ export function ConnectCard({
   );
 }
 
+/** address:port as ssh would write it ([address]:port for IPv6). */
+function endpoint({ address, port }: QuickTarget): string {
+  return `${address.includes(":") ? `[${address}]` : address}:${port}`;
+}
+
 /** How long the card takes to fade out (--dur-fade in styles.css). */
 const FADE_MS = 120;
 
 export interface SessionPanesProps {
-  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey">;
+  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey" | "connectQuick">;
   snapshot: TabsSnapshot;
   leader: string;
   terminalView: TerminalViewComponent;
@@ -309,8 +376,13 @@ export function SessionPanes({
                 phase={connectPhase(tab)}
                 again={tab.attempt > 1}
                 hostKey={s.state === "asking" ? s.key : null}
-                answers={{ trust: () => tabs.trustKey(tab.id), cancel: () => tabs.cancelKey(tab.id) }}
+                answers={{
+                  trust: () => tabs.trustKey(tab.id),
+                  cancel: () => tabs.cancelKey(tab.id),
+                  connect: (password) => tabs.connectQuick(tab.id, password),
+                }}
                 active={active}
+                quick={tab.quick?.to ?? null}
               />
             )}
             {s.state === "ended" && s.problem && (

@@ -4,16 +4,20 @@
 // React reads it through useSyncExternalStore (useTabs).
 import {
   BackendCallError,
+  HostKeyError,
   SessionRefusal,
   type Backend,
   type HostKeyScan,
+  type QuickConnect,
   type SessionAuth,
+  type SessionEvents,
   type SessionExit,
   type SessionHandle,
   type TermSize,
 } from "../backend/types";
 import { classifyDrop, classifyExit, terminalTail, type Problem } from "../errors/classify";
 import { problemFromCallError } from "../errors/catalog";
+import { formatQuickTarget, type QuickTarget } from "../quick/target";
 
 export type TabStatus =
   | { state: "connecting" }
@@ -41,6 +45,10 @@ export interface Tab {
   shell: boolean;
   /** 1 for the first Session in the tab, 2 and on after each reconnect ("Reconnecting to …"). */
   attempt: number;
+  /** A Quick Connect (ticket 14): the box, which isn't in the Inventory (`host` is then
+   * `user@address`), and serve's id for it once a Session has opened (ticket 15's "Save to vault"
+   * refers to it). Null for a Session to a Host. */
+  quick: { to: QuickTarget; id: string | null } | null;
 }
 
 export interface TabsSnapshot {
@@ -190,8 +198,18 @@ export class Tabs {
     if (entry.late.length > LATE_LIMIT) entry.late = entry.late.slice(-LATE_LIMIT);
   }
 
+  /** A Quick Connect's Problem says so (its fixes then leave out the Host-only ones). */
+  private mark(entry: Entry, problem: Problem): Problem {
+    return entry.tab.quick ? { ...problem, quick: true } : problem;
+  }
+
   /** Why the Session ended, from its exit code and output (null: it ended normally). */
   private classify(entry: Entry, exit: SessionExit): Problem | null {
+    const problem = this.classifyExit(entry, exit);
+    return problem && this.mark(entry, problem);
+  }
+
+  private classifyExit(entry: Entry, exit: SessionExit): Problem | null {
     if (exit.closed) return null;
     const host = entry.tab.host;
     if (!this.windowOpen(entry)) {
@@ -214,10 +232,26 @@ export class Tabs {
   /** Opens a Session to `host` in a new tab, which becomes the active one. Returns the tab id.
    * Any number of tabs may hold Sessions to the same Host. */
   open(host: string): number {
+    const entry = this.add(host, null);
+    this.start(entry);
+    return entry.tab.id;
+  }
+
+  /** Opens a Quick Connect to `to` in a new tab, which becomes the active one (ticket 14): it
+   * fetches the box's key and asks for it to be confirmed, with the password, before anything
+   * connects (`connectQuick`). Returns the tab id. */
+  openQuick(to: QuickTarget): number {
+    const entry = this.add(formatQuickTarget(to), { to, id: null });
+    this.askQuick(entry);
+    return entry.tab.id;
+  }
+
+  /** A new tab, made the active one. */
+  private add(host: string, quick: Tab["quick"]): Entry {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1 },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick },
       session: null,
       closing: false,
       attempt: 0,
@@ -243,8 +277,7 @@ export class Tabs {
     this.entries.push(entry);
     this.activate(id);
     this.changed();
-    this.start(entry);
-    return id;
+    return entry;
   }
 
   /** Opens again every tab that was waiting for the vault (code 14). Each asks roster afresh, so
@@ -270,28 +303,34 @@ export class Tabs {
     const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
     entry.before = entry.tab;
     entry.keyAsked = false;
-    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1 };
+    // A Quick Connect asks again, key and password (it keeps neither); to a Host, it's a Host's tab.
+    const quick = host === undefined && entry.tab.quick ? { to: entry.tab.quick.to, id: null } : null;
+    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1, quick };
     entry.pending = [];
     this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
     this.changed();
-    this.start(entry);
+    if (quick) this.askQuick(entry);
+    else this.start(entry);
     return true;
   }
 
   /** Asks the Backend for a Session for the tab (it's in the "connecting" state). `openSession`
    * runs `session.prepare` right before the spawn, so an askpass token is never stale. */
-  private start(entry: Entry) {
+  private start(
+    entry: Entry,
+    open: (size: TermSize, events: SessionEvents) => Promise<SessionHandle> = (size, events) =>
+      this.backend.openSession(entry.tab.host, size, events),
+  ) {
     const attempt = ++entry.attempt;
     const current = () => entry.attempt === attempt && !entry.closing;
-    const { id, host } = entry.tab;
+    const { id } = entry.tab;
     entry.sentSize = { ...entry.size };
     entry.preAuth = "";
     entry.preAuthBytes = 0;
     entry.windowFrom = this.now();
     entry.late = "";
     entry.decoder = new TextDecoder();
-    this.backend
-      .openSession(host, entry.size, {
+    open(entry.size, {
         output: (data) => {
           if (!current()) return;
           this.keepTail(entry, data);
@@ -324,7 +363,8 @@ export class Tabs {
           if (s.state !== "connecting") return;
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
-          entry.tab = { ...entry.tab, auth: session.auth };
+          const quick = entry.tab.quick && { ...entry.tab.quick, id: session.quick ?? null };
+          entry.tab = { ...entry.tab, auth: session.auth, quick };
           this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },
@@ -342,7 +382,7 @@ export class Tabs {
   /** The tab's Session couldn't start: roster refused, or a step before it failed. */
   private refused(entry: Entry, e: unknown) {
     const code = e instanceof BackendCallError ? e.code : null;
-    const problem = problemFromCallError(entry.tab.host, e);
+    const problem = this.mark(entry, problemFromCallError(entry.tab.host, e));
     if (code === SessionRefusal.vaultLocked) {
       const message = "The vault is locked. Unlock it and this Session opens.";
       this.setStatus(entry, { state: "failed", message, code, problem: { ...problem, message } });
@@ -386,12 +426,55 @@ export class Tabs {
     );
   }
 
+  /** A Quick Connect (ticket 14): fetch the key the box offers and ask about it, with the password.
+   * A key that differs from one roster recorded for the address is never asked about (Q44). */
+  private askQuick(entry: Entry) {
+    const quick = entry.tab.quick;
+    if (!quick) return;
+    entry.attempt++; // a key fetched for an earlier attempt is no longer asked about
+    const current = this.turn(entry);
+    const { address, port } = quick.to;
+    this.setStatus(entry, { state: "asking", key: null, trusting: false });
+    this.backend.scanKey(address, port).then(
+      (key) => {
+        if (!current()) return;
+        if (key.recorded === "changed") {
+          const message = `${entry.tab.host}'s host key changed - not connecting`;
+          return this.refused(
+            entry,
+            new BackendCallError(message, HostKeyError.changed, {
+              offered: key.fingerprint,
+              fix: "Don't accept it blindly: compare the new fingerprint with the box's console or its owner. If the change is expected (a reinstall), delete its line in ~/.ssh/roster_known_hosts.",
+            }),
+          );
+        }
+        this.setStatus(entry, { state: "asking", key: { ...key, host: entry.tab.host }, trusting: false });
+      },
+      (e: unknown) => {
+        if (current()) this.refused(entry, e);
+      },
+    );
+  }
+
+  /** The user confirmed the Quick Connect's key and typed the password (empty: log in with this
+   * Box's keys). It goes straight to the Backend, once; the tab keeps no copy. */
+  connectQuick(id: number, password: string) {
+    const entry = this.find(id);
+    const s = entry?.tab.status;
+    const quick = entry?.tab.quick;
+    if (!entry || !quick || s?.state !== "asking" || !s.key || s.trusting) return;
+    const to: QuickConnect = { ...quick.to, fingerprint: s.key.fingerprint };
+    const typed = password === "" ? null : password;
+    this.setStatus(entry, { state: "connecting" });
+    this.start(entry, (size, events) => this.backend.openQuickSession(to, typed, size, events));
+  }
+
   /** The user trusts the key the tab asks about: roster records it (if the Host still offers
    * exactly that key) and the Session opens. */
   trustKey(id: number) {
     const entry = this.find(id);
     const s = entry?.tab.status;
-    if (!entry || s?.state !== "asking" || !s.key || s.trusting) return;
+    if (!entry || entry.tab.quick || s?.state !== "asking" || !s.key || s.trusting) return;
     const current = this.turn(entry);
     this.setStatus(entry, { ...s, trusting: true });
     this.backend.trustHostKey(entry.tab.host, s.key.fingerprint).then(

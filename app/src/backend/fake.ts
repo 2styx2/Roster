@@ -46,9 +46,11 @@ import {
   type TermSize,
   SessionRefusal,
   HostKeyError,
+  type QuickConnect,
   PublishError,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
+import { formatQuickTarget } from "../quick/target";
 import {
   HOST_KEY_CHANGED_OUTPUT,
   ITEM_NOT_FOUND,
@@ -101,6 +103,12 @@ export interface FakeScenario {
    * `unreachable`: fetching the key times out (42); `recordedAs`: a key got recorded meanwhile
    * ("changed": another one, so ssh then refuses it as row 13). */
   unknownKeys?: Record<string, { changesOnTrust?: boolean; unreachable?: boolean; recordedAs?: "match" | "changed" }>;
+  /** Ticket 14: Quick Connect boxes by address. Any address answers `host.scan_key` with an
+   * unrecorded ed25519 key (`scanKeys` changes that, e.g. `recorded: "changed"`, which
+   * `quick.prepare` then refuses with 43) and takes FAKE_HOST_PASSWORD for any user, or no password
+   * (this Box's keys). `changesOnConnect`: the box offers another key by `quick.prepare` (23);
+   * `unreachable`: it doesn't answer (42). */
+  quickBoxes?: Record<string, { changesOnConnect?: boolean; unreachable?: boolean }>;
   /** Ticket 11: per address, what `host.scan_key` answers (default: an unrecorded ed25519 key). */
   scanKeys?: Record<string, Partial<ScannedKey>>;
   /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
@@ -318,6 +326,16 @@ export const fixtures: Record<string, FakeScenario> = {
     hosts: makeHosts(12),
     apiVersion: 11,
     unknownKeys: unknownKeysOf(makeHosts(12), { changesOnTrust: true }),
+  },
+  /** Ticket 14: Quick Connect (API 12). Any user@address answers with an unrecorded key and takes
+   * FAKE_HOST_PASSWORD ("host pass"), or no password; 10.0.0.66 doesn't answer, 10.0.0.43's key
+   * differs from the one recorded, 10.0.0.23's changes before the connect. */
+  quick: {
+    hosts: makeHosts(12),
+    apiVersion: 12,
+    delay: 600,
+    quickBoxes: { "10.0.0.66": { unreachable: true }, "10.0.0.23": { changesOnConnect: true } },
+    scanKeys: { "10.0.0.43": { recorded: "changed" } },
   },
   "roster-too-old": {
     hosts: makeHosts(0),
@@ -583,6 +601,9 @@ export interface FakeBackend extends Backend {
   vaultSettings(): VaultSettings | null;
   /** Every `host.add` so far, without its password. */
   adds(): Omit<AddHostParams, "password">[];
+  /** Every `quick.prepare` so far (ticket 14): where, and whether a password came with it (never
+   * the password itself). */
+  quickConnects(): (QuickConnect & { password: boolean })[];
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;
@@ -705,6 +726,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     });
   const added: Omit<AddHostParams, "password">[] = [];
   let sessions = 0;
+  const quick: (QuickConnect & { password: boolean })[] = [];
   /** Hosts whose key `host.trust_key` recorded (ticket 36). */
   const keysTrusted = new Set<string>();
   const knownHost = (host: string) => {
@@ -990,6 +1012,44 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
       return fakeSession(++sessions, host, auth, size, events, scenario.loginMs);
     },
+    async openQuickSession(to, password, size, events) {
+      await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
+      quick.push({ ...to, password: password !== null });
+      const label = formatQuickTarget(to);
+      const box = scenario.quickBoxes?.[to.address];
+      const where = `${to.address}:${to.port}`;
+      if (box?.unreachable) {
+        throw new BackendCallError(`${label} (${where}) didn't answer within 5 s`, 42, {
+          fix: "retry later; is the Host up and the network path open?",
+          details: "timed out",
+        });
+      }
+      const scanned = scenario.scanKeys?.[to.address];
+      if (scanned?.recorded === "changed") {
+        throw new BackendCallError(`${label}'s host key changed - not connecting`, HostKeyError.changed, {
+          recorded: [FAKE_OTHER_FINGERPRINT],
+          offered: scanned.fingerprint ?? FAKE_FINGERPRINT,
+          fix: "don't accept it blindly: compare the new fingerprint with the box's console or owner",
+        });
+      }
+      const offered = box?.changesOnConnect ? FAKE_OTHER_FINGERPRINT : (scanned?.fingerprint ?? FAKE_FINGERPRINT);
+      if (to.fingerprint !== offered) {
+        throw new BackendCallError(`${label}'s host key changed while roster was asking - not connecting`, HostKeyError.changedWhileAsked, {
+          asked: to.fingerprint,
+          offered,
+          fix: "don't trust it blindly: compare the new fingerprint with the box's console or owner, then Quick Connect again to see it",
+          details: `asked about ${to.fingerprint}; now offered ssh-ed25519 ${offered}`,
+        });
+      }
+      const id = ++sessions;
+      const auth: SessionAuth = password === null ? "key" : "password";
+      // Like ssh: a password the box doesn't take, or no key it does, ends the Session at once.
+      const handle =
+        password === null || password === FAKE_HOST_PASSWORD
+          ? fakeSession(id, label, auth, size, events, scenario.loginMs)
+          : failingSession(id, auth, `${to.user}@${to.address}: Permission denied (publickey,password).\r\n`, events);
+      return { ...handle, quick: `q${quick.length}` };
+    },
     async checkHost(host) {
       await wait();
       const given = scenario.checks?.[host];
@@ -1105,6 +1165,12 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     },
     async scanKey(address, port) {
       await wait();
+      if (scenario.quickBoxes?.[address]?.unreachable) {
+        throw new BackendCallError(`${address} (${address}:${port}) didn't answer within 5 s`, 42, {
+          fix: "retry later; is the Host up and the network path open?",
+          details: "timed out",
+        });
+      }
       return { address, port, key_type: "ssh-ed25519", fingerprint: FAKE_FINGERPRINT, recorded: "none", ...scenario.scanKeys?.[address] };
     },
     async addHost(p: AddHostParams) {
@@ -1287,5 +1353,6 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     watching: () => watchAuto,
     vaultSettings: () => settings,
     adds: () => added,
+    quickConnects: () => [...quick],
   };
 }
