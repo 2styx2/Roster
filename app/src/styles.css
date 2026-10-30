@@ -830,3 +830,31 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   overflow-wrap: anywhere; max-height: 30vh; overflow-y: auto;
 }
 .config-toast-lines li + li { margin-top: 3px; }
+
+/* ---------- :config import-terminal (ticket 33): the diff before anything is written ---------- */
+
+.picker.import { width: min(760px, calc(100% - 32px)); max-height: 76vh; }
+.import-head { padding: 14px 16px 6px; }
+.import-head h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.import-from {
+  margin: 4px 0 0; font: var(--text-xs) var(--font-mono); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.import-summary { margin: 0; padding: 4px 16px 10px 32px; color: var(--text); font-size: var(--text-sm); }
+.import-summary li { margin: 2px 0; }
+.import-notes { padding: 0 16px 8px; font-size: var(--text-sm); color: var(--muted); }
+.import-notes p { margin: 0 0 4px; }
+.import-notes .warn { color: var(--warn); }
+.import-notes code { font-family: var(--font-mono); color: var(--text); }
+.import-diff {
+  flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0; padding: 8px 0;
+  border-top: 1px solid var(--line); background: var(--bg);
+  font: var(--text-sm)/1.5 var(--font-mono); color: var(--muted); white-space: pre;
+}
+.diff-line { display: block; padding: 0 16px; }
+.diff-sign { display: inline-block; width: 1.5ch; }
+.diff-line.add { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.diff-line.remove { color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
+.diff-line.gap { color: var(--muted); }
+.picker.import .picker-footer { justify-content: flex-end; height: 44px; }
+.picker.import .picker-footer button { display: inline-flex; align-items: center; gap: 6px; height: 28px; }

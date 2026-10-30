@@ -20,8 +20,8 @@
 
 **Blocked by:** 21 (done), 32 (`:config`)
 
-**Status:** ready-for-agent
+**Status:** done (checked by the agent on Windows, 2026-10-30; owner review pending)
 
-- [ ] Side-by-side screenshots against Windows Terminal (same Host, `ls --color`, vim, the user's Nerd Font prompt) at 100% and 150%, with both renderers, in `docs/app/design/terminal-vs-wt/`.
-- [ ] Tests: font resolution order, pt→px conversion, the WT `settings.json` parser (with fixtures for profiles, defaults and schemes), and the import diff.
-- [ ] Manual check: after `:config import-terminal`, the user's terminal looks like their Windows Terminal.
+- [x] Side-by-side screenshots against Windows Terminal (same Host, `ls --color`, vim, the user's Nerd Font prompt) at 100% and 150%, with both renderers, in `docs/app/design/terminal-vs-wt/`. They use a stand-in Host (a local scene in WSL), not a real one. The README there has the measurements: same rows, same cells, bold, and the renderer trade-off. Line height stays 1.0, because that is already Windows Terminal's 27 px row.
+- [x] Tests: font resolution order (`app/src/terminal/fonts.test.ts`), pt→px conversion and the new options (`crates/roster-core/tests/terminal.rs`), the WT `settings.json` parser with fixtures for profiles, defaults and schemes, and the import diff and its writing (`crates/roster-core/tests/wt.rs`, `tests/fixtures/wt/`), and the import through the App (`app/src/App.terminal.test.tsx`).
+- [x] Manual check: `:config import-terminal` read this machine's real WT settings.json (default profile "Windows PowerShell", with Iosevka Nerd Font 16 pt from `profiles.defaults`, Campbell and a filled-box cursor) into a scratch `init.lua`. Afterwards the terminal matched WT row for row and cell for cell at 100% and 150% (see the screenshots). The remaining differences are documented: grayscale antialiasing versus ClearType, vim's background guess, and colour management on the 150% screen.

@@ -102,7 +102,7 @@ describe(":config", () => {
     expect(screen.getByRole("combobox")).toHaveValue("config reload");
     await user.keyboard("{Escape}");
     await command(user, "config nope");
-    expect(messageLine()).toHaveTextContent("config takes nothing, reload or path");
+    expect(messageLine()).toHaveTextContent("config takes nothing, reload, path or import-terminal");
   });
 });
 
