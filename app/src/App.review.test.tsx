@@ -69,7 +69,7 @@ describe("S2: a key closes the side panels", () => {
 
   it(":hidepanel closes the topmost panel, so init.lua can bind it", async () => {
     const user = await ready();
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
     await user.keyboard(`${LEADER}:hidepanel{Enter}`);
     expect(screen.queryByRole("complementary", { name: "Key bindings" })).toBeNull();
@@ -187,7 +187,7 @@ describe("S12: the :theme finder shows the current Theme", () => {
 describe("N1: the Key bindings panel without the noise", () => {
   it("shows a source only when it isn't builtin, and one row for Go to Session 1–9", async () => {
     const user = await ready();
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     expect(within(panel).queryAllByText("builtin")).toHaveLength(0);
     expect(within(panel).getAllByText(/^Go to Session/)).toHaveLength(1);

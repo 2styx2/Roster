@@ -1,0 +1,407 @@
+// The help panel (`:help`, ticket 37): one page at a time beside the terminal (over it in Focus or
+// a narrow window), like the Key bindings panel. Keyboard first: j/k and Ctrl+D/U scroll, g g / G
+// jump, Tab and Enter follow links, Ctrl+O / Ctrl+I go back and forward, / searches the page (n / N
+// for the next and previous match), ? finds another topic, Esc closes and puts focus back where it
+// was. It opens from a key, so nothing animates.
+//
+// Prose is Inter; code, names and values are Iosevka; keys are keycaps. Its keycaps are the
+// bindings themselves (`binding-keys`), so `ui.hints = false` never hides them.
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { CloseGlyph } from "../ui/CloseGlyph";
+import { Keys } from "../ui/Keys";
+import type { HelpSnapshot, HelpView } from "./command";
+import type { Block, Def, Inline } from "./doc";
+import { linkTarget, pageBody, topics, type HelpContext } from "./pages";
+
+export interface HelpPanelProps {
+  view: HelpView;
+  snapshot: HelpSnapshot;
+  ctx: HelpContext;
+  leader: string;
+  vim: boolean;
+  /** Opens the topic finder. */
+  onFind(): void;
+}
+
+/** What inline rendering needs: the search, the Leader, and which code is a topic. */
+interface RenderEnv {
+  query: string;
+  leader: string;
+  tags: ReadonlySet<string>;
+  /** The topic shown (a code span naming it isn't linked to itself). */
+  here: string | undefined;
+  open(tag: string): void;
+  /** Inside a link already: a code span in it isn't linked again. */
+  inLink?: boolean;
+}
+
+const Env = createContext<RenderEnv>({ query: "", leader: "", tags: new Set(), here: undefined, open: () => {} });
+
+const LINE = 40;
+
+export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPanelProps) {
+  const at = snapshot.at;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
+  const [hit, setHit] = useState(0);
+  const [hits, setHits] = useState(0);
+  const pending = useRef<string | null>(null);
+
+  const page = ctx.pages.find((p) => p.id === at?.page);
+  const blocks = useMemo(() => (at ? pageBody(ctx, at.page) : []), [ctx, at]);
+  const tags = useMemo(() => new Set(topics(ctx).map((t) => t.tag)), [ctx]);
+  const env: RenderEnv = { query, leader, tags, here: at?.anchor ?? at?.page, open: (tag) => view.openTopic(tag) };
+
+  // Focus comes to the page when help opens, and goes back where it was when it closes.
+  useLayoutEffect(() => {
+    const before = document.activeElement;
+    scrollRef.current?.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      const lost = !now || now === document.body || !now.isConnected;
+      if ((lost || now.closest(".help-panel")) && before instanceof HTMLElement && before.isConnected) before.focus();
+    };
+  }, []);
+
+  // A new place: to its entry, or the top.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const anchor = at?.anchor;
+    const el = anchor ? [...scroller.querySelectorAll<HTMLElement>("[data-tag]")].find((e) => e.dataset.tag === anchor) : undefined;
+    if (el) el.scrollIntoView?.({ block: "start" });
+    else scroller.scrollTop = 0;
+    if (!scroller.contains(document.activeElement) || document.activeElement === document.body) scroller.focus({ preventScroll: true });
+  }, [at, snapshot.seq]);
+
+  // The matches, after each render of a search: count them and mark the current one.
+  useLayoutEffect(() => {
+    const marks = scrollRef.current?.querySelectorAll("mark.help-hit") ?? [];
+    setHits(marks.length);
+    const current = marks.length ? ((hit % marks.length) + marks.length) % marks.length : 0;
+    marks.forEach((m, i) => m.classList.toggle("current", i === current));
+    marks[current]?.scrollIntoView?.({ block: "center" });
+  }, [hit, query, blocks]);
+
+  const step = (by: number) => setHit((h) => (hits ? (((h + by) % hits) + hits) % hits : 0));
+
+  function onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    const inSearch = e.target === searchRef.current;
+    const k = e.key;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (inSearch) {
+      if (k === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSearching(false);
+        scrollRef.current?.focus({ preventScroll: true });
+      } else if (k === "Enter") {
+        e.preventDefault();
+        step(e.shiftKey ? -1 : 1);
+      }
+      return;
+    }
+    const scroller = scrollRef.current;
+    const by = (px: number) => scroller?.scrollBy?.({ top: px });
+    const seq = pending.current;
+    pending.current = null;
+    let handled = true;
+    if (k === "Escape" || (k === "q" && !ctrl)) view.close();
+    else if (ctrl && k === "o") view.goBack();
+    else if (ctrl && k === "i") view.goForward();
+    else if (e.altKey && k === "ArrowLeft") view.goBack();
+    else if (e.altKey && k === "ArrowRight") view.goForward();
+    else if (ctrl && k === "d") by((scroller?.clientHeight ?? 400) / 2);
+    else if (ctrl && k === "u") by(-(scroller?.clientHeight ?? 400) / 2);
+    else if (ctrl) handled = false;
+    else if (k === "/") {
+      setSearching(true);
+      setHit(0);
+      requestAnimationFrame(() => searchRef.current?.select());
+      searchRef.current?.focus();
+    } else if (k === "n" && query) step(1);
+    else if (k === "N" && query) step(-1);
+    else if (k === "?") onFind();
+    else if (vim && k === "j") by(LINE);
+    else if (vim && k === "k") by(-LINE);
+    else if (vim && k === "G" && scroller) scroller.scrollTop = scroller.scrollHeight;
+    else if (vim && k === "g") {
+      if (seq === "g" && scroller) scroller.scrollTop = 0;
+      else pending.current = "g";
+    } else handled = false;
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+
+  // Focus on the search field as it appears.
+  useEffect(() => {
+    if (searching) searchRef.current?.focus();
+  }, [searching]);
+
+  if (!at) return null;
+  return (
+    <aside className="help-panel" aria-label="Help" onKeyDown={onKeyDown}>
+      <header>
+        <p className="help-where">
+          <span className="help-prompt">:help</span> {at.anchor ?? at.page}
+        </p>
+        <span className="help-nav">
+          <button type="button" className="icon-button" aria-label="Back" title="Back (Ctrl+O)" disabled={!snapshot.canBack} onClick={() => view.goBack()}>
+            ‹
+          </button>
+          <button type="button" className="icon-button" aria-label="Forward" title="Forward (Ctrl+I)" disabled={!snapshot.canForward} onClick={() => view.goForward()}>
+            ›
+          </button>
+          <button type="button" className="help-find" onClick={onFind}>
+            Topics
+          </button>
+          <button type="button" className="icon-button" aria-label="Close help" onClick={() => view.close()}>
+            <CloseGlyph />
+          </button>
+        </span>
+      </header>
+      {searching || query ? (
+        <div className="help-search">
+          <input
+            ref={searchRef}
+            type="search"
+            aria-label="Search this page"
+            placeholder="Search this page…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHit(0);
+            }}
+          />
+          <span className="help-count" aria-live="polite">
+            {query ? (hits ? `${(((hit % hits) + hits) % hits) + 1} of ${hits}` : "No matches") : ""}
+          </span>
+        </div>
+      ) : null}
+      <div className="help-scroll" ref={scrollRef} tabIndex={0} aria-label={page?.title ?? at.page}>
+        <Env value={env}>
+          <article className="help-doc">
+            {page ? blocks.map((b, i) => <BlockView key={i} block={b} target={at.anchor} />) : <p>No help page named {at.page}.</p>}
+          </article>
+        </Env>
+      </div>
+      <p className="panel-foot key-hint">
+        <Keys keys="/" /> search <Keys keys="Tab" /> links <Keys keys="Ctrl+o" /> back <Keys keys="?" /> topics <Keys keys="Esc" /> close
+      </p>
+    </aside>
+  );
+}
+
+function BlockView({ block: b, target }: { block: Block; target: string | undefined }) {
+  switch (b.t) {
+    case "h": {
+      const Tag = `h${b.level}` as const;
+      return (
+        <Tag data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
+          <Inlines items={b.text} />
+        </Tag>
+      );
+    }
+    case "p":
+      return (
+        <p>
+          <Inlines items={b.text} />
+        </p>
+      );
+    case "quote":
+      return (
+        <blockquote>
+          <Inlines items={b.text} />
+        </blockquote>
+      );
+    case "list": {
+      const L = b.ordered ? "ol" : "ul";
+      return (
+        <L>
+          {b.items.map((item, i) => (
+            <li key={i}>
+              <Inlines items={item} />
+            </li>
+          ))}
+        </L>
+      );
+    }
+    case "pre":
+      return (
+        <pre>
+          <code>
+            <Highlighted text={b.text} />
+          </code>
+        </pre>
+      );
+    case "table":
+      return (
+        <div className="help-table">
+          <table>
+            <thead>
+              <tr>
+                {b.head.map((c, i) => (
+                  <th key={i} scope="col">
+                    <Inlines items={c} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((row, r) => {
+                const tag = b.anchors?.[r];
+                return (
+                  <tr key={r} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
+                    {row.map((c, i) => (
+                      <td key={i}>
+                        <Inlines items={c} spaced />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    case "defs":
+      return (
+        <dl className="help-defs">
+          {b.items.map((d, i) => (
+            <DefView key={d.anchor ?? i} def={d} target={target} />
+          ))}
+        </dl>
+      );
+  }
+}
+
+function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
+  return (
+    <div data-tag={d.anchor} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
+      <dt>
+        <span className="help-term">
+          {/* The entry's own name isn't a link (to itself). */}
+          <NoLinks>
+            <Inlines items={d.term} />
+          </NoLinks>
+        </span>
+        {d.meta.length > 0 && (
+          <span className="help-meta">
+            <Inlines items={d.meta} spaced />
+          </span>
+        )}
+      </dt>
+      <dd>
+        <Inlines items={d.body} />
+      </dd>
+    </div>
+  );
+}
+
+/** Inline content; `spaced` puts a gap between parts (a cell's keycaps, a def's meta). */
+function Inlines({ items, spaced = false }: { items: readonly Inline[]; spaced?: boolean }) {
+  return (
+    <>
+      {items.map((it, i) => (
+        <Fragment key={i}>
+          {spaced && i > 0 ? " " : null}
+          <InlineView item={it} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+function InlineView({ item }: { item: Inline }): ReactNode {
+  const env = useContext(Env);
+  switch (item.t) {
+    case "text":
+      return <Highlighted text={item.text} />;
+    case "code": {
+      // `␣ K` in a guide is a key sequence: keycaps, like everywhere else.
+      if (/^␣( \S+)+$/.test(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
+      // A code span naming a topic links to it: `:connect`, `terminal.size`, `init.lua`.
+      const tag = codeTopic(item.text, env.tags);
+      const el = (
+        <code>
+          <Highlighted text={item.text} />
+        </code>
+      );
+      return tag && tag !== env.here && !env.inLink ? <TopicLink tag={tag}>{el}</TopicLink> : el;
+    }
+    case "strong":
+      return (
+        <strong>
+          <Inlines items={item.children} />
+        </strong>
+      );
+    case "em":
+      return (
+        <em>
+          <Inlines items={item.children} />
+        </em>
+      );
+    case "keys":
+      return <Keys keys={item.keys} leader={env.leader} className="binding-keys" />;
+    case "link": {
+      const to = linkTarget(item.href);
+      const children = <Inlines items={item.children} />;
+      return to ? <TopicLink tag={to}>{children}</TopicLink> : children;
+    }
+  }
+}
+
+function NoLinks({ children }: { children: ReactNode }) {
+  const env = useContext(Env);
+  return <Env value={{ ...env, inLink: true }}>{children}</Env>;
+}
+
+/** The topic a code span names, if it's one: itself, or a command line's command (`:help options`). */
+function codeTopic(code: string, tags: ReadonlySet<string>): string | null {
+  if (tags.has(code)) return code;
+  const cmd = /^:(\S+)/.exec(code)?.[1];
+  return cmd && tags.has(`:${cmd}`) ? `:${cmd}` : null;
+}
+
+function TopicLink({ tag, children }: { tag: string; children: ReactNode }) {
+  const env = useContext(Env);
+  return (
+    <a
+      className="help-link"
+      href={`#help:${tag}`}
+      title={`:help ${tag}`}
+      onClick={(e) => {
+        e.preventDefault();
+        env.open(tag);
+      }}
+    >
+      <Env value={{ ...env, inLink: true }}>{children}</Env>
+    </a>
+  );
+}
+
+/** Text with the search's matches marked. */
+function Highlighted({ text }: { text: string }) {
+  const { query } = useContext(Env);
+  if (!query) return <>{text}</>;
+  const parts: ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  let from = 0;
+  for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) {
+    if (i > from) parts.push(text.slice(from, i));
+    parts.push(
+      <mark key={i} className="help-hit">
+        {text.slice(i, i + q.length)}
+      </mark>,
+    );
+    from = i + q.length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return <>{parts}</>;
+}
+

@@ -60,6 +60,12 @@ pub struct Config {
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
     pub lines: BTreeMap<String, Location>,
+    /// The options the file set, in its returned table or through `roster.set`, as Lua paths
+    /// down to each value (`terminal.size`, `modes.focus.sidebar`), sorted. `:help options`
+    /// (ticket 37) says these came from init.lua, even when a value equals its default. Filled
+    /// in after the schema check; never read from Lua.
+    #[serde(skip_deserializing)]
+    pub set: Vec<String>,
 }
 
 impl Default for Config {
@@ -87,6 +93,7 @@ impl Default for Config {
             auto_reload: false,
             vault: Vault::default(),
             lines: BTreeMap::new(),
+            set: Vec::new(),
         }
     }
 }
@@ -998,7 +1005,7 @@ impl<'de> Deserialize<'de> for StatusBarPiece {
 
 /// The toolbar (decision Q65): `true`, `false`, or its controls in order (`{ "add", "find" }`,
 /// ids from the app's toolbar registry: "sidebar", "find", "add", "changes", "publish", and the
-/// ones not shown by default, "cmdline", "keys", "lock", "mode"); null: the default set.
+/// ones not shown by default, "cmdline", "keys", "help", "lock", "mode"); null: the default set.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ToolbarPiece {
     pub shown: bool,

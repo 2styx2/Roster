@@ -111,6 +111,9 @@ export interface Config {
   vault: VaultConfig;
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
+  /** The options the file set, as Lua paths down to each value (`terminal.size`), sorted:
+   * `:help options` says these came from init.lua (ticket 37). */
+  set: string[];
 }
 
 /** init.lua's `vault` table (tickets 35, 41). */

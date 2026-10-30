@@ -55,7 +55,7 @@ describe("Editing keys in text fields", () => {
     expect(taken()).toEqual([]);
     await user.keyboard("{Escape}");
 
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const filter = await screen.findByRole("searchbox");
     await user.click(filter);
     expect(taken(filter)).toEqual([]);

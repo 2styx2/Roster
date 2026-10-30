@@ -16,7 +16,7 @@ export interface ToolbarContext {
   sidebarShown: boolean;
 }
 
-export type ToolbarIcon = "find" | "add" | "changes" | "publish" | "cmdline" | "keys" | "lock" | "mode" | "sidebar";
+export type ToolbarIcon = "find" | "add" | "changes" | "publish" | "cmdline" | "keys" | "help" | "lock" | "mode" | "sidebar";
 
 export interface ToolbarControlDef extends Entry {
   /** The accessible name and the tooltip ("Add a Host"). */
@@ -80,6 +80,8 @@ export const builtinControls: readonly ToolbarControlDef[] = [
   }),
   control({ id: "cmdline", label: () => "Command line", icon: "cmdline", command: "cmdline" }),
   control({ id: "keys", label: () => "Key bindings", icon: "keys", command: "keys" }),
+  // `:help`'s topic finder (ticket 37).
+  control({ id: "help", label: () => "Help", icon: "help", command: "help" }),
   control({ id: "lock", label: () => "Lock", icon: "lock", command: "lock" }),
   control({ id: "mode", label: () => "Focus mode", icon: "mode", command: "mode" }),
 ];
@@ -119,6 +121,13 @@ const PATHS: Record<ToolbarIcon, React.ReactNode> = {
     <>
       <rect x="2" y="4" width="12" height="8" rx="1.5" />
       <path d="M5 10h6M5 7h.01M8 7h.01M11 7h.01" />
+    </>
+  ),
+  // A question mark in a ring.
+  help: (
+    <>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M6.4 6.4a1.7 1.7 0 113.1 1c-.6.5-1.5.8-1.5 1.8M8 11.3v.01" />
     </>
   ),
   lock: (

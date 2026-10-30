@@ -224,7 +224,7 @@ describe("Every mode keeps all of roster", () => {
     const { user } = await ready();
     await connect(user, h0);
     await user.keyboard(`${LEADER}m`);
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}:`);

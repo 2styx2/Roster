@@ -64,6 +64,10 @@ import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
 import { shownControls, Toolbar, type ToolbarContext } from "./chrome/toolbar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
+import { HelpView, registerHelp } from "./help/command";
+import { HelpPanel } from "./help/HelpPanel";
+import { helpContext } from "./help/pages";
+import { defaultConfig } from "./config/fixture";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
 import { realClock, type Clock } from "./lock/idle";
@@ -610,6 +614,36 @@ export function App({
   }, [platform, foldersFile, registries, setStale]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
   useEffect(() => registerHints(registries, hintsChoice), [registries, hintsChoice]);
+  // `:help` (ticket 37): its pages read the live registries and the Config each time they show.
+  const [helpView] = useState(() => new HelpView());
+  const helpAt = useSyncExternalStore(helpView.subscribe, helpView.snapshot);
+  useEffect(() => registerHelp(registries, helpView), [registries, helpView]);
+  const themeList = useSyncExternalStore(registries.themes.subscribe, registries.themes.list);
+  const helpPages = useSyncExternalStore(registries.help.subscribe, registries.help.list);
+  const hintsStored = hintsChoice.stored();
+  const configPath = report?.path ?? null;
+  const helpCtx = useMemo(
+    () =>
+      helpContext(
+        {
+          commands: { get: (id) => registries.commands.get(id), list: () => commandList },
+          themes: { list: () => themeList },
+          finders: { list: () => finderSources },
+          errors: { list: () => errorRows },
+          help: { list: () => helpPages },
+        },
+        {
+          keymap,
+          options,
+          config: config ?? defaultConfig,
+          configPath,
+          state: { theme: stored, hints: hintsStored },
+          activeTheme: theme.id,
+        },
+      ),
+    [registries, commandList, keymap, options, config, configPath, stored, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources],
+  );
+  helpView.setContext(() => helpCtx);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
   const reportPath = useRef<string | null>(null);
   reportPath.current = report?.path ?? null;
@@ -844,8 +878,9 @@ export function App({
       setMode(terminalMode);
       ctx.closePanel();
     },
-    // The panel drawn last (Key bindings, beside :check) is the topmost.
+    // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
+      if (helpAt.at) return helpView.close();
       if (keysOpen) return closeKeys();
       if (confirming) return closeConfirm();
       if (editing !== null) return closeEdit();
@@ -1556,6 +1591,9 @@ export function App({
         )}
         {keysOpen && (
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
+        )}
+        {helpAt.at && (
+          <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} />
         )}
       </div>
       {overlay !== null && typeof overlay === "object" && "cmdline" in overlay && (

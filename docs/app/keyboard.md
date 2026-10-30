@@ -28,7 +28,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> t` | `finder tree` | The Sidebar's tree (Folders and the Inventory) as a finder |
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
-| `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
+| `<leader> ?` | `help [TOPIC]` | Help, like Neovim's `:help` (ticket 37): with no topic, the topic finder; `:help terminal.size`, `:help :connect`, `:help E13` open a page at that entry. Tab completes topics. See [help.md](help.md) |
+| `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
 | `<leader> +`, `<leader> n` | `host add [GROUP]` | Add a Host (ticket 11), in GROUP or the cursor's group (also the `+` always shown on the Inventory heading, which starts in the cursor's group, and the `+` on a group heading). On a roster too old to add Hosts (API 6) the Inventory's `+` stays and says so, in its tooltip and when clicked: the form tests a Login first (host key confirmed, one login), then saves; Enter adds, Esc closes |
@@ -63,7 +64,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 
 ## Copy and paste
 
-In a terminal, as in Windows Terminal. These are the keymap's `terminal` table (`keys.terminal` in `init.lua`), so each can be moved or unbound, and the Key bindings panel (`␣ ?`) lists them:
+In a terminal, as in Windows Terminal. These are the keymap's `terminal` table (`keys.terminal` in `init.lua`), so each can be moved or unbound, and the Key bindings panel (`␣ K`) lists them:
 
 | Keys | Action | What it does |
 |---|---|---|
@@ -102,7 +103,7 @@ Standard and Focus (decision Q36) differ only in their layout (decision Q39, `ap
 | `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #78) |
 | `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
-| `<leader> ?`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
+| `<leader> ?`, `<leader> K`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
 
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 

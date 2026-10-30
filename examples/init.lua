@@ -148,7 +148,7 @@ return {
       sessionbar = false,
       statusbar = true,
       -- The title bar's controls (decision Q65): true for the default set, false for none, or a list
-      -- in order from "sidebar", "find", "add", "changes", "publish", "cmdline", "keys", "lock", "mode".
+      -- in order from "sidebar", "find", "add", "changes", "publish", "cmdline", "keys", "help", "lock", "mode".
       toolbar = true,
     },
     focus = {

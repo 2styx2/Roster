@@ -324,6 +324,36 @@ return { theme = "mine" }
     assert_eq!(config.lines["themes.mine"].line, 5);
 }
 
+/// `:help options` says where each option's value came from (ticket 37): the options the file
+/// sets, in its table or through `roster.set`, down to each value, with their lines.
+#[test]
+fn the_config_says_which_options_the_file_set_and_where() {
+    let dir = with_init(
+        "set",
+        r##"local roster = require("roster")
+roster.set("fonts.ui_size", 16)
+return {
+  vim = true,
+  terminal = {
+    size = "14pt",
+  },
+  modes = { focus = { sidebar = false } },
+}
+"##,
+    );
+    let config = config::load(&dir).unwrap();
+    assert_eq!(
+        config.set,
+        ["fonts.ui_size", "modes.focus.sidebar", "terminal.size", "vim"]
+    );
+    assert_eq!(config.lines["vim"].line, 4);
+    assert_eq!(config.lines["terminal.size"].line, 6);
+    assert_eq!(config.lines["fonts.ui_size"].line, 2);
+    // Setting a value to its default still counts as set by the file.
+    assert!(config.vim);
+    assert!(config::load(&temp_dir("set-none")).unwrap().set.is_empty());
+}
+
 #[test]
 fn a_bad_value_given_to_the_api_is_an_error_on_the_call_line() {
     let dir = with_init(
@@ -542,6 +572,7 @@ fn the_example_init_lua_loads_and_is_the_defaults() {
     assert_eq!(config.themes.keys().collect::<Vec<_>>(), ["paper", "roster-ember"]);
     config.themes.clear();
     config.lines.clear();
+    config.set.clear();
     // It writes out every piece of each mode, at its default.
     assert_eq!(config.modes.standard.set.len(), 6);
     config.modes.standard.set.clear();
@@ -922,6 +953,7 @@ fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
     let dir = with_init("starter", &starter);
     let mut loaded = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
     loaded.lines.clear();
+    loaded.set.clear();
     assert_eq!(loaded, Config::default());
 }
 

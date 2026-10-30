@@ -91,7 +91,7 @@ describe(":config", () => {
     platform.writeConfig(report(configWith({ leader: "Ctrl+B" })));
     await command(user, "config reload");
     await screen.findByText("Reloaded init.lua");
-    await user.keyboard("{Control>}b{/Control}?");
+    await user.keyboard("{Control>}b{/Control}K");
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
   });
 
@@ -109,7 +109,7 @@ describe(":config", () => {
 describe("Option names where configurable things show", () => {
   it("the Key bindings panel names each binding's option, and the Leader's", async () => {
     const { user } = await ready();
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     const rowOf = (label: RegExp) => within(panel).getAllByRole("row").find((r) => label.test(r.textContent ?? ""))!;
     expect(within(rowOf(/^Leader: take the keys back/)).getByText("leader", { selector: "code" })).toBeInTheDocument();

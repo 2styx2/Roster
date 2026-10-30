@@ -65,6 +65,13 @@ describe("the toolbar", () => {
     expect(names()).toEqual(["Pending changes", "Add a Host", "Lock"]);
   });
 
+  it("has a help control (ticket 37), off by default like keys, that init.lua can add", async () => {
+    const user = await ready(fixtures.review as FakeScenario, withToolbar({ shown: true, controls: ["help", "keys"] }));
+    expect(names()).toEqual(["Help", "Key bindings"]);
+    await user.click(within(toolbar()).getByRole("button", { name: "Help" }));
+    expect(await screen.findByRole("dialog", { name: /find a help topic/i })).toBeInTheDocument();
+  });
+
   it("is gone with toolbar = false, and in Focus by default", async () => {
     await ready(fixtures.review as FakeScenario, withToolbar({ shown: false, controls: null }));
     expect(screen.queryByRole("toolbar", { name: "Commands" })).toBeNull();
