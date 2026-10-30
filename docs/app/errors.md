@@ -136,6 +136,15 @@ A Session to `user@address[:port]`, a box that isn't in the Inventory (decision 
 | 66 | 23 | The key changed between the question and Enter | the box / network | "root@10.0.0.5's host key changed while roster was asking - not connecting" | Row 62's: compare it, then Retry, which asks again with the new key |
 | 67 | none (ssh's) | The box refused the password, or this Box's keys when it was left empty | the box | Rows 11-12's, naming `root@10.0.0.5` | Check the user and password, then Reconnect (it asks again) |
 
+## Save to vault after a Session's login (tickets 15, 16)
+
+"Save to vault", ticked under a Session's password, saves that password only once the Session logged in with it (decision Q68): roster holds it, and ssh tells roster after the login. Then `quick.save` (a Quick Connect becomes a Host) makes the Vault item `<host> ssh` and adds the Host. Their failures reuse rows 34-37 and 58-59 for the vault (an item by that name, 60, leaves the vault and the Inventory as they were) and rows 44-45 for the Host's name and group (80, 81); if the Host can't be written, the new item is taken back out, as with `host.add`.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 68 | 66 | The Session hasn't logged in with the typed password: not yet, or the box refused it | roster | "root@10.0.0.5 hasn't logged in with that password - roster saves it only after the login succeeded" | Wait for the login; a refused password saves nothing, so check it and connect again |
+| 69 | 67 | No typed password held for that Session: saved already, or forgotten (the Session ended, the vault locked, 10 minutes passed, or Not now) | roster | "there's no typed password to save for that Session: …" | Connect again with Save to vault ticked |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.
