@@ -84,7 +84,7 @@ class State:
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
-        self.verified = {}                  # host.verify_login successes: login_key -> time.monotonic()
+        self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -291,7 +291,7 @@ def host_verify_login(state, params):
     h, new, _ = edited_host(state, params)
     result = diagnose.verify_login(new, state.cfg["key"], previous=h)
     if result["ok"]:
-        state.verified[login_key(new)] = time.monotonic()
+        state.verified[login_key(new)] = (time.monotonic(), result.pop("host_key", None))
     return result
 
 
@@ -302,8 +302,9 @@ def host_update(state, params):
     if not wanted:
         return {"changed": False, "host": h, "backup": None}
     key = login_key(new)
+    pin = None
     if set(wanted) & set(edit.LOGIN_FIELDS):
-        at = state.verified.get(key)
+        at, pin = state.verified.get(key, (None, None))
         if at is None or time.monotonic() - at > VERIFIED_FOR:
             raise RpcError(NOT_VERIFIED, f"{h['name']}'s new address, user or Login hasn't passed a test login",
                            fix="test the login (host.verify_login) with these values, then save again")
@@ -312,8 +313,16 @@ def host_update(state, params):
     backup = repo.backup(old_text)
     edit.replace_file(repo.path, new_text)
     state.verified.pop(key, None)
+    warnings = []
+    if pin:                     # it moved: the key it was verified with is now recorded for its new address
+        try:
+            record_host_key(new, pin["type"], pin["base64"])
+        except Exception as e:
+            warnings.append(f"{h['name']} was changed, but its host key couldn't be recorded for {new['ip']} "
+                            f"({failure_text(e)}) - test the login again before connecting")
     state.reload()
-    return {"changed": True, "host": state.inventory()["hosts"][h["name"]], "backup": str(backup)}
+    return {"changed": True, "host": state.inventory()["hosts"][h["name"]], "backup": str(backup),
+            "warnings": warnings}
 
 
 def changes_diff(state, params):

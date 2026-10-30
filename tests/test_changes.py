@@ -284,6 +284,31 @@ def test_a_host_that_moved_port_is_compared_with_the_key_recorded_for_it(app, bo
     assert v["ok"], v
 
 
+def test_a_moved_hosts_verified_key_is_pinned_for_its_new_address_once_the_edit_is_written(app, box, sshd,
+                                                                                           isolated):
+    old = box.yml.read_text()
+    box.commit(old.replace(f"port: {sshd.port}\n        auth", "port: 2222\n        auth"))
+    known = isolated["home"] / ".ssh" / "roster_known_hosts"
+    known.write_text(sshd.known_hosts_line(port=2222))
+    v = result(app.call("host.verify_login", {"host": "esx", "changes": {"port": sshd.port}}))
+    assert v["ok"], v
+    assert known.read_text() == sshd.known_hosts_line(port=2222)            # a test login records nothing
+    r = result(app.call("host.update", {"host": "esx", "changes": {"port": sshd.port}}))
+    assert r["changed"] and r["warnings"] == []
+    assert known.read_text() == sshd.known_hosts_line(port=2222) + sshd.known_hosts_line()
+
+
+def test_a_moved_hosts_key_isnt_pinned_when_the_edit_isnt_written(app, box, sshd, isolated, monkeypatch):
+    old = box.yml.read_text()
+    box.commit(old.replace(f"port: {sshd.port}\n        auth", "port: 2222\n        auth"))
+    known = isolated["home"] / ".ssh" / "roster_known_hosts"
+    known.write_text(sshd.known_hosts_line(port=2222))
+    result(app.call("host.verify_login", {"host": "esx", "changes": {"port": sshd.port}}))
+    box.yml.write_text(box.yml.read_text() + "  : [\n")                      # roster.yml broken meanwhile
+    assert "error" in app.call("host.update", {"host": "esx", "changes": {"port": sshd.port}})
+    assert known.read_text() == sshd.known_hosts_line(port=2222)
+
+
 def test_a_different_host_key_is_never_accepted(app, box, sshd, isolated):
     other = paramiko.ECDSAKey.generate()
     (isolated["home"] / ".ssh" / "roster_known_hosts").write_text(

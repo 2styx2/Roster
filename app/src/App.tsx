@@ -1314,9 +1314,9 @@ export function App({
               reloadHosts();
               refreshPending();
               setMessage(
-                update.changed
+                (update.changed
                   ? `Saved ${update.host.name} as a Pending change. Sessions use it after roster sync.`
-                  : `Nothing changed on ${update.host.name}.`,
+                  : `Nothing changed on ${update.host.name}.`) + (update.warnings?.length ? ` But ${update.warnings.join("; ")}.` : ""),
               );
             }}
             onClose={closeEdit}

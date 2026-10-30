@@ -165,6 +165,8 @@ export interface HostUpdate {
   host: Host;
   /** Where roster kept the file as it was before (in the repo's git dir). */
   backup: string | null;
+  /** `host.update`: what failed after the edit was written (recording a moved Host's key). */
+  warnings?: string[];
 }
 
 /** One Host the Pending changes touch. */

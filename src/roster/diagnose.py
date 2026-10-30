@@ -331,7 +331,8 @@ def verify_login(h, key_path, previous=None, typed=None, host_key=None):
     before anything is written. The same order as check_host, but against H's own values rather than this box's ssh
     config: the local steps, then ONE TCP connection that carries the key exchange and exactly one login attempt.
     The host key must match one roster recorded, for H's address or (a Host that moved) for PREVIOUS, the Host as it
-    is now; it's never recorded or accepted here. A new address with no recorded key needs HOST_KEY, the
+    is now; it's never recorded or accepted here. For a Host that moved, the result's host_key is that key, for the
+    caller to record for the new address once the edit is written. A new address with no recorded key needs HOST_KEY, the
     fingerprint the user confirmed (scan_key): the result then has host_key {type, fingerprint, base64} for the
     caller to record once the add is written. TYPED is {password, provider, item} for a password typed into the
     form (not in the vault yet): the provider step checks it can be saved there, and the login uses it. A Host
@@ -422,7 +423,10 @@ def verify_vault_item(ctx):
 def verify_host_key(ctx):
     import paramiko
     h, previous = ctx["h"], ctx["previous"]
-    recorded = recorded_host_keys(h) or (recorded_host_keys(previous) if previous else {})
+    recorded = recorded_host_keys(h)
+    moved = not recorded and previous is not None
+    if moved:
+        recorded = recorded_host_keys(previous)
     if not recorded and ctx.get("host_key"):
         return confirmed_host_key(ctx)
     if not recorded:
@@ -445,6 +449,9 @@ def verify_host_key(ctx):
                                                "not logging in", data,
                       fix="don't accept it blindly: compare the fingerprint with the Host's console or owner",
                       details=f"recorded {', '.join(data['recorded'])}; offered {data['offered']}")
+    if moved:                   # the same key at the new address: pinned there once the edit is written
+        ctx["confirmed"] = key
+        return f"matches the {key.get_name()} key recorded for its current address, {fingerprint(key)}"
     return f"matches the recorded {key.get_name()} key {fingerprint(key)}"
 
 

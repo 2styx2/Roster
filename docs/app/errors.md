@@ -65,7 +65,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## Editing the Inventory (ticket 10)
 
-`:edit HOST` pulls the infra repo first (fast-forward only), then writes the edit into `roster.yml` through roster's `host.update` as a Pending change. A change to the address, port, user or Login first passes `host.verify_login` (decision Q43): one connection, one login attempt, and the host key compared with the recorded one (for the new address, or the Host's current one if it moved), never accepted. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step. A failed pull keeps the form shut.
+`:edit HOST` pulls the infra repo first (fast-forward only), then writes the edit into `roster.yml` through roster's `host.update` as a Pending change. A change to the address, port, user or Login first passes `host.verify_login` (decision Q43): one connection, one login attempt, and the host key compared with the recorded one (for the new address, or the Host's current one if it moved), never accepted. A Host that moved gets that key recorded for its new address once the edit is written. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step. A failed pull keeps the form shut.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
