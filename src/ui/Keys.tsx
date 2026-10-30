@@ -75,11 +75,28 @@ export function Keys({ keys, leader, className }: KeysProps) {
   );
 }
 
-/** Text with key sequences in backticks drawn as keycaps: "Drag a Host here, or `␣ a`". */
+/** Text with key sequences in backticks drawn as keycaps: "Drag a Host here, or `␣ a`". The
+ * word before the keys stays on their line ("press ␣ a"), so a wrap never leaves keys alone. */
 export function WithKeys({ text, leader }: { text: string; leader?: string | undefined }) {
+  const parts = text.split("`");
   return (
     <>
-      {text.split("`").map((part, i) => (i % 2 === 1 ? <Keys key={i} keys={part} leader={leader} /> : part))}
+      {parts.map((part, i) => {
+        if (i % 2 === 0) {
+          // A text part: its last word goes with the keys that follow, if any.
+          if (i + 1 >= parts.length) return part;
+          const at = part.search(/\S+\s*$/);
+          return at < 0 ? part : part.slice(0, at);
+        }
+        const before = parts[i - 1] ?? "";
+        const at = before.search(/\S+\s*$/);
+        return (
+          <span key={i} className="keys-with-word">
+            {at < 0 ? "" : before.slice(at)}
+            <Keys keys={part} leader={leader} />
+          </span>
+        );
+      })}
     </>
   );
 }

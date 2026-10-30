@@ -9,6 +9,7 @@
 // when what they show changes), so moving the cursor re-renders two rows, not the tree.
 import { memo, useCallback, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { CommandLine } from "../keymap";
+import { formatCount } from "../ui/format";
 import { Keys, WithKeys } from "../ui/Keys";
 
 /** A row's state dot: key or password login, a Session that has ended, or a Host that can't be
@@ -33,8 +34,12 @@ export interface SidebarRow {
   dot?: Dot;
   /** A short status after the label ("connecting…", "ended (code 0)"). */
   note?: string;
-  /** Right-aligned and faint: an address, a count. */
+  /** The end of the label that must stay in view when the rest is cut off (a Session's " (2)"). */
+  tail?: string;
+  /** Right-aligned and faint: an address. It shows whole or not at all: the name comes first. */
   detail?: string;
+  /** Right-aligned: how many Hosts a Folder or group holds. Formatted, and never cut off. */
+  count?: number;
   /** A small badge ("unreviewed"). It gives way to the name: shown on hover, raised or under the
    * cursor, and always in the tooltip. */
   badge?: string;
@@ -211,13 +216,21 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
         {row.foldable && <Chevron folded={row.folded ?? false} />}
         {row.icon && <RowIcon name={row.icon} />}
         {row.dot && <span className={`dot ${row.dot}`} aria-hidden="true" />}
-        {/* The whole name on hover: it may be cut off. */}
-        <span className="sb-label" title={row.label}>
-          {row.label}
+        {/* The name first: what follows it in here drops out whole (to a hidden second line)
+            when there's no room, and the name is cut only when it alone is too long. */}
+        {/* Hovering the text shows the whole name (it may be cut off), then the row's tooltip. */}
+        <span className="sb-text" title={row.title ? `${row.label}\n${row.title}` : row.label}>
+          <span className="sb-name">
+            <span className="sb-label" dir="auto">
+              {row.tail && row.label.endsWith(row.tail) ? row.label.slice(0, -row.tail.length) : row.label}
+            </span>
+            {row.tail && row.label.endsWith(row.tail) && <span className="sb-tail">{row.tail}</span>}
+          </span>
+          {row.note && <span className="sb-note"> {row.note}</span>}
+          {row.badge && <span className="sb-badge"> {row.badge}</span>}
+          {row.detail && <span className="sb-detail"> {row.detail}</span>}
         </span>
-        {row.note && <span className="sb-note"> {row.note}</span>}
-        {row.badge && <span className="sb-badge"> {row.badge}</span>}
-        {row.detail && <span className="sb-detail"> {row.detail}</span>}
+        {row.count !== undefined && <span className="sb-num">{formatCount(row.count)}</span>}
       </div>
       {row.actions && <Actions actions={row.actions} run={run} />}
     </li>
@@ -259,7 +272,7 @@ const Section = memo(function Section({
         >
           <Chevron folded={folded} />
           <h2>{section.title}</h2>
-          {section.count !== undefined && <span className="sb-count">{section.count}</span>}
+          {section.count !== undefined && <span className="sb-count">{formatCount(section.count)}</span>}
         </button>
         {section.actions && <Actions actions={section.actions} run={run} />}
       </div>

@@ -17,7 +17,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 09 | [Design pass](09-design-pass.md) | 2 | 07, 08, 17 | done pending user review |
 | 21 | [Lua config (`init.lua`)](21-lua-config.md) | 2 | 09 | done |
 | 22 | [Focus mode](22-focus-mode.md) | 2 | 07, 17 | done |
-| 27 | [Worst-case UI pass (`/break-ui`)](27-break-ui-pass.md) | 2 | 09 | ready |
+| 27 | [Worst-case UI pass (`/break-ui`)](27-break-ui-pass.md) | 2 | 09 | done |
 | 30 | [Bundled themes and a `:theme` picker](30-bundled-themes.md) | 2 | 21 | done |
 | 31 | [Vault sign-in with two-factor (every supported method)](31-vault-sign-in-2fa.md) | 2 | 04 | done (manual real-account check pending) |
 | 29 | [Interface review (`/interfaces:better-interface`) and fixes](29-interface-review.md) | 2 | 09, 27, 21, 22 | ready |

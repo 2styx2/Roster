@@ -1,7 +1,8 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { createBackend } from "./backend";
+import { fixtureProps } from "./backend/fixtureProps";
 import { createPlatform } from "./platform";
 import type { ConfigReport } from "./config/types";
 import { defaultAppearance } from "./theme/theme";
@@ -35,15 +36,24 @@ function fontsLoaded(report: ConfigReport | null): Promise<unknown> {
 // In a plain browser (no Config): `?theme=nord` picks a Theme, for trying them.
 const appearance = { ...defaultAppearance, theme: new URLSearchParams(location.search).get("theme") ?? defaultAppearance.theme };
 
+// The "Demo data / Worst case" toggle (ticket 27): dev builds only. `import.meta.env.DEV` is
+// false in a production build, so the import below and its chunk are dropped from it.
+const FixtureToggle = import.meta.env.DEV ? lazy(() => import("./dev/FixtureToggle")) : null;
+
 const root = createRoot(document.getElementById("root") as HTMLElement);
-void Promise.all([createBackend(), createPlatform()]).then(async ([backend, platform]) => {
+void Promise.all([createBackend(), createPlatform()]).then(async ([{ backend, app }, platform]) => {
   // The Config (init.lua, ticket 21) before the first paint, so its Theme and keys are there
   // from the start.
   const config = (await platform.config?.load().catch(() => null)) ?? null;
   await fontsLoaded(config);
   root.render(
     <StrictMode>
-      <App backend={backend} platform={platform} appearance={appearance} config={config} />
+      <App backend={backend} appearance={appearance} config={config} {...fixtureProps(app, platform)} />
+      {FixtureToggle && (
+        <Suspense>
+          <FixtureToggle />
+        </Suspense>
+      )}
     </StrictMode>,
   );
 });

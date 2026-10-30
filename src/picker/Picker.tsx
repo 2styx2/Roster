@@ -5,6 +5,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Host, HostList } from "../backend/types";
 import { chordOf, defaultKeymap, type Keymap, type KeyTable, type PickerAction } from "../keymap";
+import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { searchHosts } from "./match";
 
@@ -140,23 +141,32 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
               <span className="host-name" title={host.name}>
                 {host.name}
               </span>
-              <span className="host-ip">{host.ip}</span>
+              <span className="host-ip" title={host.ip || undefined}>
+                {host.ip}
+              </span>
               <span className="host-group" title={host.group}>
                 {host.group}
               </span>
               <span className="host-type" title={host.type}>
                 {host.type}
               </span>
-              {!host.reviewed && <span className="badge" title="Not reviewed: can't be opened">unreviewed</span>}
+              {!host.reviewed && (
+                <span className="badge" title="unreviewed: can't be opened until it's reviewed in roster">
+                  unreviewed
+                </span>
+              )}
             </li>
           ))}
         </ul>
         {shown.length === 0 && <p className="picker-empty">No hosts match “{query}”.</p>}
         <div className="picker-footer">
-          <span role="status">{notice}</span>
+          <span role="status" title={notice || undefined}>
+            {notice}
+          </span>
           <span className="picker-count">
-            {results.length > shown.length ? `${shown.length} of ${results.length}` : results.length}{" "}
-            {results.length === 1 ? "host" : "hosts"}
+            {results.length > shown.length
+              ? `${formatCount(shown.length)} of ${countOf(results.length, "host")}`
+              : countOf(results.length, "host")}
           </span>
           {hints.map(
             ([keys, what]) =>

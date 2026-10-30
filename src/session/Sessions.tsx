@@ -54,12 +54,15 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
               role="tab"
               aria-selected={selected}
               tabIndex={-1}
-              title={tab.auth ? `${tab.auth} login` : undefined}
+              title={tab.auth ? `${tab.label}\n${tab.auth} login` : tab.label}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(`session ${i + 1}`)}
             >
               <StateDot tab={tab} />
-              <span className="tab-host">{tab.label}</span>
+              <span className="tab-host">
+                <span className="tab-name">{tab.label === tab.host ? tab.label : tab.label.slice(0, tab.host.length)}</span>
+                {tab.label !== tab.host && <span className="tab-tail">{tab.label.slice(tab.host.length)}</span>}
+              </span>
               {status && <span className="tab-status"> {status}</span>}
             </button>
             <button
