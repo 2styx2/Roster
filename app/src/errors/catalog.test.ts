@@ -26,7 +26,8 @@ describe("the error catalog", () => {
   it("gives the host key question's own refusal its row (docs/app/errors.md row 62, ticket 36)", () => {
     const row = rowFor(rows, 23);
     expect(row.row).toBe(62);
-    expect(row.actions).toEqual([]); // never an action that accepts a host key
+    // Only Retry, which asks again with the new key: never an action that accepts one.
+    expect(row.actions.map((a) => (a.kind === "run" ? a.line(p(23)) : a.label))).toEqual(["reconnect"]);
   });
 
   it("gives every vault.login code its sign-in row (docs/app/errors.md rows 22-33)", () => {

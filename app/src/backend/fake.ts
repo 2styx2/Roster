@@ -246,6 +246,11 @@ export function makeHosts(n: number): HostList {
   return { hosts, groups };
 }
 
+/** Every Host's key unrecorded (ticket 36's fixtures). */
+function unknownKeysOf(list: HostList, how: NonNullable<FakeScenario["unknownKeys"]>[string] = {}) {
+  return Object.fromEntries(list.hosts.map((h) => [h.name, how]));
+}
+
 const problem = (kind: BackendProblem["kind"], message: string, hint: string, detail: string | null = null) => ({
   kind,
   message,
@@ -306,6 +311,14 @@ export const fixtures: Record<string, FakeScenario> = {
   slow: { hosts: makeHosts(300), delay: 1500 },
   /** Issue #78: Sessions take 1.2 s to start and 2.5 s more to log in, so the connecting state shows. */
   "slow-login": { hosts: makeHosts(12), apiVersion: 9, sessionDelay: 1200, loginMs: 2500 },
+  /** Ticket 36: no Host's key is recorded yet, so every first Session asks (fetching takes 0.8 s). */
+  "host-key": { hosts: makeHosts(12), apiVersion: 11, delay: 800, unknownKeys: unknownKeysOf(makeHosts(12)) },
+  /** Ticket 36: the same, but each Host offers another key by the time it's trusted (row 62). */
+  "host-key-changed": {
+    hosts: makeHosts(12),
+    apiVersion: 11,
+    unknownKeys: unknownKeysOf(makeHosts(12), { changesOnTrust: true }),
+  },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(

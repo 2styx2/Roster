@@ -174,7 +174,8 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     where: ["the Host", "the network"],
     fix: () =>
       "Don't trust it blindly: compare the new fingerprint with the Host's console or its owner, then open the Session again to see it.",
-    actions: [],
+    // Retry asks again, showing the new key: it never trusts one.
+    actions: [retry],
   }),
   row("no-dns", {
     row: 15,
