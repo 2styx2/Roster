@@ -76,8 +76,13 @@ impl Backend {
     /// keep roster's code and wording: 2 unknown Host, 20 not reviewed, 21 this box isn't set up.
     pub fn session_command(&self, host: &str) -> Result<SessionCommand, CallError> {
         let v = self.call("session.prepare", json!({ "host": host }))?;
-        let prepared: Prepared = serde_json::from_value(v).map_err(|e| CallError::Io {
-            message: format!("session.prepare answered something unexpected: {e}"),
+        // serde's message quotes the bad value, and `env` holds the askpass token: name the field
+        // and the expected shape only.
+        let prepared: Prepared = serde_json::from_value(v.clone()).map_err(|_| CallError::Io {
+            message: format!(
+                "session.prepare answered something unexpected: {}",
+                prepare_shape_error(&v)
+            ),
         })?;
         Ok(session_command(&self.target, &prepared))
     }
@@ -86,6 +91,35 @@ impl Backend {
     pub fn is_alive(&self) -> bool {
         !self.client.is_dead()
     }
+}
+
+/// Which part of a `session.prepare` result has the wrong shape, by name only (never a value).
+fn prepare_shape_error(v: &Value) -> String {
+    let Some(obj) = v.as_object() else {
+        return "the result isn't an object".into();
+    };
+    let argv_ok = obj
+        .get("argv")
+        .and_then(Value::as_array)
+        .is_some_and(|a| a.iter().all(Value::is_string));
+    if !argv_ok {
+        return "`argv` isn't a list of strings".into();
+    }
+    match obj.get("env") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(env)) => {
+            if let Some(k) = env.iter().find(|(_, v)| !v.is_string()).map(|(k, _)| k) {
+                return format!("`env.{k}` isn't a string");
+            }
+        }
+        Some(_) => return "`env` isn't an object of strings".into(),
+    }
+    for field in ["host", "auth"] {
+        if !obj.get(field).is_some_and(Value::is_string) {
+            return format!("`{field}` isn't a string");
+        }
+    }
+    "it doesn't match {argv, env, host, auth}".into()
 }
 
 fn too_old(message: String) -> BackendError {

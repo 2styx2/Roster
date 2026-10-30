@@ -9,6 +9,7 @@ The first argument picks a behaviour:
   die-on-hosts       exits without answering hosts.list
   locked             session.prepare for a password Host refuses with 14 (vault locked)
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
+  bad-prepare        session.prepare for a password Host answers a numeric askpass token (a malformed result)
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
 """
 import json
@@ -66,6 +67,9 @@ def answer(req):
             if mode == "missing-item":
                 return {"error": {"code": 32, "message": f"no vault item named '{name} shh' (ssh Login of {name})",
                                   "data": {"near": [f"{name} ssh"], "fix": "fix the name in auth:"}}}
+            if mode == "bad-prepare":
+                return {"result": {"argv": ["/usr/bin/ssh", name], "host": name, "auth": "password",
+                                   "env": {"SSH_ASKPASS_REQUIRE": "force", "ROSTER_ASKPASS_TOKEN": 987654321}}}
             global minted
             minted += 1
             return {"result": {
