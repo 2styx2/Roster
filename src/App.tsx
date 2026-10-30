@@ -17,7 +17,8 @@ import {
 } from "react";
 import { BackendStartError, type Backend, type BackendInfo, type BackendProblem, type HostList } from "./backend/types";
 import { CommandLine } from "./cmdline/CommandLine";
-import { complete, runLine, type CommandContext, type Commands } from "./commands/table";
+import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
+import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
@@ -37,7 +38,8 @@ import { isLeaderKey } from "./terminal/keys";
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
-import { emptyState, parseState, usedHost, type AppState } from "./state/appState";
+import { setFolded, usedHost } from "./state/appState";
+import { StateStore } from "./state/store";
 
 type Conn =
   | { state: "connecting" }
@@ -45,7 +47,7 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | "cmdline" | null;
+type Overlay = "picker" | { cmdline: string } | null;
 
 const MODIFIERS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "CapsLock"]);
 
@@ -104,7 +106,8 @@ export function App({
   const [sidebarVisible, setSidebarVisible] = useState(options.sidebar.visible);
   const [statusVisible, setStatusVisible] = useState(options.statusBar.visible);
   const [message, setMessage] = useState("");
-  const [appState, setAppState] = useState<AppState>(emptyState);
+  const [store] = useState(() => new StateStore(platform));
+  const appState = useSyncExternalStore(store.subscribe, store.snapshot);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
@@ -122,9 +125,13 @@ export function App({
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
+  const folded = useMemo(() => new Set(appState.folded), [appState.folded]);
   const sections = useMemo(
-    () => (hosts ? buildSections(sectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions }) : []),
-    [sectionDefs, sessions, hosts, hostByName, options.sessions],
+    () =>
+      hosts
+        ? buildSections(sectionDefs, { sessions, hosts, hostByName, sessionsIn: options.sessions, state: appState, folded })
+        : [],
+    [sectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarShown = sidebarVisible && sections.length > 0;
@@ -148,17 +155,11 @@ export function App({
     void connect(false);
   }, [connect]);
 
-  // The State file and the Windows build, once. Hosts picked before the file is read stay first.
+  // The State file and the Windows build, once. What changed before the file was read (Hosts
+  // picked) is replayed over it.
   useEffect(() => {
     let live = true;
-    platform.loadState().then(
-      (json) => {
-        if (!live) return;
-        const loaded = parseState(json);
-        setAppState((now) => now.recentHosts.reduceRight(usedHost, loaded));
-      },
-      () => {},
-    );
+    void store.load();
     platform.windowsBuild().then(
       (build) => live && setWindowsBuild(build),
       () => {},
@@ -166,7 +167,10 @@ export function App({
     return () => {
       live = false;
     };
-  }, [platform]);
+  }, [platform, store]);
+
+  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0004).
+  useEffect(() => registerFolders(registries, store), [registries, store]);
 
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
@@ -178,23 +182,14 @@ export function App({
     [terminalOptions, fontSize, windowsBuild, terminalKeys, platform, onZoom],
   );
 
-  const stateChanged = useRef(false);
   const openHost = useCallback(
     (host: string, here: boolean) => {
       const current = tabs.snapshot().active;
       if (!(here && current !== null && tabs.reconnect(current, host))) tabs.open(host);
-      stateChanged.current = true;
-      setAppState((s) => usedHost(s, host));
+      store.update((s) => usedHost(s, host));
     },
-    [tabs],
+    [tabs, store],
   );
-
-  // Write the State file after the user changed something (not after loading it).
-  useEffect(() => {
-    if (!stateChanged.current) return;
-    stateChanged.current = false;
-    void platform.saveState(appState).catch(() => {});
-  }, [appState, platform]);
 
   useEffect(() => {
     if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
@@ -237,6 +232,35 @@ export function App({
     if (document.activeElement?.closest(".keys-panel")) restoreFocus();
   };
 
+  const cursorRow = () => rows.find((r) => r.id === cursor) ?? null;
+
+  /** h, l and the chevrons: fold or unfold a row, or move to its parent or first child. */
+  const fold = (id: string | null, how: FoldHow) => {
+    const row = id === null ? cursorRow() : (rows.find((r) => r.id === id) ?? null);
+    const target = id ?? row?.id;
+    if (!target) return;
+    const isFolded = row ? row.folded === true : folded.has(target);
+    const foldable = row ? row.foldable === true : true;
+    if (foldable && (how === "toggle" || (how === "fold") !== isFolded)) {
+      const next = how === "toggle" ? !isFolded : how === "fold";
+      store.update((s) => setFolded(s, target, next));
+      // The cursor doesn't vanish into a folded row.
+      if (next && cursor !== null && ancestorsOf(cursor).includes(target)) setCursor(target);
+      return;
+    }
+    if (id !== null || !row) return;
+    if (how === "fold" && row.parent) setCursor(row.parent);
+    if (how === "unfold" && foldable) {
+      const child = rows[rows.indexOf(row) + 1];
+      if (child?.parent === row.id) setCursor(child.id);
+    }
+  };
+  const ancestorsOf = (id: string): string[] => {
+    const out: string[] = [];
+    for (let r = rows.find((x) => x.id === id); r?.parent; r = rows.find((x) => x.id === r?.parent)) out.push(r.parent);
+    return out;
+  };
+
   // What commands act on. Rebuilt each render, so it always sees the current state.
   const ctx: CommandContext = {
     openPicker: () => {
@@ -249,6 +273,11 @@ export function App({
       if (!host.reviewed) return setMessage(`${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
       openHost(name, here);
     },
+    open: (name) => {
+      const tab = sessions.tabs.find((t) => t.host === name);
+      if (tab) tabs.select(tab.id);
+      else ctx.connect(name);
+    },
     reconnect: () => {
       if (sessions.active !== null) tabs.reconnect(sessions.active);
     },
@@ -260,9 +289,9 @@ export function App({
     },
     toggleSidebar: () => setSidebarVisible((v) => !v),
     toggleStatusBar: () => setStatusVisible((v) => !v),
-    openCommandLine: () => {
+    openCommandLine: (initial = "") => {
       if (overlay === null) rememberFocus();
-      setOverlay("cmdline");
+      setOverlay({ cmdline: initial });
     },
     toggleKeys: () => {
       if (keysOpen) return closeKeys();
@@ -276,9 +305,18 @@ export function App({
     list: (move) => {
       if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
       const row = rows.find((r) => r.id === cursor);
-      setMode(terminalMode);
+      // Enter on a group, Folder or heading folds it and stays in the Sidebar.
+      setMode(row && staysInAppMode(row.command) ? { mode: "app", pending: [] } : terminalMode);
       if (row) run(row.command);
     },
+    fold,
+    cursorRow,
+    selectedHost: () => {
+      const row = cursorRow();
+      if (row?.host) return row.host;
+      return sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
+    },
+    hostNames: () => hosts?.hosts.map((h) => h.name) ?? [],
     say: setMessage,
   };
 
@@ -388,8 +426,10 @@ export function App({
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
         )}
       </div>
-      {overlay === "cmdline" && (
+      {overlay !== null && overlay !== "picker" && (
         <CommandLine
+          key={overlay.cmdline}
+          initial={overlay.cmdline}
           complete={(input) => complete(commands, input, hosts?.hosts.map((h) => h.name) ?? [])}
           onClose={closeOverlay}
           onRun={(line) => {

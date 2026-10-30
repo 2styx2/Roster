@@ -21,7 +21,7 @@
 
 **Blocked by:** 07
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] UI tests: keyboard navigation and folding; connecting; jumping to an open Session; adding a Host to a Folder and removing it; Folders surviving a restart through State; unreviewed Hosts can't be connected.
 - [ ] Folders are never sent to `roster serve` and never touch `roster.yml`.

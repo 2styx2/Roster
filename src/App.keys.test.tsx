@@ -93,7 +93,7 @@ describe("The Sidebar", () => {
     expect(within(sessionList()).getByText(/No Sessions open/)).toBeInTheDocument();
     await connect(user, h0);
     await connect(user, h1);
-    expect(within(sessionList()).getAllByRole("button", { name: /^(?!Close)/ })).toHaveLength(2);
+    expect(within(sessionList()).getAllByRole("button", { name: /^(?!Close|Sessions$)/ })).toHaveLength(2);
     expect(current()).toHaveAccessibleName(new RegExp(`^${h1}`));
     expect(screen.queryByRole("tablist")).toBeNull();
   });
