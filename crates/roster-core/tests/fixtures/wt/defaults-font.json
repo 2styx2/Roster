@@ -1,0 +1,30 @@
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "defaultProfile": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+    "profiles":
+    {
+        "defaults":
+        {
+            "cursorShape": "filledBox",
+            "font":
+            {
+                "face": "Iosevka Nerd Font",
+                "size": 16
+            }
+        },
+        "list":
+        [
+            {
+                "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "guid": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+                "name": "Windows PowerShell"
+            },
+            {
+                "guid": "{776354d3-411c-55f8-acbe-b3f338dd6195}",
+                "name": "Ubuntu",
+                "source": "Microsoft.WSL"
+            }
+        ]
+    },
+    "schemes": []
+}

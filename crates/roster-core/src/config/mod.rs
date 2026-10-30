@@ -179,6 +179,20 @@ pub fn load_with(dir: &Path, env: &Env) -> Result<Config, ConfigError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
         Err(e) => return Err(ConfigError::new(None, format!("can't read {}: {e}", path.display()))),
     };
+    load_source(dir, &source, env)
+}
+
+/// The table `source` (as `dir`'s init.lua) returns itself, without what its `roster.*` calls
+/// registered: which options the file sets in its own table (they win over `roster.set`).
+pub fn returned_table(dir: &Path, source: &str) -> Result<serde_json::Value, ConfigError> {
+    lua::run(dir, source, &Env::default())
+        .map(|o| o.value)
+        .map_err(|e| place(e, source, &[]))
+}
+
+/// The Config `source` gives as `dir`'s init.lua, without reading the file.
+pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, ConfigError> {
+    let source = source.to_string();
     let out = lua::run(dir, &source, env).map_err(|e| place(e, &source, &[]))?;
 
     // The API's registrations, under what the returned table sets itself (the table wins).
@@ -305,10 +319,26 @@ fn validate(c: &Config) -> Result<(), Invalid> {
         ));
     }
     let t = &c.terminal;
-    if !(6..=40).contains(&t.size) {
+    let px = t.size.px();
+    if !(6.0..=72.0).contains(&px) {
+        let shown = match t.size {
+            FontSize::Px(v) => format!("{v}"),
+            FontSize::Pt(v) => format!("{v}pt"),
+        };
         return Err(at(
             &["terminal", "size"],
-            format!("{} is out of range (6 to 40)", t.size),
+            format!("{shown} is out of range (6 to 72 px, 4.5 to 54 pt)"),
+        ));
+    }
+    if t.font.0.is_empty() || t.font.0.iter().any(|f| f.is_empty()) {
+        return Err(at(&["terminal", "font"], "needs at least one font name"));
+    }
+    if let Some(h) = t.cell_height
+        && !(0.5..=3.0).contains(&h)
+    {
+        return Err(at(
+            &["terminal", "cell_height"],
+            format!("{h} is out of range (0.5 to 3)"),
         ));
     }
     for (name, w) in [("weight", t.weight), ("bold_weight", t.bold_weight)] {
@@ -338,7 +368,6 @@ fn validate(c: &Config) -> Result<(), Invalid> {
         (&["light_theme"][..], &c.light_theme),
         (&["fonts", "ui"][..], &c.fonts.ui),
         (&["fonts", "mono"][..], &c.fonts.mono),
-        (&["terminal", "font"][..], &t.font),
     ] {
         if v.trim().is_empty() {
             return Err(at(path, "can't be empty"));

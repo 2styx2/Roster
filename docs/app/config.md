@@ -15,6 +15,7 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules (and, with ticket 28, `folders.yml` and `roster.yml`). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
 | `:config reload` | The same as `:source init.lua` |
 | `:config path` | Says where the file is |
+| `:config import-terminal` | Copies Windows Terminal's default profile into `init.lua` (ticket 33): font, size, weight, cell height, cursor, how bold text looks, and a Theme made from its colour scheme. It reads `settings.json` (Store, Preview or unpackaged), shows the change as a diff, and writes it only on Enter, if `init.lua` hasn't changed since. The block goes between `-- >>> Windows Terminal >>>` and `-- <<< Windows Terminal <<<` lines, before the file's `return`, and running the import again replaces it. It uses `roster.set`, so a value the file's own returned table sets wins, and the diff names those. Windows only |
 
 Everything configurable says its name where it shows, so you can tell where to change it: each row of the Key bindings panel (`␣ ?`) names its option (`keys.leader`, `keys.list_vim`, `leader`) under its label, next to its source (`builtin`, `init.lua`, a Plugin), and the filter finds rows by it; the `:theme` finder says `theme = "<id>"` for the Theme under the cursor; and `␣ e` / `␣ s` say which `modes.<mode>.<piece>` keeps what they just showed or hid.
 
@@ -28,7 +29,7 @@ Everything configurable says its name where it shows, so you can tell where to c
 - **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a `:source` does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
 - **`:source` reloads it (decision Q58).** Saving doesn't apply it by itself, as in Neovim: a half-written Config never takes effect mid-edit. The status bar says "init.lua changed" until you `:source` (`␣ S`).
 - **`auto_reload = true` reloads on every save** instead. The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second. Turning it on takes one `:source`, since the Config in effect decides.
-- **Errors.** A Lua error (syntax or runtime), or a name or value the schema doesn't accept, shows a message with the file and line, for example `init.lua:12: terminal.size: 400 is out of range (6 to 40)`. The last good Config stays in use. A misspelled name is an error, not silently ignored.
+- **Errors.** A Lua error (syntax or runtime), or a name or value the schema doesn't accept, shows a message with the file and line, for example `init.lua:12: terminal.size: 400 is out of range (6 to 72 px, 4.5 to 54 pt)`. The last good Config stays in use. A misspelled name is an error, not silently ignored.
 - **Warnings.** Some things only the app can check: an action that isn't a command, a Theme name that isn't registered, a Sidebar section or status segment it doesn't know. These show as a warning, and the rest of the Config still applies.
 - **Line numbers** come from Lua for Lua errors and for `roster.*` calls. For a value in the returned table, the core finds the key in the source (`size =`, `["d d"] =`) after its parent keys. That's a best effort: a value built in a loop or in a required module may get its parent's line, or no line.
 
@@ -53,6 +54,7 @@ A global, and also `require("roster")`. It's kept small. It's the start of the P
 | `roster.api_version` | `1`. Raised when this table changes |
 | `roster.keymap.set(context, keys, action)` | A key binding, as in `keys` below. `action` is a command line, or `false` to unbind |
 | `roster.themes.define(id, theme)` | A Theme, as in `themes` below |
+| `roster.set(name, value)` | Any option by its dotted name: `roster.set("terminal.size", "16pt")`. What `:config import-terminal` writes |
 
 Calls and the returned table go to the same place. If both set the same key or Theme, the returned table wins. A call's errors point at the call's line.
 
@@ -82,11 +84,15 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `fonts.ui` | `"Inter"` | A family name, or a CSS font stack (anything with a comma is used as it is). A name gets the usual fallbacks |
 | `fonts.mono` | `"Iosevka"` | The wordmark and code-like UI text |
 | `fonts.ui_size` | `14` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it; nothing goes under 11 px. The terminal has its own `terminal.size` |
-| `terminal.font` | `"Iosevka"` | Same rules as the UI fonts. Inter and Iosevka ship with the app. Any other font must be installed |
-| `terminal.size` | `14` | Points, 6 to 40. Zoom keys move it, and Ctrl+0 comes back to it |
+| `terminal.font` | `{ "Iosevka Nerd Font", "Iosevka Term", "Iosevka" }` | Families, most wanted first: the first one installed is used (installed fonts are matched by name; the CSP's `font-src` doesn't restrict them). The bundled Iosevka (no Nerd Font glyphs) is always there. A name, a CSS stack, or a list. `:info` says which one is in use |
+| `terminal.size` | `"12pt"` | A number is px; `"16pt"` is points, converted as Windows Terminal does (× 96/72, so 16 pt is 21.33 px, and the display scale applies to both the same way); `"21px"` works too. 6 to 72 px. Zoom keys move it a px at a time, and Ctrl+0 comes back to it |
 | `terminal.weight` | `500` | 100 to 900. Iosevka ships at 400, 500 (medium, the default) and 700 |
-| `terminal.bold_weight` | `700` | |
-| `terminal.line_height` | `1.0` | 0.5 to 3 |
+| `terminal.bold_weight` | `700` | The weight of bold (SGR 1) text |
+| `terminal.bold_is_bright` | `true` | Bold text in the bright ANSI colours too |
+| `terminal.line_height` | `1.0` | A multiple of the font's own line height, 0.5 to 3. 1.0 gives the same rows as Windows Terminal's default ([terminal-vs-wt](design/terminal-vs-wt/README.md)) |
+| `terminal.cell_height` | none | A multiple of the font size, as Windows Terminal's `cellHeight`, 0.5 to 3. Wins over `line_height` |
+| `terminal.renderer` | `"webgl"` | `"webgl"` (fast, the default) or `"dom"`: the browser's own text rendering, a little closer to ClearType and slower with a lot of output (measured in [terminal-vs-wt](design/terminal-vs-wt/README.md)) |
+| `terminal.cursor_style` | `"block"` | `"block"`, `"bar"` or `"underline"` |
 | `terminal.scrollback` | `10000` | Lines, at most 1,000,000 |
 | `terminal.copy_on_select` | `true` | |
 | `terminal.right_click_paste` | `true` | Right-click copies the selection, or pastes when there's none |

@@ -11,6 +11,7 @@ import { bindingId, chordOf, defaultBindings, type KeymapContext, type Options }
 import type { Registries } from "../registries";
 import { CONFIG } from "../registry";
 import { defaultTerminalOptions, standardAnsi, type TerminalOptions } from "../terminal/options";
+import { terminalFontStack } from "../terminal/fonts";
 import type { AppearanceOptions, Theme } from "../theme/theme";
 import { layoutsOf, STATUS_SEGMENTS, type Layouts } from "../view/layout";
 import type { Config, ConfigLocation, ThemeDef } from "./types";
@@ -118,11 +119,17 @@ export function deriveConfig(c: Config): Derived {
   const t = c.terminal;
   const terminalOptions: TerminalOptions = {
     ...defaultTerminalOptions,
-    fontFamily: fontStack(t.font, MONO_FALLBACK),
+    fonts: t.font,
+    fontFamily: terminalFontStack(t.font),
     fontSize: t.size,
+    maxFontSize: Math.max(defaultTerminalOptions.maxFontSize, t.size),
     fontWeight: t.weight,
     fontWeightBold: t.boldWeight,
     lineHeight: t.lineHeight,
+    cellHeight: t.cellHeight,
+    renderer: t.renderer,
+    cursorStyle: t.cursorStyle,
+    boldIsBright: t.boldIsBright,
     scrollback: t.scrollback,
     copyOnSelect: t.copyOnSelect,
     rightClickCopyPaste: t.rightClickPaste,

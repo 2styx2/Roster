@@ -26,7 +26,7 @@ fn no_file_gives_the_defaults() {
     assert_eq!(config, Config::default());
     assert_eq!(config.leader, "Ctrl+Space");
     assert!(config.vim);
-    assert_eq!(config.terminal.font, "Iosevka");
+    assert_eq!(config.terminal.font.0, ["Iosevka Nerd Font", "Iosevka Term", "Iosevka"]);
     assert_eq!(config.terminal.weight, 500);
     assert_eq!(config.terminal.bold_weight, 700);
     assert_eq!(config.theme, "auto");
@@ -37,9 +37,9 @@ fn a_partial_table_merges_over_the_defaults() {
     let dir = with_init("partial", r#"return { vim = false, terminal = { size = 16 } }"#);
     let config = config::load(&dir).unwrap();
     assert!(!config.vim);
-    assert_eq!(config.terminal.size, 16);
+    assert_eq!(config.terminal.size, config::FontSize::Px(16.0));
     // Everything else stays the default, including the rest of `terminal`.
-    assert_eq!(config.terminal.font, "Iosevka");
+    assert_eq!(config.terminal.font.0, ["Iosevka Nerd Font", "Iosevka Term", "Iosevka"]);
     assert_eq!(config.leader, "Ctrl+Space");
     let _ = Loader::new(&dir);
 }
@@ -855,7 +855,7 @@ fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
     }
     // Every option of the example is in it, ready to uncomment.
     assert!(starter.contains("--   theme = \"auto\","));
-    assert!(starter.contains("--     size = 14,"));
+    assert!(starter.contains("--     size = \"12pt\","));
     let dir = with_init("starter", &starter);
     let mut loaded = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
     loaded.lines.clear();

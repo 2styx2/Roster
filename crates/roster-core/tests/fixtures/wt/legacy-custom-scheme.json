@@ -1,0 +1,34 @@
+// Windows Terminal's settings are JSON with comments and trailing commas.
+{
+    "defaultProfile": "{2c4de342-38b7-51cf-b940-2309a097f518}", // Ubuntu
+    /* the old flat font keys, on the profile itself */
+    "profiles": {
+        "defaults": { "fontFace": "Cascadia Code", "fontSize": 11 },
+        "list": [
+            { "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}", "name": "Command Prompt" },
+            {
+                "guid": "{2c4de342-38b7-51cf-b940-2309a097f518}",
+                "name": "Ubuntu",
+                "fontFace": "JetBrainsMono Nerd Font, Segoe UI Emoji",
+                "fontSize": 12.5,
+                "fontWeight": "semi-bold",
+                "font": { "cellHeight": "1.25" },
+                "colorScheme": "My Night",
+                "cursorShape": "bar",
+                "background": "#101010",
+            },
+        ],
+    },
+    "schemes": [
+        {
+            "name": "My Night",
+            "foreground": "#D0D0D0", "background": "#1A1B26", "cursorColor": "#C0CAF5",
+            "selectionBackground": "#33467C",
+            "black": "#15161E", "red": "#F7768E", "green": "#9ECE6A", "yellow": "#E0AF68",
+            "blue": "#7AA2F7", "purple": "#BB9AF7", "cyan": "#7DCFFF", "white": "#A9B1D6",
+            "brightBlack": "#414868", "brightRed": "#F7768E", "brightGreen": "#9ECE6A",
+            "brightYellow": "#E0AF68", "brightBlue": "#7AA2F7", "brightPurple": "#BB9AF7",
+            "brightCyan": "#7DCFFF", "brightWhite": "#C0CAF5",
+        },
+    ],
+}

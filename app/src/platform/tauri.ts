@@ -4,10 +4,11 @@
 // clipboard itself.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ConfigOpened, ConfigReport } from "../config/types";
+import type { ConfigOpened, ConfigReport, ImportPreview } from "../config/types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { tauriWindow } from "./tauriWindow";
+import { canvasProbe } from "../terminal/fonts";
 import type { Platform } from "./types";
 
 export function tauriPlatform(): Platform {
@@ -21,6 +22,7 @@ export function tauriPlatform(): Platform {
     },
     window: tauriWindow(),
     setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
+    fontInstalled: canvasProbe(),
     // roster-core config.rs: read at start, then a `config-changed` event after every save.
     config: {
       load: () => invoke<ConfigReport | null>("config_load"),
@@ -33,6 +35,10 @@ export function tauriPlatform(): Platform {
         return () => void stop.then((f) => f());
       },
       open: () => invoke<ConfigOpened>("config_open"),
+      importPreview: () => invoke<ImportPreview>("config_import_preview"),
+      importApply: async (base) => {
+        await invoke("config_import_apply", { base });
+      },
       reload: () => invoke<ConfigReport | null>("config_reload"),
     },
   };

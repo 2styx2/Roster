@@ -258,7 +258,7 @@ fn sandbox(
 }
 
 /// The `roster` table: facts about the machine, and registration functions shaped like the
-/// Plugin API to come (ticket 23): `roster.keymap.set`, `roster.themes.define`.
+/// Plugin API to come (ticket 23): `roster.keymap.set`, `roster.themes.define`, `roster.set`.
 fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<Cell<Budget>>) -> mlua::Result<Table> {
     let roster = lua.create_table()?;
     roster.raw_set("os", env.os.as_str())?;
@@ -288,10 +288,11 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
 
     let themes = lua.create_table()?;
     let entries = Rc::clone(&api);
+    let theme_budget = Rc::clone(&budget);
     themes.raw_set(
         "define",
         lua.create_function(move |lua, (id, theme): (String, Table)| {
-            let value = to_json(&Value::Table(theme), &budget)
+            let value = to_json(&Value::Table(theme), &theme_budget)
                 .map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
             entries.borrow_mut().push(ApiEntry {
                 path: vec!["themes".into(), id],
@@ -302,6 +303,30 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
         })?,
     )?;
     roster.raw_set("themes", themes)?;
+
+    // `roster.set("terminal.size", "16pt")`: any option by its dotted name, under what the
+    // returned table sets (`:config import-terminal` writes these, ticket 33).
+    let entries = Rc::clone(&api);
+    let left = Rc::clone(&budget);
+    roster.raw_set(
+        "set",
+        lua.create_function(move |lua, (name, value): (String, Value)| {
+            let path: Vec<String> = name.split('.').map(str::to_string).collect();
+            if path.iter().any(|p| p.is_empty()) {
+                return Err(mlua::Error::runtime(format!(
+                    "roster.set: {name:?} isn't an option name like \"terminal.size\""
+                )));
+            }
+            let value =
+                to_json(&value, &left).map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
+            entries.borrow_mut().push(ApiEntry {
+                path,
+                value,
+                at: caller(lua),
+            });
+            Ok(())
+        })?,
+    )?;
     Ok(roster)
 }
 

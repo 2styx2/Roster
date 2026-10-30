@@ -15,6 +15,8 @@ import "@fontsource/inter/600.css";
 import "@fontsource/iosevka/400.css";
 import "@fontsource/iosevka/500.css";
 import "@fontsource/iosevka/700.css";
+import { terminalFontStack } from "./terminal/fonts";
+import { defaultTerminalOptions } from "./terminal/options";
 import "./styles.css";
 
 /** The terminal measures its cells when it opens, so its font must be loaded by then (the
@@ -22,7 +24,8 @@ import "./styles.css";
  * against a font that never comes. */
 function fontsLoaded(report: ConfigReport | null): Promise<unknown> {
   const t = report?.config.terminal;
-  const family = t ? `"${t.font.split(",")[0]?.replace(/"/g, "").trim()}"` : '"Iosevka"';
+  // The whole list: what's installed is there already; the bundled Iosevka loads if it's in it.
+  const family = terminalFontStack(t?.font ?? defaultTerminalOptions.fonts);
   const fonts = [
     `${t?.weight ?? 500} 14px ${family}`,
     `${t?.boldWeight ?? 700} 14px ${family}`,

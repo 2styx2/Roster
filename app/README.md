@@ -54,12 +54,14 @@ crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster se
                       start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:
                       session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs),
                       the State file (state.rs), where the window reopens (window.rs), the Windows build (platform.rs),
+                      Windows Terminal's settings.json → an init.lua block, previewed as a diff (wt.rs, ticket 33),
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs)
 app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
                       state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
-                      changes_publish, host_scan_key, host_add, host_review
+                      changes_publish, host_scan_key, host_add, host_review,
+                      config_import_preview, config_import_apply (ticket 33)
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
@@ -69,7 +71,8 @@ app/src/state/        appState.ts: the State's shape (recent Hosts), parsed leni
 app/src/session/      Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
                       (terminal panes + the basic tab strip for `sessions = "tabs"`)
 app/src/terminal/     TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
-                      options.ts (font, colour overrides, standard ANSI palette as data), keymap.ts (ticket 08's keys),
+                      options.ts (font, colour overrides, standard ANSI palette as data), fonts.ts (which installed font is
+                      in use, cells rounded as Windows Terminal does, ticket 33), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
 app/src/errors/       clean connection errors (ticket 26, docs/app/errors.md): classify.ts (classifyExit: ssh's last lines +
                       exit code + askpass line → a Problem), catalog.ts (the rows as a Registry: where, fix, actions,
@@ -85,7 +88,7 @@ crates/roster-core/src/config/
                       for schema errors), watch.rs (live reload), editor.rs (`:config`: the commented-out
                       starter file, made once, and opening it in the `editor`), mod.rs (load, Loader
                       keeping the last good one)
-app/src/config/       the Config in the frontend: types.ts (the core's object), apply.ts (→ options, and keys,
+app/src/config/       the Config in the frontend (ImportPanel.tsx: `:config import-terminal`'s diff): types.ts (the core's object), apply.ts (→ options, and keys,
                       Themes, Folders through the registries as "init.lua"), ConfigToast.tsx (errors, warnings)
 examples/init.lua     every option with its default, commented (a Rust test loads it)
 app/src/registry.ts   Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0006; registries.ts = the app's set

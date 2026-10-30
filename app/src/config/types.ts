@@ -66,11 +66,19 @@ export interface Config {
   colors: Partial<ThemeColors>;
   fonts: { ui: string; mono: string; uiSize: number };
   terminal: {
-    font: string;
+    /** Families, most wanted first (ticket 33). */
+    font: string[];
+    /** In px: the core turns "16pt" into 21.33. */
     size: number;
     weight: number;
     boldWeight: number;
     lineHeight: number;
+    /** A multiple of the font size (Windows Terminal's cellHeight); wins over lineHeight. */
+    cellHeight: number | null;
+    renderer: "webgl" | "dom";
+    cursorStyle: "block" | "bar" | "underline";
+    /** Bold text in the bright colours too. */
+    boldIsBright: boolean;
     scrollback: number;
     copyOnSelect: boolean;
     rightClickPaste: boolean;
@@ -102,6 +110,29 @@ export interface ConfigOpened {
   created: boolean;
 }
 
+/** One line of a diff of init.lua. */
+export interface DiffLine {
+  kind: "same" | "add" | "remove";
+  text: string;
+}
+
+/** What `:config import-terminal` would write (roster-core wt.rs Preview), before it does. */
+export interface ImportPreview {
+  /** Windows Terminal's settings.json it read. */
+  settingsPath: string;
+  /** One line per thing it takes ("Font: Iosevka Nerd Font, 16 pt (21.3 px)"). */
+  summary: string[];
+  diff: DiffLine[];
+  /** Options it sets that init.lua's own returned table also sets: those win. */
+  overridden: string[];
+  /** There's no init.lua yet: it's made from the commented-out example. */
+  created: boolean;
+  /** What the write checks init.lua against. */
+  base: string;
+  /** The Config error the new file would have. */
+  error: string | null;
+}
+
 /** Where the app gets the Config: the core in Tauri; tests push their own. */
 export interface ConfigSource {
   /** The Config as the app starts (null: no config dir, use the defaults). */
@@ -113,6 +144,10 @@ export interface ConfigSource {
   /** `:config`: makes init.lua if there's none (never overwriting one), then opens it in the
    * Config's `editor`. Rejects with why it couldn't. */
   open(): Promise<ConfigOpened>;
+  /** `:config import-terminal` (ticket 33): the diff it would make. Rejects with why it can't. */
+  importPreview(): Promise<ImportPreview>;
+  /** Writes it, if init.lua is still what the preview read (`base`). */
+  importApply(base: string): Promise<void>;
   /** `:source`: reads init.lua again now (watchers get it too). */
   reload(): Promise<ConfigReport | null>;
 }

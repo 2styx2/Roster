@@ -74,14 +74,22 @@
     "rosterCommand": null,
     "sessions": "sidebar",
     "terminal": {
+      "boldIsBright": true,
       "boldWeight": 700,
+      "cellHeight": null,
       "colors": {},
       "copyOnSelect": true,
-      "font": "Iosevka",
+      "cursorStyle": "block",
+      "font": [
+        "Iosevka Nerd Font",
+        "Iosevka Term",
+        "Iosevka"
+      ],
       "lineHeight": 1.0,
+      "renderer": "webgl",
       "rightClickPaste": true,
       "scrollback": 10000,
-      "size": 14,
+      "size": 16.0,
       "weight": 500
     },
     "theme": "auto",

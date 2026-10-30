@@ -147,6 +147,51 @@ async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigSta
     Ok(Some(report))
 }
 
+/// Windows Terminal's settings.json: its path and text (ticket 33). Windows only.
+fn wt_settings() -> Result<(String, String), String> {
+    if !cfg!(windows) {
+        return Err("import-terminal reads Windows Terminal's settings, so it works on Windows only".into());
+    }
+    let local = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA isn't set, so Windows Terminal can't be found")?;
+    for path in roster_core::wt::settings_paths(std::path::Path::new(&local)) {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            return Ok((path.display().to_string(), text));
+        }
+    }
+    Err("no Windows Terminal settings.json found (Store, Preview or unpackaged)".into())
+}
+
+fn config_dir(config: &ConfigState) -> Result<std::path::PathBuf, String> {
+    config
+        .0
+        .as_ref()
+        .map(|l| l.dir().to_path_buf())
+        .ok_or_else(|| "there's no config folder: the environment names no home".into())
+}
+
+/// `:config import-terminal`, step 1: what it would write into init.lua, as a diff. Writes nothing.
+#[tauri::command]
+async fn config_import_preview(config: tauri::State<'_, ConfigState>) -> Result<roster_core::wt::Preview, String> {
+    let dir = config_dir(&config)?;
+    blocking(move || {
+        let (path, text) = wt_settings()?;
+        roster_core::wt::preview(&dir, &text, &path, &roster_core::wt::today())
+    })
+    .await
+}
+
+/// Step 2, after the user confirmed the diff: writes it, only if init.lua is still what the
+/// preview read (`base`). A save then reloads it as any save does.
+#[tauri::command]
+async fn config_import_apply(config: tauri::State<'_, ConfigState>, base: String) -> Result<(), String> {
+    let dir = config_dir(&config)?;
+    blocking(move || {
+        let (path, text) = wt_settings()?;
+        roster_core::wt::apply(&dir, &text, &path, &roster_core::wt::today(), &base)
+    })
+    .await
+}
+
 /// How long the window waits for init.lua before it shows. A slower Config arrives as a
 /// `config-changed` event.
 const CONFIG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
@@ -549,7 +594,9 @@ pub fn run() {
             vault_lock,
             config_load,
             config_open,
-            config_reload
+            config_reload,
+            config_import_preview,
+            config_import_apply
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
