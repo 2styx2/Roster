@@ -14,6 +14,7 @@ import {
   type HostList,
   type HostUpdate,
   type PendingChanges,
+  type PublishResult,
   type PullResult,
   type ProviderStatus,
   type SignInStep,
@@ -122,5 +123,6 @@ export function tauriBackend(): Backend {
     updateHost: (host, changes: HostChanges) => call<HostUpdate>("host_update", { host, changes }),
     pendingChanges: () => call<PendingChanges>("changes_diff"),
     discardChanges: () => call<{ discarded: boolean; backup: string | null }>("changes_discard"),
+    publishChanges: (message) => call<PublishResult>("changes_publish", { message }),
   };
 }

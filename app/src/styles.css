@@ -75,7 +75,7 @@ button {
 }
 button:active:not(:disabled) { transform: scale(var(--press-scale)); }
 button:disabled { opacity: 0.6; }
-button:focus-visible, input:focus-visible { outline: none; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: none; }
 button:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 @media (hover: hover) and (pointer: fine) {
   button:hover:not(:disabled) { background: var(--hover); }
@@ -94,13 +94,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 }
 
-input {
+input, textarea {
   font: inherit; color: var(--text); background: var(--bg);
   border: 1px solid var(--line-strong); border-radius: var(--radius);
   transition: border-color var(--dur-fade) ease, box-shadow var(--dur-fade) ease;
 }
-input::placeholder { color: var(--muted); }
-input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+input::placeholder, textarea::placeholder { color: var(--muted); }
+input:focus-visible, textarea:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 code { font-family: var(--font-mono); font-size: 0.95em; }
 
@@ -475,6 +475,17 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .diff-line.hunk, .diff-line.meta { color: var(--muted); }
 .changes-confirm { border-top: 1px solid var(--line); padding-top: 8px; }
 .changes-confirm p { margin: 0 0 6px; }
+/* Publish (ticket 12): the message under the diff, then what the Publish did. */
+.publish-form { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.publish-what { margin: 0; }
+.publish-form textarea {
+  padding: 6px 8px; font: var(--text-xs)/1.55 var(--font-mono); resize: vertical; min-width: 0; min-height: 44px;
+}
+.publish-done { display: flex; flex-direction: column; gap: 4px; }
+.publish-done p { margin: 0; overflow-wrap: anywhere; }
+.publish-hash { color: var(--text); }
+.publish-subject { font-family: var(--font-mono); font-size: var(--text-xs); }
+.publish-sync-failed { display: flex; flex-direction: column; gap: 6px; color: var(--warn); }
 
 /* ---------- The command line ---------- */
 

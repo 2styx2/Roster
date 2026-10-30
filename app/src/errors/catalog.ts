@@ -376,6 +376,57 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Test the login with the new values, then save again.",
     actions: [],
   }),
+  // Publishing (ticket 12, decision Q13): commit roster.yml alone, push, never force. Every
+  // refusal leaves the Pending changes as they were.
+  row("publish-nothing", {
+    row: 44,
+    codes: [80],
+    where: ["roster.yml"],
+    fix: () => "Edit a Host first; there's nothing to publish.",
+    actions: [],
+  }),
+  row("publish-other-changes", {
+    row: 45,
+    codes: [81],
+    where: ["the infra repo"],
+    fix: () => "Commit, stash or undo the other changed files in a terminal (`git status` in the infra repo), then publish.",
+    actions: [],
+  }),
+  row("publish-remote-moved", {
+    row: 46,
+    codes: [82],
+    where: ["the infra repo"],
+    fix: () => "Discard your Pending changes, :pull, and make them again; or merge in a terminal (`git stash && git pull --ff-only && git stash pop`).",
+    actions: [],
+  }),
+  row("publish-unpushed", {
+    row: 47,
+    codes: [83],
+    where: ["the infra repo"],
+    fix: () => "Push or drop this Box's own commits in a terminal (`git log @{u}..` in the infra repo), then publish.",
+    actions: [],
+  }),
+  row("publish-no-upstream", {
+    row: 48,
+    codes: [84],
+    where: ["the infra repo"],
+    fix: () => "Give the branch an upstream in a terminal (`git push -u origin main`), then publish.",
+    actions: [],
+  }),
+  row("publish-commit-failed", {
+    row: 49,
+    codes: [85],
+    where: ["the infra repo", "this Box"],
+    fix: () => "See git's words under Details; often the infra repo has no git identity (`git config user.name` and `user.email`).",
+    actions: [],
+  }),
+  row("publish-push-failed", {
+    row: 50,
+    codes: [86],
+    where: ["the network", "the infra repo"],
+    fix: () => "Publish again (it fetches first); if git's words under Details name your rights, ask whoever runs the infra repo.",
+    actions: [],
+  }),
   row("other", {
     row: null,
     codes: [3, 22],
@@ -418,14 +469,16 @@ export function sentence(text: string, host?: string): string {
 export function problemFromCallError(host: string, e: unknown): Problem {
   if (e instanceof BackendCallError) {
     if (e.lost) return { code: "backend-lost", host, message: "Lost the connection to roster", details: e.message };
-    const { fix, ...rest } = e.data ?? {};
+    const { fix, details, ...rest } = e.data ?? {};
     const data = rest as ProblemData;
+    const head = e.code === null ? e.message : `[${e.code}] ${e.message}`;
     return {
       code: e.code ?? 3,
       host,
       message: e.message,
       ...(typeof fix === "string" ? { fix } : {}),
-      details: e.code === null ? e.message : `[${e.code}] ${e.message}`,
+      // roster's `data.details` (API 6) is another program's own words (git's, ssh's).
+      details: typeof details === "string" && details ? `${head}\n\n${details}` : head,
       ...(Object.keys(data).length ? { data } : {}),
     };
   }

@@ -113,6 +113,9 @@ export interface HostCheck {
 /** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
 export const EDIT_API_VERSION = 5;
 
+/** The first `api_version` with `changes.publish` and `changes.diff`'s `message` (ticket 12). */
+export const PUBLISH_API_VERSION = 6;
+
 /** The Host fields the edit form changes (`host.update`'s `changes`). */
 export interface HostFields {
   title: string;
@@ -163,9 +166,44 @@ export interface PendingChanges {
   /** git's unified diff of roster.yml against the last commit ("" when there are none). */
   diff: string;
   hosts: HostChange[];
+  /** Groups added, removed, or retitled (API 6). */
+  groups?: GroupChange[];
   /** How many Pending changes: changed Hosts (1 for an edit that touches none, such as a comment). */
   count: number;
+  /** The commit message `changes.publish` would write, naming what changed (API 6; "" when none). */
+  message?: string;
 }
+
+/** One group the Pending changes touch. */
+export interface GroupChange {
+  group: string;
+  change: "changed" | "added" | "removed";
+}
+
+/** `changes.publish`: the commit made and pushed, and whether `roster sync` followed. */
+export interface PublishResult {
+  /** The full hash of the commit, now on the upstream. */
+  commit: string;
+  upstream: string;
+  message: string;
+  hosts: HostChange[];
+  groups: GroupChange[];
+  /** Upstream commits that left roster.yml alone, fast-forwarded over first. */
+  pulled: number;
+  /** `roster sync` after the push: this Box's ssh config. A failure doesn't undo the Publish. */
+  sync: { ok: boolean; error?: string; fix?: string };
+}
+
+/** roster's codes for publishing (ticket 12; docs/app/errors.md rows 44-50). A failed fetch is 73. */
+export const PublishError = {
+  nothingPending: 80,
+  otherChanges: 81,
+  remoteMoved: 82,
+  unpushed: 83,
+  noUpstream: 84,
+  commitFailed: 85,
+  pushFailed: 86,
+} as const;
 
 /** roster's codes for editing the Inventory (ticket 10; docs/app/errors.md rows 38-43). */
 export const EditError = {
@@ -345,7 +383,7 @@ export interface Backend {
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code
-   * (61 Pending or other uncommitted changes, 62 diverged, 63 fetch failed, 60 not a git repo). */
+   * (71 Pending or other uncommitted changes, 72 diverged, 73 fetch failed, 70 not a git repo). */
   pullInventory(): Promise<PullResult>;
   /** `host.verify_login`: one test login with the Host's new address, user or Login (same shape
    * as `host.check`, steps VERIFY_STEPS). Success lets `updateHost` make exactly that change. */
@@ -356,4 +394,7 @@ export interface Backend {
   pendingChanges(): Promise<PendingChanges>;
   /** `changes.discard`: roster.yml back as the last commit has it. */
   discardChanges(): Promise<{ discarded: boolean; backup: string | null }>;
+  /** `changes.publish`: commit roster.yml with `message` and push it (never forced), then
+   * `roster sync`. Rejects with a PublishError code (or 73 fetch failed, 1 roster.yml broken). */
+  publishChanges(message: string): Promise<PublishResult>;
 }

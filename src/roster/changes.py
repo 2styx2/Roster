@@ -168,13 +168,18 @@ def host_changes(path, old_text, new_text):
 
 def diff(path):
     """roster.yml's Pending changes: the unified diff against the last commit, and the Hosts it changes.
-    count is the number of changed Hosts (1 for a change that touches no Host, such as a comment)."""
+    count is the number of changed Hosts (1 for a change that touches no Host, such as a comment); message is the
+    commit message changes.publish would write (for the app to show, and edit, before publishing)."""
     repo = Repo(path)
     text = repo.diff_text()
     if not text:
-        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "count": 0}
-    hosts = host_changes(repo.path, repo.head_text() or "", read_text(repo.path))
-    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "count": len(hosts) or 1}
+        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "groups": [], "count": 0,
+                "message": ""}
+    old_text, new_text = repo.head_text() or "", read_text(repo.path)
+    hosts = host_changes(repo.path, old_text, new_text)
+    groups = group_changes(repo.path, old_text, new_text)
+    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "groups": groups,
+            "count": len(hosts) or 1, "message": commit_message(hosts, groups)}
 
 
 def discard(path):
@@ -266,8 +271,8 @@ def publish(path, message=None):
     ahead = int(out(repo.top, "rev-list", "--count", "@{u}..HEAD") or 0)
     behind = int(out(repo.top, "rev-list", "--count", "HEAD..@{u}") or 0)
     if ahead:
-        raise Problem(UNPUSHED, f"this box's infra repo has {ahead} commit{'s' * (ahead != 1)} that aren't on "
-                                f"{upstream}, and roster publishes only its own", {"upstream": upstream,
+        raise Problem(UNPUSHED, f"this box's infra repo has {ahead} commit{'s' * (ahead != 1)} that "
+                                f"{'are' if ahead != 1 else 'is'}n't on {upstream}, and roster publishes only its own", {"upstream": upstream,
                                                                                   "ahead": ahead, "behind": behind},
                       fix=f"push or drop them in a terminal (git -C {repo.top} log @{{u}}..), then publish")
     if behind:

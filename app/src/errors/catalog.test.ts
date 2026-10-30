@@ -48,6 +48,25 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 72).where).toContain("the infra repo");
   });
 
+  it("gives every publishing code its row (docs/app/errors.md rows 44-50, ticket 12)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (let n = 44; n <= 50; n++) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [80, 81, 82, 83, 84, 85, 86]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.id).toMatch(/^publish-/);
+      expect(row.fix(p(code))).not.toMatch(/force/i);
+    }
+    expect(rowFor(rows, 82).where).toContain("the infra repo");
+  });
+
+  it("puts git's own words from roster's data.details under Details", () => {
+    const e = new BackendCallError("couldn't push", 86, { fix: "publish again", details: "! [remote rejected] main" });
+    const problem = problemFromCallError("", e);
+    expect(problem.details).toBe("[86] couldn't push\n\n! [remote rejected] main");
+    expect(problem.data).toBeUndefined();
+  });
+
   it("never offers to accept a host key", () => {
     for (const row of builtinErrorRows) {
       for (const a of row.actions) {

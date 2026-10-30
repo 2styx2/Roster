@@ -468,7 +468,7 @@ A Pending change is an edit to `roster.yml` made on this box and not Published y
 | `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`, `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges, rebases or stashes |
 | `host.verify_login` | `{host, changes}` | `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`, run against the Host as `changes` would leave it |
 | `host.update` | `{host, changes}` | `{changed, host, backup}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was |
-| `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], count}`: git's diff of `roster.yml` against the last commit |
+| `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], groups: [{group, change}], count, message}`: git's diff of `roster.yml` against the last commit, and the commit message `changes.publish` would write |
 | `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) |
 | `changes.publish` | `{message?}` | `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`: commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync` |
 

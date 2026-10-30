@@ -64,8 +64,9 @@ export interface CommandContext {
   showInfo(): void;
   /** Opens the edit form for the Host, or the selected one (ticket 10). */
   edit(host: string | null): void;
-  /** Shows the Pending changes; `discard`: asks to discard them straight away. */
-  showChanges(discard?: boolean): void;
+  /** Shows the Pending changes; `discard` asks to discard them straight away, `publish` opens
+   * the Publish step (the diff for a last look, and the commit message). */
+  showChanges(then?: "discard" | "publish"): void;
   /** Pulls the infra repo (fast-forward only) and says what happened. */
   pull(): void;
   /** `:config` (ticket 32): opens init.lua (making it first if there's none), reads it again,
@@ -178,7 +179,14 @@ export const builtinCommands: readonly CommandDef[] = [
     source: BUILTIN,
     area: "Inventory",
     label: () => "Discard the Pending changes (asks first)",
-    run: (ctx) => ctx.showChanges(true),
+    run: (ctx) => ctx.showChanges("discard"),
+  },
+  {
+    id: "publish",
+    source: BUILTIN,
+    area: "Inventory",
+    label: () => "Publish the Pending changes: commit and push roster.yml (a last look first)",
+    run: (ctx) => ctx.showChanges("publish"),
   },
   { id: "pull", source: BUILTIN, area: "Inventory", label: () => "Pull the infra repo (fast-forward only)", run: (ctx) => ctx.pull() },
   { id: "next", source: BUILTIN, area: "Sessions", label: () => "Next Session", run: (ctx) => ctx.selectRelative(1) },
