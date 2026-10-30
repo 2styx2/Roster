@@ -96,6 +96,8 @@ export interface Config {
   backend: string;
   /** What `:config` opens init.lua with: the OS's app, or `$EDITOR` inside WSL (ticket 32). */
   editor: "os" | "wsl";
+  /** Reload on every save (decision Q58); off: `:source` reloads. */
+  autoReload: boolean;
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
 }
@@ -135,8 +137,10 @@ export interface ImportPreview {
 export interface ConfigSource {
   /** The Config as the app starts (null: no config dir, use the defaults). */
   load(): Promise<ConfigReport | null>;
-  /** Calls `onChange` after every save of init.lua; returns stop. */
+  /** Calls `onChange` after every reload (a `:source`, or a save with `auto_reload`); returns stop. */
   watch(onChange: (report: ConfigReport) => void): () => void;
+  /** Calls `onStale` when a Config file was saved but not reloaded (`auto_reload` off). */
+  watchStale(onStale: () => void): () => void;
   /** `:config`: makes init.lua if there's none (never overwriting one), then opens it in the
    * Config's `editor`. Rejects with why it couldn't. */
   open(): Promise<ConfigOpened>;
@@ -144,6 +148,6 @@ export interface ConfigSource {
   importPreview(): Promise<ImportPreview>;
   /** Writes it, if init.lua is still what the preview read (`base`). */
   importApply(base: string): Promise<void>;
-  /** `:config reload`: reads init.lua again now (watchers get it too). */
+  /** `:source`: reads init.lua again now (watchers get it too). */
   reload(): Promise<ConfigReport | null>;
 }

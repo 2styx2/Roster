@@ -934,3 +934,38 @@ fn how_the_file_opens_follows_the_editor_and_the_os() {
             .contains("Windows")
     );
 }
+
+// Neovim-style reloading (owner decision Q58): a save doesn't reload unless `auto_reload = true`;
+// `:source` reloads now -------------------------------------------------------------------------
+
+#[test]
+fn a_save_reloads_only_when_auto_reload_is_on() {
+    let dir = with_init("auto-off", "return { vim = false }\n");
+    let loader = Loader::new(&dir);
+    assert!(!loader.reload().config.auto_reload);
+    std::fs::write(dir.join("init.lua"), "return { vim = true }\n").unwrap();
+    // The default: the save is noticed, nothing reloads, the last Config stays.
+    assert!(loader.on_save().is_none());
+    assert!(!loader.current().vim);
+    // `:source` reloads it.
+    assert!(loader.reload().config.vim);
+
+    std::fs::write(dir.join("init.lua"), "return { auto_reload = true, vim = false }\n").unwrap();
+    assert!(loader.on_save().is_none(), "auto_reload takes effect once sourced");
+    assert!(loader.reload().config.auto_reload);
+    std::fs::write(dir.join("init.lua"), "return { auto_reload = true, vim = true }\n").unwrap();
+    let report = loader.on_save().expect("auto_reload = true reloads on save");
+    assert!(report.config.vim);
+}
+
+#[test]
+fn sourcing_a_broken_file_keeps_the_last_good_config() {
+    let dir = with_init("source-bad", "return { vim = false }\n");
+    let loader = Loader::new(&dir);
+    loader.reload();
+    std::fs::write(dir.join("init.lua"), "return { vim = }\n").unwrap();
+    let report = loader.reload();
+    assert_eq!(report.error.as_ref().map(|e| e.line), Some(Some(1)));
+    assert!(!report.config.vim);
+    assert!(!loader.current().vim);
+}

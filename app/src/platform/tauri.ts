@@ -30,6 +30,10 @@ export function tauriPlatform(): Platform {
         const stop = listen<ConfigReport>("config-changed", (e) => onChange(e.payload));
         return () => void stop.then((f) => f());
       },
+      watchStale(onStale) {
+        const stop = listen("config-stale", () => onStale());
+        return () => void stop.then((f) => f());
+      },
       open: () => invoke<ConfigOpened>("config_open"),
       importPreview: () => invoke<ImportPreview>("config_import_preview"),
       importApply: async (base) => {

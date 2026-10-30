@@ -9,9 +9,12 @@ export interface MemoryPlatform extends Platform {
   clipboardText(): string;
   /** Whether the window is fullscreen now. */
   fullscreen(): boolean;
-  /** Acts as a save of init.lua: the app gets `report` as a live change. */
+  /** Acts as the core reloading init.lua: the app gets `report` as a live change. */
   saveConfig(report: ConfigReport): void;
-  /** Changes what's on disk with no save event; `:config reload` reads it. */
+  /** Acts as a save of init.lua, as the core's watcher sees it (roster-core Loader::on_save):
+   * applied at once if the Config in effect has `auto_reload`, else only noticed. */
+  fileSaved(report: ConfigReport): void;
+  /** Changes what's on disk with no save event; `:source` reads it. */
   writeConfig(report: ConfigReport): void;
   /** init.lua's text, or null while there's no file. */
   configFile(): string | null;
@@ -43,6 +46,9 @@ export function memoryPlatform(
   let state = start.state ?? {};
   let config = start.config ?? null;
   const watchers = new Set<(r: ConfigReport) => void>();
+  const staleWatchers = new Set<() => void>();
+  /** The report in effect (the core's Loader::current). */
+  let applied = config;
   let saved: unknown;
   let clip = start.clipboard ?? "";
   let full = false;
@@ -53,6 +59,7 @@ export function memoryPlatform(
   const imported: string[] = [];
   const path = () => config?.path ?? "/home/you/.config/roster/init.lua";
   const emit = (report: ConfigReport) => {
+    applied = report;
     for (const w of watchers) w(report);
   };
   return {
@@ -77,6 +84,10 @@ export function memoryPlatform(
       watch(onChange) {
         watchers.add(onChange);
         return () => watchers.delete(onChange);
+      },
+      watchStale(onStale) {
+        staleWatchers.add(onStale);
+        return () => staleWatchers.delete(onStale);
       },
       async open() {
         if (openError !== null) {
@@ -109,6 +120,11 @@ export function memoryPlatform(
     saveConfig(report) {
       config = report;
       emit(report);
+    },
+    fileSaved(report) {
+      config = report;
+      if (applied?.config.autoReload) emit(report);
+      else for (const w of staleWatchers) w();
     },
     writeConfig(report) {
       config = report;
