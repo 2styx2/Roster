@@ -1,4 +1,4 @@
-// The catalog covers docs/app/errors.md and every code roster's README lists.
+// The catalog covers docs/app/errors.md and every code roster's docs/serve-api.md lists.
 import { describe, expect, it } from "vitest";
 import { BackendCallError } from "../backend/types";
 import { builtinErrorRegistry, builtinErrorRows, problemFromCallError, rowFor } from "./catalog";

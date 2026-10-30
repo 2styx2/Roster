@@ -561,7 +561,7 @@ def _main(argv=None):
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only")
     s.add_argument("-y", "--yes", action="store_true")
-    sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see README)")
+    sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see docs/serve-api.md)")
     s = sub.add_parser("askpass", help="SSH_ASKPASS helper for a `roster serve` password Session (ssh runs it)")
     s.add_argument("prompt", nargs="?", default="")
     args = p.parse_args(argv)

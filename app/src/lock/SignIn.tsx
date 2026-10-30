@@ -1,5 +1,5 @@
 // Signing the vault CLI in from the lock screen (ticket 31, decision Q52), for a Box whose CLI isn't
-// logged in yet. The steps follow roster's `vault.login` (roster README "Signing in"):
+// logged in yet. The steps follow roster's `vault.login` (roster's docs/serve-api.md "Signing in"):
 //   server -> email -> master password -> [two-step method] -> [code] -> [new-device code]
 // with an API key or SSO as the other ways in from the first screen (both end with the master
 // password, since they only log in). Keyboard-first: Tab and Enter, and Esc goes back a step.

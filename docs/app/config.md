@@ -166,7 +166,7 @@ vault = {
 },
 ```
 
-This Box's own vault settings. They win over `roster.yml`'s `providers:` (the team's), so a setting that's personal doesn't have to go into the Inventory. The app sends them to `roster serve` (`vault.configure`, roster README) when it starts, before the lock screen asks where the vault stands, and again on every `:source`. Leave one out and `roster.yml`'s applies. They're paths and choices, never a secret: init.lua can't hold or send a password (docs/app/security.md). Needs roster's API 10; an older roster just uses `roster.yml`.
+This Box's own vault settings. They win over `roster.yml`'s `providers:` (the team's), so a setting that's personal doesn't have to go into the Inventory. The app sends them to `roster serve` (`vault.configure`, [serve-api.md](../serve-api.md#this-boxs-settings-vaultconfigure)) when it starts, before the lock screen asks where the vault stands, and again on every `:source`. Leave one out and `roster.yml`'s applies. They're paths and choices, never a secret: init.lua can't hold or send a password (docs/app/security.md). Needs roster's API 10; an older roster just uses `roster.yml`.
 
 | Option | Default | |
 |---|---|---|

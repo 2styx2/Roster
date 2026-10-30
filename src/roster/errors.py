@@ -7,7 +7,7 @@ import re
 
 from . import providers
 
-# ---- the codes (README "`roster serve` API" lists them all)
+# ---- the codes (docs/serve-api.md lists them all)
 INVENTORY_ERROR = 1         # roster.yml wasn't found or doesn't load (catalog row 1)
 UNKNOWN_HOST = 2            # no Host by that name
 ROSTER_ERROR = 3            # any other refusal roster gives on the command line ("error: ...")

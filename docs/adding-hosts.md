@@ -112,7 +112,7 @@ For each host you're bringing in, set its login and mark it reviewed:
           admin: { port: 8443, user: webadmin, auth: "bw:esxi-02 admin" }        # its own login
 ```
 
-- If your team has its own word for one of roster's `login:` types, map it once at the top of `roster.yml` and keep using it: `web_login_names: { appliance: hub }` makes `login: appliance` work exactly like `login: hub`. roster shows the type it resolved to (`hub`). Details in the README, "Web APIs with stored logins".
+- If your team has its own word for one of roster's `login:` types, map it once at the top of `roster.yml` and keep using it: `web_login_names: { appliance: hub }` makes `login: appliance` work exactly like `login: hub`. roster shows the type it resolved to (`hub`). Details in [cli-reference.md](cli-reference.md#web-apis-with-stored-logins-roster-web).
 - A typo in a service entry (a port, a url, a `login:` type) doesn't break the file for everyone: that one service is left out, and `roster hosts`, `check` and `auth-check` warn about it with the fix. `roster info HOST` lists it under `problems`.
 
 - Rename hosts to something people will search for, ideally the box's real hostname (`lab-hub3`, `esxi-02`). Set a real `title` and fix the guessed `type`. Don't shorten names: `hub2` and `lab-hub2` are different machines. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.
@@ -161,4 +161,4 @@ Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com
 
 ## Things that aren't hosts
 
-A Wi-Fi network, a vendor portal or an API key goes under `resources:` instead of a group. It gets a fixed set of fields per type (`wifi`, `account`, `secret`) and an `auth:` vault reference, just like a host. See "Resources" in the README. Check it with `roster auth-check --only <name>` and `roster info <name>`.
+A Wi-Fi network, a vendor portal or an API key goes under `resources:` instead of a group. It gets a fixed set of fields per type (`wifi`, `account`, `secret`) and an `auth:` vault reference, just like a host. See [Resources](cli-reference.md#resources-secrets-with-no-address) in the CLI reference. Check it with `roster auth-check --only <name>` and `roster info <name>`.

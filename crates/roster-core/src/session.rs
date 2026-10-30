@@ -24,7 +24,7 @@ pub const TERM: &str = "xterm-256color";
 /// use it when this says so.
 pub const COLORTERM: &str = "truecolor";
 
-/// `session.prepare`'s result (roster README, "Sessions: `session.prepare`").
+/// `session.prepare`'s result (docs/serve-api.md, "Sessions: `session.prepare`").
 #[derive(Clone, Deserialize)]
 pub struct Prepared {
     /// What to run, as given; `argv[0]` is an absolute path.

@@ -1,0 +1,326 @@
+# `roster serve` API
+
+`roster serve` is the backend for the desktop app (the roster app, [`app/`](../app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, handles requests one at a time, and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+
+Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
+
+**Deadlines.** The slow methods have an overall deadline (`serve.py`'s `DEADLINES`): `host.add` 100 s, `changes.publish` 110 s, `inventory.pull`, `host.check`, `host.verify_login` and `vault.create_item` 45 s. Every git, vault CLI and ssh step inside gets what's left of it as its own timeout, and a step that runs out fails cleanly like any other timeout. A few steps still run once it's past, so the outcome is known and clean: undoing a commit, checking whether a push that timed out got there, and taking a new Vault item back out (at most `AFTER_DEADLINE`, 40 s, in all). The app waits longer than deadline plus that for each method (`CALL_SECS` in `crates/roster-core/src/backend.rs`; a test checks the two tables agree), so `serve` answers before the app gives up. If the app gives up anyway (a stalled box), it asks what happened before it says anything (`app/src/backend/afterTimeout.ts`): after `host.add`, whether the Host is in the Inventory (`host.get`); after `changes.publish`, whether the Pending changes are gone and `changes.diff`'s `last_commit` is on the upstream. `serve` answers requests in order, so that answer comes after the slow call finished.
+
+| Method | Params | Result |
+|---|---|---|
+| `inventory.info` | none | `{path, box, host_count, providers: [names], roster_version, api_version}` |
+| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order. `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good ones |
+| `host.get` | `{name}` (exact Host name) | one Host |
+
+A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}` (`login` is the resolved type, never a `web_login_names` alias), `problems: [{service, message, fix}]` (service entries left out because roster can't use them; empty when there are none), `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
+
+## Sessions: `session.prepare`
+
+| Method | Params | Result |
+|---|---|---|
+| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}`<br>password-only: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}` |
+
+`session.prepare` tells the app what to start in a PTY to open a Session. It never holds a secret. The app runs `argv` exactly as given, with `env` added (on WSL: `wsl.exe -d DISTRO --cd ~ --exec env K=V ... ARGV...`). `argv[0]` is an absolute path, because PATH under `wsl.exe --exec` is minimal.
+
+The command is the same one `roster run` uses: `ssh -o BatchMode=yes NAME`, where `NAME` is the `Host` alias that `roster setup` / `roster sync` write to `~/.ssh/config.d/roster`. The key, user, port, `known_hosts` and connection sharing all come from that config, so a Session behaves exactly like `ssh NAME` in a terminal (ADR 0002). There's no fallback to `-i KEY -p PORT user@ip`. Without roster's config there's no recorded host key and no installed key either, so `session.prepare` refuses with code `21` and says to run `roster sync`, or `roster setup` on a box that isn't set up yet. A failed login after that (host down, key not installed) is ssh's own message in the tab.
+
+It refuses unreviewed Hosts with the same message as `roster run`, and Hosts whose user is still discover's `CHANGE-ME` (code `30`).
+
+**Host keys (ticket 36, decision Q60).** An app Session never trusts a host key on its own. `-o StrictHostKeyChecking=yes` on the command line wins over the `StrictHostKeyChecking accept-new` in roster's Host block, which `roster ssh`, `roster run` and a plain `ssh NAME` keep. So the key must already be in `~/.ssh/roster_known_hosts`: recorded by `roster setup`, a verified add or edit, or the app's question. When there's none for the Host's address, `session.prepare` refuses with `44` and `data: {address, port}`, after every other check (so a vault problem is reported first) and before an askpass token is minted. The app then asks: `host.scan_key {host}` fetches the key (one connection, key exchange only), the user compares the fingerprint, and `host.trust_key {host, fingerprint}` records it. `host.trust_key` fetches the key again and records it only if the Host still offers exactly that fingerprint (`23` otherwise, nothing recorded). A key that differs from a recorded one is never trusted there (`43`); in a Session, ssh refuses it (Q44).
+
+| Method | Params | Result |
+|---|---|---|
+| `host.scan_key` | `{host}` (exact Host name) | `{host, address, port, key_type, fingerprint, recorded: none\|match\|changed}`: as the `{address, port}` form below, for the Host's address and port. `2` unknown Host, `40`-`42` when it can't get there |
+| `host.trust_key` | `{host, fingerprint}` (`SHA256:...`, the one the user was shown) | `{host, address, port, key_type, fingerprint, recorded}`: `recorded: true` when it added the key, `false` when that key was already recorded. `43` a different key is recorded, `23` the Host offers another key now, `40`-`42` it can't get there; nothing is recorded on any error |
+
+**Quick Connect (ticket 14, decision Q67).** A Session to `user@address[:port]`, a box that isn't in the Inventory. The app shows the key `host.scan_key {address, port}` fetched (above), then sends the fingerprint the user confirmed, with the password they typed (or none):
+
+| Method | Params | Result |
+|---|---|---|
+| `quick.prepare` | `{user, address, port?: 22, fingerprint, password?}` | `{argv, env, host, auth, quick, user, address, port, key_type, fingerprint}`: `argv` is `[/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=<serve's own file>", "-o", "GlobalKnownHostsFile=/dev/null", "-o", "HostKeyAlias=roster-quick-<quick>", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none", "-o", "ConnectTimeout=10", ...auth options, "-p", PORT, "-l", USER, "--", ADDRESS]`; with a password, `auth: "password"`, the password options and the askpass `env` of a password Session; without, `auth: "key"`, `BatchMode=yes` and `env: {}`. `host` is `user@address` (`:port` when it isn't 22). `quick` is serve's id for this Quick Connect. `-32602` bad params (a user or address ssh could read as an option, no `SHA256:` fingerprint, an empty password), `40`-`42` it can't get there, `43` the key differs from one roster recorded for the address, `23` it isn't the one the user was shown, `21` no ssh, `22` no askpass channel |
+
+`quick.prepare` fetches the key again (key exchange only, never a login) and trusts it for this Session only: it goes into a known-hosts file in the askpass channel's user-only directory, under that alias, and never into `~/.ssh/roster_known_hosts`. A typed password is held under a one-time askpass token, like a vault password (60 s, once, forgotten by `vault.lock`), and never appears in a response, an error or the log. Nothing is written to `roster.yml`.
+
+### Password Sessions: the askpass channel
+
+A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`key`/`none`) gets a password Session. The password goes from the provider to `serve`, over a private socket, to `roster askpass`, and into `ssh`. It never passes through the app.
+
+- While `serve` runs, it listens on a Unix socket in a fresh directory: `$XDG_RUNTIME_DIR/roster-askpass-XXXX/` (or the temp dir if there's no runtime dir). The directory is `0700` and the socket is `0600`. `serve` also checks that the peer's uid is its own, and removes the directory when it exits (stdin closed or SIGTERM). Next to the socket is `askpass`, a `0700` two-line script that runs `<serve's python> -I -m roster.askpass`. `SSH_ASKPASS` has to be one absolute executable, because ssh runs it without a shell or your login PATH.
+- `session.prepare` resolves the Login first, inside `serve`: the provider is set up, the vault answers, and the vault item exists, is the only match and has the password (or `#FIELD`). Whatever is wrong comes back as its own code before ssh starts: `31` provider not set up, `14` locked, `11` not logged in, `12` no CLI, `32` no such item, `33` several items, `34` no password or field, `35` the provider failed some other way. The password stays in `serve`'s memory; the result never holds it. Then it mints a random one-time token tied to that Host's ssh Login. The token is spent on first use (even if the lookup then fails), and it expires after 60 seconds or on `vault.lock`. Unlocking again doesn't bring it back, so open the Session again.
+- The `env` to add to the ssh command:
+
+  | Variable | Value |
+  |---|---|
+  | `SSH_ASKPASS` | absolute path of the `askpass` script |
+  | `SSH_ASKPASS_REQUIRE` | `force`: use the helper even with a terminal and no `DISPLAY` (OpenSSH 8.4+; `DISPLAY` isn't needed) |
+  | `ROSTER_ASKPASS_SOCKET` | the socket's path |
+  | `ROSTER_ASKPASS_TOKEN` | the one-time token |
+
+- When ssh prompts, it runs `roster askpass PROMPT`. The helper answers only these prompts, compared whole and ignoring case and extra spaces: `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for user@host:`. Every other prompt is refused: host-key `yes/no`, key passphrases, verification codes, and `New password:` / `(current) UNIX password:` from an expired-password change. The helper reports the prompt's text (never an answer) to `serve`, which logs it, doesn't spend the token, and gives back the reason. For an allowed prompt, the helper sends the token and prints the password to ssh. Whenever the helper doesn't print a password, it writes one line to the terminal (ssh's stderr) and exits 1, so ssh fails; with `NumberOfPasswordPrompts=1` ssh then stops with its own `Permission denied`. The line is what the app's classifier reads:
+
+  ```
+  roster askpass: [CODE] REASON
+  ```
+
+  `CODE` is one of the codes below, and `REASON` is the same wording `session.prepare` gives for it:
+
+  | Code | Line, for example |
+  |---|---|
+  | `36` | `roster askpass: [36] esx asked something roster won't answer: 'New password:' - log in by hand once to deal with it` |
+  | `37` | `roster askpass: [37] the askpass token is used up, expired or cleared by a lock - open the Session again` |
+  | `38` | `roster askpass: [38] can't reach roster serve (Connection refused)` |
+  | `32`, `33`, `34`, `35`, `14`, ... | the vault item went away (or the vault was locked) between `session.prepare` and ssh's prompt, e.g. `roster askpass: [32] no vault item named 'esx ssh' (ssh Login of esx) - did you mean: 'esx root'` |
+- `serve`'s stderr records each use (`askpass: esx: password handed to ssh`, `askpass: esx: refused an unexpected prompt: 'New password:'`, or why it refused), never the password.
+- The protocol is one exchange per connection. The helper sends `TOKEN\n`, or `prompt TOKEN PROMPT\n` for a prompt it won't answer (the prompt on one line, at most 300 characters). `serve` replies `ok\nPASSWORD` or `no CODE\nREASON` and closes the connection.
+- `ROSTER_ASKPASS_TTL` (seconds, given to `serve`) can shorten the 60-second lifetime, for tests. It can't lengthen it.
+
+## Diagnostics: `host.check`
+
+| Method | Params | Result |
+|---|---|---|
+| `host.check` | `{host}` (exact Host name) | `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}` |
+
+It runs the steps of [`roster check HOST`](cli-reference.md#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
+
+`api_version` is currently 12 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103; 9 added `host.review`'s `reviewed: false`; 10 added `vault.configure`, `vault.targets`, `save_to` on `vault.create_item` and `host.add`, `target` in their results, `vault.status`'s `save_to`, and codes 64-65; 11 made Sessions check host keys strictly: `session.prepare`'s `StrictHostKeyChecking=yes` and its `44`, `host.scan_key {host}`, `host.trust_key` and code `23`; 12 added Quick Connect: `quick.prepare`). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory, 80-89 adding a Host (`host.add`), 90-99 publishing (`changes.publish`), 100-109 the Live Inventory (removing, renaming and moving Hosts and groups). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](app/errors.md) is the catalog the codes come from.
+
+| Code | Meaning |
+|---|---|
+| `1` | The Inventory didn't load: no `roster.yml`, or it's invalid (including a Host with no user at all). Every method that needs it returns this, and `serve` keeps running. `data` has `path` (or `null`), `roster_version`, `api_version`, `fix`, and `line` for a YAML error. |
+| `2` | Unknown host (`host.get`, `session.prepare`) |
+| `3` | Any other refusal roster would print as `error: ...` on the command line |
+| `20` | `session.prepare`: the Host isn't reviewed (`reviewed: false`); same message as `roster run` |
+| `21` | `session.prepare`: this box can't run `ssh NAME` yet. Either there's no `ssh` on PATH, or the Host isn't in roster's ssh config (run `roster sync`, or `roster setup`) |
+| `22` | `session.prepare`, `quick.prepare`: a password Session (or any Quick Connect), but the process has no askpass channel. Only seen when serve's code is used in-process, never from `roster serve` |
+| `23` | `host.trust_key`, `quick.prepare`: the Host (or Quick Connect box) offers another key than the one the user was asked about; `data.asked` and `data.offered` are the two fingerprints. Nothing was recorded or started |
+| `11`, `12`, `14` | `session.prepare` for a password-only Host whose vault isn't logged in, isn't installed, or is locked (see [Vault](#vault-the-lock-screen)) |
+| `30` | The Host's ssh user is discover's placeholder `CHANGE-ME`: "no SSH user for esx (user: CHANGE-ME in roster.yml)" |
+| `31` | The Login's provider isn't set up on this box: "keeper's ssh Login uses 'keeper:', which isn't set up on this box". `data.provider` |
+| `32` | No vault item by that name: "no vault item named 'esx shh' (ssh Login of esx) - did you mean: 'esx ssh'". `data.near` lists similar item names (names only) |
+| `33` | Several vault items match: "2 vault items are named 'esx ssh' (ssh Login of esx): ...". `data.matches` is `[{name, revised, uris}]`: names, last-edited dates and URIs, never a value |
+| `34` | The item has no password, or no such `#FIELD`: "vault item 'esx ssh' has no password (ssh Login of esx)". `data.field` |
+| `35` | The provider failed some other way; the message is the provider's |
+| `36` | askpass: the Host asked something roster won't answer (an expired password, an OTP); the prompt is in the message |
+| `37` | askpass: the token is used up, expired or cleared by `vault.lock` |
+| `38` | askpass: the helper couldn't reach `serve` |
+| `40` | `host.check`: the address doesn't resolve |
+| `41` | `host.check`: the ssh port refused the connection |
+| `42` | `host.check`: no answer in time. For 10.19.x the fix mentions the rate limiter (wait a few minutes) |
+| `43` | `host.check`: the Host's key isn't the recorded one. Never accepted automatically |
+| `44` | `host.check`, `session.prepare`: no recorded host key for the Host. From `session.prepare`, `data` has its `address` and `port`, for the app to ask about the key |
+| `45` | `host.check`: the Host refused the password for that user |
+| `46` | `host.check`: the Host refused this box's key |
+| `47` | `host.check`: the Host cut the connection after too many key attempts. roster's ssh config sets `IdentitiesOnly yes` for key and password Hosts (and `PubkeyAuthentication no` for password Hosts) so the agent's keys can't use up the Host's tries; an older config fails the `ssh-config` step instead |
+| `48` | `host.check`: the login failed some other way; `details` has ssh's message |
+| `50`-`59` | `vault.login`: see [Signing in](#signing-in-vaultlogin) |
+| `70` | `roster.yml` isn't committed in a git repo (or git isn't installed), so it has no Pending changes |
+| `71` | `inventory.pull`: uncommitted changes, Pending changes or other files (`data.files`) |
+| `72` | `inventory.pull`: this box's branch and its upstream have diverged (`data.ahead`, `data.behind`) |
+| `73` | `inventory.pull`: the fetch or the fast-forward failed; `details` has git's message |
+| `74` | `host.update`: the result wouldn't load, loads differently than asked, or changes another entry; nothing written |
+| `75` | `host.update`: the address, user or Login changed without a `host.verify_login` of those values that just succeeded |
+| `80` | `host.add`: a bad name, group, address, user or port, or no user to log in as (none given, none inherited). `data.field` names it; the message is roster's (`bad host name 'a b' (use letters, digits, . _ -)`) |
+| `81` | `host.add`: a Host by that name is already in the Inventory: "host 'esx' is already in the Inventory (group lab)". `data.group` |
+| `90` | `changes.publish`: no Pending changes, nothing to publish |
+| `91` | `changes.publish`: other files in the infra repo are uncommitted too (`data.files`); nothing published |
+| `92` | `changes.publish`: someone published `roster.yml` to the upstream since this box pulled (`data.behind`); nothing published |
+| `93` | `changes.publish`: this box has commits of its own that aren't on the upstream (`data.ahead`); roster pushes only its own |
+| `94` | `changes.publish`: the branch has no upstream to push to |
+| `95` | `changes.publish`: git refused the commit (no identity, a hook); `details` has git's message; the Pending changes are kept |
+| `96` | `changes.publish`: the push failed or was rejected (`data.rejected`: the upstream moved meanwhile); the commit is undone, the Pending changes are kept |
+| `100` | `host.rename`, `group.new`, `group.rename`: that name is already a Host's or a group's (`data.kind`, `data.group`) |
+| `101` | No group by that name in `roster.yml` (`data.group`); the message lists the groups |
+| `102` | `group.delete`: the group still has Hosts and no `to` says where they go (`data.hosts`) |
+| `103` | `host.move`, `group.delete`: the Host would come out different in its new group (a service or Login it inherits there that roster can't write on the Host); `data.fields` |
+| `-32700` | Not valid JSON |
+| `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
+| `-32601` | Unknown method |
+| `-32602` | Bad params, e.g. `host.get` without a `name` |
+| `-32603` | Unexpected failure inside roster; details go to stderr |
+
+Requests without an `id` (notifications) run but get no reply. `serve` sends one notification of its own, `inventory.changed` (see [The Live Inventory](#the-live-inventory-hosts-and-groups-and-outside-edits)), and only after `inventory.watch`.
+
+## Editing: Pending changes
+
+A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`70` otherwise). Publishing commits and pushes them (`changes.publish`).
+
+| Method | Params | Result |
+|---|---|---|
+| `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`, `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges, rebases or stashes |
+| `host.verify_login` | `{host, changes}` | `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`, run against the Host as `changes` would leave it |
+| `host.update` | `{host, changes}` | `{changed, host, backup, warnings}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was, `warnings` what failed after the write (recording a moved Host's key) |
+| `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], groups: [{group, change}], count, message, last_commit}`: git's diff of `roster.yml` against the last commit, the commit message `changes.publish` would write, and `last_commit: {commit, subject, upstream, pushed}` (the branch's last commit, and whether its upstream has it as this box last fetched) |
+| `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) |
+| `changes.publish` | `{message?}` | `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`: commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync` |
+
+`changes` is `{field: value}` with fields `title`, `description`, `type` (text, one line), `ip`, `user`, `auth` (strings) and `port` (a number). `host.update` edits `roster.yml` as text, like `discover --write`: only the changed values' text changes, so comments, order, quoting and every other entry stay byte for byte. `user`, `port` and `auth` go into the Host's `ssh:` block if it has one; a short `name: 10.0.0.1` entry grows into a block when it needs more than its address. The result must load, must load to exactly the values asked for, and must leave every other Host, group and resource as it was (`74` otherwise, nothing written). What it replaced is kept as `roster.yml.bak` in the repo's git dir (`.git/roster/`), never in the working tree. Every write and pull loads `roster.yml` again, so `hosts.list` shows the file as it now is.
+
+**Publishing (ticket 12, decision Q13).** `changes.publish` refuses when there's nothing pending (`90`), when another file in the infra repo is uncommitted (`91`; `folders.yml` and anything personal never go in), and when `roster.yml` doesn't load (`1`). It fetches first (`73` if that fails). New upstream commits that leave `roster.yml` alone are fast-forwarded over (`pulled` counts them); if someone else published `roster.yml` meanwhile (`92`) or this box has commits of its own (`93`), it stops. It commits `roster.yml` only, with `message` if given, else one naming every Host and group that changed (`roster: change esx (title), add web-01`; past 72 characters the subject gives the counts and the body lists them). The author is whatever git identity the infra repo has; roster never sets one. It pushes `HEAD` to the upstream branch, never forced; a rejected or failed push (`96`) undoes the commit, so the Pending changes stay as they were. A push that doesn't finish within 60 s is stopped (its whole process group), and roster fetches to see whether it got there anyway: if the upstream has the commit, it's a Publish like any other; if not, the commit is undone (`96`, `data.timed_out`, `data.landed: false`); if even that fetch fails, the commit is undone too and the error says roster couldn't tell (`data.landed: null`), with how to check. Then it runs `roster sync` (ssh config and the Claude files); a failed sync doesn't undo the Publish and shows in `sync`.
+
+**Verified changes (decision Q43).** A change to `ip`, `port`, `user` or `auth` is refused (`75`) unless `host.verify_login` with exactly those values succeeded in the last 10 minutes; the success is used up by the save. The test login makes one TCP connection and one login attempt (a password Login is looked up from the vault into roster's memory; a key Host uses this box's roster key, except when the change is to its Login: a new `auth` is always tested with itself, its vault item found, unique and with a password, and that password used for the login, because the key says nothing about it). The host key must match one recorded in `~/.ssh/roster_known_hosts`, for the new address or, for a Host that moved, its current one; it's never accepted. For a Host that moved, the key it was verified with is recorded for the new address once `host.update` has written the edit (and only then), so its first Session there finds it instead of trusting whatever answers; a failure to record it is in `host.update`'s `warnings`. A Host with no stored Login (`auth: prompt`, `agent`, `none`) gets every step but the login.
+
+## Adding a Host: `host.add`
+
+| Method | Params | Result |
+|---|---|---|
+| `host.scan_key` | `{address, port?}` | `{address, port, key_type, fingerprint, recorded: none\|match\|changed}`: the host key the address offers, and how it compares with the one in `~/.ssh/roster_known_hosts`. One connection, key exchange only: never logs in, never records anything. `40`-`42` when it can't get there |
+| `host.add` | `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? \| password + item?, host_key?, provider?, save_to?}` | `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify` the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made (`{provider, id, name, target}`, or `null`) |
+| `host.review` | `{host, reviewed?}` | `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if it already was). `reviewed: false` (API 9) un-reviews it, for a review made by mistake: where the Host's own `reviewed: true` sits over an unreviewed group or defaults, its line is taken out again, so the text goes back to what it was |
+
+`host.add` writes the Host into `roster.yml` as text at the end of its group (or in a new group after the last one), like `host.update`: comments and every other entry stay byte for byte, a group of one-line `{ip: ...}` entries gets one more, and only what the Host doesn't inherit from its group or `defaults:` is written. The result must load with exactly the values asked for and nothing else changed (`74` otherwise). It's a Pending change, with the backup in `.git/roster/`.
+
+**Verified adds (decision Q43).** A Host with a Login gets one test login before anything is written. The Login is either `auth`, an existing vault reference (`bw:esx-02 ssh`, looked up into roster's memory), or `password`, typed into the form, with `item` the Vault item to save it as (default `<name> ssh`, see [docs/adding-hosts.md](adding-hosts.md)) in `provider` (default: the one `vault.status` names) and `save_to` (where in it; default: the setting, see `vault.create_item`). In order:
+
+1. The name, group and user are checked and the add is tried as text (`80`, `81`, `74`), before the network. For a typed password, the provider must be able to save (`61`) and be unlocked (`14`, `11`, `12`).
+2. The test login, as `host.verify_login`'s steps (`user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`): one connection and one attempt with the password, even for `enroll: true` (this Box's key isn't on the new Host yet). The host key must be the recorded one for the address, or, for an address with none, the `host_key` fingerprint the user confirmed after `host.scan_key`. Without either it's `44`; a different key is `43`, and no login is tried. A failed step is the error: its own code (`40`-`48`, `30`-`35`), the message "esx-02 wasn't added: ... - nothing was saved", and `data.step` and `data.steps`.
+3. For a typed password, the Vault item (`vault.create_item`'s rules: `60` if the name is taken, `62` if the vault refuses, `64`/`65` for a `save_to` that isn't there or is read-only). The password then leaves roster's memory.
+4. The Host, written into `roster.yml` with `reviewed: true`. If this fails in any way (an edit that wouldn't load, a full disk, an unwritable `.git/roster/`), the Vault item from step 3 is deleted again: the error says "the vault item 'esx-02 ssh' was taken back out" and has `data.undone`, or, if even that fails, `data.left` with the item to delete by hand.
+5. A host key confirmed with `host_key` is recorded in `~/.ssh/roster_known_hosts`, so Sessions and later test logins find it. The Host is already written by now, so a failure here doesn't undo the add: it succeeds with the failure in `warnings` (a list of sentences, empty when all went well).
+
+The typed password is never in a response, an error, stderr, `roster.yml` or the Pending change; only the item's name is. A Host **without** a Login (no `auth`, no `password`, and none inherited) is added `reviewed: false` with no network at all, as `discover` adds Hosts; `host.review` (or `reviewed: true` by hand) lets it be opened.
+
+## The Live Inventory: Hosts and groups, and outside edits
+
+Removing, renaming and moving Hosts and adding, renaming and deleting groups (ticket 28, decision Q45). Each is a text edit of `roster.yml` like `host.update`: only the entry's own lines change (from its key's line through its value's last line, comments on those lines included), every other byte stays, and the result must load to exactly what was asked, with nothing else changed (`74` otherwise, nothing written). Each is a Pending change with the backup in `.git/roster/`. A `roster.yml` that doesn't load right now refuses them with `1` and its line. A bad name is `80`, an unknown Host `2`.
+
+| Method | Params | Result |
+|---|---|---|
+| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays |
+| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is taken |
+| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host. `101` no such group, `103` if it would still come out different |
+| `group.new` | `{name, title?}` | `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken |
+| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken |
+| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) |
+| `inventory.reload` | none | `{changed, host_count, error}`: `:source` for `roster.yml`, read again now |
+| `inventory.watch` | `{auto}` | `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's `auto_reload`) applies them |
+
+**Reloading is Neovim-style (decision Q58).** An edit made outside the app (in vim, a `git pull` in a terminal) isn't applied by itself unless the app asked for it with `inventory.watch {auto: true}`. `serve` looks at `roster.yml` every 0.2 s (its size, time and inode, so an editor that saves by renaming a new file over it counts too); a change that has settled and differs from what `serve` last loaded (its own writes don't count) is sent as a JSON-RPC notification, a message with no `id`:
+
+```json
+{"jsonrpc": "2.0", "method": "inventory.changed", "params": {"applied": true, "error": null}}
+```
+
+With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save. Without, `applied` is `false` and the edit waits for `inventory.reload` (`:source`); it's reported once. **A file that doesn't load keeps the last good Inventory**: `hosts.list` keeps answering with it, plus `error: {message, path, line?, fix}` (catalog row 1), and so do the notification and `inventory.reload`. It recovers by itself once the file loads again. `hosts.list`'s `error` is `null` while the file loads.
+
+## Vault: the lock screen
+
+`serve` starts locked, and only `vault.unlock` unlocks it. At startup it drops any `BW_PASSWORD` and `BW_SESSION` it inherited, and providers stop unlocking by themselves: no bw-session file, no `BW_PASSWORD`, no prompt. The master password goes to the provider in an environment variable, never on a command line. The session key stays in `serve`'s memory and is never written to the bw-session file. Neither ever appears in a response or on stderr.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.status` | none | `{provider, status, message?, sign_in?, save_to?, providers: [{provider, status, message?, sign_in?}, ...]}` |
+| `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
+| `vault.lock` | none | `{locked: [names]}` |
+
+- `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (`bw` or `kp`). If none does, `provider` is `null` and `status` is `unsupported`.
+- `status` is one of:
+  - `locked`
+  - `unlocked`
+  - `not-logged-in`: the CLI isn't logged in on this box (KeePassXC: no database set in `providers: kp:` or init.lua's `vault.kp`, or the file isn't there)
+  - `missing-cli`: the CLI isn't installed
+  - `unsupported`: no master password, e.g. `env` or `prompt`
+
+  For `not-logged-in` and `missing-cli`, `message` says what to run or install. For `not-logged-in`, a provider the app can sign in (`bw`) also has `sign_in: {methods: ["password", "apikey", "sso"], server}`, where `server` is what `bw config server` is set to (`null`: bitwarden.com). See `vault.login` below.
+- `save_to` (when `provider` can save): where "Save to vault" goes by default, as set and not looked up (no vault call): `{setting, from}`, `from` being `init.lua`, `roster.yml` or `default` (the personal vault).
+- `vault.unlock` unlocks `provider`, or by default the one `vault.status` names. For KeePassXC that's one `keepassxc-cli ls` with the master password (and the key file, if set) to check it; `serve` then holds the password in memory, since `keepassxc-cli` has no session.
+- `vault.lock` forgets every cached secret, session key, held master password and askpass token, then runs the provider's own lock (`bw lock`; KeePassXC has nothing to run). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
+
+| Code | Meaning |
+|---|---|
+| `10` | Wrong master password: `Bitwarden unlock failed (wrong master password?)`, `KeePassXC unlock failed (wrong master password or key file?)` |
+| `11` | The vault CLI isn't logged in on this box. The message says what to run, e.g. ``Bitwarden CLI isn't logged in on this box - run `bw login` once``. For KeePassXC: no database set, the database or the key file isn't there (`KeePassXC database /home/you/roster.kdbx isn't there - ...`) |
+| `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) ``, `` `keepassxc-cli` is not installed on this box (...) `` |
+| `13` | The provider has no master password, or no Host Login uses one |
+| `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first`, `KeePassXC database is locked - unlock it first` |
+
+## This Box's settings: `vault.configure`
+
+The app sends what its `init.lua` says about the vault at start, before `vault.status`, and again after every `:source` ([docs/app/config.md](app/config.md#the-vault)). These are this Box's own settings, and they win over `roster.yml`'s `providers:`, which are the team's.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names]}` |
+
+- Each call replaces the last one. A setting it leaves out (or `{}`) goes back to `roster.yml`'s. `serve` keeps them across `roster.yml` reloads.
+- Paths and choices only, never a secret: a key that isn't listed here is refused (`-32602`), and so is a path that isn't absolute or `~/…`. A path is on the Box `roster serve` runs on (inside WSL for a WSL Backend).
+- `save_to` is where "Save to vault" goes by default on this Box (ticket 35), the same shape as `roster.yml`'s: `"personal"` goes to every provider, a collection to Bitwarden, a group to KeePassXC.
+- `kp.database` and `kp.key_file` are KeePassXC's (ticket 41). When one changes, the master password `serve` held for the old database is forgotten, along with every cached value: `locked` names the providers that were unlocked and aren't now, so the app shows its lock screen again. A database that isn't there is `vault.status`'s `not-logged-in`, and the message names `vault.kp.database in init.lua`.
+
+## Signing in: `vault.login`
+
+A new Box's vault CLI isn't logged in (`vault.status`: `not-logged-in`). `vault.login` signs it in from the app, a step at a time, and leaves the vault unlocked. [`docs/app/dev/vault-auth.md`](app/dev/vault-auth.md) has the research: which methods each CLI can do, and why it works this way.
+
+| Params | Result |
+|---|---|
+| `{action: "start", method: "password", email, password, server?, provider?}` | the first step |
+| `{action: "start", method: "apikey", client_id, client_secret, server?}` | `master_password` |
+| `{action: "start", method: "sso", identifier?, server?}` | `sso` |
+| `{action: "answer", login, ...the step's answer}` | the next step |
+| `{action: "cancel"}` | `{cancelled: true \| false}` |
+
+`action` defaults to `start`. `server` is `cloud` (bitwarden.com), `eu` (`https://vault.bitwarden.eu`), or a self-hosted `https://` URL. Leave it out to keep what `bw config server` says; roster only runs `bw config server` when that changes. A `start` ends any sign-in in progress, and so do `cancel`, `vault.lock`, and 10 minutes without an answer. Every result has `step` and `login`, the sign-in's id, which `answer` sends back:
+
+| `step` | Also has | Answer with |
+|---|---|---|
+| `two_factor_method` | `methods: [{index, id, kind, name}]` in bw's order. `kind` is `authenticator`, `email`, `yubikey` or `other`; `id` is bw's method number (0, 1, 3). FIDO2 and Duo never appear: the CLI can't do them | `{method: index}` |
+| `two_factor_code` | `method` (as above, or `null` when the account has one method and bw picked it), `sent: true` when bw has just emailed the code | `{code}` |
+| `new_device_code` | `email`: Bitwarden emailed a one-time code because this Box is new | `{code}` |
+| `sso` | `url` to open in a browser (roster opens it on the Box too: `wslview`, `explorer.exe` on WSL, else `xdg-open`), `expires_in` seconds (5 minutes) | `{}`: waits up to 20 s for the browser, then answers `sso` again (with the time left) or the next step |
+| `master_password` | after an API key or SSO, which only log in: the vault still needs the master password | `{password}` |
+| `done` | `provider`, `status: "unlocked"` | |
+
+How it works, and what never happens to a secret:
+- `bw login` can't take a new-device code from a flag, and it's one-shot. So the password and SSO flows run `bw login` on a PTY and type at bw's own prompts. The bw process lives between calls.
+- The master password goes to bw in an environment variable (`--passwordenv`). The API key goes in `BW_CLIENTID` and `BW_CLIENTSECRET`. The email and every code are typed at bw's prompts. None of them is ever in a command line (`--code` and a positional password are never used), and none ever appears in a response or on stderr. An error quotes bw's own words with every value the person typed cut out.
+- A wrong code ends the bw process. roster holds the master password in memory for the sign-in's life, so it runs bw again itself and answers code `50`, with `data.step` set to the step to show next. The person types only a new code. For Email and new-device codes, that sends a fresh one, and the message says so.
+- A failure with `data.step` (`50`, and `10` at `master_password`) keeps the sign-in going: show that step again. Any other failure ends it.
+
+| Code | Meaning |
+|---|---|
+| `10` | The email or master password wasn't accepted: "Bitwarden didn't accept that email and master password (on bitwarden.com)". At the `master_password` step, the usual unlock message, with `data.step` |
+| `12` | `bw` isn't installed |
+| `13` | The provider has no sign-in roster can drive. For `op`: "1Password signs in through its desktop app, not here: turn on ... "Integrate with 1Password CLI" ..., or set OP_SERVICE_ACCOUNT_TOKEN for a service account" |
+| `50` | The two-step or new-device code was wrong or expired (the server doesn't tell those apart). `data.step` and `data.login`: carry on there |
+| `51` | The CLI can't do the account's two-step method, which happens when FIDO2 and Duo are its only methods: "... sign in with an API key instead, or add an authenticator app, email or YubiKey OTP as a second method in the web vault". Also SSO for accounts with trusted-device or passkey (PRF) decryption, in bw's words |
+| `52` | The server refused: too many attempts. Wait a few minutes |
+| `53` | The server didn't answer (DNS, refused, TLS, no answer in 40 s): "can't reach the Bitwarden server vault.example.com (...)" |
+| `54` | The CLI is already logged in on this box, so unlock instead. To switch account, run `bw logout` first |
+| `55` | No sign-in in progress: finished, cancelled, replaced by a newer `start`, or 10 minutes without an answer |
+| `56` | SSO failed in the browser, or wasn't finished within 5 minutes |
+| `57` | `server` isn't `cloud`, `eu` or an `http(s)://` URL |
+| `58` | The API key wasn't accepted, or it's an organization key (the CLI takes only personal ones) |
+| `59` | The sign-in failed some other way; the message has bw's words |
+
+`ROSTER_SSO_TIMEOUT` (seconds, given to `serve`) can shorten the 5-minute SSO wait, for tests, and `ROSTER_NO_BROWSER=1` stops roster from opening the link on the Box.
+
+## Saving to the vault: `vault.create_item`
+
+"Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. Decision Q43's order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.create_item` | `{name, password, username?, uri?, provider?, save_to?}` | `{provider, id, name, target}` |
+| `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
+| `vault.targets` | `{provider?}` | `{provider, targets: [{id, kind, label, organization?, collection?, save_to}], default, from, problem}` |
+
+- `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
+- Only providers whose `can_write` is `true` in `vault.status` (`bw` and `kp`) can save. Every other provider answers `61`.
+- **Where it goes** (ticket 35): `save_to` is `"personal"`, `{organization, collection}` (Bitwarden; names or ids) or `{group}` (KeePassXC); any other shape is `-32602`. Left out, it's the setting: `init.lua`'s `vault.save_to` (through `vault.configure`), else `roster.yml`'s `providers: NAME: save_to:` (KeePassXC: also its `group:`), else the personal vault. `target` in the result is where it went: `{id, kind, label, organization?, collection?}`.
+- **Bitwarden collections:** roster looks the names up with `bw list organizations` (only ones you're confirmed in) and `bw list collections`, and puts `organizationId` and `collectionIds` in the item, which `bw create item` (2026.9.1) creates right there: no `bw move` or `bw share`. A name that matches nothing, or several, is `64`, and the message names the setting (`providers: bw: save_to: organization: in roster.yml`, `vault.save_to.collection in init.lua`, `save_to.collection` for a choice). bw's CLI doesn't say which collections you may only read, so roster checks the new item: one that came back outside the collection was refused it, and is deleted again (`65`; if even that fails, the message says to delete it by hand). That collection is then left out of `vault.targets` until the vault is locked.
+- `vault.targets` lists where the vault can save, in the provider's order: Bitwarden's personal vault and every collection of the organizations you're confirmed in; KeePassXC's top level and every group outside the recycle bin. `default` is the id of the setting's target and `from` where it's set (`init.lua`, `roster.yml`, or `null` for the built-in personal vault). A setting that doesn't resolve doesn't fail the list: `default` is `null` and `problem` is `{code, message, fix}` (64 or 65). It needs the vault unlocked (`14`).
+- **KeePassXC:** the entry goes into the `group` set under `providers: kp:` (default: the top level), with the username and the URL field. Its title must not be any entry's title already, in any group outside the recycle bin (`60`), because `kp:TITLE` looks titles up across groups; a title with `/` is `62`. `keepassxc-cli add -p` reads the master password and then the entry's password from its stdin. The `id` is the entry's path (`Hosts/esx-02 ssh`). `vault.undo_create` runs `keepassxc-cli rm`, which moves it to the recycle bin (or deletes it, in a database without one). A timed-out `add` is checked the same way as Bitwarden's.
+- The password goes to `bw create item` as base64 JSON on its stdin (what `bw encode` makes; bw 2026.9.1 reads stdin when no argument is given). It is never on a command line, and never in a response, an error or stderr. bw prints the new item back, password included, and roster keeps only its id.
+- If `bw create item` doesn't answer in time, it's stopped, and roster syncs and looks the name up: Bitwarden may have saved it anyway. An item with that exact name (there was none just before) counts as made, so it's returned, can be undone, and `host.add` goes on with it; no such item is `62` saying nothing was saved; and if even the lookup fails, `62` says roster couldn't check and names the item to look for. It never says "nothing was saved" while the item is there.
+- `vault.undo_create` deletes only items this `serve` created and hasn't undone yet (`63` for any other id), so it can't be pointed at an existing item. Bitwarden moves the item to its trash (`bw delete item ID`, not `--permanent`), where it can be restored for 30 days.
+- While the vault is locked, both answer `14`.
+
+| Code | Meaning |
+|---|---|
+| `60` | An item named exactly that already exists. `data.matches`: `[{name, revised, uris}]` |
+| `61` | The provider can only read Logins: "provider 'op' can't save to the vault - ..." |
+| `62` | The vault CLI refused the create or delete (no rights to the collection, an organization policy, the server). The message has bw's words with any value cut out |
+| `63` | `vault.undo_create`: this `serve` didn't create that item, or it's already undone |
+| `64` | `save_to` names an organization, collection or group that isn't there (or a shape the provider doesn't have); the message names the setting to fix |
+| `65` | `save_to` names a collection you may only read; nothing was left behind |

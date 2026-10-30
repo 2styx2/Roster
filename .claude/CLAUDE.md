@@ -4,7 +4,7 @@ One repo, two halves: the Python CLI at the root (`src/roster/`, `tests/`) and t
 
 ## The CLI
 
-- Module map: README "Development" (one line per file in `src/roster/`). Open only the module it points you to.
+- Module map: `docs/development.md` (one line per file in `src/roster/`). Open only the module it points you to.
 - How hosts, logins and vault items are named and added: `docs/adding-hosts.md`; setting up a box: `docs/new-box.md`.
 - The live inventory is the infra repo's `roster.yml` (`~/infra`), not this repo; `examples/` holds the template.
 - Vault: `roster bw <bw args>` runs the Bitwarden CLI with this box's session file, e.g. `roster bw list items --search proxmox`.
