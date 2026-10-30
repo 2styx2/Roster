@@ -126,7 +126,7 @@ describe("the worst case", () => {
     expect(within(picker).getByRole("status")).toHaveTextContent(/isn't reviewed yet/);
     expect(cutWithoutTooltip()).toEqual([]);
     await user.keyboard("{Escape}");
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     expect(within(panel).getAllByTitle(WORST_BINDINGS.source).length).toBeGreaterThan(0);
     await user.keyboard(`${LEADER}:`);

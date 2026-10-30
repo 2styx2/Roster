@@ -233,7 +233,7 @@ describe("Tab in the Picker and the finders", () => {
 describe("The Key bindings panel", () => {
   it("lists Tab and Shift+Tab for the command line and the Picker, with their source and option", async () => {
     const user = await ready({ bindings: { picker: { "Ctrl+j": "picker.next" } } });
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     const rows = within(panel).getAllByRole("row");
     // A built-in binding's source cell is empty; the Config's says init.lua.

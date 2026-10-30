@@ -241,8 +241,31 @@ pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, Config
             &api_lines,
         ));
     }
+    config.set = set_paths(&value);
     config.lines = lines(&config, &source, &api_lines);
     Ok(config)
+}
+
+/// Every value's path in what the file returned (with its `roster.*` calls), sorted: a table is
+/// followed down, anything else (a list included) is one value.
+fn set_paths(value: &serde_json::Value) -> Vec<String> {
+    fn walk(v: &serde_json::Value, path: &mut Vec<String>, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(map) if !map.is_empty() => {
+                for (k, child) in map {
+                    path.push(k.clone());
+                    walk(child, path, out);
+                    path.pop();
+                }
+            }
+            _ if !path.is_empty() => out.push(path.join(".")),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(value, &mut Vec::new(), &mut out);
+    out.sort();
+    out
 }
 
 /// `terminal.size: message`, or just the message when there's no path.
@@ -404,7 +427,8 @@ fn validate(c: &Config) -> Result<(), Invalid> {
     Ok(())
 }
 
-/// Where each key binding, Theme and Folder was set, for the frontend's warnings.
+/// Where each key binding, Theme, Folder and other value was set, for the frontend's warnings
+/// and `:help options`.
 fn lines(c: &Config, source: &str, api: &[(Vec<String>, Location)]) -> std::collections::BTreeMap<String, Location> {
     let mut out = std::collections::BTreeMap::new();
     let mut put = |path: Vec<String>, found: Option<u32>| {
@@ -428,6 +452,16 @@ fn lines(c: &Config, source: &str, api: &[(Vec<String>, Location)]) -> std::coll
     }
     for id in c.themes.keys() {
         let path = vec!["themes".to_string(), id.clone()];
+        let found = locate::line_of(source, &path);
+        put(path, found);
+    }
+    // Every other value the file set (`:help options` names its line, ticket 37).
+    for p in &c.set {
+        // Key bindings, Themes and Folders have their own lines, by name (below and above).
+        if p == "folders" || p.starts_with("keys.") || p.starts_with("themes.") {
+            continue;
+        }
+        let path: Vec<String> = p.split('.').map(str::to_string).collect();
         let found = locate::line_of(source, &path);
         put(path, found);
     }

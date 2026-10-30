@@ -13,6 +13,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/architecture.md](../docs/app/architecture.md) | The processes, the `roster serve` API, how Sessions connect, and the backends |
 | [docs/app/security.md](../docs/app/security.md) | Where secrets go and where they never go, and how locking works |
 | [docs/app/keyboard.md](../docs/app/keyboard.md) | The leader key, the two focus modes, and the default bindings |
+| [docs/app/help.md](../docs/app/help.md) | `:help` inside the app: topics, keys, how the guides stay in sync with these docs |
 | [docs/app/config.md](../docs/app/config.md) | The Config (`init.lua`): where it lives, every option, the sandbox |
 | [docs/app/themes.md](../docs/app/themes.md) | The bundled Themes and their tokens |
 | [docs/app/roadmap.md](../docs/app/roadmap.md) | The iterations and what "done" means for each |
@@ -94,7 +95,11 @@ examples/init.lua     every option with its default, commented (a Rust test load
 app/src/registry.ts   Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0006; registries.ts = the app's set
 app/src/commands/     table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)
 app/src/keymap.ts     keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)
-app/src/keyboard/     mode.ts (Terminal mode / App mode machine, key sequences), bindings.ts + BindingsPanel (␣ ?)
+app/src/keyboard/     mode.ts (Terminal mode / App mode machine, key sequences), bindings.ts + BindingsPanel (␣ K)
+app/src/help/         `:help` (ticket 37, docs/app/help.md): pages.ts (the help page registry, the pages generated from the
+                      registries, topics), guides.ts (docs/app's Markdown bundled at build time), markdown.ts (that Markdown
+                      → blocks, doc.ts), options.ts (config.md's option tables + each value and where it came from),
+                      command.ts (`:help`, the `help` finder, HelpView), HelpPanel.tsx
 app/src/sidebar/      Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
 app/src/inventory/    the Live Inventory (ticket 28): commands.ts (`:host add|remove|rename|move`, `:group new|rename|delete`),
                       ConfirmPanel.tsx (removing a Host asks first)

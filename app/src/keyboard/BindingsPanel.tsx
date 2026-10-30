@@ -1,4 +1,4 @@
-// The Key bindings panel (`␣ ?`): the resolved keymap, grouped by area, with where each binding
+// The Key bindings panel (`␣ K`; `␣ ?` is help): the resolved keymap, grouped by area, with where each binding
 // comes from (builtin, init.lua, or a Plugin), and a filter. Esc in the filter closes it.
 import { useMemo, useState } from "react";
 import { BUILTIN } from "../registry";

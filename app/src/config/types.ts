@@ -102,6 +102,9 @@ export interface Config {
   autoReload: boolean;
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
+  /** The options the file set, as Lua paths down to each value (`terminal.size`), sorted:
+   * `:help options` says these came from init.lua (ticket 37). */
+  set: string[];
 }
 
 /** What `:config` did (ticket 32). */

@@ -293,7 +293,7 @@ describe("The Key bindings panel", () => {
 
   it("lists the resolved keymap with where each binding comes from, and filters", async () => {
     const user = await ready({ bindings: { leader: { t: "next" } } });
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const next = rowOf("Next Session");
     expect(next.map((r) => r.textContent)).toEqual([
       expect.stringMatching(/Next Session.*Leader.*\]$/),
@@ -309,17 +309,17 @@ describe("The Key bindings panel", () => {
 
   it("shows a changed Leader as coming from the Config", async () => {
     const user = await ready({ options: { leader: "Ctrl+b" } });
-    await user.keyboard("{Control>}b{/Control}?");
+    await user.keyboard("{Control>}b{/Control}K");
     expect(rowOf("Leader")[0]).toHaveTextContent(/Ctrl\+b.*init\.lua/);
   });
 
-  it("closes with Esc or ␣ ? again, and opens with the mouse", async () => {
+  it("closes with Esc or ␣ K again, and opens with the mouse", async () => {
     const user = await ready();
-    await user.keyboard(`${LEADER}?{Escape}`);
+    await user.keyboard(`${LEADER}K{Escape}`);
     expect(screen.queryByRole("complementary", { name: "Key bindings" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Keys" }));
     expect(panel()).toBeInTheDocument();
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     expect(screen.queryByRole("complementary", { name: "Key bindings" })).toBeNull();
   });
 });
@@ -358,7 +358,7 @@ describe("Registries (ADR 0006)", () => {
     expect(await within(output()).findByText(new RegExp(`Connected to ${h0}`))).toBeInTheDocument();
     await user.keyboard(`${LEADER}:home{Enter}`);
     expect(within(sessionList()).getAllByRole("treeitem", { name: new RegExp(`^${h0}`) })).toHaveLength(2);
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/Leader\s*h.*init\.lua/);
   });

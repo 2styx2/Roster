@@ -112,7 +112,7 @@ describe("Saving init.lua applies it live", () => {
 
   it("shows init.lua's bindings in the Key bindings panel as coming from init.lua", async () => {
     const { user } = await ready(configWith({ keys: [{ context: "leader", keys: "t", action: "next" }] }));
-    await user.keyboard(`${LEADER}?`);
+    await user.keyboard(`${LEADER}K`);
     const panel = screen.getByRole("complementary", { name: "Key bindings" });
     const next = within(panel)
       .getAllByRole("row")

@@ -3,6 +3,7 @@
 import { builtinCommandRegistry, type CommandRegistry } from "./commands/table";
 import { builtinErrorRegistry, type ErrorRegistry } from "./errors/catalog";
 import { finderCommand } from "./finder/command";
+import { builtinHelpRegistry, type HelpRegistry } from "./help/pages";
 import { folderRegistry, type FolderRegistry } from "./folders/folders";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { reloaderRegistry, sourceCommands, type ReloaderRegistry } from "./config/source";
@@ -26,6 +27,8 @@ export interface Registries {
   folders: FolderRegistry;
   /** What `:source` reloads (decision Q58): init.lua; ticket 28 adds folders.yml and roster.yml. */
   reloaders: ReloaderRegistry;
+  /** `:help`'s pages (ticket 37): generated from the registries above, plus the guides. */
+  help: HelpRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -43,5 +46,6 @@ export function builtinRegistries(): Registries {
     finders,
     folders: folderRegistry(),
     reloaders,
+    help: builtinHelpRegistry(),
   };
 }
