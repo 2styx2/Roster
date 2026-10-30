@@ -8,3 +8,7 @@ description = "roster-desk's Tauri-free core: backend detection, the roster serv
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Polling the PTY master so a Session's reader can stop (session.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

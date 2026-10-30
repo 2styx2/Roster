@@ -201,6 +201,9 @@ const READ_CHUNK: usize = 16 * 1024;
 /// After the process exits, how long to wait for the PTY's last output before reporting Exit
 /// anyway (a background child can hold the PTY open).
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+/// How often a reader that's waiting for output checks whether it should stop (Unix).
+#[cfg(unix)]
+const STOP_POLL: Duration = Duration::from_millis(100);
 
 struct Running {
     /// Dropped (closing the PTY) once the process ends or the Session is closed.
@@ -217,6 +220,31 @@ impl Running {
     }
 }
 
+/// The one way into a Session's sink, keeping its contract: output in order, then exactly one
+/// Exit, and nothing after it. The reader and the waiter both go through here, under one lock,
+/// so output a background process writes after the Exit is dropped.
+struct Gate<S> {
+    exited: Mutex<bool>,
+    sink: S,
+}
+
+impl<S: Fn(SessionEvent)> Gate<S> {
+    fn output(&self, chunk: Vec<u8>) {
+        let exited = self.exited.lock().unwrap();
+        if !*exited {
+            (self.sink)(SessionEvent::Output(chunk));
+        }
+    }
+
+    fn exit(&self, exit: Exit) {
+        let mut exited = self.exited.lock().unwrap();
+        if !*exited {
+            *exited = true;
+            (self.sink)(SessionEvent::Exit(exit));
+        }
+    }
+}
+
 /// Every running Session. Cheap to share: clone the `Arc` it lives in.
 #[derive(Default)]
 pub struct SessionManager {
@@ -230,7 +258,9 @@ impl SessionManager {
     }
 
     /// Starts `cmd` in a new PTY of `size`. `sink` gets the output as it comes, then one Exit,
-    /// from the Session's own threads.
+    /// from the Session's own threads. Both threads end once the Exit is out (the reader within
+    /// [`STOP_POLL`] on Unix, even if a background process still holds the PTY; on Windows,
+    /// closing the pseudo console ends it).
     pub fn open(
         &self,
         cmd: &SessionCommand,
@@ -252,7 +282,7 @@ impl SessionManager {
             .spawn_command(builder)
             .map_err(|e| SessionError::Io(cmd.redact(&e.to_string())))?;
         drop(pair.slave);
-        let reader = pair.master.try_clone_reader().map_err(io)?;
+        let reader = Reader::new(pair.master.as_ref())?;
         let writer = pair.master.take_writer().map_err(io)?;
         let running = Arc::new(Running {
             killer: Mutex::new(child.clone_killer()),
@@ -263,13 +293,18 @@ impl SessionManager {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         self.sessions.lock().unwrap().insert(id, Arc::clone(&running));
 
-        let sink = Arc::new(sink);
+        let gate = Arc::new(Gate {
+            exited: Mutex::new(false),
+            sink,
+        });
+        let stop = Arc::new(AtomicBool::new(false));
         let (drained_tx, drained) = mpsc::channel::<()>();
-        let out = Arc::clone(&sink);
+        let out = Arc::clone(&gate);
+        let reader_stop = Arc::clone(&stop);
         std::thread::Builder::new()
             .name(format!("session-{id}-read"))
             .spawn(move || {
-                pump(reader, |chunk| out(SessionEvent::Output(chunk)));
+                reader.pump(&reader_stop, |chunk| out.output(chunk));
                 let _ = drained_tx.send(());
             })
             .map_err(io)?;
@@ -282,15 +317,16 @@ impl SessionManager {
                 // On Windows the reader only ends once the pseudo console is closed.
                 running.release_pty();
                 let _ = drained.recv_timeout(DRAIN_TIMEOUT);
+                stop.store(true, Ordering::SeqCst);
                 sessions.lock().unwrap().remove(&id);
                 let code = match &status {
                     Ok(s) if s.signal().is_none() => Some(s.exit_code()),
                     _ => None,
                 };
-                sink(SessionEvent::Exit(Exit {
+                gate.exit(Exit {
                     code,
                     closed: running.closed.load(Ordering::SeqCst),
-                }));
+                });
             })
             .map_err(io)?;
         Ok(id)
@@ -353,15 +389,82 @@ impl SessionManager {
     }
 }
 
-/// Copies `reader` to `emit` in chunks until EOF or an error (EIO once the PTY closes on Linux).
-fn pump(mut reader: Box<dyn Read + Send>, emit: impl Fn(Vec<u8>)) {
-    let mut buf = vec![0u8; READ_CHUNK];
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => return,
-            Ok(n) => emit(buf[..n].to_vec()),
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => return,
+/// A Session's output side of the PTY.
+#[cfg(unix)]
+struct Reader(std::fs::File);
+
+#[cfg(unix)]
+impl Reader {
+    /// Its own descriptor for the master, so it can be polled (and outlive the master's drop).
+    fn new(master: &(dyn MasterPty + Send)) -> Result<Self, SessionError> {
+        use std::os::fd::FromRawFd;
+        let fd = master
+            .as_raw_fd()
+            .ok_or_else(|| SessionError::Io("the PTY has no descriptor".into()))?;
+        // SAFETY: dup returns a new descriptor (or -1) that nothing else owns.
+        let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+        if dup < 0 {
+            return Err(io(std::io::Error::last_os_error()));
+        }
+        // SAFETY: `dup` is a valid descriptor owned only by this File.
+        Ok(Reader(unsafe { std::fs::File::from_raw_fd(dup) }))
+    }
+
+    /// Copies the output to `emit` in chunks until EOF, an error (EIO once the PTY closes), or
+    /// `stop` is set: it waits for output at most [`STOP_POLL`] at a time, so a background
+    /// process holding the PTY open can't keep it running.
+    fn pump(mut self, stop: &AtomicBool, emit: impl Fn(Vec<u8>)) {
+        use std::os::fd::AsRawFd;
+        let mut buf = vec![0u8; READ_CHUNK];
+        while !stop.load(Ordering::SeqCst) {
+            let mut fds = libc::pollfd {
+                fd: self.0.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: one valid pollfd, for the length given.
+            let ready = unsafe { libc::poll(&mut fds, 1, STOP_POLL.as_millis() as libc::c_int) };
+            if ready < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return;
+            }
+            if ready == 0 {
+                continue;
+            }
+            match self.0.read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => emit(buf[..n].to_vec()),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return,
+            }
+        }
+    }
+}
+
+/// A Session's output side of the PTY. ConPTY's pipe can't be polled, but it ends once the
+/// pseudo console is closed, which the waiter does when the process exits.
+#[cfg(not(unix))]
+struct Reader(Box<dyn Read + Send>);
+
+#[cfg(not(unix))]
+impl Reader {
+    fn new(master: &(dyn MasterPty + Send)) -> Result<Self, SessionError> {
+        master.try_clone_reader().map(Reader).map_err(io)
+    }
+
+    /// Copies the output to `emit` in chunks until EOF or an error. `stop` isn't needed: the
+    /// read fails once the pseudo console is closed.
+    fn pump(mut self, _stop: &AtomicBool, emit: impl Fn(Vec<u8>)) {
+        let mut buf = vec![0u8; READ_CHUNK];
+        loop {
+            match self.0.read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => emit(buf[..n].to_vec()),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return,
+            }
         }
     }
 }
