@@ -57,6 +57,7 @@ def parse_config(text, path):
     except yaml.YAMLError as e:
         die(f"{path} is not valid YAML:\n{e}")
     defaults = {**HOST_DEFAULTS, **(raw.get("defaults") or {})}
+    names = web_login_names(raw)
     hosts, groups = {}, {}
     for gname, group in (raw.get("groups") or {}).items():
         group = group or {}
@@ -82,7 +83,7 @@ def parse_config(text, path):
             # user/port/auth stay as the resolved SSH login, so code that predates ssh: blocks keeps working
             m["user"], m["port"], m["auth"] = m["ssh"]["user"], m["ssh"]["port"], m["ssh"]["auth"]
             m["login"] = {k: first(layers, k) for k in LOGIN}    # default login for the host's services
-            m["services"], m["web"] = resolve_services(hname, m, layers)
+            m["services"], m["web"], m["problems"] = resolve_services(hname, m, layers, names)
             m["enroll"] = bool(m["enroll"])
             m["reviewed"] = bool(m["reviewed"])
             for k in TEXT_FIELDS:
@@ -117,9 +118,30 @@ def as_user(v):
     return None if v is None else str(v).strip()
 
 
-def check_port(where, v):
+class BadService(Exception):
+    """One service entry roster can't use: plain words and the fix. The Host still loads; the service doesn't."""
+
+    def __init__(self, message, fix):
+        super().__init__(message)
+        self.message, self.fix = message, fix
+
+
+def port_number(v):
+    """V as a port number, or None if it isn't one."""
     if isinstance(v, bool) or not str(v).strip().isdigit() or not 1 <= int(v) <= 65535:
+        return None
+    return int(v)
+
+
+def check_port(where, v):
+    if port_number(v) is None:
         die(f"{where}: bad port {v!r} (use a number from 1 to 65535)")
+    return int(v)
+
+
+def service_port(v):
+    if port_number(v) is None:
+        raise BadService(f"bad port {v!r}", "use a number from 1 to 65535")
     return int(v)
 
 
@@ -139,56 +161,72 @@ def resolve_ssh(hname, layers):
             "user": as_user(first(flat, "user")), "auth": as_auth(first(flat, "auth"))}
 
 
-def service_entry(where, v):
+def service_entry(v):
     if isinstance(v, dict):
         extra = set(map(str, v)) - set(SERVICE_KEYS)
         if extra:
-            die(f"{where}: unknown setting {', '.join(sorted(extra))} (allowed: {', '.join(SERVICE_KEYS)})")
+            raise BadService(f"unknown setting {', '.join(sorted(extra))}",
+                             f"use only {', '.join(SERVICE_KEYS)} (check the spelling)")
         return dict(v)
     if isinstance(v, str) and "://" in v:
         return {"url": v}
     return {"port": v}                                    # short form  postgres: 5432
 
 
-def resolve_services(hname, m, layers):
-    """Service entries merge per name, field by field: defaults <- group <- host. Returns (services, web URL)."""
+def resolve_services(hname, m, layers, names=None):
+    """Service entries merge per name, field by field: defaults <- group <- host. Returns (services, web URL,
+    problems): an entry roster can't use is left out of services and listed in problems as
+    {service, message, fix} instead, so one bad entry doesn't stop the whole Inventory from loading."""
     merged = {"web": {"url": str(m["web"])}} if m.get("web") else {}   # old style  web: "https://..."
+    bad = {}
     for layer in reversed(layers):
         svcs = layer.get("services") or {}
         if not isinstance(svcs, dict):
             die(f"host {hname!r}: services: must be a mapping of name: port or name: {{port, url, user, auth}}")
         for name, v in svcs.items():
             name = str(name)
-            if not SERVICE_RE.match(name):
-                die(f"host {hname!r}: bad service name {name!r} (use letters, digits, . _ -)")
-            merged.setdefault(name, {}).update(service_entry(f"host {hname!r} service {name!r}", v))
-    services = {name: normalize_service(f"host {hname!r} service {name!r}", name, e, m)
-                for name, e in merged.items()}
+            try:
+                if not SERVICE_RE.match(name):
+                    raise BadService(f"bad service name {name!r}", "use letters, digits, . _ - in the name")
+                merged.setdefault(name, {}).update(service_entry(v))
+            except BadService as e:
+                bad.setdefault(name, e)
+    services = {}
+    for name, e in merged.items():
+        if name in bad:
+            continue
+        try:
+            services[name] = normalize_service(name, e, m, names or {})
+        except BadService as err:
+            bad[name] = err
+    problems = [{"service": name, "message": f"service {name!r}: {e.message}", "fix": e.fix}
+                for name, e in bad.items()]
     # the web UI: an explicit web service, else the first service given a url (never a guessed one)
-    web = next((services[n]["url"] for n in ("web", *merged) if n in merged and "url" in merged[n]), None)
-    return services, web
+    web = next((services[n]["url"] for n in ("web", *merged) if n in services and "url" in merged[n]), None)
+    return services, web, problems
 
 
-def normalize_service(where, name, e, m):
+def normalize_service(name, e, m, names):
     port, url, scheme = e.get("port"), e.get("url"), e.get("scheme")
     if url:
         url = str(url).strip()
         url = url if "://" in url else "https://" + url
         u = urlparse(url)
+        good_url = "write it as http(s)://host[:port][/path]"
         try:
             url_port = u.port
         except ValueError:
-            die(f"{where}: bad url {url!r}")
+            raise BadService(f"bad url {url!r}", good_url) from None
         if u.scheme not in ("http", "https") or not u.hostname or re.search(r"\s", url):
-            die(f"{where}: bad url {url!r} (expected http(s)://host[:port][/path])")
+            raise BadService(f"bad url {url!r} (expected http(s)://host[:port][/path])", good_url)
         scheme, url_port = u.scheme, url_port or (443 if u.scheme == "https" else 80)
-        if port is not None and check_port(where, port) != url_port:
-            die(f"{where}: port {port} doesn't match url {url!r}")
+        if port is not None and service_port(port) != url_port:
+            raise BadService(f"port {port} doesn't match url {url!r}", "drop port:, or make it the url's port")
         port = url_port
     elif port is None:
-        die(f"{where}: needs a port or a url")
+        raise BadService("needs a port or a url", "add port: or url: to the service")
     else:
-        port = check_port(where, port)
+        port = service_port(port)
         scheme = scheme or ("https" if name.startswith("https") or port in HTTPS_PORTS else
                             "http" if name.startswith("http") or port in HTTP_PORTS else None)
         if scheme in ("http", "https"):
@@ -196,20 +234,54 @@ def normalize_service(where, name, e, m):
     return {"port": port, "url": url, "scheme": scheme,
             "user": as_user(e.get("user", m["login"]["user"])),
             "auth": as_auth(e["auth"] if "auth" in e else m["login"]["auth"]),
-            "verify": bool(e.get("verify", True)), "login": web_login(where, e.get("login", "basic")),
+            "verify": bool(e.get("verify", True)), "login": web_login(e.get("login", "basic"), names),
             "override": any(k in e for k in LOGIN)}       # False = inherits the host's default login
 
 
-def web_login(where, v):
-    if str(v) not in WEB_LOGINS:
-        die(f"{where}: login: {v!r} - use one of {', '.join(WEB_LOGINS)}")
-    return str(v)
+def web_login(v, names):
+    """The login type a service's `login:` means: one of WEB_LOGINS, or the team's own name for one
+    (web_login_names:)."""
+    v = names.get(str(v), str(v))
+    if v not in WEB_LOGINS:
+        raise BadService(f"login: {v!r} isn't a login type roster knows",
+                         f"set login: to one of {', '.join(WEB_LOGINS)}; if {v!r} is your own name for one of them, "
+                         f"map it in roster.yml: web_login_names: {{{v}: TYPE}}")
+    return v
+
+
+def service_problem(h, name):
+    """Why Host H's service NAME was left out of the Inventory, or None."""
+    return next((p for p in h.get("problems", ()) if p["service"] == name), None)
+
+
+def refuse_broken(h, name):
+    """Stop with the problem of Host H's service NAME, if NAME is one roster left out."""
+    p = service_problem(h, name)
+    if p:
+        die(f"{h['name']} {p['message']} (in roster.yml; fix: {p['fix']})")
+
+
+def web_login_names(raw):
+    """roster.yml's `web_login_names:`, a team's own names for roster's login types: {own name: type}."""
+    names = raw.get("web_login_names") or {}
+    if not isinstance(names, dict):
+        die("web_login_names: must be a mapping of your own name: one of " + ", ".join(WEB_LOGINS))
+    out = {}
+    for k, v in names.items():
+        k = str(k)
+        if k in WEB_LOGINS:
+            die(f"web_login_names: {k!r} is already one of roster's login types - pick another name for it")
+        if str(v) not in WEB_LOGINS:
+            die(f"web_login_names: {k!r} maps to {v!r}, which isn't a login type - use one of {', '.join(WEB_LOGINS)}")
+        out[k] = str(v)
+    return out
 
 
 def service_credentials(h, name):
     """(user, auth reference) for one of the host's services, or for "ssh"."""
     s = h["ssh"] if name == "ssh" else h["services"].get(name)
     if s is None:
+        refuse_broken(h, name)
         die(f"host {h['name']!r} has no service {name!r} (has: {', '.join(['ssh', *h['services']])})")
     return s["user"], s["auth"]
 

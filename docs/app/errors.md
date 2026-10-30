@@ -110,6 +110,7 @@ Removing, renaming and moving Hosts and groups in the Sidebar (decision Q45) goe
 | 54 | 101 | No group by that name | `roster.yml` | "no group named 'dmz' in roster.yml (groups: lab, other)" | Pick one of the groups, or `:group new` it first |
 | 55 | 102 | Deleting a group that still has Hosts, without saying where they go | `roster.yml` | "group lab still has 2 Hosts (esx, nas) - say which group they go to, or move them first" | `:group delete lab OTHER` (the app asks with the command line) |
 | 56 | 103 | A moved Host would come out different in its new group (a service or Login it inherits there) | `roster.yml` | "esx would come out different in group other (services it inherits there) - nothing was written" | Move it by hand, setting those on the Host itself |
+| 57 | none (not an error) | One service entry roster can't use: a bad port or url, an unknown setting, a `login:` type that's neither roster's nor in `web_login_names:`. The file still loads; only that service is left out, and the Host lists it in `problems` (`{service, message, fix}`) | `roster.yml` | "roster.yml loaded, but left out lab-hub2's service web: login: 'appliance' isn't a login type roster knows (roster info lab-hub2 says how to fix it)" | The fix from roster (`roster info HOST`, or the warning `roster hosts` prints); `roster web HOST SERVICE` on it stops with the same words |
 
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 

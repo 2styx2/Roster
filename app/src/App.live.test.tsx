@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { App } from "./App";
+import { App, servicesLeftOut } from "./App";
 import { FAKE_PASSWORD, fakeBackend, makeHosts, type FakeBackend } from "./backend/fake";
 import { configWith, defaultConfig } from "./config/fixture";
 import type { Config, ConfigReport } from "./config/types";
@@ -172,6 +172,16 @@ describe("outside edits to roster.yml", () => {
     expect(item("linux-1-000")).not.toBeNull();
   });
 
+  it("a service roster left out is said, and the Host stays", async () => {
+    const { backend } = await ready({ config: configWith({ autoReload: true }) });
+    await waitFor(() => expect(backend.watching()).toBe(true));
+    const problem = { service: "web", message: "service 'web': login: 'appliance' isn't a login type roster knows", fix: "set login: to one of …" };
+    const withProblem = { ...hosts, hosts: hosts.hosts.map((h) => (h.name === "linux-1-000" ? { ...h, problems: [problem] } : h)) };
+    act(() => backend.outsideEdit(withProblem));
+    await said(/roster\.yml loaded, but left out linux-1-000's service web: login: 'appliance' isn't a login type roster knows \(roster info linux-1-000 says how to fix it\)/);
+    expect(item("linux-1-000")).not.toBeNull();
+  });
+
   it("without auto_reload, a quiet hint until :source applies it", async () => {
     const { user, backend } = await ready();
     await waitFor(() => expect(backend.watching()).toBe(false));
@@ -182,6 +192,17 @@ describe("outside edits to roster.yml", () => {
     await waitFor(() => expect(item("linux-renamed")).not.toBeNull());
     expect(statusbar()).not.toHaveTextContent(/roster\.yml changed/);
     expect(message()).toHaveTextContent(/Reloaded roster\.yml/);
+  });
+});
+
+describe("services roster left out", () => {
+  const bad = (service: string) => ({ service, message: `service '${service}': bad port 0`, fix: "use a number from 1 to 65535" });
+  it("says nothing when there are none, and counts several", () => {
+    expect(servicesLeftOut(hosts)).toBeNull();
+    const list = { ...hosts, hosts: hosts.hosts.map((h, i) => (i < 5 ? { ...h, problems: [bad("api")] } : h)) };
+    expect(servicesLeftOut(list)).toBe(
+      "roster.yml loaded, but left out 5 services it can't use (linux-1-000's api, esxi-2-001's api, proxmox-3-002's api, and 2 more): roster hosts says why and how to fix them",
+    );
   });
 });
 
