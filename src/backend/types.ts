@@ -1,6 +1,7 @@
 // The ONE typed client between the UI and the Backend. Every component talks to the Backend
 // through this interface; tests and the plain-browser dev page use the fake (fake.ts), the app
-// uses the Tauri one (tauri.ts). Shapes follow roster's `roster serve` API, version 1.
+// uses the Tauri one (tauri.ts). Shapes follow roster's `roster serve` API, version 1 or newer
+// (2 adds `host.check` and the Login/askpass/network codes 30-48: `:check` needs it).
 
 /** A Host as `hosts.list` returns it (roster's own object; only the fields the UI reads). */
 export interface Host {
@@ -65,14 +66,48 @@ export class BackendStartError extends Error {
   }
 }
 
+/** A JSON-RPC error's `data` (roster README): `fix` in a sentence, plus what the code's row needs
+ * (`near`, `matches`, `path`/`line`, `provider`, `field`). Names, dates and URIs; never a secret. */
+export type CallErrorData = Record<string, unknown> & { fix?: string };
+
 /** Thrown by a call once the Backend is up: roster's error code and message (ready to show). */
 export class BackendCallError extends Error {
   readonly code: number | null;
-  constructor(message: string, code: number | null = null) {
+  readonly data: CallErrorData | null;
+  /** True when `roster serve` itself went away (exited, or stopped answering). */
+  readonly lost: boolean;
+  constructor(message: string, code: number | null = null, data: CallErrorData | null = null, lost = false) {
     super(message);
     this.name = "BackendCallError";
     this.code = code;
+    this.data = data;
+    this.lost = lost;
   }
+}
+
+/** The first `api_version` with `host.check`. */
+export const CHECK_API_VERSION = 2;
+
+/** `host.check`'s steps, in the order roster runs them. */
+export const CHECK_STEPS = ["inventory", "ssh-config", "provider", "vault-item", "dns", "tcp", "host-key", "auth"] as const;
+export type CheckStepName = (typeof CHECK_STEPS)[number];
+
+export interface CheckStep {
+  step: CheckStepName | string;
+  status: "ok" | "fail" | "skipped";
+  message: string;
+  code?: number;
+  fix?: string;
+  /** Raw text: ssh's stderr, the resolver's error. */
+  details?: string;
+  data?: Record<string, unknown>;
+}
+
+/** `host.check {host}`: every step, stopping (the rest `skipped`) at the first failure. */
+export interface HostCheck {
+  host: string;
+  ok: boolean;
+  steps: CheckStep[];
 }
 
 /** Where a vault provider stands (`vault.status`). */
@@ -137,12 +172,20 @@ export interface SessionHandle {
   close(): Promise<void>;
 }
 
-/** `session.prepare`'s error codes (roster README): the message is roster's, ready to show. */
+/** `session.prepare`'s error codes (roster README): the message is roster's, ready to show.
+ * Every code has its row in src/errors/catalog.ts (docs/errors.md). */
 export const SessionRefusal = {
+  inventory: 1,
   unknownHost: 2,
   notReviewed: 20,
   notSetUp: 21,
   noAskpass: 22,
+  noUser: 30,
+  noProvider: 31,
+  itemNotFound: 32,
+  severalItems: 33,
+  noField: 34,
+  lookupFailed: 35,
   /** A password Host's vault: CLI not logged in, not installed, or locked (the VaultError codes). */
   vaultNotLoggedIn: VaultError.notLoggedIn,
   vaultCliMissing: VaultError.cliMissing,
@@ -167,4 +210,6 @@ export interface Backend {
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
    * Session always gets a new one-time askpass token: call it again to reconnect. */
   openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
+  /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
+  checkHost(host: string): Promise<HostCheck>;
 }

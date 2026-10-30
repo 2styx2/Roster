@@ -240,3 +240,51 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 .session-error { margin: 32px auto; max-width: 640px; padding: 0 16px; }
 .session-error p { margin: 0 0 8px; }
 .session-error-message { font-family: var(--mono); color: var(--error); white-space: pre-wrap; }
+
+/* Clean connection errors (ticket 26): the Session pane's error panel and the :check panel.
+   No entrance motion: both come from keys and are seen often; buttons get press feedback only. */
+.session-error.overlay {
+  position: absolute; inset: auto 16px 16px 16px; margin: 0 auto; max-width: 680px;
+}
+.pane { position: relative; }
+.problem, .check-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.problem { padding: 14px 16px; border-left: 3px solid var(--error); }
+.problem h2, .check-panel h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.problem-message { margin: 0 0 10px; color: var(--text); }
+.problem-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 10px; }
+.problem-facts dt { color: var(--muted); }
+.problem-facts dd { margin: 0; overflow-wrap: anywhere; }
+.problem-facts dd code { display: block; }
+.problem code { font-family: var(--mono); font-size: 12px; }
+.problem-extra { margin: 0 0 10px; }
+.problem-extra ul { margin: 4px 0 0; padding-left: 18px; }
+.problem-matches { border-collapse: collapse; width: 100%; font-size: 12px; }
+.problem-matches th { text-align: left; color: var(--muted); font-weight: normal; }
+.problem-matches th, .problem-matches td { padding: 3px 8px 3px 0; border-top: 1px solid var(--line); }
+.problem-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 8px; }
+.problem-actions button, .problem-copy button { padding: 3px 12px; font-size: 12px; margin: 0; }
+.problem-copy { display: inline-flex; align-items: center; gap: 6px; background: var(--row); border-radius: 6px; padding: 2px 2px 2px 8px; }
+.problem button, .check-panel button { transition: transform 120ms ease-out; }
+.problem button:active, .check-panel button:active { transform: scale(0.97); }
+.problem-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.problem-details pre {
+  margin: 6px 0 0; padding: 8px; background: var(--bg); border-radius: 6px; font-family: var(--mono);
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto;
+}
+
+.check-panel {
+  width: var(--keys-width); flex: none; overflow: auto; border-radius: 0; border-width: 0 0 0 1px; padding: 10px 12px;
+}
+.check-panel header { display: flex; align-items: center; justify-content: space-between; }
+.check-panel .close { padding: 0 8px; }
+.check-ok { color: var(--accent); margin: 0 0 8px; }
+.check-steps { list-style: none; margin: 0; padding: 0; }
+.check-step { padding: 6px 0; border-top: 1px solid var(--line); }
+.check-line { display: flex; gap: 8px; align-items: baseline; }
+.check-mark { width: 14px; text-align: center; font-family: var(--mono); }
+.check-step.ok .check-mark { color: var(--accent); }
+.check-step.fail .check-mark { color: var(--error); }
+.check-step.skipped { color: var(--muted); }
+.check-name { flex: none; }
+.check-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.check-problem { margin: 8px 0 0 22px; }

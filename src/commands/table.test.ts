@@ -15,6 +15,7 @@ function recorder() {
     openPicker: () => calls.push("picker"),
     connect: (h, here) => calls.push(`connect ${h}${here ? " here" : ""}`),
     reconnect: () => calls.push("reconnect"),
+    check: (h) => calls.push(`check ${h ?? "current"}`),
     selectRelative: (d) => calls.push(`relative ${d}`),
     selectNth: (n) => calls.push(`nth ${n}`),
     close: (n) => calls.push(`close ${n ?? "current"}`),
@@ -33,6 +34,13 @@ function recorder() {
 const hosts = ["esxi-02", "esxi-01", "net-sw-core-01", "orion3", "hub2", "lab-hub2"];
 
 describe("runLine", () => {
+  it("runs :check for a Host, or for the current Session's Host with no argument", () => {
+    const { ctx, calls } = recorder();
+    runLine(ctx, "check esxi-02");
+    runLine(ctx, "check");
+    expect(calls).toEqual(["check esxi-02", "check current"]);
+  });
+
   it("runs a command by its name, with its argument", () => {
     const { ctx, calls } = recorder();
     runLine(ctx, "connect esxi-02");

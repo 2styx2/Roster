@@ -221,8 +221,8 @@ describe("The command line", () => {
   it("shows the candidates and cycles through them with Tab", async () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:c`);
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["choose", "close", "cmdline", "connect "]);
-    await user.keyboard("{Tab}{Tab}{Tab}{Tab}");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["check", "choose", "close", "cmdline", "connect "]);
+    await user.keyboard("{Tab}{Tab}{Tab}{Tab}{Tab}");
     expect(cmdline()).toHaveValue("connect ");
   });
 

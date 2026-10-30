@@ -80,11 +80,69 @@ describe("Tabs", () => {
     const { tabs } = setup();
     tabs.open(unreviewed);
     await settle();
-    expect(tabs.snapshot().tabs[0]!.status).toEqual({
+    expect(tabs.snapshot().tabs[0]!.status).toMatchObject({
       state: "failed",
       code: 20,
       message: `${unreviewed} is not reviewed yet (reviewed: false in roster.yml) - not logging in`,
     });
+  });
+
+  it("keeps a refusal's code, fix and data as the tab's Problem", async () => {
+    const host = reviewed[0]!;
+    const message = `no vault item named '${host} shh' (ssh Login of ${host}) - did you mean: '${host} ssh'`;
+    const fix = `fix the name in ${host}'s auth: in roster.yml, or rename the item in the vault`;
+    const tabs = new Tabs(
+      fakeBackend({ ...unlocked, hosts, refusals: { [host]: { code: 32, message, data: { fix, near: [`${host} ssh`] } } } }),
+    );
+    tabs.open(host);
+    await settle();
+    const status = tabs.snapshot().tabs[0]!.status;
+    expect(status.state === "failed" && status.problem).toEqual({
+      code: 32,
+      host,
+      message,
+      fix,
+      details: `[32] ${message}`,
+      data: { near: [`${host} ssh`] },
+    });
+  });
+
+  it("classifies ssh's failure from the tab's last output when it exits 255", async () => {
+    const host = reviewed[0]!;
+    const tabs = new Tabs(
+      fakeBackend({
+        ...unlocked,
+        hosts,
+        sshFailures: { [host]: "\x1b[0mssh: connect to host 10.0.0.6 port 2222: Connection refused\r\n" },
+      }),
+    );
+    tabs.open(host);
+    await settle();
+    const status = tabs.snapshot().tabs[0]!.status;
+    expect(status).toMatchObject({ state: "ended", exit: { code: 255 } });
+    expect(status.state === "ended" && status.problem).toMatchObject({
+      code: 41,
+      host,
+      message: `${host} (10.0.0.6:2222) refused the connection`,
+      details: "ssh: connect to host 10.0.0.6 port 2222: Connection refused",
+    });
+  });
+
+  it("looks only at the latest attempt's output when classifying", async () => {
+    const host = hosts.hosts.find((h) => h.reviewed && h.enroll)!.name;
+    const scenario: FakeScenario = {
+      ...unlocked,
+      hosts,
+      sshFailures: { [host]: "ssh: Could not resolve hostname x.lab: Name or service not known\r\n" },
+    };
+    const tabs = new Tabs(fakeBackend(scenario));
+    const id = tabs.open(host);
+    await settle();
+    scenario.sshFailures = { [host]: "admin@x: Permission denied (publickey).\r\n" };
+    tabs.reconnect(id);
+    await settle();
+    const status = tabs.snapshot().tabs[0]!.status;
+    expect(status.state === "ended" && status.problem?.code).toBe(46);
   });
 
   it("marks the tab ended with the exit code when the Session ends", async () => {
@@ -94,7 +152,7 @@ describe("Tabs", () => {
     await settle();
     tabs.write(id, "exit\r");
     await settle();
-    expect(tabs.snapshot().tabs[0]!.status).toEqual({ state: "ended", exit: { code: 0, closed: false } });
+    expect(tabs.snapshot().tabs[0]!.status).toEqual({ state: "ended", exit: { code: 0, closed: false }, problem: null });
   });
 
   it("closing a tab ends its Session and activates a neighbour", async () => {

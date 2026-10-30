@@ -2,6 +2,8 @@
 // option shows instead of the Sidebar's Sessions section. Inactive terminals stay mounted, just
 // hidden, so their screens survive switching. Buttons here run command lines (`session N`,
 // `close N`, `reconnect`) like every other way in.
+import type { ErrorRow } from "../errors/catalog";
+import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
 import type { CommandLine } from "../keymap";
 import type { TerminalEnv, TerminalViewComponent } from "../terminal/TerminalView";
 import type { Tab, Tabs, TabsSnapshot } from "./tabs";
@@ -86,6 +88,10 @@ export interface SessionPanesProps {
   reconnectKeys: string | null;
   /** Runs a command line (the Retry and Reconnect buttons run `reconnect`). */
   run(line: CommandLine): void;
+  /** The error catalog's rows (docs/errors.md), for a refused or failed Session. */
+  errorRows: readonly ErrorRow[];
+  /** Puts a command from an error's fix on the clipboard. */
+  copy(text: string): Promise<void>;
 }
 
 export function SessionPanes({
@@ -96,7 +102,10 @@ export function SessionPanes({
   terminalEnv,
   reconnectKeys,
   run,
+  errorRows,
+  copy,
 }: SessionPanesProps) {
+  const actions: ProblemActions = { run, copy };
   return (
     <div className="panes">
       {snapshot.tabs.map((tab) => {
@@ -106,18 +115,19 @@ export function SessionPanes({
         return (
           <div key={tab.id} className="pane" role="group" aria-label={`Session ${tab.label}`} hidden={!active}>
             {s.state === "failed" ? (
-              <div className="session-error" role="alert">
-                <p>Couldn't open a Session to {tab.host}:</p>
-                <p className="session-error-message">{s.message}</p>
-                <button type="button" onClick={() => run("reconnect")}>
-                  Retry
-                </button>
+              <div className="session-error">
+                <ErrorPanel title="Couldn't open a Session" problem={s.problem} rows={errorRows} actions={actions} />
               </div>
             ) : (
               wiring && <TerminalView active={active} leader={leader} {...wiring} env={terminalEnv} />
             )}
             {s.state === "connecting" && <div className="session-note">Connecting to {tab.host}…</div>}
-            {s.state === "ended" && (
+            {s.state === "ended" && s.problem && (
+              <div className="session-error overlay">
+                <ErrorPanel title="Session ended" problem={s.problem} rows={errorRows} actions={actions} />
+              </div>
+            )}
+            {s.state === "ended" && !s.problem && (
               <div className="session-note ended">
                 <span>{statusText(tab)}</span>
                 {reconnectKeys && (
