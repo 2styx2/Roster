@@ -58,7 +58,8 @@ crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster se
 app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
                       session_open/write/resize/close (output over an ipc Channel as raw bytes),
                       state_load/state_save, platform_info, vault_status/unlock/lock, config_load, config_open,
-                      config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard
+                      config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
+                      host_scan_key, host_add, host_review
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
@@ -75,7 +76,8 @@ app/src/errors/       clean connection errors (ticket 26, docs/app/errors.md): c
                       extras), ErrorPanel.tsx (the Session pane's error), CheckPanel.tsx (`:check HOST`)
 app/src/edit/         editing a Host (ticket 10): form.ts (the draft, what changed, whether it needs a test login),
                       EditPanel.tsx (`:edit`: pull, the form, test login, save), ChangesPanel.tsx (`:changes`: the diff,
-                      `:discard`)
+                      `:discard`); adding one (ticket 11): addForm.ts (the draft, checks, Vault item suggestions,
+                      host.add's params), AddPanel.tsx (`:host add`: pull, the form, host key, test login, add)
 app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (idle timer, injectable Clock), LockScreen.tsx
 crates/roster-core/src/config/
                       the Lua Config (ticket 21, docs/app/config.md): schema.rs (every option and default), lua.rs
@@ -120,7 +122,7 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 **UI in a plain browser** (fake Backend, no Tauri): in `app/`, `npm run dev -- --port 5179`, then open
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
-`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails).
+`correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen). Sign-in fixtures (ticket 31; email `you@example.com`, codes `123456`, API key `user.fake-client` / `fake-client-secret`): `sign-in` (new-device code), `sign-in-2fa` (method picker), `sign-in-totp`, `sign-in-fido2` (unsupported), `sign-in-sso`, `sign-in-eu`, `sign-in-rate-limited`. Editing (ticket 10, API 5): `edit`, `edit-pending` (two Pending changes), `edit-diverged` (the pull fails). Adding (ticket 11, API 6): `add` (a new Host's password is `host pass`; anything else is refused).
 Worst case (ticket 27): `worst-case` (1,284 Hosts, 50 Sessions, 100 Folders, long, odd and missing values),
 `worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; a dev build shows a
 "Demo data / Worst case" toggle at the bottom to switch between them (`&toggle=off` hides it; it works in

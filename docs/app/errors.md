@@ -76,6 +76,15 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 42 | 74 | The edit's result wouldn't load, would load differently, or would change another entry (a YAML alias) | `roster.yml` | "can't make that edit: the result wouldn't load - nothing was written" | Make the edit by hand; nothing was written |
 | 43 | 75 | An address, user or Login change without a test login that just succeeded | roster | "esx's new address, user or Login hasn't passed a test login" | Test the login, then save again |
 
+## Adding a Host (ticket 11)
+
+`:host add` (Leader `+`) pulls first, like `:edit`, then adds the Host through roster's `host.add` as a Pending change. A Host with a Login is a verified add (decision Q43): the address's host key is scanned (`host.scan_key`) and shown for the user to confirm, then one test login runs, then a typed password is saved to the vault (rows 34-36), then the Host is written; if writing the Host fails, the new Vault item is taken back out. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step, and nothing is written. A key the user doesn't trust, or one that differs from the recorded key (row 13), ends it there, with no login tried. A Host without a Login goes in unreviewed, with no network at all.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 44 | 80 | A bad name, group, address, user or port, or no user to log in as | `roster.yml` (the form's field) | "bad host name 'nas 1' (use letters, digits, . _ -)" | Fix that field; nothing was written |
+| 45 | 81 | A Host by that name is already in the Inventory | `roster.yml` | "host 'esx' is already in the Inventory (group lab)" | Pick another name, or `:edit` that Host |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.
