@@ -389,6 +389,20 @@ fn the_toolbar_is_a_piece_of_each_modes_layout() {
     assert!(!config::load(&dir).unwrap().modes.standard.toolbar.shown);
 }
 
+/// Issue #78: the frontend keeps a shown or hidden Sidebar in the State unless init.lua sets it, so
+/// each mode says which pieces init.lua set.
+#[test]
+fn each_mode_says_which_pieces_init_lua_set() {
+    assert!(config::Modes::default().standard.set.is_empty());
+    let dir = with_init(
+        "modes-set",
+        r#"return { modes = { standard = { sidebar = false, toolbar = { "add" } }, focus = { statusbar = true } } }"#,
+    );
+    let m = config::load(&dir).unwrap().modes;
+    assert_eq!(m.standard.set, ["sidebar", "toolbar"]);
+    assert_eq!(m.focus.set, ["statusbar"]);
+}
+
 #[test]
 fn folders_backend_and_roster_command() {
     let dir = with_init(
@@ -528,6 +542,10 @@ fn the_example_init_lua_loads_and_is_the_defaults() {
     assert_eq!(config.themes.keys().collect::<Vec<_>>(), ["paper", "roster-ember"]);
     config.themes.clear();
     config.lines.clear();
+    // It writes out every piece of each mode, at its default.
+    assert_eq!(config.modes.standard.set.len(), 6);
+    config.modes.standard.set.clear();
+    config.modes.focus.set.clear();
     assert_eq!(config, Config::default());
 }
 

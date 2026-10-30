@@ -646,6 +646,7 @@ impl Default for Modes {
                     shown: true,
                     controls: None,
                 },
+                set: Vec::new(),
             },
             focus: ModeLayout {
                 fullscreen: true,
@@ -667,6 +668,7 @@ impl Default for Modes {
                     shown: false,
                     controls: None,
                 },
+                set: Vec::new(),
             },
         }
     }
@@ -684,6 +686,9 @@ pub struct ModeLayout {
     /// The visible controls for common commands (decision Q65): in the title bar, or a bar of
     /// their own at the top when the mode has no title bar.
     pub toolbar: ToolbarPiece,
+    /// The pieces `init.lua` set, by name ("sidebar", "toolbar"…): what it sets wins over what the
+    /// app keeps in the State (the Sidebar shown or hidden, issue #78). Empty for the defaults.
+    pub set: Vec<String>,
 }
 
 /// What `init.lua` says about the modes: only what it sets, laid over each mode's defaults.
@@ -709,6 +714,18 @@ struct ModePatch {
 
 impl ModePatch {
     fn over(self, base: ModeLayout) -> ModeLayout {
+        let set = [
+            ("fullscreen", self.fullscreen.is_some()),
+            ("titlebar", self.titlebar.is_some()),
+            ("sidebar", self.sidebar.is_some()),
+            ("sessionbar", self.sessionbar.is_some()),
+            ("statusbar", self.statusbar.is_some()),
+            ("toolbar", self.toolbar.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, given)| *given)
+        .map(|(name, _)| name.to_string())
+        .collect();
         ModeLayout {
             fullscreen: self.fullscreen.unwrap_or(base.fullscreen),
             titlebar: self.titlebar.unwrap_or(base.titlebar),
@@ -716,6 +733,7 @@ impl ModePatch {
             sessionbar: self.sessionbar.unwrap_or(base.sessionbar),
             statusbar: self.statusbar.unwrap_or(base.statusbar),
             toolbar: self.toolbar.unwrap_or(base.toolbar),
+            set,
         }
     }
 }

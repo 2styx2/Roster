@@ -46,8 +46,18 @@ const control = (c: Omit<ToolbarControlDef, "source" | "side" | "byDefault"> & P
   ...c,
 });
 
-/** The built-in controls, in their default order. */
+/** The built-in controls, in their default order. The ids are what `modes.<mode>.toolbar` lists. */
 export const builtinControls: readonly ToolbarControlDef[] = [
+  // Shows or hides the Sidebar (issue #78), by the mark as in an editor; pressed while it shows.
+  control({
+    id: "sidebar",
+    label: (c) => (c.sidebarShown ? "Hide the Sidebar" : "Show the Sidebar"),
+    icon: "sidebar",
+    command: "sidebar",
+    side: "start",
+    byDefault: true,
+    pressed: (c) => c.sidebarShown,
+  }),
   control({ id: "find", label: () => "Find a Host", text: "Find", icon: "find", command: "find", byDefault: true }),
   control({ id: "add", label: () => "Add a Host", text: "Add Host", icon: "add", command: "host add", byDefault: true }),
   control({

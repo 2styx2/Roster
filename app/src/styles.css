@@ -830,6 +830,15 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
+/* Focus with the Sidebar shown (␣ e, issue #78): over the terminal on its side, so showing it
+   doesn't resize the terminal. It comes from a key, so it doesn't animate. */
+.screen[data-view="focus"] .sidebar {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+  border-right: 1px solid var(--line-strong); box-shadow: 8px 0 32px var(--shadow);
+}
+.screen[data-view="focus"] .body.sidebar-right .sidebar {
+  left: auto; right: 0; border-right: 0; border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+}
 
 /* Too narrow for the Sidebar, a side panel and a usable terminal (1040 = 248 + 320 + 472, about
    64 columns): the panels float over the terminal, as in Focus, instead of squeezing it (M5).

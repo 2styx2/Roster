@@ -24,7 +24,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> ]` / `[` | `next` / `prev` | Next / previous Session (wraps) |
 | `<leader> 1`–`9` | `session N` | Go to Session N |
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |
-| `<leader> e` | `sidebar` | Show or hide the Sidebar, and say the option that keeps it (`modes.standard.sidebar`) |
+| `<leader> e` | `sidebar` | Show or hide the Sidebar, in Standard and Focus; also the Sidebar button at the left of the title bar. The State keeps the choice per mode unless `init.lua` sets `modes.<mode>.sidebar`, which wins (issue #78) |
+| `<leader> t` | `finder tree` | The Sidebar's tree (Folders and the Inventory) as a finder |
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
@@ -98,7 +99,8 @@ Standard and Focus (decision Q36) differ only in their layout (decision Q39, `ap
 
 | Keys | In Standard | In Focus |
 |---|---|---|
-| `<leader> e` (`sidebar`) | Show or hide the Sidebar | The tree finder (`finder tree`): Folders and the Inventory, with paths |
+| `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #78) |
+| `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
 | `<leader> ?`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
 

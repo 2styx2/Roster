@@ -42,6 +42,7 @@
           "at": "bottom",
           "shown": false
         },
+        "set": [],
         "sidebar": {
           "sections": null,
           "shown": false,
@@ -63,6 +64,7 @@
           "at": "bottom",
           "shown": false
         },
+        "set": [],
         "sidebar": {
           "sections": null,
           "shown": true,

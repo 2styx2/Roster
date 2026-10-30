@@ -273,11 +273,19 @@ export function App({
     setLayoutsFrom(modesKey);
     if (derived) setLayouts(derived.layouts);
   }
-  const layout = layouts[viewMode];
   const [hint, setHint] = useState(false);
   const [message, setMessage] = useState("");
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
+  // The Sidebar shown or hidden (issue #78): what the toggle chose is kept in the State, per mode,
+  // unless init.lua sets `modes.<mode>.sidebar`, which wins (as `theme` does over `:theme`).
+  const configSetsSidebar = config?.modes[viewMode].set?.includes("sidebar") ?? false;
+  const storedSidebar = sidebarChoice(appState, viewMode);
+  const layout = useMemo(() => {
+    const base = layouts[viewMode];
+    if (configSetsSidebar || storedSidebar === null || isShown(base, "sidebar") === storedSidebar) return base;
+    return togglePiece(base, "sidebar");
+  }, [layouts, viewMode, configSetsSidebar, storedSidebar]);
   // The Theme (ticket 30): a preview in the `themes` finder, else init.lua's `theme` if it names
   // one, else the choice kept in the State, else the Config's (`auto` follows the OS).
   const [themeChoice] = useState(() => new ThemeChoice(store, registries.themes));
@@ -381,7 +389,7 @@ export function App({
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
   const sidebarSide = sidebarAt === "right" ? "right" : "left";
-  const sidebarShown = isShown(layout, "sidebar") && layout.tree === "sidebar" && sections.length > 0;
+  const sidebarShown = isShown(layout, "sidebar") && sections.length > 0;
   const finderCtx = useMemo<FinderContext | null>(
     () =>
       hosts
@@ -761,10 +769,17 @@ export function App({
       if (id !== null) tabs.close(id);
     },
     toggleSidebar: () => {
-      if (layout.tree === "finder") return ctx.openFinder("tree");
-      const next = togglePiece(layout, "sidebar");
-      setLayouts((l) => ({ ...l, [viewMode]: next }));
-      setMessage(pieceToggled(viewMode, next, "sidebar"));
+      const shown = !isShown(layout, "sidebar");
+      const name = `modes.${viewMode}.sidebar`;
+      if (configSetsSidebar) {
+        // init.lua sets it: this lasts until the Config is loaded again (or the app restarts).
+        setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], "sidebar") }));
+        return setMessage(
+          `Sidebar ${shown ? "shown" : "hidden"} for now: init.lua sets ${name} = ${String(!shown)}, which comes back on :source or a restart`,
+        );
+      }
+      store.set(SIDEBAR_KEY, { ...sidebarChoices(appState), [viewMode]: shown });
+      setMessage(`Sidebar ${shown ? "shown" : "hidden"}, and kept that way. ${name} = ${String(shown)} in init.lua makes it the default`);
     },
     toggleStatusBar: () => {
       const next = togglePiece(layout, layout.bar);
@@ -1625,4 +1640,20 @@ export function servicesLeftOut(list: HostList): string | null {
 export function inventoryBroken(e: InventoryFileError): string {
   const at = `roster.yml${e.line ? `:${e.line}` : ""}`;
   return `${at} has an error (${e.message}): the last good Inventory is still in use`;
+}
+
+/** The State's key for the Sidebar shown or hidden, per view mode (issue #78). */
+const SIDEBAR_KEY = "sidebar";
+
+/** What the State holds for the Sidebar, per mode (untrusted: only booleans count). */
+function sidebarChoices(state: Readonly<Record<string, unknown>>): Partial<Record<ViewMode, boolean>> {
+  const v = state[SIDEBAR_KEY];
+  if (typeof v !== "object" || v === null) return {};
+  const out: Partial<Record<ViewMode, boolean>> = {};
+  for (const [mode, shown] of Object.entries(v)) if (typeof shown === "boolean") out[mode as ViewMode] = shown;
+  return out;
+}
+
+function sidebarChoice(state: Readonly<Record<string, unknown>>, mode: ViewMode): boolean | null {
+  return sidebarChoices(state)[mode] ?? null;
 }

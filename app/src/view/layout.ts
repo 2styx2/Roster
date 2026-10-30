@@ -22,9 +22,6 @@ export interface ModeLayout {
   fullscreen: boolean;
   /** The pieces, in order within each place (top: top to bottom; left: outside in). */
   pieces: readonly Placement[];
-  /** How the Sidebar's tree (Folders, Inventory) is reached: the Sidebar piece, or the tree
-   * finder as an overlay. `␣ e` shows or hides that. */
-  tree: "sidebar" | "finder";
   /** The bar `␣ s` shows or hides. */
   bar: string;
   /** A hint on entering, saying how to leave. */
@@ -75,9 +72,8 @@ export function defaultModePieces(options: Pick<Options, "sidebar" | "statusBar"
   };
 }
 
-/** A mode's layout from its pieces. Standard reaches the tree through the Sidebar (`␣ e` shows
- * it even when it starts hidden); another mode does only if it shows the Sidebar, and through
- * the tree finder otherwise. */
+/** A mode's layout from its pieces. `␣ e` shows or hides the Sidebar in every mode (issue #78);
+ * the tree finder (`␣ t`) reaches the same tree as an overlay. */
 export function modeLayout(mode: ViewMode, p: ModePieces): ModeLayout {
   return {
     fullscreen: p.fullscreen,
@@ -89,7 +85,6 @@ export function modeLayout(mode: ViewMode, p: ModePieces): ModeLayout {
       { id: "sessionbar", at: p.sessionbar.at, shown: p.sessionbar.shown },
       { id: "statusbar", at: "bottom", shown: p.statusbar.shown },
     ],
-    tree: mode === "standard" || p.sidebar.shown ? "sidebar" : "finder",
     bar: mode === "standard" ? "statusbar" : "sessionbar",
     hint: mode === "focus",
     sections: p.sidebar.sections,
