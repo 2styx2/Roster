@@ -157,6 +157,9 @@ export interface ImportPreview {
   date: string;
   /** The Config error the new file would have. */
   error: string | null;
+  /** The Theme it defines for the profile's colours, which the app then chooses as `:theme`
+   * does (decision Q69): init.lua doesn't pin it. Null without a colour scheme. */
+  theme: string | null;
 }
 
 /** What the write gets back from the preview the user confirmed. */
