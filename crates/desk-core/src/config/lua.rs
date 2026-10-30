@@ -72,7 +72,7 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
         Err(_) => Err(ConfigError::new(
             None,
             format!(
-                "init.lua took too long to run (over {} ms; a string pattern that backtracks?)",
+                "took too long to run (over {} ms; a string pattern that backtracks?)",
                 wall.as_millis()
             ),
         )),

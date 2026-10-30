@@ -600,7 +600,8 @@ fn a_slow_pattern_is_cut_off_by_the_watchdog() {
         "{:?}",
         started.elapsed()
     );
-    assert!(e.message.contains("took too long"), "{e}");
+    assert!(e.message.starts_with("took too long"), "{e}");
+    assert_eq!(e.to_string().matches("init.lua").count(), 1, "{e}");
 }
 
 /// roster_command picks the program that gets the master password, two-step codes and the API
