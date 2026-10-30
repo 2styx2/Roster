@@ -183,6 +183,9 @@ We build it in iterations. Each one is tested by hand before the next starts:
 
 99. As the user, I want a Host to be added, and its password saved to my vault, only after a test login with exactly that address, user and password has succeeded, so that the Inventory and the vault never fill up with typos, dead boxes or wrong passwords.
 
+100. As the user, I want to add, remove and rename Hosts and groups right in the Sidebar, with each change written to `roster.yml` (as Pending changes), and I want edits I make to `roster.yml` or `folders.yml` in vim to show up in the Sidebar straight away, so that the file and the app never disagree.
+101. As the user, I want every screen to look right with worst-case data (long names, hundreds of Hosts, empty lists, narrow windows), so that the app never looks broken on a real network.
+
 ### Host details and web services
 
 78. As the user, I want a toggleable side panel with the host tree grouped like the Inventory, folded with `h`/`l`, so that I can browse when I don't know what I'm looking for.

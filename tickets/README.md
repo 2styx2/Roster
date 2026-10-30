@@ -17,9 +17,11 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 09 | [Design pass](09-design-pass.md) | 2 | 07, 08, 17 | ready |
 | 21 | [Lua config (`init.lua`)](21-lua-config.md) | 2 | 09 | ready |
 | 22 | [Focus mode](22-focus-mode.md) | 2 | 07, 17 | ready |
+| 27 | [Worst-case UI pass (`/break-ui`)](27-break-ui-pass.md) | 2 | 09 | ready |
 | 10 | [Edit a Host → Pending change → diff/discard](10-edit-host-pending-changes.md) | 3 | 04 | ready |
 | 11 | [Add a Host and mark it reviewed](11-add-host-review.md) | 3 | 10, 13 | ready |
 | 12 | [Publish](12-publish.md) | 3 | 10 | ready |
+| 28 | [Live Inventory: add, remove and rename Hosts and groups in the Sidebar, two-way with `roster.yml`](28-live-inventory-sidebar.md) | 3 | 10, 11 | ready |
 | 13 | [Bitwarden can create Vault items (prefactor)](13-bitwarden-create-item.md) | 3 | 01 | ready |
 | 25 | [KeePassXC provider (local-only secrets)](25-keepassxc-provider.md) | 4 | 13 | ready |
 | 14 | [Quick Connect](14-quick-connect.md) | 4 | 06 | ready |

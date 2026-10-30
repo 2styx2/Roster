@@ -7,7 +7,7 @@
 **Folders:** the user's personal groupings of Hosts.
 - Create, rename and delete Folders.
 - Add a Host to a Folder with `␣ a` or by dragging. Remove it the same ways.
-- Saved in this Box's State file, never in the Inventory. Ticket 21 also lets `init.lua` define them.
+- Saved in this Box's State file, never in the Inventory. Ticket 21 also lets `init.lua` define them. *(Q46 moves this storage to `folders.yml`, live and two-way, in ticket 28.)*
 
 **Inventory:** every Host grouped as in `roster.yml` (subnet-1, subnet-42, …) with counts.
 - Each Host shows its state dot and address.
