@@ -67,10 +67,11 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 92).where).toContain("the infra repo");
   });
 
-  it("gives Save to vault's own codes their rows (docs/app/errors.md rows 68-69, ticket 15)", () => {
+  it("gives Save to vault's own codes their rows (docs/app/errors.md rows 68-70, tickets 15 and 16)", () => {
     expect(rowFor(rows, 66)).toMatchObject({ row: 68, id: "save-not-logged-in" });
     expect(rowFor(rows, 67)).toMatchObject({ row: 69, id: "save-nothing-held" });
     expect(rowFor(rows, 67).fix(p(67))).toMatch(/Save to vault/);
+    expect(rowFor(rows, 39)).toMatchObject({ row: 70, id: "save-password-needed" });
   });
 
   it("gives every Live Inventory code its row (docs/app/errors.md rows 53-56, ticket 28)", () => {

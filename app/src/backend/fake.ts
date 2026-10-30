@@ -49,6 +49,8 @@ import {
   type QuickConnect,
   type QuickSave,
   type QuickSaveParams,
+  type SaveLogin,
+  type SaveLoginParams,
   PublishError,
   SAVE_TO_VAULT_API_VERSION,
   SaveLoginError,
@@ -232,6 +234,15 @@ export function authOf(h: Host): SessionAuth {
   return !h.enroll && !["agent", "key", "none"].includes(h.ssh.auth) ? "password" : "key";
 }
 
+/** `list` with its first reviewed Host's Login turned into `auth: prompt` (ticket 16). */
+export function withPromptHost(list: HostList): HostList {
+  const first = list.hosts.find((h) => h.reviewed)?.name;
+  return {
+    ...list,
+    hosts: list.hosts.map((h) => (h.name === first ? { ...h, enroll: false, ssh: { ...h.ssh, user: "root", auth: "prompt" } } : h)),
+  };
+}
+
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
 const PRODUCTS = ["", "", "ALPHA", "HUB", "BRAVO", "UniFi"];
 
@@ -353,6 +364,9 @@ export const fixtures: Record<string, FakeScenario> = {
     quickBoxes: { "10.0.0.5": { hostname: "nas-01" }, "10.0.0.66": { unreachable: true } },
     vaultItems: ["dup ssh"],
   },
+  /** Ticket 16: the first Host's Login is still `auth: prompt` (API 13): its Session asks for the
+   * password (`host pass`) with the Save to vault tick. */
+  "prompt-save": { hosts: withPromptHost(makeHosts(12)), apiVersion: 13, delay: 300, loginMs: 800 },
   "roster-too-old": {
     hosts: makeHosts(0),
     startProblem: problem(
@@ -754,7 +768,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   const quick: (QuickConnect & { password: boolean })[] = [];
   // ---- "Save to vault" after a Session's own login (tickets 15, 16)
   /** Typed passwords serve holds, by id: whether that Session logged in with it, and for what. */
-  const holding = new Map<string, { loggedIn: boolean; to: QuickConnect }>();
+  const holding = new Map<string, { loggedIn: boolean; to?: QuickConnect; host?: string }>();
   const heldIds: string[] = [];
   const saves: QuickSaveParams[] = [];
   const forgets: string[] = [];
@@ -1023,7 +1037,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       inOrder(async () => {
         login = null;
       }),
-    async openSession(host, size, events) {
+    async openSession(host, size, events, typed) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
       const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
@@ -1037,6 +1051,33 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const refusal = scenario.refusals?.[host];
       if (refusal) throw refuse(refusal);
       const auth = authOf(h);
+      // Ticket 16: an `auth: prompt` Host's password is the one the user types (API 13).
+      const prompted = auth === "password" && h.ssh.auth === "prompt" && (scenario.apiVersion ?? 2) >= SAVE_TO_VAULT_API_VERSION;
+      if (auth === "password" && h.ssh.auth === "prompt" && !prompted) {
+        // An older roster can't ask: its prompt provider has no terminal under serve.
+        throw new BackendCallError(`needs input (password for group '${h.group}') but there's no terminal to ask in (ssh Login of ${host})`, 35);
+      }
+      if (prompted) {
+        if (!typed) {
+          throw new BackendCallError(`${host}'s Login is auth: prompt - type its password`, SessionRefusal.passwordNeeded, {
+            user: h.ssh.user,
+            address: h.ip,
+            port: h.ssh.port,
+            fix: "type the password when the app asks; tick Save to vault to keep it in the vault once it has logged in",
+          });
+        }
+        const id = ++sessions;
+        const held = typed.save ? `h${id}` : null;
+        if (held) {
+          holding.set(held, { loggedIn: false, host });
+          heldIds.push(held);
+        }
+        const handle =
+          typed.password === FAKE_HOST_PASSWORD
+            ? fakeSession(id, host, auth, size, events, scenario.loginMs, held ? { onLogin: () => loggedIn(held) } : {})
+            : failingSession(id, auth, `${h.ssh.user}@${h.ip}: Permission denied (publickey,password).\r\n`, events);
+        return { ...handle, ...(held ? { held } : {}) };
+      }
       if (auth === "password") {
         if (scenario.passwordRefusal) throw refuse(scenario.passwordRefusal);
         if (vaultNow() === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
@@ -1105,13 +1146,14 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       saves.push(p);
       const fail = (code: number, message: string, data: CallErrorData = {}) => new BackendCallError(message, code, data);
       const h = holding.get(p.quick);
-      if (!h) {
+      if (!h?.to) {
         throw fail(SaveLoginError.nothingHeld, "there's no typed password to save for that Session: it was saved already, or forgotten (the Session ended, the vault was locked, or 10 minutes passed)", {
           fix: "connect again with Save to vault ticked",
         });
       }
+      const to = h.to;
       if (!h.loggedIn) {
-        throw fail(SaveLoginError.notLoggedIn, `${formatQuickTarget(h.to)} hasn't logged in with that password - roster saves it only after the login succeeded`, {
+        throw fail(SaveLoginError.notLoggedIn, `${formatQuickTarget(to)} hasn't logged in with that password - roster saves it only after the login succeeded`, {
           fix: "wait until the Session has logged in; if the box refused the password, nothing is saved",
         });
       }
@@ -1142,14 +1184,14 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const host: Host = {
         name: p.name,
         group: p.group,
-        ip: h.to.address,
+        ip: to.address,
         type: "",
         product: "",
         title: p.title ?? "",
         description: "",
         reviewed: true,
         enroll: false,
-        ssh: { user: h.to.user, port: h.to.port, auth: `bw:${item}` },
+        ssh: { user: to.user, port: to.port, auth: `bw:${item}` },
         web: null,
       };
       hosts = [...hosts, host];
@@ -1157,6 +1199,35 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const { save_to: _s, ...shown } = target;
       void _s;
       return { added: true, host, backup: "/home/you/infra/.git/roster/roster.yml.bak", item: { provider: "bw", id: `fake-${item}`, name: item, target: shown }, warnings: [] };
+    },
+    async saveLogin(p: SaveLoginParams): Promise<SaveLogin> {
+      await wait();
+      const h = holding.get(p.held);
+      const fail = (code: number, message: string, data: CallErrorData = {}) => new BackendCallError(message, code, data);
+      if (!h?.host) {
+        throw fail(SaveLoginError.nothingHeld, "there's no typed password to save for that Session: it was saved already, or forgotten (the Session ended, the vault was locked, or 10 minutes passed)", {
+          fix: "connect again with Save to vault ticked",
+        });
+      }
+      const name = h.host;
+      if (!h.loggedIn) throw fail(SaveLoginError.notLoggedIn, `${name} hasn't logged in with that password - roster saves it only after the login succeeded`);
+      const item = p.item ?? `${name} ssh`;
+      if (vaultNow() !== "unlocked") throw new BackendCallError(VAULT_LOCKED, VaultError.locked);
+      if (items.includes(item)) {
+        throw fail(60, `a Bitwarden item named '${item}' already exists - pick another name, or point the Login at that item`, {
+          fix: "pick another name for the item",
+        });
+      }
+      const target = targetFor(p.save_to ?? defaultSetting().setting);
+      if (!target) throw unknownTarget(p.save_to ? "save_to" : "vault.save_to in init.lua");
+      items = [...items, item];
+      holding.delete(p.held);
+      const before = knownHost(name);
+      const host: Host = { ...before, ssh: { ...before.ssh, auth: `bw:${item}` } };
+      hosts = hosts.map((x) => (x.name === name ? host : x));
+      const { save_to: _s, ...shown } = target;
+      void _s;
+      return { changed: true, host, backup: "/home/you/infra/.git/roster/roster.yml.bak", item: { provider: "bw", id: `fake-${item}`, name: item, target: shown }, warnings: [] };
     },
     async forgetTyped(held: string) {
       forgets.push(held);

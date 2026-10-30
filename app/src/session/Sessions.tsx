@@ -18,11 +18,12 @@ import { CloseGlyph } from "../ui/CloseGlyph";
  * it has (or it ended, or was refused). For a Host whose key roster hasn't seen (ticket 36):
  * `checking-key` while its key is fetched, `asking` while the user decides, `trusting` while
  * roster records it. */
-export type ConnectPhase = "starting" | "logging-in" | "checking-key" | "asking" | "trusting";
+export type ConnectPhase = "starting" | "logging-in" | "checking-key" | "asking" | "trusting" | "password";
 
 export function connectPhase(tab: Tab): ConnectPhase | null {
   const s = tab.status;
   if (s.state === "asking") return !s.key ? "checking-key" : s.trusting ? "trusting" : "asking";
+  if (s.state === "password") return "password";
   if (s.state === "connecting") return "starting";
   if (tab.status.state === "open" && !tab.shell) return "logging-in";
   return null;
@@ -42,6 +43,8 @@ export function statusText(tab: Tab): string {
       return "connecting…";
     case "asking":
       return s.key ? "new host key" : "connecting…";
+    case "password":
+      return "password";
     case "open":
       return tab.shell ? "" : "connecting…";
     case "failed":
@@ -122,6 +125,7 @@ const PHASE_WORDS: Record<ConnectPhase, string> = {
   "checking-key": "Fetching the Host's key…",
   asking: "",
   trusting: "Recording the key…",
+  password: "",
 };
 
 /** The host key question's answers (ticket 36), from the tab's store. */
@@ -149,6 +153,7 @@ export function ConnectCard({
   active = true,
   quick = null,
   canSave = false,
+  prompt = null,
 }: {
   host: string;
   address: string | null;
@@ -165,6 +170,8 @@ export function ConnectCard({
   quick?: QuickTarget | null;
   /** roster can save a typed password once the Session logs in (API 13, ticket 15): offer it. */
   canSave?: boolean;
+  /** An `auth: prompt` Host (ticket 16): roster has no saved password, so the card asks for it. */
+  prompt?: { user: string; address: string; port: number } | null;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const trustButton = useRef<HTMLButtonElement>(null);
@@ -175,19 +182,21 @@ export function ConnectCard({
   // Whether to save the password once it logs in: a choice, not a secret, so plain state.
   const [save, setSave] = useState(false);
   const question = (phase === "asking" || phase === "trusting") && hostKey !== null && answers !== undefined;
+  const asksPassword = phase === "password" && prompt !== null && answers?.connect !== undefined;
+  const asking = question || asksPassword;
   // Keyboard first: the question takes focus (after the terminal, which the active pane focuses
   // first), so Enter trusts and Esc cancels. Once answered, focus goes back to the terminal.
   const asked = useRef(false);
   useEffect(() => {
-    if (question && active) (passwordField.current ?? trustButton.current)?.focus();
-    if (question) asked.current = true;
+    if (asking && active) (passwordField.current ?? trustButton.current)?.focus();
+    if (asking) asked.current = true;
     else if (asked.current) {
       asked.current = false;
       if (active && (document.activeElement === document.body || document.activeElement === null)) {
         card.current?.parentElement?.querySelector<HTMLElement>("textarea, input")?.focus();
       }
     }
-  }, [question, active]);
+  }, [asking, active]);
   // The last phase, kept while the card fades out after the shell answered; then it's gone.
   const [last, setLast] = useState<ConnectPhase | null>(phase);
   if (phase !== null && phase !== last) setLast(phase);
@@ -201,7 +210,7 @@ export function ConnectCard({
   if (words === null) return null;
   const title = `${again ? "Reconnecting" : "Connecting"} to ${host}`;
   // A Quick Connect's name already holds its address (user@address), so the title doesn't repeat it.
-  const where = quick ? null : question ? `${hostKey.address}:${hostKey.port}` : address;
+  const where = quick ? null : question ? `${hostKey.address}:${hostKey.port}` : asksPassword ? `${prompt.address}:${prompt.port}` : address;
   const asksQuick = question && quick !== null && answers.connect !== undefined;
   const connectQuick = () => {
     const field = passwordField.current;
@@ -214,27 +223,37 @@ export function ConnectCard({
   return (
     <div
       ref={card}
-      className={`connect-card${phase === null ? " leaving" : ""}${question ? " key-question" : ""}`}
-      role={question ? "alertdialog" : "status"}
-      aria-label={asksQuick ? `Quick Connect to ${host}` : question ? `Trust ${host}'s host key?` : phase === null ? undefined : title}
+      className={`connect-card${phase === null ? " leaving" : ""}${asking ? " key-question" : ""}`}
+      role={asking ? "alertdialog" : "status"}
+      aria-label={
+        asksQuick
+          ? `Quick Connect to ${host}`
+          : asksPassword
+            ? `Password for ${host}`
+            : question
+              ? `Trust ${host}'s host key?`
+              : phase === null
+                ? undefined
+                : title
+      }
       onKeyDown={
-        question
+        asking
           ? (e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
-                answers.cancel();
+                answers?.cancel();
               } else if (e.key === "Enter" && e.target === e.currentTarget) {
                 e.preventDefault();
-                if (asksQuick) connectQuick();
-                else answers.trust();
+                if (asksQuick || asksPassword) connectQuick();
+                else answers?.trust();
               }
             }
           : undefined
       }
-      tabIndex={question ? -1 : undefined}
+      tabIndex={asking ? -1 : undefined}
     >
-      <svg className={`connect-map${question ? " waiting" : ""}`} viewBox="0 0 72 12" width="72" height="12" aria-hidden="true">
+      <svg className={`connect-map${asking ? " waiting" : ""}`} viewBox="0 0 72 12" width="72" height="12" aria-hidden="true">
         <rect className="connect-box" x="1" y="2" width="8" height="8" rx="1.6" />
         <line className="connect-edge" x1="12" y1="6" x2="59" y2="6" />
         <circle className="connect-host" cx="65" cy="6" r="4.25" />
@@ -244,7 +263,47 @@ export function ConnectCard({
         <span className="connect-name">{host}</span>
         {where && <span className="connect-address"> {where}</span>}
       </p>
-      {asksQuick ? (
+      {asksPassword ? (
+        <>
+          <p className="key-says">
+            <span className="connect-name">{host}</span>'s Login is <span className="connect-name">auth: prompt</span>: roster has no saved
+            password for it.
+          </p>
+          <form
+            className="quick-login"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (passwordField.current?.value) connectQuick();
+            }}
+          >
+            <label className="quick-password">
+              <span>
+                Password for <span className="connect-name">{prompt.user}</span>
+              </span>
+              <input ref={passwordField} type="password" autoComplete="off" spellCheck={false} />
+            </label>
+            {canSave && (
+              <label className="add-check quick-save">
+                <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+                Save to vault once it logs in
+              </label>
+            )}
+            <div className="key-actions">
+              <button type="submit" className="primary" ref={trustButton}>
+                Connect
+              </button>
+              <button type="button" onClick={() => answers.cancel()}>
+                Cancel
+              </button>
+            </div>
+          </form>
+          <p className="connect-phase muted">
+            <span className="key-hint">
+              <Keys keys="Enter" /> connect · <Keys keys="Escape" /> cancel
+            </span>
+          </p>
+        </>
+      ) : asksQuick ? (
         <>
           <p className="key-says">
             {hostKey.recorded === "match" ? "This is the key roster recorded for " : "roster hasn't seen a key at "}
@@ -369,7 +428,7 @@ function endpoint({ address, port }: QuickTarget): string {
 const FADE_MS = 120;
 
 export interface SessionPanesProps {
-  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey" | "connectQuick" | "dismissSave">;
+  tabs: Pick<Tabs, "wiring" | "trustKey" | "cancelKey" | "connectQuick" | "connectPrompted" | "dismissSave">;
   snapshot: TabsSnapshot;
   leader: string;
   terminalView: TerminalViewComponent;
@@ -432,11 +491,13 @@ export function SessionPanes({
                 answers={{
                   trust: () => tabs.trustKey(tab.id),
                   cancel: () => tabs.cancelKey(tab.id),
-                  connect: (password, save) => tabs.connectQuick(tab.id, password, save),
+                  connect: (password, save) =>
+                    tab.quick ? tabs.connectQuick(tab.id, password, save) : tabs.connectPrompted(tab.id, password, save),
                 }}
                 active={active}
                 quick={tab.quick?.to ?? null}
                 canSave={canSave}
+                prompt={s.state === "password" ? s : null}
               />
             )}
             {tab.save?.loggedIn && tab.save.saved === null && s.state === "open" && (

@@ -1,14 +1,16 @@
-// "Save to vault" after a Quick Connect's own login (ticket 15, decision Q43): a side panel that asks
-// for the Host's name (pre-filled from what the box's shell calls itself), its group and where in
-// the vault, then runs roster's `quick.save`: the Vault item `<name> ssh`, then the Host as a Pending
-// change, with the host key confirmed for the Session recorded for it. The password isn't here: roster
-// holds it from the connect card and saves it only because that Session logged in with it.
+// "Save to vault" after a Session's own login (decisions Q43, Q68). For a Quick Connect (ticket 15) a
+// side panel asks for the Host's name (pre-filled from what the box's shell calls itself), its group
+// and where in the vault, then runs roster's `quick.save`: the Vault item `<name> ssh`, then the Host
+// as a Pending change, with the host key confirmed for the Session recorded for it. For an `auth:
+// prompt` Host (ticket 16) only where in the vault: `host.save_login` makes `<host> ssh` and points
+// the Host's Login at it. The password isn't here: roster holds it from the connect card and saves
+// it only because that Session logged in with it.
 //
 // Like the add form, it pulls the infra repo first (unless Pending changes are already here). It
 // opens from a click or `:save`, keyboard first: Name has focus, Enter saves, Esc closes (the offer
 // stays). No motion of its own, like the other side panels.
 import { useEffect, useId, useRef, useState } from "react";
-import { type Backend, type HostList, type QuickSave } from "../backend/types";
+import { type Backend, type HostList, type QuickSave, type SaveLogin } from "../backend/types";
 import { problemFromCallError, type ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
 import { ProblemBody, type ProblemActions } from "../errors/ErrorPanel";
@@ -30,8 +32,9 @@ type Phase =
 export interface SavePanelProps {
   backend: Backend;
   hosts: HostList;
-  /** The Quick Connect: serve's id for it, where it went, and what its shell calls the box. */
-  quick: { id: string; to: QuickTarget; hostname: string | null };
+  /** What's saved: a Quick Connect (serve's id for it, where it went, what its shell calls the
+   * box), or an `auth: prompt` Host's Session (serve's held id, the Host's name). */
+  what: { quick: { id: string; to: QuickTarget; hostname: string | null } } | { host: { held: string; name: string } };
   /** The group the form starts in. */
   group: string;
   pendingCount: number;
@@ -40,7 +43,7 @@ export interface SavePanelProps {
   /** roster can say where it saves (`vault.targets`): show "Save to". */
   chooseTarget?: boolean;
   targetsVersion?: number;
-  onSaved(result: QuickSave): void;
+  onSaved(result: QuickSave | SaveLogin): void;
   onPulled(): void;
   onClose(): void;
 }
@@ -48,7 +51,7 @@ export interface SavePanelProps {
 export function SavePanel({
   backend,
   hosts,
-  quick,
+  what,
   group: startGroup,
   pendingCount,
   rows,
@@ -63,7 +66,9 @@ export function SavePanel({
   const [phase, setPhase] = useState<Phase>(() => (pendingCount > 0 ? { at: "ready" } : { at: "pulling" }));
   // The name follows what the box's shell says until the user types one.
   const [typedName, setTypedName] = useState<string | null>(null);
-  const name = typedName ?? suggestedName(quick.hostname, quick.to.address);
+  const quick = "quick" in what ? what.quick : null;
+  const fixed = "host" in what ? what.host : null;
+  const name = fixed?.name ?? typedName ?? (quick ? suggestedName(quick.hostname, quick.to.address) : "");
   const [group, setGroup] = useState(startGroup);
   const [tried, setTried] = useState(false);
   const [pickMissing, setPickMissing] = useState(false);
@@ -75,6 +80,7 @@ export function SavePanel({
     };
   }, []);
 
+  const label = quick ? formatQuickTarget(quick.to) : (fixed?.name ?? "");
   const pulling = phase.at === "pulling";
   useEffect(() => {
     if (!pulling) return;
@@ -84,7 +90,12 @@ export function SavePanel({
         if (pulled.updated) onPulled();
         setPhase({ at: "ready" });
       },
-      (e: unknown) => live.current && setPhase({ at: "pull-failed", problem: problemFromCallError(quick.to.address, e) }),
+      (e: unknown) =>
+        live.current &&
+        setPhase({
+          at: "pull-failed",
+          problem: problemFromCallError(label, e),
+        }),
     );
     // Once per opening, like the add form's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,14 +103,14 @@ export function SavePanel({
 
   const open = phase.at !== "pulling" && phase.at !== "pull-failed";
   useEffect(() => {
-    if (open) document.getElementById(`${ids}-name`)?.focus();
+    if (!open) return;
+    (document.getElementById(`${ids}-name`) ?? document.getElementById(`${ids}-save`))?.focus();
   }, [open, ids]);
 
   const saveTo = useSaveTo(backend, chooseTarget && open, targetsVersion);
   const busy = phase.at === "saving";
-  const label = formatQuickTarget(quick.to);
   const trimmed = name.trim();
-  const taken = hosts.hosts.find((h) => h.name === trimmed);
+  const taken = quick ? hosts.hosts.find((h) => h.name === trimmed) : undefined;
   const nameProblem = !trimmed
     ? "Name the Host"
     : !NAME.test(trimmed)
@@ -107,7 +118,7 @@ export function SavePanel({
       : taken
         ? `${trimmed} is already a Host (group ${taken.group})`
         : null;
-  const groupProblem = !group.trim() ? "Pick a group" : !NAME.test(group.trim()) ? "Use letters, digits, . _ -" : null;
+  const groupProblem = !quick ? null : !group.trim() ? "Pick a group" : !NAME.test(group.trim()) ? "Use letters, digits, . _ -" : null;
   const item = `${trimmed || "<name>"} ssh`;
 
   const save = async () => {
@@ -123,13 +134,20 @@ export function SavePanel({
     }
     setPhase({ at: "saving" });
     try {
-      const result = await backend.saveQuick({
-        quick: quick.id,
-        name: trimmed,
-        group: group.trim(),
-        item: `${trimmed} ssh`,
-        ...(saveTo.target ? { save_to: saveTo.target.save_to } : {}),
-      });
+      const where = saveTo.target ? { save_to: saveTo.target.save_to } : {};
+      const result = quick
+        ? await backend.saveQuick({
+            quick: quick.id,
+            name: trimmed,
+            group: group.trim(),
+            item: `${trimmed} ssh`,
+            ...where,
+          })
+        : await backend.saveLogin({
+            held: fixed?.held ?? "",
+            item: `${trimmed} ssh`,
+            ...where,
+          });
       if (live.current) onSaved(result);
     } catch (e) {
       if (!live.current) return;
@@ -157,8 +175,8 @@ export function SavePanel({
         </button>
       </header>
       <p className="edit-note">
-        <span className="mono">{label}</span> logged in with the password you typed. roster saves it as a Vault item, then adds the
-        Host as a Pending change.
+        <span className="mono">{label}</span> logged in with the password you typed. roster saves it as a Vault item, then{" "}
+        {quick ? "adds the Host" : "points the Host's Login at it"}, as a Pending change.
       </p>
       {phase.at === "pulling" && <p className="muted edit-status">Pulling the infra repo…</p>}
       {phase.at === "pull-failed" && (
@@ -182,61 +200,70 @@ export function SavePanel({
           }}
         >
           <div className="edit-fields">
-            <div className="edit-field">
-              <label htmlFor={`${ids}-name`}>Host name</label>
-              <input
-                id={`${ids}-name`}
-                className="mono"
-                value={name}
-                placeholder="e.g. nas-01"
-                spellCheck={false}
-                autoComplete="off"
-                disabled={busy}
-                aria-invalid={tried && nameProblem ? true : undefined}
-                aria-describedby={`${ids}-name-hint`}
-                onChange={(e) => {
-                  setTypedName(e.target.value);
-                  if (phase.at === "failed") setPhase({ at: "ready" });
-                }}
-              />
-              <span id={`${ids}-name-hint`} className={tried && nameProblem ? "edit-field-problem" : "edit-hint"}>
-                {tried && nameProblem ? (
-                  nameProblem
-                ) : (
-                  <>
-                    Vault item <span className="mono">{item}</span>
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="edit-field">
-              <label htmlFor={`${ids}-group`}>Group</label>
-              <input
-                id={`${ids}-group`}
-                className="mono"
-                value={group}
-                list={`${ids}-groups`}
-                spellCheck={false}
-                autoComplete="off"
-                disabled={busy}
-                aria-invalid={tried && groupProblem ? true : undefined}
-                aria-describedby={tried && groupProblem ? `${ids}-group-problem` : undefined}
-                onChange={(e) => {
-                  setGroup(e.target.value);
-                  if (phase.at === "failed") setPhase({ at: "ready" });
-                }}
-              />
-              {tried && groupProblem && (
-                <span id={`${ids}-group-problem`} className="edit-field-problem">
-                  {groupProblem}
+            {!quick && (
+              <p className="edit-hint">
+                Vault item <span className="mono">{item}</span>
+              </p>
+            )}
+            {quick && (
+              <div className="edit-field">
+                <label htmlFor={`${ids}-name`}>Host name</label>
+                <input
+                  id={`${ids}-name`}
+                  className="mono"
+                  value={name}
+                  placeholder="e.g. nas-01"
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={busy}
+                  aria-invalid={tried && nameProblem ? true : undefined}
+                  aria-describedby={`${ids}-name-hint`}
+                  onChange={(e) => {
+                    setTypedName(e.target.value);
+                    if (phase.at === "failed") setPhase({ at: "ready" });
+                  }}
+                />
+                <span id={`${ids}-name-hint`} className={tried && nameProblem ? "edit-field-problem" : "edit-hint"}>
+                  {tried && nameProblem ? (
+                    nameProblem
+                  ) : (
+                    <>
+                      Vault item <span className="mono">{item}</span>
+                    </>
+                  )}
                 </span>
-              )}
-              <datalist id={`${ids}-groups`}>
-                {Object.keys(hosts.groups).map((g) => (
-                  <option key={g} value={g} />
-                ))}
-              </datalist>
-            </div>
+              </div>
+            )}
+            {quick && (
+              <div className="edit-field">
+                <label htmlFor={`${ids}-group`}>Group</label>
+                <input
+                  id={`${ids}-group`}
+                  className="mono"
+                  value={group}
+                  list={`${ids}-groups`}
+                  spellCheck={false}
+                  autoComplete="off"
+                  disabled={busy}
+                  aria-invalid={tried && groupProblem ? true : undefined}
+                  aria-describedby={tried && groupProblem ? `${ids}-group-problem` : undefined}
+                  onChange={(e) => {
+                    setGroup(e.target.value);
+                    if (phase.at === "failed") setPhase({ at: "ready" });
+                  }}
+                />
+                {tried && groupProblem && (
+                  <span id={`${ids}-group-problem`} className="edit-field-problem">
+                    {groupProblem}
+                  </span>
+                )}
+                <datalist id={`${ids}-groups`}>
+                  {Object.keys(hosts.groups).map((g) => (
+                    <option key={g} value={g} />
+                  ))}
+                </datalist>
+              </div>
+            )}
             {chooseTarget && (
               <SaveToField id={`${ids}-saveto`} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
             )}
@@ -248,7 +275,7 @@ export function SavePanel({
             </div>
           )}
           <div className="edit-actions">
-            <button type="submit" className="primary" disabled={busy}>
+            <button type="submit" className="primary" id={`${ids}-save`} disabled={busy}>
               Save
             </button>
             <button type="button" onClick={onClose}>

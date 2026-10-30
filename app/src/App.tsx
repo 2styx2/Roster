@@ -1582,12 +1582,16 @@ export function App({
             onClose={closeAdd}
           />
         )}
-        {saveTab?.save && saveTab.quick && hosts && (
+        {saveTab?.save && hosts && (
           <SavePanel
             key={saveTab.id}
             backend={backend}
             hosts={hosts}
-            quick={{ id: saveTab.save.held, to: saveTab.quick.to, hostname: saveTab.save.hostname }}
+            what={
+              saveTab.quick
+                ? { quick: { id: saveTab.save.held, to: saveTab.quick.to, hostname: saveTab.save.hostname } }
+                : { host: { held: saveTab.save.held, name: saveTab.host } }
+            }
             group={Object.keys(hosts.groups)[0] ?? ""}
             pendingCount={pendingCount}
             rows={errorRows}
@@ -1601,7 +1605,9 @@ export function App({
               reloadHosts();
               refreshPending();
               setMessage(
-                `Saved ${r.host.name} to ${r.host.group} as a Pending change; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}.` +
+                ("added" in r
+                  ? `Saved ${r.host.name} to ${r.host.group} as a Pending change; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}.`
+                  : `Saved ${r.host.name}'s password to the vault as ${r.item.name}${savedIn(r.item.target)}; its Login points at it now, as a Pending change.`) +
                   (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
             }}

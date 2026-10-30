@@ -25,6 +25,9 @@ export type TabStatus =
   /** roster has no host key recorded for the Host (ticket 36, decision Q60): nothing connects until
    * the user answers. `key` is null while it's being fetched; `trusting` while it's being recorded. */
   | { state: "asking"; key: HostKeyScan | null; trusting: boolean }
+  /** The Host's Login is `auth: prompt` (ticket 16): roster has no password for it, so the tab asks
+   * for one (`connectPrompted`) before anything connects. */
+  | { state: "password"; user: string; address: string; port: number }
   | { state: "open" }
   /** roster refused (`session.prepare`) or the PTY couldn't start; `code` is roster's. */
   | { state: "failed"; message: string; code: number | null; problem: Problem }
@@ -449,6 +452,14 @@ export class Tabs {
             this.askAboutKey(entry);
             return;
           }
+          if (e instanceof BackendCallError && e.code === SessionRefusal.passwordNeeded && !entry.tab.quick) {
+            const d = e.data ?? {};
+            const user = typeof d["user"] === "string" ? d["user"] : "";
+            const address = typeof d["address"] === "string" ? d["address"] : "";
+            const port = typeof d["port"] === "number" ? d["port"] : 22;
+            this.setStatus(entry, { state: "password", user, address, port });
+            return;
+          }
           this.refused(entry, e);
         },
       );
@@ -546,6 +557,17 @@ export class Tabs {
     this.start(entry, (size, events) => this.backend.openQuickSession(to, typed, size, events, options));
   }
 
+  /** The user typed the password for an `auth: prompt` Host (ticket 16). It goes straight to the
+   * Backend, once; the tab keeps no copy. With `save`, roster holds it until the Session has logged
+   * in and it's saved. */
+  connectPrompted(id: number, password: string, save = false) {
+    const entry = this.find(id);
+    if (!entry || entry.tab.status.state !== "password" || password === "") return;
+    const typed = save ? { password, save: true } : { password };
+    this.setStatus(entry, { state: "connecting" });
+    this.start(entry, (size, events) => this.backend.openSession(entry.tab.host, size, events, typed));
+  }
+
   /** The user trusts the key the tab asks about: roster records it (if the Host still offers
    * exactly that key) and the Session opens. */
   trustKey(id: number) {
@@ -569,7 +591,7 @@ export class Tabs {
   cancelKey(id: number) {
     const entry = this.find(id);
     const s = entry?.tab.status;
-    if (!entry || s?.state !== "asking" || s.trusting) return;
+    if (!entry || !(s?.state === "password" || (s?.state === "asking" && !s.trusting))) return;
     if (!entry.before) return this.close(id);
     entry.attempt++; // a key still being fetched is no longer asked about
     entry.tab = entry.before;

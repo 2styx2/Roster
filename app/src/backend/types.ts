@@ -526,6 +526,9 @@ export const SessionRefusal = {
   /** No host key recorded for the Host (API 11, ticket 36): the app asks before it connects.
    * `data`: its `address` and `port`. */
   hostKeyUnknown: 44,
+  /** The Host's Login is `auth: prompt` (API 13, ticket 16): the app asks for the password.
+   * `data`: its `user`, `address` and `port`. */
+  passwordNeeded: 39,
 } as const;
 
 /** The first `api_version` whose Sessions check host keys strictly and ask first (ticket 36, Q60):
@@ -570,6 +573,29 @@ export interface QuickSaveParams {
 
 /** `quick.save`: the Host as roster.yml has it now and the Vault item it made. */
 export type QuickSave = Omit<HostAdd, "verify" | "item"> & { item: NonNullable<HostAdd["item"]> };
+
+/** A password the user typed for an `auth: prompt` Host's Session (ticket 16), and whether roster
+ * should hold it for "Save to vault". It goes once to serve; the caller keeps no copy. */
+export interface TypedPassword {
+  password: string;
+  save?: boolean;
+}
+
+/** `host.save_login`'s params: the held id; the password itself stays with serve. */
+export interface SaveLoginParams {
+  held: string;
+  item?: string;
+  save_to?: SaveTo;
+}
+
+/** `host.save_login`: the Host as roster.yml has it now (its Login the new item's). */
+export interface SaveLogin {
+  changed: true;
+  host: Host;
+  backup: string;
+  item: NonNullable<HostAdd["item"]>;
+  warnings?: string[];
+}
 
 /** roster's codes for "Save to vault" after a Session's login, besides vault.create_item's (60-65)
  * and host.add's (80, 81). */
@@ -618,7 +644,7 @@ export interface Backend {
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
    * Session always gets a new one-time askpass token: call it again to reconnect. */
-  openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
+  openSession(host: string, size: TermSize, events: SessionEvents, typed?: TypedPassword): Promise<SessionHandle>;
   /** `quick.prepare` (API 12, ticket 14), then the command in a PTY: a Session to a box that isn't
    * in the Inventory. roster fetches the key again and refuses (23) one that isn't `to.fingerprint`,
    * or (43) one that differs from a key it recorded. A typed `password` goes once to serve, which
@@ -635,6 +661,10 @@ export interface Backend {
    * Quick Connect that logged in with its typed password (Q43). Rejects with SaveLoginError,
    * vault.create_item's 60-65 or AddError; the item is taken back out if the Host can't be added. */
   saveQuick(params: QuickSaveParams): Promise<QuickSave>;
+  /** `host.save_login` (API 13, ticket 16): the Vault item, then the `auth: prompt` Host's Login
+   * pointed at it as a Pending change, once its Session logged in with the typed password (Q43).
+   * Rejects with SaveLoginError, 60-65, or 75 (the Host changed since that Session logged in). */
+  saveLogin(params: SaveLoginParams): Promise<SaveLogin>;
   /** `vault.forget_typed` (API 13): serve forgets the typed password it held for "Save to vault".
    * Never rejects for a roster reason. */
   forgetTyped(held: string): Promise<{ forgotten: boolean }>;

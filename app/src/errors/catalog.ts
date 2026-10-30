@@ -447,6 +447,13 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Connect again with Save to vault ticked: roster forgets the password once the Session ends, the vault locks, or 10 minutes pass.",
     actions: [],
   }),
+  row("save-password-needed", {
+    row: 70,
+    codes: [39],
+    where: ["roster.yml"],
+    fix: () => "Type the Host's password when the pane asks; tick Save to vault to keep it in the vault once it has logged in.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

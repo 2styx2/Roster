@@ -20,6 +20,9 @@ import {
   type QuickConnect,
   type QuickSave,
   type QuickSaveParams,
+  type SaveLogin,
+  type SaveLoginParams,
+  type TypedPassword,
   type HostUpdate,
   type InventoryChanged,
   type InventoryReload,
@@ -90,9 +93,12 @@ function sessionChannel(events: SessionEvents): Channel<SessionMessage> {
   return ch;
 }
 
-async function openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle> {
-  const { id, auth } = await call<{ id: number; auth: SessionAuth }>("session_open", {
+async function openSession(host: string, size: TermSize, events: SessionEvents, typed?: TypedPassword): Promise<SessionHandle> {
+  // A typed password (ticket 16) goes once to serve's stdin, like vault_unlock's.
+  const { id, auth, held } = await call<{ id: number; auth: SessionAuth; held?: string }>("session_open", {
     host,
+    password: typed?.password ?? null,
+    save: typed?.save === true,
     cols: size.cols,
     rows: size.rows,
     events: sessionChannel(events),
@@ -100,6 +106,7 @@ async function openSession(host: string, size: TermSize, events: SessionEvents):
   return {
     id,
     auth,
+    ...(held === undefined ? {} : { held }),
     write: (data) => call("session_write", { id, data }),
     resize: ({ cols, rows }) => call("session_resize", { id, cols, rows }),
     close: () => call("session_close", { id }),
@@ -187,6 +194,7 @@ export function tauriBackend(): Backend {
     watchInventory: (auto) => inventoryCall("inventory.watch", { auto }),
     // "Save to vault" after a Session's own login (tickets 15, 16): ids and names only.
     saveQuick: (params: QuickSaveParams) => call<QuickSave>("save_call", { method: "quick.save", params }),
+    saveLogin: (params: SaveLoginParams) => call<SaveLogin>("save_call", { method: "host.save_login", params }),
     forgetTyped: (held) => call<{ forgotten: boolean }>("save_call", { method: "vault.forget_typed", params: { held } }),
     onLoggedIn(onLogin) {
       const stop = listen<{ method: string; params: { held?: unknown } }>("roster-notification", (e) => {
