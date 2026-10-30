@@ -96,6 +96,10 @@ Separately: `npm run typecheck`, `npm run lint`, `npm test`.
 `http://localhost:5179/?fixture=many-hosts`. Other fixtures: `few-hosts`, `slow`, `roster-too-old`,
 `roster-missing`, `inventory-missing`, `no-wsl`. The app opens locked: the fake master password is
 `correct horse`. `&theme=roster-light|gruvbox|nord|catppuccin-mocha|tokyo-night` picks a Theme (default: follow the OS). Vault fixtures: `locked` (the default), `not-logged-in`, `missing-cli`, `no-vault` (no lock screen).
+Worst case (ticket 27): `worst-case` (1,284 Hosts, 50 Sessions, 100 Folders, long, odd and missing values),
+`worst-case-empty`, `worst-case-one`, `worst-case-start`, `worst-case-vault`; a dev build shows a
+"Demo data / Worst case" toggle at the bottom to switch between them (`&toggle=off` hides it; it works in
+`tauri dev` too, and never ships). Screenshots: `docs/design/break-ui/`.
 
 **The real app on Windows** (from the WSL checkout; see `docs/dev/windows-build-loop.md`):
 

@@ -59,7 +59,11 @@ export function CheckPanel({ check, rows, actions, onClose }: CheckPanelProps) {
                     {MARK[s.status]}
                   </span>
                   <span className="check-name">{STEP_LABEL[s.step] ?? s.step}</span>
-                  {s.status !== "fail" && <span className="check-msg muted">{s.message}</span>}
+                  {s.status !== "fail" && (
+                    <span className="check-msg muted" title={s.message}>
+                      {s.message}
+                    </span>
+                  )}
                 </div>
                 {s.status === "fail" && (
                   <div className="check-problem">

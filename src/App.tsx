@@ -9,6 +9,7 @@
 // which is also what the command line and every button run. The commands, keymap and Sidebar
 // sections are registries (ADR 0004), read live.
 import {
+  Fragment,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -61,6 +62,7 @@ import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./them
 import { chosenAppearance, registerThemePicker, ThemeChoice } from "./theme/picker";
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
+import { countOf } from "./ui/format";
 import { Keys } from "./ui/Keys";
 import {
   defaultLayouts,
@@ -125,6 +127,9 @@ export interface AppProps {
   /** The per-mode layout table (decision Q39); the defaults from the options unless ticket 21's
    * Config passes its own. */
   layouts?: Layouts;
+  /** Hosts to open Sessions to once the Backend is up, in order (a fixture's open Sessions: the
+   * dev page's `?fixture=worst-case`, and the UI tests), once the app is first unlocked. */
+  openAtStart?: readonly string[];
   /** The Config as the app starts (ticket 21): it replaces `options`, `appearance`,
    * `terminalOptions` and `layouts`, and its keys, Themes and Folders go into the registries.
    * Later saves come through `platform.config`. */
@@ -141,6 +146,7 @@ export function App({
   platform: platformProp,
   appearance: appearanceProp = defaultAppearance,
   layouts: layoutsProp,
+  openAtStart,
   config: configProp = null,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
@@ -380,6 +386,15 @@ export function App({
       mainRef.current?.focus();
     }
   }, [noSessions]);
+
+  // A fixture's Sessions open once the app is first unlocked, as if the user had opened them.
+  const opened = useRef(false);
+  const unlockedOnce = conn.state === "ready" && !vault.locked;
+  useEffect(() => {
+    if (!unlockedOnce || opened.current || !openAtStart) return;
+    opened.current = true;
+    for (const host of openAtStart) tabs.open(host);
+  }, [unlockedOnce, openAtStart, tabs]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
@@ -624,27 +639,40 @@ export function App({
     switch (id) {
       case "backend":
         return (
-          <span key={id} className="backend">
+          <span key={id} className="backend" title={info.backend}>
             <span className="status-dot" aria-hidden="true" />
-            {info.backend}
+            <span className="statusbar-cut">{info.backend}</span>
           </span>
         );
       case "box":
-        return <span key={id}>{info.inventory.box}</span>;
+        return (
+          <span key={id} className="statusbar-cut box" title={info.inventory.box}>
+            {info.inventory.box}
+          </span>
+        );
       case "hosts":
-        return <span key={id}>{conn.hosts.hosts.length} hosts</span>;
+        return (
+          <span key={id} className="count">
+            {countOf(conn.hosts.hosts.length, "host")}
+          </span>
+        );
       case "path":
         return (
-          <span key={id} className="path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
+          <span key={id} className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
             {info.inventory.path}
           </span>
         );
       case "hints":
-        return hints.map(([k, what]) => (
-          <span key={what} className="hint">
-            <Keys keys={k} leader={options.leader} /> {what}
+        // They drop out whole, last first, when the bar runs out of room (never cut mid-key).
+        return (
+          <span key={id} className="statusbar-hints">
+            {hints.map(([k, what]) => (
+              <span key={what} className="hint">
+                <Keys keys={k} leader={options.leader} /> {what}
+              </span>
+            ))}
           </span>
-        ));
+        );
       case "mode":
         return (
           appMode && (
@@ -662,8 +690,7 @@ export function App({
   const statusBar = (
     <footer key="statusbar" className="statusbar">
       {segments.filter((id) => !right.has(id)).map(segment)}
-      <span className="grow" />
-      {segments.filter((id) => right.has(id)).map(segment)}
+      <span className="statusbar-right">{segments.filter((id) => right.has(id)).map(segment)}</span>
     </footer>
   );
 
@@ -754,8 +781,12 @@ export function App({
       {pieces("bottom")}
       {hint && modeKeys.length > 0 && (
         <div className="mode-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
-          {modeKeys.map((k) => (
-            <Keys key={k} keys={k} leader={options.leader} />
+          {/* Two ways out, not one sequence: "␣ m or F11", never "␣ m F11". */}
+          {modeKeys.map((k, i) => (
+            <Fragment key={k}>
+              {i > 0 && <span className="muted"> or </span>}
+              <Keys keys={k} leader={options.leader} />
+            </Fragment>
           ))}{" "}
           leave {viewMode === "focus" ? "Focus" : "this mode"}
         </div>

@@ -67,7 +67,9 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                       ))}
                     </span>
                   </td>
-                  <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>{r.source}</td>
+                  <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>
+                    <span title={r.source}>{r.source}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>

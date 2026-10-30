@@ -6,6 +6,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
+import { formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 
 /** Rows actually rendered; the rest are counted. */
@@ -104,7 +105,9 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
             onKeyDown={onKeyDown}
           />
           <span className="finder-count">
-            {results.items.length > shown.length ? `${shown.length} of ${results.items.length}` : results.items.length}
+            {results.items.length > shown.length
+              ? `${formatCount(shown.length)} of ${formatCount(results.items.length)}`
+              : formatCount(results.items.length)}
           </span>
         </div>
         <ul className="picker-list" role="listbox" id={listId} ref={listRef} aria-label={source.prompt}>
@@ -123,18 +126,26 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
               onClick={() => choose(item)}
             >
               {item.dot && <span className={`dot ${item.dot}`} aria-hidden="true" />}
-              <span className="finder-label">
-                {item.label}
+              <span className="finder-label" title={item.label}>
+                <span className="finder-name" dir="auto">
+                  {item.label}
+                </span>
                 {item.mark && <span className="finder-mark">{MARKS[item.mark]}</span>}
               </span>
-              {item.path && <span className="finder-path">{item.path}</span>}
+              {item.path && (
+                <span className="finder-path" title={item.path}>
+                  {item.path}
+                </span>
+              )}
               <span className="finder-detail">{item.detail}</span>
             </li>
           ))}
         </ul>
         {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
         <div className="picker-footer">
-          <span role="status">{notice || source.note?.()}</span>
+          <span role="status" title={notice || source.note?.() || undefined}>
+            {notice || source.note?.()}
+          </span>
           <span className="picker-hint">
             <Keys keys="Enter" /> choose
           </span>

@@ -24,6 +24,8 @@ export interface Derived {
 
 const UI_FALLBACK = 'system-ui, "Segoe UI", sans-serif';
 const MONO_FALLBACK = '"Cascadia Mono", Consolas, ui-monospace, monospace';
+/** Last in the UI's stacks, so a Host named "🦊-lab" draws its fox wherever one is installed. */
+const EMOJI = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"';
 
 /** A CSS font stack from a family name ("Iosevka"), or the stack as given if it has a comma. */
 export function fontStack(font: string, fallback: string): string {
@@ -106,7 +108,10 @@ export function deriveConfig(c: Config): Derived {
     theme: c.theme,
     dark: c.darkTheme,
     light: c.lightTheme,
-    fonts: { ui: fontStack(c.fonts.ui, UI_FALLBACK), mono: fontStack(c.fonts.mono, MONO_FALLBACK) },
+    fonts: {
+      ui: fontStack(c.fonts.ui, `${UI_FALLBACK}, ${EMOJI}`),
+      mono: fontStack(c.fonts.mono, `${MONO_FALLBACK}, ${EMOJI}`),
+    },
     colors: c.colors,
   };
   const t = c.terminal;

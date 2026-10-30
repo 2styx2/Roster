@@ -21,6 +21,22 @@ import {
   type TermSize,
   SessionRefusal,
 } from "./types";
+import type { KeymapOverrides } from "../keymap";
+import {
+  HOST_KEY_CHANGED_OUTPUT,
+  ITEM_NOT_FOUND,
+  LONG_BOX,
+  LONG_NAME_OPEN,
+  LONG_PATH,
+  WORST_BINDINGS,
+  WORST_START_PROBLEM,
+  WORST_VAULT_MESSAGE,
+  hostKeyCheck,
+  oneHost,
+  worstCaseFolders,
+  worstCaseHosts,
+  worstCaseSessions,
+} from "./worstCase";
 
 export interface FakeScenario {
   hosts: HostList;
@@ -50,6 +66,18 @@ export interface FakeScenario {
    * after `failAfterMs` (desk-core's timeout) while serve carries on and unlocks anyway. Like
    * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
   slowUnlock?: { failAfterMs: number; completesAfterMs: number };
+  /** `connect()`'s answer, where it differs from the default (a long Box name, path, distro). */
+  info?: { backend?: string; box?: string; path?: string; command?: string[] };
+  /** The not-logged-in or missing-cli message, where it differs from roster's usual one. */
+  vaultMessage?: string;
+  /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
+   * as props): the State file's contents, and Hosts to open Sessions to once connected. */
+  app?: {
+    state?: Record<string, unknown>;
+    openAtStart?: readonly string[];
+    /** Key bindings a Plugin or init.lua would add (the Key bindings panel's worst case). */
+    bindings?: { source: string; tables: KeymapOverrides };
+  };
 }
 
 export interface Refusal {
@@ -177,11 +205,50 @@ export const fixtures: Record<string, FakeScenario> = {
     },
   },
   "vault-relocks": { hosts: makeHosts(12), relockAfterMs: 5000 },
+  "worst-case": worstCase(),
+  /** No Hosts at all: every empty state. */
+  "worst-case-empty": { hosts: { hosts: [], groups: {} }, info: { box: LONG_BOX, path: LONG_PATH } },
+  /** One Host, one Session, one Folder: every count at 1. */
+  "worst-case-one": {
+    hosts: oneHost(),
+    app: { state: { folders: [{ name: "x", hosts: [LONG_NAME_OPEN] }] }, openAtStart: [LONG_NAME_OPEN] },
+  },
+  /** The Backend couldn't start, with a long message, hint and detail. */
+  "worst-case-start": { hosts: makeHosts(0), startProblem: WORST_START_PROBLEM },
+  /** The lock screen's longest message: the vault CLI isn't logged in. */
+  "worst-case-vault": { ...worstCase(), vault: { status: "not-logged-in" }, vaultMessage: WORST_VAULT_MESSAGE },
   "no-wsl": {
     hosts: makeHosts(0),
     startProblem: problem("no-wsl", "No WSL distro was found.", "Install WSL and a Linux distro with roster in it."),
   },
 };
+
+/** The worst case (ticket 27): every long, short, odd, missing and huge value at once. */
+function worstCase(): FakeScenario {
+  const hosts = worstCaseHosts();
+  return {
+    hosts,
+    info: {
+      backend: "WSL: FedoraLinux-44",
+      box: LONG_BOX,
+      path: LONG_PATH,
+      command: ["wsl.exe", "-d", "FedoraLinux-44", "--exec", "/home/aleksandra.wisniewska-kowalczyk/.local/bin/roster", "-c", LONG_PATH, "serve"],
+    },
+    refusals: { "vault-item-missing": ITEM_NOT_FOUND },
+    sshFailures: { "host-key-changed-esxi-rack-b-u42-management-interface": HOST_KEY_CHANGED_OUTPUT },
+    checks: Object.fromEntries(
+      [LONG_NAME_OPEN, "host-key-changed-esxi-rack-b-u42-management-interface"].map((h) => [h, hostKeyCheck(h)]),
+    ),
+    app: {
+      state: {
+        folders: worstCaseFolders(hosts),
+        recentHosts: [LONG_NAME_OPEN, "x", "🦊-fox-lab", "خادم-الإنتاج-٠١"],
+      },
+      openAtStart: worstCaseSessions(hosts),
+      bindings: WORST_BINDINGS,
+    },
+  };
+}
 
 export function fixtureFromUrl(search: string = globalThis.location?.search ?? ""): FakeScenario {
   const name = new URLSearchParams(search).get("fixture") ?? "many-hosts";
@@ -231,7 +298,11 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   let failures = 0;
   let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
   const vaultMessage = () =>
-    vault === "not-logged-in" ? NOT_LOGGED_IN : vault === "missing-cli" ? MISSING_CLI : undefined;
+    vault === "not-logged-in"
+      ? (scenario.vaultMessage ?? NOT_LOGGED_IN)
+      : vault === "missing-cli"
+        ? (scenario.vaultMessage ?? MISSING_CLI)
+        : undefined;
   const vaultStatus = (): VaultStatus => {
     const provider = vault === "unsupported" ? null : "bw";
     const message = vaultMessage();
@@ -250,7 +321,7 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   };
   const unlock = async (password: string): Promise<ProviderStatus> => {
     await wait();
-    if (vault === "not-logged-in") throw new BackendCallError(NOT_LOGGED_IN, VaultError.notLoggedIn);
+    if (vault === "not-logged-in") throw new BackendCallError(vaultMessage() ?? NOT_LOGGED_IN, VaultError.notLoggedIn);
     if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
     if (vault === "unsupported")
       throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
@@ -270,12 +341,13 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         failures++;
         throw new BackendStartError(scenario.startProblem);
       }
+      const info = scenario.info ?? {};
       return {
-        backend: "Fake",
-        command: ["roster", "serve"],
+        backend: info.backend ?? "Fake",
+        command: info.command ?? ["roster", "serve"],
         inventory: {
-          path: "~/infra/roster.yml",
-          box: "browser",
+          path: info.path ?? "~/infra/roster.yml",
+          box: info.box ?? "browser",
           host_count: scenario.hosts.hosts.length,
           providers: ["bw"],
           roster_version: "0.1.0",
