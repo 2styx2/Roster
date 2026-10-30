@@ -66,7 +66,7 @@ return {
   fonts = {
     ui = "Inter",
     mono = "Iosevka", -- the wordmark and code-like text in the UI
-    ui_size = 14, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
+    ui_size = 15, -- px, 11 to 20: the UI's text (Sidebar, Picker, panels); the scale and rows follow
   },
 
   -- The terminal ------------------------------------------------------------------------------
@@ -77,7 +77,7 @@ return {
     font = { "Iosevka Nerd Font", "Iosevka Term", "Iosevka" },
     -- A number is px; "16pt" is points, as Windows Terminal counts them (16 pt = 21.33 px at any
     -- display scale). 6 to 72 px. Ctrl+= / Ctrl+- zoom, Ctrl+0 comes back here.
-    size = "12pt",
+    size = "13pt",
     weight = 500, -- 100 to 900; the bundled Iosevka ships at 400, 500 (medium) and 700
     bold_weight = 700,
     line_height = 1.0, -- a multiple of the font's own line height, 0.5 to 3

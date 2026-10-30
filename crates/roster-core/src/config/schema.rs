@@ -109,7 +109,7 @@ impl Default for Fonts {
         Fonts {
             ui: "Inter".into(),
             mono: "Iosevka".into(),
-            ui_size: 14,
+            ui_size: 15,
         }
     }
 }
@@ -152,7 +152,7 @@ impl Default for Terminal {
                 "Iosevka Term".into(),
                 "Iosevka".into(),
             ]),
-            size: FontSize::Pt(12.0),
+            size: FontSize::Pt(13.0),
             weight: 500,
             bold_weight: 700,
             line_height: 1.0,

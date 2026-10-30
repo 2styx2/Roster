@@ -8,8 +8,8 @@
 :root {
   /* Type. --font-ui, --font-mono and --ui-size come from the appearance options (decision Q30,
      `fonts.ui_size`); the scale and the row height follow --ui-size, and nothing goes under 11 px
-     (N6). 14 px by default: xs 12, sm 13, md 14, lg 16, rows 28. */
-  --ui-size: 14px;
+     (N6). 15 px by default (decision Q61): xs 13, sm 14, md 15, lg 17, rows 30. */
+  --ui-size: 15px;
   --text-xs: max(11px, calc(var(--ui-size) - 2px));
   --text-sm: max(11px, calc(var(--ui-size) - 1px));
   --text-md: var(--ui-size);

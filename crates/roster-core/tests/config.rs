@@ -30,6 +30,9 @@ fn no_file_gives_the_defaults() {
     assert_eq!(config.terminal.weight, 500);
     assert_eq!(config.terminal.bold_weight, 700);
     assert_eq!(config.theme, "auto");
+    // Decision Q61: a size larger than Windows Terminal's 12 pt and Q57's 14 px.
+    assert_eq!(config.terminal.size, config::FontSize::Pt(13.0));
+    assert_eq!(config.fonts.ui_size, 15);
 }
 
 #[test]
@@ -862,7 +865,7 @@ fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
     }
     // Every option of the example is in it, ready to uncomment.
     assert!(starter.contains("--   theme = \"auto\","));
-    assert!(starter.contains("--     size = \"12pt\","));
+    assert!(starter.contains("--     size = \"13pt\","));
     let dir = with_init("starter", &starter);
     let mut loaded = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
     loaded.lines.clear();
