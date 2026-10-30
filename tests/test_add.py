@@ -243,6 +243,30 @@ def test_a_clean_add_has_no_warnings(app, box, sshd, vault):
     assert r["warnings"] == []
 
 
+def test_host_add_stays_within_its_deadline_and_writes_nothing_when_it_runs_out(box, sshd, vault, isolated, fakes,
+                                                                                  monkeypatch):
+    import time
+    state = unlocked_state(box)
+    monkeypatch.setitem(rpc.DEADLINES, "host.add", 3)
+    monkeypatch.setenv("FAKE_BW_SLOW", json.dumps({"list": 60}))
+    start = time.monotonic()
+    r = add_in_process(state, sshd)
+    assert time.monotonic() - start < 15
+    assert "timed out" in r["error"]["message"], r       # the duplicate check ran out of time: nothing made
+    nothing_written(box, vault, isolated)
+
+
+def test_every_deadline_ends_before_the_app_gives_up():
+    import re
+    from pathlib import Path
+    core = (Path(__file__).parents[1] / "crates" / "roster-core" / "src" / "backend.rs").read_text()
+    table = core[core.index("pub const CALL_SECS"):]
+    app = {m: int(s) for m, s in re.findall(r'\("([\w.]+)", (\d+)\)', table[:table.index("];")])}
+    assert "host.add" in app, "roster-core's CALL_SECS table moved"
+    for method, secs in rpc.DEADLINES.items():
+        assert secs + rpc.AFTER_DEADLINE < app.get(method, 60), method
+
+
 def test_the_typed_password_never_reaches_any_output(app, box, sshd, vault):
     add(app, name="nas", port=sshd.port, password=SECRET, enroll=False)
     add(app, name="nas2", port=sshd.port, password="wrong-" + SECRET, enroll=False)

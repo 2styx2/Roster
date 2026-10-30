@@ -9,7 +9,7 @@ import sys
 import threading
 from pathlib import Path
 
-from ..common import die, say, user_config_dir
+from ..common import die, say, time_left, user_config_dir
 
 # ---------------------------------------------------------------- password providers
 #
@@ -200,7 +200,7 @@ class Ctx:
         tool = args if isinstance(args, str) else args[0]
         stdin = {} if input is not None else {"stdin": None if interactive else subprocess.DEVNULL}
         try:
-            return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=timeout,
+            return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=time_left(timeout),
                                   input=input, env={**os.environ, **(env or {})}, **stdin)
         except FileNotFoundError:
             raise CliMissing(not_installed(self.provider, tool))

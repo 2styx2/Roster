@@ -34,6 +34,7 @@ import {
   type Host,
   type HostList,
 } from "./backend/types";
+import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
@@ -1373,7 +1374,8 @@ export function App({
               refreshPending();
             }}
             onPublish={async (message) => {
-              const r = await backend.publishChanges(message);
+              // After a timeout, publishChecked asks roster whether it was published, and says so.
+              const r = await publishChecked(backend, message);
               reloadHosts();
               refreshPending();
               setMessage(

@@ -163,3 +163,14 @@ fn a_malformed_session_prepare_names_the_field_but_never_its_value() {
     assert!(!text.contains("987654321"), "{text}");
     assert!(text.contains("env.ROSTER_ASKPASS_TOKEN"), "{text}");
 }
+
+#[test]
+fn slow_methods_get_their_own_timeout_and_the_rest_the_default() {
+    use roster_core::backend::{CALL_SECS, timeout_for};
+    use roster_core::rpc::DEFAULT_TIMEOUT;
+    use std::time::Duration;
+    assert_eq!(timeout_for("host.add"), Duration::from_secs(180));
+    assert_eq!(timeout_for("changes.publish"), Duration::from_secs(180));
+    assert_eq!(timeout_for("hosts.list"), DEFAULT_TIMEOUT);
+    assert!(CALL_SECS.iter().all(|(_, s)| Duration::from_secs(*s) > DEFAULT_TIMEOUT));
+}

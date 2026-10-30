@@ -11,7 +11,7 @@ import socket
 import subprocess
 
 from . import askpass, errors, providers
-from .common import not_reviewed
+from .common import not_reviewed, time_left
 from .errors import Problem, login_problem, no_user, unknown_provider, vault_problem
 from .providers import PROVIDERS
 from .sshops import (
@@ -260,11 +260,12 @@ def step_auth(ctx):
     else:
         argv += ["-o", "BatchMode=yes"]
     argv += [h["name"], "true"]
+    limit = round(time_left(LOGIN_TIMEOUT + 20))
     try:
         r = subprocess.run(argv, env={**os.environ, **env}, stdin=subprocess.DEVNULL, capture_output=True,
-                           text=True, timeout=LOGIN_TIMEOUT + 20)
+                           text=True, timeout=limit)
     except subprocess.TimeoutExpired:
-        raise Problem(errors.TIMEOUT, f"{h['name']} didn't finish the login within {LOGIN_TIMEOUT + 20} s",
+        raise Problem(errors.TIMEOUT, f"{h['name']} didn't finish the login within {limit} s",
                       fix=unreachable_fix(h)) from None
     if r.returncode == 0:
         return f"logged in as {h['ssh']['user']}"

@@ -54,7 +54,7 @@ function callError(e: unknown): BackendCallError {
       case "exited":
         return new BackendCallError(`The backend exited (code ${w.code ?? "?"}). ${w.stderr}`.trim(), null, null, true);
       case "timeout":
-        return new BackendCallError("The backend didn't answer in time.", null, null, true);
+        return new BackendCallError("The backend didn't answer in time.", null, null, true, true);
       case "io":
         return new BackendCallError(w.message);
     }

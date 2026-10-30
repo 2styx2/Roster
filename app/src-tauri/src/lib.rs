@@ -243,6 +243,8 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     }
 }
 
+/// One call to serve, waiting as long as roster-core's `timeout_for` says for that method: longer
+/// than serve's own deadline for it, so a slow call is answered rather than abandoned.
 async fn call(state: &Arc<BackendState>, method: &'static str, params: Value) -> Result<Value, CallError> {
     let backend = state.get()?;
     blocking(move || backend.call(method, params)).await
@@ -279,12 +281,8 @@ async fn vault_login(
     state: tauri::State<'_, Arc<BackendState>>,
     params: serde_json::Map<String, Value>,
 ) -> Result<Value, CallError> {
-    let backend = state.get()?;
-    blocking(move || backend.call_timeout("vault.login", Value::Object(params), VAULT_LOGIN_TIMEOUT)).await
+    call(&state, "vault.login", Value::Object(params)).await
 }
-
-/// roster waits up to 40 s for bw per step, and after a wrong code runs bw again (another 40 s).
-const VAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
 
 #[tauri::command]
 async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
@@ -299,11 +297,10 @@ async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) ->
 }
 
 /// Fast-forward the infra repo before an edit (`inventory.pull`, api 4, ticket 10). A fetch can take
-/// a while on a slow link; roster gives git 60 s.
+/// a while on a slow link: serve holds it to its deadline, and the app waits longer (`timeout_for`).
 #[tauri::command]
 async fn inventory_pull(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
-    let backend = state.get()?;
-    blocking(move || backend.call_timeout("inventory.pull", json!({}), EDIT_TIMEOUT)).await
+    call(&state, "inventory.pull", json!({})).await
 }
 
 /// One test login with a Host's new address, user or Login (`host.verify_login`, decision Q43):
@@ -343,12 +340,9 @@ async fn changes_discard(state: tauri::State<'_, Arc<BackendState>>) -> Result<V
 /// forced. `message` is the commit message as the user left it.
 #[tauri::command]
 async fn changes_publish(state: tauri::State<'_, Arc<BackendState>>, message: String) -> Result<Value, CallError> {
-    let backend = state.get()?;
-    blocking(move || backend.call_timeout("changes.publish", json!({ "message": message }), PUBLISH_TIMEOUT)).await
+    call(&state, "changes.publish", json!({ "message": message })).await
 }
 
-/// roster's publish waits up to 60 s for each of git's fetch and push, and the sync after.
-const PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 /// The host key an address offers (`host.scan_key`, ticket 11): key exchange only, never a login.
 #[tauri::command]
 async fn host_scan_key(
@@ -367,12 +361,8 @@ async fn host_add(
     state: tauri::State<'_, Arc<BackendState>>,
     params: serde_json::Map<String, Value>,
 ) -> Result<Value, CallError> {
-    let backend = state.get()?;
-    blocking(move || backend.call_timeout("host.add", Value::Object(params), ADD_TIMEOUT)).await
+    call(&state, "host.add", Value::Object(params)).await
 }
-
-/// One connection with a 10 s login, then bw's sync and create (each up to 40 s).
-const ADD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The Live Inventory (ticket 28): removing, renaming and moving Hosts, groups, `:source` for
 /// roster.yml and the watch. Only these methods pass; each is a plain call to serve.
@@ -424,9 +414,6 @@ async fn folders_write(config: tauri::State<'_, ConfigState>, text: String) -> R
 async fn host_review(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
     call(&state, "host.review", json!({ "host": host })).await
 }
-
-/// roster waits up to 60 s for git's fetch.
-const EDIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
 fn session_error(e: SessionError) -> CallError {
     CallError::Io { message: e.to_string() }

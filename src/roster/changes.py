@@ -10,6 +10,7 @@ import signal
 import subprocess
 from pathlib import Path
 
+from .common import time_left
 from .edit import load_text, read_text, write_text
 from .errors import (
     COMMIT_FAILED,
@@ -30,17 +31,18 @@ from .errors import (
 
 GIT_TIMEOUT = 60            # s: a fetch over a slow link; nothing here waits on a person
 PUSH_TIMEOUT = 60           # s: the push; past it roster checks whether the push got there anyway
-CHECK_TIMEOUT = 20          # s: that check (a fetch)
+CHECK_TIMEOUT = 15          # s: that check (a fetch), even past serve's deadline
 HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mac", "web",
              "services")
 
 
-def git(repo, *args, timeout=GIT_TIMEOUT):
+def git(repo, *args, timeout=GIT_TIMEOUT, floor=1):
     """Run git in REPO, non-interactive. Past TIMEOUT its whole process group is killed (a push's remote side
     and hooks too, which would otherwise hold the output open) and it's a Problem."""
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
     env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
     argv = ["git", "-C", str(repo), *args]
+    timeout = round(time_left(timeout, floor), 1)          # held to serve's deadline for the whole request
     try:
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
                              text=True, env=env, start_new_session=True)
@@ -193,17 +195,30 @@ def host_changes(path, old_text, new_text):
 def diff(path):
     """roster.yml's Pending changes: the unified diff against the last commit, and the Hosts it changes.
     count is the number of changed Hosts (1 for a change that touches no Host, such as a comment); message is the
-    commit message changes.publish would write (for the app to show, and edit, before publishing)."""
+    commit message changes.publish would write (for the app to show, and edit, before publishing). last_commit is
+    the branch's last commit and whether its upstream has it (as this box last saw it, no fetch): after a Publish
+    the app gave up waiting for, that's how it tells whether it happened."""
     repo = Repo(path)
     text = repo.diff_text()
+    base = {"path": str(repo.path), "repo": str(repo.top), "last_commit": last_commit(repo)}
     if not text:
-        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "groups": [], "count": 0,
-                "message": ""}
+        return {**base, "diff": "", "hosts": [], "groups": [], "count": 0, "message": ""}
     old_text, new_text = repo.head_text() or "", read_text(repo.path)
     hosts = host_changes(repo.path, old_text, new_text)
     groups = group_changes(repo.path, old_text, new_text)
-    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "groups": groups,
-            "count": len(hosts) or 1, "message": commit_message(hosts, groups)}
+    return {**base, "diff": text, "hosts": hosts, "groups": groups, "count": len(hosts) or 1,
+            "message": commit_message(hosts, groups)}
+
+
+def last_commit(repo):
+    """{commit, subject, upstream, pushed}: HEAD, and whether the upstream (as last fetched) contains it."""
+    commit = out(repo.top, "rev-parse", "HEAD")
+    if commit is None:
+        return None
+    upstream = out(repo.top, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    pushed = bool(upstream) and git(repo.top, "merge-base", "--is-ancestor", "HEAD", "@{u}").returncode == 0
+    return {"commit": commit, "subject": out(repo.top, "log", "-1", "--format=%s") or "", "upstream": upstream,
+            "pushed": pushed}
 
 
 def discard(path):
@@ -268,7 +283,7 @@ def pushed_anyway(repo, remote, commit):
     """After a push that didn't finish: True if the upstream has COMMIT now, False if it hasn't, None if
     roster can't tell (the fetch fails too)."""
     try:
-        r = git(repo.top, "fetch", "--quiet", remote, timeout=CHECK_TIMEOUT)
+        r = git(repo.top, "fetch", "--quiet", remote, timeout=CHECK_TIMEOUT, floor=CHECK_TIMEOUT)
     except Problem:
         return None
     if r.returncode != 0:
@@ -350,7 +365,7 @@ def publish(path, message=None):
         if not landed:
             undo_commit(repo, commit)
             raise Problem(PUSH_FAILED,
-                          f"the push to {upstream} didn't finish within {PUSH_TIMEOUT} s and "
+                          f"the push to {upstream} didn't finish in time and "
                           + ("didn't get there; nothing was published" if landed is False else
                              "roster couldn't check whether it got there; the commit is undone here, so the "
                              "changes are Pending again"),

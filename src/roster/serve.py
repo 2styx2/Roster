@@ -20,7 +20,7 @@ import time
 
 from . import __version__, askpass, changes, diagnose, edit, providers
 from .claude import write_claude_files
-from .common import not_reviewed, ssh_config_file
+from .common import deadline, not_reviewed, ssh_config_file
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CANT_WRITE,
@@ -487,7 +487,8 @@ def take_back(made, e):
     if made is None:
         return e
     try:
-        providers.delete_item(made["provider"], made["id"])
+        with deadline(UNDO_TIME):
+            providers.delete_item(made["provider"], made["id"])
     except Exception as undo:
         what = str(undo) if isinstance(undo, providers.SecretError) else type(undo).__name__
         return Problem(e.code, f"{e.message}; the vault item '{made['name']}' couldn't be taken back out ({what}) "
@@ -942,6 +943,17 @@ METHODS["vault.login"] = vault_login
 
 # ---------------------------------------------------------------- the loop
 
+# Each long method's overall deadline (s). The app waits longer for each (app/src-tauri/src/lib.rs CALL_SECS),
+# at least the deadline plus AFTER_DEADLINE: a few steps still run once it's past (a 1 s floor each, up to 15 s
+# to check what a step that timed out did: changes.CHECK_TIMEOUT, bitwarden's lookup after a create; and UNDO_TIME
+# to take a new Vault item back out). So serve
+# always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
+DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
+             "host.verify_login": 45, "vault.create_item": 45}
+AFTER_DEADLINE = 40
+UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
+
+
 def handle(state, line):
     """One request line -> the response object, or None for a notification."""
     try:
@@ -959,7 +971,8 @@ def handle(state, line):
         params = req.get("params", {})
         if not isinstance(params, dict):
             raise RpcError(INVALID_PARAMS, "params must be an object")
-        result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
+        with deadline(DEADLINES.get(req["method"])):
+            result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
     except RpcError as e:
         result = error_response(rid, e)
     except SystemExit as e:                     # a die() inside roster: its message is the answer

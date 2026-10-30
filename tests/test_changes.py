@@ -179,8 +179,12 @@ def test_a_text_edit_needs_no_verify_and_keeps_every_other_byte(app, box):
 
 
 def test_the_diff_shows_exactly_the_change(app, box):
-    assert result(app.call("changes.diff")) == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [],
-                                               "groups": [], "count": 0, "message": ""}
+    d = result(app.call("changes.diff"))
+    last = d.pop("last_commit")
+    assert d == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [], "groups": [], "count": 0,
+                 "message": ""}
+    assert last == {"commit": git(box, "rev-parse", "HEAD"), "subject": "inventory", "upstream": "origin/main",
+                    "pushed": True}
     result(app.call("host.update", {"host": "esx", "changes": {"title": "ESXi 8"}}))
     d = result(app.call("changes.diff"))
     body = [ln for ln in d["diff"].splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
@@ -497,7 +501,7 @@ def test_a_push_that_times_out_before_reaching_the_remote_undoes_the_commit(box,
         quick_push.publish(box.yml)
     assert time.monotonic() - start < 15                    # the hook's sleep doesn't hold it up
     assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is False
-    assert "didn't finish within 1 s" in e.value.message and "nothing was published" in e.value.message
+    assert "didn't finish in time" in e.value.message and "nothing was published" in e.value.message
     assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
     assert origin_log(box) == "inventory"
 
@@ -530,6 +534,33 @@ def test_a_push_whose_outcome_cant_be_checked_undoes_the_commit_and_says_so(box,
     assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is None
     assert "couldn't check" in e.value.message
     assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+
+
+def test_publish_stays_within_its_deadline(box, monkeypatch):
+    import json
+    import time
+
+    from roster import serve as rpc
+    hanging_hook(box, "pre-receive", accept=False)
+    monkeypatch.setitem(rpc.DEADLINES, "changes.publish", 2)
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    state = rpc.State(str(box.yml))
+    start = time.monotonic()
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "changes.publish", "params": {}}))
+    assert time.monotonic() - start < 2 + rpc.AFTER_DEADLINE
+    assert r["error"]["code"] == 96 and r["error"]["data"]["timed_out"] and pending_as_before(box)
+
+
+def test_the_diff_says_whether_the_last_commit_is_published(owner, box):
+    result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    r = result(owner.call("changes.publish"))
+    last = result(owner.call("changes.diff"))["last_commit"]
+    assert last == {"commit": r["commit"], "subject": "roster: change esx (title)", "upstream": "origin/main",
+                    "pushed": True}
+    (box / "README.md").write_text("local\n")
+    git(box, "commit", "-qam", "local only")
+    last = result(owner.call("changes.diff"))["last_commit"]
+    assert last["subject"] == "local only" and last["pushed"] is False
 
 
 def test_a_refused_commit_publishes_nothing(owner, box):

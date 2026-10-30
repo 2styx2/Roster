@@ -88,6 +88,8 @@ export interface FakeScenario {
   /** Per new Host name: what `host.add`'s test login answers (default: ok when the typed password
    * is FAKE_HOST_PASSWORD, or an existing item is named). */
   addVerify?: Record<string, HostCheck>;
+  /** host.add and changes.publish do their work, then answer like a call the app stopped waiting for. */
+  lateAnswers?: boolean;
   /** host.add's `warnings` by Host name: what failed after the Host was written. */
   addWarnings?: Record<string, string[]>;
   /** Edits already made on this Box when the app starts (Pending changes), per Host. */
@@ -568,8 +570,12 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       groups: groupChanges,
       count: changed.length || (groupChanges.length ? 1 : 0),
       message: commitMessage(changed),
+      last_commit: { commit: publishedOnce ? FAKE_COMMIT : "0000000000000000000000000000000000000000", subject: "inventory", upstream: "origin/main", pushed: true },
     };
   };
+  let publishedOnce = false;
+  /** What the Tauri shell answers for a call it stopped waiting for. */
+  const late = () => new BackendCallError("The backend didn't answer in time.", null, null, true, true);
   let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
   const vaultMessage = () =>
     vault === "not-logged-in"
@@ -894,9 +900,11 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       committed = hosts;
       committedGroups = groups;
+      publishedOnce = true;
       const sync = scenario.publishSyncError
         ? { ok: false, error: scenario.publishSyncError, fix: "run `roster sync` on this box" }
         : { ok: true };
+      if (scenario.lateAnswers) throw late();
       return { commit: FAKE_COMMIT, upstream: "origin/main", message, hosts: now.hosts, groups: [], pulled: 0, sync };
     },
     async scanKey(address, port) {
@@ -961,6 +969,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       };
       hosts = [...hosts, added];
       if (!(p.group in groups)) groups = { ...groups, [p.group]: { title: "", description: "" } };
+      if (scenario.lateAnswers) throw late();
       return {
         added: true,
         host: added,
