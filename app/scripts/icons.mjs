@@ -3,9 +3,11 @@
 // plain, decisions Q57 and Q59). The icon has no tile: a transparent mark in one mid-tone neutral
 // and a mid apricot Host, so it reads on the light and the dark Windows taskbar alike.
 // `tauri icon` renders every size from assets/logo-icon.svg; then the 16, 20, 24 and 32 px images
-// (the taskbar, title bars, Alt+Tab, the tray) are redrawn from assets/logo-icon-small.svg, whose
-// heavier strokes survive small sizes, and icon.ico is repacked with them plus 40, 48, 64 and 256
-// from the full cut. Run: `npm run icons` in app/ (or node app/scripts/icons.mjs)
+// (the taskbar, title bars, Alt+Tab, the tray) are redrawn from the small cut, one master per size
+// drawn on that size's own pixel grid (assets/logo-icon-small-16.svg, -20, -24, and
+// logo-icon-small.svg for 32), so the network R's nodes still read there (issue #78, decision Q65),
+// and icon.ico is repacked with them plus 40, 48, 64 and 256 from the full cut.
+// Run: `npm run icons` in app/ (or node app/scripts/icons.mjs)
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,16 +27,21 @@ rmSync(join(icons, "ios"), { recursive: true, force: true });
 
 const tmp = mkdtempSync(join(tmpdir(), "roster-icons-"));
 try {
-  tauri("assets/logo-icon-small.svg", "-o", join(tmp, "small"), "-p", SMALL.join(","));
+  for (const s of SMALL) tauri(smallCut(s), "-o", join(tmp, `small-${s}`), "-p", String(s));
   tauri("assets/logo-icon.svg", "-o", join(tmp, "big"), "-p", FULL.join(","));
   const layers = [
-    ...SMALL.map((s) => [s, join(tmp, "small", `${s}x${s}.png`)]),
+    ...SMALL.map((s) => [s, join(tmp, `small-${s}`, `${s}x${s}.png`)]),
     ...FULL.map((s) => [s, join(tmp, "big", `${s}x${s}.png`)]),
   ];
   writeFileSync(join(icons, "icon.ico"), ico(layers.map(([size, file]) => [size, readFileSync(file)])));
-  copyFileSync(join(tmp, "small", "32x32.png"), join(icons, "32x32.png"));
+  copyFileSync(join(tmp, "small-32", "32x32.png"), join(icons, "32x32.png"));
 } finally {
   rmSync(tmp, { recursive: true, force: true });
+}
+
+/** The small cut's master for SIZE px: its own pixel grid's (32 px is logo-icon-small.svg). */
+function smallCut(size) {
+  return size === 32 ? "assets/logo-icon-small.svg" : `assets/logo-icon-small-${size}.svg`;
 }
 
 /** An .ico holding PNG images (Windows Vista and later read PNG layers). */
