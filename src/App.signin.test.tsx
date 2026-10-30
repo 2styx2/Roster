@@ -50,6 +50,32 @@ describe("signing in from the lock screen", () => {
     expect((await backend.vaultStatus()).status).toBe("unlocked");
   });
 
+  it("has the focus on a screen's first field in the same commit that shows it (no moment without it)", async () => {
+    // A screen that comes from an answer (vault.status, a sign-in step) isn't a discrete event, so a
+    // passive effect would focus it a task later: a key pressed in between went to <body>. Watch the
+    // DOM: a MutationObserver runs right after React's commit, before any later task.
+    const seen: { what: string; focused: boolean }[] = [];
+    const watch = new MutationObserver(() => {
+      const radio = document.querySelector<HTMLInputElement>('input[name="server"][data-autofocus]');
+      const code = document.querySelector<HTMLInputElement>("input#signin-code");
+      for (const [what, el] of [["server", radio], ["code", code]] as const) {
+        if (el && !seen.some((s) => s.what === what)) seen.push({ what, focused: document.activeElement === el });
+      }
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
+    try {
+      const { user } = await start();
+      await throughPassword(user);
+      await within(dialog()).findByLabelText(/new-device code/i);
+    } finally {
+      watch.disconnect();
+    }
+    expect(seen).toEqual([
+      { what: "server", focused: true },
+      { what: "code", focused: true },
+    ]);
+  });
+
   it("offers the account's two-step methods, keeps the step after a wrong code, and clears the field", async () => {
     const { user } = await start(fixtures["sign-in-2fa"]);
     await throughPassword(user);
