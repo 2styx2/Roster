@@ -126,6 +126,8 @@ Then start Claude Code in that folder. `CLAUDE.md` imports `ROSTER.md`, which li
 
 ## roster.yml
 
+**Your `roster.yml` is private.** It lives in your team's own private git repo (or only on your box), never in a public one and never in this repo. It names your Hosts, addresses, users and vault items, so it says a lot about your network even though it holds no passwords. roster itself stays generic: anything specific to your team (names, device types, groups) belongs in your `roster.yml`, not in roster's code.
+
 Settings cascade `defaults` → group → host, with the most specific winning. Run `roster init` to get a fully commented example; there is also one at `examples/roster.example.yml`.
 
 ```yaml
