@@ -16,7 +16,7 @@
 //! the frontend's registries.
 
 use super::schema::Location;
-use super::{ConfigError, Env, FILE_NAME};
+use super::{ConfigError, Env, FILE_NAME, located_message};
 use mlua::chunk::ChunkMode;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use serde_json::{Map, Number, Value as Json};
@@ -139,14 +139,6 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
     };
     let api = std::mem::take(&mut *api.borrow_mut());
     Ok(RunOutput { value, api })
-}
-
-fn located_message(path: &[String], message: &str) -> String {
-    if path.is_empty() {
-        message.to_string()
-    } else {
-        format!("{}: {message}", path.join("."))
-    }
 }
 
 /// Where the Config's own code is: the running function if it's from a `.lua` file, else the

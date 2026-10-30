@@ -206,7 +206,8 @@ pub fn load_with(dir: &Path, env: &Env) -> Result<Config, ConfigError> {
     Ok(config)
 }
 
-fn located_message(path: &[String], message: &str) -> String {
+/// `terminal.size: message`, or just the message when there's no path.
+pub(crate) fn located_message(path: &[String], message: &str) -> String {
     if path.is_empty() {
         message.to_string()
     } else {
