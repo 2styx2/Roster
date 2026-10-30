@@ -40,6 +40,14 @@ _Avoid_: draft, unsaved edit
 Committing the Pending changes and pushing them to the infra repo, so every Box picks them up.
 _Avoid_: save, sync (sync means rewriting a Box's ssh config from the Inventory)
 
+**Mesh**:
+Host-to-Host access that one Box sets up: Hosts in a meshed group, or joined by a Link, can log in to each other with their own keys. Nothing is installed on the Hosts.
+_Avoid_: VPN, tailnet, fleet
+
+**Link**:
+A one-way (or `both`) permission in the Inventory for one Host or group to reach another across groups or networks.
+_Avoid_: route, peering
+
 ## The app
 
 The desktop app's own words, on top of the ones above (which mean the same thing in the app).
