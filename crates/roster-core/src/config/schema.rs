@@ -49,6 +49,9 @@ pub struct Config {
     pub backend: BackendChoice,
     /// What `:config` opens init.lua with (ticket 32).
     pub editor: Editor,
+    /// Reload on every save of a `.lua` file. Off by default: `:source` reloads, as in Neovim
+    /// (decision Q58).
+    pub auto_reload: bool,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -76,6 +79,7 @@ impl Default for Config {
             roster_command: None,
             backend: BackendChoice::Auto,
             editor: Editor::Os,
+            auto_reload: false,
             lines: BTreeMap::new(),
         }
     }
