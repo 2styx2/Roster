@@ -1,10 +1,13 @@
 // The bundled Themes. Roster dark and Roster light are the defaults (decision Q29: jade accent,
-// Linear's muted, dark-first palette); Gruvbox and Nord ship to prove the token set is complete,
-// and bring their own ANSI palettes, which a Theme may do (decision Q37). The Roster Themes keep
-// the standard palette.
+// Linear's muted, dark-first palette) and keep the standard ANSI palette (decision Q37). Gruvbox
+// Dark, Nord, Catppuccin Mocha and Tokyo Night (decision Q51, ticket 30) come from their official
+// palettes and bring their own ANSI colours from the same source. docs/themes.md credits each
+// source and lists where a token isn't a palette colour.
 import { BUILTIN, Registry } from "../registry";
 import type { Theme, ThemeRegistry } from "./theme";
 
+// Jade (decision Q29). Its button text is near-black in Roster dark, and Roster light uses the
+// darker jade for its fills, so both are 4.5:1 (ticket 30).
 const JADE = "#1f9d68";
 
 export const rosterDark: Theme = {
@@ -14,7 +17,7 @@ export const rosterDark: Theme = {
   appearance: "dark",
   colors: {
     accent: JADE,
-    accentText: "#ffffff",
+    accentText: "#08090a",
     accentInk: "#3fc28a",
     bg: "#08090a",
     chrome: "#0f1011",
@@ -52,7 +55,7 @@ export const rosterLight: Theme = {
   label: "Roster light",
   appearance: "light",
   colors: {
-    accent: JADE,
+    accent: "#17845a",
     accentText: "#ffffff",
     accentInk: "#17845a",
     bg: "#ffffff",
@@ -85,28 +88,31 @@ export const rosterLight: Theme = {
   },
 };
 
+// Gruvbox Dark, medium contrast (morhetz/gruvbox, colors/gruvbox.vim, MIT/X11): bg0 #282828,
+// yellow accent (bright_yellow; orange is the documented alternative, docs/themes.md). The ANSI
+// palette is the one gruvbox.vim gives Neovim's terminal.
 export const gruvbox: Theme = {
   id: "gruvbox",
   source: BUILTIN,
-  label: "Gruvbox",
+  label: "Gruvbox Dark",
   appearance: "dark",
   colors: {
-    accent: "#b8bb26",
-    accentText: "#1d2021",
-    accentInk: "#b8bb26",
-    bg: "#1d2021",
-    chrome: "#282828",
-    sidebar: "#282828",
-    panel: "#282828",
+    accent: "#fabd2f",
+    accentText: "#282828",
+    accentInk: "#fabd2f",
+    bg: "#282828",
+    chrome: "#1d2021",
+    sidebar: "#1d2021",
+    panel: "#32302f",
     raised: "#3c3836",
     raisedLine: "#504945",
     hover: "#32302f",
-    line: "#32302f",
+    line: "#3c3836",
     lineStrong: "#504945",
     text: "#ebdbb2",
     muted: "#a89984",
     faint: "#7c6f64",
-    warn: "#fabd2f",
+    warn: "#fe8019",
     error: "#fb4934",
     danger: "#cc241d",
     dangerText: "#fbf1c7",
@@ -114,10 +120,10 @@ export const gruvbox: Theme = {
     shadow: "rgb(0 0 0 / 0.5)",
   },
   terminal: {
-    background: "#1d2021",
+    background: "#282828",
     foreground: "#ebdbb2",
     cursor: "#ebdbb2",
-    cursorAccent: "#1d2021",
+    cursorAccent: "#282828",
     selectionBackground: "#504945",
     searchMatch: "#665c54",
     searchActiveMatch: "#d79921",
@@ -142,6 +148,9 @@ export const gruvbox: Theme = {
   },
 };
 
+// Nord (nordtheme/nord, src/nord.css, MIT): Polar Night surfaces, Snow Storm text, frost blue
+// (nord8) accent. Terminal and ANSI colours and the muted text (dim_foreground) from the official
+// nordtheme/alacritty port. `faint` is derived (between nord3 and nord4): nord3 is too dark for text.
 export const nord: Theme = {
   id: "nord",
   source: BUILTIN,
@@ -152,21 +161,21 @@ export const nord: Theme = {
     accentText: "#2e3440",
     accentInk: "#88c0d0",
     bg: "#2e3440",
-    chrome: "#2b303b",
-    sidebar: "#2b303b",
-    panel: "#323846",
-    raised: "#3b4252",
+    chrome: "#2e3440",
+    sidebar: "#2e3440",
+    panel: "#3b4252",
+    raised: "#434c5e",
     raisedLine: "#4c566a",
-    hover: "#353b48",
-    line: "#3a4150",
+    hover: "#3b4252",
+    line: "#3b4252",
     lineStrong: "#4c566a",
     text: "#eceff4",
-    muted: "#a3acbd",
-    faint: "#727d92",
+    muted: "#a5abb6",
+    faint: "#7b88a1",
     warn: "#ebcb8b",
     error: "#bf616a",
     danger: "#bf616a",
-    dangerText: "#eceff4",
+    dangerText: "#2e3440",
     backdrop: "rgb(0 0 0 / 0.4)",
     shadow: "rgb(0 0 0 / 0.4)",
   },
@@ -175,9 +184,9 @@ export const nord: Theme = {
     foreground: "#d8dee9",
     cursor: "#d8dee9",
     cursorAccent: "#2e3440",
-    selectionBackground: "#434c5e",
-    searchMatch: "#5e5a3c",
-    searchActiveMatch: "#ebcb8b",
+    selectionBackground: "#4c566a",
+    searchMatch: "#434c5e",
+    searchActiveMatch: "#5e81ac",
   },
   ansi: {
     black: "#3b4252",
@@ -199,7 +208,128 @@ export const nord: Theme = {
   },
 };
 
-export const bundledThemes: readonly Theme[] = [rosterDark, rosterLight, gruvbox, nord];
+// Catppuccin Mocha (catppuccin/palette, palette.json, MIT): base/mantle/surface0-2 surfaces,
+// mauve accent with crust text on it, and the palette's own `ansiColors` for the terminal.
+export const catppuccinMocha: Theme = {
+  id: "catppuccin-mocha",
+  source: BUILTIN,
+  label: "Catppuccin Mocha",
+  appearance: "dark",
+  colors: {
+    accent: "#cba6f7",
+    accentText: "#11111b",
+    accentInk: "#cba6f7",
+    bg: "#1e1e2e",
+    chrome: "#181825",
+    sidebar: "#181825",
+    panel: "#181825",
+    raised: "#45475a",
+    raisedLine: "#585b70",
+    hover: "#313244",
+    line: "#313244",
+    lineStrong: "#45475a",
+    text: "#cdd6f4",
+    muted: "#a6adc8",
+    faint: "#7f849c",
+    warn: "#f9e2af",
+    error: "#f38ba8",
+    danger: "#f38ba8",
+    dangerText: "#11111b",
+    backdrop: "rgb(17 17 27 / 0.6)",
+    shadow: "rgb(17 17 27 / 0.6)",
+  },
+  terminal: {
+    background: "#1e1e2e",
+    foreground: "#cdd6f4",
+    cursor: "#f5e0dc",
+    cursorAccent: "#1e1e2e",
+    selectionBackground: "#585b70",
+    searchMatch: "#45475a",
+    searchActiveMatch: "#7f849c",
+  },
+  ansi: {
+    black: "#45475a",
+    red: "#f38ba8",
+    green: "#a6e3a1",
+    yellow: "#f9e2af",
+    blue: "#89b4fa",
+    magenta: "#f5c2e7",
+    cyan: "#94e2d5",
+    white: "#a6adc8",
+    brightBlack: "#585b70",
+    brightRed: "#f37799",
+    brightGreen: "#89d88b",
+    brightYellow: "#ebd391",
+    brightBlue: "#74a8fc",
+    brightMagenta: "#f2aede",
+    brightCyan: "#6bd7ca",
+    brightWhite: "#bac2de",
+  },
+};
+
+// Tokyo Night, the "night" style (folke/tokyonight.nvim, lua/tokyonight/colors/night.lua over
+// storm.lua, Apache-2.0): bg #1a1b26, blue accent (purple, #bb9af7, is the documented
+// alternative). Terminal and ANSI colours from the repo's extras/kitty/tokyonight_night.conf.
+// `hover` is storm's bg_dark (#1f2335), which night overrides: night has no step between bg and
+// bg_highlight.
+export const tokyoNight: Theme = {
+  id: "tokyo-night",
+  source: BUILTIN,
+  label: "Tokyo Night",
+  appearance: "dark",
+  colors: {
+    accent: "#7aa2f7",
+    accentText: "#16161e",
+    accentInk: "#7aa2f7",
+    bg: "#1a1b26",
+    chrome: "#16161e",
+    sidebar: "#16161e",
+    panel: "#16161e",
+    raised: "#292e42",
+    raisedLine: "#3b4261",
+    hover: "#1f2335",
+    line: "#292e42",
+    lineStrong: "#3b4261",
+    text: "#c0caf5",
+    muted: "#a9b1d6",
+    faint: "#737aa2",
+    warn: "#e0af68",
+    error: "#f7768e",
+    danger: "#db4b4b",
+    dangerText: "#16161e",
+    backdrop: "rgb(0 0 0 / 0.5)",
+    shadow: "rgb(0 0 0 / 0.5)",
+  },
+  terminal: {
+    background: "#1a1b26",
+    foreground: "#c0caf5",
+    cursor: "#c0caf5",
+    cursorAccent: "#1a1b26",
+    selectionBackground: "#283457",
+    searchMatch: "#3d59a1",
+    searchActiveMatch: "#ff9e64",
+  },
+  ansi: {
+    black: "#15161e",
+    red: "#f7768e",
+    green: "#9ece6a",
+    yellow: "#e0af68",
+    blue: "#7aa2f7",
+    magenta: "#bb9af7",
+    cyan: "#7dcfff",
+    white: "#a9b1d6",
+    brightBlack: "#414868",
+    brightRed: "#ff899d",
+    brightGreen: "#9fe044",
+    brightYellow: "#faba4a",
+    brightBlue: "#8db0ff",
+    brightMagenta: "#c7a9ff",
+    brightCyan: "#a4daff",
+    brightWhite: "#c0caf5",
+  },
+};
+
+export const bundledThemes: readonly Theme[] = [rosterDark, rosterLight, gruvbox, nord, catppuccinMocha, tokyoNight];
 
 /** A Theme registry holding the bundled Themes. */
 export function builtinThemeRegistry(): ThemeRegistry {
