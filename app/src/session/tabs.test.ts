@@ -180,12 +180,42 @@ describe("Tabs", () => {
     };
     const tabs = new Tabs(fakeBackend(scenario));
     const id = tabs.open(host);
-    await settle();
+    // Wait for each attempt's own end, not a fixed time: on a loaded runner a 10 ms sleep can
+    // run out before the first attempt has ended, and then reconnect() rightly does nothing
+    // (issue #76: the tab then ends with the first attempt's 40).
+    const ended = () => vi.waitFor(() => expect(tabs.snapshot().tabs[0]!.status.state).toBe("ended"));
+    await ended();
     scenario.sshFailures = { [host]: "admin@x: Permission denied (publickey).\r\n" };
-    tabs.reconnect(id);
-    await settle();
+    expect(tabs.reconnect(id)).toBe(true);
+    await ended();
     const status = tabs.snapshot().tabs[0]!.status;
     expect(status.state === "ended" && status.problem?.code).toBe(46);
+  });
+
+  it("never lets an earlier attempt's late output or exit reach the reconnect (issue #76)", async () => {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    const attempts: SessionEvents[] = [];
+    backend.openSession = async (_host, _size, ev) => {
+      attempts.push(ev);
+      const done = async () => {};
+      return { id: attempts.length, auth: "key", write: done, resize: done, close: done };
+    };
+    const print = (ev: SessionEvents, s: string) => ev.output(new TextEncoder().encode(s));
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0]!);
+    await vi.waitFor(() => expect(attempts).toHaveLength(1));
+    const [first] = attempts;
+    print(first!, "ssh: Could not resolve hostname x.lab: Name or service not known\r\n");
+    first!.exit({ code: 255, closed: false });
+    expect(tabs.reconnect(id)).toBe(true);
+    await vi.waitFor(() => expect(attempts).toHaveLength(2));
+    // The first attempt speaks again, after the reconnect: none of it may count.
+    print(first!, "ssh: Could not resolve hostname x.lab: Name or service not known\r\n");
+    first!.exit({ code: 255, closed: false });
+    expect(tabs.snapshot().tabs[0]!.status.state).not.toBe("ended");
+    print(attempts[1]!, "admin@x: Permission denied (publickey).\r\n");
+    attempts[1]!.exit({ code: 255, closed: false });
+    expect(problemOf(tabs.snapshot().tabs[0]!.status)).toMatchObject({ code: 46, details: "admin@x: Permission denied (publickey)." });
   });
 
   it("decodes each tab's output on its own, even with a character split across chunks", async () => {
