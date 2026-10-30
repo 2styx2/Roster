@@ -71,14 +71,24 @@ return {
 
   -- The terminal ------------------------------------------------------------------------------
   terminal = {
-    font = on_windows and "Iosevka" or "Iosevka", -- logic is fine: e.g. "Cascadia Mono" on Windows
-    size = 14, -- points, 6 to 40; Ctrl+= / Ctrl+- zoom, Ctrl+0 comes back here
-    weight = 500, -- 100 to 900; Iosevka ships at 400, 500 (medium) and 700
+    -- Font families, most wanted first: the first one installed is used, and the bundled
+    -- Iosevka (no Nerd Font icons) is always there. A name, a CSS stack, or a list.
+    -- e.g. font = on_windows and "Cascadia Mono" or "Iosevka" (logic is fine)
+    font = { "Iosevka Nerd Font", "Iosevka Term", "Iosevka" },
+    -- A number is px; "16pt" is points, as Windows Terminal counts them (16 pt = 21.33 px at any
+    -- display scale). 6 to 72 px. Ctrl+= / Ctrl+- zoom, Ctrl+0 comes back here.
+    size = "12pt",
+    weight = 500, -- 100 to 900; the bundled Iosevka ships at 400, 500 (medium) and 700
     bold_weight = 700,
-    line_height = 1.0, -- 0.5 to 3
+    line_height = 1.0, -- a multiple of the font's own line height, 0.5 to 3
+    -- cell_height = 1.2, -- or a multiple of the font size, as Windows Terminal's cellHeight (wins)
     scrollback = 10000, -- lines, at most 1000000
     copy_on_select = true,
     right_click_paste = true, -- right-click copies the selection, or pastes when there's none
+    -- "webgl" (fast, the default) or "dom" (the browser's own text rendering: closer to
+    -- Windows Terminal's ClearType, slower with a lot of output). docs/app/config.md compares them.
+    renderer = "webgl",
+    cursor_style = "block", -- "block", "bar" or "underline"
     -- Over the Theme's: background, foreground, cursor, cursor_accent, selection_background,
     -- search_match, search_active_match, and the 16 ANSI colours: black, red, green, yellow,
     -- blue, magenta, cyan, white, bright_black, bright_red, bright_green, bright_yellow,

@@ -13,6 +13,7 @@ import type { TermSize } from "../backend/types";
 import { chordOf, type Action } from "../keymap";
 import type { Clipboard } from "../platform/types";
 import { isLeaderKey } from "./keys";
+import { deviceAdvance, lineHeightFor, roundedCellSpacing } from "./fonts";
 import type { TerminalOptions, TerminalTheme, ZoomAction } from "./options";
 import { SearchBar, type SearchResults } from "./SearchBar";
 
@@ -51,6 +52,28 @@ export interface TerminalViewProps {
 
 export type TerminalViewComponent = (props: TerminalViewProps) => React.ReactNode;
 
+/** Cells as wide as Windows Terminal's: the advance rounded to the nearest device px. The DOM
+ * renderer already lays text out at the font's own advance, so it gets none (measured in
+ * docs/app/design/terminal-vs-wt). */
+function cellSpacing(options: TerminalOptions, size: number): number {
+  if (options.renderer === "dom") return 0;
+  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  return roundedCellSpacing(deviceAdvance(options.fontFamily, options.fontWeight, size, dpr));
+}
+
+/** The font's own line height at `size`, as xterm measures it (a span with line-height normal);
+ * 0 where there's no layout. */
+function naturalHeight(options: TerminalOptions, size: number): number {
+  if (typeof document === "undefined") return 0;
+  const span = document.createElement("span");
+  span.textContent = "W";
+  span.style.cssText = `position:absolute;visibility:hidden;white-space:pre;line-height:normal;font:${options.fontWeight} ${size}px ${options.fontFamily}`;
+  document.body.appendChild(span);
+  const h = span.getBoundingClientRect().height;
+  span.remove();
+  return h;
+}
+
 /** The theme without the app's own entries (search highlights), as xterm takes it. */
 function xtermTheme(t: TerminalTheme): ITheme {
   const theme: Partial<TerminalTheme> = { ...t };
@@ -83,7 +106,10 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       fontSize: cb.current.env.fontSize,
       fontWeight: options.fontWeight,
       fontWeightBold: options.fontWeightBold,
-      lineHeight: options.lineHeight,
+      lineHeight: lineHeightFor(options, cb.current.env.fontSize, () => naturalHeight(options, cb.current.env.fontSize)),
+      cursorStyle: options.cursorStyle,
+      drawBoldTextInBrightColors: options.boldIsBright,
+      letterSpacing: cellSpacing(options, cb.current.env.fontSize),
       theme: xtermTheme(cb.current.env.theme),
     });
     const f = new FitAddon();
@@ -207,10 +233,12 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
   // lost canvases behind (ticket 27). A hidden terminal draws nothing, so it gives its context
   // back and the DOM renderer keeps its state; showing it again takes a fresh one.
   const noWebgl = useRef(false);
+  const renderer = env.options.renderer;
   useEffect(() => {
     const t = term.current;
     const host = el.current;
-    if (!active || !t || !host || noWebgl.current) return;
+    // `renderer = "dom"` (ticket 33): the browser's own text rendering, closer to ClearType.
+    if (!active || !t || !host || noWebgl.current || renderer === "dom") return;
     let webgl: WebglAddon | null = null;
     const drop = () => {
       webgl?.dispose();
@@ -228,7 +256,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       webgl = null;
     }
     return drop;
-  }, [active]);
+  }, [active, renderer]);
 
   // ConPTY sits between us and the shell on Windows (WSL included); xterm adapts its reflow to
   // the real build (>= 21376 keeps reflow on).
@@ -249,7 +277,10 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       t.options.fontFamily = options.fontFamily;
       t.options.fontWeight = options.fontWeight;
       t.options.fontWeightBold = options.fontWeightBold;
-      t.options.lineHeight = options.lineHeight;
+      t.options.lineHeight = lineHeightFor(options, fontSize, () => naturalHeight(options, fontSize));
+      t.options.cursorStyle = options.cursorStyle;
+      t.options.drawBoldTextInBrightColors = options.boldIsBright;
+      t.options.letterSpacing = cellSpacing(options, fontSize);
       t.options.scrollback = options.scrollback;
       if (t.options.fontSize !== fontSize) t.options.fontSize = fontSize;
       if (el.current?.offsetParent !== null) fit.current?.fit();
@@ -267,6 +298,20 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       live = false;
     };
   }, [fontSize, options, theme]);
+
+  // Moving the window to a screen with another scale changes the device px a cell rounds to.
+  const [dpr, setDpr] = useState(() => (typeof window === "undefined" ? 1 : window.devicePixelRatio || 1));
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    const onChange = () => {
+      const t = term.current;
+      if (t) t.options.letterSpacing = cellSpacing(cb.current.env.options, cb.current.env.fontSize);
+      setDpr(window.devicePixelRatio || 1);
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, [dpr]);
 
   // A view mode change resizes the window (OS fullscreen) after the layout does, so fit again
   // once it has settled; the ResizeObserver catches most of it, this catches the rest.

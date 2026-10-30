@@ -71,7 +71,7 @@ describe("Saving init.lua applies it live", () => {
     const { user, platform } = await ready();
     await connect(user, h0);
     await connect(user, h1);
-    expect(terminal().dataset.font).toMatch(/^"Iosevka"/);
+    expect(terminal().dataset.font).toMatch(/^"Iosevka Nerd Font", "Iosevka Term", "Iosevka"/);
     expect(terminal().dataset.weight).toBe("500");
     expect(terminal().dataset.weightBold).toBe("700");
     // vim keys on: k moves up the list.
@@ -87,7 +87,7 @@ describe("Saving init.lua applies it live", () => {
           vim: false,
           theme: "nord",
           keys: [{ context: "leader", keys: "t", action: "prev" }],
-          terminal: { ...defaultConfig.terminal, font: "JetBrains Mono", size: 16, weight: 400 },
+          terminal: { ...defaultConfig.terminal, font: ["JetBrains Mono"], size: 16, weight: 400 },
         }),
       ),
     );

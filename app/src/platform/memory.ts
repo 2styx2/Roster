@@ -1,5 +1,5 @@
 // A Platform held in memory, for tests: a State file and a clipboard you can look at.
-import type { ConfigReport } from "../config/types";
+import type { ConfigReport, ImportPreview } from "../config/types";
 import type { Platform } from "./types";
 
 export interface MemoryPlatform extends Platform {
@@ -19,6 +19,10 @@ export interface MemoryPlatform extends Platform {
   opened(): string[];
   /** Makes the next `:config` fail with `message`. */
   failOpen(message: string): void;
+  /** The `base` of each import written, in order. */
+  imported(): string[];
+  /** Makes the next import preview fail with `message`. */
+  failImport(message: string): void;
 }
 
 /** What the core writes the first time (roster-core config/editor.rs starter): commented out. */
@@ -32,6 +36,8 @@ export function memoryPlatform(
     config?: ConfigReport;
     /** init.lua's text (default: no file). */
     configFile?: string | null;
+    /** What `:config import-terminal` previews. */
+    importPreview?: ImportPreview;
   } = {},
 ): MemoryPlatform {
   let state = start.state ?? {};
@@ -43,6 +49,8 @@ export function memoryPlatform(
   let file = start.configFile ?? null;
   const opened: string[] = [];
   let openError: string | null = null;
+  let importError: string | null = null;
+  const imported: string[] = [];
   const path = () => config?.path ?? "/home/you/.config/roster/init.lua";
   const emit = (report: ConfigReport) => {
     for (const w of watchers) w(report);
@@ -81,6 +89,18 @@ export function memoryPlatform(
         opened.push(path());
         return { path: path(), created };
       },
+      async importPreview() {
+        if (importError !== null) {
+          const message = importError;
+          importError = null;
+          throw new Error(message);
+        }
+        if (!start.importPreview) throw new Error("no Windows Terminal settings.json found");
+        return start.importPreview;
+      },
+      async importApply(base) {
+        imported.push(base);
+      },
       async reload() {
         if (config) emit(config);
         return config;
@@ -95,6 +115,10 @@ export function memoryPlatform(
     },
     configFile: () => file,
     opened: () => [...opened],
+    imported: () => [...imported],
+    failImport(message) {
+      importError = message;
+    },
     failOpen(message) {
       openError = message;
     },

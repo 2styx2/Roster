@@ -35,9 +35,12 @@ export interface TerminalTheme extends AnsiPalette {
 }
 
 export interface TerminalOptions {
-  /** A monospace font stack. */
+  /** The Config's families, most wanted first (fonts.ts says which one is in use). */
+  fonts: readonly string[];
+  /** A monospace font stack: `fonts`, then fallbacks. */
   fontFamily: string;
-  /** Points; zoom moves it between minFontSize and maxFontSize, and resets to this. */
+  /** CSS px (the Config may give points); zoom moves it between minFontSize and maxFontSize,
+   * and resets to this. */
   fontSize: number;
   /** Medium (500) by default; the bundled Iosevka has 400, 500 and 700. */
   fontWeight: number;
@@ -45,6 +48,13 @@ export interface TerminalOptions {
   minFontSize: number;
   maxFontSize: number;
   lineHeight: number;
+  /** A multiple of the font size, as Windows Terminal's cellHeight; wins over lineHeight. */
+  cellHeight: number | null;
+  /** xterm's WebGL renderer (fast) or the DOM's (the browser's own text rendering). */
+  renderer: "webgl" | "dom";
+  cursorStyle: "block" | "bar" | "underline";
+  /** Bold text in the bright ANSI colours too (Windows Terminal's intenseTextStyle "bright"). */
+  boldIsBright: boolean;
   scrollback: number;
   /** Selecting text copies it. */
   copyOnSelect: boolean;
@@ -74,23 +84,35 @@ export const standardAnsi: AnsiPalette = {
   brightWhite: "#f2f2f2",
 };
 
+/** As roster-core's defaults (config/schema.rs Terminal): checked by config.test.ts. */
+const DEFAULT_FONTS = ["Iosevka Nerd Font", "Iosevka Term", "Iosevka"];
+
 export const defaultTerminalOptions: TerminalOptions = {
-  fontFamily: '"Iosevka", "Cascadia Mono", Consolas, ui-monospace, monospace',
-  fontSize: 14,
+  fonts: DEFAULT_FONTS,
+  fontFamily: terminalFontStack(DEFAULT_FONTS),
+  // 12 pt, Windows Terminal's default size: 12 × 96/72.
+  fontSize: 16,
   fontWeight: 500,
   fontWeightBold: 700,
   minFontSize: 6,
-  maxFontSize: 40,
+  maxFontSize: 72,
   lineHeight: 1,
+  cellHeight: null,
+  renderer: "webgl",
+  cursorStyle: "block",
+  boldIsBright: true,
   scrollback: 10000,
   copyOnSelect: true,
   rightClickCopyPaste: true,
 };
 
+import { terminalFontStack } from "./fonts";
+
 export type ZoomAction = "terminal.zoomIn" | "terminal.zoomOut" | "terminal.zoomReset";
 
 /** The font size after a zoom key. */
 export function zoom(options: TerminalOptions, size: number, action: ZoomAction): number {
-  const next = action === "terminal.zoomIn" ? size + 1 : action === "terminal.zoomOut" ? size - 1 : options.fontSize;
+  // Whole px steps from wherever it is (16 pt is 21.33 px); reset goes back exactly.
+  const next = action === "terminal.zoomIn" ? Math.floor(size) + 1 : action === "terminal.zoomOut" ? Math.ceil(size) - 1 : options.fontSize;
   return Math.min(options.maxFontSize, Math.max(options.minFontSize, next));
 }

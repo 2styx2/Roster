@@ -113,18 +113,29 @@ impl Default for Fonts {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
 pub struct Terminal {
-    /// A family name ("Iosevka") or a whole CSS font stack.
-    pub font: String,
-    /// Points; zoom keys move it, `Ctrl+0` comes back here.
-    pub size: u32,
+    /// Font families in order of preference: the first one installed (or bundled) is used
+    /// (ticket 33). A name, a CSS stack, or a list.
+    pub font: FontList,
+    /// A number is px; "16pt" is points, converted as Windows Terminal does. Zoom keys move it,
+    /// `Ctrl+0` comes back here.
+    pub size: FontSize,
     /// 100–900. Medium (500) by default; the bundled Iosevka has 400, 500 and 700.
     pub weight: u32,
     pub bold_weight: u32,
+    /// A multiple of the font's own line height (xterm's lineHeight).
     pub line_height: f64,
+    /// A multiple of the font size, as Windows Terminal's `cellHeight`; wins over
+    /// `line_height` when set.
+    pub cell_height: Option<f64>,
     pub scrollback: u32,
     pub copy_on_select: bool,
     /// Right-click copies the selection, or pastes when nothing is selected.
     pub right_click_paste: bool,
+    /// xterm's renderer: WebGL (fast) or the DOM (the browser's own text rendering).
+    pub renderer: Renderer,
+    pub cursor_style: CursorStyle,
+    /// Bold text in the bright ANSI colours too (xterm's drawBoldTextInBrightColors).
+    pub bold_is_bright: bool,
     /// Terminal colours over the Theme's: background, cursor, the 16 ANSI colours…
     pub colors: TerminalColors,
 }
@@ -132,17 +143,158 @@ pub struct Terminal {
 impl Default for Terminal {
     fn default() -> Self {
         Terminal {
-            font: "Iosevka".into(),
-            size: 14,
+            font: FontList(vec![
+                "Iosevka Nerd Font".into(),
+                "Iosevka Term".into(),
+                "Iosevka".into(),
+            ]),
+            size: FontSize::Pt(12.0),
             weight: 500,
             bold_weight: 700,
             line_height: 1.0,
+            cell_height: None,
             scrollback: 10_000,
             copy_on_select: true,
             right_click_paste: true,
+            renderer: Renderer::Webgl,
+            cursor_style: CursorStyle::Block,
+            bold_is_bright: true,
             colors: TerminalColors::default(),
         }
     }
+}
+
+/// Font families, most wanted first. From Lua: a name ("Iosevka"), a CSS stack
+/// ("\"Fira Code\", Consolas"), or a list ({ "Iosevka Nerd Font", "Iosevka" }).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FontList(pub Vec<String>);
+
+impl PartialEq<&str> for FontList {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.len() == 1 && self.0[0] == *other
+    }
+}
+
+impl FontList {
+    /// The families in a CSS stack: split on commas, quotes and spaces trimmed.
+    pub fn parse(stack: &str) -> FontList {
+        FontList(
+            stack
+                .split(',')
+                .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\'').trim().to_string())
+                .filter(|f| !f.is_empty())
+                .collect(),
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for FontList {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = FontList;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a font name, a CSS font stack, or a list of font names")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<FontList, E> {
+                Ok(FontList::parse(v))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<FontList, A::Error> {
+                let mut out = Vec::new();
+                while let Some(name) = seq.next_element::<String>()? {
+                    out.push(name.trim().to_string());
+                }
+                Ok(FontList(out))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<FontList, A::Error> {
+                // An empty Lua table arrives as a map.
+                if map.next_key::<IgnoredAny>()?.is_some() {
+                    return Err(de::Error::custom("expected a list of font names"));
+                }
+                Ok(FontList(Vec::new()))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+/// A font size: px, or points (Windows Terminal's unit).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FontSize {
+    Px(f64),
+    Pt(f64),
+}
+
+impl FontSize {
+    /// In CSS px. Windows Terminal turns points into DIPs at 96/72 and lets the window's DPI
+    /// scale them; a CSS px is a DIP, and the webview applies the same scale, so 16 pt is
+    /// 21.33 px here at any scaling (decision Q55).
+    pub fn px(self) -> f64 {
+        match self {
+            FontSize::Px(v) => v,
+            FontSize::Pt(v) => v * 96.0 / 72.0,
+        }
+    }
+}
+
+/// Sent to the frontend as px.
+impl Serialize for FontSize {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_f64(self.px())
+    }
+}
+
+impl<'de> Deserialize<'de> for FontSize {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = FontSize;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a size in px (14), or text with a unit (\"16pt\", \"21px\")")
+            }
+            fn visit_f64<E: de::Error>(self, v: f64) -> Result<FontSize, E> {
+                Ok(FontSize::Px(v))
+            }
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<FontSize, E> {
+                Ok(FontSize::Px(v as f64))
+            }
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<FontSize, E> {
+                Ok(FontSize::Px(v as f64))
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<FontSize, E> {
+                let t = v.trim();
+                let (num, unit): (&str, fn(f64) -> FontSize) = if let Some(n) = t.strip_suffix("pt") {
+                    (n, FontSize::Pt)
+                } else if let Some(n) = t.strip_suffix("px") {
+                    (n, FontSize::Px)
+                } else {
+                    return Err(E::custom(format!("\"{v}\" needs a unit: \"16pt\" or \"21px\"")));
+                };
+                num.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite())
+                    .map(unit)
+                    .ok_or_else(|| E::custom(format!("\"{v}\" isn't a size like \"16pt\" or \"21px\"")))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Renderer {
+    Webgl,
+    Dom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorStyle {
+    Block,
+    Bar,
+    Underline,
 }
 
 /// Declares a struct of optional colour strings, skipped when unset, unknown names refused.

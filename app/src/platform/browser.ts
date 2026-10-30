@@ -1,4 +1,5 @@
 // The Platform in a plain browser (`npm run dev`): State in localStorage, the browser clipboard.
+import { canvasProbe } from "../terminal/fonts";
 import type { Platform } from "./types";
 
 const KEY = "roster.state";
@@ -20,6 +21,7 @@ export function browserPlatform(): Platform {
       }
     },
     windowsBuild: async () => null,
+    fontInstalled: canvasProbe(),
     clipboard: {
       readText: () => navigator.clipboard.readText(),
       writeText: (text) => navigator.clipboard.writeText(text),

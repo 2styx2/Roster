@@ -33,7 +33,8 @@ import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
 import { ConfigToast } from "./config/ConfigToast";
-import type { ConfigReport } from "./config/types";
+import type { ConfigReport, ImportPreview } from "./config/types";
+import { ImportPanel } from "./config/ImportPanel";
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
@@ -57,6 +58,7 @@ import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { buildSections } from "./sidebar/sections";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
+import { fontInUse } from "./terminal/fonts";
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
@@ -215,6 +217,8 @@ export function App({
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [check, setCheck] = useState<CheckState | null>(null);
+  /** `:config import-terminal`'s diff, while it's open (ticket 33). */
+  const [importing, setImporting] = useState<{ preview: ImportPreview; problem: string | null; writing: boolean } | null>(null);
   const checkRun = useRef(0);
   // Ticket 10: the edit form (a Host's name), the Pending changes panel, and the last count.
   const [editing, setEditing] = useState<string | null>(null);
@@ -626,7 +630,13 @@ export function App({
       if (conn.state === "ready") {
         // The command too: it's the program the master password and sign-in codes go to.
         const { backend, command, inventory } = conn.info;
-        setMessage(`Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")}`);
+        // The terminal font in use (ticket 33): the first installed one in terminal.font.
+        const font = fontInUse(terminalOptions.fonts, platform.fontInstalled ?? (() => null));
+        const size = `${Math.round(fontSize * 100) / 100} px`;
+        setMessage(
+          `Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")} · ` +
+            `Terminal ${font} ${size}, ${terminalOptions.renderer === "dom" ? "DOM" : "WebGL"}`,
+        );
       }
     },
     edit: (name) => {
@@ -668,6 +678,14 @@ export function App({
       if (!source) return setMessage("There's no init.lua here: this window isn't the app (a plain browser)");
       const failed = (e: unknown) => (e instanceof Error ? e.message : String(e));
       if (what === "path") return setMessage(report ? `init.lua is at ${report.path}` : "init.lua hasn't been read yet");
+      if (what === "import-terminal") {
+        rememberFocus();
+        source.importPreview().then(
+          (preview) => setImporting({ preview, problem: null, writing: false }),
+          (e: unknown) => setMessage(`Can't import: ${failed(e)}`),
+        );
+        return;
+      }
       if (what === "reload") {
         source.reload().then(
           (r) => {
@@ -966,6 +984,43 @@ export function App({
             />
           )}
         </main>
+        {importing && (
+          <ImportPanel
+            preview={importing.preview}
+            problem={importing.problem}
+            writing={importing.writing}
+            onClose={() => {
+              setImporting(null);
+              restoreFocus();
+            }}
+            onWrite={() => {
+              const source = platform.config;
+              if (!source) return;
+              setImporting({ ...importing, writing: true, problem: null });
+              source.importApply(importing.preview.base).then(
+                () => {
+                  setImporting(null);
+                  restoreFocus();
+                  setMessage("Wrote Windows Terminal's profile into init.lua. Reloading it.");
+                  // Applied now, whether or not a save reloads by itself.
+                  source.reload().then(
+                    (r) => {
+                      if (r) takeReport(r);
+                      setMessage(
+                        r?.error
+                          ? "Wrote Windows Terminal's profile into init.lua, which now has an error: the last good Config is still in use"
+                          : "Wrote Windows Terminal's profile into init.lua, and applied it",
+                      );
+                    },
+                    () => {},
+                  );
+                },
+                (e: unknown) =>
+                  setImporting({ ...importing, writing: false, problem: e instanceof Error ? e.message : String(e) }),
+              );
+            }}
+          />
+        )}
         {check && (
           <CheckPanel
             check={check}

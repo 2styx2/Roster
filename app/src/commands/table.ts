@@ -74,7 +74,7 @@ export interface CommandContext {
 }
 
 /** What `:config` does: `:config`, `:config reload`, `:config path`. */
-export const CONFIG_ACTIONS = ["open", "reload", "path"] as const;
+export const CONFIG_ACTIONS = ["open", "reload", "path", "import-terminal"] as const;
 export type ConfigAction = (typeof CONFIG_ACTIONS)[number];
 /** The ones typed after `config` (open is `:config` alone). */
 const CONFIG_SUBCOMMANDS: readonly string[] = CONFIG_ACTIONS.filter((a) => a !== "open");
@@ -245,11 +245,20 @@ export const builtinCommands: readonly CommandDef[] = [
     arg: "text",
     optionalArg: true,
     label: (what) =>
-      what === "reload" ? "Read init.lua again" : what === "path" ? "Say where init.lua is" : "Open init.lua, the Config",
+      what === "reload"
+        ? "Read init.lua again"
+        : what === "path"
+          ? "Say where init.lua is"
+          : what === "import-terminal"
+            ? "Copy Windows Terminal's font and colours into init.lua"
+            : "Open init.lua, the Config",
     run: (ctx, what) => {
       if (what === undefined) return ctx.config("open");
       const action = CONFIG_SUBCOMMANDS.find((a) => a === what.toLowerCase()) as ConfigAction | undefined;
-      if (!action) return ctx.say(`config takes nothing, ${CONFIG_SUBCOMMANDS.join(" or ")}`);
+      if (!action) {
+        const list = CONFIG_SUBCOMMANDS.slice(0, -1).join(", ") + " or " + CONFIG_SUBCOMMANDS.at(-1);
+        return ctx.say(`config takes nothing, ${list}`);
+      }
       ctx.config(action);
     },
     complete: (what) => CONFIG_SUBCOMMANDS.filter((a) => a.startsWith(what.toLowerCase())),
