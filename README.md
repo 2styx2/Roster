@@ -75,8 +75,9 @@ src/theme/            Themes (ticket 09): theme.ts (the colour-token set, Appear
                       useTheme.ts (tokens → CSS variables, follows the OS), picker.ts (`:theme` and the `themes` finder,
                       ticket 30), contrast.ts (WCAG ratios for the contrast test)
 src/chrome/           TitleBar.tsx (frameless window's bar: mark, minimize/maximize/close), Logo.tsx (mark D1 in Theme colours)
-src/ui/               Keys.tsx (keycaps for every key hint), CloseGlyph.tsx
-src/styles.css        the whole look, written only against Theme tokens (no colour literals)
+src/ui/               Keys.tsx (keycaps for every key hint), StateDot.tsx (state nodes: shape + words), CloseGlyph.tsx
+src/styles.css        the whole look, written only against Theme tokens (no colour literals); styles.test.ts lints it
+                      (no text in `--faint`, nothing under 11 px, :hover only for a real pointer)
 assets/               logo.svg (D1 master) + logo-small.svg (16–32 px cut); `npm run icons` renders src-tauri/icons
 docs/design/          screenshots for the design review (dark, light, Gruvbox, Nord)
 src/App.tsx           connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands

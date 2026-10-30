@@ -9,9 +9,9 @@
 
 **Blocked by:** 09, 27, 21, 22, 30, 31
 
-**Status:** ready (waits for the rest of iteration 2)
+**Status:** done (the user picked all 26 items; decisions in Q53)
 
-- [ ] The report is saved in `docs/design/interface-review.md`, with the user's picks marked.
-- [ ] Every picked item is fixed, each with a test where it's testable (accessibility names, focus order, contrast checks on the theme tokens, copy).
-- [ ] Before and after screenshots of the changed screens are in `docs/design/`.
-- [ ] Items that weren't picked are recorded as proposals for later iterations.
+- [x] The report is saved in `docs/design/interface-review.md`, with the user's picks marked.
+- [x] Every picked item is fixed, each with a test where it's testable (accessibility names, focus order, contrast checks on the theme tokens, copy): `src/App.review.test.tsx`, `src/sidebar/Sidebar.a11y.test.tsx`, `src/theme/contrast.test.ts`, `src/styles.test.ts`.
+- [x] Before and after screenshots of the changed screens are in `docs/design/review/` and `docs/design/review/after/` (same names), plus the Windows check in `docs/design/review/windows/`.
+- [x] Items that weren't picked are recorded as proposals for later iterations: none were left; the new proposals that came up while fixing are at the end of the report.

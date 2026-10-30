@@ -1,8 +1,8 @@
 # Interface review (ticket 29)
 
 Run of `interfaces:better-interface` over the whole app on `dev` at `4435601` (after 09, 21, 22, 26, 27, 30, 31).
-**Report only.** Nothing is fixed yet: the user marks the picks in the **Pick** column, and the items left unpicked
-stay here as proposals for later iterations.
+**The user picked all 26 items, and all are fixed** (decision Q53; how each was fixed is under [Fixes](#fixes) at the
+end). The **Pick** column records the choice on each flagged item.
 
 ## Scope and coverage
 
@@ -52,34 +52,35 @@ stay here as proposals for later iterations.
 
 | ID | Severity | Finding | Effort | Skill | Pick |
 | --- | --- | --- | --- | --- | --- |
-| M1 | Must | The `faint` text token fails 4.5:1 in all six Themes (2.4–4.75:1) and carries real text everywhere ⚠ | M | better-colors | |
-| M2 | Must | Status and ink tokens fail on the surfaces they're drawn on (Nord/Gruvbox error, light accent ink and warn, keycap text) | S | better-colors | |
-| M3 | Must | Sidebar Host and Session state is carried by dot colour alone, and the dots are hidden from screen readers ⚠ | M | better-accessibility | |
-| M4 | Must | The App mode cursor in the Sidebar is invisible to assistive tech (no focus, no `aria-activedescendant`) | L | better-accessibility | |
-| M5 | Must | A side panel plus the Sidebar squeeze the terminal to ~8 columns at 640 px (200 % zoom), to nothing at the 480 px minimum | S | better-layout | |
-| M6 | Must | Cut-off names, paths and messages can only be read in a mouse tooltip, never from the keyboard | M | better-layout | |
-| S1 | Should | Session errors and start errors print raw Markdown backticks (`` `roster sync` ``) | S | better-typography | |
-| S2 | Should | No key closes the `:check` panel (Esc doesn't; only the × button or a Shift+Tab wrap) | S | better-accessibility | |
-| S3 | Should | The Leader keycap's hidden text is "␣", so every key hint reads "open box f" | S | better-accessibility | |
-| S4 | Should | `:check` step results aren't announced (`aria-label` on a plain span is ignored) | S | better-accessibility | |
-| S5 | Should | Sign-in fields never get `aria-invalid` when Bitwarden refuses them | S | better-accessibility | |
-| S6 | Should | Native radios use the browser's blue in every Theme (no `accent-color`) | S | better-colors | |
-| S7 | Should | Empty-Inventory states don't say what to do; the Picker says `No hosts match “”.` | S | better-writing | |
-| S8 | Should | Command line completions are bare command ids, list-motion commands included, with no label or key | M | better-ui | |
-| S9 | Should | The start-error screen doesn't follow the error system (traceback always open, no Copy, no Where) | M | better-ui | |
-| S10 | Should | Lock and sign-in copy: "Locked" when not signed in, an Enter hint where Enter does nothing, repeated message and Fix | S | better-writing | |
-| S11 | Should | The raised selection's outline is 1.3:1 against the Sidebar, under the 3:1 for a state indicator ⚠ | S | better-colors | |
-| S12 | Should | The `:theme` finder doesn't show which Theme is current | S | better-ui | |
-| N1 | Nice | Key bindings panel noise: "builtin" on every row, nine "Go to Session N" rows | S | better-writing | |
-| N2 | Nice | Domain terms capitalised two ways: "Find a Host" / "Find a host", "this Box" / "this box", "hosts" | S | better-writing | |
-| N3 | Nice | At narrow widths the status bar keeps a key hint's keycaps but drops its word | S | better-layout | |
-| N4 | Nice | The Focus mode hint covers the side panel's heading for 2 s | S | better-layout | |
-| N5 | Nice | Terminal text runs flush to the right edge and the side panel's border | S | better-ui | |
-| N6 | Nice | 10–10.5 px text (keycaps, badges, binding sources) is below the 11 px floor of the scale ⚠ | S | better-typography | |
-| N7 | Nice | The finder's tmux marks (`*`, `-`) have no legend and read as symbols to a screen reader ⚠ | S | better-writing | |
-| N8 | Nice | Hover rules outside `@media (hover: hover)`; press scale 0.97 rather than 0.96 | S | better-ui | |
+| M1 | Must | The `faint` text token fails 4.5:1 in all six Themes (2.4–4.75:1) and carries real text everywhere ⚠ | M | better-colors || ✓ B: `faint` for icons only (Q53) — done |
+| M2 | Must | Status and ink tokens fail on the surfaces they're drawn on (Nord/Gruvbox error, light accent ink and warn, keycap text) | S | better-colors || ✓ done |
+| M3 | Must | Sidebar Host and Session state is carried by dot colour alone, and the dots are hidden from screen readers ⚠ | M | better-accessibility || ✓ shapes + words (Q53) — done |
+| M4 | Must | The App mode cursor in the Sidebar is invisible to assistive tech (no focus, no `aria-activedescendant`) | L | better-accessibility || ✓ done |
+| M5 | Must | A side panel plus the Sidebar squeeze the terminal to ~8 columns at 640 px (200 % zoom), to nothing at the 480 px minimum | S | better-layout || ✓ done |
+| M6 | Must | Cut-off names, paths and messages can only be read in a mouse tooltip, never from the keyboard | M | better-layout || ✓ done |
+| S1 | Should | Session errors and start errors print raw Markdown backticks (`` `roster sync` ``) | S | better-typography || ✓ done |
+| S2 | Should | No key closes the `:check` panel (Esc doesn't; only the × button or a Shift+Tab wrap) | S | better-accessibility || ✓ done |
+| S3 | Should | The Leader keycap's hidden text is "␣", so every key hint reads "open box f" | S | better-accessibility || ✓ done |
+| S4 | Should | `:check` step results aren't announced (`aria-label` on a plain span is ignored) | S | better-accessibility || ✓ done |
+| S5 | Should | Sign-in fields never get `aria-invalid` when Bitwarden refuses them | S | better-accessibility || ✓ done |
+| S6 | Should | Native radios use the browser's blue in every Theme (no `accent-color`) | S | better-colors || ✓ done |
+| S7 | Should | Empty-Inventory states don't say what to do; the Picker says `No hosts match “”.` | S | better-writing || ✓ done |
+| S8 | Should | Command line completions are bare command ids, list-motion commands included, with no label or key | M | better-ui || ✓ done |
+| S9 | Should | The start-error screen doesn't follow the error system (traceback always open, no Copy, no Where) | M | better-ui || ✓ done |
+| S10 | Should | Lock and sign-in copy: "Locked" when not signed in, an Enter hint where Enter does nothing, repeated message and Fix | S | better-writing || ✓ done |
+| S11 | Should | The raised selection's outline is 1.3:1 against the Sidebar, under the 3:1 for a state indicator ⚠ | S | better-colors || ✓ raised + 2px jade bar on the live Session (Q53) — done |
+| S12 | Should | The `:theme` finder doesn't show which Theme is current | S | better-ui || ✓ done |
+| N1 | Nice | Key bindings panel noise: "builtin" on every row, nine "Go to Session N" rows | S | better-writing || ✓ done |
+| N2 | Nice | Domain terms capitalised two ways: "Find a Host" / "Find a host", "this Box" / "this box", "hosts" | S | better-writing || ✓ done |
+| N3 | Nice | At narrow widths the status bar keeps a key hint's keycaps but drops its word | S | better-layout || ✓ done |
+| N4 | Nice | The Focus mode hint covers the side panel's heading for 2 s | S | better-layout || ✓ done |
+| N5 | Nice | Terminal text runs flush to the right edge and the side panel's border | S | better-ui || ✓ done |
+| N6 | Nice | 10–10.5 px text (keycaps, badges, binding sources) is below the 11 px floor of the scale ⚠ | S | better-typography || ✓ 11 px floor (Q53) — done |
+| N7 | Nice | The finder's tmux marks (`*`, `-`) have no legend and read as symbols to a screen reader ⚠ | S | better-writing || ✓ marks kept + words + legend — done |
+| N8 | Nice | Hover rules outside `@media (hover: hover)`; press scale 0.97 rather than 0.96 | S | better-ui || ✓ done (press scale stays 0.97) |
 
-**Verdict: `Block`.** Six `HIGH` findings remain. Domains not reviewed live: the tab-strip layout, the right-hand
+**Verdict at review time: `Block`** (six `HIGH` findings). **After the fixes: `Pass`**, with the limits listed under
+[Fixes](#fixes). Domains not reviewed live: the tab-strip layout, the right-hand
 Sidebar, the Focus session bar and the Config toast (source only), and RTL mirroring. Screen readers weren't run;
 accessibility evidence comes from the ARIA tree and keyboard walks.
 
@@ -394,3 +395,66 @@ All in [`review/`](review/), named `<screen>-<dark|light>.png`:
   `worst-case-empty-*`, `worst-case-empty-picker-*`, `worst-case-empty-focus-finder-*`.
 - Widths: `w800-*`, `w640-*`, `w320-*` (worst case, Key bindings, Picker, sign-in). 320 px is below the window's
   480 px minimum and is kept for reference only.
+
+## Fixes
+
+All 26 picked, all done on `feat/29-interface-review`, test-first. Commits are tagged `(ticket 29, <IDs>)`.
+Before and after: [`review/`](review/) and [`review/after/`](review/after/) use the same file names; the Windows
+check is in [`review/windows/`](review/windows/). Design calls follow `emil-design-eng`, `animate` and
+[taste.md](taste.md) (Q54).
+
+| ID | Done | How (and where it differs from the proposal) |
+| --- | --- | --- |
+| M1 | ✓ | Option B. Every text rule moved from `faint` to `muted`; `faint` colours only decorative icons (search, row icons). The fold chevron and the close/edit glyphs went to `muted` too, since they act or show state (1.4.11). `src/styles.test.ts` fails on any rule that colours text with `--faint`. |
+| M2 | ✓ | Values recomputed so every text token (`text`, `muted`, `warn`, `error`, `accentInk`) reads at 4.5:1 on **all six** surfaces, `hover` included (the proposal measured five), mixing toward white (black in Roster light) to keep the hue: Roster light accentInk `#157953`, warn `#955f00`; Gruvbox muted `#aea08c`, error `#fc7b6c`; Nord muted `#b7bcc5`, error `#dfb0b5`, accentInk `#8fc4d3`; Catppuccin muted `#afb6ce`, error `#f59db5`, accentInk `#cca7f7`. Nord's error is noticeably paler than `nord11`; listed in `docs/themes.md`. |
+| M3 | ✓ | `ui/StateDot.tsx`: SVG nodes, filled / ring / hollow grey / dashed grey (Sidebar and finders). Every tree item's name carries its state ("linux-1-000, password login, 10.19.1.2"; "…, unreviewed, can't be opened, …"; "…, ended (code 0)"). A Session's note sits beside the name and is never cut. Badge rule from ticket 27 kept. |
+| M4 | ✓ | The Sidebar's scroller is `role="tree"` ("Sessions and Hosts"), sections are `group`s, rows and headings `treeitem`s with `aria-level`, `aria-expanded`, `aria-current`, `aria-selected`. App mode puts focus on the tree with the cursor as `aria-activedescendant` and gives it back on leaving (or to the workspace if the Sidebar went away with `␣ m`). Tab from Find a Host reaches the tree and enters App mode. |
+| M5 | ✓ | Below 1040 px the Key bindings and `:check` panels float over the terminal, as in Focus. Not done: hiding the Sidebar on its own below ~720 px ("also consider"); `␣ e` still does it by hand. |
+| M6 | ✓ | Picker and finders: the selected row wraps its whole name (and path). Sidebar: App mode shows the cursor row whole below the tree (name, state, address, tooltip) instead of using the message line, so it doesn't flicker as a live region. Status bar: a new `:info` command says the Backend, Box and path whole. |
+| S1 | ✓ | `withCode` on the Session error's message and Fix. Details keeps roster's raw text. |
+| S2 | ✓ | Esc in App mode closes the topmost side panel; new `hidepanel` command for `init.lua`. |
+| S3 | ✓ | Hidden text "Leader"; the Find button reads "Find a Host, Leader f". |
+| S4 | ✓ | Marks `aria-hidden`, "passed / failed / skipped" as hidden text. |
+| S5 | ✓ | `aria-invalid` and `aria-describedby` only while the error shows. |
+| S6 | ✓ | `:root { accent-color: var(--accent) }`. |
+| S7 | ✓ | Picker, Sidebar and workspace copy as proposed; the workspace shows the Inventory's path in Iosevka with no Find button. |
+| S8 | ✓ | Label and keycaps per command; list and tree motions (a new `motion` flag) rank last. |
+| S9 | ✓ | Message, Where, Fix, a Copy row per command in the hint, Retry, raw output closed under Details. |
+| S10 | ✓ | Headings by vault status, Copy row for the command, keycaps for the step keys, no Enter hint while waiting on SSO, "with your browser", the SSO link at `--text-sm`, a breathing node (not a spinner: taste.md) beside "Waiting for the browser…" (constant motion, linear, opacity only, still under reduced motion). Where dropped on the lock screen; a catalog row can say its Fix is in the message (`fixInMessage`, set on rate-limited). |
+| S11 | ✓ | The user's pick: raised fill kept, plus a 2px jade bar (a pill inset 5 px top and bottom) on the on-screen Session's row **while it's live** (an ended Session on screen is raised without it: "jade means live"). The cursor is raised with the accent outline and no bar. Forced-colors mode keeps both. `raisedLine` unchanged. No motion: it moves with keys. |
+| S12 | ✓ | `dark · current` on the Theme in use; the finder already opened on it. |
+| N1 | ✓ | Source shown only when not builtin; "Go to Session 1–9 · ␣ 1…9". |
+| N2 | ✓ | "Host", "Hosts", "Box" capitalised in the app's own strings. Messages from roster itself ("on this box") are roster's and unchanged. |
+| N3 | ✓ | A zero-width first flex item makes a hint that doesn't fit wrap away whole. |
+| N4 | ✓ | Top centre. |
+| N5 | ✓ | The cause was the padding on `.term-host`, which FitAddon counted as room; the padding moved onto xterm's own element (which FitAddon subtracts), and xterm's black default viewport is transparent. |
+| N6 | ✓ | Everything at `--text-xs` or above; `src/styles.test.ts` fails on any font size under 11 px. |
+| N7 | ✓ | Hidden "current" / "previous", a footer legend `* current · - previous`, and the session bar's names say it too. |
+| N8 | ✓ | Every `:hover` rule inside `@media (hover: hover) and (pointer: fine)` (test). The press scale stays **0.97**: that's emil-design-eng's and animate's value, which win over the interfaces skill's 0.96 on motion. |
+
+### Verification
+
+- `npm run check` (tsc, eslint, Vitest) and `cargo test`, `cargo clippy`, `cargo fmt --check` pass; see the ticket's
+  commits for the counts.
+- Screens: the Vite dev server with the fake Backend in Playwright's Chromium, 1280 × 800 (800 and 640 for the narrow
+  ones), dark and light, plus Nord, Gruvbox, Catppuccin Mocha and Tokyo Night spot checks: [`review/after/`](review/after/).
+- Windows (WebView2, `tauri dev` from `%LOCALAPPDATA%\roster-desk-dev-29` on port 1434 with its own
+  `WEBVIEW2_USER_DATA_FOLDER`, the fake Backend's `few-hosts` fixture, no real vault), driven over CDP:
+  [`review/windows/`](review/windows/). Checked: the lock screen, the jade bar on the live Session
+  (`w-session-live-bar`), the node shapes and the App-mode cursor with its details line (`w-app-mode-cursor`), the Key
+  bindings panel floating at a 640 px viewport (`w-640-keys-panel`), and locking again. WebView2's own accessibility
+  tree (CDP `Accessibility.getFullAXTree`) shows `tree "Sessions and Hosts"` focused in App mode with
+  `aria-activedescendant` on the cursor row, `group`s per section, and tree items such as
+  `treeitem "router-1-004, key login, 10.19.1.6" level=3 selected=true`; Esc gives focus back to xterm's textarea.
+- **Screen readers: not verified.** Narrator is installed but an agent can't hear or capture its speech, and NVDA
+  isn't installed. The evidence is the WebView2 accessibility tree above and the Vitest checks of names, roles and
+  focus.
+
+### New proposals (not in this ticket)
+
+- **Connect edge** (taste.md): a 1px jade edge drawn from the row's node toward the terminal on connect (~120 ms),
+  the node filling on a shell. Needs the `animate` skill's pass; a ticket of its own.
+- Hide the Sidebar by itself below ~720 px (M5's "also consider").
+- taste.md's status bar and lock screen: the Box name, Host count and path in Iosevka (data), the lock screen showing
+  the Box name.
+- roster's own messages say "this box" in lower case (N2 covers only the app's strings); a roster-side copy pass.
