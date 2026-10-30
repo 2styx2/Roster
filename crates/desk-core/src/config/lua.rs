@@ -20,7 +20,7 @@ use super::{ConfigError, Env, FILE_NAME};
 use mlua::chunk::ChunkMode;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
 use serde_json::{Map, Number, Value as Json};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
@@ -80,7 +80,10 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
     .map_err(internal)?;
 
     let api = Rc::new(RefCell::new(Vec::new()));
-    sandbox(&lua, dir, env, Rc::clone(&api), timed_out).map_err(internal)?;
+    // One budget for everything the run hands over as Config data: the copy is made outside
+    // Lua's memory and time limits, and shared subtables are copied once per use.
+    let budget = Rc::new(Cell::new(Budget::default()));
+    sandbox(&lua, dir, env, Rc::clone(&api), timed_out, Rc::clone(&budget)).map_err(internal)?;
 
     let value: Value = lua
         .load(source)
@@ -90,7 +93,7 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
         .map_err(|e| from_lua_error(&e))?;
     let value = match value {
         Value::Nil => Json::Object(Map::new()),
-        Value::Table(_) => to_json(&value, &mut Vec::new()).map_err(|e| ConfigError {
+        Value::Table(_) => to_json(&value, &budget).map_err(|e| ConfigError {
             file: FILE_NAME.into(),
             line: None,
             message: located_message(&e.path, &e.message),
@@ -139,6 +142,7 @@ fn sandbox(
     env: &Env,
     api: Rc<RefCell<Vec<ApiEntry>>>,
     timed_out: Rc<RefCell<Option<String>>>,
+    budget: Rc<Cell<Budget>>,
 ) -> mlua::Result<()> {
     let g = lua.globals();
     for name in ["dofile", "loadfile", "collectgarbage"] {
@@ -190,7 +194,7 @@ fn sandbox(
         })?,
     )?;
 
-    let roster = roster_api(lua, env, api)?;
+    let roster = roster_api(lua, env, api, budget)?;
     lua.set_named_registry_value(API, roster.clone())?;
     lua.set_named_registry_value(LOADED, lua.create_table()?)?;
     g.raw_set("roster", roster)?;
@@ -204,13 +208,14 @@ fn sandbox(
 
 /// The `roster` table: facts about the machine, and registration functions shaped like the
 /// Plugin API to come (ticket 23): `roster.keymap.set`, `roster.themes.define`.
-fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Result<Table> {
+fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<Cell<Budget>>) -> mlua::Result<Table> {
     let roster = lua.create_table()?;
     roster.raw_set("os", env.os.as_str())?;
     roster.raw_set("api_version", super::API_VERSION)?;
 
     let keymap = lua.create_table()?;
     let entries = Rc::clone(&api);
+    let left = Rc::clone(&budget);
     keymap.raw_set(
         "set",
         lua.create_function(move |lua, (context, keys, action): (String, String, Value)| {
@@ -219,7 +224,7 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Re
                     "roster.keymap.set: the action is a command line such as \"close\" (Lua functions as actions come with Plugins)",
                 ));
             }
-            let value = to_json(&action, &mut Vec::new()).map_err(|e| mlua::Error::runtime(e.message))?;
+            let value = to_json(&action, &left).map_err(|e| mlua::Error::runtime(e.message))?;
             entries.borrow_mut().push(ApiEntry {
                 path: vec!["keys".into(), context, keys],
                 value,
@@ -235,7 +240,7 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>) -> mlua::Re
     themes.raw_set(
         "define",
         lua.create_function(move |lua, (id, theme): (String, Table)| {
-            let value = to_json(&Value::Table(theme), &mut Vec::new())
+            let value = to_json(&Value::Table(theme), &budget)
                 .map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
             entries.borrow_mut().push(ApiEntry {
                 path: vec!["themes".into(), id],
@@ -325,16 +330,64 @@ fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
     Ok(value)
 }
 
+/// How much Config data one run may hand over: far more than any Config needs, and small
+/// enough that copying it out of Lua is quick.
+#[derive(Clone, Copy)]
+struct Budget {
+    values: usize,
+    bytes: usize,
+}
+
+const MAX_VALUES: usize = 100_000;
+const MAX_BYTES: usize = 16 * 1024 * 1024;
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget {
+            values: MAX_VALUES,
+            bytes: MAX_BYTES,
+        }
+    }
+}
+
+const TOO_BIG: &str =
+    "the Config is too big (more than 100000 values or 16 MB of text; a table shared many times over?)";
+
 /// A Lua value as Config data. Tables become lists (keys 1..n) or objects (string keys); an
 /// empty table is an empty object (the schema takes it as an empty list where it wants one).
-fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
+/// A table used in several places is copied for each; the run's [`Budget`] bounds the total.
+fn to_json(v: &Value, budget: &Cell<Budget>) -> Result<Json, ConvertError> {
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget)
+}
+
+fn convert(
+    v: &Value,
+    path: &mut Vec<String>,
+    within: &mut Vec<*const std::ffi::c_void>,
+    budget: &Cell<Budget>,
+) -> Result<Json, ConvertError> {
     let fail = |path: &[String], message: String| ConvertError {
         path: path.to_vec(),
         message,
     };
     if path.len() > 32 {
-        return Err(fail(path, "nested too deeply (a table that contains itself?)".into()));
+        return Err(fail(path, "nested too deeply (more than 32 levels)".into()));
     }
+    let spend = |path: &[String], bytes: usize| {
+        let b = budget.get();
+        match (b.values.checked_sub(1), b.bytes.checked_sub(bytes)) {
+            (Some(values), Some(bytes)) => {
+                budget.set(Budget { values, bytes });
+                Ok(())
+            }
+            _ => Err(fail(path, TOO_BIG.into())),
+        }
+    };
+    let bytes = match v {
+        Value::String(s) => s.as_bytes().len(),
+        _ => 0,
+    };
+    spend(path, bytes)?;
     Ok(match v {
         Value::Nil => Json::Null,
         Value::Boolean(b) => Json::Bool(*b),
@@ -354,6 +407,11 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                 .to_string(),
         ),
         Value::Table(t) => {
+            let ptr = t.to_pointer();
+            if within.contains(&ptr) {
+                return Err(fail(path, "a table that contains itself".into()));
+            }
+            within.push(ptr);
             let len = t.raw_len();
             let mut count = 0usize;
             let mut obj = Map::new();
@@ -367,8 +425,9 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                             .to_str()
                             .map_err(|_| fail(path, "a key that isn't UTF-8".into()))?
                             .to_string();
+                        spend(path, key.len())?;
                         path.push(key.clone());
-                        let j = to_json(&val, path)?;
+                        let j = convert(&val, path, within, budget)?;
                         path.pop();
                         obj.insert(key, j);
                     }
@@ -392,11 +451,13 @@ fn to_json(v: &Value, path: &mut Vec<String>) -> Result<Json, ConvertError> {
                 for i in 1..=len {
                     path.push(i.to_string());
                     let val: Value = t.raw_get(i).map_err(|e| fail(path, e.to_string()))?;
-                    out.push(to_json(&val, path)?);
+                    out.push(convert(&val, path, within, budget)?);
                     path.pop();
                 }
+                within.pop();
                 Json::Array(out)
             } else {
+                within.pop();
                 Json::Object(obj)
             }
         }

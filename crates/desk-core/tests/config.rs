@@ -523,3 +523,31 @@ fn pcall_and_xpcall_cant_catch_running_out_of_time() {
         "h:no"
     );
 }
+
+#[test]
+fn a_table_shared_into_a_huge_tree_is_refused_quickly() {
+    // 30 tables, but 2^30 nodes once each shared subtable is copied out.
+    let shared = "local t = {}\nfor i = 1, 30 do t = { a = t, b = t } end\n";
+    for (name, tail) in [
+        ("returned", "return { themes = { big = t } }"),
+        ("api", "roster.themes.define('big', t)\nreturn {}"),
+    ] {
+        let dir = with_init(&format!("shared-{name}"), &format!("{shared}{tail}"));
+        let e = load_quickly(&dir, std::time::Duration::from_secs(5)).unwrap_err();
+        assert!(e.message.contains("too big"), "{name}: {e}");
+    }
+    // Sharing a small table is fine: each use is a copy.
+    let dir = with_init(
+        "shared-ok",
+        "local c = { accent = '#ff0000' }\nreturn { colors = c, themes = { a = { colors = c }, b = { colors = c } } }",
+    );
+    let c = config::load(&dir).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(c.themes.len(), 2);
+}
+
+#[test]
+fn a_table_that_contains_itself_says_so() {
+    let dir = with_init("cycle", "local t = {}\nt.colors = t\nreturn { themes = { loop = t } }");
+    let e = config::load(&dir).unwrap_err();
+    assert!(e.message.contains("contains itself"), "{e}");
+}
