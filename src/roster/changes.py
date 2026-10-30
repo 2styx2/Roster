@@ -6,9 +6,11 @@ Every git run is non-interactive and time-limited. A backup of what an edit or a
 repo's git dir (never in the working tree, where Publish would pick it up)."""
 
 import os
+import signal
 import subprocess
 from pathlib import Path
 
+from .common import time_left
 from .edit import load_text, read_text, write_text
 from .errors import (
     COMMIT_FAILED,
@@ -28,22 +30,46 @@ from .errors import (
 )
 
 GIT_TIMEOUT = 60            # s: a fetch over a slow link; nothing here waits on a person
+PUSH_TIMEOUT = 60           # s: the push; past it roster checks whether the push got there anyway
+CHECK_TIMEOUT = 15          # s: that check (a fetch), even past serve's deadline
 HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mac", "web",
              "services")
 
 
-def git(repo, *args, timeout=GIT_TIMEOUT):
+def git(repo, *args, timeout=GIT_TIMEOUT, floor=1):
+    """Run git in REPO, non-interactive. Past TIMEOUT its whole process group is killed (a push's remote side
+    and hooks too, which would otherwise hold the output open) and it's a Problem."""
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C", "GIT_OPTIONAL_LOCKS": "0"}
     env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
+    argv = ["git", "-C", str(repo), *args]
+    timeout = round(time_left(timeout, floor), 1)          # held to serve's deadline for the whole request
     try:
-        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=timeout,
-                              env=env, stdin=subprocess.DEVNULL)
+        p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+                             text=True, env=env, start_new_session=True)
     except FileNotFoundError:
         raise Problem(NOT_A_REPO, "git isn't installed on this box, so roster can't keep Pending changes",
                       fix="install git") from None
+    try:
+        stdout, stderr = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        kill_group(p)
         raise Problem(PULL_FAILED, f"git {args[0]} didn't finish within {timeout} s",
                       fix="check the network and your access to the infra repo, then try again") from None
+    except BaseException:
+        kill_group(p)
+        raise
+    return subprocess.CompletedProcess(argv, p.returncode, stdout, stderr)
+
+
+def kill_group(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        p.kill()
+    try:
+        p.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def out(repo, *args):
@@ -169,17 +195,30 @@ def host_changes(path, old_text, new_text):
 def diff(path):
     """roster.yml's Pending changes: the unified diff against the last commit, and the Hosts it changes.
     count is the number of changed Hosts (1 for a change that touches no Host, such as a comment); message is the
-    commit message changes.publish would write (for the app to show, and edit, before publishing)."""
+    commit message changes.publish would write (for the app to show, and edit, before publishing). last_commit is
+    the branch's last commit and whether its upstream has it (as this box last saw it, no fetch): after a Publish
+    the app gave up waiting for, that's how it tells whether it happened."""
     repo = Repo(path)
     text = repo.diff_text()
+    base = {"path": str(repo.path), "repo": str(repo.top), "last_commit": last_commit(repo)}
     if not text:
-        return {"path": str(repo.path), "repo": str(repo.top), "diff": "", "hosts": [], "groups": [], "count": 0,
-                "message": ""}
+        return {**base, "diff": "", "hosts": [], "groups": [], "count": 0, "message": ""}
     old_text, new_text = repo.head_text() or "", read_text(repo.path)
     hosts = host_changes(repo.path, old_text, new_text)
     groups = group_changes(repo.path, old_text, new_text)
-    return {"path": str(repo.path), "repo": str(repo.top), "diff": text, "hosts": hosts, "groups": groups,
-            "count": len(hosts) or 1, "message": commit_message(hosts, groups)}
+    return {**base, "diff": text, "hosts": hosts, "groups": groups, "count": len(hosts) or 1,
+            "message": commit_message(hosts, groups)}
+
+
+def last_commit(repo):
+    """{commit, subject, upstream, pushed}: HEAD, and whether the upstream (as last fetched) contains it."""
+    commit = out(repo.top, "rev-parse", "HEAD")
+    if commit is None:
+        return None
+    upstream = out(repo.top, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    pushed = bool(upstream) and git(repo.top, "merge-base", "--is-ancestor", "HEAD", "@{u}").returncode == 0
+    return {"commit": commit, "subject": out(repo.top, "log", "-1", "--format=%s") or "", "upstream": upstream,
+            "pushed": pushed}
 
 
 def discard(path):
@@ -231,6 +270,25 @@ def commit_message(hosts, groups):
     counts = [f"{len(hosts)} Host{'s' * (len(hosts) != 1)}" if hosts else "",
               f"{len(groups)} group{'s' * (len(groups) != 1)}" if groups else ""]
     return f"roster: change {' and '.join(c for c in counts if c)}\n\n" + "\n".join(f"- {i}" for i in items)
+
+
+def undo_commit(repo, commit):
+    """Take back publish's own commit (only if it's still HEAD), leaving its change Pending and unstaged."""
+    if out(repo.top, "rev-parse", "HEAD") == commit:
+        git(repo.top, "reset", "--quiet", "--soft", "HEAD~1")
+        git(repo.top, "reset", "--quiet", "--", repo.rel)
+
+
+def pushed_anyway(repo, remote, commit):
+    """After a push that didn't finish: True if the upstream has COMMIT now, False if it hasn't, None if
+    roster can't tell (the fetch fails too)."""
+    try:
+        r = git(repo.top, "fetch", "--quiet", remote, timeout=CHECK_TIMEOUT, floor=CHECK_TIMEOUT)
+    except Problem:
+        return None
+    if r.returncode != 0:
+        return None
+    return git(repo.top, "merge-base", "--is-ancestor", commit, "@{u}").returncode == 0
 
 
 def publish(path, message=None):
@@ -300,18 +358,36 @@ def publish(path, message=None):
                           "user.email); the Pending changes are kept", details=(r.stderr or r.stdout).strip() or None)
     commit = out(repo.top, "rev-parse", "HEAD")
     target = merge.removeprefix("refs/heads/")
-    r = git(repo.top, "push", "--quiet", "--porcelain", remote, f"HEAD:{merge}")
-    if r.returncode != 0:
-        git(repo.top, "reset", "--quiet", "--soft", "HEAD~1")
-        git(repo.top, "reset", "--quiet", "--", repo.rel)
-        said = (r.stderr + r.stdout).strip()
-        moved = any(w in said for w in ("non-fast-forward", "fetch first"))
-        raise Problem(PUSH_FAILED,
-                      f"{upstream} moved while roster was publishing, so the push was refused; nothing was "
-                      "published" if moved else f"couldn't push to {upstream}; nothing was published",
-                      {"upstream": upstream, "rejected": moved},
-                      fix=":publish again (it fetches first)" if moved else
-                          f"check the network and your rights to push to {remote} {target}; the Pending changes "
-                          "are kept", details=said or None)
+    try:
+        r = git(repo.top, "push", "--quiet", "--porcelain", remote, f"HEAD:{merge}", timeout=PUSH_TIMEOUT)
+    except Problem:                     # it didn't finish: it may have got there all the same
+        landed = pushed_anyway(repo, remote, commit)
+        if not landed:
+            undo_commit(repo, commit)
+            raise Problem(PUSH_FAILED,
+                          f"the push to {upstream} didn't finish in time and "
+                          + ("didn't get there; nothing was published" if landed is False else
+                             "roster couldn't check whether it got there; the commit is undone here, so the "
+                             "changes are Pending again"),
+                          {"upstream": upstream, "rejected": False, "timed_out": True, "landed": landed},
+                          fix="check the network, then :publish again" if landed is False else
+                              f"check `git -C {repo.top} fetch && git -C {repo.top} log -1 {upstream}`: if your "
+                              "change is there it was published, so discard the Pending changes; if not, "
+                              ":publish again") from None
+    except BaseException:
+        undo_commit(repo, commit)
+        raise
+    else:
+        if r.returncode != 0:
+            undo_commit(repo, commit)
+            said = (r.stderr + r.stdout).strip()
+            moved = any(w in said for w in ("non-fast-forward", "fetch first"))
+            raise Problem(PUSH_FAILED,
+                          f"{upstream} moved while roster was publishing, so the push was refused; nothing was "
+                          "published" if moved else f"couldn't push to {upstream}; nothing was published",
+                          {"upstream": upstream, "rejected": moved},
+                          fix=":publish again (it fetches first)" if moved else
+                              f"check the network and your rights to push to {remote} {target}; the Pending "
+                              "changes are kept", details=said or None)
     return {"commit": commit, "upstream": upstream, "message": msg, "hosts": hosts, "groups": groups,
             "pulled": behind}

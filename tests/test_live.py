@@ -172,6 +172,35 @@ def test_deleting_a_group_moves_its_hosts_first_when_told_where(inv):
     assert "  # a comment between groups\n" in new
 
 
+def test_deleting_a_group_of_50_hosts_loads_roster_yml_a_constant_number_of_times_and_writes_no_file(
+        write_config, monkeypatch):
+    import tempfile
+
+    from roster import config
+    hosts = "".join(f"      h{i}: 10.0.2.{i}\n" for i in range(50))
+    path = write_config(f"groups:\n  lab:\n    user: root\n    hosts:\n      keep: 10.0.0.1\n"
+                        f"  big:\n    user: admin\n    type: switch\n    hosts:\n{hosts}")
+    loads, temps = [], []
+    real_load, real_mkstemp = config.parse_config, tempfile.mkstemp
+    monkeypatch.setattr(config, "parse_config", lambda *a, **k: loads.append(1) or real_load(*a, **k))
+    monkeypatch.setattr(tempfile, "mkstemp", lambda *a, **k: temps.append(k.get("dir")) or real_mkstemp(*a, **k))
+    old, new, moved = edit.group_deleted(path, "big", "lab")
+    assert len(moved) == 50 and len(loads) <= 3, len(loads)
+    assert temps == []                                  # the checks write nothing, in the repo or anywhere
+    cfg = config.load_config_text(new, path)
+    assert all(cfg["hosts"][f"h{i}"]["group"] == "lab" and cfg["hosts"][f"h{i}"]["ssh"]["user"] == "admin"
+               and cfg["hosts"][f"h{i}"]["type"] == "switch" for i in range(50))
+
+
+def test_a_moved_host_that_would_come_out_different_names_itself_when_a_group_is_deleted(write_config):
+    path = write_config("groups:\n  lab:\n    user: root\n    services: {web: 443}\n    hosts:\n"
+                        "      keep: 10.0.0.1\n  old:\n    user: root\n    hosts:\n      a: 10.0.1.1\n"
+                        "      b: 10.0.1.2\n")
+    with pytest.raises(Problem) as e:
+        edit.group_deleted(path, "old", "lab")
+    assert e.value.code == WOULD_CHANGE and e.value.data["host"] == "a" and "services" in e.value.data["fields"]
+
+
 def test_an_empty_group_is_deleted_whole(inv):
     _, new = edit.group_added(inv, "dmz")
     inv.write_text(new)

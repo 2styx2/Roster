@@ -5,6 +5,10 @@
 //! touched. It opens with the OS's app for the file, or (`editor = "wsl"`) with `$EDITOR` inside
 //! the Backend's WSL distro, in a console window of its own. Saving it reloads the Config as any
 //! save does (watch.rs).
+//!
+//! On Windows "the OS's app" is the one registered for `.lua`'s **edit** verb, else Notepad.
+//! Never the "open" verb: with Lua installed, `.lua` usually opens with the interpreter, which
+//! would run init.lua instead of showing it.
 
 use super::{FILE_NAME, Os};
 use std::io::Write;
@@ -61,7 +65,7 @@ pub fn ensure_file(dir: &Path) -> std::io::Result<Ensured> {
 /// How to open the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenWith {
-    /// The OS's app for the file (Windows: ShellExecute's "open", else Notepad).
+    /// The OS's app for editing the file (Windows: [`windows_open`]'s choice).
     Default(PathBuf),
     /// A program and its arguments; `new_console` gives it a console window (Windows).
     Program { argv: Vec<String>, new_console: bool },
@@ -104,6 +108,25 @@ pub fn open_with(editor: super::Editor, os: Os, path: &Path, distro: Option<&str
     }
 }
 
+/// How Windows opens init.lua for `editor = "os"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowsOpen {
+    /// ShellExecute's "edit" verb: the app registered to edit `.lua` files.
+    EditVerb,
+    /// Notepad, which is always there.
+    Notepad,
+}
+
+/// The choice, given `has_app(verb)`: whether the registry has an app for `.lua`'s verb. Only
+/// "edit" is asked about. "open" never is, since it may be a Lua interpreter that runs the file.
+pub fn windows_open(has_app: impl Fn(&str) -> bool) -> WindowsOpen {
+    if has_app("edit") {
+        WindowsOpen::EditVerb
+    } else {
+        WindowsOpen::Notepad
+    }
+}
+
 /// Starts the editor and doesn't wait for it.
 pub fn open(how: &OpenWith) -> std::io::Result<()> {
     match how {
@@ -130,9 +153,9 @@ pub fn open(how: &OpenWith) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn open_default(path: &Path) -> std::io::Result<()> {
-    // With no app for .lua files, ShellExecute would put up Windows' "Pick an app" and wait on
-    // it; Notepad is always there, so go straight to it.
-    if win::has_app(path) && win::shell_open(path) {
+    // The "edit" verb's app if there is one (never "open": see windows_open); else Notepad,
+    // rather than Windows' "Pick an app".
+    if windows_open(|verb| win::has_app(path, verb)) == WindowsOpen::EditVerb && win::shell_execute(path, "edit") {
         return Ok(());
     }
     std::process::Command::new("notepad.exe").arg(path).spawn().map(|_| ())
@@ -176,13 +199,13 @@ mod win {
         ) -> i32;
     }
 
-    /// Whether Windows has an app that opens files like `path` (its extension's "open" verb).
-    pub fn has_app(path: &Path) -> bool {
+    /// Whether Windows has an app for `verb` on files like `path` (by its extension).
+    pub fn has_app(path: &Path, verb: &str) -> bool {
         let Some(ext) = path.extension() else { return false };
         let mut dotted = std::ffi::OsString::from(".");
         dotted.push(ext);
         let assoc = wide(&dotted);
-        let verb = wide(std::ffi::OsStr::new("open"));
+        let verb = wide(std::ffi::OsStr::new(verb));
         const ASSOCSTR_EXECUTABLE: u32 = 2;
         // Without it, an unknown extension "has" OpenWith.exe, the "Pick an app" dialog.
         const ASSOCF_INIT_IGNOREUNKNOWN: u32 = 0x400;
@@ -211,15 +234,15 @@ mod win {
         s.encode_wide().chain(std::iter::once(0)).collect()
     }
 
-    /// ShellExecute "open" on its own thread, with COM set up as the docs ask. False when
-    /// Windows has no app for the file (or it failed).
-    pub fn shell_open(path: &Path) -> bool {
+    /// ShellExecute with `verb` on its own thread, with COM set up as the docs ask. False when
+    /// Windows has no app for it (or it failed).
+    pub fn shell_execute(path: &Path, verb: &str) -> bool {
         let file = wide(path.as_os_str());
+        let op = wide(std::ffi::OsStr::new(verb));
         std::thread::spawn(move || {
             const COINIT_APARTMENTTHREADED: u32 = 0x2;
             const COINIT_DISABLE_OLE1DDE: u32 = 0x4;
             const SW_SHOWNORMAL: i32 = 1;
-            let op = wide(std::ffi::OsStr::new("open"));
             // SAFETY: plain Win32 calls with NUL-terminated UTF-16 strings that outlive them.
             unsafe {
                 let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

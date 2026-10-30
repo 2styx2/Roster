@@ -16,6 +16,32 @@ pub const REQUIRED_API_VERSION: i64 = 1;
 pub const INVENTORY_ERROR: i64 = 1;
 const METHOD_NOT_FOUND: i64 = -32601;
 
+/// How long the app waits for a method's answer, in seconds, where that isn't [`DEFAULT_TIMEOUT`].
+/// Each is longer than `roster serve`'s own deadline for the method plus what serve may still run
+/// once that's past (serve.py's `DEADLINES` and `AFTER_DEADLINE`; a roster test checks the two
+/// tables agree), so serve always answers before the app gives up, and its answer says what
+/// actually happened. `vault.login` has no serve deadline: each bw step is held to 40 s, and a
+/// wrong code runs bw once more.
+///
+/// [`DEFAULT_TIMEOUT`]: crate::rpc::DEFAULT_TIMEOUT
+pub const CALL_SECS: &[(&str, u64)] = &[
+    ("host.add", 180),
+    ("changes.publish", 180),
+    ("inventory.pull", 90),
+    ("host.check", 90),
+    ("host.verify_login", 90),
+    ("vault.create_item", 90),
+    ("vault.login", 100),
+];
+
+/// How long the app waits for `method` (see [`CALL_SECS`]).
+pub fn timeout_for(method: &str) -> std::time::Duration {
+    CALL_SECS
+        .iter()
+        .find(|(m, _)| *m == method)
+        .map_or(crate::rpc::DEFAULT_TIMEOUT, |(_, s)| std::time::Duration::from_secs(*s))
+}
+
 /// What the UI learns about the Backend once it's up.
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendInfo {
@@ -73,14 +99,9 @@ impl Backend {
         })
     }
 
+    /// A call, waiting as long as [`timeout_for`] says for that method.
     pub fn call(&self, method: &str, params: Value) -> Result<Value, CallError> {
-        self.client.call(method, params)
-    }
-
-    /// A call that may take longer than the default (`vault.login`: a sign-in step runs bw's
-    /// login, and after a wrong code roster runs it again before answering).
-    pub fn call_timeout(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, CallError> {
-        self.client.call_timeout(method, params, timeout)
+        self.client.call_timeout(method, params, timeout_for(method))
     }
 
     /// The command that opens a Session to `host` on this Backend (`session.prepare`). Refusals

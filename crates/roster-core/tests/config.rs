@@ -1014,3 +1014,30 @@ fn folders_yml_is_read_written_and_watched_apart_from_init_lua() {
     std::fs::write(dir.join("lua").join("folders.yml"), "x").unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
 }
+
+#[test]
+fn on_windows_init_lua_opens_with_the_edit_verb_or_notepad_never_open() {
+    use config::{WindowsOpen, windows_open};
+    use std::cell::RefCell;
+    // The registry, injected: which verbs .lua files have an app for.
+    let asked = RefCell::new(Vec::<String>::new());
+    let registry = |verbs: &'static [&'static str]| {
+        let asked = &asked;
+        move |verb: &str| {
+            asked.borrow_mut().push(verb.to_string());
+            verbs.contains(&verb)
+        }
+    };
+    // A Lua interpreter is .lua's "open" app: running init.lua is never the way to edit it.
+    assert_eq!(windows_open(registry(&["open"])), WindowsOpen::Notepad);
+    // An editor registered for "edit" is used.
+    assert_eq!(windows_open(registry(&["open", "edit"])), WindowsOpen::EditVerb);
+    assert_eq!(windows_open(registry(&["edit"])), WindowsOpen::EditVerb);
+    // Nothing registered: Notepad.
+    assert_eq!(windows_open(registry(&[])), WindowsOpen::Notepad);
+    assert!(
+        asked.borrow().iter().all(|v| v == "edit"),
+        "only ever asks about edit: {:?}",
+        asked.borrow()
+    );
+}

@@ -87,12 +87,16 @@ export class BackendCallError extends Error {
   readonly data: CallErrorData | null;
   /** True when `roster serve` itself went away (exited, or stopped answering). */
   readonly lost: boolean;
-  constructor(message: string, code: number | null = null, data: CallErrorData | null = null, lost = false) {
+  /** True when the app stopped waiting for this call: serve may still be finishing it, so what it did
+   * is unknown until asked (`afterTimeout.ts`). */
+  readonly timedOut: boolean;
+  constructor(message: string, code: number | null = null, data: CallErrorData | null = null, lost = false, timedOut = false) {
     super(message);
     this.name = "BackendCallError";
     this.code = code;
     this.data = data;
     this.lost = lost;
+    this.timedOut = timedOut;
   }
 }
 
@@ -161,6 +165,8 @@ export interface HostUpdate {
   host: Host;
   /** Where roster kept the file as it was before (in the repo's git dir). */
   backup: string | null;
+  /** `host.update`: what failed after the edit was written (recording a moved Host's key). */
+  warnings?: string[];
 }
 
 /** One Host the Pending changes touch. */
@@ -183,6 +189,15 @@ export interface PendingChanges {
   count: number;
   /** The commit message `changes.publish` would write, naming what changed (API 7; "" when none). */
   message?: string;
+  /** The branch's last commit, and whether its upstream has it (as this Box last fetched). */
+  last_commit?: LastCommit | null;
+}
+
+export interface LastCommit {
+  commit: string;
+  subject: string;
+  upstream: string | null;
+  pushed: boolean;
 }
 
 /** One group the Pending changes touch. */
@@ -285,6 +300,8 @@ export interface HostAdd {
   backup: string;
   verify: HostCheck | null;
   item: { provider: string; id: string; name: string } | null;
+  /** What went wrong after the Host was written (recording its host key): it's added all the same. */
+  warnings?: string[];
 }
 
 /** `host.scan_key`: the key the address offers, and how it compares with the recorded one. */

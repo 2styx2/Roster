@@ -36,8 +36,8 @@ export function tauriPlatform(): Platform {
       },
       open: () => invoke<ConfigOpened>("config_open"),
       importPreview: () => invoke<ImportPreview>("config_import_preview"),
-      importApply: async (base) => {
-        await invoke("config_import_apply", { base });
+      importApply: async ({ base, result, date }) => {
+        await invoke("config_import_apply", { previewed: { base, result, date } });
       },
       reload: () => invoke<ConfigReport | null>("config_reload"),
     },

@@ -179,8 +179,12 @@ def test_a_text_edit_needs_no_verify_and_keeps_every_other_byte(app, box):
 
 
 def test_the_diff_shows_exactly_the_change(app, box):
-    assert result(app.call("changes.diff")) == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [],
-                                               "groups": [], "count": 0, "message": ""}
+    d = result(app.call("changes.diff"))
+    last = d.pop("last_commit")
+    assert d == {"path": str(box.yml), "repo": str(box), "diff": "", "hosts": [], "groups": [], "count": 0,
+                 "message": ""}
+    assert last == {"commit": git(box, "rev-parse", "HEAD"), "subject": "inventory", "upstream": "origin/main",
+                    "pushed": True}
     result(app.call("host.update", {"host": "esx", "changes": {"title": "ESXi 8"}}))
     d = result(app.call("changes.diff"))
     body = [ln for ln in d["diff"].splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
@@ -280,6 +284,31 @@ def test_a_host_that_moved_port_is_compared_with_the_key_recorded_for_it(app, bo
     assert v["ok"], v
 
 
+def test_a_moved_hosts_verified_key_is_pinned_for_its_new_address_once_the_edit_is_written(app, box, sshd,
+                                                                                           isolated):
+    old = box.yml.read_text()
+    box.commit(old.replace(f"port: {sshd.port}\n        auth", "port: 2222\n        auth"))
+    known = isolated["home"] / ".ssh" / "roster_known_hosts"
+    known.write_text(sshd.known_hosts_line(port=2222))
+    v = result(app.call("host.verify_login", {"host": "esx", "changes": {"port": sshd.port}}))
+    assert v["ok"], v
+    assert known.read_text() == sshd.known_hosts_line(port=2222)            # a test login records nothing
+    r = result(app.call("host.update", {"host": "esx", "changes": {"port": sshd.port}}))
+    assert r["changed"] and r["warnings"] == []
+    assert known.read_text() == sshd.known_hosts_line(port=2222) + sshd.known_hosts_line()
+
+
+def test_a_moved_hosts_key_isnt_pinned_when_the_edit_isnt_written(app, box, sshd, isolated, monkeypatch):
+    old = box.yml.read_text()
+    box.commit(old.replace(f"port: {sshd.port}\n        auth", "port: 2222\n        auth"))
+    known = isolated["home"] / ".ssh" / "roster_known_hosts"
+    known.write_text(sshd.known_hosts_line(port=2222))
+    result(app.call("host.verify_login", {"host": "esx", "changes": {"port": sshd.port}}))
+    box.yml.write_text(box.yml.read_text() + "  : [\n")                      # roster.yml broken meanwhile
+    assert "error" in app.call("host.update", {"host": "esx", "changes": {"port": sshd.port}})
+    assert known.read_text() == sshd.known_hosts_line(port=2222)
+
+
 def test_a_different_host_key_is_never_accepted(app, box, sshd, isolated):
     other = paramiko.ECDSAKey.generate()
     (isolated["home"] / ".ssh" / "roster_known_hosts").write_text(
@@ -322,6 +351,45 @@ def test_a_key_host_logs_in_with_this_boxs_key(serve, box, sshd, isolated, monke
     assert v["ok"] and sshd.attempts == [("publickey", "root")], v
     v = result(s.call("host.verify_login", {"host": "keyed", "changes": {"user": "nobody"}}))
     assert v["steps"][-1]["code"] == 46
+
+
+@pytest.fixture
+def keyed(serve, box, sshd, isolated):
+    """serve (vault unlocked) where the enroll: true Host 'keyed' logs in with this box's key."""
+    key = paramiko.ECDSAKey.generate()
+    path = isolated["home"] / "roster_key"
+    key.write_private_key_file(str(path))
+    sshd.pubkey = key
+    box.commit(box.yml.read_text().replace("# The lab.", f"key_path: {path}\n# The lab."))
+    s = serve("-c", str(box.yml))
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    return s
+
+
+def test_a_new_login_on_a_key_host_is_tested_with_its_password_not_the_key(keyed, box, sshd):
+    changes = {"auth": "bw:esx ssh"}
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": changes}))
+    assert v["ok"], v
+    steps = {s["step"]: s for s in v["steps"]}
+    assert steps["provider"]["status"] == "ok" and steps["vault-item"]["status"] == "ok"
+    assert sshd.attempts == [("password", "root")]                       # the Login itself, not the key
+    r = result(keyed.call("host.update", {"host": "keyed", "changes": changes}))
+    assert r["host"]["ssh"]["auth"] == "bw:esx ssh" and r["host"]["enroll"] is True
+
+
+@pytest.mark.parametrize("auth,code", [("bw:nopw ssh", 34), ("bw:dup ssh", 33), ("bw:esx shh", 32)])
+def test_a_bad_new_login_on_a_key_host_fails_even_though_the_key_works(keyed, box, sshd, auth, code):
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": {"auth": auth}}))
+    fail = next(s for s in v["steps"] if s["status"] == "fail")
+    assert not v["ok"] and fail["step"] == "vault-item" and fail["code"] == code, v
+    assert sshd.accepts == 0
+    assert keyed.call("host.update", {"host": "keyed", "changes": {"auth": auth}})["error"]["code"] == 75
+
+
+def test_a_new_login_on_a_key_host_that_refuses_its_password_fails(keyed, box, sshd):
+    v = result(keyed.call("host.verify_login", {"host": "keyed", "changes": {"auth": "bw:esx ssh", "user": "admin"}}))
+    assert not v["ok"] and v["steps"][-1]["code"] == 45, v
+    assert sshd.attempts == [("password", "admin")]
 
 
 # ---------------------------------------------------------------- inventory.pull
@@ -470,6 +538,93 @@ def test_a_rejected_push_undoes_the_commit_and_keeps_the_pending_changes(app, bo
     assert err["code"] == 96 and "nothing was published" in err["message"] and "protected branch" in err["data"]["details"]
     assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
     assert result(app.call("changes.diff"))["count"] == 1
+
+
+def hanging_hook(box, name, accept):
+    """A hook on origin that hangs past the push timeout: pre-receive before the ref moves (then refuses),
+    post-receive after it moved."""
+    hook = box.parent / "origin.git" / "hooks" / name
+    hook.write_text(f"#!/bin/sh\nsleep 30\nexit {0 if accept else 1}\n")
+    hook.chmod(0o755)
+
+
+@pytest.fixture
+def quick_push(monkeypatch):
+    from roster import changes
+    monkeypatch.setattr(changes, "PUSH_TIMEOUT", 1)
+    return changes
+
+
+def test_a_push_that_times_out_before_reaching_the_remote_undoes_the_commit(box, quick_push):
+    import time
+    hanging_hook(box, "pre-receive", accept=False)
+    before = git(box, "rev-parse", "HEAD")
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    start = time.monotonic()
+    with pytest.raises(quick_push.Problem) as e:
+        quick_push.publish(box.yml)
+    assert time.monotonic() - start < 15                    # the hook's sleep doesn't hold it up
+    assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is False
+    assert "didn't finish in time" in e.value.message and "nothing was published" in e.value.message
+    assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+    assert origin_log(box) == "inventory"
+
+
+def test_a_push_that_times_out_after_reaching_the_remote_is_a_publish(box, quick_push):
+    hanging_hook(box, "post-receive", accept=True)
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    r = quick_push.publish(box.yml)
+    head = git(box, "rev-parse", "HEAD")
+    assert r["commit"] == head and git(box.parent / "origin.git", "rev-parse", "main") == head
+    assert git(box, "status", "--porcelain", "--untracked-files=no") == ""
+    assert git(box, "rev-parse", "@{u}") == head                         # this box knows it's published
+
+
+def test_a_push_whose_outcome_cant_be_checked_undoes_the_commit_and_says_so(box, quick_push, monkeypatch):
+    hanging_hook(box, "pre-receive", accept=False)
+    real = quick_push.git
+
+    def offline_after_push(repo, *args, **kw):
+        if args[0] == "fetch" and offline_after_push.pushed:
+            return subprocess.CompletedProcess(args, 128, "", "fatal: unable to access")
+        offline_after_push.pushed |= args[0] == "push"
+        return real(repo, *args, **kw)
+    offline_after_push.pushed = False
+    monkeypatch.setattr(quick_push, "git", offline_after_push)
+    before = git(box, "rev-parse", "HEAD")
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    with pytest.raises(quick_push.Problem) as e:
+        quick_push.publish(box.yml)
+    assert e.value.code == 96 and e.value.data["timed_out"] and e.value.data["landed"] is None
+    assert "couldn't check" in e.value.message
+    assert git(box, "rev-parse", "HEAD") == before and pending_as_before(box)
+
+
+def test_publish_stays_within_its_deadline(box, monkeypatch):
+    import json
+    import time
+
+    from roster import serve as rpc
+    hanging_hook(box, "pre-receive", accept=False)
+    monkeypatch.setitem(rpc.DEADLINES, "changes.publish", 2)
+    box.yml.write_text(box.yml.read_text().replace("title: ESX", "title: mine"))
+    state = rpc.State(str(box.yml))
+    start = time.monotonic()
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "changes.publish", "params": {}}))
+    assert time.monotonic() - start < 2 + rpc.AFTER_DEADLINE
+    assert r["error"]["code"] == 96 and r["error"]["data"]["timed_out"] and pending_as_before(box)
+
+
+def test_the_diff_says_whether_the_last_commit_is_published(owner, box):
+    result(owner.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
+    r = result(owner.call("changes.publish"))
+    last = result(owner.call("changes.diff"))["last_commit"]
+    assert last == {"commit": r["commit"], "subject": "roster: change esx (title)", "upstream": "origin/main",
+                    "pushed": True}
+    (box / "README.md").write_text("local\n")
+    git(box, "commit", "-qam", "local only")
+    last = result(owner.call("changes.diff"))["last_commit"]
+    assert last["subject"] == "local only" and last["pushed"] is False
 
 
 def test_a_refused_commit_publishes_nothing(owner, box):

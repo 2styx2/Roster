@@ -15,7 +15,7 @@ mod lua;
 pub mod schema;
 mod watch;
 
-pub use editor::{Ensured, OpenWith, ensure_file, open, open_with, starter};
+pub use editor::{Ensured, OpenWith, WindowsOpen, ensure_file, open, open_with, starter, windows_open};
 pub use schema::*;
 pub use watch::{Changed, FOLDERS_FILE, Watcher, watch, watch_files};
 
@@ -601,4 +601,24 @@ pub fn backend_plan(
         .or(config.backend.distro())
         .map(String::from);
     Ok(BackendPlan { command, distro })
+}
+
+/// Replaces `path` with `text` all at once: a temporary file in the same folder, given the old
+/// file's permissions, then renamed over it. A reader (or the Config watcher) sees the old file
+/// or the new one, never half of it, and a failed write leaves the old one.
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    let written = std::fs::write(&tmp, text).and_then(|()| {
+        if let Ok(meta) = std::fs::metadata(path) {
+            std::fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        std::fs::rename(&tmp, path)
+    });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }

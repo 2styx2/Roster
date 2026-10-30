@@ -164,13 +164,13 @@ fn the_preview_diffs_the_file_names_what_init_lua_overrides_and_writes_only_unch
     // A file changed since the preview is never overwritten.
     std::fs::write(dir.join("init.lua"), "return { vim = false }\n").unwrap();
     assert!(
-        wt::apply(&dir, &settings, "settings.json", "2026-10-30", &pre.base)
+        wt::apply(&dir, &settings, "settings.json", &pre.applied())
             .unwrap_err()
             .contains("changed")
     );
     // An unchanged one is.
     let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
-    wt::apply(&dir, &settings, "settings.json", "2026-10-30", &pre.base).unwrap();
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
     let c = config::load(&dir).unwrap();
     assert_eq!(c.terminal.size, FontSize::Pt(16.0));
     assert!(!c.vim);
@@ -183,7 +183,7 @@ fn with_no_init_lua_the_preview_starts_from_the_commented_out_example() {
     let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
     assert!(pre.created);
     assert!(!dir.join("init.lua").exists());
-    wt::apply(&dir, &settings, "settings.json", "2026-10-30", &pre.base).unwrap();
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
     assert!(
         std::fs::read_to_string(dir.join("init.lua"))
             .unwrap()
@@ -202,4 +202,77 @@ fn where_windows_terminal_keeps_its_settings() {
     );
     assert!(shown.iter().any(|p| p.contains("WindowsTerminalPreview")));
     assert!(shown.iter().all(|p| p.ends_with("settings.json")));
+}
+
+#[test]
+fn apply_writes_exactly_what_the_preview_showed_or_nothing() {
+    let dir = temp_dir("exactly");
+    let settings = fixture("defaults-font.json");
+    let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
+    // Windows Terminal's settings changed since the preview: refused, nothing written.
+    let changed = settings.replace("Iosevka Nerd Font", "Cascadia Code");
+    assert_ne!(changed, settings);
+    let e = wt::apply(&dir, &changed, "settings.json", &pre.applied()).unwrap_err();
+    assert!(
+        e.contains("Windows Terminal's settings changed since the preview"),
+        "{e}"
+    );
+    assert!(e.contains("import-terminal again"), "{e}");
+    assert!(!dir.join("init.lua").exists());
+    // Applied the next day, it still writes the previewed block (its date included).
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
+    let written = std::fs::read_to_string(dir.join("init.lua")).unwrap();
+    let added: String = pre
+        .diff
+        .iter()
+        .filter(|l| l.kind != DiffKind::Remove)
+        .map(|l| format!("{}\n", l.text))
+        .collect();
+    assert_eq!(written, added);
+    assert!(written.contains("2026-10-30"));
+}
+
+#[test]
+fn apply_refuses_a_date_that_isnt_one() {
+    let dir = temp_dir("date");
+    let settings = fixture("defaults-font.json");
+    let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
+    let mut forged = pre.applied();
+    forged.date = "2026-10-30\nos.exit()".into();
+    assert!(wt::apply(&dir, &settings, "settings.json", &forged).is_err());
+    assert!(!dir.join("init.lua").exists());
+}
+
+#[test]
+fn apply_replaces_init_lua_atomically_keeping_its_mode_and_line_endings() {
+    let dir = temp_dir("atomic");
+    let settings = fixture("defaults-font.json");
+    let init = "-- mine\r\nreturn {\r\n  vim = false,\r\n}\r\n";
+    std::fs::write(dir.join("init.lua"), init).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.join("init.lua"), std::fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let pre = wt::preview(&dir, &settings, "settings.json", "2026-10-30").unwrap();
+    wt::apply(&dir, &settings, "settings.json", &pre.applied()).unwrap();
+    let written = std::fs::read_to_string(dir.join("init.lua")).unwrap();
+    assert!(written.starts_with("-- mine\r\n") && written.contains("roster.set("));
+    assert!(
+        !written.replace("\r\n", "").contains('\n'),
+        "every line ends in CRLF, like the file did: {written:?}"
+    );
+    assert!(!config::load(&dir).unwrap().vim);
+    // Only init.lua is in the folder: no temporary file left behind.
+    let names: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(names, ["init.lua"]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(dir.join("init.lua")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
 }

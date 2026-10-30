@@ -34,6 +34,7 @@ import {
   type Host,
   type HostList,
 } from "./backend/types";
+import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
 import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
@@ -1260,7 +1261,8 @@ export function App({
               const source = platform.config;
               if (!source) return;
               setImporting({ ...importing, writing: true, problem: null });
-              source.importApply(importing.preview.base).then(
+              const { base, result, date } = importing.preview;
+              source.importApply({ base, result, date }).then(
                 () => {
                   setImporting(null);
                   restoreFocus();
@@ -1312,9 +1314,9 @@ export function App({
               reloadHosts();
               refreshPending();
               setMessage(
-                update.changed
+                (update.changed
                   ? `Saved ${update.host.name} as a Pending change. Sessions use it after roster sync.`
-                  : `Nothing changed on ${update.host.name}.`,
+                  : `Nothing changed on ${update.host.name}.`) + (update.warnings?.length ? ` But ${update.warnings.join("; ")}.` : ""),
               );
             }}
             onClose={closeEdit}
@@ -1343,9 +1345,10 @@ export function App({
               refreshPending();
               const where = `${r.host.name} to ${r.host.group}`;
               setMessage(
-                r.host.reviewed
+                (r.host.reviewed
                   ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
-                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`,
+                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
+                  (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
               );
             }}
             onClose={closeAdd}
@@ -1372,7 +1375,8 @@ export function App({
               refreshPending();
             }}
             onPublish={async (message) => {
-              const r = await backend.publishChanges(message);
+              // After a timeout, publishChecked asks roster whether it was published, and says so.
+              const r = await publishChecked(backend, message);
               reloadHosts();
               refreshPending();
               setMessage(

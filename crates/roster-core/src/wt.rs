@@ -505,6 +505,16 @@ pub fn insert_block(init: &str, block: &str) -> String {
     out
 }
 
+/// [`insert_block`], in the file's own line endings: a file written with CRLF stays CRLF.
+fn with_block(init: &str, block: &str) -> String {
+    let new = insert_block(init, block);
+    if init.contains("\r\n") {
+        new.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        new
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiffKind {
@@ -570,8 +580,42 @@ pub struct Preview {
     pub created: bool,
     /// What [`apply`] checks init.lua against, so a file changed since isn't overwritten.
     pub base: String,
+    /// The fingerprint of init.lua as this preview would leave it: [`apply`] writes only that.
+    pub result: String,
+    /// The date in the block's comment, so applying it another day writes the same block.
+    pub date: String,
     /// The Config error the new file would have, if any.
     pub error: Option<String>,
+}
+
+/// What the app hands back to [`apply`] from the [`Preview`] the user confirmed.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Previewed {
+    pub base: String,
+    pub result: String,
+    pub date: String,
+}
+
+impl Preview {
+    pub fn applied(&self) -> Previewed {
+        Previewed {
+            base: self.base.clone(),
+            result: self.result.clone(),
+            date: self.date.clone(),
+        }
+    }
+}
+
+fn is_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
 }
 
 /// FNV-1a of the file (or "absent"): enough to notice it changed.
@@ -609,7 +653,7 @@ pub fn preview(dir: &Path, settings_text: &str, settings_path: &str, date: &str)
     let current = read_init(dir)?;
     let old = current.clone().unwrap_or_else(config::starter);
     let profile = parse(settings_text)?;
-    let new = insert_block(&old, &lua_block(&profile, settings_path, date));
+    let new = with_block(&old, &lua_block(&profile, settings_path, date));
     let (overridden, error) = match config::returned_table(dir, &new) {
         Ok(table) => (
             settings(&profile)
@@ -652,22 +696,34 @@ pub fn preview(dir: &Path, settings_text: &str, settings_path: &str, date: &str)
         overridden,
         created: current.is_none(),
         base: fingerprint(current.as_deref()),
+        result: fingerprint(Some(&new)),
+        date: date.into(),
         error,
     })
 }
 
-/// Writes what [`preview`] showed, if init.lua is still what it read (`base`).
-pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, date: &str, base: &str) -> Result<(), String> {
+/// Writes exactly what [`preview`] showed, or nothing: only if init.lua is still what it read
+/// (`base`) and Windows Terminal's settings (read again now) still make the same file (`result`).
+pub fn apply(dir: &Path, settings_text: &str, settings_path: &str, previewed: &Previewed) -> Result<(), String> {
+    if !is_date(&previewed.date) {
+        return Err("the preview's date isn't a date; nothing was written".into());
+    }
     let current = read_init(dir)?;
-    if fingerprint(current.as_deref()) != base {
+    if fingerprint(current.as_deref()) != previewed.base {
         return Err(
             "init.lua changed since the preview; nothing was written. Run :config import-terminal again".into(),
         );
     }
     let old = current.unwrap_or_else(config::starter);
-    let new = insert_block(&old, &lua_block(&parse(settings_text)?, settings_path, date));
-    std::fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
-    std::fs::write(dir.join(config::FILE_NAME), new).map_err(|e| format!("can't write init.lua: {e}"))
+    let new = with_block(&old, &lua_block(&parse(settings_text)?, settings_path, &previewed.date));
+    if fingerprint(Some(&new)) != previewed.result {
+        return Err(
+            "Windows Terminal's settings changed since the preview; nothing was written. \
+             Run :config import-terminal again to see what it would write now"
+                .into(),
+        );
+    }
+    config::write_atomic(&dir.join(config::FILE_NAME), &new).map_err(|e| format!("can't write init.lua: {e}"))
 }
 
 /// Today as YYYY-MM-DD (UTC), for the block's comment.

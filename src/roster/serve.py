@@ -20,7 +20,7 @@ import time
 
 from . import __version__, askpass, changes, diagnose, edit, providers
 from .claude import write_claude_files
-from .common import not_reviewed, ssh_config_file
+from .common import deadline, not_reviewed, ssh_config_file
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CANT_WRITE,
@@ -84,7 +84,7 @@ class State:
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
-        self.verified = {}                  # host.verify_login successes: login_key -> time.monotonic()
+        self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -291,7 +291,7 @@ def host_verify_login(state, params):
     h, new, _ = edited_host(state, params)
     result = diagnose.verify_login(new, state.cfg["key"], previous=h)
     if result["ok"]:
-        state.verified[login_key(new)] = time.monotonic()
+        state.verified[login_key(new)] = (time.monotonic(), result.pop("host_key", None))
     return result
 
 
@@ -302,8 +302,9 @@ def host_update(state, params):
     if not wanted:
         return {"changed": False, "host": h, "backup": None}
     key = login_key(new)
+    pin = None
     if set(wanted) & set(edit.LOGIN_FIELDS):
-        at = state.verified.get(key)
+        at, pin = state.verified.get(key, (None, None))
         if at is None or time.monotonic() - at > VERIFIED_FOR:
             raise RpcError(NOT_VERIFIED, f"{h['name']}'s new address, user or Login hasn't passed a test login",
                            fix="test the login (host.verify_login) with these values, then save again")
@@ -312,8 +313,16 @@ def host_update(state, params):
     backup = repo.backup(old_text)
     edit.replace_file(repo.path, new_text)
     state.verified.pop(key, None)
+    warnings = []
+    if pin:                     # it moved: the key it was verified with is now recorded for its new address
+        try:
+            record_host_key(new, pin["type"], pin["base64"])
+        except Exception as e:
+            warnings.append(f"{h['name']} was changed, but its host key couldn't be recorded for {new['ip']} "
+                            f"({failure_text(e)}) - test the login again before connecting")
     state.reload()
-    return {"changed": True, "host": state.inventory()["hosts"][h["name"]], "backup": str(backup)}
+    return {"changed": True, "host": state.inventory()["hosts"][h["name"]], "backup": str(backup),
+            "warnings": warnings}
 
 
 def changes_diff(state, params):
@@ -439,18 +448,39 @@ def add_host(state, params):
         finally:
             del password
         made = {"provider": typed["provider"], **made}
-    try:
+    try:                                        # until the Host is written, any failure takes the item back out
         old_text, new_text, _ = edit.added(repo.path, group, name, fields)
         backup = repo.backup(old_text)
         edit.replace_file(repo.path, new_text)
-    except Problem as e:
-        raise take_back(made, e) from None
+    except BaseException as e:
+        raise take_back(made, write_failed(name, repo.path, e)) from None
+    warnings = []                               # the Host is in roster.yml now: what follows can't un-add it
     if verify and verify.get("host_key"):
         k = verify["host_key"]
-        record_host_key(h, k["type"], k["base64"])
+        try:
+            record_host_key(h, k["type"], k["base64"])
+        except Exception as e:
+            warnings.append(f"{name} was added, but its host key couldn't be recorded in ~/.ssh/roster_known_hosts "
+                            f"({failure_text(e)}) - run `roster sync`, or test the login again before connecting")
     state.reload()
     return {"added": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "verify": verify,
-            "item": made}
+            "item": made, "warnings": warnings}
+
+
+def failure_text(e):
+    """What went wrong, safe to show: an OSError's own words (paths only), else just the exception's type."""
+    if isinstance(e, OSError):
+        return f"{e.strerror or type(e).__name__}" + (f": {e.filename}" if e.filename else "")
+    return type(e).__name__
+
+
+def write_failed(name, path, e):
+    """Writing the Host failed: as a Problem (a Problem or a die() keeps its own words)."""
+    if isinstance(e, Problem):
+        return e
+    if isinstance(e, SystemExit):
+        return Problem(ROSTER_ERROR, f"{name} wasn't added: {die_message(e)}")
+    return Problem(ROSTER_ERROR, f"{name} wasn't added: couldn't write {path} ({failure_text(e)})")
 
 
 def verify_failed(name, verify):
@@ -466,7 +496,8 @@ def take_back(made, e):
     if made is None:
         return e
     try:
-        providers.delete_item(made["provider"], made["id"])
+        with deadline(UNDO_TIME):
+            providers.delete_item(made["provider"], made["id"])
     except Exception as undo:
         what = str(undo) if isinstance(undo, providers.SecretError) else type(undo).__name__
         return Problem(e.code, f"{e.message}; the vault item '{made['name']}' couldn't be taken back out ({what}) "
@@ -921,6 +952,17 @@ METHODS["vault.login"] = vault_login
 
 # ---------------------------------------------------------------- the loop
 
+# Each long method's overall deadline (s). The app waits longer for each (app/src-tauri/src/lib.rs CALL_SECS),
+# at least the deadline plus AFTER_DEADLINE: a few steps still run once it's past (a 1 s floor each, up to 15 s
+# to check what a step that timed out did: changes.CHECK_TIMEOUT, bitwarden's lookup after a create; and UNDO_TIME
+# to take a new Vault item back out). So serve
+# always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
+DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
+             "host.verify_login": 45, "vault.create_item": 45}
+AFTER_DEADLINE = 40
+UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
+
+
 def handle(state, line):
     """One request line -> the response object, or None for a notification."""
     try:
@@ -938,7 +980,8 @@ def handle(state, line):
         params = req.get("params", {})
         if not isinstance(params, dict):
             raise RpcError(INVALID_PARAMS, "params must be an object")
-        result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
+        with deadline(DEADLINES.get(req["method"])):
+            result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
     except RpcError as e:
         result = error_response(rid, e)
     except SystemExit as e:                     # a die() inside roster: its message is the answer

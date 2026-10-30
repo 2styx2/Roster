@@ -191,6 +191,105 @@ def test_a_failure_adding_the_host_takes_the_new_item_back_out(box, sshd, vault,
     assert SECRET not in json.dumps(r)
 
 
+def unlocked_state(box):
+    state = rpc.State(str(box.yml))
+    assert "result" in rpc.handle(state, json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "vault.unlock", "params": {"password": "hunter2"}}))
+    return state
+
+
+def add_in_process(state, sshd, **params):
+    return rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 2, "method": "host.add", "params": {
+        "name": "nas", "group": "lab", "address": "127.0.0.1", "port": sshd.port, "user": "root",
+        "password": SECRET, "enroll": False, **params}}))
+
+
+def disk_full(*a, **k):
+    raise OSError(28, "No space left on device")
+
+
+@pytest.mark.parametrize("where", ["backup", "replace_file"])
+def test_an_os_error_writing_the_host_takes_the_new_item_back_out(box, sshd, vault, isolated, fakes, monkeypatch,
+                                                                   where):
+    from roster import changes
+    state = unlocked_state(box)
+    if where == "backup":
+        monkeypatch.setattr(changes.Repo, "backup", disk_full)
+    else:
+        monkeypatch.setattr(edit, "replace_file", disk_full)
+    r = add_in_process(state, sshd)
+    err = r["error"]
+    assert "No space left on device" in err["message"] and "nas wasn't added" in err["message"], err
+    assert "the vault item 'nas ssh' was taken back out" in err["message"]
+    assert err["data"]["undone"]["name"] == "nas ssh"
+    nothing_written(box, vault, isolated)
+    assert SECRET not in json.dumps(r)
+
+
+def test_a_failure_recording_the_host_key_after_the_host_is_written_is_a_warning(box, sshd, vault, isolated, fakes,
+                                                                                monkeypatch):
+    known_hosts(isolated).write_text("")
+    state = unlocked_state(box)
+    monkeypatch.setattr(rpc, "record_host_key", disk_full)
+    r = add_in_process(state, sshd, host_key=fingerprint(sshd.key))
+    res = r["result"]
+    assert res["added"] is True and res["item"]["name"] == "nas ssh"
+    assert "nas ssh" in items(vault) and "nas:" in box.yml.read_text()
+    assert len(res["warnings"]) == 1 and "host key" in res["warnings"][0] and "No space left" in res["warnings"][0]
+
+
+def test_a_clean_add_has_no_warnings(app, box, sshd, vault):
+    r = result(add(app, name="nas", port=sshd.port, password=SECRET, enroll=False))
+    assert r["warnings"] == []
+
+
+def test_host_add_stays_within_its_deadline_and_writes_nothing_when_it_runs_out(box, sshd, vault, isolated, fakes,
+                                                                                  monkeypatch):
+    import time
+    state = unlocked_state(box)
+    monkeypatch.setitem(rpc.DEADLINES, "host.add", 3)
+    monkeypatch.setenv("FAKE_BW_SLOW", json.dumps({"list": 60}))
+    start = time.monotonic()
+    r = add_in_process(state, sshd)
+    assert time.monotonic() - start < 15
+    assert "timed out" in r["error"]["message"], r       # the duplicate check ran out of time: nothing made
+    nothing_written(box, vault, isolated)
+
+
+def test_a_vault_item_saved_by_a_create_that_timed_out_is_used_for_the_add(box, sshd, vault, isolated, fakes,
+                                                                           monkeypatch):
+    from roster.providers import bitwarden
+    state = unlocked_state(box)
+    real_bw = bitwarden._bw
+
+    def create_hangs(ctx, *args, **kw):         # only the create runs out of time: the add's own deadline is fine
+        if args[:2] == ("create", "item"):
+            monkeypatch.setenv("FAKE_BW_CREATE_HANG", "30")
+            with rpc.deadline(1):
+                try:
+                    return real_bw(ctx, *args, **kw)
+                finally:
+                    monkeypatch.delenv("FAKE_BW_CREATE_HANG")
+        return real_bw(ctx, *args, **kw)
+    monkeypatch.setattr(bitwarden, "_bw", create_hangs)
+    r = add_in_process(state, sshd)
+    res = r["result"]
+    made = next(i for i in json.loads(vault.read_text()) if i["name"] == "nas ssh")
+    assert res["item"] == {"provider": "bw", "id": made["id"], "name": "nas ssh"}
+    assert res["host"]["ssh"]["auth"] == "bw:nas ssh"
+
+
+def test_every_deadline_ends_before_the_app_gives_up():
+    import re
+    from pathlib import Path
+    core = (Path(__file__).parents[1] / "crates" / "roster-core" / "src" / "backend.rs").read_text()
+    table = core[core.index("pub const CALL_SECS"):]
+    app = {m: int(s) for m, s in re.findall(r'\("([\w.]+)", (\d+)\)', table[:table.index("];")])}
+    assert "host.add" in app, "roster-core's CALL_SECS table moved"
+    for method, secs in rpc.DEADLINES.items():
+        assert secs + rpc.AFTER_DEADLINE < app.get(method, 60), method
+
+
 def test_the_typed_password_never_reaches_any_output(app, box, sshd, vault):
     add(app, name="nas", port=sshd.port, password=SECRET, enroll=False)
     add(app, name="nas2", port=sshd.port, password="wrong-" + SECRET, enroll=False)

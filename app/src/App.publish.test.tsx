@@ -54,6 +54,15 @@ describe(":publish", () => {
     expect(await screen.findByText(new RegExp(`Published ${FAKE_COMMIT.slice(0, 7)}`), { selector: ".message-line" })).toBeInTheDocument();
   });
 
+  it("after a Publish roster answered too late for, checks and names the commit it made", async () => {
+    const { user } = await ready({ ...pendingScenario, lateAnswers: true });
+    await openPublish(user);
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    const done = await within(await panel()).findByRole("status");
+    expect(done).toHaveTextContent(`Published ${FAKE_COMMIT.slice(0, 7)} to origin/main`);
+    expect(done).toHaveTextContent(/answered late/);
+  });
+
   it("publishes the message as edited", async () => {
     const { user } = await ready();
     const form = await openPublish(user);

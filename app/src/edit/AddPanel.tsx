@@ -10,6 +10,7 @@
 // Keyboard first: Name has focus, Tab moves, Enter adds, Esc closes. It opens from a key, so it
 // doesn't animate (emil-design-eng: never animate keyboard-initiated actions).
 import { useEffect, useId, useRef, useState } from "react";
+import { addHostChecked } from "../backend/afterTimeout";
 import { BackendCallError, type Backend, type CheckStep, type HostAdd, type HostList, type ScannedKey } from "../backend/types";
 import { problemFromCallError, type ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
@@ -155,7 +156,8 @@ export function AddPanel({ backend, hosts, group, pendingCount, rows, actions, o
     if (!params) return;
     setPhase({ at: "adding" });
     try {
-      const result = await backend.addHost(hostKey ? { ...params, host_key: hostKey } : params);
+      // After a timeout, addHostChecked asks roster whether the Host went in, and says so.
+      const result = await addHostChecked(backend, hostKey ? { ...params, host_key: hostKey } : params);
       if (live.current) onAdded(result);
     } catch (e) {
       if (!live.current) return;

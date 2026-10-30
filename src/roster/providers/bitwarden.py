@@ -14,6 +14,7 @@ from . import (
     NotLoggedIn,
     SecretError,
     SeveralItems,
+    TimedOut,
     VaultLocked,
     WriteFailed,
     WrongPassword,
@@ -26,8 +27,8 @@ from . import (
 
 # ---- built-in: Bitwarden
 
-def _bw(ctx, *args, env=None, input=None):
-    return ctx.run(["bw", *args, "--nointeraction"], env=env, input=input)
+def _bw(ctx, *args, env=None, input=None, floor=1):
+    return ctx.run(["bw", *args, "--nointeraction"], env=env, input=input, floor=floor)
 
 
 NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login` once"
@@ -214,7 +215,10 @@ def _bw_create(item, ctx):
     encoded = base64.b64encode(json.dumps({
         "type": 1, "name": name, "notes": None, "favorite": False, "fields": [], "reprompt": 0,
         "organizationId": None, "folderId": None, "login": login}).encode()).decode()
-    r = _bw(ctx, "create", "item", input=encoded)
+    try:
+        r = _bw(ctx, "create", "item", input=encoded)
+    except TimedOut:                                       # bw was stopped: the item may be saved all the same
+        return _created_anyway(ctx, name)
     if r.returncode != 0:                                  # stderr only: stdout would be the item itself
         err = _scrub(" ".join(r.stderr.split()), password, encoded)[:160]
         raise WriteFailed(f"Bitwarden didn't create '{name}': {err or f'exit {r.returncode}'}")
@@ -227,6 +231,39 @@ def _bw_create(item, ctx):
         if made is None:
             raise WriteFailed(f"Bitwarden said it created '{name}' but it isn't in the vault - check it there")
     return {"id": made["id"], "name": made.get("name", name)}
+
+
+LOOKUP_FLOOR = 7            # s for each of the sync and the list after a create timed out, even past serve's deadline
+
+
+def _bw_lookup(ctx, name):
+    """The items named exactly NAME, synced from the server first. Raises SecretError if bw can't say."""
+    _bw(ctx, "sync", floor=LOOKUP_FLOOR)
+    r = _bw(ctx, "list", "items", "--search", name, floor=LOOKUP_FLOOR)
+    try:
+        listed = json.loads(r.stdout) if r.returncode == 0 else None
+    except json.JSONDecodeError:
+        listed = None
+    if listed is None:
+        raise SecretError(errtext(r) or f"`bw list items` failed (exit {r.returncode})")
+    return [i for i in listed if i.get("name") == name]
+
+
+def _created_anyway(ctx, name):
+    """`bw create item` timed out. No item had that exact name before (checked just before), so one that has it now
+    is this one: it counts as made (and can be undone). None: nothing was saved. Can't tell: says so, naming it."""
+    try:
+        found = _bw_lookup(ctx, name)
+    except SecretError as e:
+        raise WriteFailed(f"Bitwarden didn't answer `bw create item` in time, and roster couldn't check whether "
+                          f"'{name}' was saved ({e}) - look for it in the vault, and delete it if it's not wanted")
+    if len(found) == 1:
+        return {"id": found[0]["id"], "name": found[0].get("name", name)}
+    if not found:
+        raise WriteFailed(f"Bitwarden didn't answer `bw create item` in time, and there's no '{name}' in the vault: "
+                          "nothing was saved")
+    raise WriteFailed(f"Bitwarden didn't answer `bw create item` in time, and now {len(found)} items are named "
+                      f"'{name}' - check them in the vault and delete the extra one")
 
 
 def _bw_delete(item_id, ctx):

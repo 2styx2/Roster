@@ -37,6 +37,8 @@ const PREVIEW: ImportPreview = {
   overridden: ["terminal.size"],
   created: false,
   base: "abc",
+  result: "def",
+  date: "2026-10-30",
   error: null,
 };
 
@@ -94,7 +96,7 @@ describe(":config import-terminal", () => {
     await command(user, "config import-terminal");
     await screen.findByRole("dialog", { name: "Import from Windows Terminal" });
     await user.keyboard("{Enter}");
-    expect(platform.imported()).toEqual(["abc"]);
+    expect(platform.imported()).toEqual([{ base: "abc", result: "def", date: "2026-10-30" }]);
     await screen.findByText(/Wrote Windows Terminal's profile into init\.lua/);
     expect(document.documentElement.dataset.theme).toBe("nord");
     expect(screen.queryByRole("dialog", { name: "Import from Windows Terminal" })).toBeNull();

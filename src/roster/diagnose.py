@@ -11,7 +11,7 @@ import socket
 import subprocess
 
 from . import askpass, errors, providers
-from .common import not_reviewed
+from .common import not_reviewed, time_left
 from .errors import Problem, login_problem, no_user, unknown_provider, vault_problem
 from .providers import PROVIDERS
 from .sshops import (
@@ -260,11 +260,12 @@ def step_auth(ctx):
     else:
         argv += ["-o", "BatchMode=yes"]
     argv += [h["name"], "true"]
+    limit = round(time_left(LOGIN_TIMEOUT + 20))
     try:
         r = subprocess.run(argv, env={**os.environ, **env}, stdin=subprocess.DEVNULL, capture_output=True,
-                           text=True, timeout=LOGIN_TIMEOUT + 20)
+                           text=True, timeout=limit)
     except subprocess.TimeoutExpired:
-        raise Problem(errors.TIMEOUT, f"{h['name']} didn't finish the login within {LOGIN_TIMEOUT + 20} s",
+        raise Problem(errors.TIMEOUT, f"{h['name']} didn't finish the login within {limit} s",
                       fix=unreachable_fix(h)) from None
     if r.returncode == 0:
         return f"logged in as {h['ssh']['user']}"
@@ -330,13 +331,16 @@ def verify_login(h, key_path, previous=None, typed=None, host_key=None):
     before anything is written. The same order as check_host, but against H's own values rather than this box's ssh
     config: the local steps, then ONE TCP connection that carries the key exchange and exactly one login attempt.
     The host key must match one roster recorded, for H's address or (a Host that moved) for PREVIOUS, the Host as it
-    is now; it's never recorded or accepted here. A new address with no recorded key needs HOST_KEY, the
+    is now; it's never recorded or accepted here. For a Host that moved, the result's host_key is that key, for the
+    caller to record for the new address once the edit is written. A new address with no recorded key needs HOST_KEY, the
     fingerprint the user confirmed (scan_key): the result then has host_key {type, fingerprint, base64} for the
     caller to record once the add is written. TYPED is {password, provider, item} for a password typed into the
     form (not in the vault yet): the provider step checks it can be saved there, and the login uses it. A Host
-    with no stored Login (auth: prompt, agent, none) gets everything but the login. Returns {host, ok, steps}
-    like check_host."""
-    ctx = {"h": h, "key_path": key_path, "previous": previous, "typed": typed, "host_key": host_key}
+    with no stored Login (auth: prompt, agent, none) gets everything but the login. A changed Login (auth differs
+    from PREVIOUS's) that is a stored password is tested with that password even when H is enroll: true: the key
+    login would prove nothing about it. Returns {host, ok, steps} like check_host."""
+    ctx = {"h": h, "key_path": key_path, "previous": previous, "typed": typed, "host_key": host_key,
+           "login_changed": previous is not None and previous["ssh"]["auth"] != h["ssh"]["auth"]}
     steps, failed = [], False
     for step in VERIFY_STEPS:
         if failed:
@@ -369,7 +373,11 @@ def login_kind(h):
 
 
 def kind_of(ctx):
-    return "password" if ctx.get("typed") else login_kind(ctx["h"])
+    """How the test login logs in. A changed Login is tested with itself (Q43): its vault item is looked up and its
+    password used, even on an enroll: true Host, whose key login says nothing about the new Login."""
+    if ctx.get("typed") or (ctx.get("login_changed") and stored_password(ctx["h"])):
+        return "password"
+    return login_kind(ctx["h"])
 
 
 def verify_user(ctx):
@@ -415,7 +423,10 @@ def verify_vault_item(ctx):
 def verify_host_key(ctx):
     import paramiko
     h, previous = ctx["h"], ctx["previous"]
-    recorded = recorded_host_keys(h) or (recorded_host_keys(previous) if previous else {})
+    recorded = recorded_host_keys(h)
+    moved = not recorded and previous is not None
+    if moved:
+        recorded = recorded_host_keys(previous)
     if not recorded and ctx.get("host_key"):
         return confirmed_host_key(ctx)
     if not recorded:
@@ -438,6 +449,9 @@ def verify_host_key(ctx):
                                                "not logging in", data,
                       fix="don't accept it blindly: compare the fingerprint with the Host's console or owner",
                       details=f"recorded {', '.join(data['recorded'])}; offered {data['offered']}")
+    if moved:                   # the same key at the new address: pinned there once the edit is written
+        ctx["confirmed"] = key
+        return f"matches the {key.get_name()} key recorded for its current address, {fingerprint(key)}"
     return f"matches the recorded {key.get_name()} key {fingerprint(key)}"
 
 
