@@ -9,12 +9,15 @@ import {
   type BackendProblem,
   type CallErrorData,
   type Host,
+  type AddHostParams,
+  type HostAdd,
   type HostChanges,
   type HostCheck,
   type HostList,
   type HostUpdate,
   type PendingChanges,
   type PullResult,
+  type ScannedKey,
   type ProviderStatus,
   type SignInStep,
   type VaultStatus,
@@ -122,5 +125,9 @@ export function tauriBackend(): Backend {
     updateHost: (host, changes: HostChanges) => call<HostUpdate>("host_update", { host, changes }),
     pendingChanges: () => call<PendingChanges>("changes_diff"),
     discardChanges: () => call<{ discarded: boolean; backup: string | null }>("changes_discard"),
+    scanKey: (address, port) => call<ScannedKey>("host_scan_key", { address, port }),
+    // A typed password goes once to serve's stdin, like vault_unlock's.
+    addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
+    reviewHost: (host) => call<HostUpdate>("host_review", { host }),
   };
 }
