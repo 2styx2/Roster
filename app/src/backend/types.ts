@@ -111,7 +111,7 @@ export interface HostCheck {
 }
 
 /** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
-export const EDIT_API_VERSION = 4;
+export const EDIT_API_VERSION = 5;
 
 /** The Host fields the edit form changes (`host.update`'s `changes`). */
 export interface HostFields {
@@ -167,14 +167,14 @@ export interface PendingChanges {
   count: number;
 }
 
-/** roster's codes for editing the Inventory (ticket 10; docs/app/errors.md rows 34-39). */
+/** roster's codes for editing the Inventory (ticket 10; docs/app/errors.md rows 38-43). */
 export const EditError = {
-  notARepo: 60,
-  dirty: 61,
-  diverged: 62,
-  pullFailed: 63,
-  invalidEdit: 64,
-  notVerified: 65,
+  notARepo: 70,
+  dirty: 71,
+  diverged: 72,
+  pullFailed: 73,
+  invalidEdit: 74,
+  notVerified: 75,
 } as const;
 
 /** Where a vault provider stands (`vault.status`). */

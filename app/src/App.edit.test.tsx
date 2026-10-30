@@ -133,10 +133,10 @@ describe("the edit form", () => {
     expect(screen.queryByRole("region", { name: `Edit ${HOST}` })).toBeNull();
   });
 
-  it("needs a roster that speaks API 4", async () => {
-    const { user } = await ready({ ...(fixtures.edit as FakeScenario), apiVersion: 3 });
+  it("needs a roster that speaks API 5", async () => {
+    const { user } = await ready({ ...(fixtures.edit as FakeScenario), apiVersion: 4 });
     await user.keyboard(`${LEADER}:edit ${HOST}{Enter}`);
-    expect(await screen.findByText(/:edit needs a newer roster \(API version 4; this one speaks 3\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/:edit needs a newer roster \(API version 5; this one speaks 4\)/)).toBeInTheDocument();
   });
 });
 

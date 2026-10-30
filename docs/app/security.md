@@ -61,4 +61,6 @@ It can't redirect a secret either. `roster_command` names the program that gets 
 ## Writes
 
 - "Save to vault" saves only after the login succeeds, and refuses to create a duplicate Vault item name.
+- The password it saves goes to `bw create item` as base64 JSON on stdin, never on a command line. bw's echo of the new item is read for its id only. Errors are cut from bw's stderr with the value removed.
+- The undo after a failed add (`vault.undo_create`) can delete only items that this `roster serve` created itself, and Bitwarden keeps them in its trash.
 - Publish never force-pushes.

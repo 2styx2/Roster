@@ -20,10 +20,13 @@ from . import __version__, askpass, changes, diagnose, edit, providers
 from .common import not_reviewed, ssh_config_file
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
+    CANT_WRITE,
     CLI_MISSING,
     INVENTORY_ERROR,
+    ITEM_EXISTS,
     NO_ASKPASS,
     NO_SIGN_IN,
+    NOT_CREATED_HERE,
     NOT_LOGGED_IN,
     NOT_REVIEWED,
     NOT_SET_UP,
@@ -32,16 +35,18 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     UNKNOWN_HOST,
     UNSUPPORTED,
     VAULT_LOCKED,
+    WRITE_FAILED,
     WRONG_PASSWORD,
     Problem,
     inventory_problem,
     sign_in_problem,
     vault_problem,
+    write_problem,
 )
 from .providers import PROVIDERS, setup_providers
 from .sshops import in_ssh_config
 
-API_VERSION = 4             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 5             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -63,6 +68,7 @@ class State:
         self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
+        self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
         self.verified = {}                  # host.verify_login successes: login_key -> time.monotonic()
         only_vault_unlock_unlocks()
         try:
@@ -301,7 +307,7 @@ def provider_status(name):
         status = providers.vault_status(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
-    result = {"provider": name, "status": STATUS_WORDS.get(status, status)}
+    result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name)}
     message = providers.status_message(name, status)
     if status == "unauthenticated" and PROVIDERS[name].get("login_info"):
         try:
@@ -316,7 +322,8 @@ def vault_status(state, params):
     the Inventory uses stands."""
     names = referenced_providers(state.inventory())
     lockable = [n for n in names if PROVIDERS[n].get("unlock")]
-    main = provider_status(lockable[0]) if lockable else {"provider": None, "status": "unsupported"}
+    main = provider_status(lockable[0]) if lockable else {"provider": None, "status": "unsupported",
+                                                          "can_write": False}
     return {**main, "providers": [main if n == main["provider"] else provider_status(n) for n in sorted(names)]}
 
 
@@ -385,6 +392,47 @@ def vault_lock(state, params):
 METHODS["vault.status"] = vault_status
 METHODS["vault.unlock"] = vault_unlock
 METHODS["vault.lock"] = vault_lock
+
+
+# ---------------------------------------------------------------- vault.create_item: "Save to vault" (ticket 13)
+# Q43's order is verify, create the Vault item, add the Pending change; if the add fails, vault.undo_create takes
+# the item back out. It only deletes items this serve created, so it can't be pointed at anything else.
+
+def vault_create_item(state, params):
+    """Create a login Vault item: name, username, password, and the address in its URI field. Refuses a name
+    that's already there (code 60). The password goes to the provider on stdin; it's never answered back."""
+    name, password = text_param(params, "name"), text_param(params, "password")
+    extra = {k: params.get(k) or "" for k in ("username", "uri")}
+    if not all(isinstance(v, str) for v in extra.values()):
+        raise RpcError(INVALID_PARAMS, "params.username and params.uri must be strings")
+    provider = vault_provider(state, params)
+    try:
+        made = providers.create_item(provider, name=name, password=password, **extra)
+    except providers.SecretError as e:
+        raise write_problem(e) from None
+    except Exception as e:                      # never let the generic handler log text that might hold it
+        raise RpcError(INTERNAL_ERROR, f"saving to {provider} failed: {type(e).__name__}") from None
+    state.created[made["id"]] = provider
+    return {"provider": provider, **made}
+
+
+def vault_undo_create(state, params):
+    """Delete an item vault.create_item made in this serve (Q43's undo). Bitwarden moves it to the trash."""
+    item_id = text_param(params, "id")
+    provider = state.created.get(item_id)
+    if provider is None:
+        raise RpcError(NOT_CREATED_HERE, f"item {item_id} wasn't created by this roster serve (or is already "
+                       "undone) - roster only takes back the items it just saved")
+    try:
+        providers.delete_item(provider, item_id)
+    except providers.SecretError as e:
+        raise write_problem(e) from None
+    del state.created[item_id]
+    return {"provider": provider, "id": item_id}
+
+
+METHODS["vault.create_item"] = vault_create_item
+METHODS["vault.undo_create"] = vault_undo_create
 
 
 # ---------------------------------------------------------------- vault.login: signing in (ticket 31)

@@ -406,9 +406,9 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 4 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 60-65). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 5 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 editing the Inventory. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -438,12 +438,12 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `47` | `host.check`: the Host cut the connection after too many key attempts. roster's ssh config sets `IdentitiesOnly yes` for key and password Hosts (and `PubkeyAuthentication no` for password Hosts) so the agent's keys can't use up the Host's tries; an older config fails the `ssh-config` step instead |
 | `48` | `host.check`: the login failed some other way; `details` has ssh's message |
 | `50`-`59` | `vault.login`: see [Signing in](#signing-in-vaultlogin) |
-| `60` | `roster.yml` isn't committed in a git repo (or git isn't installed), so it has no Pending changes |
-| `61` | `inventory.pull`: uncommitted changes, Pending changes or other files (`data.files`) |
-| `62` | `inventory.pull`: this box's branch and its upstream have diverged (`data.ahead`, `data.behind`) |
-| `63` | `inventory.pull`: the fetch or the fast-forward failed; `details` has git's message |
-| `64` | `host.update`: the result wouldn't load, loads differently than asked, or changes another entry; nothing written |
-| `65` | `host.update`: the address, user or Login changed without a `host.verify_login` of those values that just succeeded |
+| `70` | `roster.yml` isn't committed in a git repo (or git isn't installed), so it has no Pending changes |
+| `71` | `inventory.pull`: uncommitted changes, Pending changes or other files (`data.files`) |
+| `72` | `inventory.pull`: this box's branch and its upstream have diverged (`data.ahead`, `data.behind`) |
+| `73` | `inventory.pull`: the fetch or the fast-forward failed; `details` has git's message |
+| `74` | `host.update`: the result wouldn't load, loads differently than asked, or changes another entry; nothing written |
+| `75` | `host.update`: the address, user or Login changed without a `host.verify_login` of those values that just succeeded |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
@@ -454,19 +454,19 @@ Requests without an `id` (notifications) run but get no reply.
 
 ### Editing: Pending changes
 
-A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`60` otherwise). Publish (commit and push) comes later.
+A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`70` otherwise). Publish (commit and push) comes later.
 
 | Method | Params | Result |
 |---|---|---|
-| `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`61`, `data.files`) and a diverged branch (`62`, `data.ahead`/`behind`); a failed fetch is `63`. Never merges, rebases or stashes |
+| `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`, `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges, rebases or stashes |
 | `host.verify_login` | `{host, changes}` | `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`, run against the Host as `changes` would leave it |
 | `host.update` | `{host, changes}` | `{changed, host, backup}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was |
 | `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], count}`: git's diff of `roster.yml` against the last commit |
 | `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) |
 
-`changes` is `{field: value}` with fields `title`, `description`, `type` (text, one line), `ip`, `user`, `auth` (strings) and `port` (a number). `host.update` edits `roster.yml` as text, like `discover --write`: only the changed values' text changes, so comments, order, quoting and every other entry stay byte for byte. `user`, `port` and `auth` go into the Host's `ssh:` block if it has one; a short `name: 10.0.0.1` entry grows into a block when it needs more than its address. The result must load, must load to exactly the values asked for, and must leave every other Host, group and resource as it was (`64` otherwise, nothing written). What it replaced is kept as `roster.yml.bak` in the repo's git dir (`.git/roster/`), never in the working tree. Every write and pull loads `roster.yml` again, so `hosts.list` shows the file as it now is.
+`changes` is `{field: value}` with fields `title`, `description`, `type` (text, one line), `ip`, `user`, `auth` (strings) and `port` (a number). `host.update` edits `roster.yml` as text, like `discover --write`: only the changed values' text changes, so comments, order, quoting and every other entry stay byte for byte. `user`, `port` and `auth` go into the Host's `ssh:` block if it has one; a short `name: 10.0.0.1` entry grows into a block when it needs more than its address. The result must load, must load to exactly the values asked for, and must leave every other Host, group and resource as it was (`74` otherwise, nothing written). What it replaced is kept as `roster.yml.bak` in the repo's git dir (`.git/roster/`), never in the working tree. Every write and pull loads `roster.yml` again, so `hosts.list` shows the file as it now is.
 
-**Verified changes (decision Q43).** A change to `ip`, `port`, `user` or `auth` is refused (`65`) unless `host.verify_login` with exactly those values succeeded in the last 10 minutes; the success is used up by the save. The test login makes one TCP connection and one login attempt (a password Login is looked up from the vault into roster's memory; a key Host uses this box's roster key). The host key must match one recorded in `~/.ssh/roster_known_hosts`, for the new address or, for a Host that moved, its current one; it's never recorded or accepted. A Host with no stored Login (`auth: prompt`, `agent`, `none`) gets every step but the login.
+**Verified changes (decision Q43).** A change to `ip`, `port`, `user` or `auth` is refused (`75`) unless `host.verify_login` with exactly those values succeeded in the last 10 minutes; the success is used up by the save. The test login makes one TCP connection and one login attempt (a password Login is looked up from the vault into roster's memory; a key Host uses this box's roster key). The host key must match one recorded in `~/.ssh/roster_known_hosts`, for the new address or, for a Host that moved, its current one; it's never recorded or accepted. A Host with no stored Login (`auth: prompt`, `agent`, `none`) gets every step but the login.
 
 ### Vault: the lock screen
 
@@ -545,6 +545,28 @@ How it works, and what never happens to a secret:
 
 `ROSTER_SSO_TIMEOUT` (seconds, given to `serve`) can shorten the 5-minute SSO wait, for tests, and `ROSTER_NO_BROWSER=1` stops roster from opening the link on the Box.
 
+### Saving to the vault: `vault.create_item`
+
+"Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. Decision Q43's order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.create_item` | `{name, password, username?, uri?, provider?}` | `{provider, id, name}` |
+| `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
+
+- `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](docs/adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
+- Only providers whose `can_write` is `true` in `vault.status` (today only `bw`) can save. Every other provider answers `61`.
+- The password goes to `bw create item` as base64 JSON on its stdin (what `bw encode` makes; bw 2026.9.1 reads stdin when no argument is given). It is never on a command line, and never in a response, an error or stderr. bw prints the new item back, password included, and roster keeps only its id.
+- `vault.undo_create` deletes only items this `serve` created and hasn't undone yet (`63` for any other id), so it can't be pointed at an existing item. Bitwarden moves the item to its trash (`bw delete item ID`, not `--permanent`), where it can be restored for 30 days.
+- While the vault is locked, both answer `14`.
+
+| Code | Meaning |
+|---|---|
+| `60` | An item named exactly that already exists. `data.matches`: `[{name, revised, uris}]` |
+| `61` | The provider can only read Logins: "provider 'op' can't save to the vault - ..." |
+| `62` | The vault CLI refused the create or delete (no rights to the collection, an organization policy, the server). The message has bw's words with any value cut out |
+| `63` | `vault.undo_create`: this `serve` didn't create that item, or it's already undone |
+
 ## How Claude uses it
 
 `roster setup` and `roster sync` write three things:
@@ -581,7 +603,7 @@ uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
 
 ```
 src/roster/

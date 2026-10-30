@@ -350,7 +350,7 @@ export function App({
   }, [connect]);
 
   // Pending changes (ticket 10): asked for once the Backend is up, and after every edit, discard
-  // and pull. A roster older than API 4 has none to show.
+  // and pull. A roster older than API 5 has none to show.
   const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;
   const canEdit = apiVersion >= EDIT_API_VERSION;
   const refreshPending = useCallback(() => {
@@ -789,8 +789,9 @@ export function App({
         );
       case "box":
         return (
-          <span key={id} className="statusbar-cut box" title={info.inventory.box}>
-            {info.inventory.box}
+          <span key={id} className="box" title={info.inventory.box}>
+            <span className="box-mark" aria-hidden="true" />
+            <span className="statusbar-cut">{info.inventory.box}</span>
           </span>
         );
       case "hosts":

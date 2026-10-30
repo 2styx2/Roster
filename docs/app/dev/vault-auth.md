@@ -50,6 +50,15 @@ Nothing here ran `bw login`, `bw logout` or `bw config server URL`. The only com
 6. **Unsupported methods** are FIDO2/WebAuthn and Duo (the CLI filters them out), SSO with trusted-device or PRF decryption, and organization API keys. The message names the way out: the API key (which skips two-step login, [B1]), or adding a supported second method in the web vault.
 7. **1Password** sign-in belongs to the desktop app (biometrics) or a service-account token. roster doesn't type 1Password credentials. `vault.login` answers 13 with that advice. **KeePassXC** has no login, only an unlock, and arrives with ticket 25.
 
+## Creating items (ticket 13)
+
+Checked against `bw` 2026.9.1 (`bw create --help`, `bw delete --help`, `bw encode --help`, and the embedded `create.command.ts`, `delete.command.ts`, `cipher.export.ts` and `login.export.ts`):
+
+- `bw create item [encodedJson]`: when the argument is missing, the CLI reads stdin (`CliUtils.readStdin`, unless `BW_SERVE`), base64-decodes it and parses the JSON. So roster base64-encodes the item itself (that's all `bw encode` does) and pipes it in. The password is never on a command line. A bad payload gives `Error parsing the encoded request data.`
+- The JSON is the export shape (`bw get template item` with `login` from `bw get template item.login`): `type: 1` (login), `name`, `login: {username, password, uris: [{uri, match}]}`. roster builds it directly instead of running `bw get template`. On success bw prints the new item, decrypted, password included. roster reads only its `id`.
+- `bw delete item ID` soft-deletes it to the trash; `--permanent` would skip the trash. roster's undo uses the soft delete. The CLI also checks that the user may delete the item, and that no organization policy restricts its type.
+- `bw list items --search NAME` is a substring search, so the duplicate check filters it to the exact name, after a `bw sync`.
+
 ## Sources
 
 - [B1] Bitwarden, *Password Manager CLI*: https://bitwarden.com/help/cli/ (log in, two-step `--method` values 0/1/3, "FIDO2 and Duo are not supported by the CLI", `--apikey` and `BW_CLIENTID`/`BW_CLIENTSECRET`, `--sso`, `bw config server`, `https://vault.bitwarden.eu`, `--passwordenv`, `--nointeraction`).

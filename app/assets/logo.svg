@@ -1,22 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
-  <!-- roster logo D1 "Network R" (decision Q29): seven nodes joined into an R; the accent node (jade #1f9d68) ends the leg. App icon master: `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="#13161b"/>
-  <g stroke="#e3e7ec" stroke-width="3" stroke-linecap="round" opacity="0.5">
-    <line x1="20" y1="14" x2="20" y2="32"/>
-    <line x1="20" y1="32" x2="20" y2="50"/>
-    <line x1="20" y1="14" x2="38" y2="14"/>
-    <line x1="38" y1="14" x2="45" y2="23"/>
-    <line x1="45" y1="23" x2="38" y2="32"/>
-    <line x1="38" y1="32" x2="20" y2="32"/>
-    <line x1="38" y1="32" x2="46" y2="50"/>
-  </g>
-  <g fill="#e3e7ec">
-    <circle cx="20" cy="14" r="4.2"/>
-    <circle cx="20" cy="32" r="4.2"/>
-    <circle cx="20" cy="50" r="4.2"/>
-    <circle cx="38" cy="14" r="4.2"/>
-    <circle cx="45" cy="23" r="4.2"/>
-    <circle cx="38" cy="32" r="4.2"/>
-  </g>
-  <circle cx="46" cy="50" r="5.5" fill="#1f9d68"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- roster: Gap orbit, plain (decision Q57). The R in its orbit; the orbit breaks where the Host sits, the one accent node. App icon master: `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f1011" stroke="#2c2d2e" stroke-width="1"/>
+  <path d="M39.01 57.04A26 26 0 1 1 55.44 43.25" fill="none" stroke="#e8e8ea" stroke-width="1.8" stroke-linecap="round" opacity="0.36"/>
+  <path d="M22 18V46M22 18H35L41 25L35 32H22M35 32L45.44 47.17" fill="none" stroke="#e8e8ea" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+  <g fill="#e8e8ea"><circle cx="22" cy="18" r="4.2"/><circle cx="22" cy="32" r="4.2"/><circle cx="35" cy="18" r="4.2"/><circle cx="41" cy="25" r="4.2"/><circle cx="35" cy="32" r="4.2"/></g>
+  <rect x="17.88" y="41.88" width="8.24" height="8.24" rx="1.6" fill="#e8e8ea"/>
+  <circle cx="48.71" cy="51.92" r="5.3" fill="none" stroke="#ff9a70" stroke-width="2.85"/>
 </svg>

@@ -22,7 +22,7 @@ def test_inventory_info(serve, isolated):
     assert info["path"] == str(example.resolve())
     assert info["box"] and info["host_count"] == 5
     assert {"bw", "op", "env", "prompt"} <= set(info["providers"])
-    assert info["roster_version"] == __version__ and info["api_version"] == 4
+    assert info["roster_version"] == __version__ and info["api_version"] == 5
     assert s.close() == (0, "", "")
 
 
@@ -130,7 +130,7 @@ def test_an_inventory_that_doesnt_load_is_an_error_not_an_exit(serve, write_conf
     err = s.call("inventory.info")["error"]
     assert err["code"] == 1
     assert err["message"] == "host 'box' has no user (set it on the host, its group, or defaults)"
-    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 4,
+    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 5,
                            "fix": f"fix {path}, or run `roster init` if there's none yet"}
     assert s.call("hosts.list")["error"]["code"] == 1
     assert s.call("host.get", {"name": "box"})["error"]["code"] == 1
@@ -155,9 +155,10 @@ def test_vault_status_names_the_inventorys_vault(serve, write_config, fakes):
     """bw is what the Host Logins use; env and prompt (the unreviewed group's default) can't be locked."""
     write_config(INVENTORY)
     assert serve().call("vault.status")["result"] == {
-        "provider": "bw", "status": "locked",
-        "providers": [{"provider": "bw", "status": "locked"}, {"provider": "env", "status": "unsupported"},
-                      {"provider": "prompt", "status": "unsupported"}]}
+        "provider": "bw", "status": "locked", "can_write": True,
+        "providers": [{"provider": "bw", "status": "locked", "can_write": True},
+                      {"provider": "env", "status": "unsupported", "can_write": False},
+                      {"provider": "prompt", "status": "unsupported", "can_write": False}]}
 
 
 def test_vault_unlock_wrong_then_right_password_never_echoes_either(serve, write_config, fakes):
@@ -166,7 +167,8 @@ def test_vault_unlock_wrong_then_right_password_never_echoes_either(serve, write
     err = s.call("vault.unlock", {"password": "not-it-xyzzy"})["error"]
     assert err == {"code": 10, "message": "Bitwarden unlock failed (wrong master password?)"}
     assert s.call("vault.status")["result"]["status"] == "locked"
-    assert s.call("vault.unlock", {"password": "hunter2"})["result"] == {"provider": "bw", "status": "unlocked"}
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"] == {"provider": "bw", "status": "unlocked",
+                                                                         "can_write": True}
     assert s.call("vault.status")["result"]["status"] == "unlocked"
     assert s.call("vault.unlock", {})["error"]["code"] == -32602
     code, out, err = s.close()
@@ -205,8 +207,9 @@ def test_vault_unlock_of_a_provider_without_master_password(serve, write_config,
     assert s.call("vault.unlock", {"password": "x", "provider": "keeper"})["error"]["code"] == -32602
     write_config("groups:\n  lab:\n    user: ops\n    auth: env:PW\n    hosts:\n      box: {ip: 10.0.0.5}\n")
     s = serve()
-    assert s.call("vault.status")["result"] == {"provider": None, "status": "unsupported",
-                                                "providers": [{"provider": "env", "status": "unsupported"}]}
+    assert s.call("vault.status")["result"] == {"provider": None, "status": "unsupported", "can_write": False,
+                                                "providers": [{"provider": "env", "status": "unsupported",
+                                                               "can_write": False}]}
     assert s.call("vault.unlock", {"password": "x"})["error"]["code"] == 13
 
 
@@ -467,3 +470,83 @@ def test_the_password_never_reaches_serves_output(serve, write_config, capsys, f
     assert code == 0 and out == ""
     assert "esx: password handed to ssh" in err                  # it does log that it happened
     assert PASSWORD not in "".join(s.responses) + out + err
+
+
+# ---- vault.create_item / vault.undo_create: "Save to vault" (ticket 13; Q43's verified adds)
+
+NEW_PW = "n3w-s3cret-pw"
+
+
+def test_vault_status_says_which_providers_can_write(serve, write_config, fakes):
+    write_config(INVENTORY)
+    status = serve().call("vault.status")["result"]
+    assert status["can_write"] is True
+    assert {p["provider"]: p["can_write"] for p in status["providers"]} == {"bw": True, "env": False, "prompt": False}
+
+
+def test_create_item_then_undo_it(serve, write_config, vault, tmp_path, monkeypatch):
+    write_config(INVENTORY)
+    monkeypatch.setenv("FAKE_ARGV_LOG", str(tmp_path / "argv.log"))
+    s = serve()
+    params = {"name": "box ssh", "username": "ops", "password": NEW_PW, "uri": "ssh://10.0.0.5"}
+    assert s.call("vault.create_item", params)["error"]["code"] == 14          # locked: unlock first
+    s.call("vault.unlock", {"password": "hunter2"})
+    made = s.call("vault.create_item", params)["result"]
+    assert made["provider"] == "bw" and made["name"] == "box ssh" and made["id"]
+    item = next(i for i in json.loads(vault.read_text()) if i["name"] == "box ssh")
+    assert (item["id"], item["login"]["username"], item["login"]["password"]) == (made["id"], "ops", NEW_PW)
+    assert item["login"]["uris"] == [{"uri": "ssh://10.0.0.5", "match": None}]
+
+    assert s.call("vault.undo_create", {"id": made["id"]})["result"] == {"provider": "bw", "id": made["id"]}
+    assert "box ssh" not in [i["name"] for i in json.loads(vault.read_text())]
+    again = s.call("vault.undo_create", {"id": made["id"]})["error"]
+    assert again["code"] == 63
+    code, out, err = s.close()
+    assert code == 0 and out == "" and err == ""
+    for where in (json.dumps(s.responses), (tmp_path / "argv.log").read_text()):
+        assert NEW_PW not in where
+
+
+def test_create_item_refuses_an_existing_name(serve, write_config, vault):
+    write_config(INVENTORY)
+    s = serve()
+    s.call("vault.unlock", {"password": "hunter2"})
+    before = vault.read_text()
+    err = s.call("vault.create_item", {"name": "esx ssh", "password": NEW_PW})["error"]
+    assert err["code"] == 60 and "'esx ssh' already exists" in err["message"]
+    assert err["data"]["matches"] == [{"name": "esx ssh", "revised": "2026-10-01", "uris": ["ssh://10.0.0.6"]}]
+    assert err["data"]["fix"]
+    assert vault.read_text() == before
+    assert NEW_PW not in json.dumps(s.responses)
+
+
+def test_undo_only_touches_items_this_serve_created(serve, write_config, vault):
+    write_config(INVENTORY)
+    s = serve()
+    s.call("vault.unlock", {"password": "hunter2"})
+    before = vault.read_text()
+    err = s.call("vault.undo_create", {"id": "aaaa-1111"})["error"]           # a real item, made elsewhere
+    assert err["code"] == 63 and "aaaa-1111" in err["message"]
+    assert vault.read_text() == before
+    assert s.call("vault.undo_create", {})["error"]["code"] == -32602
+
+
+def test_create_item_in_a_provider_that_cant_write(serve, write_config, vault, monkeypatch):
+    write_config(INVENTORY)
+    s = serve()
+    err = s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW, "provider": "env"})["error"]
+    assert err["code"] == 61 and "provider 'env' can't save to the vault" in err["message"]
+    for missing in ({"name": "box ssh"}, {"password": NEW_PW}, {"name": "x", "password": NEW_PW, "uri": 5}):
+        bad = s.call("vault.create_item", missing)["error"]
+        assert bad["code"] == -32602 and NEW_PW not in json.dumps(bad)
+
+
+def test_a_refused_create_is_a_clean_error_without_the_password(serve, write_config, vault, monkeypatch):
+    write_config(INVENTORY)
+    monkeypatch.setenv("FAKE_BW_WRITE_FAIL", f"You do not have permission. {NEW_PW}")
+    s = serve()
+    s.call("vault.unlock", {"password": "hunter2"})
+    err = s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["error"]
+    assert err["code"] == 62 and "You do not have permission" in err["message"]
+    code, out, stderr = s.close()
+    assert NEW_PW not in json.dumps(s.responses) + out + stderr

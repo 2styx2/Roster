@@ -4,16 +4,21 @@
 // Text tokens (decision Q53, M1 option B): `text`, `muted` and the status inks `warn`, `error` and
 // `accentInk` are all drawn as text, so each must reach 4.5:1 (1.4.3) on every surface text sits
 // on. `faint` is not a text token: it's for icons, chevrons and rules only (styles.test.ts keeps
-// it out of text). The live Session's 2px jade bar (S11) must reach 3:1 (1.4.11).
+// it out of text). The live Session's 2px accent bar (S11) and the second tone (decision Q57:
+// this Box's marker, unreviewed nodes; shapes only) must reach 3:1 (1.4.11).
 import { describe, expect, it } from "vitest";
-import { contrast } from "./contrast";
-import { bundledThemes } from "./themes";
+import { contrast, deltaE } from "./contrast";
+import { bundledThemes, rosterDark, rosterLight } from "./themes";
 
 describe("contrast", () => {
   it("measures WCAG 2 ratios", () => {
     expect(contrast("#000000", "#ffffff")).toBeCloseTo(21, 5);
     expect(contrast("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
     expect(contrast("#777777", "#ffffff")).toBeCloseTo(4.48, 2);
+  });
+  it("measures how far apart two colours look (OKLab)", () => {
+    expect(deltaE("#ffffff", "#ffffff")).toBe(0);
+    expect(deltaE("#000000", "#ffffff")).toBeCloseTo(100, 0);
   });
 });
 
@@ -29,10 +34,35 @@ describe.each(bundledThemes.map((t) => [t.id, t] as const))("Theme %s", (_id, t)
   it.each(["sidebar", "raised"] as const)("the live Session's accent bar is at least 3:1 against %s", (surface) => {
     expect(contrast(c.accent, c[surface])).toBeGreaterThanOrEqual(3);
   });
+  it.each(SURFACES)("the second tone's shapes are at least 3:1 against %s", (surface) => {
+    expect(contrast(c.tone, c[surface])).toBeGreaterThanOrEqual(3);
+  });
+  it("the second tone is not the accent (an unreviewed node never reads as a live one)", () => {
+    expect(deltaE(c.tone, c.accent)).toBeGreaterThanOrEqual(12);
+  });
   it("the accent's button text is at least 4.5:1", () => {
     expect(contrast(c.accentText, c.accent)).toBeGreaterThanOrEqual(4.5);
   });
+  it("the close button's glyph is at least 3:1 on danger", () => {
+    expect(contrast(c.dangerText, c.danger)).toBeGreaterThanOrEqual(3);
+  });
   it("terminal text is at least 4.5:1 on the terminal background", () => {
     expect(contrast(t.terminal.foreground, t.terminal.background)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// Decision Q57: next to the apricot, an amber warn and a red error read as the accent. Roster's
+// warn is yellow and its error raspberry, each well clear of the accent and of each other, and the
+// close button's danger takes white text at 4.5:1.
+describe.each([rosterDark, rosterLight].map((t) => [t.id, t] as const))("Theme %s semantics", (_id, t) => {
+  const c = t.colors;
+  it.each(["warn", "error", "danger"] as const)("%s is at least 12 apart from the accent", (token) => {
+    expect(deltaE(c[token], c.accent)).toBeGreaterThanOrEqual(12);
+  });
+  it("warn and error are well apart", () => {
+    expect(deltaE(c.warn, c.error)).toBeGreaterThanOrEqual(20);
+  });
+  it("the close button's white glyph is at least 4.5:1 on danger", () => {
+    expect(contrast(c.dangerText, c.danger)).toBeGreaterThanOrEqual(4.5);
   });
 });

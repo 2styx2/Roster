@@ -210,7 +210,7 @@ def test_an_invalid_result_is_refused_and_nothing_is_written(app, box):
                                            "\n      dup2: *d"))
     before = box.yml.read_text()
     err = app.call("host.update", {"host": "dup", "changes": {"title": "x"}})["error"]
-    assert err["code"] == 64 and "nothing was written" in err["message"] and err["data"]["fix"]
+    assert err["code"] == 74 and "nothing was written" in err["message"] and err["data"]["fix"]
     assert box.yml.read_text() == before
 
 
@@ -231,7 +231,7 @@ def test_an_inventory_outside_git_has_no_pending_changes(serve, write_config):
     for method, params in (("host.update", {"host": "esx", "changes": {"title": "x"}}), ("changes.diff", {}),
                            ("changes.discard", {}), ("inventory.pull", {})):
         err = s.call(method, params)["error"]
-        assert err["code"] == 60 and "isn't in a git repo" in err["message"], method
+        assert err["code"] == 70 and "isn't in a git repo" in err["message"], method
     assert "title: ESX\n" in path.read_text()
 
 
@@ -239,7 +239,7 @@ def test_an_inventory_outside_git_has_no_pending_changes(serve, write_config):
 
 def test_a_new_user_or_login_needs_a_test_login_first(app, box, sshd):
     err = app.call("host.update", {"host": "esx", "changes": {"auth": "bw:dup ssh"}})["error"]
-    assert err["code"] == 65 and err["data"]["fix"]
+    assert err["code"] == 75 and err["data"]["fix"]
     assert git(box, "status", "--porcelain") == ""
 
 
@@ -257,7 +257,7 @@ def test_a_verified_change_goes_through_once(app, box, sshd):
     r = result(app.call("host.update", {"host": "esx", "changes": changes}))
     assert r["changed"] and r["host"]["ssh"]["auth"] == "bw:aaaa-1111"
     result(app.call("changes.discard"))
-    assert app.call("host.update", {"host": "esx", "changes": changes})["error"]["code"] == 65   # used up
+    assert app.call("host.update", {"host": "esx", "changes": changes})["error"]["code"] == 75   # used up
 
 
 def test_a_refused_login_fails_the_auth_step_and_allows_nothing(app, box, sshd):
@@ -267,7 +267,7 @@ def test_a_refused_login_fails_the_auth_step_and_allows_nothing(app, box, sshd):
     auth = v["steps"][-1]
     assert auth["step"] == "auth" and auth["status"] == "fail" and auth["code"] == 45 and "admin" in auth["message"]
     assert sshd.accepts == 1 and sshd.attempts == [("password", "admin")]          # exactly one attempt
-    assert app.call("host.update", {"host": "esx", "changes": changes})["error"]["code"] == 65
+    assert app.call("host.update", {"host": "esx", "changes": changes})["error"]["code"] == 75
 
 
 def test_a_host_that_moved_port_is_compared_with_the_key_recorded_for_it(app, box, sshd, isolated):
@@ -337,13 +337,13 @@ def test_pull_fast_forwards_and_serve_reloads(app, box):
 def test_pull_refuses_pending_changes(app, box):
     result(app.call("host.update", {"host": "esx", "changes": {"title": "mine"}}))
     err = app.call("inventory.pull")["error"]
-    assert err["code"] == 61 and "Pending changes" in err["message"] and err["data"]["files"] == ["roster.yml"]
+    assert err["code"] == 71 and "Pending changes" in err["message"] and err["data"]["files"] == ["roster.yml"]
 
 
 def test_pull_refuses_other_uncommitted_files(app, box):
     (box / "README.md").write_text("changed\n")
     err = app.call("inventory.pull")["error"]
-    assert err["code"] == 61 and "README.md" in err["message"] and "git -C" in err["data"]["fix"]
+    assert err["code"] == 71 and "README.md" in err["message"] and "git -C" in err["data"]["fix"]
 
 
 def test_pull_refuses_a_diverged_branch(app, box):
@@ -352,7 +352,7 @@ def test_pull_refuses_a_diverged_branch(app, box):
     (box / "README.md").write_text("mine\n")
     git(box, "commit", "-qam", "local")
     err = app.call("inventory.pull")["error"]
-    assert err["code"] == 62 and "diverged" in err["message"] and err["data"]["ahead"] == 1
+    assert err["code"] == 72 and "diverged" in err["message"] and err["data"]["ahead"] == 1
     assert err["data"]["behind"] == 1 and "pull --rebase" in err["data"]["fix"]
     assert git(box, "log", "-1", "--format=%s") == "local"
 
@@ -366,4 +366,4 @@ def test_pull_without_an_upstream_has_nothing_to_do(app, box):
 def test_pull_when_the_remote_is_gone(app, box):
     git(box, "remote", "set-url", "origin", str(box.parent / "missing.git"))
     err = app.call("inventory.pull")["error"]
-    assert err["code"] == 63 and "couldn't fetch origin/main" in err["message"] and err["data"]["fix"]
+    assert err["code"] == 73 and "couldn't fetch origin/main" in err["message"] and err["data"]["fix"]

@@ -162,8 +162,9 @@ macro_rules! colors {
 colors!(
     /// The UI's colour tokens (src/theme/theme.ts ThemeColors).
     ThemeColors {
-        accent, accent_text, accent_ink, bg, chrome, sidebar, panel, raised, raised_line, hover,
-        line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop, shadow,
+        accent, accent_text, accent_ink, tone, bg, chrome, sidebar, panel, raised, raised_line,
+        hover, line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop,
+        shadow,
     }
 );
 

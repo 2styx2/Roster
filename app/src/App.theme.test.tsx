@@ -63,7 +63,7 @@ describe("The :theme picker", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Choose a Theme" })).toBeNull();
     expect(themeOnScreen()).toBe("roster-dark");
-    expect(termBackground()).toBe("#08090a");
+    expect(termBackground()).toBe("#0f1011");
     await flush();
     expect((platform.saved() as Record<string, unknown> | undefined)?.theme).toBeUndefined();
   });

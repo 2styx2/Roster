@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Regenerates the app icon set in src-tauri/icons from the SVG masters in assets/ (logo D1,
-// decision Q29). `tauri icon` renders every size from assets/logo.svg; then the 16, 24 and 32 px
-// images (the taskbar, the title bar of Explorer windows, the tray) are redrawn from
-// assets/logo-small.svg, whose heavier strokes survive small sizes, and icon.ico is repacked
-// with them. Run: node app/scripts/icons.mjs
+// Regenerates the app icon set in src-tauri/icons from the SVG masters in assets/ (Gap orbit,
+// plain, decision Q57). `tauri icon` renders every size from assets/logo.svg; then the 16, 24
+// and 32 px images (the taskbar, the title bar of Explorer windows, the tray) are redrawn from
+// assets/logo-small.svg, whose heavier strokes and wider gap survive small sizes, and icon.ico is
+// repacked with them. Run: `npm run icons` in app/ (or node app/scripts/icons.mjs)
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";

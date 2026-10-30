@@ -68,7 +68,7 @@ export interface FakeScenario {
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
   checks?: Record<string, HostCheck>;
-  /** `inventory.info`'s api_version (default 2; editing needs 4). */
+  /** `inventory.info`'s api_version (default 2; editing needs 5). */
   apiVersion?: number;
   /** Ticket 10: `inventory.pull` refuses with this (62 diverged, 63 offline…). */
   pullRefusal?: Refusal;
@@ -213,18 +213,18 @@ const signingIn = (signIn: FakeAccount): FakeScenario => ({
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
-  /** Ticket 10: a roster that can edit (api 4), no Pending changes yet. */
-  edit: { hosts: makeHosts(12), apiVersion: 4 },
+  /** Ticket 10: a roster that can edit (api 5), no Pending changes yet. */
+  edit: { hosts: makeHosts(12), apiVersion: 5 },
   /** Two Pending changes already made on this Box. */
   "edit-pending": {
     hosts: makeHosts(12),
-    apiVersion: 4,
+    apiVersion: 5,
     pending: { "linux-1-000": { title: "Build box", description: "rack 1, top" }, "esxi-2-001": { type: "esxi8" } },
   },
   /** The pull before an edit fails: the branch has diverged. */
   "edit-diverged": {
     hosts: makeHosts(12),
-    apiVersion: 4,
+    apiVersion: 5,
     pullRefusal: {
       code: EditError.diverged,
       message: "this box's infra repo and origin/main have diverged (1 local and 2 new commits there), so roster won't pull",
