@@ -99,6 +99,21 @@ read as the accent (ΔE 7.7–13), so warn is yellow and error raspberry; the co
 both, and danger, at least 12 apart from the accent in Roster dark and light. The terminal keeps the
 standard ANSI palette (Q37); its selection is a dim apricot.
 
+**The app icon (decision Q59)** has no tile. It's the Gap orbit on a transparent background, and
+because it can't know whether it sits on the dark Windows taskbar (`#202020`) or the light one
+(`#f3f3f3`), it uses neither Theme's colours but a middle pair that holds 3:1 on both, and on
+Ink, Paper, white and black:
+
+| Part | Colour | Dark taskbar `#202020` | Light taskbar `#f3f3f3` | Ink / Paper |
+|---|---|---|---|---|
+| R, orbit, Box | `#808183` (mid-tone neutral) | 4.18:1 | 3.51:1 | 4.88 / 3.19 |
+| Host ring | `#cc5c2b` (mid apricot) | 3.98:1 | 3.69:1 | 4.66 / 3.34 |
+
+Paper would vanish on the light taskbar (1.10:1) and Ink on the dark one (1.17:1); Apricot flare
+`#ff9a70` is 1.87:1 on the light taskbar and `#9b411a` 2.46:1 on the dark one, so neither Theme
+accent serves both. The marks inside the app (title bar, lock screen, empty states) keep drawing
+from the Theme's `text` and `accent` (`app/src/chrome/Logo.tsx`).
+
 ## The contrast test
 
 `app/src/theme/contrast.test.ts` measures WCAG 2 ratios for every bundled Theme (tickets 30 and 29):

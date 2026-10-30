@@ -53,7 +53,7 @@ What makes roster feel like Neovim or VS Code, and what every feature must respe
 | **Selection** | Raised fill, plus a 2px accent bar only on the live Session (Q53). The cursor in App mode is raised without the bar. |
 | **Data cells** | IPs, ports and fingerprints in Iosevka at the muted color, tabular numbers, never cut mid-token. |
 | **Status bar** | Reads like a tmux line: `● WSL: FedoraLinux-44  ■ devbox  91 hosts`, the `■` being this Box's square in the second tone. Data in Iosevka, hints as keycaps. |
-| **Logo** | Gap orbit, plain (Q57): the R, its orbit and the Box in the text colour, one accent Host in the gap. The app icon is the same mark on an Ink tile; at 24 px and under, the small cut (stem, bowl, leg). Drawn from Theme tokens in the app, never animated, never given a second accent. |
+| **Logo** | Gap orbit, plain (Q57): the R, its orbit and the Box in the text colour, one accent Host in the gap. The R fills most of the orbit (radius 26 of 64, the round-5 prototype's proportions) and clears it by about 1 px at 16 px (Q59). The app icon is the same mark with no tile, on a transparent background, in a mid-tone neutral `#808183` and a mid apricot `#cc5c2b` that read on light and dark taskbars alike (Q59, [themes.md](../themes.md)); at 32 px and under in the icon, 24 px and under in the app, the small cut (stem, bowl, leg). Drawn from Theme tokens in the app, never animated, never given a second accent. |
 
 ## Not us
 
