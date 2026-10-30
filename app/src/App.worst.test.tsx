@@ -131,7 +131,8 @@ describe("the worst case", () => {
     expect(within(panel).getAllByTitle(WORST_BINDINGS.source).length).toBeGreaterThan(0);
     await user.keyboard(`${LEADER}:`);
     await user.keyboard(`folder add ${LONG_NAME_OPEN} `);
-    expect(screen.getByRole("listbox", { name: "Completions" })).toHaveTextContent(/\+\d+ more/);
+    // The count sits under the listbox (its options carry aria-setsize), not inside it.
+    expect(document.querySelector(".cmdline-candidates .more")).toHaveTextContent(/\+\d+ more/);
     expect(cutWithoutTooltip()).toEqual([]);
     expect(bareLeaders()).toEqual([]);
   }, 30_000);

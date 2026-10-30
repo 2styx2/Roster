@@ -152,6 +152,7 @@ function localActions(context: KeymapContext): Set<string> | null {
   if (context === "picker" || context === "pickerVim") {
     return new Set([...Object.values(defaultBindings.picker), ...Object.values(defaultBindings.pickerVim)]);
   }
+  if (context === "cmdline") return new Set(Object.values(defaultBindings.cmdline));
   if (context === "terminal") return new Set(Object.values(defaultBindings.terminal));
   return null;
 }
