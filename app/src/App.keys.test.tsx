@@ -208,7 +208,10 @@ describe("The command line", () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:`);
     expect(cmdline()).toHaveFocus();
+    // The common prefix of connect and config first, as a shell does; then the first of them.
     await user.keyboard("co{Tab}");
+    expect(cmdline()).toHaveValue("con");
+    await user.keyboard("{Tab}");
     expect(cmdline()).toHaveValue("connect ");
     await user.keyboard(`${h0.slice(0, -1)}{Tab}`);
     expect(cmdline()).toHaveValue(`connect ${h0}`);

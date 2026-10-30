@@ -26,7 +26,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |
 | `<leader> e` | `sidebar` | Show or hide the Sidebar, and say the option that keeps it (`modes.standard.sidebar`) |
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
-| `<leader> :` | `cmdline` | Command line, with Tab completion for commands and Host names |
+| `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
@@ -50,8 +50,23 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> A` | `folder remove` | Remove the Host under the cursor from its Folder |
 | — | `folder new NAME`, `folder rename NAME NEW`, `folder delete NAME`, `folder add HOST NAME`, `folder remove HOST NAME` | Folders (GLOSSARY), kept in State. Names may have spaces; quote one (`"Lab ESXi"`) only where it would be ambiguous. Without a name, `new` and `rename` open the command line for it |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
+| In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, select to copy, right-click to paste; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table) |
+
+## Completion in the command line (ticket 34)
+
+The command line completes like bash or zsh, and like Neovim's wildmenu. The candidates for what's typed show in a list above the line: command names (with what each does and its key), then each command's arguments: Hosts (`connect`, `open`, `edit`, `check`, `review`), Folders (`folder add HOST `), Themes, finder sources, view modes, `:config`'s subcommands, `:source`'s files, the Sidebar's rows for `fold` (`group:subnet-42`, `folder:Lab`, `section:sessions`) and the open Sessions' numbers for `session` and `close`. They come from each command's `complete` hook and the registries, so a command from the Config or a Plugin completes the same way.
+
+| Keys (`keys.cmdline`) | Action | What it does |
+|---|---|---|
+| Tab, Ctrl+N | `cmdline.next` | First fills in the longest prefix the candidates share; once there's nothing more to fill, the next candidate (wrapping) |
+| Shift+Tab, Ctrl+P | `cmdline.prev` | The previous candidate |
+| Ctrl+Y | `cmdline.accept` | Accept the candidate in the line; the list then shows the next argument's |
+| Enter | `cmdline.run` | Run the line. On a command that still needs its argument (`connect `) it only accepts it |
+| Esc | `cmdline.cancel` | Cancel the completion, back to what you typed; a second Esc closes the line |
+
+Typing anything also accepts the candidate. A click on one accepts it too.
 
 With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
 

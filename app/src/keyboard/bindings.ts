@@ -22,19 +22,27 @@ export const CONTEXT_OPTION: Record<KeymapContext, string> = {
   listVim: "keys.list_vim",
   picker: "keys.picker",
   pickerVim: "keys.picker_vim",
+  cmdline: "keys.cmdline",
   terminal: "keys.terminal",
 };
 
 const NAMES: Record<string, string> = { ArrowDown: "↓", ArrowUp: "↑", Escape: "Esc" };
 
-/** The Picker's and the terminal's own actions (not commands). */
+/** The Picker's, the command line's and the terminal's own actions (not commands). */
 const LOCAL: Record<string, { area: string; label: string }> = {
   "picker.down": { area: "Picker", label: "Move down" },
   "picker.up": { area: "Picker", label: "Move up" },
+  "picker.next": { area: "Picker", label: "Next result (first fills in what the matches share)" },
+  "picker.prev": { area: "Picker", label: "Previous result" },
   "picker.choose": { area: "Picker", label: "Open the Host" },
   "picker.chooseHere": { area: "Picker", label: "Open it in this tab, if its Session has ended" },
   "picker.review": { area: "Picker", label: "Mark an unreviewed Host reviewed" },
   "picker.close": { area: "Picker", label: "Close the Picker" },
+  "cmdline.next": { area: "Command line", label: "Next completion (first fills in what they share)" },
+  "cmdline.prev": { area: "Command line", label: "Previous completion" },
+  "cmdline.accept": { area: "Command line", label: "Accept the completion" },
+  "cmdline.run": { area: "Command line", label: "Run the line (or accept a command that needs more)" },
+  "cmdline.cancel": { area: "Command line", label: "Cancel the completion, then close" },
   "terminal.copy": { area: "Terminal", label: "Copy" },
   "terminal.paste": { area: "Terminal", label: "Paste" },
   "terminal.search": { area: "Terminal", label: "Find" },
@@ -56,13 +64,13 @@ function display(context: KeymapContext, seq: string): string {
 
 export function bindingRows(keymap: Keymap, options: Options, commands: Commands): BindingRow[] {
   const contexts: KeymapContext[] = options.vim
-    ? ["leader", "global", "list", "listVim", "picker", "pickerVim", "terminal"]
-    : ["leader", "global", "list", "picker", "terminal"];
+    ? ["leader", "global", "list", "listVim", "picker", "pickerVim", "cmdline", "terminal"]
+    : ["leader", "global", "list", "picker", "cmdline", "terminal"];
   const rows = new Map<string, BindingRow & { rank: number }>();
   const ids = commands.list().map((c) => c.id);
   for (const context of contexts) {
     for (const [seq, { action, source }] of Object.entries(keymap[context])) {
-      const local = context === "picker" || context === "pickerVim" || context === "terminal";
+      const local = context === "picker" || context === "pickerVim" || context === "cmdline" || context === "terminal";
       const { area, label } = local ? (LOCAL[action] ?? { area: "Other", label: action }) : describeLine(commands, action);
       const key = `${area}\0${label}\0${source}`;
       const rank = local ? 1000 + Object.keys(LOCAL).indexOf(action) : ids.indexOf(action.split(" ")[0] ?? "");
@@ -72,7 +80,7 @@ export function bindingRows(keymap: Keymap, options: Options, commands: Commands
       rows.set(key, row);
     }
   }
-  const areaRank = (a: string) => (a === "Picker" ? 99 : AREAS.includes(a) ? AREAS.indexOf(a) : 50);
+  const areaRank = (a: string) => (a === "Picker" ? 99 : a === "Command line" ? 98 : AREAS.includes(a) ? AREAS.indexOf(a) : 50);
   const sorted = [...rows.values()].sort(
     (a, b) =>
       areaRank(a.area) - areaRank(b.area) ||

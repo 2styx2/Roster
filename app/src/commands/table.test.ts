@@ -173,6 +173,33 @@ describe("complete", () => {
   it("offers nothing for other arguments", () => {
     expect(complete("lock x", hosts)).toEqual([]);
   });
+
+  it("completes the Sidebar's foldable rows after fold, unfold and togglefold (ticket 34)", () => {
+    const more = { foldIds: ["section:sessions", "group:subnet-42", "folder:Lab ESXi"], sessions: [] };
+    expect(completeIn(registry, "fold g", hosts, more)).toEqual(["fold group:subnet-42"]);
+    expect(completeIn(registry, "togglefold lab", hosts, more)).toEqual(["togglefold folder:Lab ESXi"]);
+    expect(completeIn(registry, "unfold ", hosts, more)).toHaveLength(3);
+  });
+
+  it("completes the open Sessions' numbers after session and close (ticket 34)", () => {
+    const more = { foldIds: [], sessions: ["esxi-01", "hub2", "orion3"] };
+    expect(completeIn(registry, "session ", hosts, more)).toEqual(["session 1", "session 2", "session 3"]);
+    expect(completeIn(registry, "close 2", hosts, more)).toEqual(["close 2"]);
+  });
+
+  it("hands a command's own hook what the app knows, so a Plugin's command can use it", () => {
+    const r = builtinCommandRegistry();
+    r.register({
+      id: "jump",
+      source: "my-plugin",
+      area: "Sidebar",
+      arg: "text",
+      label: () => "Jump",
+      run: () => undefined,
+      complete: (arg, _hosts, ctx) => (ctx?.foldIds ?? []).filter((id) => id.startsWith(arg)),
+    });
+    expect(completeIn(r, "jump gr", [], { foldIds: ["group:a", "section:b"], sessions: [] })).toEqual(["jump group:a"]);
+  });
 });
 
 describe("the registry", () => {

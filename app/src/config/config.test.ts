@@ -81,6 +81,29 @@ describe("registering the Config", () => {
     expect(keymapOf(r.keymap.list()).leader.x).toBeUndefined();
   });
 
+  it("binds the command line's and the Picker's Tab keys (keys.cmdline, ticket 34), and knows their actions", () => {
+    const r = builtinRegistries();
+    const { warnings } = registerConfig(
+      r,
+      configWith({
+        keys: [
+          { context: "cmdline", keys: "Ctrl+j", action: "cmdline.next" },
+          { context: "cmdline", keys: "Tab", action: null },
+          { context: "cmdline", keys: "Ctrl+x", action: "cmdline.explode" },
+          { context: "picker", keys: "Ctrl+j", action: "picker.next" },
+        ],
+        lines: { "keys.cmdline.Ctrl+x": { file: "init.lua", line: 3 } },
+      }),
+    );
+    expect(warnings).toEqual([{ file: "init.lua", line: 3, message: 'key Ctrl+x (cmdline): no action named "cmdline.explode"' }]);
+    const km = keymapOf(r.keymap.list());
+    expect(km.cmdline["Ctrl+j"]).toEqual({ action: "cmdline.next", source: CONFIG });
+    expect(km.cmdline.Tab).toBeUndefined();
+    expect(km.cmdline["Shift+Tab"]).toEqual({ action: "cmdline.prev", source: BUILTIN });
+    expect(km.picker["Ctrl+j"]).toEqual({ action: "picker.next", source: CONFIG });
+    expect(km.picker.Tab).toEqual({ action: "picker.next", source: BUILTIN });
+  });
+
   it("registers a Theme built on a bundled one, changing only the tokens it sets", () => {
     const r = builtinRegistries();
     registerConfig(

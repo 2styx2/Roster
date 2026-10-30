@@ -465,6 +465,8 @@ pub enum KeyContext {
     Picker,
     /// In the Picker's list when vim keys are on.
     PickerVim,
+    /// In the command line (ticket 34): cycle through completions, accept, run, cancel.
+    Cmdline,
     /// In a terminal, before the shell sees the key.
     Terminal,
     /// Everywhere, with no Leader (F11).
@@ -472,12 +474,13 @@ pub enum KeyContext {
 }
 
 impl KeyContext {
-    pub const ALL: [KeyContext; 7] = [
+    pub const ALL: [KeyContext; 8] = [
         KeyContext::Leader,
         KeyContext::List,
         KeyContext::ListVim,
         KeyContext::Picker,
         KeyContext::PickerVim,
+        KeyContext::Cmdline,
         KeyContext::Terminal,
         KeyContext::Global,
     ];
@@ -490,6 +493,7 @@ impl KeyContext {
             KeyContext::ListVim => "list_vim",
             KeyContext::Picker => "picker",
             KeyContext::PickerVim => "picker_vim",
+            KeyContext::Cmdline => "cmdline",
             KeyContext::Terminal => "terminal",
             KeyContext::Global => "global",
         }
@@ -526,6 +530,7 @@ struct KeysPatch {
     list_vim: KeyTable,
     picker: KeyTable,
     picker_vim: KeyTable,
+    cmdline: KeyTable,
     terminal: KeyTable,
     global: KeyTable,
 }
@@ -538,6 +543,7 @@ impl From<KeysPatch> for Keys {
             p.list_vim,
             p.picker,
             p.picker_vim,
+            p.cmdline,
             p.terminal,
             p.global,
         ];
