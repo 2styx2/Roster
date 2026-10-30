@@ -59,6 +59,17 @@ def recorded_host_keys(h):
     return dict(found) if found else {}
 
 
+def record_host_key(h, key_type, base64_key):
+    """Add one confirmed host key for H's address to roster's known_hosts (host.add, after the user compared it)."""
+    ssh_dir().mkdir(mode=0o700, exist_ok=True)
+    known_hosts_file().touch(mode=0o600, exist_ok=True)
+    line = f"{hk_name(h)} {key_type} {base64_key}"
+    text = known_hosts_file().read_text()
+    if line not in text.splitlines():
+        with known_hosts_file().open("a") as f:
+            f.write(("" if not text or text.endswith("\n") else "\n") + line + "\n")
+
+
 def offered_host_key(sock, key_types, timeout=10):
     """Key exchange only, over an open socket: the host key the server offers, preferring KEY_TYPES (the
     recorded ones, so a Host with several keys shows the one we can compare). Never authenticates, never

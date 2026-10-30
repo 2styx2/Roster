@@ -20,6 +20,9 @@ export interface PickerProps {
   keymap?: Keymap;
   /** `here`: open it in the current tab if that tab's Session has ended (else a new tab). */
   onOpen: (host: Host, how?: { here: true }) => void;
+  /** Marks an unreviewed Host reviewed (`:review`, ticket 11); without it the Picker only says why
+   * the Host can't be opened. */
+  onReview?: (host: Host) => void;
   onClose: () => void;
 }
 
@@ -27,7 +30,7 @@ export interface PickerProps {
 const keyFor = (table: KeyTable<PickerAction>, action: PickerAction) =>
   Object.entries(table).find(([, b]) => b.action === action)?.[0] ?? null;
 
-export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onClose }: PickerProps) {
+export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose }: PickerProps) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [inList, setInList] = useState(false);
@@ -47,7 +50,12 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
   function choose(host: Host | undefined, here = false) {
     if (!host) return;
     if (!host.reviewed) {
-      setNotice(`${host.name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
+      const review = keyFor(keymap.picker, "picker.review");
+      setNotice(
+        onReview && review
+          ? `${host.name} isn't reviewed yet, so it can't be opened. ${review} marks it reviewed.`
+          : `${host.name} isn't reviewed yet, so it can't be opened. Review it in roster first.`,
+      );
       return;
     }
     if (here) onOpen(host, { here: true });
@@ -78,6 +86,12 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
       case "picker.chooseHere":
         choose(shown[current]?.host, true);
         break;
+      case "picker.review": {
+        const host = shown[current]?.host;
+        if (host && !host.reviewed && onReview) onReview(host);
+        else if (host) setNotice(onReview ? `${host.name} is already reviewed.` : "");
+        break;
+      }
       case "picker.close":
         onClose();
         break;

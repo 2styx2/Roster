@@ -100,7 +100,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `vim` | `true` | j/k/h/l/gg/G in lists and the Picker |
 | `keys` | `{}` | Per context, `key = action`. The action is a command line, exactly what you'd type after `:` (`"close"`, `"session 1"`, `"finder sessions"`). `false` unbinds a default. Sequences are chords separated by spaces: `["d d"]` |
 
-Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (actions `picker.down`, `picker.up`, `picker.choose`, `picker.chooseHere`, `picker.close`), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ ?`) lists every binding with its source: `builtin` or `init.lua`.
+Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (actions `picker.down`, `picker.up`, `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.close`), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ ?`) lists every binding with its source: `builtin` or `init.lua`.
 
 ### Layout (decisions Q36, Q39)
 

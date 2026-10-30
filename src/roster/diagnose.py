@@ -325,14 +325,18 @@ def stored_password(h):
     return login if login and str(login["auth"]).partition(":")[0].strip() != "prompt" else None
 
 
-def verify_login(h, key_path, previous=None):
-    """One test login to Host H as an edit would leave it (new address, user or Login), before the edit is made.
-    The same order as check_host, but against H's own values rather than this box's ssh config: the local steps,
-    then ONE TCP connection that carries the key exchange and exactly one login attempt. The host key must match
-    one roster recorded, for H's address or (a Host that moved) for PREVIOUS, the Host as it is now; it's never
-    recorded or accepted here. A Host with no stored Login (auth: prompt, agent, none) gets everything but the
-    login. Returns {host, ok, steps} like check_host."""
-    ctx = {"h": h, "key_path": key_path, "previous": previous}
+def verify_login(h, key_path, previous=None, typed=None, host_key=None):
+    """One test login to Host H as an edit would leave it (new address, user or Login), or as host.add would add it,
+    before anything is written. The same order as check_host, but against H's own values rather than this box's ssh
+    config: the local steps, then ONE TCP connection that carries the key exchange and exactly one login attempt.
+    The host key must match one roster recorded, for H's address or (a Host that moved) for PREVIOUS, the Host as it
+    is now; it's never recorded or accepted here. A new address with no recorded key needs HOST_KEY, the
+    fingerprint the user confirmed (scan_key): the result then has host_key {type, fingerprint, base64} for the
+    caller to record once the add is written. TYPED is {password, provider, item} for a password typed into the
+    form (not in the vault yet): the provider step checks it can be saved there, and the login uses it. A Host
+    with no stored Login (auth: prompt, agent, none) gets everything but the login. Returns {host, ok, steps}
+    like check_host."""
+    ctx = {"h": h, "key_path": key_path, "previous": previous, "typed": typed, "host_key": host_key}
     steps, failed = [], False
     for step in VERIFY_STEPS:
         if failed:
@@ -350,7 +354,12 @@ def verify_login(h, key_path, previous=None):
         if ctx.get(held):
             ctx[held].close()
     ctx.pop("password", None)
-    return {"host": h["name"], "ok": not failed, "steps": steps}
+    ctx["typed"] = None
+    result = {"host": h["name"], "ok": not failed, "steps": steps}
+    if not failed and ctx.get("confirmed"):
+        key = ctx["confirmed"]
+        result["host_key"] = {"type": key.get_name(), "fingerprint": fingerprint(key), "base64": key.get_base64()}
+    return result
 
 
 def login_kind(h):
@@ -359,24 +368,46 @@ def login_kind(h):
     return "password" if stored_password(h) else None
 
 
+def kind_of(ctx):
+    return "password" if ctx.get("typed") else login_kind(ctx["h"])
+
+
 def verify_user(ctx):
     h = ctx["h"]
     check_user(h)
-    how = {"key": "this box's key", "password": "password"}.get(login_kind(h)) or f"auth {h['ssh']['auth'] or 'none'}"
+    how = {"key": "this box's key", "password": "password"}.get(kind_of(ctx)) or f"auth {h['ssh']['auth'] or 'none'}"
     return f"{h['ssh']['user']}@{h['ip']}:{h['ssh']['port']} ({how})"
 
 
 def verify_provider(ctx):
-    if login_kind(ctx["h"]) != "password":
+    if kind_of(ctx) != "password":
         return "skipped", "no vault needed"
+    if ctx.get("typed"):
+        return check_save_to(ctx["h"], ctx["typed"])
     check_provider(ctx["h"])
     return f"{str(ctx['h']['ssh']['auth']).partition(':')[0]} is ready"
 
 
+def check_save_to(h, typed):
+    """A typed password's Vault item can be made in its provider now: it can write, and it's unlocked."""
+    name = typed["provider"]
+    if name not in PROVIDERS:
+        raise unknown_provider(h, f"{name}:")
+    if not providers.can_write(name):
+        raise errors.write_problem(providers.CantWrite(
+            f"provider '{name}' can't save to the vault - roster only reads its Logins; create the item in the "
+            "password manager itself, then pick it as the Login"))
+    check_provider({**h, "ssh": {**h["ssh"], "auth": f"{name}:{typed['item']}"}})
+    return f"{name} is ready to save '{typed['item']}' after the test login"
+
+
 def verify_vault_item(ctx):
     h = ctx["h"]
-    if login_kind(h) != "password":
+    if kind_of(ctx) != "password":
         return "skipped", "no vault needed"
+    if ctx.get("typed"):
+        ctx["password"] = ctx["typed"]["password"]
+        return "the typed password, not saved anywhere yet"
     ctx["password"] = resolve_password(h)
     return f"{h['ssh']['auth']} resolves to one item with a value"
 
@@ -385,6 +416,8 @@ def verify_host_key(ctx):
     import paramiko
     h, previous = ctx["h"], ctx["previous"]
     recorded = recorded_host_keys(h) or (recorded_host_keys(previous) if previous else {})
+    if not recorded and ctx.get("host_key"):
+        return confirmed_host_key(ctx)
     if not recorded:
         raise Problem(errors.HOST_KEY_UNKNOWN, f"no recorded host key for {h['name']} at {h['ip']}",
                       fix=f"check the Host's fingerprint (console, or its owner) and record it with `roster setup "
@@ -408,9 +441,53 @@ def verify_host_key(ctx):
     return f"matches the recorded {key.get_name()} key {fingerprint(key)}"
 
 
+def confirmed_host_key(ctx):
+    """No recorded key for this address: the key offered must be the one the user just confirmed (scan_key)."""
+    import paramiko
+    h = ctx["h"]
+    sock, ctx["sock"] = ctx["sock"], None
+    try:
+        t = start_transport(sock, [], timeout=CONNECT_TIMEOUT)
+    except (paramiko.SSHException, OSError, EOFError) as e:
+        sock.close()
+        raise Problem(errors.TIMEOUT, f"{h['name']} didn't complete the SSH handshake",
+                      fix=unreachable_fix(h), details=f"{type(e).__name__}: {e}") from None
+    ctx["transport"] = t
+    key = t.get_remote_server_key()
+    if fingerprint(key) != ctx["host_key"]:
+        data = {"confirmed": ctx["host_key"], "offered": fingerprint(key)}
+        raise Problem(errors.HOST_KEY_CHANGED, f"{h['name']}'s host key at {h['ip']} isn't the one you confirmed - "
+                                               "not logging in", data,
+                      fix="scan the key again and compare it with the Host's console or owner before trusting it",
+                      details=f"confirmed {data['confirmed']}; offered {data['offered']}")
+    ctx["confirmed"] = key
+    return f"the {key.get_name()} key you confirmed, {fingerprint(key)}"
+
+
+def scan_key(h):
+    """The host key H's address offers ({key_type, fingerprint}) and how it compares with the one roster recorded
+    (recorded: none, match or changed), for the user to confirm before a first login. One connection, key
+    exchange only: never logs in, never records anything. Raises Problem 40-42 when it can't get there."""
+    import paramiko
+    ctx = {"h": h}
+    step_dns(ctx)
+    step_tcp(ctx)
+    recorded = recorded_host_keys(h)
+    try:
+        key = offered_host_key(ctx["sock"], list(recorded), timeout=CONNECT_TIMEOUT)
+    except (paramiko.SSHException, OSError, EOFError) as e:
+        raise Problem(errors.TIMEOUT, f"{h['ip']} didn't complete the SSH handshake",
+                      fix=unreachable_fix(h), details=f"{type(e).__name__}: {e}") from None
+    finally:
+        ctx["sock"].close()
+    old = recorded.get(key.get_name())
+    state = "none" if not recorded else "match" if old is not None and old.asbytes() == key.asbytes() else "changed"
+    return {"key_type": key.get_name(), "fingerprint": fingerprint(key), "recorded": state}
+
+
 def verify_auth(ctx):
     import paramiko
-    h, t, kind = ctx["h"], ctx["transport"], login_kind(ctx["h"])
+    h, t, kind = ctx["h"], ctx["transport"], kind_of(ctx)
     user = h["ssh"]["user"]
     if kind is None:
         return "skipped", f"no stored Login to test (auth {h['ssh']['auth'] or 'none'})"

@@ -20,6 +20,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  ADD_API_VERSION,
   BackendStartError,
   CHECK_API_VERSION,
   EDIT_API_VERSION,
@@ -41,6 +42,7 @@ import { Finder } from "./finder/Finder";
 import type { FinderContext, FinderItem } from "./finder/sources";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
 import { ChangesPanel, type ChangesState } from "./edit/ChangesPanel";
+import { AddPanel } from "./edit/AddPanel";
 import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
@@ -232,6 +234,8 @@ export function App({
   const [editing, setEditing] = useState<string | null>(null);
   const [changesView, setChangesView] = useState<{ confirm: boolean } | null>(null);
   const [pending, setPending] = useState<ChangesState | null>(null);
+  // Ticket 11: the add-Host form, with the group it starts in.
+  const [adding, setAdding] = useState<{ group: string } | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -370,6 +374,7 @@ export function App({
   // and pull. A roster older than API 5 has none to show.
   const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;
   const canEdit = apiVersion >= EDIT_API_VERSION;
+  const canAdd = apiVersion >= ADD_API_VERSION;
   const refreshPending = useCallback(() => {
     if (!canEdit) return;
     backend.pendingChanges().then(
@@ -517,6 +522,10 @@ export function App({
     setEditing(null);
     restoreFocus();
   };
+  const closeAdd = () => {
+    setAdding(null);
+    restoreFocus();
+  };
   const closeChanges = () => {
     setChangesView(null);
     restoreFocus();
@@ -565,7 +574,7 @@ export function App({
     connect: (name, here = false) => {
       const host = hostByName.get(name);
       if (!host) return setMessage(`No Host named ${name}`);
-      if (!host.reviewed) return setMessage(`${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`);
+      if (!host.reviewed) return setMessage(notReviewedMessage(name, canAdd));
       openHost(name, here);
     },
     open: (name) => {
@@ -630,6 +639,7 @@ export function App({
     closePanel: () => {
       if (keysOpen) return closeKeys();
       if (editing !== null) return closeEdit();
+      if (adding) return closeAdd();
       if (changesView) return closeChanges();
       if (check) {
         checkRun.current++;
@@ -666,14 +676,41 @@ export function App({
       if (!host) return setMessage("edit needs a Host name (no Host is selected)");
       if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
       if (!canEdit) return setMessage(`:edit needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
-      if (editing === null && !changesView) rememberFocus();
+      if (editing === null && !changesView && !adding) rememberFocus();
       setChangesView(null);
+      setAdding(null);
       setEditing(host);
+    },
+    addHost: () => {
+      if (!canAdd) return setMessage(`:host add needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
+      if (editing === null && !changesView && !adding) rememberFocus();
+      const selected = ctx.selectedHost();
+      const group = (selected && hostByName.get(selected)?.group) ?? Object.keys(hosts?.groups ?? {})[0] ?? "";
+      setChangesView(null);
+      setEditing(null);
+      setAdding({ group });
+    },
+    review: (name) => {
+      const host = name ?? ctx.selectedHost();
+      if (!host) return setMessage("review needs a Host name (no Host is selected)");
+      const h = hostByName.get(host);
+      if (!h) return setMessage(`No Host named ${host}`);
+      if (!canAdd) return setMessage(`:review needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
+      if (h.reviewed) return setMessage(`${host} is already reviewed.`);
+      backend.reviewHost(host).then(
+        (r) => {
+          reloadHosts();
+          refreshPending();
+          setMessage(r.changed ? `Marked ${host} reviewed, as a Pending change. It can be opened now.` : `${host} is already reviewed.`);
+        },
+        (e: unknown) => setMessage(`Couldn't mark ${host} reviewed: ${e instanceof Error ? e.message : String(e)}`),
+      );
     },
     showChanges: (discard = false) => {
       if (!canEdit) return setMessage(`:changes needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
-      if (editing === null && !changesView) rememberFocus();
+      if (editing === null && !changesView && !adding) rememberFocus();
       setEditing(null);
+      setAdding(null);
       setPending((p) => p ?? { state: "loading" });
       refreshPending();
       setChangesView({ confirm: discard });
@@ -1027,6 +1064,37 @@ export function App({
               );
             }}
             onClose={closeEdit}
+            {...(canAdd
+              ? {
+                  onReview: (name: string) => {
+                    closeEdit();
+                    run(`review ${name}`);
+                  },
+                }
+              : {})}
+          />
+        )}
+        {adding && hosts && (
+          <AddPanel
+            backend={backend}
+            hosts={hosts}
+            group={adding.group}
+            pendingCount={pendingCount}
+            rows={errorRows}
+            actions={{ run, copy }}
+            onPulled={() => reloadHosts()}
+            onAdded={(r) => {
+              closeAdd();
+              reloadHosts();
+              refreshPending();
+              const where = `${r.host.name} to ${r.host.group}`;
+              setMessage(
+                r.host.reviewed
+                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}` : ""}.`
+                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`,
+              );
+            }}
+            onClose={closeAdd}
           />
         )}
         {changesView && pending && (
@@ -1113,6 +1181,14 @@ export function App({
             closeOverlay();
             run(`${how?.here ? "here" : "connect"} ${host.name}`);
           }}
+          {...(canAdd
+            ? {
+                onReview: (host: Host) => {
+                  closeOverlay();
+                  run(`review ${host.name}`);
+                },
+              }
+            : {})}
         />
       )}
     </div>
@@ -1134,4 +1210,11 @@ export function App({
       {shell}
     </LockGate>,
   );
+}
+
+/** Why an unreviewed Host won't open, and how to change that (`:review`, api 6), or roster.yml. */
+export function notReviewedMessage(name: string, canReview: boolean): string {
+  return canReview
+    ? `${name} isn't reviewed yet, so it can't be opened. :review ${name} marks it reviewed.`
+    : `${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`;
 }

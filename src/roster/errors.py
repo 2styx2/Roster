@@ -72,6 +72,10 @@ PULL_FAILED = 73            # inventory.pull: the fetch or the fast-forward fail
 INVALID_EDIT = 74           # host.update: the result wouldn't load, or would change more than asked; nothing written
 NOT_VERIFIED = 75           # host.update: address, user or Login changed without a test login that just succeeded
 
+# Adding a Host (ticket 11; Q43). A failed test login answers with its step's own code (40-48, 30-35) and data.steps.
+INVALID_HOST = 80           # host.add: a bad name, group, address, user or port, or no user to log in as; data.field
+HOST_EXISTS = 81            # host.add: a Host by that name is already in the Inventory; data.group
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""

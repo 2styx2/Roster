@@ -376,6 +376,50 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Test the login with the new values, then save again.",
     actions: [],
   }),
+  // Saving a typed password to the vault (ticket 13's vault.create_item, through host.add).
+  row("vault-item-exists", {
+    row: 34,
+    codes: [60],
+    where: ["the vault"],
+    fix: () => "Pick the existing item as the Login, or give the new one another name (`<host> <what it opens>`).",
+    actions: [],
+  }),
+  row("vault-cant-write", {
+    row: 35,
+    codes: [61],
+    where: ["this Box"],
+    fix: () => "Save to Bitwarden (`bw`), or make the item in the password manager and pick it as the Login.",
+    actions: [],
+  }),
+  row("vault-write-failed", {
+    row: 36,
+    codes: [62],
+    where: ["the vault"],
+    fix: () => "See the vault's words under Details; check your rights to the vault or collection.",
+    actions: [],
+  }),
+  row("vault-not-created-here", {
+    row: 37,
+    codes: [63],
+    where: ["roster"],
+    fix: () => "Nothing to undo: roster only takes back the items it just saved.",
+    actions: [],
+  }),
+  // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
+  row("add-invalid", {
+    row: 44,
+    codes: [80],
+    where: ["roster.yml"],
+    fix: () => "Fix the field roster names, then add again; nothing was written.",
+    actions: [],
+  }),
+  row("add-exists", {
+    row: 45,
+    codes: [81],
+    where: ["roster.yml"],
+    fix: (p) => `Pick another name, or edit that Host (\`:edit ${p.host}\`).`,
+    actions: [],
+  }),
   row("other", {
     row: null,
     codes: [3, 22],

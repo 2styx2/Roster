@@ -41,6 +41,8 @@ function recorder(mode: ViewMode = "standard") {
     edit: (h) => calls.push(`edit ${h ?? "selected"}`),
     showChanges: (discard) => calls.push(discard ? "changes discard" : "changes"),
     pull: () => calls.push("pull"),
+    addHost: () => calls.push("add"),
+    review: (h) => calls.push(`review ${h ?? "selected"}`),
     config: (what) => calls.push(`config ${what}`),
   };
   return { ctx, calls };
@@ -53,6 +55,14 @@ describe("runLine", () => {
     const { ctx, calls } = recorder();
     for (const line of ["edit esxi-02", "edit", "changes", "discard", "pull"]) runLine(ctx, line);
     expect(calls).toEqual(["edit esxi-02", "edit selected", "changes", "changes discard", "pull"]);
+  });
+
+  it("runs :host add and :review (ticket 11), and says what :host takes", () => {
+    const { ctx, calls } = recorder();
+    for (const line of ["host add", "review switch-4-003", "review", "host remove"]) runLine(ctx, line);
+    expect(calls).toEqual(["add", "review switch-4-003", "review selected", "say host takes one argument: add (not remove)"]);
+    expect(complete("host ", hosts)).toEqual(["host add"]);
+    expect(complete("rev", hosts)).toEqual(["review"]);
   });
 
   it("runs :check for a Host, or for the current Session's Host with no argument", () => {
@@ -176,6 +186,6 @@ describe("the registry", () => {
     undo();
     runIn(r, ctx, "lock");
     expect(calls).toEqual(["connect orion3", "say no", "lock"]);
-    expect(completeIn(r, "ho", [])).toEqual(["home"]);
+    expect(completeIn(r, "hom", [])).toEqual(["home"]);
   });
 });
