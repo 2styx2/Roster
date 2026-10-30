@@ -138,12 +138,13 @@ A Session to `user@address[:port]`, a box that isn't in the Inventory (decision 
 
 ## Save to vault after a Session's login (tickets 15, 16)
 
-"Save to vault", ticked under a Session's password, saves that password only once the Session logged in with it (decision Q68): roster holds it, and ssh tells roster after the login. Then `quick.save` (a Quick Connect becomes a Host) makes the Vault item `<host> ssh` and adds the Host. Their failures reuse rows 34-37 and 58-59 for the vault (an item by that name, 60, leaves the vault and the Inventory as they were) and rows 44-45 for the Host's name and group (80, 81); if the Host can't be written, the new item is taken back out, as with `host.add`.
+"Save to vault", ticked under a Session's password, saves that password only once the Session logged in with it (decision Q68): roster holds it, and ssh tells roster after the login. Then `quick.save` (a Quick Connect becomes a Host) makes the Vault item `<host> ssh` and adds the Host, and `host.save_login` (an `auth: prompt` Host) makes it and points the Host's Login at it; a Host that changed since its Session logged in is row 43 (75). Their failures reuse rows 34-37 and 58-59 for the vault (an item by that name, 60, leaves the vault and the Inventory as they were) and rows 44-45 for the Host's name and group (80, 81); if the Host can't be written, the new item is taken back out, as with `host.add`.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
 | 68 | 66 | The Session hasn't logged in with the typed password: not yet, or the box refused it | roster | "root@10.0.0.5 hasn't logged in with that password - roster saves it only after the login succeeded" | Wait for the login; a refused password saves nothing, so check it and connect again |
 | 69 | 67 | No typed password held for that Session: saved already, or forgotten (the Session ended, the vault locked, 10 minutes passed, or Not now) | roster | "there's no typed password to save for that Session: …" | Connect again with Save to vault ticked |
+| 70 | 39 (from `session.prepare`, not shown as an error) | The Host's Login is `auth: prompt`: roster has no password to look up | `roster.yml` | The question: "esx's Login is auth: prompt: roster has no saved password for it", with the password field and the Save to vault tick | Type the password; tick Save to vault to keep it |
 
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
