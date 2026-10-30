@@ -54,7 +54,7 @@ CI runs `--check` on every pull request, and the release workflow checks the tag
    git tag -a v0.2.0 -m "roster v0.2.0" && git push origin v0.2.0
    ```
 
-4. **Wait for the draft.** The Release workflow takes about 15 to 25 minutes (the three app builds run side by side). When it's done there's a draft Release named `roster v0.2.0` with every file above. Nobody else can see a draft.
+4. **Wait for the draft.** The Release workflow takes about 12 minutes (the three app builds run side by side; macOS is the slowest). When it's done there's a draft Release named `roster v0.2.0` with every file above. Nobody else can see a draft.
 
 5. **Check it.** Read the notes and cut what doesn't belong. Download the installer for your own platform, check it against `SHA256SUMS` (`sha256sum -c SHA256SUMS --ignore-missing`), install it, and open a Session. `uv tool install ./roster-0.2.0-py3-none-any.whl && roster --version` should print 0.2.0.
 
