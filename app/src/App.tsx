@@ -401,6 +401,8 @@ export function App({
         const info = await backend.connect(restart ? { restart: true } : undefined);
         const hosts = await backend.listHosts();
         setConn({ state: "ready", info, hosts });
+        const leftOut = servicesLeftOut(hosts);
+        if (leftOut) setMessage(leftOut);
       } catch (e) {
         setConn({ state: "failed", problem: asProblem(e) });
       }
@@ -432,7 +434,11 @@ export function App({
    * It updates in place: folds, the cursor and open Sessions stay. */
   const reloadHosts = useCallback(() => {
     backend.listHosts().then(
-      (hosts) => setConn((c) => (c.state === "ready" ? { ...c, hosts } : c)),
+      (hosts) => {
+        setConn((c) => (c.state === "ready" ? { ...c, hosts } : c));
+        const leftOut = servicesLeftOut(hosts);
+        if (leftOut) setMessage(leftOut);
+      },
       () => {},
     );
   }, [backend]);
@@ -1516,6 +1522,21 @@ export function notReviewedMessage(name: string, canReview: boolean): string {
   return canReview
     ? `${name} isn't reviewed yet, so it can't be opened. :review ${name} marks it reviewed.`
     : `${name} isn't reviewed yet, so it can't be opened. Review it in roster first.`;
+}
+
+/** Service entries roster left out of their Hosts (a bad port, url or login type in roster.yml):
+ * the file still loaded, so this is said once, not shown as an error. Null when there are none. */
+export function servicesLeftOut(list: HostList): string | null {
+  const all = list.hosts.flatMap((h) => (h.problems ?? []).map((p) => ({ host: h.name, ...p })));
+  const [first] = all;
+  if (!first) return null;
+  if (all.length === 1) {
+    const why = first.message.replace(/^service '[^']*': /, "");
+    return `roster.yml loaded, but left out ${first.host}'s service ${first.service}: ${why} (roster info ${first.host} says how to fix it)`;
+  }
+  const names = all.slice(0, 3).map((p) => `${p.host}'s ${p.service}`);
+  const more = all.length > 3 ? `, and ${all.length - 3} more` : "";
+  return `roster.yml loaded, but left out ${all.length} services it can't use (${names.join(", ")}${more}): roster hosts says why and how to fix them`;
 }
 
 /** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */

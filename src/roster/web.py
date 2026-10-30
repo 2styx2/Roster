@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import unescape as xml_unescape
 
 from .common import die
+from .config import refuse_broken
 from .providers import get_secret
 
 METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
@@ -32,11 +33,13 @@ def pick_service(h, name):
     if name:
         s = h["services"].get(name)
         if not s:
+            refuse_broken(h, name)
             die(f"host {h['name']!r} has no service {name!r} (has: {', '.join(h['services']) or 'none'})")
     else:
         name = "web" if "web" in h["services"] else next((n for n, s in h["services"].items()
                                                           if s["url"] == h["web"]), None)
         if not name:
+            refuse_broken(h, "web")
             die(f"host {h['name']!r} has no web service - name one: roster web {h['name']} SERVICE METHOD PATH")
         s = h["services"][name]
     if not s["url"]:
