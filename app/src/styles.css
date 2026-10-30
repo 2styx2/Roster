@@ -356,6 +356,9 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   .sidebar .sb-action:hover { color: var(--text); background: var(--hover); }
 }
 .sb-row.raised .sb-action { display: grid; }
+/* Always there (the Inventory heading's "Add a Host"): last in its heading, so a hover-only action
+   appears beside it and never moves it. No motion: it's a plain, quiet button. */
+.sidebar .sb-action.pinned { display: grid; }
 .sb-row.has-actions.raised .sb-detail, .sb-row.has-actions.raised .sb-num, .sb-row.has-actions.raised .sb-badge { display: none; }
 /* Hover shows the same (a real pointer only: a tap mustn't leave them stuck, N8). */
 @media (hover: hover) and (pointer: fine) {

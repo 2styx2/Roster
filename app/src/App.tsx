@@ -346,6 +346,14 @@ export function App({
     () => (layout.sections ? [...pick(sectionDefs, layout.sections)].map((d, i) => ({ ...d, order: i })) : sectionDefs),
     [sectionDefs, layout.sections],
   );
+  // The Inventory heading's "Add a Host" (iteration 3 feedback): its keys, or why it can't.
+  const addApi = conn.state === "ready" ? conn.info.inventory.api_version : 0;
+  const addTooOld = `Adding a Host needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${addApi})`;
+  const addKeys = hintFor(keymap, "host add");
+  const addHost = useMemo(
+    () => ({ keys: addKeys, tooOld: addApi >= ADD_API_VERSION ? null : addTooOld }),
+    [addKeys, addApi, addTooOld],
+  );
   const sections = useMemo(
     () =>
       hosts
@@ -357,9 +365,10 @@ export function App({
             state: appState,
             folded,
             ...(live ? { live } : {}),
+            addHost,
           })
         : [],
-    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live],
+    [shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
@@ -843,7 +852,7 @@ export function App({
       setEditing(host);
     },
     addHost: (inGroup) => {
-      if (!canAdd) return setMessage(`:host add needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
+      if (!canAdd) return setMessage(addTooOld);
       if (editing === null && !changesView && !adding) rememberFocus();
       const selected = ctx.selectedHost();
       const group = inGroup ?? (selected && hostByName.get(selected)?.group) ?? Object.keys(hosts?.groups ?? {})[0] ?? "";
