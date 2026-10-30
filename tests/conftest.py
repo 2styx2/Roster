@@ -67,12 +67,17 @@ class Serve:
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.next_id = 0
         self.responses = []             # every line serve wrote to stdout, as read
+        self.notes = []                 # the notifications (no id) serve sent before a response, in order
 
     def send(self, line):
         self.p.stdin.write(line + "\n")
         self.p.stdin.flush()
-        self.responses.append(self.p.stdout.readline())
-        return json.loads(self.responses[-1])
+        while True:
+            self.responses.append(self.p.stdout.readline())
+            msg = json.loads(self.responses[-1])
+            if "id" in msg or "method" not in msg:
+                return msg
+            self.notes.append(msg)
 
     def call(self, method, params=None):
         self.next_id += 1

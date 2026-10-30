@@ -68,6 +68,9 @@ NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that i
 UNKNOWN_TARGET = 64         # save_to names an organization, collection or group that isn't there (ticket 35); the
                             #   message names the setting (roster.yml's, init.lua's, or the choice)
 READ_ONLY_TARGET = 65       # save_to names a collection the account may only read; nothing was left behind
+# "Save to vault" after a Session's own login (tickets 15, 16; Q43): quick.save and host.save_login
+LOGIN_NOT_SEEN = 66         # the Session hasn't logged in with the typed password (yet, or it was refused)
+NOTHING_HELD = 67           # no typed password held for that Session: never asked for, already saved, or forgotten
 
 # Editing the Inventory: Pending changes (ticket 10). The verify_login steps reuse 30-48.
 NOT_A_REPO = 70             # roster.yml isn't tracked in a git repo, so it can't have Pending changes
