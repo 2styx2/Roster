@@ -35,7 +35,8 @@ export function buildSections(defs: readonly SidebarSectionDef[], ctx: SidebarCo
 
 function dotOf(tab: Tab, host: Host | undefined): Dot {
   if (tab.status.state === "ended" || tab.status.state === "failed") return "ended";
-  return host?.ssh.auth === "key" ? "key" : "password";
+  // An enrolled Host logs in with this Box's key; its `ssh.auth` is only the vault fallback.
+  return host?.enroll ? "key" : "password";
 }
 
 /** Open Sessions in tab order, with their state dot; rows run `session N` and `close N`. */

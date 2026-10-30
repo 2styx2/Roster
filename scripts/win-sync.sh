@@ -8,6 +8,7 @@ dest="$(wslpath "$win_local")/$WIN_DIR/src/"
 mkdir -p "$dest"
 rsync -a --delete \
   --exclude .git --exclude node_modules --exclude target --exclude dist \
-  --exclude src-tauri/gen --exclude test-results --exclude playwright-report \
+  --exclude src-tauri/gen --exclude src-tauri/tauri.dev-port.json \
+  --exclude test-results --exclude playwright-report \
   "$here/../" "$dest"
 echo "synced to $dest"

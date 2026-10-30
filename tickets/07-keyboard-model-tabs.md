@@ -28,15 +28,15 @@ Build every action as an entry in one mode-independent command table, used by ke
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] UI tests against the fake backend:
+- [x] UI tests against the fake backend:
   - the Leader switching modes;
   - switching and closing Sessions from the Sidebar and by key;
   - the command line with completion;
   - changing the Leader;
   - the Key bindings panel listing the current bindings and their source;
   - hiding the status bar and the Sidebar.
-- [ ] With vim off, `j`/`k` do nothing special, and every mouse path still works.
-- [ ] No tab strip is shown by default. Setting the `sessions = "tabs"` option still renders a basic tab strip, so the layout stays modular.
-- [ ] Manual check: drive a whole session without the mouse: open the Picker, connect, switch Sessions, open the bindings panel, close a Session, lock.
+- [x] With vim off, `j`/`k` do nothing special, and every mouse path still works.
+- [x] No tab strip is shown by default. Setting the `sessions = "tabs"` option still renders a basic tab strip, so the layout stays modular.
+- [x] Manual check: drive a whole session without the mouse: open the Picker, connect, switch Sessions, open the bindings panel, close a Session, lock.

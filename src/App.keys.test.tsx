@@ -350,3 +350,19 @@ describe("Registries (ADR 0004)", () => {
     expect(within(panel).getByText("Home box").closest("tr")).toHaveTextContent(/␣\s*h.*init\.lua/);
   });
 });
+
+describe("Sidebar state dots", () => {
+  it("shows a key dot for an enrolled Host even when its Login points at the vault, and password otherwise", async () => {
+    const enrolled = { ...hosts.hosts.find((h) => h.reviewed && h.enroll)!, ssh: { user: "root", port: 22, auth: "bw:x ssh" } };
+    const pw = hosts.hosts.find((h) => h.reviewed && !h.enroll)!;
+    const user = userEvent.setup();
+    const list = { ...hosts, hosts: hosts.hosts.map((h) => (h.name === enrolled.name ? enrolled : h)) };
+    render(<App backend={fakeBackend({ hosts: list })} terminalView={StubTerminal} />);
+    await unlock(user);
+    await connect(user, enrolled.name);
+    await connect(user, pw.name);
+    const dot = (name: string) => row(name).querySelector(".dot");
+    expect(dot(enrolled.name)).toHaveClass("key");
+    expect(dot(pw.name)).toHaveClass("password");
+  });
+});
