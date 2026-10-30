@@ -200,6 +200,14 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .statusbar .hint + .hint { margin-left: 16px; }
 .statusbar .keycap { height: 16px; min-width: 16px; color: var(--muted); }
 .statusbar .mode { color: var(--accent-ink); font-weight: 600; letter-spacing: 0.04em; }
+/* Pending changes (ticket 10): a segment you can click, not a button that shouts. The dot is a node
+   in --warn: edited here, not Published yet (jade is for what's live). */
+.statusbar .statusbar-changes {
+  height: 18px; padding: 0 6px; display: inline-flex; align-items: center; gap: 6px; border-color: transparent;
+  background: transparent; color: var(--warn); font-size: inherit; font-weight: 400; font-variant-numeric: tabular-nums;
+}
+.statusbar .statusbar-changes:active:not(:disabled) { transform: none; }
+.changes-dot { width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
 .statusbar .mode .pending { font-family: var(--font-mono); font-weight: 400; }
 
 .message-line:empty { display: none; }
@@ -386,12 +394,13 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 }
 .panel-empty { margin: 0; padding: 12px 14px; color: var(--muted); }
 
-.check-panel {
+.check-panel, .side-panel {
   width: var(--keys-width); flex: none; overflow: auto; padding: 10px 14px;
   background: var(--sidebar); border-left: 1px solid var(--line); font-size: var(--text-sm);
 }
-.check-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.check-panel h2 { margin: 0; font-size: var(--text-md); font-weight: 600; }
+.check-panel header, .side-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.check-panel h2, .side-panel h2 { margin: 0; font-size: var(--text-md); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.side-panel:focus { outline: none; }
 .check-ok { color: var(--accent-ink); margin: 0 0 8px; }
 .check-panel > p { margin: 0 0 8px; }
 .check-steps { list-style: none; margin: 0; padding: 0; }
@@ -405,6 +414,47 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .check-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .check-problem { margin: 8px 0 0 22px; }
 .check-problem .problem-message { margin-bottom: 8px; }
+
+/* ---------- Editing a Host, Pending changes (ticket 10) ---------- */
+
+.mono { font-family: var(--font-mono); }
+.edit-status { margin: 0 0 10px; }
+.edit-form { display: flex; flex-direction: column; gap: 10px; }
+.edit-form .edit-status { margin: 0; }
+.edit-fields { display: flex; flex-direction: column; gap: 8px; }
+.edit-field { display: flex; flex-direction: column; gap: 3px; }
+.edit-field label { color: var(--muted); font-size: var(--text-xs); }
+.edit-changed { color: var(--warn); }
+.edit-field input { height: 28px; padding: 0 8px; font-size: var(--text-sm); min-width: 0; }
+.edit-field input.mono { font-family: var(--font-mono); }
+.edit-field input[aria-invalid="true"] { border-color: var(--error); }
+.edit-field-problem { color: var(--error); font-size: var(--text-xs); }
+.edit-note { margin: 0; color: var(--muted); }
+.edit-problem { border-top: 1px solid var(--line); padding-top: 8px; }
+.edit-problem .problem-message { margin-bottom: 8px; }
+.edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.edit-actions button { height: 26px; padding: 0 10px; font-size: var(--text-sm); }
+.edit-keys { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; font-size: var(--text-xs); }
+button.danger { background: var(--danger); color: var(--danger-text); border-color: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, var(--text)); }
+}
+
+.changes-where { margin: 0 0 8px; overflow-wrap: anywhere; }
+.changes-hosts { list-style: none; margin: 0 0 10px; padding: 0; }
+.changes-hosts li { padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.panel-empty-line { margin: 0; }
+/* The diff: data, so Iosevka; + and - lines tinted, never cut (it scrolls sideways instead). */
+.diff {
+  margin: 0 0 10px; padding: 6px 0; overflow: auto; font: var(--text-xs)/1.55 var(--font-mono);
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); tab-size: 2;
+}
+.diff-line { display: block; padding: 0 8px; white-space: pre; min-width: max-content; }
+.diff-line.add { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.diff-line.del { background: color-mix(in srgb, var(--error) 14%, transparent); }
+.diff-line.hunk, .diff-line.meta { color: var(--muted); }
+.changes-confirm { border-top: 1px solid var(--line); padding-top: 8px; }
+.changes-confirm p { margin: 0 0 6px; }
 
 /* ---------- The command line ---------- */
 
@@ -634,7 +684,8 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
    resize the terminal. */
 .body { position: relative; }
 .screen[data-view="focus"] .keys-panel,
-.screen[data-view="focus"] .check-panel {
+.screen[data-view="focus"] .check-panel,
+.screen[data-view="focus"] .side-panel {
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
@@ -643,7 +694,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
    64 columns): the panels float over the terminal, as in Focus, instead of squeezing it (M5).
    They open from a key, so they don't animate. */
 @media (max-width: 1040px) {
-  .keys-panel, .check-panel {
+  .keys-panel, .check-panel, .side-panel {
     position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
     border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
   }

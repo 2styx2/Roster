@@ -38,6 +38,9 @@ function recorder(mode: ViewMode = "standard") {
     setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
     openFinder: (id) => calls.push(`finder ${id}`),
     showInfo: () => calls.push("info"),
+    edit: (h) => calls.push(`edit ${h ?? "selected"}`),
+    showChanges: (discard) => calls.push(discard ? "changes discard" : "changes"),
+    pull: () => calls.push("pull"),
   };
   return { ctx, calls };
 }
@@ -45,6 +48,12 @@ function recorder(mode: ViewMode = "standard") {
 const hosts = ["esxi-02", "esxi-01", "net-sw-core-01", "orion3", "hub2", "lab-hub2"];
 
 describe("runLine", () => {
+  it("runs the Inventory commands (ticket 10)", () => {
+    const { ctx, calls } = recorder();
+    for (const line of ["edit esxi-02", "edit", "changes", "discard", "pull"]) runLine(ctx, line);
+    expect(calls).toEqual(["edit esxi-02", "edit selected", "changes", "changes discard", "pull"]);
+  });
+
   it("runs :check for a Host, or for the current Session's Host with no argument", () => {
     const { ctx, calls } = recorder();
     runLine(ctx, "check esxi-02");

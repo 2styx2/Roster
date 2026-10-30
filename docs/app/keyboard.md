@@ -29,6 +29,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and Host names |
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source, filterable |
 | `<leader> L` | `lock` | Lock |
+| `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
+| `<leader> c` | `changes` | Show the Pending changes (the diff of `roster.yml`); `:discard` asks, then discards them |
 | `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
 | `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |

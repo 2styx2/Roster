@@ -9,8 +9,12 @@ import {
   type BackendProblem,
   type CallErrorData,
   type Host,
+  type HostChanges,
   type HostCheck,
   type HostList,
+  type HostUpdate,
+  type PendingChanges,
+  type PullResult,
   type ProviderStatus,
   type SignInStep,
   type VaultStatus,
@@ -113,5 +117,10 @@ export function tauriBackend(): Backend {
     },
     openSession,
     checkHost: (host) => call<HostCheck>("host_check", { host }),
+    pullInventory: () => call<PullResult>("inventory_pull"),
+    verifyLogin: (host, changes: HostChanges) => call<HostCheck>("host_verify_login", { host, changes }),
+    updateHost: (host, changes: HostChanges) => call<HostUpdate>("host_update", { host, changes }),
+    pendingChanges: () => call<PendingChanges>("changes_diff"),
+    discardChanges: () => call<{ discarded: boolean; backup: string | null }>("changes_discard"),
   };
 }

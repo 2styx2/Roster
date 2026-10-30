@@ -223,13 +223,14 @@ describe("The command line", () => {
     await user.keyboard(`${LEADER}:c`);
     // List motions (choose) come last (ticket 29 S8).
     expect(screen.getAllByRole("option").map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual([
+      "changes",
       "check",
       "close",
       "cmdline",
       "connect ",
       "choose",
     ]);
-    await user.keyboard("{Tab}{Tab}{Tab}{Tab}");
+    await user.keyboard("{Tab}{Tab}{Tab}{Tab}{Tab}");
     expect(cmdline()).toHaveValue("connect ");
   });
 

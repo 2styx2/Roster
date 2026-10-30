@@ -104,7 +104,7 @@ The pieces of a mode:
 | `titlebar` | `true` / `false` | `true` | `false` |
 | `sidebar` | `false`, `true`, or `{ side = "left"\|"right", sections = { "sessions", "folders", "inventory" } }`. `sections` picks and orders them. Leave it out for all | `{ side = "left" }` | `false` |
 | `sessionbar` | `false`, `"bottom"` or `"top"`: the thin tmux-style bar of open Sessions | `false` | `false` |
-| `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
+| `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"changes"` (the Pending changes count, shown only when there are some), `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
 | `fullscreen` | `true` / `false`: OS fullscreen | `false` | `true` |
 
 `␣ e` shows or hides the Sidebar, and `␣ s` the mode's bar (the status bar in Standard, the session bar in Focus). Focus without a Sidebar reaches the tree with `␣ e` as a finder. A save that changes `modes` resets what those keys toggled. A save that changes anything else keeps it.

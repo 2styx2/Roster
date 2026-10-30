@@ -62,6 +62,12 @@ export interface CommandContext {
   openFinder(source: string): void;
   /** Says the Backend, the Box and the Inventory's path, whole (the status bar cuts them). */
   showInfo(): void;
+  /** Opens the edit form for the Host, or the selected one (ticket 10). */
+  edit(host: string | null): void;
+  /** Shows the Pending changes; `discard`: asks to discard them straight away. */
+  showChanges(discard?: boolean): void;
+  /** Pulls the infra repo (fast-forward only) and says what happened. */
+  pull(): void;
 }
 
 export interface CommandDef extends Entry {
@@ -145,6 +151,24 @@ export const builtinCommands: readonly CommandDef[] = [
     label: (h) => (h ? `Check ${h}` : "Check a Host: inventory, ssh config, vault item, network, host key, login"),
     run: (ctx, h) => ctx.check(h ?? null),
   },
+  {
+    id: "edit",
+    source: BUILTIN,
+    area: "Inventory",
+    arg: "host",
+    optionalArg: true,
+    label: (h) => (h ? `Edit ${h}` : "Edit a Host: title, description, type, address, user, Login"),
+    run: (ctx, h) => ctx.edit(h ?? null),
+  },
+  { id: "changes", source: BUILTIN, area: "Inventory", label: () => "Show the Pending changes", run: (ctx) => ctx.showChanges() },
+  {
+    id: "discard",
+    source: BUILTIN,
+    area: "Inventory",
+    label: () => "Discard the Pending changes (asks first)",
+    run: (ctx) => ctx.showChanges(true),
+  },
+  { id: "pull", source: BUILTIN, area: "Inventory", label: () => "Pull the infra repo (fast-forward only)", run: (ctx) => ctx.pull() },
   { id: "next", source: BUILTIN, area: "Sessions", label: () => "Next Session", run: (ctx) => ctx.selectRelative(1) },
   { id: "prev", source: BUILTIN, area: "Sessions", label: () => "Previous Session", run: (ctx) => ctx.selectRelative(-1) },
   {

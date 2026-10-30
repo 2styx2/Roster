@@ -36,6 +36,18 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 53).where).toContain("the network");
   });
 
+  it("gives every editing code its row (docs/app/errors.md rows 34-39, ticket 10)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (let n = 34; n <= 39; n++) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [60, 61, 62, 63, 64, 65]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.id).toMatch(/^edit-/);
+      expect(row.fix(p(code))).not.toBe("");
+    }
+    expect(rowFor(rows, 62).where).toContain("the infra repo");
+  });
+
   it("never offers to accept a host key", () => {
     for (const row of builtinErrorRows) {
       for (const a of row.actions) {

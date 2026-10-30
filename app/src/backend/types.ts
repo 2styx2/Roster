@@ -110,6 +110,73 @@ export interface HostCheck {
   steps: CheckStep[];
 }
 
+/** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
+export const EDIT_API_VERSION = 4;
+
+/** The Host fields the edit form changes (`host.update`'s `changes`). */
+export interface HostFields {
+  title: string;
+  description: string;
+  type: string;
+  ip: string;
+  user: string;
+  port: number;
+  auth: string;
+}
+
+export type HostChanges = Partial<HostFields>;
+
+/** Changing these needs a test login that just succeeded (`host.verify_login`, decision Q43). */
+export const LOGIN_FIELDS = ["ip", "user", "port", "auth"] as const satisfies readonly (keyof HostFields)[];
+
+/** `host.verify_login`'s steps, in order. */
+export const VERIFY_STEPS = ["user", "provider", "vault-item", "dns", "tcp", "host-key", "auth"] as const;
+
+/** `inventory.pull`: the infra repo fast-forwarded (or already up to date, or no upstream). */
+export interface PullResult {
+  updated: boolean;
+  upstream: string | null;
+  commits: number;
+  ahead: number;
+  message?: string;
+}
+
+/** `host.update`. */
+export interface HostUpdate {
+  changed: boolean;
+  host: Host;
+  /** Where roster kept the file as it was before (in the repo's git dir). */
+  backup: string | null;
+}
+
+/** One Host the Pending changes touch. */
+export interface HostChange {
+  host: string;
+  change: "changed" | "added" | "removed";
+  fields: string[];
+}
+
+/** `changes.diff`: roster.yml's uncommitted diff in the infra repo. */
+export interface PendingChanges {
+  path: string;
+  repo: string;
+  /** git's unified diff of roster.yml against the last commit ("" when there are none). */
+  diff: string;
+  hosts: HostChange[];
+  /** How many Pending changes: changed Hosts (1 for an edit that touches none, such as a comment). */
+  count: number;
+}
+
+/** roster's codes for editing the Inventory (ticket 10; docs/app/errors.md rows 34-39). */
+export const EditError = {
+  notARepo: 60,
+  dirty: 61,
+  diverged: 62,
+  pullFailed: 63,
+  invalidEdit: 64,
+  notVerified: 65,
+} as const;
+
 /** Where a vault provider stands (`vault.status`). */
 export type VaultStatusWord = "locked" | "unlocked" | "not-logged-in" | "missing-cli" | "unsupported";
 
@@ -277,4 +344,16 @@ export interface Backend {
   openSession(host: string, size: TermSize, events: SessionEvents): Promise<SessionHandle>;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
+  /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code
+   * (61 Pending or other uncommitted changes, 62 diverged, 63 fetch failed, 60 not a git repo). */
+  pullInventory(): Promise<PullResult>;
+  /** `host.verify_login`: one test login with the Host's new address, user or Login (same shape
+   * as `host.check`, steps VERIFY_STEPS). Success lets `updateHost` make exactly that change. */
+  verifyLogin(host: string, changes: HostChanges): Promise<HostCheck>;
+  /** `host.update`: the edit, written into roster.yml as a Pending change (comments kept). */
+  updateHost(host: string, changes: HostChanges): Promise<HostUpdate>;
+  /** `changes.diff`: the Pending changes. */
+  pendingChanges(): Promise<PendingChanges>;
+  /** `changes.discard`: roster.yml back as the last commit has it. */
+  discardChanges(): Promise<{ discarded: boolean; backup: string | null }>;
 }

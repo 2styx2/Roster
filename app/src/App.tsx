@@ -22,9 +22,11 @@ import {
 import {
   BackendStartError,
   CHECK_API_VERSION,
+  EDIT_API_VERSION,
   type Backend,
   type BackendInfo,
   type BackendProblem,
+  type Host,
   type HostList,
 } from "./backend/types";
 import { CommandLine } from "./cmdline/CommandLine";
@@ -37,6 +39,8 @@ import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
 import type { FinderContext, FinderItem } from "./finder/sources";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
+import { ChangesPanel, type ChangesState } from "./edit/ChangesPanel";
+import { EditPanel } from "./edit/EditPanel";
 import { TitleBar } from "./chrome/TitleBar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
@@ -207,6 +211,10 @@ export function App({
   const [keysOpen, setKeysOpen] = useState(false);
   const [check, setCheck] = useState<CheckState | null>(null);
   const checkRun = useRef(0);
+  // Ticket 10: the edit form (a Host's name), the Pending changes panel, and the last count.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [changesView, setChangesView] = useState<{ confirm: boolean } | null>(null);
+  const [pending, setPending] = useState<ChangesState | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -341,6 +349,27 @@ export function App({
     void connect(false);
   }, [connect]);
 
+  // Pending changes (ticket 10): asked for once the Backend is up, and after every edit, discard
+  // and pull. A roster older than API 4 has none to show.
+  const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;
+  const canEdit = apiVersion >= EDIT_API_VERSION;
+  const refreshPending = useCallback(() => {
+    if (!canEdit) return;
+    backend.pendingChanges().then(
+      (changes) => setPending({ state: "done", changes }),
+      (e: unknown) => setPending({ state: "error", message: e instanceof Error ? e.message : String(e) }),
+    );
+  }, [backend, canEdit]);
+  useEffect(() => refreshPending(), [refreshPending]);
+  /** The Inventory again, after roster.yml changed (an edit, a discard, a pull). */
+  const reloadHosts = useCallback(() => {
+    backend.listHosts().then(
+      (hosts) => setConn((c) => (c.state === "ready" ? { ...c, hosts } : c)),
+      () => {},
+    );
+  }, [backend]);
+  const pendingCount = pending?.state === "done" ? pending.changes.count : 0;
+
   // The State file and the Windows build, once. What changed before the file was read (Hosts
   // picked) is replayed over it.
   useEffect(() => {
@@ -447,6 +476,15 @@ export function App({
     restoreFocus();
   };
 
+  const closeEdit = () => {
+    setEditing(null);
+    restoreFocus();
+  };
+  const closeChanges = () => {
+    setChangesView(null);
+    restoreFocus();
+  };
+
   const closeKeys = () => {
     setKeysOpen(false);
     if (document.activeElement?.closest(".keys-panel")) restoreFocus();
@@ -548,6 +586,8 @@ export function App({
     // The panel drawn last (Key bindings, beside :check) is the topmost.
     closePanel: () => {
       if (keysOpen) return closeKeys();
+      if (editing !== null) return closeEdit();
+      if (changesView) return closeChanges();
       if (check) {
         checkRun.current++;
         setCheck(null);
@@ -577,6 +617,40 @@ export function App({
         const { backend, command, inventory } = conn.info;
         setMessage(`Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")}`);
       }
+    },
+    edit: (name) => {
+      const host = name ?? ctx.selectedHost();
+      if (!host) return setMessage("edit needs a Host name (no Host is selected)");
+      if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
+      if (!canEdit) return setMessage(`:edit needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
+      if (editing === null && !changesView) rememberFocus();
+      setChangesView(null);
+      setEditing(host);
+    },
+    showChanges: (discard = false) => {
+      if (!canEdit) return setMessage(`:changes needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
+      if (editing === null && !changesView) rememberFocus();
+      setEditing(null);
+      setPending((p) => p ?? { state: "loading" });
+      refreshPending();
+      setChangesView({ confirm: discard });
+    },
+    pull: () => {
+      if (!canEdit) return setMessage(`:pull needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
+      setMessage("Pulling the infra repo…");
+      backend.pullInventory().then(
+        (r) => {
+          if (r.updated) reloadHosts();
+          setMessage(
+            !r.upstream
+              ? "This branch has no upstream: nothing to pull."
+              : r.updated
+                ? `Pulled ${countOf(r.commits, "commit")} from ${r.upstream}.`
+                : `Up to date with ${r.upstream}.`,
+          );
+        },
+        (e: unknown) => setMessage(`Couldn't pull: ${e instanceof Error ? e.message : String(e)}`),
+      );
     },
     openFinder: (source) => {
       if (!registries.finders.get(source)) return setMessage(`No finder named ${source}`);
@@ -731,6 +805,23 @@ export function App({
             {info.inventory.path}
           </span>
         );
+      case "changes":
+        // Pending changes (ticket 10): only when there are some; it opens them.
+        return (
+          pendingCount > 0 && (
+            <button
+              key={id}
+              type="button"
+              className="statusbar-changes"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => run("changes")}
+              title="Show the Pending changes"
+            >
+              <span className="changes-dot" aria-hidden="true" />
+              {countOf(pendingCount, "Pending change")}
+            </button>
+          )
+        );
       case "hints":
         // They drop out whole, last first, when the bar runs out of room (never cut mid-key).
         return (
@@ -847,6 +938,47 @@ export function App({
               checkRun.current++;
               setCheck(null);
             }}
+          />
+        )}
+        {editing !== null && hostByName.get(editing) && (
+          <EditPanel
+            key={editing}
+            backend={backend}
+            host={hostByName.get(editing) as Host}
+            pendingCount={pendingCount}
+            rows={errorRows}
+            actions={{ run, copy }}
+            onPulled={() => reloadHosts()}
+            onSaved={(update) => {
+              closeEdit();
+              reloadHosts();
+              refreshPending();
+              setMessage(
+                update.changed
+                  ? `Saved ${update.host.name} as a Pending change. Sessions use it after \`roster sync\`.`
+                  : `Nothing changed on ${update.host.name}.`,
+              );
+            }}
+            onClose={closeEdit}
+          />
+        )}
+        {changesView && pending && (
+          <ChangesPanel
+            changes={pending}
+            confirm={changesView.confirm}
+            editKeys={hintFor(keymap, "edit")}
+            leader={options.leader}
+            onDiscard={async () => {
+              try {
+                const r = await backend.discardChanges();
+                setMessage(r.discarded ? "Discarded the Pending changes: roster.yml is as the last commit has it." : "Nothing to discard.");
+              } catch (e) {
+                setMessage(`Couldn't discard: ${e instanceof Error ? e.message : String(e)}`);
+              }
+              reloadHosts();
+              refreshPending();
+            }}
+            onClose={closeChanges}
           />
         )}
         {keysOpen && (
