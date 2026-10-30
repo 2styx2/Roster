@@ -16,6 +16,7 @@ import {
   type HostList,
   type HostUpdate,
   type PendingChanges,
+  type PublishResult,
   type PullResult,
   type ScannedKey,
   type ProviderStatus,
@@ -125,6 +126,7 @@ export function tauriBackend(): Backend {
     updateHost: (host, changes: HostChanges) => call<HostUpdate>("host_update", { host, changes }),
     pendingChanges: () => call<PendingChanges>("changes_diff"),
     discardChanges: () => call<{ discarded: boolean; backup: string | null }>("changes_discard"),
+    publishChanges: (message) => call<PublishResult>("changes_publish", { message }),
     scanKey: (address, port) => call<ScannedKey>("host_scan_key", { address, port }),
     // A typed password goes once to serve's stdin, like vault_unlock's.
     addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
