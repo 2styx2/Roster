@@ -43,7 +43,7 @@ It comes in two parts that share that file:
 - **The CLI, `roster`** (Python). It sets up each box with its own SSH key, runs commands on password-only gear, calls web APIs with the stored login, scans networks into the inventory, and tells Claude which hosts exist without ever showing it a secret.
 - **The roster app** (Tauri, for Windows and Linux). A fast, keyboard-first terminal: find a Host in a few keystrokes and you're in a shell, with the password fetched from the vault and never shown. It talks to the CLI through `roster serve`, so the file and the vault stay roster's.
 
-> **Status:** pre-release. Everything builds up on `dev`; the first Release, `v0.1.0`, comes after iteration 5 ([roadmap](docs/app/roadmap.md)).
+> **Status:** pre-release. Everything builds up on `dev`; the first Release, `v0.1.0`, comes after iteration 4 ([roadmap](docs/app/roadmap.md)).
 
 ## Features
 
