@@ -1,12 +1,13 @@
 //! Sessions: the command `session.prepare` hands back, run in a PTY on the Backend's target.
 //!
-//! [`session_command`] turns a [`Prepared`] into a runnable command line (through `wsl.exe --exec
-//! env K=V …` on WSL). [`SessionManager`] owns the running Sessions: it spawns each in a PTY,
+//! [`session_command`] turns a [`Prepared`] into a runnable command line (through `wsl.exe --exec`
+//! on WSL, with the env on wsl.exe's process and named in `WSLENV`). [`SessionManager`] owns the running Sessions: it spawns each in a PTY,
 //! streams its output to a sink, takes input and resizes, and reports how it ended. Session ids
 //! belong to the manager.
 //!
 //! The env can hold an askpass token (ticket 06), so nothing here prints env values: the Debug
-//! impls show variable names only.
+//! impls show variable names only, and no value ever goes in an argv (a process's command line is
+//! readable by other processes and logged by process auditing for its whole life).
 
 use crate::detect::Target;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -50,46 +51,34 @@ impl std::fmt::Debug for Prepared {
 /// A command line ready to start in a PTY.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionCommand {
+    /// Never holds an env value.
     pub argv: Vec<String>,
-    /// Set on the process itself (only on the Local target; on WSL it's inside `argv`).
+    /// Set on the process itself. On WSL this includes `WSLENV`, which carries the rest into Linux.
     pub env: Vec<(String, String)>,
     /// How the Session logs in, as `session.prepare` said: "key" or "password" (shown on the tab).
     pub auth: String,
-    /// Names of the variables carried in `argv` as `K=V`, so Debug can hide their values.
-    hidden: Vec<String>,
 }
 
 impl SessionCommand {
-    /// A command with no env to hide (tests, stub commands).
+    /// A key-login command (tests, stub commands).
     pub fn new(argv: Vec<String>, env: Vec<(String, String)>) -> Self {
         SessionCommand {
             argv,
             env,
             auth: "key".into(),
-            hidden: Vec::new(),
         }
-    }
-
-    /// The env this command adds, wherever it travels (on the process, or as `K=V` in `argv`).
-    fn env_pairs(&self) -> impl Iterator<Item = (&str, &str)> {
-        let in_argv = self
-            .argv
-            .iter()
-            .filter_map(|a| a.split_once('=').filter(|(k, _)| self.hidden.iter().any(|h| h == k)));
-        let on_process = self.env.iter().map(|(k, v)| (k.as_str(), v.as_str()));
-        in_argv.chain(on_process)
     }
 
     /// `text` (an error about this command) with every env value replaced by `…`, so a message
-    /// that quotes the command line (ConPTY's spawn failure does) can't show an askpass token.
+    /// that quotes the command or its environment can't show an askpass token.
     pub fn redact(&self, text: &str) -> String {
         let mut out = text.to_string();
-        for (k, v) in self.env_pairs() {
+        for (k, v) in &self.env {
             out = out.replace(&format!("{k}={v}"), &format!("{k}=…"));
         }
-        for (_, v) in self.env_pairs() {
+        for (_, v) in &self.env {
             if v.len() >= 6 {
-                out = out.replace(v, "…");
+                out = out.replace(v.as_str(), "…");
             }
         }
         out
@@ -98,50 +87,51 @@ impl SessionCommand {
 
 impl std::fmt::Debug for SessionCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let argv: Vec<String> = self
-            .argv
-            .iter()
-            .map(|a| match a.split_once('=') {
-                Some((k, _)) if self.hidden.iter().any(|h| h == k) => format!("{k}=…"),
-                _ => a.clone(),
-            })
-            .collect();
         let env: Vec<String> = self.env.iter().map(|(k, _)| format!("{k}=…")).collect();
         f.debug_struct("SessionCommand")
-            .field("argv", &argv)
+            .field("argv", &self.argv)
             .field("env", &env)
             .field("auth", &self.auth)
             .finish()
     }
 }
 
+/// `WSLENV` that passes `names` from wsl.exe into Linux as they are (`/u`: Windows to WSL only, no
+/// `/p`, so `/run/...` paths aren't translated), after the entries already in `existing` (minus any
+/// for those names, which ours replace).
+pub fn wslenv<'a>(existing: Option<&str>, names: impl IntoIterator<Item = &'a str>) -> String {
+    let names: Vec<&str> = names.into_iter().collect();
+    let kept = existing.unwrap_or("").split(':').filter(|e| {
+        let name = e.split('/').next().unwrap_or("");
+        !name.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(name))
+    });
+    let ours = names.iter().map(|n| format!("{n}/u"));
+    kept.map(String::from).chain(ours).collect::<Vec<_>>().join(":")
+}
+
 /// The command that opens `prepared` on `target`, with `TERM` and `COLORTERM` forced to [`TERM`]
 /// and [`COLORTERM`]. That is all the app adds (decision Q37: the user's terminal config wins, so
-/// no PS1, no sourced files); any other variable is `session.prepare`'s.
+/// no PS1, no sourced files); any other variable is `session.prepare`'s. On WSL the variables are
+/// set on wsl.exe and listed in `WSLENV` (appended to the app's own), never put in the argv.
 pub fn session_command(target: &Target, prepared: &Prepared) -> SessionCommand {
     let mut env = vec![
         ("TERM".to_string(), TERM.to_string()),
         ("COLORTERM".to_string(), COLORTERM.to_string()),
     ];
     env.extend(prepared.env.iter().map(|(k, v)| (k.clone(), v.clone())));
-    match target {
-        Target::Local => SessionCommand {
-            argv: prepared.argv.clone(),
-            env,
-            auth: prepared.auth.clone(),
-            hidden: Vec::new(),
-        },
+    let argv = match target {
+        Target::Local => prepared.argv.clone(),
         Target::Wsl { .. } => {
-            let mut inner = vec!["env".to_string()];
-            inner.extend(env.iter().map(|(k, v)| format!("{k}={v}")));
-            inner.extend(prepared.argv.iter().cloned());
-            SessionCommand {
-                argv: target.wrap(&inner),
-                env: Vec::new(),
-                auth: prepared.auth.clone(),
-                hidden: env.into_iter().map(|(k, _)| k).collect(),
-            }
+            let existing = std::env::var("WSLENV").ok();
+            let list = wslenv(existing.as_deref(), env.iter().map(|(k, _)| k.as_str()));
+            env.push(("WSLENV".into(), list));
+            target.wrap(&prepared.argv)
         }
+    };
+    SessionCommand {
+        argv,
+        env,
+        auth: prepared.auth.clone(),
     }
 }
 

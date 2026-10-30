@@ -7,7 +7,9 @@ Crates as of 2026-10: `tauri 2.12.5`, `tauri-build 2.7.4`, `portable-pty 0.9.0` 
 ```rust
 let pair = native_pty_system().openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
 let mut cmd = CommandBuilder::new("wsl.exe");
-cmd.args(["-d", distro, "--cd", "~", "--exec", "env", "K=V", /* … */ "ssh", "-o", "BatchMode=yes", host]);
+cmd.args(["-d", distro, "--cd", "~", "--exec", "ssh", "-o", "BatchMode=yes", host]);
+cmd.env("K", "V");                         // on wsl.exe's own process, never in the argv
+cmd.env("WSLENV", "<existing>:K/u");        // so it crosses into Linux (see section 2)
 let child = pair.slave.spawn_command(cmd)?;   drop(pair.slave);
 let reader = pair.master.try_clone_reader()?;  // blocking Read: give it its own std::thread
 let writer = pair.master.take_writer()?;       // keystrokes from xterm onData
@@ -25,7 +27,7 @@ Verified behaviour:
 ## 2. wsl.exe argument and environment rules (verified)
 
 - **`wsl.exe -d D -- a b c` joins the arguments and runs them through the default shell**, so `$x` gets expanded and quoting is lost (`echo:$l` came out as `echo:`). **Always use `--exec`**, which passes argv as given (`[a b][$HOME][;x]` survived). Never build shell strings.
-- **Windows env vars don't reach Linux** unless they're listed in `WSLENV` (`FOO` was empty, then `FOO=bar` with `WSLENV=FOO`). For the env that `session.prepare` returns (SSH_ASKPASS…), use `--exec env K=V … ssh …`, which was verified. `TERM` is always forced to `xterm-256color`.
+- **Windows env vars don't reach Linux** unless they're listed in `WSLENV` (`FOO` was empty, then `FOO=bar` with `WSLENV=FOO`). The env that `session.prepare` returns (SSH_ASKPASS, ROSTER_ASKPASS_TOKEN…), plus `TERM=xterm-256color` and `COLORTERM=truecolor`, is set on wsl.exe's own process and its names are appended to `WSLENV` with `/u` (Windows to WSL only), e.g. `WSLENV=<existing>:TERM/u:COLORTERM/u:ROSTER_ASKPASS_SOCKET/u:ROSTER_ASKPASS_TOKEN/u:SSH_ASKPASS/u:SSH_ASKPASS_REQUIRE/u`. No `/p`: the values are Linux paths and must not be translated. An existing entry for one of those names is replaced. **Never pass env values as `--exec env K=V`** (the first version did): wsl.exe's command line lives as long as the Session, any process can read it, and process-creation auditing logs it, so the askpass token would leak. `crates/desk-core/src/session.rs` (`session_command`, `wslenv`).
 - **The cwd defaults to the Windows cwd translated** (`/mnt/c`). Pass `--cd ~`.
 - **PATH under `--exec`, and even `bash -lc`, lacks `~/.local/bin`**, and that's where `roster` lives (`~/.local/bin/roster`). Fedora's `.bashrc` returns early when non-interactive. Only `bash -ic` found it. So: at detection time, resolve the absolute path once (`--exec bash -lc 'PATH=$HOME/.local/bin:$PATH; command -v roster'`) and spawn `--exec /abs/roster serve`. **roster side:** `session.prepare` must put an absolute path in `SSH_ASKPASS`.
 - **`ROSTER_CONFIG` from `~/.profile` never reaches `--exec` children either** (Fedora's `bash -l` reads `~/.bash_profile`, not `~/.profile`). So detection also finds the `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`, `~/.config/roster/roster.yml`, `~/infra/roster.yml`) and starts `<roster> -c <path> serve` (ticket 03, `crates/desk-core/src/detect.rs`).
