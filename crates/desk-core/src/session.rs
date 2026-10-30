@@ -19,6 +19,9 @@ use std::time::Duration;
 
 /// Forced on every Session: xterm.js is a 256-colour xterm.
 pub const TERM: &str = "xterm-256color";
+/// Forced on every Session: xterm.js draws 24-bit colour, and vim, bat, delta and friends only
+/// use it when this says so.
+pub const COLORTERM: &str = "truecolor";
 
 /// `session.prepare`'s result (roster README, "Sessions: `session.prepare`").
 #[derive(Clone, Deserialize)]
@@ -112,9 +115,14 @@ impl std::fmt::Debug for SessionCommand {
     }
 }
 
-/// The command that opens `prepared` on `target`, with `TERM` forced to [`TERM`].
+/// The command that opens `prepared` on `target`, with `TERM` and `COLORTERM` forced to [`TERM`]
+/// and [`COLORTERM`]. That is all the app adds (decision Q37: the user's terminal config wins, so
+/// no PS1, no sourced files); any other variable is `session.prepare`'s.
 pub fn session_command(target: &Target, prepared: &Prepared) -> SessionCommand {
-    let mut env = vec![("TERM".to_string(), TERM.to_string())];
+    let mut env = vec![
+        ("TERM".to_string(), TERM.to_string()),
+        ("COLORTERM".to_string(), COLORTERM.to_string()),
+    ];
     env.extend(prepared.env.iter().map(|(k, v)| (k.clone(), v.clone())));
     match target {
         Target::Local => SessionCommand {

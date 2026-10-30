@@ -41,14 +41,16 @@ describe("password Sessions", () => {
     const { user } = await ready();
     await open(user, passwordHost.name);
     expect(await within(output()).findByText(/Connected to/)).toBeInTheDocument();
-    expect(within(tab(passwordHost.name)).getByRole("img", { name: "password login" })).toHaveClass("st", "pw");
+    expect(tab(passwordHost.name)).toHaveAccessibleDescription("password login");
+    expect(tab(passwordHost.name).querySelector(".st")).toHaveClass("pw");
   });
 
   it("show a filled (key) dot for a key-enrolled Host", async () => {
     const { user } = await ready();
     await open(user, keyHost.name);
     await within(output()).findByText(/Connected to/);
-    expect(within(tab(keyHost.name)).getByRole("img", { name: "key login" })).not.toHaveClass("pw");
+    expect(tab(keyHost.name)).toHaveAccessibleDescription("key login");
+    expect(tab(keyHost.name).querySelector(".st")).not.toHaveClass("pw");
   });
 
   it("bring up the lock screen when serve's vault is locked (14), and open once unlocked", async () => {

@@ -136,4 +136,79 @@ describe("Tabs", () => {
     await settle();
     expect(screen(next)).toContain("(fake, 132x43)");
   });
+
+  it("reconnects an ended tab in place, under the old output, through session.prepare again", async () => {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    const opened: string[] = [];
+    const open = backend.openSession.bind(backend);
+    backend.openSession = (host, size, events) => (opened.push(host), open(host, size, events));
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0]!);
+    const seen: Uint8Array[] = [];
+    tabs.attach(id, (d) => seen.push(d));
+    await settle();
+    tabs.write(id, "exit\r");
+    await settle();
+    expect(tabs.reconnect(id)).toBe(true);
+    expect(tabs.snapshot().tabs).toEqual([expect.objectContaining({ id, status: { state: "connecting" } })]);
+    await settle();
+    expect(tabs.snapshot().tabs[0]!.status).toEqual({ state: "open" });
+    expect(opened).toEqual([reviewed[0], reviewed[0]]);
+    expect(text(seen)).toMatch(/exit\r\n.*reconnecting.*Connected to/s);
+    tabs.write(id, "ls");
+    expect(text(seen)).toMatch(/ls$/);
+  });
+
+  it("retries a tab roster refused, once the problem is fixed", async () => {
+    const scenario: FakeScenario = { ...unlocked, hosts, sessionRefusal: { code: 21, message: "run roster sync" } };
+    const tabs = new Tabs(fakeBackend(scenario));
+    const id = tabs.open(reviewed[0]!);
+    await settle();
+    expect(tabs.snapshot().tabs[0]!.status.state).toBe("failed");
+    delete scenario.sessionRefusal;
+    expect(tabs.reconnect(id)).toBe(true);
+    await settle();
+    expect(tabs.snapshot().tabs[0]!.status).toEqual({ state: "open" });
+  });
+
+  it("leaves a tab that's still connecting or open alone", async () => {
+    const { backend, closed } = recordingCloses({ hosts });
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0]!);
+    expect(tabs.reconnect(id)).toBe(false);
+    await settle();
+    expect(tabs.reconnect(id)).toBe(false);
+    expect(tabs.snapshot().tabs[0]!.status).toEqual({ state: "open" });
+    expect(closed).toEqual([]);
+  });
+
+  it("can reconnect an ended tab to another Host (the Picker's open-here key)", async () => {
+    const { tabs, attach, screen } = setup();
+    const id = tabs.open(reviewed[0]!);
+    attach(id);
+    await settle();
+    tabs.write(id, "exit\r");
+    await settle();
+    tabs.reconnect(id, reviewed[1]!);
+    await settle();
+    expect(tabs.snapshot().tabs).toEqual([expect.objectContaining({ id, host: reviewed[1], status: { state: "open" } })]);
+    expect(screen(id)).toContain(`Connected to ${reviewed[1]}`);
+  });
+
+  it("holds several Sessions to the same Host, told apart by their labels", async () => {
+    const { tabs } = setup();
+    const a = tabs.open(reviewed[0]!);
+    const b = tabs.open(reviewed[0]!);
+    tabs.open(reviewed[1]!);
+    await settle();
+    expect(tabs.snapshot().tabs.map((t) => [t.label, t.status.state])).toEqual([
+      [reviewed[0], "open"],
+      [`${reviewed[0]} (2)`, "open"],
+      [reviewed[1], "open"],
+    ]);
+    tabs.close(a);
+    const c = tabs.open(reviewed[0]!);
+    expect(tabs.snapshot().tabs.find((t) => t.id === c)!.label).toBe(reviewed[0]);
+    expect(tabs.snapshot().tabs.find((t) => t.id === b)!.label).toBe(`${reviewed[0]} (2)`);
+  });
 });

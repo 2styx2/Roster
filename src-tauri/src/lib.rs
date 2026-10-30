@@ -6,6 +6,7 @@ use desk_core::backend::{Backend, BackendInfo};
 use desk_core::detect::{BackendError, DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
 use desk_core::rpc::CallError;
 use desk_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
+use desk_core::state::StateFile;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -160,6 +161,31 @@ fn session_close(sessions: tauri::State<'_, Arc<SessionManager>>, id: SessionId)
     sessions.close(id).map_err(session_error)
 }
 
+/// The State file (GLOSSARY: State) in the OS local app-data dir: per Box, never roamed.
+fn state_file(app: &tauri::AppHandle) -> Result<StateFile, String> {
+    use tauri::Manager;
+    let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    Ok(StateFile::in_dir(&dir))
+}
+
+/// What the app remembered last time (`{}` the first time).
+#[tauri::command]
+fn state_load(app: tauri::AppHandle) -> Result<Value, String> {
+    Ok(state_file(&app)?.load())
+}
+
+/// Replaces the remembered State (a JSON object; the frontend owns its shape).
+#[tauri::command]
+fn state_save(app: tauri::AppHandle, state: Value) -> Result<(), String> {
+    state_file(&app)?.save(&state).map_err(|e| e.to_string())
+}
+
+/// Facts about this machine the terminal needs: the Windows build, for xterm's `windowsPty`.
+#[tauri::command]
+fn platform_info() -> Value {
+    json!({ "windowsBuild": desk_core::platform::windows_build() })
+}
+
 /// WebView2's own shortcuts (Ctrl+F find, Ctrl+R reload, Ctrl+P print, F12…) would take keys
 /// meant for the shell; tauri doesn't expose wry's switch, so set it on the WebView2 settings.
 #[cfg(windows)]
@@ -181,6 +207,7 @@ fn disable_browser_accelerators(window: &tauri::WebviewWindow) {
 pub fn run() {
     let sessions = Arc::new(SessionManager::new());
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(Arc::new(BackendState::default()))
         .manage(Arc::clone(&sessions))
         .setup(|_app| {
@@ -198,6 +225,9 @@ pub fn run() {
             session_write,
             session_resize,
             session_close,
+            state_load,
+            state_save,
+            platform_info,
             vault_status,
             vault_unlock,
             vault_lock

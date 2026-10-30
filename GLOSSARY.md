@@ -59,3 +59,7 @@ _Avoid_: extension, addon, mod
 **Package**:
 A Plugin fetched from a git repo, named in the Config and pinned to a commit in the lock file.
 _Avoid_: bundle, module
+
+**Provider**:
+The password manager a Login's reference points into (Bitwarden, 1Password, `pass`, KeePassXC, …). roster asks it for one secret at a time and never keeps a vault of its own.
+_Avoid_: vault (the provider's own store), backend (that's the roster install the app drives)

@@ -4,5 +4,7 @@
 pub mod backend;
 pub mod detect;
 pub mod error;
+pub mod platform;
 pub mod rpc;
 pub mod session;
+pub mod state;

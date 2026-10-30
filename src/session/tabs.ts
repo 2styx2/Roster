@@ -22,6 +22,8 @@ export type TabStatus =
 export interface Tab {
   id: number;
   host: string;
+  /** The Host's name, with " (2)", " (3)"… on further Sessions to the same Host. */
+  label: string;
   status: TabStatus;
   /** How its Session logs in, once one has opened (the tab's state dot: hollow for password). */
   auth: SessionAuth | null;
@@ -31,6 +33,8 @@ export interface TabsSnapshot {
   tabs: readonly Tab[];
   active: number | null;
 }
+
+const encoder = new TextEncoder();
 
 /** Output kept per tab for a terminal that attaches later (or again). */
 const REPLAY_LIMIT = 1024 * 1024;
@@ -49,7 +53,7 @@ interface Entry {
   session: SessionHandle | null;
   /** Closed by the user before the Session finished opening. */
   closing: boolean;
-  /** Counts the Session starts in this tab, so a late answer from an earlier one is ignored. */
+  /** Counts the Session starts in this tab, so a late event from an earlier one is ignored. */
   attempt: number;
   size: TermSize;
   /** The size the Session was last told about. */
@@ -113,12 +117,24 @@ export class Tabs {
     entry.sink?.(data);
   }
 
-  /** Opens a Session to `host` in a new tab, which becomes the active one. Returns the tab id. */
+  /** "host", or "host (n)" with the smallest n no other tab to `host` uses. */
+  private label(host: string, except: number | null): string {
+    const taken = new Set(
+      this.entries.filter((e) => e.tab.host === host && e.tab.id !== except).map((e) => e.tab.label),
+    );
+    let n = 1;
+    const name = (i: number) => (i === 1 ? host : `${host} (${i})`);
+    while (taken.has(name(n))) n++;
+    return name(n);
+  }
+
+  /** Opens a Session to `host` in a new tab, which becomes the active one. Returns the tab id.
+   * Any number of tabs may hold Sessions to the same Host. */
   open(host: string): number {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, status: { state: "connecting" }, auth: null },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -146,12 +162,28 @@ export class Tabs {
   resumeAfterUnlock() {
     for (const entry of this.entries) {
       const s = entry.tab.status;
-      if (s.state === "failed" && s.code === SessionRefusal.vaultLocked) {
-        entry.tab = { ...entry.tab, status: { state: "connecting" } };
-        this.changed();
-        this.start(entry);
-      }
+      if (s.state === "failed" && s.code === SessionRefusal.vaultLocked) this.reconnect(entry.tab.id);
     }
+  }
+
+  /**
+   * Opens a new Session in a tab whose Session has ended or was refused, to the same Host or to
+   * `host`. It asks roster again (`session.prepare`), so a fixed problem or a rebooted Host just
+   * works. The old output stays above. Returns false (and does nothing) for a tab that's still
+   * connecting or open.
+   */
+  reconnect(id: number, host?: string): boolean {
+    const entry = this.find(id);
+    const state = entry?.tab.status.state;
+    if (!entry || (state !== "ended" && state !== "failed")) return false;
+    const to = host ?? entry.tab.host;
+    const label = to === entry.tab.host ? entry.tab.label : this.label(to, id);
+    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" } };
+    entry.pending = [];
+    this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
+    this.changed();
+    this.start(entry);
+    return true;
   }
 
   /** Asks the Backend for a Session for the tab (it's in the "connecting" state). `openSession`
