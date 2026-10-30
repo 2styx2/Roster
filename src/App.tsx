@@ -833,7 +833,7 @@ export function App({
     </>
   );
   return frame(
-    <LockGate vault={vault} hint={lockHint}>
+    <LockGate vault={vault} hint={lockHint} errorRows={errorRows} copy={copy}>
       {shell}
     </LockGate>,
   );

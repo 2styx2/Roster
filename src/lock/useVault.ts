@@ -2,13 +2,24 @@
 // again on demand or after `idleMs` without input. Unlocking the vault is what unlocks the app:
 // there is no app password. A vault with no master password (`unsupported`) means no lock screen.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackendCallError, VaultError, type Backend, type VaultStatus } from "../backend/types";
+import {
+  BackendCallError,
+  VaultError,
+  type Backend,
+  type SignInAnswer,
+  type SignInInfo,
+  type SignInStart,
+  type SignInStep,
+  type VaultStatus,
+} from "../backend/types";
 import { idleTimer, realClock, type Clock } from "./idle";
 
 export type VaultView =
   /** Asking `vault.status` (the lock screen is up meanwhile). */
   | { state: "checking" }
   | { state: "locked"; provider: string; error: string | null }
+  /** The vault CLI isn't logged in on this box, and roster can sign it in (`vault.login`). */
+  | { state: "signin"; provider: string; info: SignInInfo }
   /** The vault CLI can't unlock on this box yet; `message` says what to run or install. */
   | { state: "unavailable"; provider: string; message: string }
   /** `vault.status` itself failed. */
@@ -26,6 +37,10 @@ export interface Vault {
   unlock(password: string): Promise<void>;
   /** Lock now. False if there's nothing to lock. */
   lock(): boolean;
+  /** `vault.login` (ticket 31). A `done` step unlocks the app. */
+  signInStart(start: SignInStart): Promise<SignInStep>;
+  signInAnswer(login: string, answer: SignInAnswer): Promise<SignInStep>;
+  signInCancel(): Promise<void>;
 }
 
 const INPUT_EVENTS = ["keydown", "pointerdown", "pointermove", "wheel"] as const;
@@ -34,6 +49,7 @@ function viewOf(s: VaultStatus): VaultView {
   if (s.provider === null || s.status === "unsupported") return { state: "none" };
   if (s.status === "unlocked") return { state: "unlocked", provider: s.provider };
   if (s.status === "locked") return { state: "locked", provider: s.provider, error: null };
+  if (s.status === "not-logged-in" && s.sign_in) return { state: "signin", provider: s.provider, info: s.sign_in };
   return { state: "unavailable", provider: s.provider, message: s.message ?? `${s.provider}: ${s.status}` };
 }
 
@@ -128,6 +144,20 @@ export function useVault(
     return true;
   }, [backend]);
 
+  const signedIn = useCallback((step: SignInStep) => {
+    if (step.step === "done") setView({ state: "unlocked", provider: step.provider });
+    return step;
+  }, []);
+  const signInStart = useCallback(
+    async (start: SignInStart) => signedIn(await backend.signIn(start)),
+    [backend, signedIn],
+  );
+  const signInAnswer = useCallback(
+    async (login: string, answer: SignInAnswer) => signedIn(await backend.signInAnswer(login, answer)),
+    [backend, signedIn],
+  );
+  const signInCancel = useCallback(() => backend.signInCancel(), [backend]);
+
   // The idle lock: any input anywhere in the window counts, captured before anything can stop it.
   const unlocked = view.state === "unlocked";
   useEffect(() => {
@@ -143,5 +173,5 @@ export function useVault(
   }, [unlocked, idleMs, clock, lock]);
 
   const locked = view.state !== "unlocked" && view.state !== "none";
-  return { view, locked, check, unlock, lock };
+  return { view, locked, check, unlock, lock, signInStart, signInAnswer, signInCancel };
 }

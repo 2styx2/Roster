@@ -153,6 +153,22 @@ async fn vault_unlock(state: tauri::State<'_, Arc<BackendState>>, password: Stri
     call(&state, "vault.unlock", json!({ "password": password })).await
 }
 
+/// One step of signing the vault CLI in (`vault.login`, ticket 31): start, answer or cancel.
+/// The params can hold a master password, a two-step code or an API secret on their way to
+/// serve's stdin. Like `vault_unlock`, they're moved into the request and dropped with it:
+/// never logged, stored or put in an error.
+#[tauri::command]
+async fn vault_login(
+    state: tauri::State<'_, Arc<BackendState>>,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    blocking(move || backend.call_timeout("vault.login", Value::Object(params), VAULT_LOGIN_TIMEOUT)).await
+}
+
+/// roster waits up to 40 s for bw per step, and after a wrong code runs bw again (another 40 s).
+const VAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(100);
+
 #[tauri::command]
 async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
     call(&state, "vault.lock", json!({})).await
@@ -339,6 +355,7 @@ pub fn run() {
             platform_info,
             vault_status,
             vault_unlock,
+            vault_login,
             vault_lock,
             config_load
         ])

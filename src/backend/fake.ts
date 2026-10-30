@@ -12,6 +12,11 @@ import {
   type HostCheck,
   type HostList,
   type ProviderStatus,
+  type SignInAnswer,
+  SignInError,
+  type SignInStart,
+  type SignInStep,
+  type TwoFactorMethod,
   type VaultStatus,
   type VaultStatusWord,
   VaultError,
@@ -66,6 +71,9 @@ export interface FakeScenario {
    * after `failAfterMs` (desk-core's timeout) while serve carries on and unlocks anyway. Like
    * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
   slowUnlock?: { failAfterMs: number; completesAfterMs: number };
+  /** The account `vault.login` signs in to, when the vault is `not-logged-in` (ticket 31). Without
+   * it, `vault.status` has no `sign_in` (a roster older than api 3). */
+  signIn?: FakeAccount;
   /** `connect()`'s answer, where it differs from the default (a long Box name, path, distro). */
   info?: { backend?: string; box?: string; path?: string; command?: string[] };
   /** The not-logged-in or missing-cli message, where it differs from roster's usual one. */
@@ -80,11 +88,34 @@ export interface FakeScenario {
   };
 }
 
+/** Two-step methods an account can have; bw's CLI can't do webauthn (FIDO2) or duo. */
+export type FakeMethodKind = "authenticator" | "email" | "yubikey" | "webauthn" | "duo";
+
+export interface FakeAccount {
+  methods?: FakeMethodKind[];
+  /** Bitwarden asks for the new-device email code (accounts without two-step login). */
+  newDevice?: boolean;
+  /** How SSO ends in the browser, after `ssoMs` (default ok, 300 ms). */
+  sso?: "ok" | "fail";
+  ssoMs?: number;
+  /** Every start is refused with this (52 rate limited, 53 unreachable…). */
+  refuse?: Refusal;
+  /** What `bw config server` says (null: bitwarden.com). */
+  server?: string | null;
+}
+
+/** The fake account's email, two-step / new-device code and API key (type them in a plain browser). */
+export const FAKE_EMAIL = "you@example.com";
+export const FAKE_CODE = "123456";
+export const FAKE_API_KEY = { id: "user.fake-client", secret: "fake-client-secret" };
+
 export interface Refusal {
   code: number;
   message: string;
   data?: CallErrorData;
 }
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 const refuse = (r: Refusal) => new BackendCallError(r.message, r.code, r.data ?? null);
 
@@ -161,6 +192,12 @@ const problem = (kind: BackendProblem["kind"], message: string, hint: string, de
   detail,
 });
 
+const signingIn = (signIn: FakeAccount): FakeScenario => ({
+  hosts: makeHosts(12),
+  vault: { status: "not-logged-in" },
+  signIn,
+});
+
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
@@ -205,6 +242,19 @@ export const fixtures: Record<string, FakeScenario> = {
     },
   },
   "vault-relocks": { hosts: makeHosts(12), relockAfterMs: 5000 },
+  /** Sign-in (ticket 31): a new Box, so Bitwarden asks for the new-device code. */
+  "sign-in": signingIn({ newDevice: true }),
+  "sign-in-2fa": signingIn({ methods: ["authenticator", "email", "yubikey", "webauthn"] }),
+  "sign-in-totp": signingIn({ methods: ["authenticator"] }),
+  "sign-in-fido2": signingIn({ methods: ["webauthn"] }),
+  "sign-in-sso": signingIn({ sso: "ok", ssoMs: 2500 }),
+  "sign-in-eu": signingIn({ server: "https://vault.bitwarden.eu" }),
+  "sign-in-rate-limited": signingIn({
+    refuse: {
+      code: SignInError.rateLimited,
+      message: "bitwarden.com refused: too many sign-in attempts - wait a few minutes, then try again",
+    },
+  }),
   "worst-case": worstCase(),
   /** No Hosts at all: every empty state. */
   "worst-case-empty": { hosts: { hosts: [], groups: {} }, info: { box: LONG_BOX, path: LONG_PATH } },
@@ -306,7 +356,10 @@ export function fakeBackend(scenario: FakeScenario): Backend {
   const vaultStatus = (): VaultStatus => {
     const provider = vault === "unsupported" ? null : "bw";
     const message = vaultMessage();
-    const main = { provider, status: vault, ...(message ? { message } : {}) };
+    const signIn = vault === "not-logged-in" && scenario.signIn
+      ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: scenario.signIn.server ?? null } }
+      : {};
+    const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn };
     return { ...main, providers: provider ? [{ ...main, provider }] : [] };
   };
   let sessions = 0;
@@ -334,6 +387,128 @@ export function fakeBackend(scenario: FakeScenario): Backend {
     }
     return { provider: "bw", status: vault };
   };
+  // ---- vault.login, as roster answers it (README "Signing in: vault.login")
+  let login: { id: string; step: SignInStep } | null = null;
+  let logins = 0;
+  const stepOf = (id: string, step: DistributiveOmit<SignInStep, "login">): SignInStep => {
+    const s = { ...step, login: id } as SignInStep;
+    if (s.step === "done") {
+      vault = "unlocked";
+      login = null;
+    } else {
+      login = { id, step: s };
+    }
+    return s;
+  };
+  /** A failure; with `again`, the sign-in carries on at that step (data.step), else it's over. */
+  const signInFailure = (code: number, message: string, again?: SignInStep) => {
+    if (!again) login = null;
+    return new BackendCallError(message, code, again ? { step: again, login: again.login } : null);
+  };
+  const ORDER: FakeMethodKind[] = ["authenticator", "yubikey", "email"];
+  const NAMES: Record<string, [number, string]> = {
+    authenticator: [0, "Authenticator App"],
+    yubikey: [3, "Yubico OTP Security Key"],
+    email: [1, "Email"],
+  };
+  const afterPassword = (id: string, account: FakeAccount): SignInStep => {
+    const usable = ORDER.filter((m) => account.methods?.includes(m));
+    if (account.methods?.length && usable.length === 0) {
+      throw signInFailure(
+        SignInError.methodUnsupported,
+        "the Bitwarden CLI can't do this account's two-step login: FIDO2 security keys and Duo aren't supported by the CLI - sign in with an API key instead, or add an authenticator app, email or YubiKey OTP as a second method in the web vault",
+      );
+    }
+    if (usable.length > 1) {
+      const methods: TwoFactorMethod[] = usable.map((m, index) => {
+        const [mid, name] = NAMES[m] ?? [null, m];
+        return { index, id: mid, kind: m as TwoFactorMethod["kind"], name };
+      });
+      return stepOf(id, { step: "two_factor_method", methods });
+    }
+    if (usable.length === 1) return stepOf(id, { step: "two_factor_code", method: null, sent: usable[0] === "email" });
+    if (account.newDevice) return stepOf(id, { step: "new_device_code", email: FAKE_EMAIL });
+    return stepOf(id, { step: "done", provider: "bw", status: "unlocked" });
+  };
+  const signIn = async (start: SignInStart): Promise<SignInStep> => {
+    await wait();
+    login = null;
+    if (vault !== "not-logged-in") {
+      throw signInFailure(
+        SignInError.alreadyLoggedIn,
+        "the Bitwarden CLI is already logged in on this box - unlock it instead (to sign in as someone else, run `bw logout` first)",
+      );
+    }
+    const account = scenario.signIn ?? {};
+    if (!["cloud", "eu"].includes(start.server) && !/^https?:\/\/[^\s/]+\S*$/.test(start.server)) {
+      throw signInFailure(
+        SignInError.badServer,
+        `'${start.server}' isn't a server address - use cloud, eu, or your server's https:// URL, e.g. https://vault.example.com`,
+      );
+    }
+    if (account.refuse) throw signInFailure(account.refuse.code, account.refuse.message);
+    const id = `fake-login-${++logins}`;
+    if (start.method === "password") {
+      if (start.email !== FAKE_EMAIL || start.password !== FAKE_PASSWORD) {
+        throw signInFailure(
+          VaultError.wrongPassword,
+          "Bitwarden didn't accept that email and master password (on bitwarden.com)",
+        );
+      }
+      return afterPassword(id, account);
+    }
+    if (start.method === "apikey") {
+      if (start.client_id !== FAKE_API_KEY.id || start.client_secret !== FAKE_API_KEY.secret) {
+        throw signInFailure(SignInError.apiKeyRejected, "Bitwarden didn't accept that API key (client_id or client_secret)");
+      }
+      return stepOf(id, { step: "master_password", email: null });
+    }
+    return stepOf(id, {
+      step: "sso",
+      url: "https://vault.bitwarden.com/#/sso?clientId=cli&redirectUri=http%3A%2F%2Flocalhost%3A8065&state=fake",
+      expires_in: 300,
+    });
+  };
+  const signInAnswer = async (id: string, answer: SignInAnswer): Promise<SignInStep> => {
+    await wait();
+    const cur = login;
+    if (!cur || cur.id !== id) {
+      throw signInFailure(SignInError.noSignIn, "no sign-in in progress (it finished, was cancelled or timed out) - start again");
+    }
+    const step = cur.step;
+    switch (step.step) {
+      case "two_factor_method": {
+        const m = "method" in answer ? step.methods[answer.method] : undefined;
+        if (!m) throw new BackendCallError("vault.login: params.method must be one of the listed methods' index", -32602);
+        return stepOf(id, { step: "two_factor_code", method: m, sent: m.kind === "email" });
+      }
+      case "two_factor_code":
+      case "new_device_code": {
+        if ("code" in answer && answer.code === FAKE_CODE) return stepOf(id, { step: "done", provider: "bw", status: "unlocked" });
+        const emailed = step.step === "new_device_code" || step.sent;
+        throw signInFailure(
+          SignInError.codeRejected,
+          `Bitwarden didn't accept that code (wrong or expired)${emailed ? " - a new code is on its way to your email" : ""}`,
+          step,
+        );
+      }
+      case "sso": {
+        await sleep(scenario.signIn?.ssoMs ?? 300);
+        if (login?.id !== id) throw signInFailure(SignInError.noSignIn, "no sign-in in progress - start again");
+        if (scenario.signIn?.sso === "fail") throw signInFailure(SignInError.ssoFailed, "the SSO sign-in failed in the browser - try again");
+        return stepOf(id, { step: "master_password", email: null });
+      }
+      case "master_password": {
+        if ("password" in answer && answer.password === FAKE_PASSWORD) {
+          return stepOf(id, { step: "done", provider: "bw", status: "unlocked" });
+        }
+        throw signInFailure(VaultError.wrongPassword, WRONG_PASSWORD, step);
+      }
+      default:
+        throw signInFailure(SignInError.noSignIn, "no sign-in in progress - start again");
+    }
+  };
+
   return {
     async connect(): Promise<BackendInfo> {
       await wait();
@@ -390,6 +565,12 @@ export function fakeBackend(scenario: FakeScenario): Backend {
         if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
         vault = "locked";
         return { locked: ["bw"] };
+      }),
+    signIn: (start) => inOrder(() => signIn(start)),
+    signInAnswer: (id, answer) => inOrder(() => signInAnswer(id, answer)),
+    signInCancel: () =>
+      inOrder(async () => {
+        login = null;
       }),
     async openSession(host, size, events) {
       await wait();

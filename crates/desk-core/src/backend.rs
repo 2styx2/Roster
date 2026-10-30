@@ -72,6 +72,12 @@ impl Backend {
         self.client.call(method, params)
     }
 
+    /// A call that may take longer than the default (`vault.login`: a sign-in step runs bw's
+    /// login, and after a wrong code roster runs it again before answering).
+    pub fn call_timeout(&self, method: &str, params: Value, timeout: std::time::Duration) -> Result<Value, CallError> {
+        self.client.call_timeout(method, params, timeout)
+    }
+
     /// The command that opens a Session to `host` on this Backend (`session.prepare`). Refusals
     /// keep roster's code and wording: 2 unknown Host, 20 not reviewed, 21 this box isn't set up.
     pub fn session_command(&self, host: &str) -> Result<SessionCommand, CallError> {

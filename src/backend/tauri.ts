@@ -12,6 +12,7 @@ import {
   type HostCheck,
   type HostList,
   type ProviderStatus,
+  type SignInStep,
   type VaultStatus,
   type SessionAuth,
   type SessionEvents,
@@ -103,6 +104,13 @@ export function tauriBackend(): Backend {
     vaultStatus: () => call<VaultStatus>("vault_status"),
     unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
     lockVault: () => call<{ locked: string[] }>("vault_lock"),
+    // Secrets in these params go once to serve's stdin, like vault_unlock's password.
+    signIn: (start) => call<SignInStep>("vault_login", { params: { action: "start", ...start } }),
+    signInAnswer: (login, answer) =>
+      call<SignInStep>("vault_login", { params: { action: "answer", login, ...answer } }),
+    signInCancel: async () => {
+      await call("vault_login", { params: { action: "cancel" } }).catch(() => {});
+    },
     openSession,
     checkHost: (host) => call<HostCheck>("host_check", { host }),
   };

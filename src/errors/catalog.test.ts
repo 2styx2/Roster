@@ -23,6 +23,19 @@ describe("the error catalog", () => {
     }
   });
 
+  it("gives every vault.login code its sign-in row (docs/errors.md rows 22-33)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (let n = 22; n <= 33; n++) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [10, 13, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.id).toMatch(/^sign-in-/);
+      expect(row.fix(p(code))).not.toBe("");
+    }
+    expect(rowFor(rows, 51).fix(p(51))).toMatch(/API key/);
+    expect(rowFor(rows, 53).where).toContain("the network");
+  });
+
   it("never offers to accept a host key", () => {
     for (const row of builtinErrorRows) {
       for (const a of row.actions) {
