@@ -40,6 +40,8 @@ export interface EditPanelProps {
   onClose(): void;
   /** Marks the Host reviewed (`:review`, ticket 11): offered while it's unreviewed. */
   onReview?(host: string): void;
+  /** Marks the Host unreviewed again (`:host unreview`, API 9): offered while it's reviewed. */
+  onUnreview?(host: string): void;
 }
 
 function pulledLine(p: PullResult | null): string | null {
@@ -49,7 +51,7 @@ function pulledLine(p: PullResult | null): string | null {
   return `Up to date with ${p.upstream}.`;
 }
 
-export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved, onPulled, onClose, onReview }: EditPanelProps) {
+export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved, onPulled, onClose, onReview, onUnreview }: EditPanelProps) {
   const [current, setCurrent] = useState(host);
   const [draft, setDraft] = useState<Draft>(() => draftOf(host));
   const [phase, setPhase] = useState<Phase>(() => (pendingCount > 0 ? { at: "ready" } : { at: "pulling" }));
@@ -222,6 +224,11 @@ export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved,
             {!current.reviewed && onReview && (
               <button type="button" onClick={() => onReview(current.name)} disabled={busy}>
                 Mark reviewed
+              </button>
+            )}
+            {current.reviewed && onUnreview && (
+              <button type="button" onClick={() => onUnreview(current.name)} disabled={busy}>
+                Mark unreviewed
               </button>
             )}
             <span className="edit-keys muted key-hint">

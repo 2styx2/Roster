@@ -309,6 +309,29 @@ def edited(path, name, changes):
     raise refuse(f"the result loads differently than asked ({got or 'other entries changed'})")
 
 
+def reviewed(path, name, flag):
+    """edited() for the review flag. Un-reviewing a Host whose own `reviewed: true` sits over an unreviewed group
+    (or defaults) drops that line rather than writing `reviewed: false` beside the group's, so a review made by
+    mistake and taken back leaves the text as it was."""
+    if not flag:
+        text = read_text(path)
+        try:
+            _, node = find_host(text, name)
+        except yaml.YAMLError as e:
+            raise refuse("roster.yml doesn't parse", str(e)) from None
+        t = Text(text)
+        if isinstance(node, yaml.MappingNode) and remove_key(t, node, "reviewed"):
+            new_text = t.result()
+            try:
+                before, new = load_text(path, text), load_text(path, new_text)
+            except Problem:
+                new = None
+            h = new and new["hosts"].get(name)
+            if h is not None and current(h)["reviewed"] is False and same_except(before, new, name):
+                return text, new_text, h
+    return edited(path, name, {"reviewed": flag})
+
+
 # ---------------------------------------------------------------- adding a Host (ticket 11)
 
 def check_new(field, v):

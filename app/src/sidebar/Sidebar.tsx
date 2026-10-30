@@ -25,7 +25,7 @@ export type { Dot } from "../ui/StateDot";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  icon: "close" | "edit" | "add" | "addGroup" | "review";
+  icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview";
   command: CommandLine;
   /** Always shown, not only on hover or on the raised row (the Inventory's "Add a Host"). */
   pinned?: boolean;
@@ -213,6 +213,8 @@ const ICONS: Record<RowAction["icon"], string> = {
   // A group (two stacked rows, as the group rows' icon) with a + beside it.
   addGroup: "M2 3.5h7v3.5H2zM2 9h7v3.5H2zM13 5.5v5M10.5 8h5",
   review: "M3.5 8.5l3 3 6-7",
+  // Take a review back: an arrow turning back over the line (undo).
+  unreview: "M5.5 3.5L2.5 6.5l3 3M2.5 6.5h7a3.5 3.5 0 010 7H7",
 };
 
 const Icon = ({ name }: { name: RowAction["icon"] }) => (

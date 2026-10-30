@@ -21,6 +21,7 @@ import {
 } from "react";
 import {
   ADD_API_VERSION,
+  UNREVIEW_API_VERSION,
   BackendStartError,
   CHECK_API_VERSION,
   EDIT_API_VERSION,
@@ -333,14 +334,19 @@ export function App({
   const folded = useMemo(() => new Set(appState.folded), [appState.folded]);
   // The Live Inventory (ticket 28, API 8): what's added and not Published yet shows dimmed.
   const canLiveNow = conn.state === "ready" && conn.info.inventory.api_version >= LIVE_API_VERSION;
+  const canUnreview = conn.state === "ready" && conn.info.inventory.api_version >= UNREVIEW_API_VERSION;
   const live = useMemo(() => {
     if (!canLiveNow) return undefined;
     const changes = pending?.state === "done" ? pending.changes : null;
     return {
       pendingHosts: new Set((changes?.hosts ?? []).filter((c) => c.change === "added").map((c) => c.host)),
+      // A review that's still only a Pending change can be taken back from the same ✓ (issue #78).
+      pendingReviews: canUnreview
+        ? new Set((changes?.hosts ?? []).filter((c) => c.change === "changed" && c.fields.includes("reviewed")).map((c) => c.host))
+        : new Set<string>(),
       pendingGroups: new Set((changes?.groups ?? []).filter((c) => c.change === "added").map((c) => c.group)),
     };
-  }, [canLiveNow, pending]);
+  }, [canLiveNow, canUnreview, pending]);
   // The mode's layout may pick and order the Sidebar's sections (decision Q39).
   const shownSectionDefs = useMemo(
     () => (layout.sections ? [...pick(sectionDefs, layout.sections)].map((d, i) => ({ ...d, order: i })) : sectionDefs),
@@ -866,20 +872,29 @@ export function App({
       setEditing(null);
       setAdding({ group });
     },
-    review: (name) => {
+    review: (name, reviewed = true) => {
+      const verb = reviewed ? "review" : "unreview";
       const host = name ?? ctx.selectedHost();
-      if (!host) return setMessage("review needs a Host name (no Host is selected)");
+      if (!host) return setMessage(`${verb} needs a Host name (no Host is selected)`);
       const h = hostByName.get(host);
       if (!h) return setMessage(`No Host named ${host}`);
-      if (!canAdd) return setMessage(`:review needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
-      if (h.reviewed) return setMessage(`${host} is already reviewed.`);
-      backend.reviewHost(host).then(
+      if (!canAdd) return setMessage(`:${verb} needs a newer roster (API version ${ADD_API_VERSION}; this one speaks ${apiVersion})`);
+      if (!reviewed && apiVersion < UNREVIEW_API_VERSION) {
+        return setMessage(`:host unreview needs a newer roster (API version ${UNREVIEW_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      const already = reviewed ? `${host} is already reviewed.` : `${host} isn't reviewed.`;
+      if (h.reviewed === reviewed) return setMessage(already);
+      const done = reviewed
+        ? `Marked ${host} reviewed, as a Pending change. It can be opened now.`
+        : `Marked ${host} unreviewed, as a Pending change. It can't be opened until it's reviewed again.`;
+      backend.reviewHost(host, reviewed).then(
         (r) => {
           reloadHosts();
           refreshPending();
-          setMessage(r.changed ? `Marked ${host} reviewed, as a Pending change. It can be opened now.` : `${host} is already reviewed.`);
+          setMessage(r.changed ? done : already);
         },
-        (e: unknown) => setMessage(`Couldn't mark ${host} reviewed: ${e instanceof Error ? e.message : String(e)}`),
+        (e: unknown) =>
+          setMessage(`Couldn't mark ${host} ${reviewed ? "reviewed" : "unreviewed"}: ${e instanceof Error ? e.message : String(e)}`),
       );
     },
     showChanges: (then) => {
@@ -1362,6 +1377,14 @@ export function App({
                   onReview: (name: string) => {
                     closeEdit();
                     run(`review ${name}`);
+                  },
+                }
+              : {})}
+            {...(apiVersion >= UNREVIEW_API_VERSION
+              ? {
+                  onUnreview: (name: string) => {
+                    closeEdit();
+                    run(`host unreview ${name}`);
                   },
                 }
               : {})}

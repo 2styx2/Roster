@@ -247,6 +247,8 @@ export const fixtures: Record<string, FakeScenario> = {
   publish: { hosts: makeHosts(12), apiVersion: 7 },
   /** Ticket 11: a roster that can add Hosts (api 6). The new Host's password is FAKE_HOST_PASSWORD. */
   add: { hosts: makeHosts(12), apiVersion: 6 },
+  /** Issue #78: today's roster (api 9), which can also un-review a Host. */
+  review: { hosts: makeHosts(12), apiVersion: 9 },
   /** Two Pending changes already made on this Box. */
   "edit-pending": {
     hosts: makeHosts(12),
@@ -991,12 +993,12 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         warnings: scenario.addWarnings?.[p.name] ?? [],
       };
     },
-    async reviewHost(host) {
+    async reviewHost(host, reviewed = true) {
       await wait();
       const h = hosts.find((x) => x.name === host);
       if (!h) throw new BackendCallError(`unknown host '${host}'`, 2);
-      if (h.reviewed) return { changed: false, host: h, backup: null };
-      const updated = { ...h, reviewed: true };
+      if (h.reviewed === reviewed) return { changed: false, host: h, backup: null };
+      const updated = { ...h, reviewed };
       hosts = hosts.map((x) => (x.name === host ? updated : x));
       return { changed: true, host: updated, backup: "~/infra/.git/roster/roster.yml.bak" };
     },

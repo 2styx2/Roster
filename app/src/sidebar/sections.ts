@@ -22,7 +22,12 @@ export interface SidebarContext {
   folded: ReadonlySet<string>;
   /** The Live Inventory (ticket 28): roster can add, remove, rename and move Hosts and groups
    * (API 8), and what's added and not Published yet (shown dimmed, with a dot). */
-  live?: { pendingHosts: ReadonlySet<string>; pendingGroups: ReadonlySet<string> };
+  live?: {
+    pendingHosts: ReadonlySet<string>;
+    pendingGroups: ReadonlySet<string>;
+    /** Hosts whose review is still only a Pending change (API 9): their ✓ can take it back. */
+    pendingReviews?: ReadonlySet<string>;
+  };
   /** Adding a Host (ticket 11, API 6): its keys ("␣ +"), or why this roster can't. Left out, the
    * Inventory heading has no "Add a Host" button. */
   addHost?: { keys: string | null; tooOld: string | null };
@@ -236,6 +241,9 @@ export const inventorySection: SidebarSectionDef = {
             ...pending(live.pendingHosts.has(h.name)),
             actions: [
               ...(row.actions ?? []),
+              ...(h.reviewed && live.pendingReviews?.has(h.name)
+                ? [{ label: `Mark ${h.name} unreviewed`, icon: "unreview" as const, command: `host unreview ${h.name}` }]
+                : []),
               { label: `Rename ${h.name}`, icon: "edit" as const, command: `host rename ${h.name}` },
               { label: `Remove ${h.name} from the Inventory`, icon: "close" as const, command: `host remove ${h.name}` },
             ],

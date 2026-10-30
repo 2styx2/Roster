@@ -55,7 +55,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import in_ssh_config, record_host_key, write_ssh_config
 
-API_VERSION = 8             # bump when a method or result changes in a way the app has to know about
+API_VERSION = 9             # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -508,15 +508,19 @@ def take_back(made, e):
 
 
 def host_review(state, params):
-    """Mark a Host reviewed (reviewed: true on the Host itself, nothing else changes), as a Pending change."""
+    """Mark a Host reviewed (reviewed: true on the Host itself, nothing else changes), as a Pending change.
+    With reviewed: false (API 9), mark it unreviewed again: a review made by mistake has a way back."""
     name = text_param(params, "host")
+    wanted = params.get("reviewed", True)
+    if not isinstance(wanted, bool):
+        raise RpcError(INVALID_PARAMS, "params.reviewed must be true or false")
     h = state.fresh()["hosts"].get(name)
     if h is None:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
-    if h["reviewed"]:
+    if h["reviewed"] == wanted:
         return {"changed": False, "host": h, "backup": None}
     repo = changes.Repo(state.path)
-    old_text, new_text, _ = edit.edited(repo.path, name, {"reviewed": True})
+    old_text, new_text, _ = edit.reviewed(repo.path, name, wanted)
     backup = repo.backup(old_text)
     edit.replace_file(repo.path, new_text)
     state.reload()

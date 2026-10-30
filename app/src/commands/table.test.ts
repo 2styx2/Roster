@@ -44,7 +44,7 @@ function recorder(mode: ViewMode = "standard") {
     addHost: (g) => calls.push(g ? `add ${g}` : "add"),
     inventory: (op) => calls.push(`inventory ${JSON.stringify(op)}`),
     groupNames: () => ["lab", "net"],
-    review: (h) => calls.push(`review ${h ?? "selected"}`),
+    review: (h, reviewed = true) => calls.push(`${reviewed ? "review" : "unreview"} ${h ?? "selected"}`),
     config: (what) => calls.push(`config ${what}`),
   };
   return { ctx, calls };
@@ -62,9 +62,36 @@ describe("runLine", () => {
   it("runs :host add and :review (ticket 11), and says what :host takes", () => {
     const { ctx, calls } = recorder();
     for (const line of ["host add", "review switch-4-003", "review", "host frob"]) runLine(ctx, line);
-    expect(calls).toEqual(["add", "review switch-4-003", "review selected", "say host takes add, remove, rename, move (not frob)"]);
-    expect(complete("host ", hosts)).toEqual(["host add", "host remove ", "host rename ", "host move "]);
+    expect(calls).toEqual([
+      "add",
+      "review switch-4-003",
+      "review selected",
+      "say host takes add, remove, rename, move, review, unreview (not frob)",
+    ]);
+    expect(complete("host ", hosts)).toEqual([
+      "host add",
+      "host remove ",
+      "host rename ",
+      "host move ",
+      "host review ",
+      "host unreview ",
+    ]);
     expect(complete("rev", hosts)).toEqual(["review"]);
+  });
+
+  it("runs :host unreview and :unreview (issue #78), on the named Host or the selected one", () => {
+    const { ctx, calls } = recorder();
+    for (const line of ["host unreview switch-4-003", "host unreview", "unreview orion3", "host review orion3", "host unreview a b"]) {
+      runLine(ctx, line);
+    }
+    expect(calls).toEqual([
+      "unreview switch-4-003",
+      "unreview selected",
+      "unreview orion3",
+      "review orion3",
+      "say host unreview takes one Host",
+    ]);
+    expect(complete("host unreview orion", hosts)).toEqual(["host unreview orion3"]);
   });
 
   it("runs :host remove|rename|move and :group new|rename|delete (ticket 28), asking for what's missing", () => {

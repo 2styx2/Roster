@@ -307,3 +307,45 @@ def test_marking_a_host_reviewed_flips_only_that_flag(app, box):
     assert box.yml.read_text() == before.replace("        reviewed: false\n", "        reviewed: true\n")
     assert result(app.call("host.review", {"host": "nas"}))["changed"] is False
     assert app.call("host.review", {"host": "nope"})["error"]["code"] == 2
+
+
+# ---------------------------------------------------------------- host.review with reviewed: false (issue #78, item 5)
+
+def test_un_reviewing_a_host_flips_the_flag_back_as_a_pending_change(app, box):
+    before = box.yml.read_text()
+    r = result(app.call("host.review", {"host": "esx", "reviewed": False}))
+    assert r["changed"] and r["host"]["reviewed"] is False
+    assert box.yml.read_text() == before.replace("        title: ESX\n", "        title: ESX\n        reviewed: false\n")
+    assert result(app.call("changes.diff"))["hosts"] == [{"host": "esx", "change": "changed", "fields": ["reviewed"]}]
+    assert result(app.call("host.review", {"host": "esx", "reviewed": False}))["changed"] is False
+    assert app.call("host.review", {"host": "esx", "reviewed": "no"})["error"]["code"] == -32602
+
+
+def test_un_reviewing_a_review_that_is_still_pending_leaves_no_change(app, box):
+    """A Host reviewed by mistake and un-reviewed again is back to its published text: nothing to publish."""
+    box.commit(box.yml.read_text().replace("      other: 10.0.0.9       # never touched\n",
+                                           "      other: 10.0.0.9       # never touched\n"
+                                           "      nas: {ip: 10.0.0.50, reviewed: false}\n"))
+    result(app.call("inventory.pull"))
+    published = box.yml.read_text()
+    result(app.call("host.review", {"host": "nas"}))
+    assert box.yml.read_text() != published
+    r = result(app.call("host.review", {"host": "nas", "reviewed": False}))
+    assert r["changed"] and r["host"]["reviewed"] is False
+    assert box.yml.read_text() == published and result(app.call("changes.diff"))["count"] == 0
+
+
+def test_un_reviewing_a_host_whose_group_is_unreviewed_drops_its_own_line(app, box):
+    """The review wrote `reviewed: true` over the group's `reviewed: false`; un-reviewing takes that line out
+    again instead of writing `reviewed: false` next to the group's, so the text is what was published."""
+    box.commit(box.yml.read_text() + "  found:\n    user: root\n    reviewed: false\n    hosts:\n"
+                                     "      scan-1: 10.0.0.60\n      scan-2:\n        ip: 10.0.0.61\n")
+    result(app.call("inventory.pull"))
+    published = box.yml.read_text()
+    result(app.call("host.review", {"host": "scan-2"}))
+    assert "        reviewed: true\n" in box.yml.read_text()
+    assert result(app.call("host.review", {"host": "scan-2", "reviewed": False}))["host"]["reviewed"] is False
+    assert box.yml.read_text() == published
+    # and discarding a review still pending works as it always did
+    result(app.call("host.review", {"host": "scan-1"}))
+    assert result(app.call("changes.discard"))["discarded"] and box.yml.read_text() == published

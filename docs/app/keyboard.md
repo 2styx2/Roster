@@ -36,6 +36,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> M` | `host move [HOST [GROUP]]` | Move a Host to another group (Tab completes the groups). Also: drag it onto another group |
 | `<leader> N` | `group new [NAME]` | Add an empty group. Also "New group" on the Inventory heading. `group rename [GROUP [NEW]]` and `group delete [GROUP [TO]]` have no key: the ✎ and × on a group heading run them; deleting a group with Hosts asks which group they go to |
 | (no key) | `review [HOST]` | Mark an unreviewed Host reviewed, so it can be opened; also the ✓ button on its Sidebar row, Ctrl+R in the Picker, and "Mark reviewed" in `:edit` |
+| (no key) | `host unreview [HOST]` (`unreview`) | Mark a reviewed Host unreviewed again (`reviewed: false`), for a review made by mistake, as a Pending change (API 9). While the review is still only a Pending change, the row's ↶ button (where the ✓ was) takes it back, leaving `roster.yml` as it was; `:discard` drops it with the rest. Also "Mark unreviewed" in `:edit`. `host review [HOST]` is `review` |
 | `<leader> c` | `changes` | Show the Pending changes (the diff of `roster.yml`); `:discard` asks, then discards them; `:publish` shows the diff and the commit message (edit it; `Ctrl+Enter` publishes, `Esc` goes back) |
 | `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
