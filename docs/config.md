@@ -53,7 +53,7 @@ Names are snake_case in Lua. The frontend's object is camelCase (`bold_weight` �
 | `themes` | `{}` | New Themes by id: `{ label, appearance = "dark"\|"light", base, colors = {…}, terminal = {…}, ansi = {…}\|false }`. Each starts from `base` (default: Roster dark, or Roster light for `appearance = "light"`) and changes only what it sets. `ansi = false` uses the standard palette (decision Q37). Leave `ansi` out to keep the base's |
 | `colors` | `{}` | Tokens set over whichever Theme is in use |
 
-The bundled Themes are `roster-dark`, `roster-light`, `gruvbox` and `nord`.
+The bundled Themes are `roster-dark`, `roster-light`, `gruvbox`, `nord`, `catppuccin-mocha` and `tokyo-night` ([themes.md](themes.md)). A `theme` that names one wins over the `:theme` picker's choice, which is kept in the State; `"auto"` leaves it to the picker.
 
 UI tokens (`colors`, `themes.*.colors`): `accent`, `accent_text`, `accent_ink`, `bg`, `chrome`, `sidebar`, `panel`, `raised`, `raised_line`, `hover`, `line`, `line_strong`, `text`, `muted`, `faint`, `warn`, `error`, `danger`, `danger_text`, `backdrop`, `shadow`. `src/theme/theme.ts` says what each one colours.
 

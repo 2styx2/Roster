@@ -59,6 +59,7 @@ import type { Platform } from "./platform/types";
 import { setFolded, usedHost } from "./state/appState";
 import { StateStore } from "./state/store";
 import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./theme/theme";
+import { chosenAppearance, registerThemePicker, ThemeChoice } from "./theme/picker";
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
@@ -172,7 +173,6 @@ export function App({
   }, [registries, config]);
   const [toastClosedFor, setToastClosedFor] = useState<ConfigReport | null>(null);
 
-  const theme = useTheme(registries.themes, appearance);
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
@@ -207,6 +207,22 @@ export function App({
   const [message, setMessage] = useState("");
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
+  // The Theme (ticket 30): a preview in the `themes` finder, else init.lua's `theme` if it names
+  // one, else the choice kept in the State, else the Config's (`auto` follows the OS).
+  const [themeChoice] = useState(() => new ThemeChoice(store, registries.themes));
+  const preview = useSyncExternalStore(themeChoice.subscribe, themeChoice.previewing);
+  const configTheme = config && config.theme !== "auto" ? config.theme : null;
+  // The State's choice (a registered Theme's id); appState re-renders when it changes.
+  const stored = themeChoice.stored();
+  const chosen = useMemo(
+    () => chosenAppearance(appearance, { configTheme, stored, preview }),
+    [appearance, configTheme, stored, preview],
+  );
+  const theme = useTheme(registries.themes, chosen);
+  useLayoutEffect(() => {
+    themeChoice.setConfigTheme(configTheme);
+    themeChoice.setActive(theme.id);
+  }, [themeChoice, configTheme, theme.id]);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   // A new size in the Config is a new zoom reset point, and where the font goes now.
   const [sizeFrom, setSizeFrom] = useState(terminalOptions.fontSize);
@@ -326,6 +342,7 @@ export function App({
 
   // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0004).
   useEffect(() => registerFolders(registries, store), [registries, store]);
+  useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
 
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
