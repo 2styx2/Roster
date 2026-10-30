@@ -24,5 +24,13 @@ export function browserPlatform(): Platform {
       readText: () => navigator.clipboard.readText(),
       writeText: (text) => navigator.clipboard.writeText(text),
     },
+    // A plain browser has no window to control: the title bar's buttons draw but do nothing.
+    window: {
+      minimize() {},
+      toggleMaximize() {},
+      close() {},
+      watchMaximized: () => () => {},
+      watchGeometry: () => () => {},
+    },
   };
 }

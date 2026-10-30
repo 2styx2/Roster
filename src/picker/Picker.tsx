@@ -4,7 +4,8 @@
 // marked and never opened (spec story 14).
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Host, HostList } from "../backend/types";
-import { chordOf, defaultKeymap, type Keymap } from "../keymap";
+import { chordOf, defaultKeymap, type Keymap, type KeyTable, type PickerAction } from "../keymap";
+import { Keys } from "../ui/Keys";
 import { searchHosts } from "./match";
 
 /** Rows actually rendered; the rest are counted. Keeps every keystroke cheap. */
@@ -20,6 +21,10 @@ export interface PickerProps {
   onOpen: (host: Host, how?: { here: true }) => void;
   onClose: () => void;
 }
+
+/** The first key bound to `action`, for the footer's hints. */
+const keyFor = (table: KeyTable<PickerAction>, action: PickerAction) =>
+  Object.entries(table).find(([, b]) => b.action === action)?.[0] ?? null;
 
 export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onClose }: PickerProps) {
   const [query, setQuery] = useState("");
@@ -79,11 +84,22 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
   }
 
   const activeId = shown[current] ? `${listId}-${current}` : undefined;
+  const move = [keyFor(keymap.picker, "picker.up"), keyFor(keymap.picker, "picker.down")].filter((k) => k !== null).join(" ");
+  const hints: [string | null, string][] = [
+    [move, "move"],
+    [keyFor(keymap.picker, "picker.choose"), "open"],
+    [keyFor(keymap.picker, "picker.close"), "close"],
+  ];
 
   return (
     <div className="picker-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="picker" role="dialog" aria-label="Find a Host">
-        <input
+        <div className="picker-search">
+          <svg className="picker-search-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.5 10.5L14 14" strokeLinecap="round" />
+          </svg>
+          <input
           className="picker-query"
           role="combobox"
           aria-expanded="true"
@@ -101,7 +117,8 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
             setNotice("");
           }}
           onKeyDown={onKeyDown}
-        />
+          />
+        </div>
         <ul className="picker-list" role="listbox" id={listId} ref={listRef} aria-label="Hosts">
           {shown.map(({ host }, i) => (
             <li
@@ -120,10 +137,16 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
                 choose(host);
               }}
             >
-              <span className="host-name">{host.name}</span>
+              <span className="host-name" title={host.name}>
+                {host.name}
+              </span>
               <span className="host-ip">{host.ip}</span>
-              <span className="host-group">{host.group}</span>
-              <span className="host-type">{host.type}</span>
+              <span className="host-group" title={host.group}>
+                {host.group}
+              </span>
+              <span className="host-type" title={host.type}>
+                {host.type}
+              </span>
               {!host.reviewed && <span className="badge" title="Not reviewed: can't be opened">unreviewed</span>}
             </li>
           ))}
@@ -135,6 +158,14 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onC
             {results.length > shown.length ? `${shown.length} of ${results.length}` : results.length}{" "}
             {results.length === 1 ? "host" : "hosts"}
           </span>
+          {hints.map(
+            ([keys, what]) =>
+              keys && (
+                <span key={what} className="picker-hint">
+                  <Keys keys={keys} /> {what}
+                </span>
+              ),
+          )}
         </div>
       </div>
     </div>

@@ -14,9 +14,14 @@
       {
         "label": "main",
         "title": "roster-desk",
-        "width": 1100,
-        "height": 700,
-        "dragDropEnabled": false
+        "width": 1180,
+        "height": 740,
+        "dragDropEnabled": false,
+        "minWidth": 480,
+        "minHeight": 320,
+        "decorations": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

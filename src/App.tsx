@@ -28,6 +28,7 @@ import { complete, runLine, type CommandContext, type Commands, type FoldHow } f
 import { registerFolders } from "./folders/folders";
 import { ErrorScreen } from "./ErrorScreen";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
+import { TitleBar } from "./chrome/TitleBar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
@@ -48,6 +49,10 @@ import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
 import { setFolded, usedHost } from "./state/appState";
 import { StateStore } from "./state/store";
+import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./theme/theme";
+import { useTheme } from "./theme/useTheme";
+import { Logo } from "./chrome/Logo";
+import { Keys } from "./ui/Keys";
 
 type Conn =
   | { state: "connecting" }
@@ -81,6 +86,8 @@ export interface AppProps {
   /** The terminal each Session draws in (tests pass a stub; xterm needs a real browser). */
   terminalView?: TerminalViewComponent;
   terminalOptions?: TerminalOptions;
+  /** Theme, fonts and the title bar (ticket 09); the Config's later (ticket 21). */
+  appearance?: AppearanceOptions;
   /** The State file, clipboard and Windows build (tests: an in-memory one). */
   platform?: Platform;
 }
@@ -93,9 +100,11 @@ export function App({
   terminalView = TerminalView,
   terminalOptions = defaultTerminalOptions,
   platform: platformProp,
+  appearance = defaultAppearance,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
+  const theme = useTheme(registries.themes, appearance);
   const commandList = useSyncExternalStore(registries.commands.subscribe, registries.commands.list);
   const bindingList = useSyncExternalStore(registries.keymap.subscribe, registries.keymap.list);
   const sectionDefs = useSyncExternalStore(registries.sidebar.subscribe, registries.sidebar.list);
@@ -182,6 +191,9 @@ export function App({
     };
   }, [platform, store]);
 
+  // The window's size and place go in the State; the Tauri shell restores them at the next start.
+  useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
+
   // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0004).
   useEffect(() => registerFolders(registries, store), [registries, store]);
 
@@ -190,9 +202,18 @@ export function App({
     [terminalOptions],
   );
   const terminalKeys = useMemo(() => actionsOf(keymap.terminal), [keymap]);
+  const termTheme = useMemo(() => terminalTheme(theme, terminalOptions.colors), [theme, terminalOptions.colors]);
   const terminalEnv = useMemo<TerminalEnv>(
-    () => ({ options: terminalOptions, fontSize, windowsBuild, keys: terminalKeys, clipboard: platform.clipboard, onZoom }),
-    [terminalOptions, fontSize, windowsBuild, terminalKeys, platform, onZoom],
+    () => ({
+      options: terminalOptions,
+      theme: termTheme,
+      fontSize,
+      windowsBuild,
+      keys: terminalKeys,
+      clipboard: platform.clipboard,
+      onZoom,
+    }),
+    [terminalOptions, termTheme, fontSize, windowsBuild, terminalKeys, platform, onZoom],
   );
 
   const openHost = useCallback(
@@ -387,25 +408,35 @@ export function App({
     return () => window.removeEventListener("keydown", handler, true);
   }, [ready]);
 
+  // The custom title bar (decision Q32) sits above every screen, the lock screen too, so the
+  // window can always be moved and closed; it shows nothing but the mark.
+  const frame = (content: React.ReactNode) => (
+    <div className="window">
+      {appearance.titleBar.visible && <TitleBar controls={platform.window} />}
+      <div className="window-body">{content}</div>
+    </div>
+  );
+
   if (conn.state === "connecting") {
-    return (
+    return frame(
       <div className="screen center">
-        <p className="muted">Starting the backend…</p>
-      </div>
+        <p className="muted starting">Starting the backend…</p>
+      </div>,
     );
   }
   if (conn.state === "failed") {
-    return <ErrorScreen problem={conn.problem} onRetry={() => void connect(true)} />;
+    return frame(<ErrorScreen problem={conn.problem} onRetry={() => void connect(true)} />);
   }
 
   const { info } = conn;
   const reconnectKey = hintFor(keymap, "reconnect");
   const appMode = keyState.mode === "app" && overlay === null;
+  const findKeys = hintFor(keymap, "find");
   const hints = [
-    [hintFor(keymap, "find"), "find"],
+    [findKeys, "find"],
     [hintFor(keymap, "keys"), "keys"],
     [hintFor(keymap, "statusbar"), "hide this bar"],
-  ].filter(([k]) => k);
+  ].filter((h): h is [string, string] => h[0] !== null);
 
   const shell = (
     <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`}>
@@ -416,6 +447,7 @@ export function App({
             side={options.sidebar.side}
             cursor={appMode ? cursor : null}
             leaderHint={options.leader}
+            findKeys={hintFor(keymap, "find")}
             run={(line) => {
               setMode(terminalMode);
               run(line);
@@ -434,13 +466,16 @@ export function App({
           {options.sessions === "tabs" && !noSessions && <TabStrip snapshot={sessions} run={run} />}
           {noSessions ? (
             <div className="empty">
-              <p>No Sessions open.</p>
-              <button type="button" className="find" onClick={() => run("find")}>
-                Find a host
+              <Logo size={40} className="empty-mark" />
+              <p className="empty-title">No Sessions open</p>
+              <button type="button" className="find primary" onMouseDown={(e) => e.preventDefault()} onClick={() => run("find")}>
+                Find a Host
               </button>
-              <p className="muted">
-                or press <kbd>{options.leader}</kbd> then <kbd>f</kbd>
-              </p>
+              {findKeys && (
+                <p className="empty-hint">
+                  or press <Keys keys={findKeys} leader={options.leader} />
+                </p>
+              )}
             </div>
           ) : (
             <SessionPanes
@@ -449,7 +484,7 @@ export function App({
               leader={options.leader}
               terminalView={terminalView}
               terminalEnv={terminalEnv}
-              reconnectKeys={reconnectKey ? `${options.leader} ${reconnectKey.slice(2)}` : null}
+              reconnectKeys={reconnectKey}
               run={run}
               errorRows={errorRows}
               copy={copy}
@@ -488,16 +523,19 @@ export function App({
       </div>
       {statusVisible && (
         <footer className="statusbar">
-          <span className="backend">{info.backend}</span>
+          <span className="backend">
+            <span className="status-dot" aria-hidden="true" />
+            {info.backend}
+          </span>
           <span>{info.inventory.box}</span>
           <span>{conn.hosts.hosts.length} hosts</span>
-          <span className="path" title={info.command.join(" ")}>
+          <span className="path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
             {info.inventory.path}
           </span>
           <span className="grow" />
           {hints.map(([k, what]) => (
             <span key={what} className="hint">
-              <b>{k}</b> {what}
+              <Keys keys={k} leader={options.leader} /> {what}
             </span>
           ))}
           {appMode && (
@@ -529,14 +567,14 @@ export function App({
       {lockKey && (
         <>
           {" "}
-          <kbd>{options.leader}</kbd> then <kbd>{lockKey.slice(2)}</kbd> locks now.
+          <Keys keys={lockKey} leader={options.leader} /> locks now.
         </>
       )}
     </>
   );
-  return (
+  return frame(
     <LockGate vault={vault} hint={lockHint}>
       {shell}
-    </LockGate>
+    </LockGate>,
   );
 }

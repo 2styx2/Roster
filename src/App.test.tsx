@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts } from "./backend/fake";
 import { StubTerminal } from "./terminal/StubTerminal";
-import { memoryPlatform } from "./platform/memory";
+import { memoryPlatform, type MemoryPlatform } from "./platform/memory";
+import type { WindowGeometry } from "./platform/types";
 
 async function ready(scenario = { hosts: makeHosts(12) }, platform = memoryPlatform()) {
   const backend = fakeBackend(scenario);
@@ -126,5 +127,28 @@ describe("App", () => {
     const { user } = await ready({ hosts: makeHosts(12) }, memoryPlatform({ state: { recentHosts: "nope" } }));
     await user.keyboard("{Control>} {/Control}f");
     expect(screen.getAllByRole("option")[0]!.dataset.host).toBe(makeHosts(12).hosts[0]!.name);
+  });
+
+  it("keeps the window's size and place in the State file, and shows the title bar on every screen", async () => {
+    let settle: ((g: WindowGeometry) => void) | null = null;
+    const platform: MemoryPlatform = {
+      ...memoryPlatform({ state: { version: 1, recentHosts: ["x"] } }),
+      window: {
+        minimize() {},
+        toggleMaximize() {},
+        close() {},
+        watchMaximized: () => () => {},
+        watchGeometry(cb) {
+          settle = cb;
+          return () => {};
+        },
+      },
+    };
+    render(<App backend={fakeBackend(fixtures["roster-too-old"]!)} platform={platform} />);
+    expect(await screen.findByRole("heading", { name: /roster is too old/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    const geometry = { x: 10, y: 20, width: 1200, height: 800, maximized: false };
+    act(() => settle?.(geometry));
+    await vi.waitFor(() => expect(platform.saved()).toMatchObject({ recentHosts: ["x"], window: geometry }));
   });
 });

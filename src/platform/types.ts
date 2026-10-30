@@ -7,6 +7,28 @@ export interface Clipboard {
   writeText(text: string): Promise<void>;
 }
 
+/** Where the window is and how big (physical pixels), for the State: the Tauri shell puts it
+ * back there at the next start (desk-core window.rs). */
+export interface WindowGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  maximized: boolean;
+}
+
+/** The custom title bar's buttons (decision Q32), and the window's geometry for the State. */
+export interface WindowControls {
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+  /** Calls `onChange` with the maximized state now and whenever it changes; returns stop. */
+  watchMaximized(onChange: (maximized: boolean) => void): () => void;
+  /** Calls `onSettle` after the window stops moving or resizing (not while it's minimized);
+   * returns stop. */
+  watchGeometry(onSettle: (geometry: WindowGeometry) => void): () => void;
+}
+
 export interface Platform {
   /** The State file's contents (`{}` the first time). Untrusted: read it with `parseState`. */
   loadState(): Promise<unknown>;
@@ -15,4 +37,6 @@ export interface Platform {
   /** The Windows build (26200 for 10.0.26200), for xterm's ConPTY handling; null off Windows. */
   windowsBuild(): Promise<number | null>;
   clipboard: Clipboard;
+  /** The window's controls; absent where there's no window to control (tests). */
+  window?: WindowControls;
 }

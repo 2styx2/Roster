@@ -1,6 +1,7 @@
 // Find in the scrollback: Enter finds the next match up the scrollback, Shift+Enter the one below,
 // Esc closes and goes back to the shell.
 import { useState } from "react";
+import { CloseGlyph } from "../ui/CloseGlyph";
 
 export interface SearchResults {
   /** -1 when the match limit was passed and the position isn't known. */
@@ -56,7 +57,7 @@ export function SearchBar({ results, onFind, onClose }: SearchBarProps) {
         ↓
       </button>
       <button type="button" tabIndex={-1} aria-label="Close find" onClick={onClose}>
-        ×
+        <CloseGlyph />
       </button>
     </div>
   );

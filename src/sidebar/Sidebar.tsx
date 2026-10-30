@@ -9,6 +9,7 @@
 // when what they show changes), so moving the cursor re-renders two rows, not the tree.
 import { memo, useCallback, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import type { CommandLine } from "../keymap";
+import { Keys, WithKeys } from "../ui/Keys";
 
 /** A row's state dot: key or password login, a Session that has ended, or a Host that can't be
  * opened (unreviewed). */
@@ -34,8 +35,11 @@ export interface SidebarRow {
   note?: string;
   /** Right-aligned and faint: an address, a count. */
   detail?: string;
-  /** A small badge ("unreviewed"). */
+  /** A small badge ("unreviewed"). It gives way to the name: shown on hover, raised or under the
+   * cursor, and always in the tooltip. */
   badge?: string;
+  /** A glyph before the label: a Folder, an Inventory group. */
+  icon?: "folder" | "group";
   /** A tooltip (and accessible description), e.g. "password login". */
   title?: string;
   /** The item on screen (decision Q31: the raised style). Set by the section, or by
@@ -71,7 +75,7 @@ export interface SidebarSection {
   title: string;
   count?: number;
   rows: readonly SidebarRow[];
-  /** Shown when there are no rows. */
+  /** Shown when there are no rows. Key sequences in backticks are drawn as keycaps. */
   empty?: string;
   /** Buttons on the heading ("+" for a new Folder). */
   actions?: readonly RowAction[];
@@ -88,9 +92,18 @@ export interface SidebarProps {
   cursor: string | null;
   /** The Leader as written in the keymap, for the hints. */
   leaderHint: string;
+  /** The keys that open the Picker ("␣ f"), if the keymap has them. */
+  findKeys?: string | null;
   /** Runs a command line: for rows, and the buttons at the top and bottom. */
   run(line: CommandLine): void;
 }
+
+const SearchIcon = () => (
+  <svg className="sb-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+    <circle cx="7" cy="7" r="4.5" />
+    <path d="M10.5 10.5L14 14" strokeLinecap="round" />
+  </svg>
+);
 
 /** The id of a section's heading, as a cursor stop and a fold key. */
 export const headingId = (section: string) => `section:${section}`;
@@ -147,10 +160,27 @@ const Icon = ({ name }: { name: RowAction["icon"] }) => (
 );
 
 const Chevron = ({ folded }: { folded: boolean }) => (
-  <span className="sb-chev" aria-hidden="true">
-    {folded ? "▸" : "▾"}
-  </span>
+  <svg className={`sb-chev${folded ? " folded" : ""}`} viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">
+    <path d="M2.5 3.75L5 6.25l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
 );
+
+const ROW_ICONS: Record<NonNullable<SidebarRow["icon"]>, React.ReactNode> = {
+  folder: <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" />,
+  group: (
+    <>
+      <rect x="2" y="3" width="12" height="4" rx="1" />
+      <rect x="2" y="9" width="12" height="4" rx="1" />
+    </>
+  ),
+};
+
+const RowIcon = ({ name }: { name: NonNullable<SidebarRow["icon"]> }) => (
+  <svg className="sb-icon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+    {ROW_ICONS[name]}
+  </svg>
+);
+
 
 const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cursor: boolean; run: Run; drag: Drag }) {
   const cls = `sb-row${row.raised ? " raised" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}`;
@@ -179,8 +209,12 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
         }}
       >
         {row.foldable && <Chevron folded={row.folded ?? false} />}
+        {row.icon && <RowIcon name={row.icon} />}
         {row.dot && <span className={`dot ${row.dot}`} aria-hidden="true" />}
-        <span className="sb-label">{row.label}</span>
+        {/* The whole name on hover: it may be cut off. */}
+        <span className="sb-label" title={row.label}>
+          {row.label}
+        </span>
         {row.note && <span className="sb-note"> {row.note}</span>}
         {row.badge && <span className="sb-badge"> {row.badge}</span>}
         {row.detail && <span className="sb-detail"> {row.detail}</span>}
@@ -195,12 +229,14 @@ const Section = memo(function Section({
   cursor,
   run,
   drag,
+  leader,
 }: {
   section: SidebarSection;
   /** The cursor if it's in this section, else null (so the other sections don't re-render). */
   cursor: string | null;
   run: Run;
   drag: Drag;
+  leader: string;
 }) {
   const id = headingId(section.id);
   const folded = section.folded ?? false;
@@ -227,7 +263,11 @@ const Section = memo(function Section({
         </button>
         {section.actions && <Actions actions={section.actions} run={run} />}
       </div>
-      {!folded && section.rows.length === 0 && section.empty && <p className="sb-empty">{section.empty}</p>}
+      {!folded && section.rows.length === 0 && section.empty && (
+        <p className="sb-empty">
+          <WithKeys text={section.empty} leader={leader} />
+        </p>
+      )}
       {!folded && (
         <ul className="sb-rows">
           {section.rows.map((row) => (
@@ -239,7 +279,7 @@ const Section = memo(function Section({
   );
 });
 
-export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProps) {
+export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f", run }: SidebarProps) {
   // A stable `run` for the memoized rows; it always calls the latest one.
   const runRef = useRef(run);
   useLayoutEffect(() => {
@@ -292,7 +332,9 @@ export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProp
   return (
     <nav className={`sidebar side-${side}`} aria-label="Sidebar">
       <button type="button" className="sb-find" onMouseDown={keepFocus} onClick={() => run("find")}>
-        Find a Host <kbd title={leaderHint}>␣ f</kbd>
+        <SearchIcon />
+        <span className="sb-find-label">Find a Host</span>
+        {findKeys && <Keys keys={findKeys} leader={leaderHint} />}
       </button>
       <div
         className="sb-scroll"
@@ -311,6 +353,7 @@ export function Sidebar({ sections, side, cursor, leaderHint, run }: SidebarProp
             cursor={cursor !== null && cursorIn(section, cursor) ? cursor : null}
             run={stableRun}
             drag={drag}
+            leader={leaderHint}
           />
         ))}
       </div>

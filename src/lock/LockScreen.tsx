@@ -2,6 +2,7 @@
 // gate (it never unmounts its children); while locked they're invisible, inert and out of the
 // accessibility tree, and the lock screen covers the window.
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Logo } from "../chrome/Logo";
 import type { Vault, VaultView } from "./useVault";
 
 const PROVIDER_NAMES: Record<string, string> = { bw: "Bitwarden" };
@@ -36,6 +37,7 @@ function LockScreen({ vault, hint }: { vault: Vault; hint?: ReactNode }) {
   return (
     <div className="lock" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <section className="lock-panel">
+        <Logo size={32} className="lock-mark" />
         <h1 id="lock-title">Locked</h1>
         <Body view={vault.view} vault={vault} />
         {hint && <p className="lock-hint muted">{hint}</p>}
@@ -110,7 +112,7 @@ function UnlockForm({
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? "lock-error" : undefined}
         />
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="primary" disabled={busy}>
           {busy ? "Unlocking…" : "Unlock"}
         </button>
       </div>

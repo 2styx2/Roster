@@ -16,7 +16,7 @@ export function ErrorScreen({ problem, onRetry }: { problem: BackendProblem; onR
         <p>{problem.message}</p>
         <p className="hint">{problem.hint}</p>
         {problem.detail && <pre className="detail">{problem.detail}</pre>}
-        <button type="button" onClick={onRetry} autoFocus>
+        <button type="button" className="primary" onClick={onRetry} autoFocus>
           Retry
         </button>
       </section>

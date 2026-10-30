@@ -2,6 +2,8 @@
 // comes from (builtin, init.lua, or a Plugin), and a filter. Esc in the filter closes it.
 import { useMemo, useState } from "react";
 import { BUILTIN } from "../registry";
+import { CloseGlyph } from "../ui/CloseGlyph";
+import { Keys } from "../ui/Keys";
 import { filterRows, type BindingRow } from "./bindings";
 
 export interface BindingsPanelProps {
@@ -9,18 +11,6 @@ export interface BindingsPanelProps {
   /** The Leader chord, as the ␣ key's tooltip. */
   leader: string;
   onClose(): void;
-}
-
-function Keys({ keys, leader }: { keys: string; leader: string }) {
-  return (
-    <>
-      {keys.split(" ").map((k, i) => (
-        <kbd key={i} title={k === "␣" ? leader : undefined}>
-          {k}
-        </kbd>
-      ))}
-    </>
-  );
 }
 
 export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
@@ -36,8 +26,8 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
     <aside className="keys-panel" aria-label="Key bindings">
       <header>
         <h2>Key bindings</h2>
-        <button type="button" className="keys-close" aria-label="Close key bindings" onClick={onClose}>
-          ×
+        <button type="button" className="icon-button keys-close" aria-label="Close key bindings" onClick={onClose}>
+          <CloseGlyph />
         </button>
       </header>
       <input
@@ -60,7 +50,7 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
           {groups.map(([area, list]) => (
             <tbody key={area}>
               <tr className="group">
-                <th colSpan={2} scope="colgroup">
+                <th colSpan={3} scope="colgroup">
                   {area}
                 </th>
               </tr>
@@ -68,20 +58,22 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
                 <tr key={`${r.label}\0${r.source}`}>
                   <td>{r.label}</td>
                   <td className="keys-keys">
-                    {r.keys.map((k, i) => (
-                      <span key={k}>
-                        {i > 0 && " "}
-                        <Keys keys={k} leader={leader} />
-                      </span>
-                    ))}
-                    <span className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>{r.source}</span>
+                    <span className="keys-list">
+                      {r.keys.map((k, i) => (
+                        <span key={k}>
+                          {i > 0 && " "}
+                          <Keys keys={k} leader={leader} />
+                        </span>
+                      ))}
+                    </span>
                   </td>
+                  <td className={`keys-source${r.source === BUILTIN ? "" : " config"}`}>{r.source}</td>
                 </tr>
               ))}
             </tbody>
           ))}
         </table>
-        {shown.length === 0 && <p className="muted">No bindings match “{query}”.</p>}
+        {shown.length === 0 && <p className="panel-empty">No bindings match “{query}”.</p>}
       </div>
     </aside>
   );
