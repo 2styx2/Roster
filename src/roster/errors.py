@@ -72,6 +72,15 @@ PULL_FAILED = 73            # inventory.pull: the fetch or the fast-forward fail
 INVALID_EDIT = 74           # host.update: the result wouldn't load, or would change more than asked; nothing written
 NOT_VERIFIED = 75           # host.update: address, user or Login changed without a test login that just succeeded
 
+# Publishing the Pending changes (ticket 12; Q13): commit roster.yml, push it, never force. A failed fetch is 73.
+NOTHING_TO_PUBLISH = 80     # changes.publish: roster.yml has no Pending changes
+OTHER_CHANGES = 81          # changes.publish: other files in the infra repo are uncommitted too; data.files
+REMOTE_MOVED = 82           # changes.publish: the upstream changed roster.yml since this box's copy; nothing published
+UNPUSHED = 83               # changes.publish: this box has its own commits that aren't on the upstream; data.ahead
+NO_UPSTREAM = 84            # changes.publish: the branch has no upstream to push to
+COMMIT_FAILED = 85          # changes.publish: git refused the commit (no identity, a hook); Pending changes kept
+PUSH_FAILED = 86            # changes.publish: the push failed or was rejected; the commit is undone, changes kept
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""

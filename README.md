@@ -406,9 +406,9 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 5 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 6 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `changes.publish`, codes 80-86 and `data.details` on errors). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory, 80-89 publishing it (`changes.publish`). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -444,6 +444,13 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `73` | `inventory.pull`: the fetch or the fast-forward failed; `details` has git's message |
 | `74` | `host.update`: the result wouldn't load, loads differently than asked, or changes another entry; nothing written |
 | `75` | `host.update`: the address, user or Login changed without a `host.verify_login` of those values that just succeeded |
+| `80` | `changes.publish`: no Pending changes, nothing to publish |
+| `81` | `changes.publish`: other files in the infra repo are uncommitted too (`data.files`); nothing published |
+| `82` | `changes.publish`: someone published `roster.yml` to the upstream since this box pulled (`data.behind`); nothing published |
+| `83` | `changes.publish`: this box has commits of its own that aren't on the upstream (`data.ahead`); roster pushes only its own |
+| `84` | `changes.publish`: the branch has no upstream to push to |
+| `85` | `changes.publish`: git refused the commit (no identity, a hook); `details` has git's message; the Pending changes are kept |
+| `86` | `changes.publish`: the push failed or was rejected (`data.rejected`: the upstream moved meanwhile); the commit is undone, the Pending changes are kept |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
@@ -454,7 +461,7 @@ Requests without an `id` (notifications) run but get no reply.
 
 ### Editing: Pending changes
 
-A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`70` otherwise). Publish (commit and push) comes later.
+A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`70` otherwise). Publishing commits and pushes them (`changes.publish`).
 
 | Method | Params | Result |
 |---|---|---|
@@ -463,8 +470,11 @@ A Pending change is an edit to `roster.yml` made on this box and not Published y
 | `host.update` | `{host, changes}` | `{changed, host, backup}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was |
 | `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], count}`: git's diff of `roster.yml` against the last commit |
 | `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) |
+| `changes.publish` | `{message?}` | `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`: commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync` |
 
 `changes` is `{field: value}` with fields `title`, `description`, `type` (text, one line), `ip`, `user`, `auth` (strings) and `port` (a number). `host.update` edits `roster.yml` as text, like `discover --write`: only the changed values' text changes, so comments, order, quoting and every other entry stay byte for byte. `user`, `port` and `auth` go into the Host's `ssh:` block if it has one; a short `name: 10.0.0.1` entry grows into a block when it needs more than its address. The result must load, must load to exactly the values asked for, and must leave every other Host, group and resource as it was (`74` otherwise, nothing written). What it replaced is kept as `roster.yml.bak` in the repo's git dir (`.git/roster/`), never in the working tree. Every write and pull loads `roster.yml` again, so `hosts.list` shows the file as it now is.
+
+**Publishing (ticket 12, decision Q13).** `changes.publish` refuses when there's nothing pending (`80`), when another file in the infra repo is uncommitted (`81`; `folders.yml` and anything personal never go in), and when `roster.yml` doesn't load (`1`). It fetches first (`73` if that fails). New upstream commits that leave `roster.yml` alone are fast-forwarded over (`pulled` counts them); if someone else published `roster.yml` meanwhile (`82`) or this box has commits of its own (`83`), it stops. It commits `roster.yml` only, with `message` if given, else one naming every Host and group that changed (`roster: change esx (title), add web-01`; past 72 characters the subject gives the counts and the body lists them). The author is whatever git identity the infra repo has; roster never sets one. It pushes `HEAD` to the upstream branch, never forced; a rejected push (`86`) undoes the commit, so the Pending changes stay as they were. Then it runs `roster sync` (ssh config and the Claude files); a failed sync doesn't undo the Publish and shows in `sync`.
 
 **Verified changes (decision Q43).** A change to `ip`, `port`, `user` or `auth` is refused (`75`) unless `host.verify_login` with exactly those values succeeded in the last 10 minutes; the success is used up by the save. The test login makes one TCP connection and one login attempt (a password Login is looked up from the vault into roster's memory; a key Host uses this box's roster key). The host key must match one recorded in `~/.ssh/roster_known_hosts`, for the new address or, for a Host that moved, its current one; it's never recorded or accepted. A Host with no stored Login (`auth: prompt`, `agent`, `none`) gets every step but the login.
 
@@ -616,7 +626,7 @@ src/roster/
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
   serve.py          `roster serve`: JSON-RPC API for the desktop app, method table
   edit.py           editing one Host in roster.yml as text (comments and other entries kept), checked before it's written
-  changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak)
+  changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak, publish)
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper (stdlib only)

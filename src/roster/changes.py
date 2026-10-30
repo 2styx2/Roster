@@ -1,6 +1,7 @@
 """Pending changes (ticket 10): roster.yml's uncommitted diff in the infra repo's git working tree.
 inventory.pull fast-forwards the repo before an edit; changes.diff shows the diff and which Hosts it touches;
-changes.discard puts roster.yml back as the last commit has it. Publish (commit and push) is ticket 12.
+changes.discard puts roster.yml back as the last commit has it; changes.publish commits roster.yml alone and
+pushes it to the upstream (ticket 12, decision Q13), fetching first and never forcing.
 Every git run is non-interactive and time-limited. A backup of what an edit or a discard replaced goes in the
 repo's git dir (never in the working tree, where Publish would pick it up)."""
 
@@ -9,7 +10,22 @@ import subprocess
 from pathlib import Path
 
 from .edit import load_text, read_text, write_text
-from .errors import DIRTY, DIVERGED, NOT_A_REPO, PULL_FAILED, ROSTER_ERROR, Problem
+from .errors import (
+    COMMIT_FAILED,
+    DIRTY,
+    DIVERGED,
+    INVENTORY_ERROR,
+    NO_UPSTREAM,
+    NOT_A_REPO,
+    NOTHING_TO_PUBLISH,
+    OTHER_CHANGES,
+    PULL_FAILED,
+    PUSH_FAILED,
+    REMOTE_MOVED,
+    ROSTER_ERROR,
+    UNPUSHED,
+    Problem,
+)
 
 GIT_TIMEOUT = 60            # s: a fetch over a slow link; nothing here waits on a person
 HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mac", "web",
@@ -172,3 +188,125 @@ def discard(path):
         raise Problem(ROSTER_ERROR, f"couldn't put {repo.rel} back as committed", fix="see the details",
                       details=r.stderr.strip() or None)
     return {"discarded": True, "backup": str(bak)}
+
+
+# ---------------------------------------------------------------- changes.publish
+
+SUBJECT_MAX = 72            # a commit subject longer than this names the count, and the body lists every Host
+
+
+def group_changes(path, old_text, new_text):
+    """[{group, change: added|removed|changed}] between two versions of roster.yml: groups that appear,
+    disappear, or whose title or description changed (their Hosts are listed on their own)."""
+    old, new = loaded(path, old_text), loaded(path, new_text)
+    if old is None or new is None:
+        return []
+    a, b = old["groups"], new["groups"]
+    return ([{"group": g, "change": "added"} for g in b if g not in a]
+            + [{"group": g, "change": "changed"} for g in b if g in a and a[g] != b[g]]
+            + [{"group": g, "change": "removed"} for g in a if g not in b])
+
+
+def describe(c):
+    """One Host's or group's change in a few words: 'change esx (title, ip)', 'add web-01', 'remove group old'."""
+    name = c["host"] if "host" in c else f"group {c['group']}"
+    verb = {"added": "add", "removed": "remove", "changed": "change"}[c["change"]]
+    fields = f" ({', '.join(c['fields'])})" if c.get("fields") else ""
+    return f"{verb} {name}{fields}"
+
+
+def commit_message(hosts, groups):
+    """The generated message: a subject naming what changed, and a line per change when it doesn't fit."""
+    items = [describe(c) for c in groups + hosts]
+    if not items:
+        return "roster: edit roster.yml"
+    subject = "roster: " + ", ".join(items)
+    if len(subject) <= SUBJECT_MAX:
+        return subject
+    counts = [f"{len(hosts)} Host{'s' * (len(hosts) != 1)}" if hosts else "",
+              f"{len(groups)} group{'s' * (len(groups) != 1)}" if groups else ""]
+    return f"roster: change {' and '.join(c for c in counts if c)}\n\n" + "\n".join(f"- {i}" for i in items)
+
+
+def publish(path, message=None):
+    """Commit roster.yml's Pending changes (that file only) and push them to the branch's upstream.
+    Fetches first. New upstream commits that leave roster.yml alone are fast-forwarded over; anything else
+    that moved (roster.yml changed there, local commits, a rejected push) stops it with nothing published,
+    the Pending changes as they were, and never a force. The author is the repo's own git identity."""
+    repo = Repo(path)
+    if not repo.diff_text():
+        raise Problem(NOTHING_TO_PUBLISH, f"{repo.rel} has no Pending changes, so there's nothing to publish",
+                      fix="edit a Host first")
+    others = [f for f in dirty_files(repo) if f != repo.rel]
+    if others:
+        raise Problem(OTHER_CHANGES, f"the infra repo has other uncommitted changes ({', '.join(others)}), so "
+                                     f"roster won't publish", {"files": others},
+                      fix=f"commit, stash or undo them in a terminal (git -C {repo.top} status), then publish")
+    text = read_text(repo.path)
+    try:
+        load_text(repo.path, text)
+    except Problem as e:
+        raise Problem(INVENTORY_ERROR, f"{repo.rel} doesn't load, so roster won't publish it: "
+                                       f"{e.details or e.message}", {"path": str(repo.path)},
+                      fix=f"fix {repo.rel} (or discard the Pending changes), then publish") from None
+
+    branch = out(repo.top, "symbolic-ref", "--quiet", "--short", "HEAD")
+    upstream = out(repo.top, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    remote = branch and out(repo.top, "config", f"branch.{branch}.remote")
+    merge = branch and out(repo.top, "config", f"branch.{branch}.merge")
+    if not (upstream and remote and merge):
+        raise Problem(NO_UPSTREAM, "this branch of the infra repo has no upstream, so there's nowhere to publish to",
+                      fix=f"set one in a terminal: git -C {repo.top} push -u origin {branch or 'main'}")
+    r = git(repo.top, "fetch", "--quiet", remote)
+    if r.returncode != 0:
+        raise Problem(PULL_FAILED, f"couldn't fetch {upstream} for the infra repo, so nothing was published",
+                      {"upstream": upstream},
+                      fix=f"check the network and your access to the repo; `git -C {repo.top} fetch` shows the same",
+                      details=r.stderr.strip() or None)
+    ahead = int(out(repo.top, "rev-list", "--count", "@{u}..HEAD") or 0)
+    behind = int(out(repo.top, "rev-list", "--count", "HEAD..@{u}") or 0)
+    if ahead:
+        raise Problem(UNPUSHED, f"this box's infra repo has {ahead} commit{'s' * (ahead != 1)} that aren't on "
+                                f"{upstream}, and roster publishes only its own", {"upstream": upstream,
+                                                                                  "ahead": ahead, "behind": behind},
+                      fix=f"push or drop them in a terminal (git -C {repo.top} log @{{u}}..), then publish")
+    if behind:
+        if git(repo.top, "diff", "--quiet", "HEAD", "@{u}", "--", repo.rel).returncode != 0:
+            raise Problem(REMOTE_MOVED, f"someone published {repo.rel} to {upstream} since this box pulled "
+                                        f"({behind} new commit{'s' * (behind != 1)}), so roster won't publish over "
+                                        "it", {"upstream": upstream, "behind": behind},
+                          fix="discard your Pending changes, :pull, and make them again; or merge in a terminal: "
+                              f"git -C {repo.top} stash && git pull --ff-only && git stash pop")
+        r = git(repo.top, "merge", "--ff-only", "--quiet", "@{u}")
+        if r.returncode != 0:
+            raise Problem(PULL_FAILED, f"couldn't fast-forward the infra repo to {upstream}, so nothing was "
+                                       "published", {"upstream": upstream},
+                          fix=f"see the details; `git -C {repo.top} pull --ff-only` shows the same",
+                          details=r.stderr.strip() or None)
+
+    old_text = repo.head_text() or ""
+    hosts = host_changes(repo.path, old_text, text)
+    groups = group_changes(repo.path, old_text, text)
+    msg = message.strip() if message and message.strip() else commit_message(hosts, groups)
+    r = git(repo.top, "commit", "--quiet", "--only", "-m", msg, "--", repo.rel)
+    if r.returncode != 0:
+        raise Problem(COMMIT_FAILED, "git didn't make the commit, so nothing was published", {"upstream": upstream},
+                      fix=f"see the details (often no git identity: git -C {repo.top} config user.name and "
+                          "user.email); the Pending changes are kept", details=(r.stderr or r.stdout).strip() or None)
+    commit = out(repo.top, "rev-parse", "HEAD")
+    target = merge.removeprefix("refs/heads/")
+    r = git(repo.top, "push", "--quiet", "--porcelain", remote, f"HEAD:{merge}")
+    if r.returncode != 0:
+        git(repo.top, "reset", "--quiet", "--soft", "HEAD~1")
+        git(repo.top, "reset", "--quiet", "--", repo.rel)
+        said = (r.stderr + r.stdout).strip()
+        moved = any(w in said for w in ("non-fast-forward", "fetch first"))
+        raise Problem(PUSH_FAILED,
+                      f"{upstream} moved while roster was publishing, so the push was refused; nothing was "
+                      "published" if moved else f"couldn't push to {upstream}; nothing was published",
+                      {"upstream": upstream, "rejected": moved},
+                      fix=":publish again (it fetches first)" if moved else
+                          f"check the network and your rights to push to {remote} {target}; the Pending changes "
+                          "are kept", details=said or None)
+    return {"commit": commit, "upstream": upstream, "message": msg, "hosts": hosts, "groups": groups,
+            "pulled": behind}
