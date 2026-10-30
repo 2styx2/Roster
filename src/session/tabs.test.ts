@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
 import type { SessionEvents } from "../backend/types";
 import { Tabs, type TabStatus } from "./tabs";
@@ -339,13 +339,13 @@ describe("Tabs", () => {
     const id = tabs.open(reviewed[0]!);
     attach(id);
     tabs.resize(id, { cols: 132, rows: 43 });
-    await settle();
-    expect(screen(id)).toContain("[resized to 132x43]");
+    // The fake shell answers after a few chained timers; wait for its line rather than a fixed
+    // sleep, which was too short under load.
+    await vi.waitFor(() => expect(screen(id)).toContain("[resized to 132x43]"));
     // and the next tab starts at that size
     const next = tabs.open(reviewed[1]!);
     attach(next);
-    await settle();
-    expect(screen(next)).toContain("(fake, 132x43)");
+    await vi.waitFor(() => expect(screen(next)).toContain("(fake, 132x43)"));
   });
 
   it("reconnects an ended tab in place, under the old output, through session.prepare again", async () => {
