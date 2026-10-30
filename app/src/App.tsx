@@ -92,7 +92,7 @@ import type { Platform } from "./platform/types";
 import { setFolded, usedHost } from "./state/appState";
 import { StateStore } from "./state/store";
 import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./theme/theme";
-import { chosenAppearance, registerThemePicker, ThemeChoice } from "./theme/picker";
+import { chosenAppearance, registerThemePicker, stateChoiceWins, ThemeChoice } from "./theme/picker";
 import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
@@ -290,7 +290,7 @@ export function App({
   const [store] = useState(() => new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
   // The Sidebar shown or hidden (issue #78): what the toggle chose is kept in the State, per mode,
-  // unless init.lua sets `modes.<mode>.sidebar`, which wins (as `theme` does over `:theme`).
+  // unless init.lua sets `modes.<mode>.sidebar`, which wins.
   const configSetsSidebar = config?.modes[viewMode].set?.includes("sidebar") ?? false;
   const storedSidebar = sidebarChoice(appState, viewMode);
   const layout = useMemo(() => {
@@ -298,22 +298,26 @@ export function App({
     if (configSetsSidebar || storedSidebar === null || isShown(base, "sidebar") === storedSidebar) return base;
     return togglePiece(base, "sidebar");
   }, [layouts, viewMode, configSetsSidebar, storedSidebar]);
-  // The Theme (ticket 30): a preview in the `themes` finder, else init.lua's `theme` if it names
-  // one, else the choice kept in the State, else the Config's (`auto` follows the OS).
+  // The Theme (ticket 30, decision Q69): a preview in the `themes` finder, else the choice kept in
+  // the State while it wins (init.lua leaves the Theme to it, or still names the Theme it was made
+  // over), else init.lua's `theme`, else the Config's (`auto` follows the OS).
   const [themeChoice] = useState(() => new ThemeChoice(store, registries.themes));
   const preview = useSyncExternalStore(themeChoice.subscribe, themeChoice.previewing);
   const configTheme = config && config.theme !== "auto" ? config.theme : null;
+  const configThemeAt = config?.lines.theme ?? null;
   // The State's choice (a registered Theme's id); appState re-renders when it changes.
   const stored = themeChoice.stored();
+  const storedOver = themeChoice.storedOver();
   const chosen = useMemo(
-    () => chosenAppearance(appearance, { configTheme, stored, preview }),
-    [appearance, configTheme, stored, preview],
+    () => chosenAppearance(appearance, { configTheme, stored, storedOver, preview }),
+    [appearance, configTheme, stored, storedOver, preview],
   );
+  const themeInEffect = stateChoiceWins({ configTheme, stored, storedOver }) ? stored : null;
   const theme = useTheme(registries.themes, chosen);
   useLayoutEffect(() => {
-    themeChoice.setConfigTheme(configTheme);
+    themeChoice.setConfigTheme(configTheme, configThemeAt);
     themeChoice.setActive(theme.id);
-  }, [themeChoice, configTheme, theme.id]);
+  }, [themeChoice, configTheme, configThemeAt, theme.id]);
   // The keycap hints (iteration 3 feedback): init.lua's `ui.hints`, else `:hints`'s choice in the
   // State (appState re-renders when it changes), else shown.
   const [hintsChoice] = useState(() => new HintsChoice(store));
@@ -640,11 +644,11 @@ export function App({
           options,
           config: config ?? defaultConfig,
           configPath,
-          state: { theme: stored, hints: hintsStored },
+          state: { theme: themeInEffect, hints: hintsStored },
           activeTheme: theme.id,
         },
       ),
-    [registries, commandList, keymap, options, config, configPath, stored, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources],
+    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources],
   );
   helpView.setContext(() => helpCtx);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
@@ -1450,7 +1454,7 @@ export function App({
               const source = platform.config;
               if (!source) return;
               setImporting({ ...importing, writing: true, problem: null });
-              const { base, result, date } = importing.preview;
+              const { base, result, date, theme: imported } = importing.preview;
               source.importApply({ base, result, date }).then(
                 () => {
                   setImporting(null);
@@ -1463,11 +1467,20 @@ export function App({
                         setStale("init.lua", false);
                         takeReport(r);
                       }
-                      setMessage(
-                        r?.error
-                          ? "Wrote Windows Terminal's profile into init.lua, which now has an error: the last good Config is still in use"
-                          : "Wrote Windows Terminal's profile into init.lua, and applied it",
-                      );
+                      if (r?.error) {
+                        return setMessage(
+                          "Wrote Windows Terminal's profile into init.lua, which now has an error: the last good Config is still in use",
+                        );
+                      }
+                      // Its Theme is chosen as `:theme` chooses one, over init.lua's `theme` as the
+                      // file now has it, never pinned there (decision Q69).
+                      let note = "";
+                      if (imported) {
+                        const c = r?.config;
+                        themeChoice.setConfigTheme(c && c.theme !== "auto" ? c.theme : null, c?.lines.theme ?? null);
+                        note = themeChoice.keep(imported);
+                      }
+                      setMessage(`Wrote Windows Terminal's profile into init.lua, and applied it${note ? `. ${note}` : ""}`);
                     },
                     () => {},
                   );

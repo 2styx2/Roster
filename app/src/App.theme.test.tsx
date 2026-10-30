@@ -1,6 +1,7 @@
-// The `:theme` picker through the App (ticket 30, decision Q51): a finder over every registered
-// Theme that previews live (the UI's tokens and the terminal's colours), reverts on Esc, keeps
-// the choice in the State on Enter, and gives way to init.lua's `theme`. `:theme NAME` too, in
+// The `:theme` picker through the App (ticket 30, decisions Q51 and Q69): a finder over every
+// registered Theme that previews live (the UI's tokens and the terminal's colours), reverts on Esc,
+// applies the choice and keeps it in the State on Enter, even over init.lua's `theme` until that
+// value changes. `:theme NAME` too, in
 // Standard and Focus. Fake Backend, stub terminal; user-event writes Ctrl+Space as {Control>} {/Control}.
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
@@ -20,7 +21,10 @@ type User = ReturnType<typeof userEvent.setup>;
 
 async function ready(opts: { state?: Record<string, unknown>; config?: ConfigReport } = {}) {
   const user = userEvent.setup();
-  const platform = memoryPlatform({ state: opts.state ?? { version: 1, recentHosts: [], folded: [], keepMe: 7 } });
+  const platform = memoryPlatform({
+    state: opts.state ?? { version: 1, recentHosts: [], folded: [], keepMe: 7 },
+    ...(opts.config ? { config: opts.config } : {}),
+  });
   render(
     <App
       backend={fakeBackend({ hosts })}
@@ -84,20 +88,38 @@ describe("The :theme picker", () => {
     expect(selected()).toHaveAttribute("data-label", "Nord");
   });
 
-  it("lets init.lua's theme win: the picker says so, previews, and keeps nothing", async () => {
-    const config: ConfigReport = { config: configWith({ theme: "tokyo-night" }), error: null, path: "/x/init.lua", version: 1 };
-    const { user, platform } = await ready({ state: { theme: "nord" }, config });
-    expect(themeOnScreen()).toBe("tokyo-night");
+  it("applies a choice over init.lua's theme and keeps it, through :source, until init.lua's value changes", async () => {
+    const pinned = (theme: string, version: number): ConfigReport => ({
+      config: configWith({ theme, set: ["theme"], lines: { theme: { file: "init.lua", line: 12 } } }),
+      error: null,
+      path: "/x/init.lua",
+      version,
+    });
+    const { user, platform } = await ready({ state: { theme: "nord" }, config: pinned("wt-import", 1) });
+    // A choice made before init.lua set its theme gives way to it.
+    expect(themeOnScreen()).toBe("roster-dark");
     await command(user, "theme");
-    expect(within(picker()).getByText(/set in init\.lua/)).toBeInTheDocument();
-    expect(selected()).toHaveAttribute("data-label", "Tokyo Night");
-    await user.keyboard("{ArrowUp}");
-    expect(themeOnScreen()).toBe("catppuccin-mocha");
-    await user.keyboard("{Enter}");
+    expect(within(picker()).getByText('init.lua:12 sets "wt-import"; Enter overrides it until that line changes')).toBeInTheDocument();
+    expect(within(picker()).queryByText(/only previews/)).toBeNull();
+    await user.keyboard("tokyo{Enter}");
     expect(themeOnScreen()).toBe("tokyo-night");
-    expect(await screen.findByText(/set in init\.lua \(theme = "tokyo-night"\)/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Theme Tokyo Night. init.lua:12 also sets theme = "wt-import": this choice stays until that line changes. Delete the line to unpin it.',
+      ),
+    ).toBeInTheDocument();
     await flush();
-    expect((platform.saved() as Record<string, unknown> | undefined)?.theme ?? "nord").toBe("nord");
+    expect(platform.saved()).toMatchObject({ theme: "tokyo-night", themeOver: "wt-import" });
+    // :source with the same init.lua keeps it.
+    platform.writeConfig(pinned("wt-import", 2));
+    await command(user, "source");
+    await screen.findByText("Reloaded init.lua");
+    expect(themeOnScreen()).toBe("tokyo-night");
+    // A new value in init.lua wins again.
+    platform.writeConfig(pinned("gruvbox", 3));
+    await command(user, "source");
+    await screen.findByText("Reloaded init.lua");
+    expect(themeOnScreen()).toBe("gruvbox");
   });
 
   for (const mode of ["standard", "focus"] as const) {

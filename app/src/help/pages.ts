@@ -239,7 +239,10 @@ function optionsPage(ctx: HelpContext): Block[] {
   const where = (name: string): Inline[] => {
     const s = optionSource(ctx.config, name, ctx.state);
     if (s.kind === "init.lua") return [code(s.at ? `${s.at.file}:${s.at.line}` : "init.lua")];
-    if (s.kind === "State") return [text(name === "theme" ? "State (:theme)" : "State (:hints)")];
+    if (s.kind === "State") {
+      if (name !== "theme") return [text("State (:hints)")];
+      return [text(s.over ? `State (:theme, over ${s.over.file}:${s.over.line})` : "State (:theme)")];
+    }
     return [text("default")];
   };
   const valueOf = (name: string): string => {
@@ -257,7 +260,9 @@ function optionsPage(ctx: HelpContext): Block[] {
       code(":theme"),
       " or ",
       code(":hints"),
-      " keeps when init.lua leaves it to them). ",
+      " keeps when init.lua leaves it to them, or one ",
+      code(":theme"),
+      " made over init.lua's own). ",
       code(":config"),
       " opens init.lua",
       ...(ctx.configPath ? [text(" ("), code(ctx.configPath), text(")")] : []),
@@ -288,9 +293,11 @@ function themesPage(ctx: HelpContext): Block[] {
     p(
       "Every registered Theme: the bundled ones, init.lua's and Plugins'. ",
       code(":theme"),
-      " picks one with a live preview; ",
+      " picks one with a live preview and keeps it; ",
       code('theme = "<id>"'),
-      " in init.lua sets it for good. ",
+      " in init.lua sets the one to start with, until ",
+      code(":theme"),
+      " chooses another (it wins again when you change that line). ",
       link("themes-guide", "The Themes guide"),
       " lists the tokens.",
     ),

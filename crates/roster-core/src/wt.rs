@@ -2,7 +2,9 @@
 //! the user's Windows Terminal. Reads Windows Terminal's `settings.json` (JSON with comments and
 //! trailing commas), takes its default profile over `profiles.defaults`, and writes the font,
 //! size, weight, cell height and cursor as `roster.set` calls, plus a Theme for the colour scheme,
-//! into init.lua between two marker lines. Nothing is written without a preview: [`preview`] gives
+//! into init.lua between two marker lines. The Theme is defined there but not pinned with
+//! `roster.set("theme", …)`: the app chooses it as `:theme` does, so `:theme` can still change it
+//! (decision Q69). Nothing is written without a preview: [`preview`] gives
 //! the diff, and [`apply`] writes only if init.lua is still what the preview read.
 //!
 //! The colour schemes Windows Terminal ships (Campbell, One Half Dark, …) aren't in the user's
@@ -385,12 +387,9 @@ fn cursor_name(c: CursorStyle) -> &'static str {
     }
 }
 
-/// What the import sets, as `(option name, Lua value)`.
+/// What the import sets, as `(option name, Lua value)`. Not `theme` (decision Q69).
 fn settings(p: &Profile) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    if let Some(s) = &p.scheme {
-        out.push(("theme".into(), lua_str(&theme_id(&s.name))));
-    }
     if let Some(font) = &p.font {
         let names: Vec<String> = font.iter().map(|f| lua_str(f)).collect();
         out.push(("terminal.font".into(), format!("{{ {} }}", names.join(", "))));
@@ -465,6 +464,7 @@ pub fn lua_block(p: &Profile, settings_path: &str, date: &str) -> String {
             b.push_str("  },\n");
         }
         b.push_str("})\n");
+        b.push_str("-- Chosen as :theme chooses it (kept in the app's State), so :theme can change it.\n");
     }
     if let Some(name) = &p.missing_scheme {
         b.push_str(&format!(
@@ -574,6 +574,9 @@ pub struct Preview {
     /// One line per thing it takes ("Font: Iosevka Nerd Font, 16 pt (21.3 px)").
     pub summary: Vec<String>,
     pub diff: Vec<DiffLine>,
+    /// The Theme it defines for the profile's colour scheme, which the app then chooses as
+    /// `:theme` does (decision Q69); none without a scheme.
+    pub theme: Option<String>,
     /// Options it sets that init.lua's own returned table also sets (that one wins).
     pub overridden: Vec<String>,
     /// There's no init.lua yet: it would be made from the commented-out example.
@@ -682,17 +685,23 @@ pub fn preview(dir: &Path, settings_text: &str, settings_path: &str, date: &str)
         summary.push(format!("Cell height: {} × the font size", lua_num(h)));
     }
     if let Some(s) = &profile.scheme {
-        summary.push(format!("Colours: {} → Theme {}", s.name, theme_id(&s.name)));
+        summary.push(format!(
+            "Colours: {} → Theme {}, chosen as :theme does",
+            s.name,
+            theme_id(&s.name)
+        ));
     }
     if let Some(c) = profile.cursor {
         summary.push(format!("Cursor: {}", cursor_name(c)));
     }
     summary.push(format!("Intense (bold) text: {}", profile.intense));
+    let theme = profile.scheme.as_ref().map(|s| theme_id(&s.name));
     Ok(Preview {
         settings_path: settings_path.into(),
         profile,
         summary,
         diff: diff(&old, &new),
+        theme,
         overridden,
         created: current.is_none(),
         base: fingerprint(current.as_deref()),

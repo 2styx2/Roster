@@ -6,7 +6,7 @@ import { CONFIG } from "../registry";
 import { builtinRegistries } from "../registries";
 import { StateStore } from "../state/store";
 import { defaultAppearance, type Theme } from "./theme";
-import { chosenAppearance, registerThemePicker, ThemeChoice } from "./picker";
+import { chosenAppearance, registerThemePicker, stateChoiceWins, ThemeChoice } from "./picker";
 import { rosterLight } from "./themes";
 import { finderResults, type FinderContext } from "../finder/sources";
 
@@ -29,9 +29,20 @@ describe("chosenAppearance", () => {
     expect(chosenAppearance(defaultAppearance, { configTheme: null, stored: "nord", preview: null }).theme).toBe("nord");
     expect(chosenAppearance(defaultAppearance, { configTheme: null, stored: "nord", preview: "gruvbox" }).theme).toBe("gruvbox");
   });
-  it("lets init.lua's theme win over the State", () => {
+  it("lets init.lua's theme win over a choice made before init.lua set it (decision Q69)", () => {
     const fromConfig = { ...defaultAppearance, theme: "tokyo-night" };
     expect(chosenAppearance(fromConfig, { configTheme: "tokyo-night", stored: "nord", preview: null }).theme).toBe("tokyo-night");
+    expect(chosenAppearance(fromConfig, { configTheme: "tokyo-night", stored: "nord", storedOver: "gruvbox", preview: null }).theme).toBe(
+      "tokyo-night",
+    );
+  });
+  it("keeps a :theme choice made over init.lua's theme until that value changes (decision Q69)", () => {
+    const fromConfig = { ...defaultAppearance, theme: "tokyo-night" };
+    expect(chosenAppearance(fromConfig, { configTheme: "tokyo-night", stored: "nord", storedOver: "tokyo-night", preview: null }).theme).toBe("nord");
+    expect(stateChoiceWins({ configTheme: "tokyo-night", stored: "nord", storedOver: "tokyo-night" })).toBe(true);
+    expect(stateChoiceWins({ configTheme: "gruvbox", stored: "nord", storedOver: "tokyo-night" })).toBe(false);
+    expect(stateChoiceWins({ configTheme: null, stored: "nord", storedOver: "tokyo-night" })).toBe(true);
+    expect(stateChoiceWins({ configTheme: null, stored: null })).toBe(false);
   });
 });
 
@@ -49,12 +60,39 @@ describe("ThemeChoice", () => {
     expect(choice.stored()).toBeNull();
   });
 
-  it("refuses an unknown name, and a choice while init.lua sets theme", async () => {
+  it("refuses an unknown name", async () => {
     const { choice, store } = await setup();
     expect(choice.choose("nope")).toMatch(/No Theme named nope/);
-    choice.setConfigTheme("gruvbox");
-    expect(choice.choose("nord")).toMatch(/set in init\.lua/);
     expect(store.get("theme")).toBeUndefined();
+  });
+
+  it("keeps a choice while init.lua sets theme, says once which line pins it, and remembers that value", async () => {
+    const { choice, store, platform, flush } = await setup();
+    choice.setConfigTheme("gruvbox", { file: "init.lua", line: 12 });
+    expect(choice.choose("nord")).toBe(
+      'Theme Nord. init.lua:12 also sets theme = "gruvbox": this choice stays until that line changes. Delete the line to unpin it.',
+    );
+    expect(store.get("theme")).toBe("nord");
+    expect(choice.inEffect()).toBe("nord");
+    expect(choice.choose("tokyo-night")).toBe("");
+    await flush();
+    expect(platform.saved()).toMatchObject({ theme: "tokyo-night", themeOver: "gruvbox" });
+  });
+
+  it("gives way to init.lua once its theme changes, and says nothing when the choice is init.lua's own", async () => {
+    const { choice } = await setup({ theme: "nord", themeOver: "gruvbox" });
+    choice.setConfigTheme("gruvbox");
+    expect(choice.inEffect()).toBe("nord");
+    choice.setConfigTheme("tokyo-night");
+    expect(choice.inEffect()).toBeNull();
+    expect(choice.choose("tokyo-night")).toBe("");
+  });
+
+  it("keeps a Theme that isn't registered yet (an import's, before :source registers it)", async () => {
+    const { choice, store } = await setup();
+    expect(choice.keep("wt-import")).toBe("");
+    expect(store.get("theme")).toBe("wt-import");
+    expect(choice.stored()).toBeNull();
   });
 
   it("previews, and tells its subscribers", async () => {
@@ -102,12 +140,14 @@ describe("the themes finder and :theme", () => {
     expect(choice.previewing()).toBeNull();
   });
 
-  it("notes when init.lua sets the theme", async () => {
+  it("notes when init.lua sets the theme: Enter still keeps the choice", async () => {
     const { registries, choice } = await setup();
     const source = registries.finders.get("themes")!;
     expect(source.note?.(undefined)).toBeUndefined();
-    choice.setConfigTheme("gruvbox");
-    expect(source.note?.(undefined)).toMatch(/set in init\.lua/);
+    choice.setConfigTheme("gruvbox", { file: "init.lua", line: 3 });
+    const note = source.note?.(undefined) ?? "";
+    expect(note).toBe('init.lua:3 sets "gruvbox"; Enter overrides it until that line changes');
+    expect(note).not.toMatch(/only previews/);
   });
 
   it("completes :theme with Theme ids", async () => {
