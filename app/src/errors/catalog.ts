@@ -388,7 +388,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     row: 35,
     codes: [61],
     where: ["this Box"],
-    fix: () => "Save to Bitwarden (`bw`), or make the item in the password manager and pick it as the Login.",
+    fix: () => "Save to Bitwarden (`bw`) or KeePassXC (`kp`), or make the item in the password manager and pick it as the Login.",
     actions: [],
   }),
   row("vault-write-failed", {

@@ -66,7 +66,7 @@ export interface FakeScenario {
   /** Milliseconds every call waits, to see loading states. */
   delay?: number;
   /** Where the vault starts (default: locked, like a fresh `roster serve`). */
-  vault?: { status: VaultStatusWord };
+  vault?: { status: VaultStatusWord; provider?: "bw" | "kp" };
   /** Every openSession() is refused with this (like a box roster hasn't set up: code 21). */
   sessionRefusal?: Refusal;
   /** Sessions to password-only Hosts are refused with this (their vault: 11, 12 or 14). */
@@ -185,6 +185,12 @@ const NOT_LOGGED_IN = "Bitwarden CLI isn't logged in on this box - run `bw login
 const MISSING_CLI = "`bw` is not installed on this box (install the Bitwarden CLI, e.g. `npm install -g @bitwarden/cli`)";
 const WRONG_PASSWORD = "Bitwarden unlock failed (wrong master password?)";
 const VAULT_LOCKED = "Bitwarden vault is locked - unlock it first";
+/** The same, from the KeePassXC provider (ticket 25): a local .kdbx, so "not logged in" is a missing database. */
+const KP_WORDS = {
+  notLoggedIn: "KeePassXC database /home/you/roster.kdbx isn't there - create it in KeePassXC, or fix providers: kp: database: in roster.yml",
+  missingCli: "`keepassxc-cli` is not installed on this box (KeePassXC, a local .kdbx: … Install: https://keepassxc.org/download/)",
+  wrongPassword: "KeePassXC unlock failed (wrong master password?)",
+};
 
 /** Like roster: a Host that doesn't enroll a key and whose ssh Login is a vault reference. */
 export function authOf(h: Host): SessionAuth {
@@ -304,6 +310,9 @@ export const fixtures: Record<string, FakeScenario> = {
   "not-logged-in": { hosts: makeHosts(12), vault: { status: "not-logged-in" } },
   "missing-cli": { hosts: makeHosts(12), vault: { status: "missing-cli" } },
   "no-vault": { hosts: makeHosts(12), vault: { status: "unsupported" } },
+  /** KeePassXC (ticket 25): a local .kdbx instead of Bitwarden. */
+  keepassxc: { hosts: makeHosts(12), vault: { status: "locked", provider: "kp" } },
+  "keepassxc-no-database": { hosts: makeHosts(12), vault: { status: "not-logged-in", provider: "kp" } },
   "not-set-up": {
     hosts: makeHosts(12),
     sessionRefusal: {
@@ -577,14 +586,16 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   /** What the Tauri shell answers for a call it stopped waiting for. */
   const late = () => new BackendCallError("The backend didn't answer in time.", null, null, true, true);
   let vault: VaultStatusWord = scenario.vault?.status ?? "locked";
+  const vaultName = scenario.vault?.provider ?? "bw";
+  const kp = vaultName === "kp";
   const vaultMessage = () =>
     vault === "not-logged-in"
-      ? (scenario.vaultMessage ?? NOT_LOGGED_IN)
+      ? (scenario.vaultMessage ?? (kp ? KP_WORDS.notLoggedIn : NOT_LOGGED_IN))
       : vault === "missing-cli"
-        ? (scenario.vaultMessage ?? MISSING_CLI)
+        ? (scenario.vaultMessage ?? (kp ? KP_WORDS.missingCli : MISSING_CLI))
         : undefined;
   const vaultStatus = (): VaultStatus => {
-    const provider = vault === "unsupported" ? null : "bw";
+    const provider = vault === "unsupported" ? null : vaultName;
     const message = vaultMessage();
     const signIn = vault === "not-logged-in" && scenario.signIn
       ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: scenario.signIn.server ?? null } }
@@ -605,17 +616,18 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   const unlock = async (password: string): Promise<ProviderStatus> => {
     await wait();
     if (vault === "not-logged-in") throw new BackendCallError(vaultMessage() ?? NOT_LOGGED_IN, VaultError.notLoggedIn);
-    if (vault === "missing-cli") throw new BackendCallError(MISSING_CLI, VaultError.cliMissing);
+    if (vault === "missing-cli") throw new BackendCallError(vaultMessage() ?? MISSING_CLI, VaultError.cliMissing);
     if (vault === "unsupported")
       throw new BackendCallError("no Host Login uses a vault with a master password", VaultError.unsupported);
-    if (password !== FAKE_PASSWORD) throw new BackendCallError(WRONG_PASSWORD, VaultError.wrongPassword);
+    if (password !== FAKE_PASSWORD)
+      throw new BackendCallError(kp ? KP_WORDS.wrongPassword : WRONG_PASSWORD, VaultError.wrongPassword);
     vault = "unlocked";
     if (scenario.relockAfterMs !== undefined) {
       setTimeout(() => {
         if (vault === "unlocked") vault = "locked";
       }, scenario.relockAfterMs);
     }
-    return { provider: "bw", status: vault };
+    return { provider: vaultName, status: vault };
   };
   // ---- vault.login, as roster answers it (README "Signing in: vault.login")
   let login: { id: string; step: SignInStep } | null = null;
@@ -794,7 +806,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         await wait();
         if (vault !== "locked" && vault !== "unlocked") return { locked: [] };
         vault = "locked";
-        return { locked: ["bw"] };
+        return { locked: [vaultName] };
       }),
     signIn: (start) => inOrder(() => signIn(start)),
     signInAnswer: (id, answer) => inOrder(() => signInAnswer(id, answer)),

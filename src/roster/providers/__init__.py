@@ -150,7 +150,8 @@ def near_names(name, names, n=5):
 
 PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "tool": str, "kind": str}
                           #   optional: "unlock": fn(password, ctx), "lock": fn(ctx), "status": fn(ctx) -> str,
-                          #             "not_logged_in": what to run when status is "unauthenticated"
+                          #             "not_logged_in": what to run when status is "unauthenticated" (or
+                          #                              fn(ctx) -> that text)
                           #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
                           #             "login_help": why this provider has no sign-in here, and what to do
                           #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
@@ -288,7 +289,10 @@ def status_message(name, status):
         return not_installed(name)
     if status == "unauthenticated":
         p = PROVIDERS.get(name, {})
-        return p.get("not_logged_in") or f"`{p.get('tool') or name}` isn't logged in on this box"
+        hint = p.get("not_logged_in")
+        if callable(hint):                               # it depends on this box (e.g. KeePassXC's database path)
+            hint = hint(Ctx(name, None))
+        return hint or f"`{p.get('tool') or name}` isn't logged in on this box"
     return None
 
 
@@ -407,7 +411,7 @@ def setup_providers(cfg):
         conf = conf or {}
         if not isinstance(conf, dict):
             die(f"providers.{name} in roster.yml must be a mapping")
-        PROVIDER_SETTINGS[name] = conf
+        PROVIDER_SETTINGS[name] = {**conf, "_base": base}     # _base: where relative paths in it start
         if conf.get("command"):
             if not re.match(r"^[a-z0-9_-]+$", name):
                 die(f"provider name {name!r} must be lowercase letters, digits, _ or -")
@@ -416,4 +420,4 @@ def setup_providers(cfg):
 
 
 # Built-in providers register themselves on import.
-from . import bitwarden, builtin, bw_login, onepassword  # noqa: E402,F401
+from . import bitwarden, builtin, bw_login, keepassxc, onepassword  # noqa: E402,F401

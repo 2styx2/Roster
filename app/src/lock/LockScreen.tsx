@@ -9,8 +9,11 @@ import { SignIn } from "./SignIn";
 import type { Vault, VaultView } from "./useVault";
 import { withCode } from "./withCode";
 
-const PROVIDER_NAMES: Record<string, string> = { bw: "Bitwarden" };
+const PROVIDER_NAMES: Record<string, string> = { bw: "Bitwarden", kp: "KeePassXC" };
 const providerName = (p: string) => PROVIDER_NAMES[p] ?? p;
+/** What `not-logged-in` means for a provider that has no account to sign in to (ticket 25):
+ * KeePassXC is a local .kdbx, so there it's a database this Box doesn't have. */
+const NOT_SET_UP: Record<string, string> = { kp: "KeePassXC has no database on this Box" };
 
 /** What the sign-in needs from the app: the errors catalog's rows and the clipboard. */
 interface LockExtras {
@@ -44,7 +47,8 @@ export function LockGate({
  * that can't be unlocked here at all. */
 function heading(view: VaultView): string {
   if (view.state === "signin") return `Sign in to ${providerName(view.provider)}`;
-  if (view.state === "unavailable" && view.status === "not-logged-in") return `${providerName(view.provider)} isn't signed in on this Box`;
+  if (view.state === "unavailable" && view.status === "not-logged-in")
+    return NOT_SET_UP[view.provider] ?? `${providerName(view.provider)} isn't signed in on this Box`;
   if (view.state === "unavailable" && view.status === "missing-cli") return `The ${providerName(view.provider)} CLI isn't installed`;
   return "Locked";
 }

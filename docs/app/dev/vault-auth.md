@@ -5,7 +5,7 @@ Research for ticket 31 (decision Q52), done on 2026-10-30. Every row below is ch
 **Installed on the dev Box (WSL, Fedora):**
 - `bw` **2026.9.1**: the standalone build in `~/.local/bin/bw`, a packaged Node app. Its JavaScript is embedded in the binary, so `strings` shows the real `login.command.ts` logic. That's the "CLI source" cited below.
 - `op`: **not installed**.
-- `keepassxc-cli`: **not installed**. roster has no KeePassXC provider yet either (ticket 25).
+- `keepassxc-cli`: **not installed**. Ticket 25 checked the provider against keepassxc-cli 2.8.0 (Fedora 44's package, unpacked into a scratch folder, on a throwaway `.kdbx`).
 
 Nothing here ran `bw login`, `bw logout` or `bw config server URL`. The only commands used were `--help`, `bw status` and `strings`.
 
@@ -33,7 +33,7 @@ Nothing here ran `bw login`, `bw logout` or `bw config server URL`. The only com
 | | Manual `op account add` / `op signin` (password, Secret Key) | ⚠️ Interactive prompts. The docs don't describe a non-interactive password, and say "For non-interactive shells in local environments, sign in with the 1Password desktop app integration instead." Sessions expire after 30 minutes idle | Not driven (13, same message) | [O1] |
 | | Two-step on manual sign-in | Not documented on the CLI pages. Community reports "MFA Type Not Supported" for security keys (not official, so not relied on) | n/a | [O1], [O4] (unofficial) |
 | | Service account (`OP_SERVICE_ACCOUNT_TOKEN`) | ✅ Env var, no sign-in or 2FA. Only vaults granted to the account | Already supported by roster's `op` provider (it's an env var on the Box, not a lock-screen sign-in) | [O3] |
-| KeePassXC `keepassxc-cli` | Master password | ✅ Prompts for the database password (`-q` silences the prompt). The man page doesn't document reading it from stdin | Ticket 25 (no provider yet). Will need verifying against the installed version then | [K1] |
+| KeePassXC `keepassxc-cli` | Master password | ✅ Reads the database password as the first line of stdin (prompt on stderr); `add -p` reads the entry's password as the next line. `-q` silences the prompt *and* the unlock errors (a wrong password becomes a bare exit 1), so roster doesn't use it | Ticket 25: the `kp` provider (verified with 2.8.0) | [K1] |
 | | Key file | ✅ `-k, --key-file <path>` | Ticket 25 | [K1] |
 | | YubiKey challenge-response | ✅ `-y, --yubikey <slot[:serial]>` (touch on the key) | Ticket 25 | [K1] |
 | | No password (key file only) | ✅ `--no-password` | Ticket 25 | [K1] |
@@ -48,7 +48,7 @@ Nothing here ran `bw login`, `bw logout` or `bw config server URL`. The only com
 4. **The server can't say "expired" apart from "wrong"** in a way the CLI exposes. A rejected code is one code (50), worded "wrong or expired".
 5. **API key and SSO only log in.** The vault then needs the master password (`bw unlock`) unless the account uses Key Connector, so both flows end with a master-password step.
 6. **Unsupported methods** are FIDO2/WebAuthn and Duo (the CLI filters them out), SSO with trusted-device or PRF decryption, and organization API keys. The message names the way out: the API key (which skips two-step login, [B1]), or adding a supported second method in the web vault.
-7. **1Password** sign-in belongs to the desktop app (biometrics) or a service-account token. roster doesn't type 1Password credentials. `vault.login` answers 13 with that advice. **KeePassXC** has no login, only an unlock, and arrives with ticket 25.
+7. **1Password** sign-in belongs to the desktop app (biometrics) or a service-account token. roster doesn't type 1Password credentials. `vault.login` answers 13 with that advice. **KeePassXC** has no login, only an unlock (ticket 25): `vault.login` answers 13.
 
 ## Creating items (ticket 13)
 

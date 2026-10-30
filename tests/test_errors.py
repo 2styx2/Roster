@@ -23,7 +23,7 @@ groups:
       dup: {ip: 10.0.0.7, auth: "bw:dup ssh"}
       nopw: {ip: 10.0.0.9, auth: "bw:nopw ssh"}
       field: {ip: 10.0.0.6, auth: "bw:esx ssh#enabel"}
-      kp: {ip: 10.0.0.10, auth: "kp:esx ssh"}
+      keeper: {ip: 10.0.0.10, auth: "keeper:esx ssh"}
       noone: {ip: 10.0.0.11, user: CHANGE-ME, auth: "bw:esx ssh"}
 """
 
@@ -67,9 +67,9 @@ def test_prepare_item_without_the_field_the_login_names(pw_serve):
 
 
 def test_prepare_login_with_a_provider_this_box_doesnt_have(pw_serve):
-    err = pw_serve.call("session.prepare", {"host": "kp"})["error"]
+    err = pw_serve.call("session.prepare", {"host": "keeper"})["error"]
     assert err["code"] == 31
-    assert err["message"] == "kp's ssh Login uses 'kp:', which isn't set up on this box"
+    assert err["message"] == "keeper's ssh Login uses 'keeper:', which isn't set up on this box"
     assert "roster providers" in err["data"]["fix"]
 
 
