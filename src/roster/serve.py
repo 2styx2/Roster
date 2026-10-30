@@ -27,6 +27,8 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CLI_MISSING,
     GROUP_NOT_EMPTY,
     HOST_EXISTS,
+    HOST_KEY_CHANGED_WHILE_ASKED,
+    HOST_KEY_UNKNOWN,
     INVALID_HOST,
     INVENTORY_ERROR,
     ITEM_EXISTS,
@@ -55,9 +57,9 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     write_problem,
 )
 from .providers import PROVIDERS, setup_providers
-from .sshops import in_ssh_config, record_host_key, write_ssh_config
+from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 10            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 11            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -186,7 +188,9 @@ def text_param(params, key):
 def session_prepare(state, params):
     """What the app runs in a PTY to open a Session: the system ssh, never a secret.
     It uses the ssh-config alias `roster setup`/`sync` writes (Host NAME), so the key, user, port,
-    known_hosts and connection sharing all come from the config, exactly as `roster run` does."""
+    known_hosts and connection sharing all come from the config, as `roster run` does, except that ssh checks the
+    host key strictly: a Host with no recorded key is refused with 44 before anything connects, so the app can
+    ask (ticket 36: host.scan_key, then host.trust_key)."""
     name = text_param(params, "host")
     h = state.inventory()["hosts"].get(name)
     if h is None:
@@ -202,8 +206,25 @@ def session_prepare(state, params):
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
     if not h["enroll"] and diagnose.password_login(h):
         return password_session(state, h, ssh)
-    return {"argv": [ssh, "-o", "BatchMode=yes", h["name"]], "env": {},
+    known_key(h)
+    return {"argv": [ssh, *STRICT, "-o", "BatchMode=yes", h["name"]], "env": {},
             "host": h["name"], "auth": "key"}
+
+
+def known_key(h):
+    """Refuse (44, with the address to ask about) a Session to a Host roster has recorded no host key for. It comes
+    after every other check, so the app only asks about a key when trusting it is all that's left to do."""
+    if not recorded_host_keys(h):
+        raise RpcError(HOST_KEY_UNKNOWN, f"roster hasn't seen {h['name']}'s host key before",
+                       {"address": h["ip"], "port": h["ssh"]["port"]},
+                       fix="compare its fingerprint with the Host's console or owner, then trust it when the app "
+                           f"asks, or run `roster setup --only {h['name']}`")
+
+
+# An app Session never trusts a host key on its own (Q60): the key must already be in roster's known hosts, put
+# there by `roster setup`, a verified add or edit, or host.trust_key after the app asked. On the command line it
+# wins over the `StrictHostKeyChecking accept-new` in the Host block, which `roster ssh`/`run` keep.
+STRICT = ["-o", "StrictHostKeyChecking=yes"]
 
 
 def password_session(state, h, ssh):
@@ -215,8 +236,9 @@ def password_session(state, h, ssh):
         raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
                                    "need `roster serve`")
     diagnose.check_login(h)
+    known_key(h)
     token = state.askpass.mint(h, h["name"])
-    return {"argv": [ssh, "-o", "NumberOfPasswordPrompts=1",
+    return {"argv": [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
 
@@ -399,13 +421,51 @@ def typed_login(state, params, name):
 
 
 def host_scan_key(state, params):
-    """The host key at an address, to show the user before host.add's first login there (diagnose.scan_key)."""
+    """The host key at an address, to show the user before host.add's first login there (diagnose.scan_key).
+    With params.host instead, a Host's (its address and port): the key a Session asks about (ticket 36)."""
+    if "host" in params:
+        h = known_host(state, params)
+        return {"host": h["name"], "address": h["ip"], "port": h["ssh"]["port"], **diagnose.scan_key(h)}
     fields = add_fields({"address": params.get("address"), "port": params.get("port")})
     if "ip" not in fields:
         raise RpcError(INVALID_PARAMS, "params.address must be a non-empty string")
     port = fields.get("port", 22)
     h = {"name": params.get("name") or fields["ip"], "ip": fields["ip"], "ssh": {"port": port}}
     return {"address": fields["ip"], "port": port, **diagnose.scan_key(h)}
+
+
+def known_host(state, params):
+    """The Host named by params.host (exact name)."""
+    name = text_param(params, "host")
+    h = state.inventory()["hosts"].get(name)
+    if h is None:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    return h
+
+
+def host_trust_key(state, params):
+    """Record the host key the user was shown (host.scan_key {host}) and trusted, so the Session can open (ticket
+    36, decision Q60). It fetches the key again first and records it only if the Host still offers exactly that
+    fingerprint (else 23); a key that differs from one already recorded is never trusted here (43, Q44)."""
+    h = known_host(state, params)
+    asked = params.get("fingerprint")
+    if not isinstance(asked, str) or not asked.startswith("SHA256:"):
+        raise RpcError(INVALID_PARAMS, "params.fingerprint must be the SHA256:... fingerprint the user was shown")
+    key, recorded = diagnose.offered_key(h)
+    if recorded == "changed":
+        raise diagnose.changed_key(h, recorded_host_keys(h), key)
+    offered = fingerprint(key)
+    if offered != asked:
+        raise RpcError(HOST_KEY_CHANGED_WHILE_ASKED,
+                       f"{h['name']}'s host key changed while roster was asking - nothing was recorded",
+                       {"asked": asked, "offered": offered},
+                       fix="don't trust it blindly: compare the new fingerprint with the Host's console or owner, "
+                           "then open the Session again to see it",
+                       details=f"asked about {asked}; now offered {key.get_name()} {offered}")
+    if recorded == "none":
+        record_host_key(h, key.get_name(), key.get_base64())
+    return {"host": h["name"], "address": h["ip"], "port": h["ssh"]["port"], "key_type": key.get_name(),
+            "fingerprint": offered, "recorded": recorded == "none"}
 
 
 def host_add(state, params):
@@ -716,6 +776,7 @@ METHODS["group.delete"] = group_delete
 METHODS["inventory.reload"] = inventory_reload
 METHODS["inventory.watch"] = inventory_watch
 METHODS["host.scan_key"] = host_scan_key
+METHODS["host.trust_key"] = host_trust_key
 METHODS["host.add"] = host_add
 METHODS["host.review"] = host_review
 METHODS["inventory.pull"] = inventory_pull
