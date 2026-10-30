@@ -509,6 +509,7 @@ struct OpenedSession {
 /// Host (ticket 16) the app sends the `password` the user typed (moved into serve's request and
 /// dropped with it, as `vault_unlock`'s), and `save` asks serve to hold it for "Save to vault".
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri fills each argument from the call or its state
 async fn session_open(
     state: tauri::State<'_, Arc<BackendState>>,
     sessions: tauri::State<'_, Arc<SessionManager>>,
@@ -554,6 +555,7 @@ async fn session_open(
 /// logged, stored or put in an error. What comes back carries only an askpass token. With `save`
 /// ("Save to vault", ticket 15) serve holds the password for `quick.save`; only its id comes back.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri fills each argument from the call or its state
 async fn quick_session_open(
     state: tauri::State<'_, Arc<BackendState>>,
     sessions: tauri::State<'_, Arc<SessionManager>>,
