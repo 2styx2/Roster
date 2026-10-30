@@ -28,7 +28,19 @@ function Glyph({ name }: { name: keyof typeof GLYPHS }) {
   );
 }
 
-export function TitleBar({ controls, title = "Roster" }: { controls?: WindowControls | undefined; title?: string }) {
+export function TitleBar({
+  controls,
+  title = "Roster",
+  start,
+  end,
+}: {
+  controls?: WindowControls | undefined;
+  title?: string;
+  /** The toolbar's controls by the mark (the Sidebar's toggle). */
+  start?: React.ReactNode;
+  /** The toolbar's controls by the window's buttons (decision Q65). */
+  end?: React.ReactNode;
+}) {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => controls?.watchMaximized(setMaximized), [controls]);
 
@@ -40,6 +52,9 @@ export function TitleBar({ controls, title = "Roster" }: { controls?: WindowCont
           {title}
         </span>
       </div>
+      {start}
+      <div className="titlebar-fill" data-tauri-drag-region />
+      {end}
       {controls && (
         <div className="window-controls">
           <button type="button" tabIndex={-1} aria-label="Minimize" onMouseDown={keepFocus} onClick={controls.minimize}>

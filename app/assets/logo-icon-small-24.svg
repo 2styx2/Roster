@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- roster app icon, the small cut at 24 px (decision Q59, issue #78 / Q65): drawn on the 24 px grid itself (viewBox 0 0 N N, lines on pixel centres), so the network R keeps its nodes at taskbar size: the stem-top and bowl nodes, the Box square at the foot, the leg out to the one apricot Host ring in the orbit's gap. Mid-tone neutral #808183 and mid apricot #cc5c2b on a transparent background, as logo-icon.svg. scripts/icons.mjs puts each cut in icon.ico at its own size. -->
+  <path d="M15.03 22.57A11 11 0 1 1 22.57 15.03" fill="none" stroke="#808183" stroke-width="1" stroke-linecap="round"/>
+  <path d="M7.5 5.5V15.5M7.5 5.5H12.5L16.5 9L12.5 12.5H7.5M12.5 12.5L15.8 15.8" fill="none" stroke="#808183" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#808183"><circle cx="7.5" cy="5.5" r="2.5"/><circle cx="16.5" cy="9" r="2.5"/></g>
+  <rect x="5" y="15" width="5" height="5" rx="1" fill="#808183"/>
+  <circle cx="18.5" cy="18.5" r="3" fill="none" stroke="#cc5c2b" stroke-width="1.5"/>
+</svg>

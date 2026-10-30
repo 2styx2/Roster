@@ -413,10 +413,21 @@ async fn folders_write(config: tauri::State<'_, ConfigState>, text: String) -> R
     blocking(move || config::folders::write(&dir, &text).map_err(|e| e.to_string())).await
 }
 
-/// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change.
+/// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change. With
+/// `reviewed: false` (API 9) it marks the Host unreviewed again; `reviewed` is sent only then, so a
+/// review reads exactly as it did for an older roster.
 #[tauri::command]
-async fn host_review(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
-    call(&state, "host.review", json!({ "host": host })).await
+async fn host_review(
+    state: tauri::State<'_, Arc<BackendState>>,
+    host: String,
+    reviewed: Option<bool>,
+) -> Result<Value, CallError> {
+    let params = if reviewed == Some(false) {
+        json!({ "host": host, "reviewed": false })
+    } else {
+        json!({ "host": host })
+    };
+    call(&state, "host.review", params).await
 }
 
 fn session_error(e: SessionError) -> CallError {

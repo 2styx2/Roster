@@ -72,8 +72,9 @@ export interface CommandContext {
   inventory(op: InventoryOp): void;
   /** Every group's name, in roster.yml order. */
   groupNames(): readonly string[];
-  /** Marks the Host, or the selected one, reviewed (ticket 11). */
-  review(host: string | null): void;
+  /** Marks the Host, or the selected one, reviewed (ticket 11); `reviewed: false` un-reviews it
+   * (issue #78), for a review made by mistake. */
+  review(host: string | null, reviewed?: boolean): void;
   /** Shows the Pending changes; `discard` asks to discard them straight away, `publish` opens
    * the Publish step (the diff for a last look, and the commit message). */
   showChanges(then?: "discard" | "publish"): void;
@@ -214,6 +215,15 @@ export const builtinCommands: readonly CommandDef[] = [
     optionalArg: true,
     label: (h) => (h ? `Mark ${h} reviewed` : "Mark a Host reviewed, so it can be opened"),
     run: (ctx, h) => ctx.review(h ?? null),
+  },
+  {
+    id: "unreview",
+    source: BUILTIN,
+    area: "Inventory",
+    arg: "host",
+    optionalArg: true,
+    label: (h) => (h ? `Mark ${h} unreviewed` : "Mark a Host unreviewed again (a review made by mistake)"),
+    run: (ctx, h) => ctx.review(h ?? null, false),
   },
   { id: "changes", source: BUILTIN, area: "Inventory", label: () => "Show the Pending changes", run: (ctx) => ctx.showChanges() },
   {

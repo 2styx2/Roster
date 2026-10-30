@@ -1,4 +1,4 @@
-// The Live Inventory's commands (ticket 28, decision Q45): `:host add|remove|rename|move` and
+// The Live Inventory's commands (ticket 28, decision Q45): `:host add|remove|rename|move|review|unreview` and
 // `:group new|rename|delete`. Every Sidebar action for Hosts and groups (`+` on a group heading,
 // the row buttons, dragging a Host to another group, the `␣` keys) runs one of these lines, so
 // they work the same in Standard and Focus. What's left out comes from the Sidebar's cursor (or the
@@ -16,7 +16,7 @@ export type InventoryOp =
   | { op: "group-rename"; group: string; to: string }
   | { op: "group-delete"; group: string; to?: string };
 
-export const HOST_SUBCOMMANDS = ["add", "remove", "rename", "move"] as const;
+export const HOST_SUBCOMMANDS = ["add", "remove", "rename", "move", "review", "unreview"] as const;
 export const GROUP_SUBCOMMANDS = ["new", "rename", "delete"] as const;
 
 const words = (text: string | undefined) => (text ?? "").trim().split(/\s+/).filter(Boolean);
@@ -28,6 +28,10 @@ function runHost(ctx: CommandContext, arg: string | undefined) {
   const [sub, a, b, ...rest] = words(arg);
   const what = sub?.toLowerCase();
   if (what === "add") return ctx.addHost(a ?? cursorGroup(ctx) ?? undefined);
+  if (what === "review" || what === "unreview") {
+    if (b) return ctx.say(`host ${what} takes one Host`);
+    return ctx.review(a ?? null, what === "review");
+  }
   if (what !== "remove" && what !== "rename" && what !== "move") {
     return ctx.say(`host takes ${HOST_SUBCOMMANDS.join(", ")} (not ${sub ?? "nothing"})`);
   }
@@ -64,7 +68,8 @@ function completeHost(arg: string, hostNames: readonly string[], groupNames: rea
   if (parts.length === 1) return HOST_SUBCOMMANDS.filter(startsWith(sub)).map((s) => (s === "add" ? s : `${s} `));
   if (sub === "add") return parts.length === 2 ? groupNames.filter(startsWith(host)).map((g) => `add ${g}`) : [];
   if (parts.length === 2 && (HOST_SUBCOMMANDS as readonly string[]).includes(sub)) {
-    return [...hostNames].sort().filter(startsWith(host)).map((h) => `${sub} ${h}${sub === "remove" ? "" : " "}`);
+    const last = sub === "remove" || sub === "review" || sub === "unreview";
+    return [...hostNames].sort().filter(startsWith(host)).map((h) => `${sub} ${h}${last ? "" : " "}`);
   }
   if (parts.length === 3 && sub === "move") return groupNames.filter(startsWith(group)).map((g) => `move ${host} ${g}`);
   return [];
@@ -93,7 +98,9 @@ export const hostCommand: CommandDef = {
     if (sub === "remove") return host ? `Remove ${host} from the Inventory (asks first)` : "Remove a Host from the Inventory (asks first)";
     if (sub === "rename") return host ? `Rename ${host}` : "Rename a Host";
     if (sub === "move") return host ? `Move ${host} to another group` : "Move a Host to another group";
-    return "Hosts: add, remove, rename, move";
+    if (sub === "review") return host ? `Mark ${host} reviewed` : "Mark a Host reviewed, so it can be opened";
+    if (sub === "unreview") return host ? `Mark ${host} unreviewed` : "Mark a Host unreviewed again";
+    return "Hosts: add, remove, rename, move, review, unreview";
   },
   run: runHost,
   complete: (arg, hosts, ctx) => completeHost(arg, hosts, ctx?.groupNames ?? []),

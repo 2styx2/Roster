@@ -282,6 +282,9 @@ export const EditError = {
 /** The first `api_version` with `host.add`, `host.scan_key` and `host.review` (ticket 11). */
 export const ADD_API_VERSION = 6;
 
+/** The first `api_version` whose `host.review` takes `reviewed: false` (un-review; issue #78). */
+export const UNREVIEW_API_VERSION = 9;
+
 /** `host.add`'s params. A Login is either `auth` (an existing vault item, `bw:<host> ssh`) or
  * `password` (typed into the form, saved as `item` after the test login). Without one the Host
  * goes in unreviewed. `host_key` is the fingerprint the user confirmed for a new address. */
@@ -537,6 +540,7 @@ export interface Backend {
   /** `host.add`: test the Login, save a typed password to the vault, add the Host as a Pending
    * change (decision Q43). Rejects with the failed step's code and `data.steps`, or AddError. */
   addHost(params: AddHostParams): Promise<HostAdd>;
-  /** `host.review`: mark a Host reviewed (only that flag), as a Pending change. */
-  reviewHost(host: string): Promise<HostUpdate>;
+  /** `host.review`: mark a Host reviewed (only that flag), as a Pending change; `reviewed: false`
+   * (API 9) marks it unreviewed again, for a review made by mistake. */
+  reviewHost(host: string, reviewed?: boolean): Promise<HostUpdate>;
 }

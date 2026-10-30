@@ -2,7 +2,7 @@
 // tokens so it follows every Theme. The R, its orbit and the Box at the foot of the stem are the
 // text colour (faded as in the masters); the one accent is the Host where the orbit breaks, the
 // node the leg reaches. The app icon is the same drawing with no tile either, in one mid-tone
-// neutral that reads on light and dark taskbars (assets/logo-icon.svg and logo-icon-small.svg,
+// neutral that reads on light and dark taskbars (assets/logo-icon.svg and the logo-icon-small*.svg cuts,
 // rendered by app/scripts/icons.mjs; decision Q59).
 
 interface Cut {

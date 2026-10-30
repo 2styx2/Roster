@@ -137,7 +137,7 @@ export function tauriBackend(): Backend {
     scanKey: (address, port) => call<ScannedKey>("host_scan_key", { address, port }),
     // A typed password goes once to serve's stdin, like vault_unlock's.
     addHost: (params: AddHostParams) => call<HostAdd>("host_add", { params }),
-    reviewHost: (host) => call<HostUpdate>("host_review", { host }),
+    reviewHost: (host, reviewed = true) => call<HostUpdate>("host_review", { host, reviewed }),
     // The Live Inventory (ticket 28): one allow-listed Tauri command for its methods.
     removeHost: (host) => inventoryCall("host.remove", { host }),
     renameHost: (host, to) => inventoryCall("host.rename", { host, to }),

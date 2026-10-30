@@ -152,10 +152,10 @@ describe("Finders in Focus", () => {
     expect(visibleSession()).toBe(`Session ${h2}`);
   });
 
-  it("␣ e opens the Sidebar's tree as a finder: Folders and the Inventory, with paths", async () => {
+  it("␣ t opens the Sidebar's tree as a finder: Folders and the Inventory, with paths", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}m`);
-    await user.keyboard(`${LEADER}e`);
+    await user.keyboard(`${LEADER}t`);
     expect(finder()).toHaveAccessibleName("Find in the tree");
     await user.keyboard(h1);
     const first = within(finder()).getAllByRole("option")[0]!;
@@ -181,7 +181,7 @@ describe("Finders in Focus", () => {
   it("says why an unreviewed Host can't be opened, and stays open", async () => {
     const { user } = await ready();
     const unreviewed = hosts.hosts.find((h) => !h.reviewed)!.name;
-    await user.keyboard(`${LEADER}m${LEADER}e`);
+    await user.keyboard(`${LEADER}m${LEADER}t`);
     await user.keyboard(`${unreviewed}{Enter}`);
     expect(within(finder()).getByRole("status")).toHaveTextContent(/isn't reviewed/);
   });

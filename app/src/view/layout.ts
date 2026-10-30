@@ -22,9 +22,6 @@ export interface ModeLayout {
   fullscreen: boolean;
   /** The pieces, in order within each place (top: top to bottom; left: outside in). */
   pieces: readonly Placement[];
-  /** How the Sidebar's tree (Folders, Inventory) is reached: the Sidebar piece, or the tree
-   * finder as an overlay. `␣ e` shows or hides that. */
-  tree: "sidebar" | "finder";
   /** The bar `␣ s` shows or hides. */
   bar: string;
   /** A hint on entering, saying how to leave. */
@@ -33,6 +30,8 @@ export interface ModeLayout {
   sections: readonly string[] | null;
   /** The status bar's segments by id (STATUS_SEGMENTS), in order; null shows them all. */
   segments: readonly string[] | null;
+  /** The toolbar's controls by id (the toolbar registry), in order; null: the default set. */
+  controls: readonly string[] | null;
 }
 
 /** The status bar's segments, in their default order. */
@@ -45,6 +44,7 @@ export interface ModePieces {
   sidebar: { shown: boolean; side: "left" | "right"; sections: readonly string[] | null };
   sessionbar: { shown: boolean; at: "top" | "bottom" };
   statusbar: { shown: boolean; segments: readonly string[] | null };
+  toolbar: { shown: boolean; controls: readonly string[] | null };
 }
 
 export type Layouts = Record<ViewMode, ModeLayout>;
@@ -59,6 +59,7 @@ export function defaultModePieces(options: Pick<Options, "sidebar" | "statusBar"
       sidebar: { shown: options.sidebar.visible, side: options.sidebar.side, sections: null },
       sessionbar: { shown: false, at: "bottom" },
       statusbar: { shown: options.statusBar.visible, segments: null },
+      toolbar: { shown: true, controls: null },
     },
     focus: {
       fullscreen: true,
@@ -66,27 +67,29 @@ export function defaultModePieces(options: Pick<Options, "sidebar" | "statusBar"
       sidebar: { shown: false, side: "left", sections: null },
       sessionbar: { shown: sessionbar !== false, at: sessionbar || "bottom" },
       statusbar: { shown: false, segments: null },
+      toolbar: { shown: false, controls: null },
     },
   };
 }
 
-/** A mode's layout from its pieces. Standard reaches the tree through the Sidebar (`␣ e` shows
- * it even when it starts hidden); another mode does only if it shows the Sidebar, and through
- * the tree finder otherwise. */
+/** A mode's layout from its pieces. `␣ e` shows or hides the Sidebar in every mode (issue #78);
+ * the tree finder (`␣ t`) reaches the same tree as an overlay. */
 export function modeLayout(mode: ViewMode, p: ModePieces): ModeLayout {
   return {
     fullscreen: p.fullscreen,
     pieces: [
       { id: "titlebar", at: "top", shown: p.titlebar },
+      // In the title bar when there is one; else a bar of its own at the top.
+      { id: "toolbar", at: "top", shown: p.toolbar.shown },
       { id: "sidebar", at: p.sidebar.side, shown: p.sidebar.shown },
       { id: "sessionbar", at: p.sessionbar.at, shown: p.sessionbar.shown },
       { id: "statusbar", at: "bottom", shown: p.statusbar.shown },
     ],
-    tree: mode === "standard" || p.sidebar.shown ? "sidebar" : "finder",
     bar: mode === "standard" ? "statusbar" : "sessionbar",
     hint: mode === "focus",
     sections: p.sidebar.sections,
     segments: p.statusbar.segments,
+    controls: p.toolbar.controls,
   };
 }
 
@@ -128,7 +131,12 @@ export function otherMode(mode: ViewMode): ViewMode {
   return mode === "standard" ? "focus" : "standard";
 }
 
-const PIECE_NAMES: Record<string, string> = { sidebar: "Sidebar", statusbar: "Status bar", sessionbar: "Session bar" };
+const PIECE_NAMES: Record<string, string> = {
+  sidebar: "Sidebar",
+  statusbar: "Status bar",
+  sessionbar: "Session bar",
+  toolbar: "Toolbar",
+};
 
 /** What to say after `␣ e` / `␣ s` showed or hid a piece: it lasts until the Config changes the
  * modes (or the app restarts), so name the option that keeps it (ticket 32). */

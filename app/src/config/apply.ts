@@ -249,6 +249,10 @@ export function registerConfig(registries: Registries, c: Config): { dispose: ()
     for (const id of m.sidebar.sections ?? []) {
       if (!sections.has(id)) warn(null, `modes.${mode}.sidebar.sections: no section named "${id}" (there's ${[...sections].join(", ")})`);
     }
+    const controls = registries.toolbar.list().map((t) => t.id);
+    for (const id of m.toolbar.controls ?? []) {
+      if (!controls.includes(id)) warn(null, `modes.${mode}.toolbar: no control named "${id}" (there's ${controls.join(", ")})`);
+    }
     for (const id of m.statusbar.segments ?? []) {
       if (!(STATUS_SEGMENTS as readonly string[]).includes(id)) {
         warn(null, `modes.${mode}.statusbar: no segment named "${id}" (there's ${STATUS_SEGMENTS.join(", ")})`);

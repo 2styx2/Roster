@@ -642,6 +642,11 @@ impl Default for Modes {
                     shown: true,
                     segments: None,
                 },
+                toolbar: ToolbarPiece {
+                    shown: true,
+                    controls: None,
+                },
+                set: Vec::new(),
             },
             focus: ModeLayout {
                 fullscreen: true,
@@ -659,6 +664,11 @@ impl Default for Modes {
                     shown: false,
                     segments: None,
                 },
+                toolbar: ToolbarPiece {
+                    shown: false,
+                    controls: None,
+                },
+                set: Vec::new(),
             },
         }
     }
@@ -673,6 +683,12 @@ pub struct ModeLayout {
     pub sidebar: SidebarPiece,
     pub sessionbar: SessionBarPiece,
     pub statusbar: StatusBarPiece,
+    /// The visible controls for common commands (decision Q65): in the title bar, or a bar of
+    /// their own at the top when the mode has no title bar.
+    pub toolbar: ToolbarPiece,
+    /// The pieces `init.lua` set, by name ("sidebar", "toolbar"…): what it sets wins over what the
+    /// app keeps in the State (the Sidebar shown or hidden, issue #78). Empty for the defaults.
+    pub set: Vec<String>,
 }
 
 /// What `init.lua` says about the modes: only what it sets, laid over each mode's defaults.
@@ -693,16 +709,31 @@ struct ModePatch {
     sidebar: Option<SidebarPiece>,
     sessionbar: Option<SessionBarPiece>,
     statusbar: Option<StatusBarPiece>,
+    toolbar: Option<ToolbarPiece>,
 }
 
 impl ModePatch {
     fn over(self, base: ModeLayout) -> ModeLayout {
+        let set = [
+            ("fullscreen", self.fullscreen.is_some()),
+            ("titlebar", self.titlebar.is_some()),
+            ("sidebar", self.sidebar.is_some()),
+            ("sessionbar", self.sessionbar.is_some()),
+            ("statusbar", self.statusbar.is_some()),
+            ("toolbar", self.toolbar.is_some()),
+        ]
+        .into_iter()
+        .filter(|(_, given)| *given)
+        .map(|(name, _)| name.to_string())
+        .collect();
         ModeLayout {
             fullscreen: self.fullscreen.unwrap_or(base.fullscreen),
             titlebar: self.titlebar.unwrap_or(base.titlebar),
             sidebar: self.sidebar.unwrap_or(base.sidebar),
             sessionbar: self.sessionbar.unwrap_or(base.sessionbar),
             statusbar: self.statusbar.unwrap_or(base.statusbar),
+            toolbar: self.toolbar.unwrap_or(base.toolbar),
+            set,
         }
     }
 }
@@ -851,6 +882,48 @@ impl<'de> Deserialize<'de> for StatusBarPiece {
                 Ok(StatusBarPiece {
                     shown: true,
                     segments: Some(segments),
+                })
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+/// The toolbar (decision Q65): `true`, `false`, or its controls in order (`{ "add", "find" }`,
+/// ids from the app's toolbar registry: "sidebar", "find", "add", "changes", "publish", and the
+/// ones not shown by default, "cmdline", "keys", "lock", "mode"); null: the default set.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ToolbarPiece {
+    pub shown: bool,
+    pub controls: Option<Vec<String>>,
+}
+
+impl<'de> Deserialize<'de> for ToolbarPiece {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = ToolbarPiece;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("true, false, or a list of controls such as { \"add\", \"find\" }")
+            }
+            fn visit_bool<E: de::Error>(self, v: bool) -> Result<ToolbarPiece, E> {
+                Ok(ToolbarPiece {
+                    shown: v,
+                    controls: None,
+                })
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<ToolbarPiece, A::Error> {
+                let controls = ListVisitor::<String>::new().visit_seq(seq)?;
+                Ok(ToolbarPiece {
+                    shown: true,
+                    controls: Some(controls),
+                })
+            }
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<ToolbarPiece, A::Error> {
+                let controls = ListVisitor::<String>::new().visit_map(map)?;
+                Ok(ToolbarPiece {
+                    shown: true,
+                    controls: Some(controls),
                 })
             }
         }

@@ -147,6 +147,9 @@ return {
       sidebar = { side = "left" },
       sessionbar = false,
       statusbar = true,
+      -- The title bar's controls (decision Q65): true for the default set, false for none, or a list
+      -- in order from "sidebar", "find", "add", "changes", "publish", "cmdline", "keys", "lock", "mode".
+      toolbar = true,
     },
     focus = {
       fullscreen = true,
@@ -154,6 +157,7 @@ return {
       sidebar = false, -- Focus reaches the tree with Leader e as a finder instead
       sessionbar = false, -- e.g. "bottom"
       statusbar = false,
+      toolbar = false,
     },
   },
 

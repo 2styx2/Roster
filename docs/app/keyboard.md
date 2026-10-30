@@ -24,7 +24,8 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> ]` / `[` | `next` / `prev` | Next / previous Session (wraps) |
 | `<leader> 1`–`9` | `session N` | Go to Session N |
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |
-| `<leader> e` | `sidebar` | Show or hide the Sidebar, and say the option that keeps it (`modes.standard.sidebar`) |
+| `<leader> e` | `sidebar` | Show or hide the Sidebar, in Standard and Focus; also the Sidebar button at the left of the title bar. The State keeps the choice per mode unless `init.lua` sets `modes.<mode>.sidebar`, which wins (issue #78) |
+| `<leader> t` | `finder tree` | The Sidebar's tree (Folders and the Inventory) as a finder |
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
@@ -36,6 +37,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> M` | `host move [HOST [GROUP]]` | Move a Host to another group (Tab completes the groups). Also: drag it onto another group |
 | `<leader> N` | `group new [NAME]` | Add an empty group. Also "New group" on the Inventory heading. `group rename [GROUP [NEW]]` and `group delete [GROUP [TO]]` have no key: the ✎ and × on a group heading run them; deleting a group with Hosts asks which group they go to |
 | (no key) | `review [HOST]` | Mark an unreviewed Host reviewed, so it can be opened; also the ✓ button on its Sidebar row, Ctrl+R in the Picker, and "Mark reviewed" in `:edit` |
+| (no key) | `host unreview [HOST]` (`unreview`) | Mark a reviewed Host unreviewed again (`reviewed: false`), for a review made by mistake, as a Pending change (API 9). While the review is still only a Pending change, the row's ↶ button (where the ✓ was) takes it back, leaving `roster.yml` as it was; `:discard` drops it with the rest. Also "Mark unreviewed" in `:edit`. `host review [HOST]` is `review` |
 | `<leader> c` | `changes` | Show the Pending changes (the diff of `roster.yml`); `:discard` asks, then discards them; `:publish` shows the diff and the commit message (edit it; `Ctrl+Enter` publishes, `Esc` goes back) |
 | `<leader> m` | `mode [standard\|focus]` | Switch the view mode (no argument: the other one) |
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
@@ -97,7 +99,8 @@ Standard and Focus (decision Q36) differ only in their layout (decision Q39, `ap
 
 | Keys | In Standard | In Focus |
 |---|---|---|
-| `<leader> e` (`sidebar`) | Show or hide the Sidebar | The tree finder (`finder tree`): Folders and the Inventory, with paths |
+| `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #78) |
+| `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
 | `<leader> ?`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
 
