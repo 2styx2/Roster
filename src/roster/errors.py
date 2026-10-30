@@ -58,6 +58,12 @@ BAD_SERVER = 57             # the server address isn't one
 API_KEY_REJECTED = 58       # the API key wasn't accepted, or it's an organization key
 SIGN_IN_FAILED = 59         # the sign-in failed some other way; the message has the CLI's own words
 
+# vault.create_item / vault.undo_create: "Save to vault" (ticket 13; Q43). Locked is 14, no CLI 12, not logged in 11.
+ITEM_EXISTS = 60            # a vault item by exactly that name already exists; data.matches: [{name, revised, uris}]
+CANT_WRITE = 61             # the provider can only read Logins (only bw can create items)
+WRITE_FAILED = 62           # the vault CLI refused the create or delete; the message has its words, never a value
+NOT_CREATED_HERE = 63       # vault.undo_create: this serve didn't create that item, or it's already undone
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""
@@ -76,6 +82,18 @@ VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: 
 def vault_problem(e):
     """A provider's SecretError about the vault itself (locked, not logged in, ...) as a Problem."""
     return Problem(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
+
+
+def write_problem(e):
+    """A failed vault.create_item / vault.undo_create as a Problem, with its fix. Names only, never a value."""
+    if isinstance(e, providers.ItemExists):
+        return Problem(ITEM_EXISTS, str(e), {"matches": e.matches},
+                       fix="point the Login at the existing item, or pick another name (`<host> <what it opens>`)")
+    if isinstance(e, providers.CantWrite):
+        return Problem(CANT_WRITE, str(e), fix="save to a provider that can write (bw), or make the item by hand")
+    if isinstance(e, providers.WriteFailed):
+        return Problem(WRITE_FAILED, str(e), fix="see the message; check your rights to the vault or collection")
+    return vault_problem(e)
 
 
 SIGN_IN_ERRORS = {providers.CodeRejected: CODE_REJECTED, providers.MethodUnsupported: METHOD_UNSUPPORTED,

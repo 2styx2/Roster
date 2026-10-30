@@ -117,6 +117,23 @@ class NoField(SecretError):
         self.item, self.field = item, field
 
 
+# Writing Vault items (ticket 13: "Save to vault", Q43's verified adds). Names only, never a value.
+class CantWrite(SecretError):
+    """The provider can only read Logins: it can't create or delete Vault items."""
+
+
+class ItemExists(SecretError):
+    """An item by exactly that name is already there. matches: [{name, revised, uris}]."""
+
+    def __init__(self, message, item, matches):
+        super().__init__(message)
+        self.item, self.matches = item, matches
+
+
+class WriteFailed(SecretError):
+    """The provider's CLI refused the create or delete; the message has its words (minus any value)."""
+
+
 def near_names(name, names, n=5):
     """Item names that look like NAME (a typo, other case, a word missing), closest first."""
     import difflib
@@ -132,6 +149,9 @@ PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "
                           #             "not_logged_in": what to run when status is "unauthenticated"
                           #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
                           #             "login_help": why this provider has no sign-in here, and what to do
+                          #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
+                          #                       password, uri}; refuses a name that exists (ItemExists)
+                          #             "delete": fn(id, ctx), the undo of a create (Q43)
 PROVIDER_SETTINGS = {}    # name -> settings dict from roster.yml `providers:`
 PROVIDER_STATE = {}       # name -> per-run scratch space (e.g. "already unlocked")
 NO_PASSWORD = ("agent", "key", "none")
@@ -174,13 +194,14 @@ class Ctx:
             raise SecretError(f"needs input ({prompt.strip().rstrip(':')}) but there's no terminal to ask in")
         return getpass.getpass(f"  {prompt}")
 
-    def run(self, args, env=None, shell=False, interactive=False, timeout=120):
-        """Run a helper command, capturing output. A missing tool becomes a friendly error."""
+    def run(self, args, env=None, shell=False, interactive=False, timeout=120, input=None):
+        """Run a helper command, capturing output. A missing tool becomes a friendly error.
+        INPUT goes to its stdin (the way to hand a tool a secret: never in args)."""
         tool = args if isinstance(args, str) else args[0]
+        stdin = {} if input is not None else {"stdin": None if interactive else subprocess.DEVNULL}
         try:
             return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=timeout,
-                                  stdin=None if interactive else subprocess.DEVNULL,
-                                  env={**os.environ, **(env or {})})
+                                  input=input, env={**os.environ, **(env or {})}, **stdin)
         except FileNotFoundError:
             raise CliMissing(not_installed(self.provider, tool))
         except subprocess.TimeoutExpired:
@@ -286,6 +307,44 @@ def lock(name):
         fn = PROVIDERS[name].get("lock")
         if fn:
             fn(Ctx(name, None))
+
+
+# ---- writing Vault items (ticket 13)
+
+def can_write(name):
+    """Can provider NAME create Vault items (and undo a create)?"""
+    p = PROVIDERS.get(name, {})
+    return bool(p.get("create") and p.get("delete"))
+
+
+def _writer(name, op):
+    fn = _vault_op(name, op)
+    if not (fn and can_write(name)):
+        raise CantWrite(f"provider '{name}' can't save to the vault - roster only reads its Logins; "
+                        "create the item in the password manager itself")
+    return fn
+
+
+def create_item(provider, *, name, password, username="", uri=""):
+    """Create a login Vault item NAME in PROVIDER: username, password, and the address in its URI field
+    (docs/adding-hosts.md). Refuses a NAME that's already there. Returns {id, name}, never the password;
+    the password never goes on a command line or into an error."""
+    fn = _writer(provider, "create")
+    if not str(name).strip() or not password:
+        raise SecretError("a Vault item needs a name and a password")
+    made = fn({"name": name, "username": username or "", "password": password, "uri": uri or ""},
+              Ctx(provider, None))
+    return {"id": made["id"], "name": made["name"]}
+
+
+def delete_item(provider, item_id):
+    """Delete the Vault item ITEM_ID from PROVIDER: the undo of create_item (Q43). Bitwarden moves it to the
+    trash, where it can still be restored for 30 days."""
+    fn = _writer(provider, "delete")
+    with _secret_lock:                                   # a value cached from that item must go too
+        for ref in [r for r in _secrets if str(r[0] if isinstance(r, tuple) else r).startswith(provider + ":")]:
+            del _secrets[ref]
+    fn(item_id, Ctx(provider, None))
 
 
 # ---- extension points

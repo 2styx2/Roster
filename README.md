@@ -406,9 +406,9 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 3 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 4 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`). [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`). [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -523,6 +523,28 @@ How it works, and what never happens to a secret:
 
 `ROSTER_SSO_TIMEOUT` (seconds, given to `serve`) can shorten the 5-minute SSO wait, for tests, and `ROSTER_NO_BROWSER=1` stops roster from opening the link on the Box.
 
+### Saving to the vault: `vault.create_item`
+
+"Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. Decision Q43's order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
+
+| Method | Params | Result |
+|---|---|---|
+| `vault.create_item` | `{name, password, username?, uri?, provider?}` | `{provider, id, name}` |
+| `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
+
+- `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](docs/adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
+- Only providers whose `can_write` is `true` in `vault.status` (today only `bw`) can save. Every other provider answers `61`.
+- The password goes to `bw create item` as base64 JSON on its stdin (what `bw encode` makes; bw 2026.9.1 reads stdin when no argument is given). It is never on a command line, and never in a response, an error or stderr. bw prints the new item back, password included, and roster keeps only its id.
+- `vault.undo_create` deletes only items this `serve` created and hasn't undone yet (`63` for any other id), so it can't be pointed at an existing item. Bitwarden moves the item to its trash (`bw delete item ID`, not `--permanent`), where it can be restored for 30 days.
+- While the vault is locked, both answer `14`.
+
+| Code | Meaning |
+|---|---|
+| `60` | An item named exactly that already exists. `data.matches`: `[{name, revised, uris}]` |
+| `61` | The provider can only read Logins: "provider 'op' can't save to the vault - ..." |
+| `62` | The vault CLI refused the create or delete (no rights to the collection, an organization policy, the server). The message has bw's words with any value cut out |
+| `63` | `vault.undo_create`: this `serve` didn't create that item, or it's already undone |
+
 ## How Claude uses it
 
 `roster setup` and `roster sync` write three things:
@@ -554,12 +576,12 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # 241 tests, no network or SSH server needed
+uv run pytest            # 252 tests, no network or SSH server needed
 uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
 
 ```
 src/roster/
