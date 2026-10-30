@@ -23,3 +23,12 @@ One branch model for the whole repo: the Python CLI at the root and the roster a
   - CLI: `uv run ruff check src tests` and `uv run pytest`.
   - App: in `app/`, `npm run check` (tsc, ESLint, Vitest); at the root, `cargo test`, `cargo clippy -p roster-core --all-targets -- -D warnings` and `cargo fmt --check`.
 - Tickets are GitHub issues, grouped by iteration milestones; the issue is the ticket and its open or closed state is its status. Filing or changing a ticket needs no pull request. Merges into `dev` don't fire "Closes #N", so the issue is closed when its pull request is merged.
+
+## License of contributions
+
+roster is licensed under the GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`, see [LICENSE](LICENSE)).
+
+By opening a pull request you agree that:
+
+- your contribution is your own work (or you have the right to submit it), and it's licensed to everyone under `GPL-3.0-or-later`, like the rest of roster;
+- the maintainer may also license your contribution under other terms, including a commercial license, so roster can be offered under a separate license to anyone who can't use the GPL. You keep the copyright in your contribution.
