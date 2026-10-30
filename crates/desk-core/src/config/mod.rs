@@ -387,6 +387,9 @@ pub struct Report {
     pub error: Option<ConfigError>,
     /// The file's full path, for messages ("edit C:\Users\…\init.lua").
     pub path: String,
+    /// Counts the reloads, from 1: the frontend keeps the highest it has seen, so a report that
+    /// arrives late (a startup load after a save's event) never replaces a newer one.
+    pub version: u64,
 }
 
 /// Loads and reloads the Config in one dir, keeping the last good one. Shared between threads:
@@ -461,6 +464,7 @@ impl Loader {
             config: (*current.0).clone(),
             error,
             path: self.dir.join(FILE_NAME).display().to_string(),
+            version: current.1.as_ref().map_or(1, |r| r.version + 1),
         };
         current.1 = Some(report.clone());
         report

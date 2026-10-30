@@ -137,6 +137,11 @@ fn reload_keeps_the_last_good_config_on_error() {
     std::fs::write(dir.join("init.lua"), "return { leader = \"Ctrl+b\" }").unwrap();
     let fixed = loader.reload();
     assert!(fixed.error.is_none());
+    assert_eq!(
+        [first.version, broken.version, fixed.version],
+        [1, 2, 3],
+        "each reload is numbered, so the frontend can keep the newest"
+    );
     assert_eq!(fixed.config.leader, "Ctrl+b");
     assert!(
         fixed.config.vim,

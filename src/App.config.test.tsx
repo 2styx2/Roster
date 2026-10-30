@@ -22,10 +22,13 @@ const CTRL_B = "{Control>}b{/Control}";
 
 type User = ReturnType<typeof userEvent.setup>;
 
+/** The core numbers its reports, newest highest (each reload is one). */
+let reloads = 0;
 const report = (config: Config, error: ConfigError | null = null): ConfigReport => ({
   config,
   error,
   path: "/home/me/.config/roster-desk/init.lua",
+  version: ++reloads,
 });
 
 async function ready(config: Config = defaultConfig) {
@@ -207,5 +210,41 @@ describe("Folders from init.lua (decision Q46)", () => {
     await user.keyboard(`${LEADER}:folder delete Lab ESXi{Enter}`);
     expect(screen.getByRole("status")).toHaveTextContent("Lab ESXi is defined in init.lua: change it there");
     expect(within(folders).getByRole("treeitem", { name: /^Lab ESXi/ })).toBeInTheDocument();
+  });
+});
+
+describe("A save while the app starts (review 2)", () => {
+  it("isn't lost between the first config_load and the App listening for changes", async () => {
+    const platform = memoryPlatform({ config: report(defaultConfig) });
+    // main.tsx: load, then wait for fonts, then render: a save lands in between.
+    const atStart = await platform.config?.load();
+    platform.saveConfig(report(configWith({ theme: "nord" })));
+    render(
+      <App
+        backend={fakeBackend({ hosts })}
+        terminalView={StubTerminal}
+        registries={builtinRegistries()}
+        platform={platform}
+        config={atStart ?? null}
+      />,
+    );
+    await screen.findByLabelText(/master password/i);
+    expect(root().dataset.theme).toBe("nord");
+  });
+
+  it("keeps the newest report when an older one arrives late", async () => {
+    const platform = memoryPlatform({ config: report(defaultConfig) });
+    const newer = report(configWith({ theme: "nord" }));
+    render(
+      <App
+        backend={fakeBackend({ hosts })}
+        terminalView={StubTerminal}
+        registries={builtinRegistries()}
+        platform={platform}
+        config={newer}
+      />,
+    );
+    await screen.findByLabelText(/master password/i);
+    expect(root().dataset.theme).toBe("nord");
   });
 });
