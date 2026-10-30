@@ -52,6 +52,19 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 32 | 58 | API key not accepted, or an organization key | Sign-in form | "Bitwarden didn't accept that API key (client_id or client_secret)" | Copy the personal key again from the web vault |
 | 33 | 59 | Anything else; bw's own words | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same |
 
+## Editing the Inventory (ticket 10)
+
+`:edit HOST` pulls the infra repo first (fast-forward only), then writes the edit into `roster.yml` through roster's `host.update` as a Pending change. A change to the address, port, user or Login first passes `host.verify_login` (decision Q43): one connection, one login attempt, and the host key compared with the recorded one (for the new address, or the Host's current one if it moved), never accepted. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step. A failed pull keeps the form shut.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 34 | 60 | `roster.yml` isn't committed in a git repo, so it can't have Pending changes | `roster.yml`, Box | "/home/you/roster.yml isn't in a git repo, so it can't have Pending changes" | Keep it in the infra repo, or edit by hand |
+| 35 | 61 | The pull found uncommitted changes: Pending changes, or other files | Infra repo | "roster.yml has Pending changes, so roster won't pull over them" | Publish or discard them; button: Show Pending changes |
+| 36 | 62 | This Box's branch and its upstream both have new commits | Infra repo | "this box's infra repo and origin/main have diverged (1 local and 2 new commits there)" | Merge or rebase in a terminal (`git pull --rebase`) |
+| 37 | 63 | The fetch or the fast-forward failed: network, access, a file in the way | Network, infra repo | "couldn't fetch origin/main for the infra repo" | Check the network and access; git's words under Details |
+| 38 | 64 | The edit's result wouldn't load, would load differently, or would change another entry (a YAML alias) | `roster.yml` | "can't make that edit: the result wouldn't load - nothing was written" | Make the edit by hand; nothing was written |
+| 39 | 65 | An address, user or Login change without a test login that just succeeded | roster | "esx's new address, user or Login hasn't passed a test login" | Test the login, then save again |
+
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.

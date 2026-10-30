@@ -1,6 +1,7 @@
 """Why opening a Session to a Host would fail, found before (or instead of) the user's ssh:
 - session.prepare and askpass resolve a password Login here (check_login, resolve_password);
-- `roster check HOST` and serve's host.check walk every step in order (check_host).
+- `roster check HOST` and serve's host.check walk every step in order (check_host);
+- serve's host.verify_login tests a Host's login as an edit would leave it, before the edit is made (verify_login).
 Every failure is an errors.Problem with a stable code, roster's message and the fix. Nothing here ever
 returns, prints or logs a password: it is looked up into this process's memory, at most."""
 
@@ -13,7 +14,15 @@ from . import askpass, errors, providers
 from .common import not_reviewed
 from .errors import Problem, login_problem, no_user, unknown_provider, vault_problem
 from .providers import PROVIDERS
-from .sshops import fingerprint, host_block, in_ssh_config, offered_host_key, recorded_host_keys, written_host_block
+from .sshops import (
+    fingerprint,
+    host_block,
+    in_ssh_config,
+    offered_host_key,
+    recorded_host_keys,
+    start_transport,
+    written_host_block,
+)
 
 PLACEHOLDER_USERS = ("", "CHANGE-ME")         # discover's placeholder: no SSH user set yet
 STEPS = ("inventory", "ssh-config", "provider", "vault-item", "dns", "tcp", "host-key", "auth")
@@ -303,3 +312,135 @@ def login_failure(h, password, stderr):
 STEP_FNS = {"inventory": step_inventory, "ssh-config": step_ssh_config, "provider": step_provider,
             "vault-item": step_vault_item, "dns": step_dns, "tcp": step_tcp, "host-key": step_host_key,
             "auth": step_auth}
+
+
+# ---------------------------------------------------------------- host.verify_login (ticket 10, decision Q43)
+
+VERIFY_STEPS = ("user", "provider", "vault-item", "dns", "tcp", "host-key", "auth")
+
+
+def stored_password(h):
+    """The Host's password Login, if roster can look it up without asking anyone (so not `prompt`)."""
+    login = password_login(h)
+    return login if login and str(login["auth"]).partition(":")[0].strip() != "prompt" else None
+
+
+def verify_login(h, key_path, previous=None):
+    """One test login to Host H as an edit would leave it (new address, user or Login), before the edit is made.
+    The same order as check_host, but against H's own values rather than this box's ssh config: the local steps,
+    then ONE TCP connection that carries the key exchange and exactly one login attempt. The host key must match
+    one roster recorded, for H's address or (a Host that moved) for PREVIOUS, the Host as it is now; it's never
+    recorded or accepted here. A Host with no stored Login (auth: prompt, agent, none) gets everything but the
+    login. Returns {host, ok, steps} like check_host."""
+    ctx = {"h": h, "key_path": key_path, "previous": previous}
+    steps, failed = [], False
+    for step in VERIFY_STEPS:
+        if failed:
+            steps.append({"step": step, "status": "skipped", "message": "an earlier step failed"})
+            continue
+        try:
+            outcome = VERIFY_FNS[step](ctx)
+        except Problem as e:
+            failed = True
+            steps.append(problem_step(step, e))
+            continue
+        status, message = outcome if isinstance(outcome, tuple) else ("ok", outcome)
+        steps.append({"step": step, "status": status, "message": message})
+    for held in ("transport", "sock"):
+        if ctx.get(held):
+            ctx[held].close()
+    ctx.pop("password", None)
+    return {"host": h["name"], "ok": not failed, "steps": steps}
+
+
+def login_kind(h):
+    if h["enroll"]:
+        return "key"
+    return "password" if stored_password(h) else None
+
+
+def verify_user(ctx):
+    h = ctx["h"]
+    check_user(h)
+    how = {"key": "this box's key", "password": "password"}.get(login_kind(h)) or f"auth {h['ssh']['auth'] or 'none'}"
+    return f"{h['ssh']['user']}@{h['ip']}:{h['ssh']['port']} ({how})"
+
+
+def verify_provider(ctx):
+    if login_kind(ctx["h"]) != "password":
+        return "skipped", "no vault needed"
+    check_provider(ctx["h"])
+    return f"{str(ctx['h']['ssh']['auth']).partition(':')[0]} is ready"
+
+
+def verify_vault_item(ctx):
+    h = ctx["h"]
+    if login_kind(h) != "password":
+        return "skipped", "no vault needed"
+    ctx["password"] = resolve_password(h)
+    return f"{h['ssh']['auth']} resolves to one item with a value"
+
+
+def verify_host_key(ctx):
+    import paramiko
+    h, previous = ctx["h"], ctx["previous"]
+    recorded = recorded_host_keys(h) or (recorded_host_keys(previous) if previous else {})
+    if not recorded:
+        raise Problem(errors.HOST_KEY_UNKNOWN, f"no recorded host key for {h['name']} at {h['ip']}",
+                      fix=f"check the Host's fingerprint (console, or its owner) and record it with `roster setup "
+                          f"--only {h['name']}` after the change, or make this change by hand in roster.yml")
+    sock, ctx["sock"] = ctx["sock"], None
+    try:
+        t = start_transport(sock, list(recorded), timeout=CONNECT_TIMEOUT)
+    except (paramiko.SSHException, OSError, EOFError) as e:
+        sock.close()
+        raise Problem(errors.TIMEOUT, f"{h['name']} didn't complete the SSH handshake",
+                      fix=unreachable_fix(h), details=f"{type(e).__name__}: {e}") from None
+    ctx["transport"] = t
+    key = t.get_remote_server_key()
+    old = recorded.get(key.get_name())
+    if old is None or old.asbytes() != key.asbytes():
+        data = {"recorded": [fingerprint(k) for k in recorded.values()], "offered": fingerprint(key)}
+        raise Problem(errors.HOST_KEY_CHANGED, f"{h['name']}'s host key at {h['ip']} isn't the recorded one - "
+                                               "not logging in", data,
+                      fix="don't accept it blindly: compare the fingerprint with the Host's console or owner",
+                      details=f"recorded {', '.join(data['recorded'])}; offered {data['offered']}")
+    return f"matches the recorded {key.get_name()} key {fingerprint(key)}"
+
+
+def verify_auth(ctx):
+    import paramiko
+    h, t, kind = ctx["h"], ctx["transport"], login_kind(ctx["h"])
+    user = h["ssh"]["user"]
+    if kind is None:
+        return "skipped", f"no stored Login to test (auth {h['ssh']['auth'] or 'none'})"
+    t.auth_timeout = LOGIN_TIMEOUT
+    try:
+        if kind == "password":
+            t.auth_password(user, ctx.pop("password"))
+        else:
+            if not ctx["key_path"].exists():
+                raise Problem(errors.NOT_SET_UP, f"this box has no roster key ({ctx['key_path']})",
+                              fix="run `roster setup` on this box")
+            t.auth_publickey(user, paramiko.PKey.from_path(str(ctx["key_path"])))
+    except paramiko.BadAuthenticationType as e:
+        raise Problem(errors.AUTH_FAILED, f"{h['name']} doesn't take {kind} logins for user {user}",
+                      fix="check the Host's sshd settings, or change the Host's Login",
+                      details=f"allowed: {', '.join(e.allowed_types)}") from None
+    except paramiko.AuthenticationException:
+        if kind == "password":
+            raise Problem(errors.PASSWORD_REFUSED, f"{h['name']} refused the password for user {user}",
+                          fix="check the user and the vault item: the password may have changed on the Host") from None
+        raise Problem(errors.KEY_REFUSED, f"{h['name']} didn't accept this box's key for user {user}",
+                      fix=f"check the user, or run `roster setup --only {h['name']}` after the change") from None
+    except (paramiko.SSHException, OSError, EOFError) as e:
+        raise Problem(errors.AUTH_FAILED, f"logging in to {h['name']} failed", fix="see the details",
+                      details=f"{type(e).__name__}: {e}") from None
+    if not t.is_authenticated():
+        raise Problem(errors.AUTH_FAILED, f"{h['name']} asked for more than one step to log in",
+                      fix="log in by hand once to see what it wants")
+    return f"logged in as {user}"
+
+
+VERIFY_FNS = {"user": verify_user, "provider": verify_provider, "vault-item": verify_vault_item, "dns": step_dns,
+              "tcp": step_tcp, "host-key": verify_host_key, "auth": verify_auth}

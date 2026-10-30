@@ -58,6 +58,14 @@ BAD_SERVER = 57             # the server address isn't one
 API_KEY_REJECTED = 58       # the API key wasn't accepted, or it's an organization key
 SIGN_IN_FAILED = 59         # the sign-in failed some other way; the message has the CLI's own words
 
+# Editing the Inventory: Pending changes (ticket 10). The verify_login steps reuse 30-48.
+NOT_A_REPO = 60             # roster.yml isn't tracked in a git repo, so it can't have Pending changes
+DIRTY = 61                  # inventory.pull: uncommitted changes (Pending changes, or other files); data.files
+DIVERGED = 62               # inventory.pull: this box's branch and its upstream both have new commits
+PULL_FAILED = 63            # inventory.pull: the fetch or the fast-forward failed (network, access, a file in the way)
+INVALID_EDIT = 64           # host.update: the result wouldn't load, or would change more than asked; nothing written
+NOT_VERIFIED = 65           # host.update: address, user or Login changed without a test login that just succeeded
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""
