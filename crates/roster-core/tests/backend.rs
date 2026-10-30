@@ -35,7 +35,7 @@ fn an_api_older_than_required_is_too_old() {
 fn a_roster_without_serve_is_too_old_and_points_at_the_override() {
     let e = Backend::start(&fake("unknown-command")).err().unwrap();
     assert_eq!(e.kind, ErrorKind::RosterTooOld);
-    assert!(e.hint.contains("ROSTER_DESK_ROSTER"), "{}", e.hint);
+    assert!(e.hint.contains("ROSTER_APP_ROSTER"), "{}", e.hint);
     assert!(e.detail.unwrap().contains("invalid choice"));
 }
 

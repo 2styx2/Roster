@@ -1,8 +1,9 @@
--- roster-desk's Config: init.lua (ADR 0002, docs/config.md).
+-- The roster app's Config: init.lua (ADR 0004, docs/app/config.md).
 --
 -- Copy this file to
---   Windows: %APPDATA%\roster-desk\init.lua
---   Linux:   $XDG_CONFIG_HOME/roster-desk/init.lua   (~/.config/roster-desk/init.lua)
+--   Windows: %APPDATA%\roster\init.lua
+--   Linux:   $XDG_CONFIG_HOME/roster/init.lua   (~/.config/roster/init.lua)
+-- (A Config in the old roster-desk folder is copied there once, the first time the app starts.)
 -- and change what you like. It's plain Lua 5.4: it returns a table, and anything you leave out
 -- keeps its default. Every value below IS the default, unless a comment says otherwise, so
 -- deleting a line changes nothing.
@@ -12,7 +13,7 @@
 --
 -- The Lua here runs in a sandbox: no io, no os.execute or os.getenv, no debug, no C modules, and
 -- `require` loads only files from this folder (`require("keys")` reads keys.lua or lua/keys.lua).
--- It never sees a password: roster-desk's core holds none (docs/security.md).
+-- It never sees a password: the app's core holds none (docs/security.md).
 
 -- `roster` is the app's Lua table (also `require("roster")`):
 --   roster.os                              "windows", "linux" or "macos"
@@ -149,11 +150,11 @@ return {
   -- Which roster runs (read when the backend starts: Retry, or restart the app, after changing).
   -- "auto" detects it: on Windows, the default WSL distro, then running ones. "wsl:<distro>"
   -- uses that distro. ("local", native Windows roster, comes with ticket 19.)
-  -- The ROSTER_DESK_WSL_DISTRO env var wins over this.
+  -- The ROSTER_APP_WSL_DISTRO env var wins over this.
   backend = "auto",
   -- The command that runs roster, for development: a command line or a list of words. The
-  -- ROSTER_DESK_ROSTER env var wins over this. Leave it out for "roster". It must run roster
+  -- ROSTER_APP_ROSTER env var wins over this. Leave it out for "roster". It must run roster
   -- itself ("roster", a path to it, or "uv run --project <dir> roster"): it gets the master
-  -- password. For any other wrapper, set ROSTER_DESK_ROSTER instead (docs/config.md).
+  -- password. For any other wrapper, set ROSTER_APP_ROSTER instead (docs/config.md).
   -- roster_command = "uv run --project /home/you/work/roster roster",
 }

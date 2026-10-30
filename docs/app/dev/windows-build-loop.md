@@ -31,7 +31,7 @@ cd /mnt/c && cmd.exe /c 'cd /d %LOCALAPPDATA%\roster-desk-dev\src && npm run tau
 | `tauri build --no-bundle` (release, lto, codegen-units=1) cold | 2 m 20 s, 4.4 MB exe |
 | `tauri build --debug --no-bundle`, workspace layout (see testing.md) | 59 s cold |
 
-Scripted (ticket 03): `scripts/win-sync.sh`, `scripts/win-dev.sh [--ci]` (passes `ROSTER_DESK_ROSTER` through `WSLENV`), `scripts/win-stop.sh`.
+Scripted (ticket 03): `scripts/win-sync.sh`, `scripts/win-dev.sh [--ci]` (passes `ROSTER_APP_ROSTER` through `WSLENV`), `scripts/win-stop.sh`.
 
 ## Gotchas (all observed)
 

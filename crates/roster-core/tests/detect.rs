@@ -330,7 +330,7 @@ fn when_nothing_matches_the_error_names_the_stopped_distros_and_how_to_pick_one(
     let e = detect(&r, Platform::Windows, &s(&["roster"]), None).unwrap_err();
     assert!(e.message.contains("FedoraLinux-44, Ubuntu"), "{}", e.message);
     assert!(e.message.contains("OracleLinux_9"), "{}", e.message);
-    assert!(e.hint.contains("ROSTER_DESK_WSL_DISTRO=OracleLinux_9"), "{}", e.hint);
+    assert!(e.hint.contains("ROSTER_APP_WSL_DISTRO=OracleLinux_9"), "{}", e.hint);
 }
 
 #[test]
@@ -363,7 +363,7 @@ fn a_chosen_distro_without_roster_is_named_in_the_error() {
     assert_eq!(probed(&r), s(&["Ubuntu"]));
     assert_eq!(e.kind, ErrorKind::RosterMissing);
     assert!(e.message.contains("Ubuntu"), "{}", e.message);
-    assert!(e.message.contains("ROSTER_DESK_WSL_DISTRO"), "{}", e.message);
+    assert!(e.message.contains("ROSTER_APP_WSL_DISTRO"), "{}", e.message);
 }
 
 #[test]

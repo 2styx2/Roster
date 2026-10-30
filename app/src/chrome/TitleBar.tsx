@@ -28,7 +28,7 @@ function Glyph({ name }: { name: keyof typeof GLYPHS }) {
   );
 }
 
-export function TitleBar({ controls, title = "roster-desk" }: { controls?: WindowControls | undefined; title?: string }) {
+export function TitleBar({ controls, title = "Roster" }: { controls?: WindowControls | undefined; title?: string }) {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => controls?.watchMaximized(setMaximized), [controls]);
 

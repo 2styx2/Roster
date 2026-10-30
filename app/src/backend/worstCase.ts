@@ -208,7 +208,7 @@ export const WORST_START_PROBLEM = {
 
 /** Bindings from a Plugin with a long name: long chords, sequences, and keys already taken. */
 export const WORST_BINDINGS = {
-  source: "roster-desk-telescope-extras-for-the-server-room.nvim",
+  source: "roster-telescope-extras-for-the-server-room.nvim",
   tables: {
     leader: { "g h": "find", "Ctrl+Shift+Alt+PageDown": "next", "Ctrl+Shift+Alt+PageUp": "prev", "Space Space": "finder sessions" },
     global: { "Ctrl+Alt+Shift+F12": "focus" },

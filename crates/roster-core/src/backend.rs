@@ -53,7 +53,7 @@ impl Backend {
         let api = inventory.get("api_version").and_then(Value::as_i64).unwrap_or(0);
         if api < REQUIRED_API_VERSION {
             return Err(too_old(format!(
-                "roster speaks API version {api}; roster-desk needs {REQUIRED_API_VERSION} or newer."
+                "roster speaks API version {api}; the roster app needs {REQUIRED_API_VERSION} or newer."
             ))
             .with_detail(shown));
         }
@@ -144,7 +144,7 @@ fn classify(e: CallError, shown: &str) -> BackendError {
     match e {
         CallError::Exited { stderr, code } => {
             if stderr.contains("invalid choice") && stderr.contains("serve") {
-                too_old("This roster has no `serve` command (it predates roster-desk).".into()).with_detail(stderr)
+                too_old("This roster has no `serve` command (it predates the roster app).".into()).with_detail(stderr)
             } else {
                 BackendError::new(
                     ErrorKind::Failed,

@@ -208,8 +208,8 @@ export const fixtures: Record<string, FakeScenario> = {
     hosts: makeHosts(0),
     startProblem: problem(
       "roster-too-old",
-      "This roster has no `serve` command (it predates roster-desk).",
-      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_DESK_ROSTER at a newer one, e.g. `uv run --project /home/you/work/roster roster`.",
+      "This roster has no `serve` command (it predates the roster app).",
+      "Upgrade roster (`uv tool install --force --reinstall .` in the roster repo), or point ROSTER_APP_ROSTER at a newer one, e.g. `uv run --project /home/you/work/roster roster`.",
       "roster: error: argument cmd: invalid choice: 'serve' (choose from init, setup, sync, ...)",
     ),
   },
@@ -218,7 +218,7 @@ export const fixtures: Record<string, FakeScenario> = {
     startProblem: problem(
       "roster-missing",
       "`roster` wasn't found in any WSL distro (searched: FedoraLinux-44, OracleLinux_9).",
-      "Install roster so it's on PATH, or set ROSTER_DESK_ROSTER to the command that runs it.",
+      "Install roster so it's on PATH, or set ROSTER_APP_ROSTER to the command that runs it.",
     ),
   },
   "inventory-missing": {

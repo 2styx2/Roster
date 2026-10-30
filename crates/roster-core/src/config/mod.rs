@@ -1,6 +1,6 @@
 //! The Config (GLOSSARY: Config, ADR 0002): the user's `init.lua`, in the user config dir
-//! (`%APPDATA%\roster-desk` on Windows, `$XDG_CONFIG_HOME/roster-desk` or
-//! `~/.config/roster-desk` elsewhere). It runs in a sandboxed Lua 5.4 (lua.rs), returns a
+//! (`%APPDATA%\roster` on Windows, `$XDG_CONFIG_HOME/roster` or `~/.config/roster` elsewhere;
+//! a Config left in the old `roster-desk` dir is copied over once, see [`crate::migrate`]). It runs in a sandboxed Lua 5.4 (lua.rs), returns a
 //! table that's checked against the schema (schema.rs) and layered over the defaults, and the
 //! result goes to the frontend as one typed object. The frontend never runs Lua.
 //!
@@ -125,21 +125,42 @@ impl Default for Env {
     }
 }
 
-/// The config dir: `%APPDATA%\roster-desk` on Windows; `$XDG_CONFIG_HOME/roster-desk`, else
-/// `~/.config/roster-desk`. None when the environment names no home at all.
+/// The config dir's name inside the user config dir.
+pub const DIR_NAME: &str = "roster";
+
+/// The config dir's name from when the app was roster-desk ([`crate::migrate`]).
+pub const LEGACY_DIR_NAME: &str = "roster-desk";
+
+/// The config dir: `%APPDATA%\roster` on Windows; `$XDG_CONFIG_HOME/roster`, else
+/// `~/.config/roster`. None when the environment names no home at all.
 pub fn dir() -> Option<PathBuf> {
-    dir_for(Os::current(), |k| {
-        std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from)
-    })
+    dir_for(Os::current(), system_var)
 }
 
 /// [`dir`] for any OS and environment (testable).
 pub fn dir_for(os: Os, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
-    let base = match os {
-        Os::Windows => var("APPDATA")?,
-        Os::Linux | Os::Macos => var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|h| h.join(".config")))?,
-    };
-    Some(base.join("roster-desk"))
+    Some(base_for(os, var)?.join(DIR_NAME))
+}
+
+/// Where roster-desk kept its Config: `roster-desk` next to [`dir`].
+pub fn legacy_dir() -> Option<PathBuf> {
+    legacy_dir_for(Os::current(), system_var)
+}
+
+/// [`legacy_dir`] for any OS and environment (testable).
+pub fn legacy_dir_for(os: Os, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    Some(base_for(os, var)?.join(LEGACY_DIR_NAME))
+}
+
+fn base_for(os: Os, var: impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    match os {
+        Os::Windows => var("APPDATA"),
+        Os::Linux | Os::Macos => var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|h| h.join(".config"))),
+    }
+}
+
+fn system_var(k: &str) -> Option<PathBuf> {
+    std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 /// The Config in `dir`: the defaults if there's no `init.lua`.
@@ -502,7 +523,7 @@ pub struct BackendPlan {
     pub distro: Option<String>,
 }
 
-/// The roster command and WSL distro: `ROSTER_DESK_ROSTER` and `ROSTER_DESK_WSL_DISTRO` win
+/// The roster command and WSL distro: `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO` win
 /// (they're for development, and set by the user outside the Config), then `roster_command`
 /// and `backend` from init.lua, then detection. Blank env vars don't count. A `roster_command`
 /// that isn't roster itself is refused ([`RosterCommand::check`]); only the env var may wrap it.

@@ -1,4 +1,4 @@
-/* roster-desk's look (ticket 09). Linear is the reference: dense, quiet, one accent, 1px hairlines,
+/* The roster app's look (ticket 09). Linear is the reference: dense, quiet, one accent, 1px hairlines,
    ~13px type, motion of 150 ms or less.
 
    Every colour here is a Theme token (src/theme/theme.ts) set on :root by useTheme, so nothing

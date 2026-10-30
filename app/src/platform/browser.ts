@@ -1,7 +1,7 @@
 // The Platform in a plain browser (`npm run dev`): State in localStorage, the browser clipboard.
 import type { Platform } from "./types";
 
-const KEY = "roster-desk.state";
+const KEY = "roster.state";
 
 export function browserPlatform(): Platform {
   return {

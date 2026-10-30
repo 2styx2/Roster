@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
-  <!-- roster-desk logo D1 "Network R" (decision Q29): seven nodes joined into an R; the accent node (jade #1f9d68) ends the leg. App icon master: `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
+  <!-- roster logo D1 "Network R" (decision Q29): seven nodes joined into an R; the accent node (jade #1f9d68) ends the leg. App icon master: `npm run icons` (scripts/icons.mjs) renders src-tauri/icons from it. -->
   <rect x="2" y="2" width="60" height="60" rx="14" fill="#13161b"/>
   <g stroke="#e3e7ec" stroke-width="3" stroke-linecap="round" opacity="0.5">
     <line x1="20" y1="14" x2="20" y2="32"/>

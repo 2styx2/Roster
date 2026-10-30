@@ -1,18 +1,20 @@
 //! Detect and start the Backend on this machine, then print what it reports:
 //! `cargo run --example detect [-- <roster command>]`. Without arguments it uses
-//! ROSTER_DESK_ROSTER, then `roster`; ROSTER_DESK_WSL_DISTRO picks the WSL distro.
+//! ROSTER_APP_ROSTER (or the old ROSTER_DESK_ROSTER), then `roster`; ROSTER_APP_WSL_DISTRO picks the
+//! WSL distro.
 use roster_core::backend::Backend;
-use roster_core::detect::{DISTRO_VAR, OVERRIDE_VAR, Platform, SystemRunner, detect, roster_command};
+use roster_core::detect::{Platform, SystemRunner, detect, roster_command};
+use roster_core::env;
 use serde_json::json;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = if args.is_empty() {
-        roster_command(std::env::var(OVERRIDE_VAR).ok().as_deref())
+        roster_command(env::roster_override().as_deref())
     } else {
         args
     };
-    let distro = std::env::var(DISTRO_VAR).ok();
+    let distro = env::wsl_distro();
     let started = detect(&SystemRunner, Platform::current(), &cmd, distro.as_deref()).and_then(|c| {
         println!("{} -> {:?}", c.target.label(), c.serve_argv);
         Backend::start(&c)

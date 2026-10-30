@@ -205,7 +205,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     row: 21,
     codes: ["backend-lost"],
     where: ["this Box"],
-    fix: () => "Restart roster-desk. Open Sessions keep running until then.",
+    fix: () => "Restart the roster app. Open Sessions keep running until then.",
     actions: [],
   }),
   row("token-spent", {
@@ -219,7 +219,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     row: null,
     codes: [38],
     where: ["this Box"],
-    fix: () => "ssh's askpass helper couldn't reach roster serve. Retry; if it keeps failing, restart roster-desk.",
+    fix: () => "ssh's askpass helper couldn't reach roster serve. Retry; if it keeps failing, restart the roster app.",
     actions: [retry],
   }),
   row("unknown-host", {

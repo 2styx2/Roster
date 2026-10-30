@@ -50,8 +50,8 @@ const MAX_TEXT: usize = 64 * 1024;
 const MAX_PATTERN: usize = 256;
 const MAX_REP: usize = 1024 * 1024;
 
-const LOADED: &str = "roster-desk.loaded";
-const API: &str = "roster-desk.api";
+const LOADED: &str = "roster.loaded";
+const API: &str = "roster.api";
 const LOADING: &str = "\0loading";
 
 /// Runs `source` on a thread of its own, and gives up on it after `env.limits.wall`: a single

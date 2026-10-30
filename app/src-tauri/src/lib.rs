@@ -4,7 +4,7 @@
 
 use roster_core::backend::{Backend, BackendInfo};
 use roster_core::config::{self, Config, Loader, Report};
-use roster_core::detect::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR, Platform, SystemRunner, detect};
+use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect};
 use roster_core::rpc::CallError;
 use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use roster_core::slot::Slot;
@@ -25,8 +25,8 @@ impl BackendState {
     /// development env vars winning; a change takes effect at the next (re)start.
     fn connect(&self, restart: bool, config: &Config) -> Result<BackendInfo, BackendError> {
         let backend = self.0.connect(restart, Backend::is_alive, || {
-            let env_cmd = std::env::var(OVERRIDE_VAR).ok();
-            let env_distro = std::env::var(DISTRO_VAR).ok();
+            let env_cmd = roster_core::env::roster_override();
+            let env_distro = roster_core::env::wsl_distro();
             let plan = config::backend_plan(config, Platform::current(), env_cmd.as_deref(), env_distro.as_deref())
                 .map_err(|m| {
                     BackendError::new(ErrorKind::Failed, m, "Fix it in init.lua (docs/config.md), then Retry.")
@@ -103,7 +103,7 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     let handle = app.handle().clone();
     loader.reload_within(CONFIG_STARTUP_WAIT, move |report| {
         if let Some(e) = &report.error {
-            eprintln!("roster-desk: {e}");
+            eprintln!("roster: {e}");
         }
         let _ = handle.emit("config-changed", report);
     });
@@ -114,7 +114,7 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     }) {
         Ok(w) => Some(w),
         Err(e) => {
-            eprintln!("roster-desk: can't watch {} for changes: {e}", loader.dir().display());
+            eprintln!("roster: can't watch {} for changes: {e}", loader.dir().display());
             None
         }
     }
@@ -251,6 +251,41 @@ fn state_file(app: &tauri::AppHandle) -> Result<StateFile, String> {
     Ok(StateFile::in_dir(&dir))
 }
 
+/// The one-time copy of roster-desk's State into this identifier's app-data dir (roster-core
+/// migrate.rs). Never stops the app: State is only a convenience.
+fn migrate_state(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Ok(dir) = app.path().app_local_data_dir() else {
+        return;
+    };
+    let Some(old) = roster_core::migrate::legacy_state_dir(&dir) else {
+        return;
+    };
+    match roster_core::migrate::state(&old, &dir) {
+        Ok(true) => eprintln!("roster: copied the State from {}", old.display()),
+        Ok(false) => {}
+        Err(e) => eprintln!("roster: can't copy the State from {}: {e}", old.display()),
+    }
+}
+
+/// The one-time copy of roster-desk's Config dir into roster's (roster-core migrate.rs).
+fn migrate_config(dir: &std::path::Path) {
+    let Some(old) = config::legacy_dir() else {
+        return;
+    };
+    match roster_core::migrate::config(&old, dir) {
+        Ok(copied) if !copied.is_empty() => {
+            eprintln!(
+                "roster: copied {} file(s) of the Config from {}",
+                copied.len(),
+                old.display()
+            )
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("roster: can't copy the Config from {}: {e}", old.display()),
+    }
+}
+
 /// What the app remembered last time (`{}` the first time).
 #[tauri::command]
 fn state_load(app: tauri::AppHandle) -> Result<Value, String> {
@@ -316,7 +351,10 @@ fn restore_and_show(app: &tauri::App, window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sessions = Arc::new(SessionManager::new());
-    let loader = config::dir().map(|dir| Arc::new(Loader::new(&dir)));
+    let loader = config::dir().map(|dir| {
+        migrate_config(&dir);
+        Arc::new(Loader::new(&dir))
+    });
     let setup_loader = loader.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -324,6 +362,7 @@ pub fn run() {
         .manage(Arc::clone(&sessions))
         .manage(ConfigState(loader))
         .setup(move |app| {
+            migrate_state(app.handle());
             // The watcher lives as long as the app.
             if let Some(w) = setup_loader.as_ref().and_then(|l| start_config(app, l)) {
                 tauri::Manager::manage(app, Mutex::new(w));

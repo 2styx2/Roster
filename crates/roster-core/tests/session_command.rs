@@ -78,8 +78,8 @@ fn wslenv_appends_to_the_existing_list_without_translating_paths() {
     assert_eq!(wslenv(None, ["TERM", "SSH_ASKPASS"]), "TERM/u:SSH_ASKPASS/u");
     assert_eq!(wslenv(Some(""), ["TERM"]), "TERM/u");
     assert_eq!(
-        wslenv(Some("USERPROFILE/p:ROSTER_DESK_ROSTER"), ["TERM"]),
-        "USERPROFILE/p:ROSTER_DESK_ROSTER:TERM/u"
+        wslenv(Some("USERPROFILE/p:ROSTER_APP_ROSTER"), ["TERM"]),
+        "USERPROFILE/p:ROSTER_APP_ROSTER:TERM/u"
     );
     // A name already listed (say with /p, which would turn /run/... into a Windows path) is
     // replaced by ours.

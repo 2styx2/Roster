@@ -37,11 +37,11 @@ function fontsLoaded(report: ConfigReport | null): Promise<unknown> {
 const appearance = { ...defaultAppearance, theme: new URLSearchParams(location.search).get("theme") ?? defaultAppearance.theme };
 
 // The "Demo data / Worst case" toggle (ticket 27): dev builds only, and only when asked for -
-// a `?fixture=` page or VITE_ROSTER_DESK_FIXTURES=1 - so running the real app from `tauri dev`
+// a `?fixture=` page or VITE_ROSTER_APP_FIXTURES=1 - so running the real app from `tauri dev`
 // shows no test controls. `import.meta.env.DEV` is false in a production build, so the import
 // below and its chunk are dropped from it.
 const wantFixtures =
-  new URLSearchParams(location.search).has("fixture") || import.meta.env.VITE_ROSTER_DESK_FIXTURES === "1";
+  new URLSearchParams(location.search).has("fixture") || import.meta.env.VITE_ROSTER_APP_FIXTURES === "1";
 const FixtureToggle = import.meta.env.DEV && wantFixtures ? lazy(() => import("./dev/FixtureToggle")) : null;
 
 const root = createRoot(document.getElementById("root") as HTMLElement);

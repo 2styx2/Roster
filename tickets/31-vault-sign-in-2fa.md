@@ -40,7 +40,7 @@
 
 **Manual check (the user's, not done by an agent).** It needs your real account and second factor, and it changes this Box's real `bw` state:
 1. In WSL: `bw logout` (or use a fresh Box). `bw status` should say `unauthenticated`.
-2. Run the app against roster with this branch, e.g. `ROSTER_DESK_ROSTER="uv run --project ~/work/roster.worktrees/31 roster" scripts/win-dev.sh`.
+2. Run the app against roster with this branch, e.g. `ROSTER_APP_ROSTER="uv run --project ~/work/roster.worktrees/31 roster" scripts/win-dev.sh`.
 3. The lock screen says **Sign in to Bitwarden**. Pick the server (cloud, EU or self-hosted) and press Enter. Type your email, then Enter. Type your master password, then Enter.
 4. If the account has several two-step methods, pick one (number key or arrows, then Enter). Type the code, then Enter. Try one wrong code first: the same step stays, with "didn't accept that code", and an emailed method gets a fresh email.
 5. If Bitwarden asks for the new-device code, type the code from the email.

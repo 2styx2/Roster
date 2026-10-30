@@ -43,9 +43,9 @@ pub struct Config {
     /// Personal Folders (GLOSSARY: Folder) defined here; read-only in the app.
     #[serde(deserialize_with = "list")]
     pub folders: Vec<FolderDef>,
-    /// The command that runs roster (development). The `ROSTER_DESK_ROSTER` env var wins.
+    /// The command that runs roster (development). The `ROSTER_APP_ROSTER` env var wins.
     pub roster_command: Option<RosterCommand>,
-    /// "auto", "local", "wsl" or "wsl:<distro>". `ROSTER_DESK_WSL_DISTRO` wins.
+    /// "auto", "local", "wsl" or "wsl:<distro>". `ROSTER_APP_WSL_DISTRO` wins.
     pub backend: BackendChoice,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
@@ -687,13 +687,13 @@ impl RosterCommand {
     /// in `/roster`), or `uv run [--project P | --directory P | --frozen | --locked | --offline |
     /// --no-sync | -q | --quiet]… roster`. This program gets the master password, two-step codes
     /// and the API secret on its stdin, so the Config can't put anything else in front of them;
-    /// a wrapper takes the `ROSTER_DESK_ROSTER` env var, which the user sets outside the Config.
+    /// a wrapper takes the `ROSTER_APP_ROSTER` env var, which the user sets outside the Config.
     pub fn check(&self) -> Result<(), String> {
         let refuse = || {
             Err(format!(
                 "{:?} isn't roster. init.lua may only name roster itself (\"roster\", a path to it, or \
                  \"uv run --project <dir> roster\"), because this program gets the master password; \
-                 for any other wrapper, set the ROSTER_DESK_ROSTER env var instead",
+                 for any other wrapper, set the ROSTER_APP_ROSTER env var instead",
                 self.0.join(" ")
             ))
         };

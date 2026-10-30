@@ -2,7 +2,7 @@
 name = "roster-core"
 version = "0.1.0"
 edition = "2024"
-description = "roster-desk's Tauri-free core: backend detection, the roster serve JSON-RPC client, the session manager"
+description = "The roster app's Tauri-free core: backend detection, the roster serve JSON-RPC client, the session manager"
 
 [dependencies]
 portable-pty = "0.9"

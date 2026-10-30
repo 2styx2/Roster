@@ -27,7 +27,7 @@ let reloads = 0;
 const report = (config: Config, error: ConfigError | null = null): ConfigReport => ({
   config,
   error,
-  path: "/home/me/.config/roster-desk/init.lua",
+  path: "/home/me/.config/roster/init.lua",
   version: ++reloads,
 });
 

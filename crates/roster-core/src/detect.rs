@@ -3,14 +3,14 @@
 //! On Windows the default WSL distro is probed first, then every other distro that's already
 //! Running (`wsl.exe -l -v`), until one has both roster and an Inventory. A stopped distro other
 //! than the default is never probed, because probing would boot it (see [`list_distros`]);
-//! `ROSTER_DESK_WSL_DISTRO=<name>` picks one distro explicitly, starting it if needed. On Linux roster runs locally. The probe is one login-shell
+//! `ROSTER_APP_WSL_DISTRO=<name>` picks one distro explicitly, starting it if needed. On Linux roster runs locally. The probe is one login-shell
 //! script per target; it resolves the roster program to an absolute path (`~/.local/bin` is only
 //! on PATH in interactive shells on some distros) and finds `roster.yml` the way roster would,
 //! plus `~/infra/roster.yml`. `serve` then gets `-c <path>` because it isn't started from a login
 //! shell, so variables like `ROSTER_CONFIG` from the user's profile never reach it. For the same
 //! reason it gets the login shell's PATH (`env PATH=...`): `wsl.exe --exec` has no `~/.local/bin`,
 //! and roster finds the vault CLI (`bw`) and `ssh` on PATH. No shell expands `~` in the override
-//! (`ROSTER_DESK_ROSTER`) either, so the probe reports the target's `$HOME` and a leading `~/` in
+//! (`ROSTER_APP_ROSTER`) either, so the probe reports the target's `$HOME` and a leading `~/` in
 //! the program or its arguments is expanded with it.
 
 pub use crate::error::{BackendError, DISTRO_VAR, ErrorKind, OVERRIDE_VAR};
@@ -103,7 +103,7 @@ impl Runner for SystemRunner {
     }
 }
 
-/// The roster command line: `ROSTER_DESK_ROSTER` split on whitespace, or just `roster`.
+/// The roster command line: `ROSTER_APP_ROSTER` split on whitespace, or just `roster`.
 pub fn roster_command(override_value: Option<&str>) -> Vec<String> {
     let v: Vec<String> = override_value
         .unwrap_or("")

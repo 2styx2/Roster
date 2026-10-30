@@ -38,11 +38,11 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | | Dev build | Release build |
 |---|---|---|
 | Command | `scripts/win-dev.sh` (`--ci` the first time) | `scripts/win-build.sh --run` (`--installer` for the setup .exe/.msi) |
-| For | working on roster-desk: hot reload, devtools, the worst-case/fixture toggle (only with `?fixture=` or `VITE_ROSTER_DESK_FIXTURES=1`) | using it day to day: optimised, no dev code, no fixtures, no fake backend |
+| For | working on roster-desk: hot reload, devtools, the worst-case/fixture toggle (only with `?fixture=` or `VITE_ROSTER_APP_FIXTURES=1`) | using it day to day: optimised, no dev code, no fixtures, no fake backend |
 | Windows copy | `%LOCALAPPDATA%\roster-desk-dev` | `%LOCALAPPDATA%\roster-desk-release` |
 | Stop | `scripts/win-stop.sh` | `scripts/win-stop.sh --release` (or just close the window) |
 
-Both use the installed `roster` (needs `roster serve`, API 3+) unless `ROSTER_DESK_ROSTER` is set, and both share the same State and `init.lua`.
+Both use the installed `roster` (needs `roster serve`, API 3+) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`.
 
 ```
 Cargo.toml            workspace; default member is desk-core, so `cargo test` in WSL never builds Tauri
@@ -122,26 +122,26 @@ scripts/win-dev.sh          # later runs; edits need only scripts/win-sync.sh (V
 scripts/win-stop.sh         # stop node, the tauri CLI and the app (killing the WSL job leaves them running)
 ```
 
-Parallel worktrees each get their own Windows copy with `ROSTER_DESK_WIN_DIR=roster-desk-dev-NN` (default
+Parallel worktrees each get their own Windows copy with `ROSTER_APP_WIN_DIR=roster-desk-dev-NN` (default
 `roster-desk-dev`) on all three scripts; only one `tauri dev` can hold port 1420 at a time, so give the others
-`ROSTER_DESK_WIN_PORT=14NN`. Two app windows at once also need separate WebView2 profiles, or the second fails
+`ROSTER_APP_WIN_PORT=14NN`. Two app windows at once also need separate WebView2 profiles, or the second fails
 with WebView2 error 0x8007139F: `export WEBVIEW2_USER_DATA_FOLDER='C:\Users\you\AppData\Local\roster-desk-dev-NN\webview2'
 WSLENV=WEBVIEW2_USER_DATA_FOLDER` before `scripts/win-dev.sh`.
 
 **Which roster runs.** On Windows the app probes the default WSL distro first, then only distros that are
 already Running (`wsl -l -v`); it never starts a stopped non-default distro, because booting one can break WSL
 interop for every distro (OracleLinux_9's systemd-binfmt removed `WSLInterop`, see `docs/dev/tauri-pty-wsl.md`).
-To use a stopped distro, set `ROSTER_DESK_WSL_DISTRO=<name>`: only that distro is probed, and started if needed
+To use a stopped distro, set `ROSTER_APP_WSL_DISTRO=<name>`: only that distro is probed, and started if needed
 (`scripts/win-dev.sh` passes it through `WSLENV`). Each probe runs `bash -lc` to find
 roster's absolute path (`~/.local/bin` added) and a `roster.yml` (`$ROSTER_CONFIG`, `~/roster.yml`,
 `~/.config/roster/roster.yml`, `~/infra/roster.yml`), then starts
 `wsl.exe -d <distro> --cd ~ --exec /usr/bin/env PATH=<login PATH> <roster> -c <roster.yml> serve` with no console window (the login PATH so roster finds `bw` in `~/.local/bin`). On Linux it starts
 roster locally the same way. To use another roster command, set `roster_command` in `init.lua`
-(docs/config.md), or `ROSTER_DESK_ROSTER`, split on spaces, which wins over it (as `ROSTER_DESK_WSL_DISTRO`
+(docs/config.md), or `ROSTER_APP_ROSTER`, split on spaces, which wins over it (as `ROSTER_APP_WSL_DISTRO`
 wins over `backend = "wsl:<distro>"`):
 
 ```bash
-ROSTER_DESK_ROSTER="uv run --project /home/you/work/roster roster" scripts/win-dev.sh
+ROSTER_APP_ROSTER="uv run --project /home/you/work/roster roster" scripts/win-dev.sh
 ```
 
 You need this while your installed roster predates `roster serve`: the app then shows "roster is too old".

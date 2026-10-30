@@ -19,7 +19,7 @@ tauri("assets/logo.svg", "-o", icons);
 rmSync(join(icons, "android"), { recursive: true, force: true });
 rmSync(join(icons, "ios"), { recursive: true, force: true });
 
-const tmp = mkdtempSync(join(tmpdir(), "roster-desk-icons-"));
+const tmp = mkdtempSync(join(tmpdir(), "roster-icons-"));
 try {
   tauri("assets/logo-small.svg", "-o", join(tmp, "small"), "-p", "16,24,32");
   tauri("assets/logo.svg", "-o", join(tmp, "big"), "-p", "48,64,256");

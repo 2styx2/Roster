@@ -354,7 +354,7 @@ fn folders_backend_and_roster_command() {
 
 #[test]
 fn the_config_dir_follows_the_platform() {
-    use config::{Os, dir_for};
+    use config::{Os, dir_for, legacy_dir_for};
     use std::path::PathBuf;
     let env = |k: &str| match k {
         "APPDATA" => Some(PathBuf::from(r"C:\Users\me\AppData\Roaming")),
@@ -363,14 +363,18 @@ fn the_config_dir_follows_the_platform() {
     };
     assert_eq!(
         dir_for(Os::Windows, env),
+        Some(PathBuf::from(r"C:\Users\me\AppData\Roaming").join("roster"))
+    );
+    assert_eq!(dir_for(Os::Linux, env), Some(PathBuf::from("/home/me/.config/roster")));
+    let xdg = |k: &str| (k == "XDG_CONFIG_HOME").then(|| PathBuf::from("/x"));
+    assert_eq!(dir_for(Os::Linux, xdg), Some(PathBuf::from("/x/roster")));
+    // Where roster-desk kept it, for the one-time copy (migrate.rs).
+    assert_eq!(
+        legacy_dir_for(Os::Windows, env),
         Some(PathBuf::from(r"C:\Users\me\AppData\Roaming").join("roster-desk"))
     );
-    assert_eq!(
-        dir_for(Os::Linux, env),
-        Some(PathBuf::from("/home/me/.config/roster-desk"))
-    );
-    let xdg = |k: &str| (k == "XDG_CONFIG_HOME").then(|| PathBuf::from("/x"));
-    assert_eq!(dir_for(Os::Linux, xdg), Some(PathBuf::from("/x/roster-desk")));
+    assert_eq!(legacy_dir_for(Os::Linux, xdg), Some(PathBuf::from("/x/roster-desk")));
+    assert_eq!(dir_for(Os::Linux, |_| None), None);
 }
 
 #[test]
@@ -606,7 +610,7 @@ fn a_slow_pattern_is_cut_off_by_the_watchdog() {
 
 /// roster_command picks the program that gets the master password, two-step codes and the API
 /// secret on its stdin, so init.lua may only name roster itself; any other wrapper takes the
-/// ROSTER_DESK_ROSTER env var, which the user sets outside the Config.
+/// ROSTER_APP_ROSTER env var, which the user sets outside the Config.
 #[test]
 fn roster_command_from_init_lua_must_run_roster() {
     for ok in [
@@ -636,7 +640,7 @@ fn roster_command_from_init_lua_must_run_roster() {
         let e = config::load(&dir).expect_err(bad);
         assert_eq!(e.line, Some(2), "{bad}: {e}");
         assert!(e.message.starts_with("roster_command:"), "{bad}: {e}");
-        assert!(e.message.contains("ROSTER_DESK_ROSTER"), "{bad}: {e}");
+        assert!(e.message.contains("ROSTER_APP_ROSTER"), "{bad}: {e}");
     }
 }
 
@@ -649,7 +653,7 @@ fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_ma
         ..Config::default()
     };
     let e = backend_plan(&c, Platform::Linux, None, None).unwrap_err();
-    assert!(e.contains("ROSTER_DESK_ROSTER"), "{e}");
+    assert!(e.contains("ROSTER_APP_ROSTER"), "{e}");
     let plan = backend_plan(&c, Platform::Linux, Some("my-wrapper roster"), None).unwrap();
     assert_eq!(plan.command, ["my-wrapper", "roster"]);
 }
