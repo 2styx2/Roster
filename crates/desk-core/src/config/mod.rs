@@ -90,7 +90,11 @@ impl Os {
 /// How long `init.lua` (with everything it requires) may run, and how much memory it may use.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
+    /// Lua run time, checked between instructions.
     pub time: Duration,
+    /// Wall-clock time for the whole load, checked by a watchdog: it also covers one long C call
+    /// (a pattern that backtracks), which the instruction check can't interrupt.
+    pub wall: Duration,
     pub memory: usize,
 }
 
@@ -98,6 +102,7 @@ impl Default for Limits {
     fn default() -> Self {
         Limits {
             time: Duration::from_secs(1),
+            wall: Duration::from_secs(2),
             memory: 64 * 1024 * 1024,
         }
     }

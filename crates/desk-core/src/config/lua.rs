@@ -44,11 +44,42 @@ pub(crate) struct ConvertError {
     pub message: String,
 }
 
+/// The longest text a pattern function takes, the longest pattern, and the biggest
+/// `string.rep` result.
+const MAX_TEXT: usize = 64 * 1024;
+const MAX_PATTERN: usize = 256;
+const MAX_REP: usize = 1024 * 1024;
+
 const LOADED: &str = "roster-desk.loaded";
 const API: &str = "roster-desk.api";
 const LOADING: &str = "\0loading";
 
+/// Runs `source` on a thread of its own, and gives up on it after `env.limits.wall`: a single
+/// long C call (a pattern that backtracks) can't be interrupted, so the caller isn't made to wait
+/// for it. The abandoned thread ends when the call does, and its result is dropped.
 pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (dir_owned, source_owned, env_owned) = (dir.to_path_buf(), source.to_string(), *env);
+    std::thread::Builder::new()
+        .name("init.lua".into())
+        .spawn(move || {
+            let _ = tx.send(run_here(&dir_owned, &source_owned, &env_owned));
+        })
+        .map_err(|e| ConfigError::new(None, format!("couldn't start Lua: {e}")))?;
+    let wall = env.limits.wall;
+    match rx.recv_timeout(wall) {
+        Ok(result) => result,
+        Err(_) => Err(ConfigError::new(
+            None,
+            format!(
+                "init.lua took too long to run (over {} ms; a string pattern that backtracks?)",
+                wall.as_millis()
+            ),
+        )),
+    }
+}
+
+fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
     let lua = Lua::new_with(
         StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::OS,
         LuaOptions::new(),
@@ -181,6 +212,34 @@ fn sandbox(
     )
     .set_name("=sandbox")
     .call::<()>(still_in_time)?;
+    // Patterns and string.rep run as one C call each, which the instruction hook can't stop:
+    // keep their sizes to what a Config needs. The watchdog (run) covers what's left.
+    lua.load(
+        r##"local MAX_TEXT, MAX_PATTERN, MAX_REP = ...
+        local error, type, tostring = error, type, tostring
+        for _, name in ipairs({ "find", "match", "gmatch", "gsub" }) do
+          local raw = string[name]
+          string[name] = function(s, p, ...)
+            if type(s) == "string" and #s > MAX_TEXT then
+              error("string." .. name .. ": the text is over " .. MAX_TEXT .. " bytes", 2)
+            end
+            if type(p) == "string" and #p > MAX_PATTERN then
+              error("string." .. name .. ": the pattern is over " .. MAX_PATTERN .. " bytes", 2)
+            end
+            return raw(s, p, ...)
+          end
+        end
+        local rep = string.rep
+        string.rep = function(s, n, sep)
+          if type(n) == "number" and n > 0
+            and (#tostring(s) + #tostring(sep or "")) * n > MAX_REP then
+            error("string.rep: the result would be over " .. MAX_REP .. " bytes", 2)
+          end
+          return rep(s, n, sep)
+        end"##,
+    )
+    .set_name("=sandbox")
+    .call::<()>((MAX_TEXT, MAX_PATTERN, MAX_REP))?;
     // print goes to the core's stderr (the `tauri dev` console), never to a file.
     g.raw_set(
         "print",

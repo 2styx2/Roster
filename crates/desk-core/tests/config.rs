@@ -551,3 +551,49 @@ fn a_table_that_contains_itself_says_so() {
     let e = config::load(&dir).unwrap_err();
     assert!(e.message.contains("contains itself"), "{e}");
 }
+
+#[test]
+fn string_functions_refuse_sizes_a_config_never_needs() {
+    for (name, call, what) in [
+        ("find", "string.find(string.rep('a', 70000), 'b')", "string.find"),
+        ("method", "(string.rep('a', 70000)):match('b')", "string.match"),
+        ("gsub", "string.gsub('abc', string.rep('a', 300), '')", "string.gsub"),
+        ("gmatch", "string.gmatch(string.rep('a', 70000), 'a')", "string.gmatch"),
+        ("rep", "string.rep('ab', 3e6)", "string.rep"),
+    ] {
+        let dir = with_init(
+            &format!("caps-{name}"),
+            &format!("local x = 1\nlocal _ = {call}\nreturn {{}}"),
+        );
+        let e = config::load(&dir).unwrap_err();
+        assert!(e.message.contains(what), "{name}: {e}");
+        assert_eq!(e.line, Some(2), "{name}: {e}");
+    }
+    // Ordinary sizes work as usual.
+    assert_eq!(probe("caps-ok", "('ctrl+b'):gsub('ctrl', 'Ctrl')"), "Ctrl+b");
+}
+
+#[test]
+fn a_slow_pattern_is_cut_off_by_the_watchdog() {
+    // A pattern that backtracks: one C call (no instruction hook inside) that runs for seconds.
+    let dir = with_init(
+        "backtrack",
+        "local s = string.rep('a', 2000)\nlocal _ = s:find('.-.-b')\nreturn {}",
+    );
+    let env = config::Env {
+        limits: config::Limits {
+            time: std::time::Duration::from_millis(100),
+            wall: std::time::Duration::from_millis(300),
+            ..config::Limits::default()
+        },
+        ..config::Env::default()
+    };
+    let started = std::time::Instant::now();
+    let e = config::load_with(&dir, &env).unwrap_err();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(e.message.contains("took too long"), "{e}");
+}
