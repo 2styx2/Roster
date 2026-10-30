@@ -5,7 +5,7 @@ Issues and tickets for roster (the CLI and the app together) live as GitHub issu
 ## roster's conventions
 
 - **Tickets are GitHub issues only** (Q64): never ticket files, never a PR to file or change a ticket. There is no `tickets/` folder.
-- **Tickets** are issues titled `TNN: …`. The ticket number is not the issue number (T01 is #2). Take the next free number from the highest existing `T` title: `gh issue list --state all --search "in:title T" --limit 200 --json title`.
+- **Tickets** are issues titled `TNN: …`. The ticket number is not the issue number (T01 is #1). Take the next free number from the highest existing `T` title: `gh issue list --state all --search "in:title T" --limit 200 --json title`.
 - **Iterations** are milestones (`Iteration 4 — Quick Connect`, …). Every ticket goes in its iteration's milestone (`--milestone "<title>"`). Stay inside the current iteration.
 - **Area labels:** `app` (desktop, `app/` and `crates/`), `cli` (roster CLI and `roster serve`). Other labels: `iteration`, `decision` (needs the owner), `follow-up` (follow-up or manual check).
 - **Blockers:** put `Blocked by #N, #N` at the top of the body (and add the native dependency, below).
