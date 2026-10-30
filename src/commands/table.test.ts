@@ -21,11 +21,16 @@ function recorder() {
     close: (n) => calls.push(`close ${n ?? "current"}`),
     toggleSidebar: () => calls.push("sidebar"),
     toggleStatusBar: () => calls.push("statusbar"),
-    openCommandLine: () => calls.push("cmdline"),
+    openCommandLine: (initial) => calls.push(initial ? `cmdline ${initial}` : "cmdline"),
     toggleKeys: () => calls.push("keys"),
     lock: () => calls.push("lock"),
     toTerminal: () => calls.push("terminal"),
     list: (m) => calls.push(`list ${m}`),
+    open: (h) => calls.push(`open ${h}`),
+    fold: (id, how) => calls.push(`${how} ${id ?? "cursor"}`),
+    cursorRow: () => null,
+    selectedHost: () => null,
+    hostNames: () => hosts,
     say: (m) => calls.push(`say ${m}`),
   };
   return { ctx, calls };
@@ -83,7 +88,8 @@ describe("runLine", () => {
   it("can run every command in the table", () => {
     for (const c of commands) {
       const { ctx, calls } = recorder();
-      runLine(ctx, c.arg === "host" ? `${c.id} esxi-02` : c.arg === "number" ? `${c.id} 1` : c.id);
+      const arg = c.arg ? { host: " esxi-02", number: " 1", text: " section:sessions" }[c.arg] : "";
+      runLine(ctx, `${c.id}${arg}`);
       expect(calls, c.id).toHaveLength(1);
       expect(calls[0], c.id).not.toMatch(/^say/);
     }

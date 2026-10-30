@@ -144,24 +144,46 @@ kbd { font-family: var(--mono); background: var(--row); border-radius: 4px; padd
 .sb-scroll { flex: 1; overflow: auto; padding: 2px 6px 8px; }
 .sb-section { margin-top: 8px; }
 .sb-heading {
-  display: flex; margin: 0; padding: 4px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--muted);
+  display: flex; align-items: center; height: 24px; border-radius: 6px; color: var(--muted);
 }
+.sidebar .sb-heading-button {
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 6px; color: inherit;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.sb-heading h2 { margin: 0; font: inherit; }
+.sb-heading:hover { color: var(--text); }
+.sb-heading.cursor { box-shadow: inset 0 0 0 1px var(--accent); }
 .sb-count { margin-left: auto; font-weight: 500; }
 .sb-empty { margin: 2px 8px; color: var(--muted); font-size: 12px; }
 .sb-rows { list-style: none; margin: 0; padding: 0; }
 .sb-row { display: flex; align-items: center; height: 26px; border-radius: 6px; color: var(--muted); }
 .sb-row:hover { background: var(--hover); color: var(--text); }
+/* The on-screen Host elsewhere in the tree: brighter, not raised. */
+.sb-row.also { color: var(--text); }
 .sb-row.raised { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
 .sb-row.cursor { box-shadow: inset 0 0 0 1px var(--accent); }
 .sidebar .sb-item { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: inherit; }
-.sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
+.sb-chev { width: 10px; flex: none; font-size: 10px; color: var(--muted); text-align: center; }
+/* The name wins the room; the address gives way first. */
+.sb-label { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
 .sb-note { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.sidebar .sb-close { visibility: hidden; padding: 0 8px; color: var(--muted); }
-.sb-row:hover .sb-close, .sb-row.raised .sb-close { visibility: visible; }
+.sb-detail {
+  margin-left: auto; flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted); font: 11px var(--mono); white-space: nowrap;
+}
+.sb-badge {
+  margin-left: auto; font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px;
+  padding: 0 4px; white-space: nowrap; flex: none;
+}
+.sb-badge + .sb-detail { display: none; }
+.sidebar .sb-action { display: none; flex: none; width: 22px; height: 22px; place-items: center; color: var(--muted); }
+.sidebar .sb-action:hover { color: var(--text); background: var(--raised); }
+.sb-row:hover .sb-action, .sb-row.raised .sb-action, .sb-heading:hover .sb-action { display: grid; }
+.sb-row.has-actions:hover .sb-detail, .sb-row.has-actions.raised .sb-detail { display: none; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dot-key); }
 .dot.password { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dot-key); }
 .dot.ended { background: var(--dot-ended); }
+.dot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dot-ended); }
 .sb-foot { display: flex; gap: 2px; padding: 6px; border-top: 1px solid var(--line); }
 .sidebar .sb-foot button { flex: 1; height: 26px; text-align: center; color: var(--muted); font-size: 12px; }
 .sb-foot button:hover { background: var(--hover); color: var(--text); }

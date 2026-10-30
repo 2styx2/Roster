@@ -30,11 +30,19 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> ?` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source, filterable |
 | `<leader> L` | `lock` | Lock |
 | Esc (App mode) | `terminal` | Back to the terminal |
-| In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, switch. `j`/`k`/`g g`/`G` only with vim on |
+| In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
+| In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
+| — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |
+| — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs) |
+| `<leader> a` | `folder add` | Add the Host under the cursor (or on screen) to a Folder: opens the command line at `folder add HOST ` for the Folder's name (Tab completes; a new name creates the Folder) |
+| `<leader> A` | `folder remove` | Remove the Host under the cursor from its Folder |
+| — | `folder new NAME`, `folder rename NAME NEW`, `folder delete NAME`, `folder add HOST NAME`, `folder remove HOST NAME` | Folders (GLOSSARY), kept in State. Names may have spaces; quote one (`"Lab ESXi"`) only where it would be ambiguous. Without a name, `new` and `rename` open the command line for it |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, select to copy, right-click to paste; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table) |
 
-Later: `<leader> a` (add to a Folder, ticket 17), `<leader> m` (view mode, ticket 22), `<leader> b` (Session finder, ticket 22).
+With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
+
+Later: `<leader> m` (view mode, ticket 22), `<leader> b` (Session finder, ticket 22).
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.

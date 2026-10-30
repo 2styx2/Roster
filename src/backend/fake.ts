@@ -131,6 +131,8 @@ const problem = (kind: BackendProblem["kind"], message: string, hint: string, de
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
   "few-hosts": { hosts: makeHosts(12) },
+  /** As many Hosts as the real Inventory (ticket 17's tree check). */
+  "91-hosts": { hosts: makeHosts(91) },
   slow: { hosts: makeHosts(300), delay: 1500 },
   "roster-too-old": {
     hosts: makeHosts(0),
