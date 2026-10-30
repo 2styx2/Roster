@@ -275,6 +275,12 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 }
 /* The on-screen Host elsewhere in the tree: brighter, not raised. */
 .sb-row.also { color: var(--text); }
+/* Added and not Published yet (ticket 28): dimmed, with a hollow dot like the Pending changes badge's. */
+.sb-row.pending .sb-label, .sb-row.pending .sb-detail, .sb-row.pending .sb-icon { opacity: 0.6; }
+.sb-pending-dot {
+  flex: none; align-self: center; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%;
+  border: 1.5px solid var(--muted);
+}
 /* The raised style (decision Q31): a lighter fill and a 1px outline. */
 .sb-row.raised { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--raised-line); }
 /* The live Session (decision Q53, S11): the raised row plus a 2px accent bar at its start, 3:1

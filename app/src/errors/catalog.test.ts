@@ -60,6 +60,17 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 92).where).toContain("the infra repo");
   });
 
+  it("gives every Live Inventory code its row (docs/app/errors.md rows 53-56, ticket 28)", () => {
+    const covered = new Set(builtinErrorRows.map((r) => r.row));
+    for (let n = 53; n <= 56; n++) expect(covered.has(n), `row ${n}`).toBe(true);
+    for (const code of [100, 101, 102, 103]) {
+      const row = rowFor(rows, code);
+      expect(row.codes, String(code)).toContain(code);
+      expect(row.id).toMatch(/^live-/);
+      expect(row.where).toContain("roster.yml");
+    }
+  });
+
   it("puts git's own words from roster's data.details under Details", () => {
     const e = new BackendCallError("couldn't push", 96, { fix: "publish again", details: "! [remote rejected] main" });
     const problem = problemFromCallError("", e);

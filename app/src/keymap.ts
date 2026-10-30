@@ -117,6 +117,12 @@ export const defaultBindings: KeymapTables = {
     L: "lock",
     E: "edit",
     "+": "host add",
+    // The Live Inventory (ticket 28): on the Host or group under the cursor, or the Session's Host.
+    n: "host add",
+    D: "host remove",
+    R: "host rename",
+    M: "host move",
+    N: "group new",
     c: "changes",
     r: "reconnect",
     m: "mode",

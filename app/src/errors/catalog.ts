@@ -471,6 +471,36 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Publish again (it fetches first); if git's words under Details name your rights, ask whoever runs the infra repo.",
     actions: [],
   }),
+  // The Live Inventory (ticket 28, decision Q45): removing, renaming and moving Hosts and groups.
+  // A bad name is 80's row, an unknown Host 2's, a result that wouldn't load 74's.
+  row("live-name-taken", {
+    row: 53,
+    codes: [100],
+    where: ["roster.yml"],
+    fix: () => "Pick another name; nothing was written.",
+    actions: [],
+  }),
+  row("live-unknown-group", {
+    row: 54,
+    codes: [101],
+    where: ["roster.yml"],
+    fix: () => "Pick one of the groups roster names, or make it first (`:group new`).",
+    actions: [],
+  }),
+  row("live-group-not-empty", {
+    row: 55,
+    codes: [102],
+    where: ["roster.yml"],
+    fix: () => "Say which group its Hosts go to (`:group delete GROUP OTHER`), or move them first.",
+    actions: [],
+  }),
+  row("live-would-change", {
+    row: 56,
+    codes: [103],
+    where: ["roster.yml"],
+    fix: () => "Move it by hand in roster.yml, setting what it inherits on the Host itself; nothing was written.",
+    actions: [],
+  }),
   row("other", {
     row: null,
     codes: [3, 22],

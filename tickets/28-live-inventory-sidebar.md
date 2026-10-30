@@ -16,8 +16,8 @@
 
 **Blocked by:** 10, 11
 
-**Status:** ready-for-agent
+**Status:** done (pending review; the manual check in vim on the real `~/infra` is for the maintainer). Reloading follows the owner's correction on #29 and Q58: outside edits apply on `:source` (`roster.yml` and `folders.yml` are in its registry), or by themselves with `auto_reload = true`.
 
-- [ ] pytest: an outside edit to `roster.yml` sends `inventory.changed` within 1 s; a broken edit keeps the last good data and reports the line; host and group add, remove, rename and move keep comments, and the other entries stay byte-identical.
-- [ ] App tests: the Sidebar updates in place on `inventory.changed`; every add, remove, rename and move works by key, mouse and `:` command; removal needs confirmation; `folders.yml` round-trips, and `init.lua` Folders are read-only.
+- [x] pytest: an outside edit to `roster.yml` sends `inventory.changed` within 1 s; a broken edit keeps the last good data and reports the line; host and group add, remove, rename and move keep comments, and the other entries stay byte-identical.
+- [x] App tests: the Sidebar updates in place on `inventory.changed`; every add, remove, rename and move works by key, mouse and `:` command; removal needs confirmation; `folders.yml` round-trips, and `init.lua` Folders are read-only.
 - [ ] Manual check: edit `~/infra/roster.yml` in vim while the app is open and watch the Sidebar follow. Add and remove a Host and a group in the app, then see the diff in `roster.yml`.

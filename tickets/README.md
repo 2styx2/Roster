@@ -27,7 +27,7 @@ One file per ticket, numbered so that blockers come first. **Frontier** means ev
 | 32 | [`:config` and discoverable configuration](32-config-command.md) | 3 | 21, 29 | done |
 | 33 | [The terminal looks like your Windows Terminal](33-terminal-matches-windows-terminal.md) | 3 | 21, 32 | done |
 | 34 | [Tab completion everywhere (command line and fuzzy finders)](34-tab-completion.md) | 3 | 07, 21, 22 | done (pending review) |
-| 28 | [Live Inventory: add, remove and rename Hosts and groups in the Sidebar, two-way with `roster.yml`](28-live-inventory-sidebar.md) | 3 | 10, 11 | ready |
+| 28 | [Live Inventory: add, remove and rename Hosts and groups in the Sidebar, two-way with `roster.yml`](28-live-inventory-sidebar.md) | 3 | 10, 11 | done (pending review) |
 | 13 | [Bitwarden can create Vault items (prefactor)](13-bitwarden-create-item.md) | 3 | 01 | done |
 | 25 | [KeePassXC provider (local-only secrets)](25-keepassxc-provider.md) | 4 | 13 | ready |
 | 14 | [Quick Connect](14-quick-connect.md) | 4 | 06 | ready |

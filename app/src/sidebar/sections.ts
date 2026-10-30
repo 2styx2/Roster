@@ -20,6 +20,9 @@ export interface SidebarContext {
   state: Readonly<Record<string, unknown>>;
   /** Ids of the folded rows and section headings (State's `folded`). */
   folded: ReadonlySet<string>;
+  /** The Live Inventory (ticket 28): roster can add, remove, rename and move Hosts and groups
+   * (API 8), and what's added and not Published yet (shown dimmed, with a dot). */
+  live?: { pendingHosts: ReadonlySet<string>; pendingGroups: ReadonlySet<string> };
 }
 
 export interface SidebarSectionDef extends Entry {
@@ -161,29 +164,63 @@ function groupsOf(hosts: HostList): [string, Host[]][] {
   return [...byGroup];
 }
 
-/** Every Host, grouped as in roster.yml (the team's grouping), with counts. */
+/** Every Host, grouped as in roster.yml (the team's grouping), with counts. With the Live
+ * Inventory (ticket 28) each group heading has `+` (a Host), rename and delete, each Host rename and
+ * remove, a Host dropped on another group moves there, and the heading has "New group". */
 export const inventorySection: SidebarSectionDef = {
   id: "inventory",
   source: BUILTIN,
   order: 300,
-  build: ({ hosts }) => ({
+  build: ({ hosts, hostByName, live }) => ({
     id: "inventory",
     title: "Inventory",
     count: hosts.hosts.length,
-    empty: "No Hosts yet. Add them in roster.yml.",
-    rows: groupsOf(hosts).flatMap(([group, members]) => [
-      {
-        id: `group:${group}`,
-        label: group,
-        count: members.length,
-        icon: "group" as const,
-        ...(hosts.groups[group]?.title ? { title: hosts.groups[group].title } : {}),
-        level: 0,
-        foldable: true,
-        command: `togglefold group:${group}`,
-      },
-      ...members.map((h) => hostRow(h, `inventory:${h.name}`, 1)),
-    ]),
+    empty: live ? "No Hosts yet. Press `␣ n` to add one." : "No Hosts yet. Add them in roster.yml.",
+    ...(live ? { actions: [{ label: "New group", icon: "add" as const, command: "group new" }] } : {}),
+    rows: groupsOf(hosts).flatMap(([group, members]): SidebarRow[] => {
+      const data = { group };
+      const drop = (host: string) => (hostByName.has(host) && hostByName.get(host)?.group !== group ? `host move ${host} ${group}` : null);
+      const pending = (yes: boolean) => (live && yes ? { pending: true } : {});
+      return [
+        {
+          id: `group:${group}`,
+          label: group,
+          count: members.length,
+          icon: "group" as const,
+          ...(hosts.groups[group]?.title ? { title: hosts.groups[group].title } : {}),
+          level: 0,
+          foldable: true,
+          data,
+          command: `togglefold group:${group}`,
+          ...pending(live?.pendingGroups.has(group) ?? false),
+          ...(live
+            ? {
+                drop,
+                actions: [
+                  { label: `Add a Host to ${group}`, icon: "add" as const, command: `host add ${group}` },
+                  { label: `Rename group ${group}`, icon: "edit" as const, command: `group rename ${group}` },
+                  { label: `Delete group ${group}`, icon: "close" as const, command: `group delete ${group}` },
+                ],
+              }
+            : {}),
+        },
+        ...members.map((h): SidebarRow => {
+          const row = hostRow(h, `inventory:${h.name}`, 1);
+          if (!live) return row;
+          return {
+            ...row,
+            data,
+            drop,
+            ...pending(live.pendingHosts.has(h.name)),
+            actions: [
+              ...(row.actions ?? []),
+              { label: `Rename ${h.name}`, icon: "edit" as const, command: `host rename ${h.name}` },
+              { label: `Remove ${h.name} from the Inventory`, icon: "close" as const, command: `host remove ${h.name}` },
+            ],
+          };
+        }),
+      ];
+    }),
   }),
 };
 

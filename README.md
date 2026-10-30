@@ -348,7 +348,7 @@ Results are the objects roster builds when it loads `roster.yml`, with no extra 
 | Method | Params | Result |
 |---|---|---|
 | `inventory.info` | none | `{path, box, host_count, providers: [names], roster_version, api_version}` |
-| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}}`, hosts in `roster.yml` order |
+| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order. `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good ones |
 | `host.get` | `{name}` (exact Host name) | one Host |
 
 A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}`, `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
@@ -406,9 +406,9 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 7 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 8 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
-Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory, 80-89 adding a Host (`host.add`), 90-99 publishing (`changes.publish`). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
+Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`), 70-79 editing the Inventory, 80-89 adding a Host (`host.add`), 90-99 publishing (`changes.publish`), 100-109 the Live Inventory (removing, renaming and moving Hosts and groups). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](docs/app/errors.md) is the catalog the codes come from.
 
 | Code | Meaning |
 |---|---|
@@ -453,13 +453,17 @@ Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's us
 | `94` | `changes.publish`: the branch has no upstream to push to |
 | `95` | `changes.publish`: git refused the commit (no identity, a hook); `details` has git's message; the Pending changes are kept |
 | `96` | `changes.publish`: the push failed or was rejected (`data.rejected`: the upstream moved meanwhile); the commit is undone, the Pending changes are kept |
+| `100` | `host.rename`, `group.new`, `group.rename`: that name is already a Host's or a group's (`data.kind`, `data.group`) |
+| `101` | No group by that name in `roster.yml` (`data.group`); the message lists the groups |
+| `102` | `group.delete`: the group still has Hosts and no `to` says where they go (`data.hosts`) |
+| `103` | `host.move`, `group.delete`: the Host would come out different in its new group (a service or Login it inherits there that roster can't write on the Host); `data.fields` |
 | `-32700` | Not valid JSON |
 | `-32600` | Not a JSON-RPC 2.0 request object (batches aren't supported) |
 | `-32601` | Unknown method |
 | `-32602` | Bad params, e.g. `host.get` without a `name` |
 | `-32603` | Unexpected failure inside roster; details go to stderr |
 
-Requests without an `id` (notifications) run but get no reply.
+Requests without an `id` (notifications) run but get no reply. `serve` sends one notification of its own, `inventory.changed` (see [The Live Inventory](#the-live-inventory-hosts-and-groups-and-outside-edits)), and only after `inventory.watch`.
 
 ### Editing: Pending changes
 
@@ -499,6 +503,29 @@ A Pending change is an edit to `roster.yml` made on this box and not Published y
 5. A host key confirmed with `host_key` is recorded in `~/.ssh/roster_known_hosts`, so Sessions and later test logins find it.
 
 The typed password is never in a response, an error, stderr, `roster.yml` or the Pending change; only the item's name is. A Host **without** a Login (no `auth`, no `password`, and none inherited) is added `reviewed: false` with no network at all, as `discover` adds Hosts; `host.review` (or `reviewed: true` by hand) lets it be opened.
+
+### The Live Inventory: Hosts and groups, and outside edits
+
+Removing, renaming and moving Hosts and adding, renaming and deleting groups (ticket 28, decision Q45). Each is a text edit of `roster.yml` like `host.update`: only the entry's own lines change (from its key's line through its value's last line, comments on those lines included), every other byte stays, and the result must load to exactly what was asked, with nothing else changed (`74` otherwise, nothing written). Each is a Pending change with the backup in `.git/roster/`. A `roster.yml` that doesn't load right now refuses them with `1` and its line. A bad name is `80`, an unknown Host `2`.
+
+| Method | Params | Result |
+|---|---|---|
+| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays |
+| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is taken |
+| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host. `101` no such group, `103` if it would still come out different |
+| `group.new` | `{name, title?}` | `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken |
+| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken |
+| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) |
+| `inventory.reload` | none | `{changed, host_count, error}`: `:source` for `roster.yml`, read again now |
+| `inventory.watch` | `{auto}` | `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's `auto_reload`) applies them |
+
+**Reloading is Neovim-style (decision Q58).** An edit made outside the app (in vim, a `git pull` in a terminal) isn't applied by itself unless the app asked for it with `inventory.watch {auto: true}`. `serve` looks at `roster.yml` every 0.2 s (its size, time and inode, so an editor that saves by renaming a new file over it counts too); a change that has settled and differs from what `serve` last loaded (its own writes don't count) is sent as a JSON-RPC notification, a message with no `id`:
+
+```json
+{"jsonrpc": "2.0", "method": "inventory.changed", "params": {"applied": true, "error": null}}
+```
+
+With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save. Without, `applied` is `false` and the edit waits for `inventory.reload` (`:source`); it's reported once. **A file that doesn't load keeps the last good Inventory**: `hosts.list` keeps answering with it, plus `error: {message, path, line?, fix}` (catalog row 1), and so do the notification and `inventory.reload`. It recovers by itself once the file loads again. `hosts.list`'s `error` is `null` while the file loads.
 
 ### Vault: the lock screen
 
@@ -646,8 +673,8 @@ src/roster/
   resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
-  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table
-  edit.py           editing one Host in roster.yml as text, or adding one (comments and other entries kept), checked before it's written
+  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, the roster.yml watcher (inventory.changed)
+  edit.py           editing one Host in roster.yml as text, adding, removing, renaming or moving one, and groups (comments and other entries kept), checked before it's written
   changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak, publish)
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
