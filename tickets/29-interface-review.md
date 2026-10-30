@@ -7,7 +7,7 @@
 2. **Stop and show the user the ranked report.** The user picks which items to fix in this iteration. The rest become proposals for later iterations, written into `docs/design/interface-review.md`.
 3. Implement the chosen items test-first (`/tdd`). Use the focused `interfaces:*` skills where a finding needs them, for example `better-accessibility` for focus and ARIA, `better-typography`, `better-colors` for contrast, and `better-writing` for copy.
 
-**Blocked by:** 09, 27, 21, 22, 30
+**Blocked by:** 09, 27, 21, 22, 30, 31
 
 **Status:** ready (waits for the rest of iteration 2)
 
