@@ -382,7 +382,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
   border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius-sm); padding: 0 4px;
   white-space: nowrap;
 }
-.sb-row.raised .sb-badge, .sb-row.cursor .sb-badge { display: block; }
+.sb-row.raised .sb-badge, .sb-row.cursor .sb-badge, .sb-row.selected .sb-badge { display: block; }
 .sb-badge + .sb-detail { display: none; }
 .sidebar .sb-action {
   display: none; flex: none; width: 22px; height: 22px; margin-right: 2px; place-items: center; color: var(--muted);
@@ -390,17 +390,16 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 @media (hover: hover) and (pointer: fine) {
   .sidebar .sb-action:hover { color: var(--text); background: var(--hover); }
 }
-.sb-row.raised .sb-action { display: grid; }
-/* Always there (the Inventory heading's "Add a Host"): last in its heading, so a hover-only action
-   appears beside it and never moves it. No motion: it's a plain, quiet button. */
+/* The selected row: its text as bright as under a pointer, so you see which row the buttons are for. */
+.sb-row.selected { color: var(--text); }
+/* The selected row's buttons (decision Q88, owner): the row last clicked, or the App-mode cursor.
+   Hover shows none of them, so a row's address stays until it's clicked. No motion: j/k move them
+   as often as a click (taste.md: motion confirms; a key confirms itself). */
+.sb-row.selected .sb-action, .sb-heading.selected .sb-action { display: grid; }
+/* Always there (the Inventory heading's "Add a Host"): last in its heading, so a selected
+   heading's other buttons appear beside it and never move it. A plain, quiet button. */
 .sidebar .sb-action.pinned { display: grid; }
-.sb-row.has-actions.raised .sb-detail, .sb-row.has-actions.raised .sb-num, .sb-row.has-actions.raised .sb-badge { display: none; }
-/* Hover shows the same (a real pointer only: a tap mustn't leave them stuck, N8). */
-@media (hover: hover) and (pointer: fine) {
-  .sb-row:hover .sb-badge { display: block; }
-  .sb-row:hover .sb-action, .sb-heading:hover .sb-action { display: grid; }
-  .sb-row.has-actions:hover .sb-detail, .sb-row.has-actions:hover .sb-num, .sb-row.has-actions:hover .sb-badge { display: none; }
-}
+.sb-row.has-actions.selected .sb-detail, .sb-row.has-actions.selected .sb-num, .sb-row.has-actions.selected .sb-badge { display: none; }
 
 /* State nodes (ui/StateDot.tsx, decisions Q53 and Q57): the shape carries the state, colour only
    adds to it. Filled accent = key login, accent ring = password login, grey ring = ended, dashed

@@ -140,6 +140,18 @@ fn the_ui_text_size_is_read_and_kept_in_range() {
 }
 
 #[test]
+fn pull_fresh_minutes_defaults_to_five_and_takes_zero_to_a_day() {
+    // Decision Q88: a form pulls the infra repo in the background once the last pull is older.
+    assert_eq!(Config::default().pull_fresh_minutes, 5);
+    let dir = with_init("pullfresh", "return { pull_fresh_minutes = 0 }\n");
+    assert_eq!(config::load(&dir).unwrap().pull_fresh_minutes, 0);
+    let dir = with_init("pullfresh-range", "return {\n  pull_fresh_minutes = 2000,\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("pull_fresh_minutes"), "{e}");
+}
+
+#[test]
 fn returning_something_other_than_a_table_is_an_error() {
     let dir = with_init("notable", "return 42\n");
     assert!(config::load(&dir).unwrap_err().message.contains("must return a table"));

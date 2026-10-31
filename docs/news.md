@@ -42,6 +42,8 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - The finders say how many results a query left, and "No matches", to a screen reader once you stop typing; help's search count is announced as it changes; the outline's section sits at the right, as in `:helpgrep`.
 - Linux: when WebGL can't start or loses its context, the terminal draws with the DOM renderer instead, and `:info` names the renderer in use and how fast the Picker opened. The Enter that finishes an input-method word (IBus, Fcitx) no longer also opens a Host. See [Linux and WSLg](app/dev/linux.md).
+- A Sidebar row's buttons (ⓘ, rename, remove…) show only on the row you clicked, or under the App-mode cursor, never on hover, so a row's address stays in view until you click it. In App mode the cursor starts on the row you clicked.
+- `:edit`, `:host add` and Save to vault open at once instead of waiting on "Pulling the infra repo…". They pull in the background only when the last pull is older than [`pull_fresh_minutes`](pull_fresh_minutes) (5 by default), and Save waits for that pull. A pull that changed the Host you're editing updates the fields you hadn't touched and says so. A pull that fails blocks the save, not the form.
 
 **CLI**
 

@@ -79,6 +79,7 @@ import { defaultConfig } from "./config/fixture";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
 import { realClock, type Clock } from "./lock/idle";
+import { pullGate } from "./edit/pull";
 import { LockGate, noAccountWords, serverName, SIGN_OUT_WHAT, signOutQuestion } from "./lock/LockScreen";
 import { useVault } from "./lock/useVault";
 import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
@@ -385,6 +386,13 @@ function Workspace({
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
+  // The Sidebar's selected row (decision Q88): the one last clicked, or where j/k left the cursor.
+  // Its buttons show; in App mode the cursor row is the selected one.
+  const [selected, setSelected] = useState<string | null>(null);
+  const moveTo = (id: string | null) => {
+    setCursor(id);
+    setSelected(id);
+  };
   const [viewMode, setViewMode] = useState<ViewMode>(options.defaultMode);
   const [layouts, setLayouts] = useState<Layouts>(() => layoutsProp ?? derived?.layouts ?? defaultLayouts(options));
   // A Config whose layouts differ replaces them (and what `␣ e` / `␣ s` toggled); one that only
@@ -768,6 +776,26 @@ function Workspace({
     );
   }, [backend]);
 
+  // The pull before an Inventory write (decision Q88): one gate per Backend, shared by the forms
+  // and `:pull`, so a pull within `pull_fresh_minutes` isn't repeated and one running is joined.
+  const pullWindow = useRef(options.pullFreshMinutes);
+  const pullClock = useRef(clock ?? realClock);
+  const reloadRef = useRef(reloadHosts);
+  useEffect(() => {
+    pullWindow.current = options.pullFreshMinutes;
+    pullClock.current = clock ?? realClock;
+    reloadRef.current = reloadHosts;
+  });
+  const gate = useMemo(
+    () =>
+      pullGate(() => backend.pullInventory(), {
+        windowMs: () => pullWindow.current * 60_000,
+        now: () => pullClock.current.now(),
+        onUpdated: () => reloadRef.current(),
+      }),
+    [backend],
+  );
+
   // roster.yml edited outside the app (ticket 28, decision Q58): serve applies it with
   // auto_reload (the Sidebar follows), else only says so, for `:source`. A file that doesn't load
   // keeps the last good Inventory and says the line.
@@ -1110,14 +1138,14 @@ function Workspace({
       const next = how === "toggle" ? !isFolded : how === "fold";
       store.update((s) => setFolded(s, target, next));
       // The cursor doesn't vanish into a folded row.
-      if (next && cursor !== null && ancestorsOf(cursor).includes(target)) setCursor(target);
+      if (next && cursor !== null && ancestorsOf(cursor).includes(target)) moveTo(target);
       return;
     }
     if (id !== null || !row) return;
-    if (how === "fold" && row.parent) setCursor(row.parent);
+    if (how === "fold" && row.parent) moveTo(row.parent);
     if (how === "unfold" && foldable) {
       const child = rows[rows.indexOf(row) + 1];
-      if (child?.parent === row.id) setCursor(child.id);
+      if (child?.parent === row.id) moveTo(child.id);
     }
   };
   const ancestorsOf = (id: string): string[] => {
@@ -1285,8 +1313,9 @@ function Workspace({
       if (details !== null) setDetails(null);
     },
     list: (move) => {
-      if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
+      if (move !== "choose") return moveTo(moveCursor(rows, cursor, move));
       const row = rows.find((r) => r.id === cursor);
+      if (row) setSelected(row.id);
       // Enter on a group, Folder or heading folds it and stays in the Sidebar.
       setMode(row && staysInAppMode(row.command) ? { mode: "app", pending: [] } : terminalMode);
       if (row) run(row.command);
@@ -1427,9 +1456,8 @@ function Workspace({
     pull: () => {
       if (!canEdit) return setMessage(`:pull needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
       setMessage("Pulling the infra repo…");
-      backend.pullInventory().then(
+      gate.pull().then(
         (r) => {
-          if (r.updated) reloadHosts();
           setMessage(
             !r.upstream
               ? "This branch has no upstream: nothing to pull."
@@ -1583,7 +1611,12 @@ function Workspace({
     e.preventDefault();
     e.stopPropagation();
     if (before.mode === "terminal" && r.state.mode === "app") {
-      setCursor(rows.find((row) => row.raised)?.id ?? rows[0]?.id ?? null);
+      setCursor(
+        (selected !== null && rows.some((row) => row.id === selected) ? selected : null) ??
+          rows.find((row) => row.raised)?.id ??
+          rows[0]?.id ??
+          null,
+      );
     }
     setMode(r.state);
     if (r.action) run(r.action);
@@ -1834,6 +1867,8 @@ function Workspace({
             sections={sections}
             side={sidebarSide}
             cursor={appMode ? cursor : null}
+            selected={appMode ? cursor : selected}
+            onSelect={setSelected}
             leaderHint={options.leader}
             findKeys={hintFor(keymap, "find")}
             run={(line) => {
@@ -1845,7 +1880,12 @@ function Workspace({
               // Tab (or a screen reader) reached the tree: it's App mode, as after the Leader.
               if (keyRef.current.mode !== "terminal") return;
               beforeTree.current = from;
-              setCursor(rows.find((row) => row.raised)?.id ?? rows[0]?.id ?? null);
+              setCursor(
+        (selected !== null && rows.some((row) => row.id === selected) ? selected : null) ??
+          rows.find((row) => row.raised)?.id ??
+          rows[0]?.id ??
+          null,
+      );
               setMode({ mode: "app", pending: [] });
             }}
             onTreeBlur={(to) => {
@@ -1982,7 +2022,7 @@ function Workspace({
             pendingCount={pendingCount}
             rows={errorRows}
             actions={{ run, copy }}
-            onPulled={() => reloadHosts()}
+            pull={gate}
             onSaved={(update) => {
               closeEdit();
               reloadHosts();
@@ -2020,7 +2060,7 @@ function Workspace({
             pendingCount={pendingCount}
             rows={errorRows}
             actions={{ run, copy }}
-            onPulled={() => reloadHosts()}
+            pull={gate}
             chooseTarget={configuresVault}
             targetsVersion={targetsVersion}
             onAdded={(r) => {
@@ -2052,7 +2092,7 @@ function Workspace({
             pendingCount={pendingCount}
             rows={errorRows}
             actions={{ run, copy }}
-            onPulled={() => reloadHosts()}
+            pull={gate}
             chooseTarget={configuresVault}
             targetsVersion={targetsVersion}
             onSaved={(r) => {

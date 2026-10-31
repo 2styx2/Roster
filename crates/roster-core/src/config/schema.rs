@@ -33,6 +33,9 @@ pub struct Config {
     pub leader: String,
     pub vim: bool,
     pub idle_lock_minutes: u32,
+    /// How old the last pull of the infra repo may be before a form pulls again, in the background
+    /// (decision Q88); 0 pulls every time.
+    pub pull_fresh_minutes: u32,
     /// The view mode at start: "standard" or "focus" (decision Q36).
     pub default_mode: ViewMode,
     /// Open Sessions listed in the Sidebar, or in a tab strip.
@@ -113,6 +116,7 @@ impl Default for Config {
             leader: "Ctrl+Space".into(),
             vim: true,
             idle_lock_minutes: 15,
+            pull_fresh_minutes: 5,
             default_mode: ViewMode::Standard,
             sessions: SessionsIn::Sidebar,
             keys: Keys::default(),
