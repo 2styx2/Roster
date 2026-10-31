@@ -59,6 +59,12 @@ export function PluginPrompt({ prompt, onAnswer, safe }: { prompt: Prompt; onAns
       </p>
       <p className="plugin-source muted">
         Unverified: from <span className="mono">{pkg ? pkg.url : prompt.path}</span>
+        {pkg?.dir ? (
+          <>
+            , folder <span className="mono">{pkg.dir}</span>
+            {pkg.commit && !update ? "," : ""}
+          </>
+        ) : null}
         {pkg?.commit && !update ? (
           <>
             {" "}
@@ -358,7 +364,7 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
                   {p.commit && <span className="mono muted">{short(p.commit)}</span>}
                   <span className={`plugin-state${state.problem ? " problem" : ""}`}>{state.text}</span>
                 </div>
-                <div className="plugin-source muted mono">{p.url}</div>
+                <div className="plugin-source muted mono">{p.dir ? `${p.url}, folder ${p.dir}` : p.url}</div>
                 <div className="muted">{p.wants}</div>
                 {p.note && <div className="muted">{p.note}</div>}
                 {(p.error ?? plugin?.problem) && <div className="plugin-problem">{p.error ?? plugin?.problem}</div>}

@@ -86,9 +86,9 @@ export interface Prompt {
   manifest: PluginManifest;
   /** The permissions being asked about (all of them at install; the new ones on update). */
   asking: readonly string[];
-  /** A Package's prompt: its git URL (the unverified source), and for an update the new commit
-   * with its diff. Declining a Package's update keeps the version it has. */
-  package?: { name: string; url: string; commit: string | null; update?: PackageUpdate };
+  /** A Package's prompt: its git URL and folder in the repo (the unverified source), and for an
+   * update the new commit with its diff. Declining a Package's update keeps the version it has. */
+  package?: { name: string; url: string; dir: string | null; commit: string | null; update?: PackageUpdate };
 }
 
 /** A Plugin's message for the toast: its error, or what it asked to say. */
@@ -372,7 +372,7 @@ export class PluginManager {
         }
         this.prompts = [
           ...this.prompts,
-          { kind: "install", path, manifest, asking: manifest.permissions.map((x) => x.name), package: { name: p.name, url: p.url, commit: p.commit } },
+          { kind: "install", path, manifest, asking: manifest.permissions.map((x) => x.name), package: { name: p.name, url: p.url, dir: p.dir, commit: p.commit } },
         ];
       } catch (e) {
         this.notify(p.name, "error", `${p.name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -414,7 +414,7 @@ export class PluginManager {
         const asking = u.manifest.permissions.map((x) => x.name).filter((x) => !entry.asked.includes(x));
         this.prompts = [
           ...this.prompts.filter((x) => x.path !== path),
-          { kind: "update", path, manifest: u.manifest, asking, package: { name: c.name, url: status?.url ?? "", commit: u.to, update: u } },
+          { kind: "update", path, manifest: u.manifest, asking, package: { name: c.name, url: status?.url ?? "", dir: status?.dir ?? null, commit: u.to, update: u } },
         ];
         updates.push(c.name);
       }
