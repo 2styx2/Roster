@@ -47,6 +47,9 @@ export interface FinderSourceDef extends Entry {
   /** What an empty list says before anything's typed (default "Nothing here yet."). */
   empty?: string;
   items(ctx: FinderContext): FinderItem[];
+  /** The Finder opened on it: a source that fetches its items (a Plugin's function, ticket 79)
+   * starts now and registers again with them. */
+  open?(): void;
   /** The matches for `query`, best first; by default searchItems over `items`. */
   search?(ctx: FinderContext, query: string): FinderItem[];
   /** The item selected on opening, in the empty query's list (default the first). */

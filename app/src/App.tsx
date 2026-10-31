@@ -496,7 +496,7 @@ function Workspace({
   const openPackages = useRef(() => {});
   useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
   useEffect(() => {
-    tabs.setOutputTap({ output: (id, host, data) => plugins.output(id, host, data), resized: (id) => plugins.resized(id) });
+    tabs.setOutputTap({ output: (id, host, data, size) => plugins.output(id, host, data, size) });
     return () => tabs.setOutputTap(null);
   }, [tabs, plugins]);
   // `:tutor` (ticket 55): on the demo Inventory, what happens is fed to the tutorial running, whose
