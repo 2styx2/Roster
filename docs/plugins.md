@@ -123,7 +123,12 @@ packages = {
 },
 ```
 
-The first is [`mesh`](../plugins/mesh/README.md), the Mesh controls (`dir = "plugins/mesh"`): each Host's reach, plan and apply, Cut. It's also the worked example of a Plugin that runs something long in roster serve: every Mesh run is a job it starts with `background = true`, follows with a timer polling `mesh.job` for its progress, and stops with `mesh.stop`, because a call into serve may not wait more than a couple of seconds. The Topology view and the Discover UI are planned next.
+| Plugin | What it does | Its line in `init.lua` |
+|---|---|---|
+| [mesh](../plugins/mesh/README.md) | The Mesh controls: each Host's reach, plan and apply, Cut | `{ "https://github.com/2styx2/roster", dir = "plugins/mesh" }` |
+| [discover](../plugins/discover/README.md) | Scan a network from the app (`:discover 10.0.0.0/24`, the toolbar's **Scan**), watch what answers come in, keep the ones you want and add them, unreviewed, as Pending changes. The scan runs in `roster serve` ([`discover.*`](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd)); it asks before scanning and before adding | `{ "https://github.com/2styx2/roster", dir = "plugins/discover" }` |
+
+[`mesh`](../plugins/mesh/README.md) is also the worked example of a Plugin that runs something long in roster serve: every Mesh run is a job it starts with `background = true`, follows with a timer polling `mesh.job` for its progress, and stops with `mesh.stop`, because a call into serve may not wait more than a couple of seconds. The Topology view is planned next.
 
 ## Permissions
 
@@ -137,7 +142,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 | `sessions.open` | `roster.sessions.open(host)`, as `:connect HOST`; `:open` and `:connect` in `roster.cmd` and a `run` line | Can open Sessions on your Hosts |
 | `terminal.read` | The `terminal_output` event: what your Sessions print | Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too |
 | `terminal.write` | `roster.terminal.send(session, text)` | Can type into your Sessions, as if you typed it |
-| `serve:METHOD` | `roster.serve.call(method, params)` for that method only: `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff`, and the `mesh.*` and `discover.*` methods | Any method that can change something (`mesh.apply`, `mesh.cut`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job` and `mesh.stop` |
+| `serve:METHOD` | `roster.serve.call(method, params)` for that method only: `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff`, and the `mesh.*` and `discover.*` methods. `discover.start` (a scan) and `discover.add` work only in a call the user started, never at load, on an event or from a timer | Any method that can change something or reach the network (`mesh.apply`, `mesh.cut`, `discover.start`, `discover.add`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`. `discover.start` says it scans networks from this computer |
 | `network:SITE` | `roster.http.request(request, done)` and `roster.http.get(url, done)`, to that site only | Always: anything the Plugin can read could leave this computer. Also said: plain `http://`, and an address on this computer or a private network |
 
 No permission reaches a secret, nor how one is fetched: a `cmd:COMMAND` or `env:VAR` Login reference reaches a Plugin as `cmd:` or `env:`, from `roster.inventory` and `roster.serve.call` alike (decision Q92), since a command line can carry a secret pasted into it. The vault, a session's password, askpass and the master password live only in `roster serve` and never pass through the app; the serve methods that touch them (`vault.*`, `session.*`, `quick.*`, `host.add`, `host.save_login`, `changes.publish`) can't be granted at all, and a manifest that asks for one doesn't install.

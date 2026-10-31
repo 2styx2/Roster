@@ -1815,7 +1815,7 @@ roster serve's methods, by name. `nil` unless the Plugin was granted at least on
 
 ### `roster.serve.call(method, params)`
 
-Calls a roster serve method the Plugin was granted. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
+Calls a roster serve method the Plugin was granted. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
 
 **Parameters**
 
@@ -1829,6 +1829,7 @@ Calls a roster serve method the Plugin was granted. A Plugin may be granted `inv
 **Errors**
 
 - `roster.serve.call: not granted (serve:METHOD)`: the Plugin wasn't granted that method.
+- `roster.serve.call METHOD: only while the user runs one of your actions, commands or finder items`: `discover.start` or `discover.add` at load, in an event listener or a timer.
 - `roster.serve.call METHOD: MESSAGE (code N)`: the method failed (its codes are in [serve-api.md](serve-api.md)).
 - And [those of every function](#errors).
 
@@ -1958,6 +1959,7 @@ What `roster.serve.call(method)` returns, for the methods a Plugin may be grante
 | `host.check` | [`HostCheck`](#hostcheck) | [host.check](serve-api.md#diagnostics-hostcheck) |
 | `changes.diff` | [`ChangesDiff`](#changesdiff) | [changes.diff](serve-api.md#editing-pending-changes) |
 | `mesh.*` | see serve-api.md | [mesh.*](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `discover.*` | see serve-api.md | [discover.*](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
 
 ## Types
 

@@ -1175,8 +1175,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    never beside it: a docked panel narrows the terminal, and a resized Session prints its screen
    again (ConPTY on Windows), which Plugins that read the output took for new lines (ticket 73).
    It opens from a click or a key and closes with Esc, so like the other panels it doesn't animate. */
+/* Above a full view too (z-index 6), whose table's actions open it (ticket 44: Discover's details). */
 .side-panel.plugin-float {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 7; max-width: 100%;
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow); overscroll-behavior: contain;
 }
 .body.sidebar-right .side-panel.plugin-float {
