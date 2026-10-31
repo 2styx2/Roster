@@ -6,19 +6,28 @@ Results are the objects roster builds when it loads `roster.yml`, with no extra 
 
 **Deadlines.** The slow methods have an overall deadline (`serve.py`'s `DEADLINES`): `host.add` 100 s, `changes.publish` 110 s, `inventory.pull`, `host.check`, `host.verify_login`, `vault.create_item`, `quick.save` and `host.save_login` 45 s. Every git, vault CLI and ssh step inside gets what's left of it as its own timeout, and a step that runs out fails cleanly like any other timeout. A few steps still run once it's past, so the outcome is known and clean: undoing a commit, checking whether a push that timed out got there, and taking a new Vault item back out (at most `AFTER_DEADLINE`, 40 s, in all). The app waits longer than deadline plus that for each method (`CALL_SECS` in `crates/roster-core/src/backend.rs`; a test checks the two tables agree), so `serve` answers before the app gives up. If the app gives up anyway (a stalled box), it asks what happened before it says anything (`app/src/backend/afterTimeout.ts`): after `host.add`, whether the Host is in the Inventory (`host.get`); after `changes.publish`, whether the Pending changes are gone and `changes.diff`'s `last_commit` is on the upstream. `serve` answers requests in order, so that answer comes after the slow call finished.
 
-| Method | Params | Result |
-|---|---|---|
-| `inventory.info` | none | `{path, box, host_count, providers: [names], roster_version, api_version}` |
-| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order. `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good ones |
-| `host.get` | `{name}` (exact Host name) | one Host |
+<!-- BEGIN generated:methods inventory.info hosts.list host.get -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `inventory.info` | none | `{path, box, host_count, providers: [names], roster_version, api_version}` |  | 1 |
+| `hosts.list` | none | `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order. `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good ones |  | 1 |
+| `host.get` | `{name}` (exact Host name) | one Host | `2` | 1 |
+
+<!-- END generated:methods -->
 
 A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth}` (the default for its services), `services: {name: {port, url, scheme, user, auth, verify, login, override}}` (`login` is the resolved type, never a `web_login_names` alias), `problems: [{service, message, fix}]` (service entries left out because roster can't use them; empty when there are none), `web`, `enroll`, `reviewed`, `title`, `description`, `type`, `product`, `mac`, plus the older flat `user`, `port` and `auth`.
 
 ## Sessions: `session.prepare`
 
-| Method | Params | Result |
-|---|---|---|
-| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}`<br>password-only: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}` |
+<!-- BEGIN generated:methods session.prepare -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}`; password-only: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}` | `2`, `20`, `21`, `22`, `30`, `11`, `12`, `14`, `31`-`35`, `39`, `44` | 1 |
+| `session.prepare` | `{host, password, save?}` (an `auth: prompt` Host) | a password Session whose askpass token holds the typed `password`; with `save: true`, also `held`, the logged-in script as `LocalCommand` and `-o ControlPath=none` (below) | `-32602`, `22`, `61`, `44` | 13 |
+
+<!-- END generated:methods -->
 
 `session.prepare` tells the app what to start in a PTY to open a Session. It never holds a secret. The app runs `argv` exactly as given, with `env` added (on WSL: `wsl.exe -d DISTRO --cd ~ --exec env K=V ... ARGV...`). `argv[0]` is an absolute path, because PATH under `wsl.exe --exec` is minimal.
 
@@ -28,28 +37,46 @@ It refuses unreviewed Hosts with the same message as `roster run`, and Hosts who
 
 **`auth: prompt` Hosts (ticket 16, API 13).** A Host whose ssh Login is `auth: prompt` has no password roster can look up. `session.prepare {host}` refuses it with `39` and `data: {user, address, port}` (after the host-key check, so `44` comes first), and the app asks for the password. `session.prepare {host, password, save?}` then answers a password Session whose askpass token holds the typed password, like a vault password (once, 60 s, forgotten by `vault.lock`). `password` and `save` for any other Host are `-32602`. With `save: true`, the password is held for "Save to vault" exactly as Quick Connect's is (`held`, the logged-in script as `LocalCommand`, `session.logged_in`), and ssh gets `-o ControlPath=none` so it really logs in with that password instead of reusing a shared connection:
 
-| Method | Params | Result |
-|---|---|---|
-| `host.save_login` | `{held, item?, provider?, save_to?}` | `{changed: true, host, backup, item, warnings}`: the Vault item `item` (default `<host> ssh`, the user and `ssh://address[:port]` in it), then the Host's Login set to `<provider>:<item>` as a Pending change, written like `host.update` (comments and every other byte kept; an inherited `auth: prompt` gets an `auth:` of the Host's own). The item is taken back out if the Host can't be changed. `75` if the Host's address, user, port or Login changed since that Session logged in; `66`, `67`, `60`-`65` and `14` as for `quick.save` |
+<!-- BEGIN generated:methods host.save_login -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `host.save_login` | `{held, item?, provider?, save_to?}` | `{changed: true, host, backup, item, warnings}`: the Vault item `item` (default `<host> ssh`, the user and `ssh://address[:port]` in it), then the Host's Login set to `<provider>:<item>` as a Pending change, written like `host.update` (comments and every other byte kept; an inherited `auth: prompt` gets an `auth:` of the Host's own). The item is taken back out if the Host can't be changed. `75` if the Host's address, user, port or Login changed since that Session logged in | `75`, `66`, `67`, `60`-`65`, `14` | 13 |
+
+<!-- END generated:methods -->
 
 **Host keys (ticket 36, decision Q60).** An app Session never trusts a host key on its own. `-o StrictHostKeyChecking=yes` on the command line wins over the `StrictHostKeyChecking accept-new` in roster's Host block, which `roster ssh`, `roster run` and a plain `ssh NAME` keep. So the key must already be in `~/.ssh/roster_known_hosts`: recorded by `roster setup`, a verified add or edit, or the app's question. When there's none for the Host's address, `session.prepare` refuses with `44` and `data: {address, port}`, after every other check (so a vault problem is reported first) and before an askpass token is minted. The app then asks: `host.scan_key {host}` fetches the key (one connection, key exchange only), the user compares the fingerprint, and `host.trust_key {host, fingerprint}` records it. `host.trust_key` fetches the key again and records it only if the Host still offers exactly that fingerprint (`23` otherwise, nothing recorded). A key that differs from a recorded one is never trusted there (`43`); in a Session, ssh refuses it (Q44).
 
-| Method | Params | Result |
-|---|---|---|
-| `host.scan_key` | `{host}` (exact Host name) | `{host, address, port, key_type, fingerprint, recorded: none\|match\|changed}`: as the `{address, port}` form below, for the Host's address and port. `2` unknown Host, `40`-`42` when it can't get there |
-| `host.trust_key` | `{host, fingerprint}` (`SHA256:...`, the one the user was shown) | `{host, address, port, key_type, fingerprint, recorded}`: `recorded: true` when it added the key, `false` when that key was already recorded. `43` a different key is recorded, `23` the Host offers another key now, `40`-`42` it can't get there; nothing is recorded on any error |
+<!-- BEGIN generated:methods host.scan_key host.trust_key -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `host.scan_key` | `{host}` (exact Host name) | `{host, address, port, key_type, fingerprint, recorded: none\|match\|changed}`: as the `{address, port?}` form, for the Host's address and port | `2`, `40`-`42` | 11 |
+| `host.scan_key` | `{address, port?}` | `{address, port, key_type, fingerprint, recorded: none\|match\|changed}`: the host key the address offers, and how it compares with the one in `~/.ssh/roster_known_hosts`. One connection, key exchange only: never logs in, never records anything | `40`-`42` | 6 |
+| `host.trust_key` | `{host, fingerprint}` (`SHA256:...`, the one the user was shown) | `{host, address, port, key_type, fingerprint, recorded}`: `recorded: true` when it added the key, `false` when that key was already recorded. `43` a different key is recorded, `23` the Host offers another key now; nothing is recorded on any error | `43`, `23`, `40`-`42` | 11 |
+
+<!-- END generated:methods -->
 
 **Quick Connect (ticket 14, decision Q67).** A Session to `user@address[:port]`, a box that isn't in the Inventory. The app shows the key `host.scan_key {address, port}` fetched (above), then sends the fingerprint the user confirmed, with the password they typed (or none):
 
-| Method | Params | Result |
-|---|---|---|
-| `quick.prepare` | `{user, address, port?: 22, fingerprint, password?, save?}` | `{argv, env, host, auth, quick, user, address, port, key_type, fingerprint, held?}`: `argv` is `[/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=<serve's own file>", "-o", "GlobalKnownHostsFile=/dev/null", "-o", "HostKeyAlias=roster-quick-<quick>", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none", "-o", "ConnectTimeout=10", ...auth options, "-p", PORT, "-l", USER, "--", ADDRESS]`; with a password, `auth: "password"`, the password options and the askpass `env` of a password Session; without, `auth: "key"`, `BatchMode=yes` and `env: {}`. `host` is `user@address` (`:port` when it isn't 22). `quick` is serve's id for this Quick Connect. `-32602` bad params (a user or address ssh could read as an option, no `SHA256:` fingerprint, an empty password, `save` without a password), `61` `save` with a provider that can't save, `40`-`42` it can't get there, `43` the key differs from one roster recorded for the address, `23` it isn't the one the user was shown, `21` no ssh, `22` no askpass channel |
+<!-- BEGIN generated:methods quick.prepare -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `quick.prepare` | `{user, address, port?: 22, fingerprint, password?, save?}` | `{argv, env, host, auth, quick, user, address, port, key_type, fingerprint, held?}`: `argv` is `[/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=<serve's own file>", "-o", "GlobalKnownHostsFile=/dev/null", "-o", "HostKeyAlias=roster-quick-<quick>", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none", "-o", "ConnectTimeout=10", ...auth options, "-p", PORT, "-l", USER, "--", ADDRESS]`; with a password, `auth: "password"`, the password options and the askpass `env` of a password Session; without, `auth: "key"`, `BatchMode=yes` and `env: {}`. `host` is `user@address` (`:port` when it isn't 22). `quick` is serve's id for this Quick Connect. `-32602` bad params (a user or address ssh could read as an option, no `SHA256:` fingerprint, an empty password, `save` without a password), `61` `save` with a provider that can't save, `43` the key differs from one roster recorded for the address, `23` it isn't the one the user was shown | `-32602`, `61`, `40`-`42`, `43`, `23`, `21`, `22` | 12 |
+
+<!-- END generated:methods -->
+
 **Save to vault (ticket 15, decision Q68, API 13).** With `save: true` (and a password), `serve` also holds the typed password in memory under `held` (the same id as `quick`) so it can be saved once the Session has logged in with it, and `argv` gets `-o PermitLocalCommand=yes -o LocalCommand=<the askpass channel's logged-in script>`. ssh runs a LocalCommand only after it has logged in; the script reports the Session's askpass token over the channel, and `serve` counts it only if that token is the one that handed this password to ssh. Then it sends the notification `{"jsonrpc": "2.0", "method": "session.logged_in", "params": {"held": ID}}`, and the save can go ahead:
 
-| Method | Params | Result |
-|---|---|---|
-| `quick.save` | `{quick, name, group, item?, title?, provider?, save_to?}` | `{added: true, host, backup, item, warnings}`, like `host.add`'s: the Vault item `item` (default `<name> ssh`), with the user in its username field and `ssh://address[:port]` in its URI field, then the Host `name` in `group` with `ip`, `user`, `port`, `auth: "<provider>:<item>"`, `reviewed: true` and `enroll: false`, as a Pending change, then the host key the user confirmed for the Session recorded for it in `~/.ssh/roster_known_hosts` (never a fresh scan; a failure there is a `warning`) |
-| `vault.forget_typed` | `{held}` | `{forgotten}`: `serve` forgets the typed password it held (the Session ended without saving, or the offer was turned down). Never fails |
+<!-- BEGIN generated:methods quick.save vault.forget_typed -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `quick.save` | `{quick, name, group, item?, title?, provider?, save_to?}` | `{added: true, host, backup, item, warnings}`, like `host.add`'s: the Vault item `item` (default `<name> ssh`), with the user in its username field and `ssh://address[:port]` in its URI field, then the Host `name` in `group` with `ip`, `user`, `port`, `auth: "<provider>:<item>"`, `reviewed: true` and `enroll: false`, as a Pending change, then the host key the user confirmed for the Session recorded for it in `~/.ssh/roster_known_hosts` (never a fresh scan; a failure there is a `warning`) | `80`, `81`, `74`, `60`-`62`, `64`, `65`, `14`, `66`, `67` | 13 |
+| `vault.forget_typed` | `{held}` | `{forgotten}`: `serve` forgets the typed password it held (the Session ended without saving, or the offer was turned down). Never fails |  | 13 |
+
+<!-- END generated:methods -->
 
 `quick.save` refers to the Quick Connect's id and never takes the password again. It checks the name and group as text first (`80`, `81`, `74`), then makes the item (`60` a name that's taken, `61`, `62`, `64`, `65`, `14`), then writes the Host; if that fails, the item is taken back out (`data.undone`, or `data.left`), as `host.add` does. `66`: the Session hasn't logged in with the password (yet, or the box refused it); `67`: nothing is held for that id. A held password is forgotten after one save, by `vault.forget_typed`, by `vault.lock`, and 10 minutes after it was typed (`HOLD_FOR`, enforced by serve on its own, not only at the next call); at most 64 are held at once (`HELD_LIMIT`; a new one forgets the oldest). What `quick.save` needs of the Quick Connect (the box and the key the user confirmed) is kept with the held password and goes with it; a Quick Connect without `save` leaves nothing in serve's memory. A failed save keeps it, so another name can be tried. It never appears in a response, an error, the log (which says `askpass: root@10.0.0.5: logged in`), `roster.yml` or the Pending change.
 
@@ -91,9 +118,13 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 ## Diagnostics: `host.check`
 
-| Method | Params | Result |
-|---|---|---|
-| `host.check` | `{host}` (exact Host name) | `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}` |
+<!-- BEGIN generated:methods host.check -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `host.check` | `{host}` (exact Host name) | `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}` | `-32602` | 2 |
+
+<!-- END generated:methods -->
 
 It runs the steps of [`roster check HOST`](cli-reference.md#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
@@ -162,14 +193,18 @@ Requests without an `id` (notifications) run but get no reply. `serve` sends two
 
 A Pending change is an edit to `roster.yml` made on this box and not Published yet: `roster.yml`'s uncommitted diff in the infra repo (a git clone). These methods need `roster.yml` committed in a git repo (`70` otherwise). Publishing commits and pushes them (`changes.publish`).
 
-| Method | Params | Result |
-|---|---|---|
-| `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`, `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges, rebases or stashes |
-| `host.verify_login` | `{host, changes}` | `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`, run against the Host as `changes` would leave it |
-| `host.update` | `{host, changes}` | `{changed, host, backup, warnings}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was, `warnings` what failed after the write (recording a moved Host's key) |
-| `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], groups: [{group, change}], count, message, last_commit}`: git's diff of `roster.yml` against the last commit, the commit message `changes.publish` would write, and `last_commit: {commit, subject, upstream, pushed}` (the branch's last commit, and whether its upstream has it as this box last fetched) |
-| `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) |
-| `changes.publish` | `{message?}` | `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`: commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync` |
+<!-- BEGIN generated:methods inventory.pull host.verify_login host.update changes.diff changes.discard changes.publish -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `inventory.pull` | none | `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`, `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges, rebases or stashes | `70`-`73` | 5 |
+| `host.verify_login` | `{host, changes}` | `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`, run against the Host as `changes` would leave it | `2` | 5 |
+| `host.update` | `{host, changes}` | `{changed, host, backup, warnings}`: the edit written into `roster.yml`, `host` as it loads now, `backup` the file as it was, `warnings` what failed after the write (recording a moved Host's key) | `2`, `70`, `74`, `75` | 5 |
+| `changes.diff` | none | `{path, repo, diff, hosts: [{host, change: changed\|added\|removed, fields}], groups: [{group, change}], count, message, last_commit}`: git's diff of `roster.yml` against the last commit, the commit message `changes.publish` would write, and `last_commit: {commit, subject, upstream, pushed}` (the branch's last commit, and whether its upstream has it as this box last fetched) | `70` | 5 |
+| `changes.discard` | none | `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree) | `70` | 5 |
+| `changes.publish` | `{message?}` | `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`: commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync` | `1`, `70`, `73`, `90`-`96` | 7 |
+
+<!-- END generated:methods -->
 
 `changes` is `{field: value}` with fields `title`, `description`, `type` (text, one line), `ip`, `user`, `auth` (strings) and `port` (a number). `host.update` edits `roster.yml` as text, like `discover --write`: only the changed values' text changes, so comments, order, quoting and every other entry stay byte for byte. `user`, `port` and `auth` go into the Host's `ssh:` block if it has one; a short `name: 10.0.0.1` entry grows into a block when it needs more than its address. The result must load, must load to exactly the values asked for, and must leave every other Host, group and resource as it was (`74` otherwise, nothing written). What it replaced is kept as `roster.yml.bak` in the repo's git dir (`.git/roster/`), never in the working tree. Every write and pull loads `roster.yml` again, so `hosts.list` shows the file as it now is.
 
@@ -179,11 +214,16 @@ A Pending change is an edit to `roster.yml` made on this box and not Published y
 
 ## Adding a Host: `host.add`
 
-| Method | Params | Result |
-|---|---|---|
-| `host.scan_key` | `{address, port?}` | `{address, port, key_type, fingerprint, recorded: none\|match\|changed}`: the host key the address offers, and how it compares with the one in `~/.ssh/roster_known_hosts`. One connection, key exchange only: never logs in, never records anything. `40`-`42` when it can't get there |
-| `host.add` | `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? \| password + item?, host_key?, provider?, save_to?}` | `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify` the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made (`{provider, id, name, target}`, or `null`) |
-| `host.review` | `{host, reviewed?}` | `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if it already was). `reviewed: false` (API 9) un-reviews it, for a review made by mistake: where the Host's own `reviewed: true` sits over an unreviewed group or defaults, its line is taken out again, so the text goes back to what it was |
+The key a new address offers comes from `host.scan_key {address, port?}` (its second row under [Host keys](#sessions-sessionprepare)), for the user to confirm before the first login.
+
+<!-- BEGIN generated:methods host.add host.review -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `host.add` | `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? \| password + item?, host_key?, provider?, save_to?}` | `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify` the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made (`{provider, id, name, target}`, or `null`) | `80`, `81`, `74`, `61`, `11`, `12`, `14`, `30`-`35`, `40`-`48`, `60`, `62`, `64`, `65` | 6 |
+| `host.review` | `{host, reviewed?}` | `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if it already was). `reviewed: false` (API 9) un-reviews it, for a review made by mistake: where the Host's own `reviewed: true` sits over an unreviewed group or defaults, its line is taken out again, so the text goes back to what it was | `2`, `70`, `74` | 6 |
+
+<!-- END generated:methods -->
 
 `host.add` writes the Host into `roster.yml` as text at the end of its group (or in a new group after the last one), like `host.update`: comments and every other entry stay byte for byte, a group of one-line `{ip: ...}` entries gets one more, and only what the Host doesn't inherit from its group or `defaults:` is written. The result must load with exactly the values asked for and nothing else changed (`74` otherwise). It's a Pending change, with the backup in `.git/roster/`.
 
@@ -201,16 +241,20 @@ The typed password is never in a response, an error, stderr, `roster.yml` or the
 
 Removing, renaming and moving Hosts and adding, renaming and deleting groups (ticket 28, decision Q45). Each is a text edit of `roster.yml` like `host.update`: only the entry's own lines change (from its key's line through its value's last line, comments on those lines included), every other byte stays, and the result must load to exactly what was asked, with nothing else changed (`74` otherwise, nothing written). Each is a Pending change with the backup in `.git/roster/`. A `roster.yml` that doesn't load right now refuses them with `1` and its line. A bad name is `80`, an unknown Host `2`.
 
-| Method | Params | Result |
-|---|---|---|
-| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays |
-| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is taken |
-| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host. `101` no such group, `103` if it would still come out different |
-| `group.new` | `{name, title?}` | `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken |
-| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken |
-| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) |
-| `inventory.reload` | none | `{changed, host_count, error}`: `:source` for `roster.yml`, read again now |
-| `inventory.watch` | `{auto}` | `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's `auto_reload`) applies them |
+<!-- BEGIN generated:methods host.remove host.rename host.move group.new group.rename group.delete inventory.reload inventory.watch -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays | `1`, `2`, `70`, `74` | 8 |
+| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is taken | `1`, `2`, `70`, `74`, `80`, `100` | 8 |
+| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host. `101` no such group, `103` if it would still come out different | `1`, `2`, `70`, `74`, `101`, `103` | 8 |
+| `group.new` | `{name, title?}` | `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken | `1`, `70`, `74`, `80`, `100` | 8 |
+| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken | `1`, `70`, `74`, `80`, `100`, `101` | 8 |
+| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) | `1`, `70`, `74`, `101`-`103` | 8 |
+| `inventory.reload` | none | `{changed, host_count, error}`: `:source` for `roster.yml`, read again now |  | 8 |
+| `inventory.watch` | `{auto}` | `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's `auto_reload`) applies them |  | 8 |
+
+<!-- END generated:methods -->
 
 **Reloading is Neovim-style (decision Q58).** An edit made outside the app (in vim, a `git pull` in a terminal) isn't applied by itself unless the app asked for it with `inventory.watch {auto: true}`. `serve` looks at `roster.yml` every 0.2 s (its size, time and inode, so an editor that saves by renaming a new file over it counts too); a change that has settled and differs from what `serve` last loaded (its own writes don't count) is sent as a JSON-RPC notification, a message with no `id`:
 
@@ -224,11 +268,15 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 
 `serve` starts locked, and only `vault.unlock` unlocks it. At startup it drops any `BW_PASSWORD` and `BW_SESSION` it inherited, and providers stop unlocking by themselves: no bw-session file, no `BW_PASSWORD`, no prompt. The master password goes to the provider in an environment variable, never on a command line. The session key stays in `serve`'s memory and is never written to the bw-session file. Neither ever appears in a response or on stderr.
 
-| Method | Params | Result |
-|---|---|---|
-| `vault.status` | none | `{provider, status, message?, sign_in?, account?, can_sign_out, save_to?, providers: [{provider, status, message?, sign_in?, account?, can_sign_out}, ...]}` |
-| `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
-| `vault.lock` | none | `{locked: [names]}` |
+<!-- BEGIN generated:methods vault.status vault.unlock vault.lock -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `vault.status` | none | `{provider, status, message?, sign_in?, account?, can_sign_out, save_to?, providers: [{provider, status, message?, sign_in?, account?, can_sign_out}, ...]}` |  | 1 |
+| `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` | `10`-`13` | 1 |
+| `vault.lock` | none | `{locked: [names]}`. Never fails |  | 1 |
+
+<!-- END generated:methods -->
 
 - `vault.status`: `providers` lists every provider the Host Logins use (ssh and services), sorted by name. `provider` and `status` describe the vault the lock screen unlocks: the most used of those providers that takes a master password (`bw` or `kp`). If none does, `provider` is `null` and `status` is `unsupported`.
 - `status` is one of:
@@ -258,9 +306,13 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 
 The app sends what its `init.lua` says about the vault at start, before `vault.status`, and again after every `:source` ([docs/app/config.md](app/config.md#the-vault)). These are this Box's own settings, and they win over `roster.yml`'s `providers:`, which are the team's.
 
-| Method | Params | Result |
-|---|---|---|
-| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names], refused: [{setting, message}]}` |
+<!-- BEGIN generated:methods vault.configure -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names], refused: [{setting, message}]}` | `-32602` | 10 |
+
+<!-- END generated:methods -->
 
 - Each call replaces the last one. A setting it leaves out (or `{}`) goes back to `roster.yml`'s. `serve` keeps them across `roster.yml` reloads.
 - Paths and choices only, never a secret: a key that isn't listed here refuses the whole call (`-32602`), so nothing else can ride along. A value roster can't use (a path that isn't absolute or `~/…`, such as a Windows path; a `save_to` of the wrong shape) is left out on its own, as if `init.lua` didn't set it, and named in `refused` (`setting` is `kp.key_file`, `save_to`; `message` says why); the other settings still apply. A path is on the Box `roster serve` runs on (inside WSL for a WSL Backend).
@@ -271,13 +323,17 @@ The app sends what its `init.lua` says about the vault at start, before `vault.s
 
 A new Box's vault CLI isn't logged in (`vault.status`: `not-logged-in`). `vault.login` signs it in from the app, a step at a time, and leaves the vault unlocked. [`docs/app/dev/vault-auth.md`](app/dev/vault-auth.md) has the research: which methods each CLI can do, and why it works this way.
 
-| Params | Result |
-|---|---|
-| `{action: "start", method: "password", email, password, server?, provider?}` | the first step |
-| `{action: "start", method: "apikey", client_id, client_secret, server?}` | `master_password` |
-| `{action: "start", method: "sso", identifier?, server?}` | `sso` |
-| `{action: "answer", login, ...the step's answer}` | the next step |
-| `{action: "cancel"}` | `{cancelled: true \| false}` |
+<!-- BEGIN generated:methods vault.login -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `vault.login` | `{action: "start", method: "password", email, password, server?, provider?}` | the first step | `10`, `12`, `13`, `51`-`54`, `57`, `59` | 3 |
+| `vault.login` | `{action: "start", method: "apikey", client_id, client_secret, server?}` | `master_password` | `12`, `13`, `52`-`54`, `57`-`59` | 3 |
+| `vault.login` | `{action: "start", method: "sso", identifier?, server?}` | `sso` | `12`, `13`, `51`, `53`, `54`, `56`, `57`, `59` | 3 |
+| `vault.login` | `{action: "answer", login, ...the step's answer}` | the next step | `10`, `50`-`53`, `55`, `56`, `59` | 3 |
+| `vault.login` | `{action: "cancel"}` | `{cancelled: true \| false}` |  | 3 |
+
+<!-- END generated:methods -->
 
 `action` defaults to `start`. `server` is `cloud` (bitwarden.com), `eu` (`https://vault.bitwarden.eu`), or a self-hosted `https://` URL. Leave it out to keep what `bw config server` says; roster only runs `bw config server` when that changes. A `start` ends any sign-in in progress, and so do `cancel`, `vault.lock`, and 10 minutes without an answer. Every result has `step` and `login`, the sign-in's id, which `answer` sends back:
 
@@ -318,9 +374,13 @@ How it works, and what never happens to a secret:
 
 The Bitwarden CLI holds one account at a time, so signing in to another one means signing this one out first (ticket 42, API 14). The app asks first, naming the account (`vault.status`'s `account`).
 
-| Params | Result |
-|---|---|
-| `{provider?}` | `{provider, status: "not-logged-in", message?, sign_in, can_write, can_sign_out, signed_out: {email, server} \| null}` |
+<!-- BEGIN generated:methods vault.logout -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `vault.logout` | `{provider?}` | `{provider, status: "not-logged-in", message?, sign_in, can_write, can_sign_out, signed_out: {email, server} \| null}` | `13`, `15`, `16` | 14 |
+
+<!-- END generated:methods -->
 
 - `provider` defaults to the one `vault.status` names. It works locked or unlocked.
 - Everything `vault.lock` forgets is forgotten **before** the CLI logs out: askpass tokens (spent or not), typed passwords held for "Save to vault", every cached value, a sign-in in progress, the session key and KeePassXC's held master password, for every provider. Then it runs `bw logout` (no `bw lock` first: logging out ends the session anyway). `bw logout` removes the account and the CLI's local copy of the vault; the server setting stays.
@@ -337,11 +397,15 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 
 "Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. The order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
 
-| Method | Params | Result |
-|---|---|---|
-| `vault.create_item` | `{name, password, username?, uri?, provider?, save_to?}` | `{provider, id, name, target}` |
-| `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` |
-| `vault.targets` | `{provider?}` | `{provider, targets: [{id, kind, label, organization?, collection?, save_to}], default, from, problem}` |
+<!-- BEGIN generated:methods vault.create_item vault.undo_create vault.targets -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `vault.create_item` | `{name, password, username?, uri?, provider?, save_to?}` | `{provider, id, name, target}` | `14`, `60`-`62`, `64`, `65` | 4 |
+| `vault.undo_create` | `{id}` (from `vault.create_item`) | `{provider, id}` | `14`, `62`, `63` | 4 |
+| `vault.targets` | `{provider?}` | `{provider, targets: [{id, kind, label, organization?, collection?, save_to}], default, from, problem}` | `14` | 10 |
+
+<!-- END generated:methods -->
 
 - `vault.create_item` makes a login item: `name` (`<host> <what it opens>`, [docs/adding-hosts.md](adding-hosts.md)), `username` in its username field, the password, and the address in its URI field (`uri`, e.g. `ssh://10.0.0.5`). `provider` defaults to the one `vault.status` names. It runs `bw sync` first, then refuses a name an item already has exactly (code `60`), because Logins look items up by exact name. A longer name, like `esx ssh+web` next to `esx ssh`, is a different item.
 - Only providers whose `can_write` is `true` in `vault.status` (`bw` and `kp`) can save. Every other provider answers `61`.

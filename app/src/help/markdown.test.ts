@@ -51,6 +51,14 @@ describe("parseMarkdown (the guides' Markdown, as help blocks)", () => {
     ]);
   });
 
+  it("leaves out a line that is an HTML comment, like serve-api.md's generated-table markers", () => {
+    const blocks = parseMarkdown("<!-- BEGIN generated:methods a.b -->\n\n| M |\n|---|\n| `a.b` |\n\n<!-- END generated:methods -->\nAfter.\n");
+    expect(blocks).toEqual([
+      { t: "table", head: [[{ t: "text", text: "M" }]], rows: [[[{ t: "code", text: "a.b" }]]] },
+      { t: "p", text: [{ t: "text", text: "After." }] },
+    ]);
+  });
+
   it("gives repeated headings their own anchors", () => {
     const anchors = parseMarkdown("## Keys\n\n### Keys\n").map((b) => (b.t === "h" ? b.anchor : null));
     expect(anchors).toEqual(["keys", "keys-2"]);

@@ -332,6 +332,11 @@ function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
       <dd>
         <Inlines items={d.body} />
       </dd>
+      {d.more && (
+        <dd className="help-def-more">
+          <Inlines items={d.more} />
+        </dd>
+      )}
     </div>
   );
 }

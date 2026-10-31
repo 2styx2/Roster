@@ -1164,6 +1164,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .help-meta code { color: var(--text); }
 .help-def dd { margin: 2px 0 0; color: var(--muted); }
 .help-def dd code { color: var(--text); }
+/* A command's doc: its own paragraph under the label, a step down so the label still leads. */
+.help-def dd.help-def-more { margin-top: 4px; max-width: 72ch; }
 /* The entry `:help TOPIC` landed on: raised, as the App-mode cursor is. */
 .help-target { background: var(--raised); box-shadow: inset 2px 0 0 var(--muted); }
 .help-doc h2.help-target, .help-doc h3.help-target { border-radius: var(--radius-sm); }
