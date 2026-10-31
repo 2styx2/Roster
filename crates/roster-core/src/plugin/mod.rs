@@ -23,6 +23,7 @@
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod api;
+pub mod folder;
 pub mod network;
 pub mod permission;
 mod runtime;
@@ -256,6 +257,9 @@ pub struct PluginHost {
     slots: Arc<Slots>,
     listener: Arc<Mutex<Option<Listener>>>,
     generation: AtomicU64,
+    /// The app's data folder: each Plugin keeps its data in `plugin-data/NAME` there
+    /// ([`folder::Storage`], decision Q93). None: `roster.storage` says there's no data folder.
+    data: Option<PathBuf>,
 }
 
 impl PluginHost {
@@ -266,6 +270,24 @@ impl PluginHost {
             slots: Arc::default(),
             listener: Arc::default(),
             generation: AtomicU64::new(0),
+            data: None,
+        }
+    }
+
+    /// The host, with each Plugin's data folder under `data` (the app's data folder, next to the
+    /// State; never the config folder): `plugin-data/NAME` (decision Q93).
+    pub fn with_data(mut self, data: &Path) -> Self {
+        self.data = Some(data.to_path_buf());
+        self
+    }
+
+    /// Removes the Plugin `plugin`'s data folder, with everything in it, when the Plugin is
+    /// removed (`:plugins remove`, `:packages clean`): true if there was one. Not for a reload
+    /// or a revoked permission, which keep it.
+    pub fn forget(&self, plugin: &str) -> Result<bool, String> {
+        match &self.data {
+            Some(data) => folder::forget(data, plugin),
+            None => Ok(false),
         }
     }
 
@@ -303,9 +325,10 @@ impl PluginHost {
                         ),
                     ));
                 }
-                let code = std::fs::read_to_string(dir.join(ENTRY)).map_err(|e| {
-                    PluginError::new(&manifest.name, Some(ENTRY.into()), None, format!("can't read it: {e}"))
-                })?;
+                // Its real path must be in its folder (ticket 82): a symlink out is refused.
+                let code = folder::inside(dir, Path::new(ENTRY))
+                    .and_then(|p| std::fs::read_to_string(p).map_err(|e| format!("can't read it: {e}")))
+                    .map_err(|e| PluginError::new(&manifest.name, Some(ENTRY.into()), None, e))?;
                 (manifest, dir.clone(), code)
             }
             Source::Bundled(name) => {
@@ -478,6 +501,7 @@ impl PluginHost {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
         let (serve, limits) = (Arc::clone(&self.serve), self.limits);
+        let storage = self.data.as_deref().map(|d| folder::Storage::new(d, &name));
         let post: Option<runtime::Post> = grants.iter().any(|p| matches!(p, Permission::Network(_))).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
             Arc::new(move |id: u64, answer: network::Answer| {
@@ -497,6 +521,7 @@ impl PluginHost {
                     limits.memory,
                     limits.call,
                     post,
+                    storage,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -637,18 +662,16 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, PluginError> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| dir.display().to_string());
-    let source = std::fs::read_to_string(dir.join(MANIFEST)).map_err(|e| {
-        PluginError::new(
-            &shown,
-            Some(MANIFEST.into()),
-            None,
-            if e.kind() == std::io::ErrorKind::NotFound {
-                format!("{} has no {MANIFEST}: is it a roster Plugin?", dir.display())
-            } else {
-                format!("can't read it: {e}")
-            },
-        )
-    })?;
+    let fail = |message: String| PluginError::new(&shown, Some(MANIFEST.into()), None, message);
+    if std::fs::symlink_metadata(dir.join(MANIFEST)).is_err() {
+        return Err(fail(format!(
+            "{} has no {MANIFEST}: is it a roster Plugin?",
+            dir.display()
+        )));
+    }
+    // Its real path must be in the Plugin's folder (ticket 82), like every file of the Plugin.
+    let real = folder::inside(dir, Path::new(MANIFEST)).map_err(fail)?;
+    let source = std::fs::read_to_string(real).map_err(|e| fail(format!("can't read it: {e}")))?;
     manifest_from(&source, &shown)
 }
 

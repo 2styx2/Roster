@@ -312,6 +312,11 @@ pub const MODULES: &[Module] = &[
         doc: "",
     },
     Module {
+        name: "roster.storage",
+        summary: "The Plugin's own files",
+        doc: "Every Plugin has a data folder of its own, in the app's data folder (next to the State; never the config folder, never on the network), and `roster.storage` reads and writes files there by name (decision Q93). No permission: it's the Plugin's own, and nothing else is reachable through it. A name is a plain file name (letters, digits, `-`, `_` and `.`, not starting with `.`; at most 100 characters), never a path, so there's no way out of the folder; a link there (a symlink, or a junction on Windows) is never followed. A write replaces the whole file at once (a temporary file, then a rename), so a crash leaves the old file or the new one, never half of one. A file holds at most 1 MB, the folder 10 MB in at most 1,000 files. The folder goes when the Plugin is removed (`:plugins remove`, or `:packages clean` for a Package), and stays across reloads, updates and revoked permissions. The time the disk takes doesn't count against the Plugin's budget.",
+    },
+    Module {
         name: "roster.inventory",
         summary: "Hosts, and Pending changes to them",
         doc: "`nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget.",
@@ -363,6 +368,50 @@ pub const VALUES: &[Value] = &[
         since: 2,
         example: "roster.notify(roster.plugin.name .. \" \" .. roster.plugin.version)\nlocal leader = roster.plugin.config.leader or \"w w\"",
     },
+];
+
+/// What `roster.storage`'s functions raise (decision Q93).
+const STORAGE_ERRORS: &[(&str, &str)] = &[
+    (
+        "roster.storage.FN: \"NAME\" isn't a file name: letters, digits, - _ and . only, …",
+        "a path (`a/b`, `../x`, `C:\\x`), a name starting with `.`, or other characters",
+    ),
+    (
+        "roster.storage.FN: NAME is a link: roster won't follow it",
+        "the file was made a link (a symlink, a junction): it's never followed",
+    ),
+    (
+        "roster.storage.FN: the Plugin's data folder is a link …",
+        "its folder was made a link: it's never followed",
+    ),
+    (
+        "roster.storage.FN: there's no data folder for Plugins here",
+        "the app has no data folder (a test, say)",
+    ),
+];
+
+/// What `roster.storage.write` raises.
+const STORAGE_WRITE_ERRORS: &[(&str, &str)] = &[
+    (
+        "roster.storage.write: NAME would be N bytes: a file holds at most 1 MB (1048576 bytes)",
+        "the text is longer",
+    ),
+    (
+        "roster.storage.write: the Plugin's data folder holds at most 10 MB …",
+        "the folder would hold more (a file replaced counts only its new size)",
+    ),
+    (
+        "roster.storage.write: the Plugin's data folder holds at most 1000 files",
+        "a new file past the thousandth",
+    ),
+    (
+        "roster.storage.write: \"NAME\" isn't a file name: …",
+        "as `roster.storage.read`",
+    ),
+    (
+        "roster.storage.write: NAME is a link: roster won't follow it",
+        "as `roster.storage.read`",
+    ),
 ];
 
 pub const FUNCTIONS: &[Function] = &[
@@ -474,6 +523,46 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 3,
         example: "roster.commands.add(\"alerts\", { run = function(a)\n  if a.words[1] == nil then roster.cmd(\"finder alerts\") end\nend })",
+    },
+    Function {
+        path: "roster.echo",
+        params: &[p("text", "string", "What to say, on one line.")],
+        summary: "Answers on the message line, as roster's own commands do",
+        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level) for anything else.",
+        returns: ("", ""),
+        errors: &[(
+            "roster.echo: only while the user runs one of your actions, commands or finder items",
+            "at load, in an event listener or a timer",
+        )],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.commands.add(\"alerts\", { run = function(a)\n  if a.words[1] == \"clear\" then alerts = {} roster.echo(\"Cleared the alerts\") end\nend })",
+    },
+    Function {
+        path: "roster.cmdline",
+        params: &[p(
+            "text",
+            "string",
+            "The start of a line for one of your commands (`\"folder new \"`); the user finishes it.",
+        )],
+        summary: "Opens the command line with text typed in",
+        doc: "For a command that needs one more word from the user: it opens the command line with `text` in it and the cursor at its end, and Tab completes the rest with your command's `complete`. Nothing runs until the user presses Enter. Only your own commands, and only while the user runs one of your actions, commands or finder items.",
+        returns: ("", ""),
+        errors: &[
+            (
+                "roster.cmdline: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener or a timer",
+            ),
+            (
+                "roster.cmdline: \"WORD\" isn't one of your commands …",
+                "the line starts with anything but one of the Plugin's commands",
+            ),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.commands.add(\"note\", { run = function(a)\n  if a.args == \"\" then return roster.cmdline(\"note \") end\n  roster.storage.write(\"note.txt\", a.args)\nend })",
     },
     Function {
         path: "roster.has",
@@ -1164,6 +1253,103 @@ pub const FUNCTIONS: &[Function] = &[
         example: "actions = { { label = \"Copy\", icon = \"copy\", run = function() roster.clipboard.copy(line) end } }",
     },
     Function {
+        path: "roster.storage.read",
+        params: &[p("name", "string", "The file's name (`\"folders.json\"`).")],
+        summary: "Reads one of the Plugin's files",
+        doc: "",
+        returns: ("string?", "What the file holds, or `nil` when there's no such file."),
+        errors: STORAGE_ERRORS,
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "local seen = roster.storage.read(\"seen.txt\") or \"\"",
+    },
+    Function {
+        path: "roster.storage.write",
+        params: &[
+            p("name", "string", "The file's name."),
+            p("text", "string", "What it holds from now on, at most 1 MB (any bytes)."),
+        ],
+        summary: "Writes one of the Plugin's files, whole",
+        doc: "Makes the file, or replaces what it held, all at once: a crash leaves the old content or the new, never half.",
+        returns: ("", ""),
+        errors: STORAGE_WRITE_ERRORS,
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.storage.write(\"seen.txt\", table.concat(lines, \"\\n\"))",
+    },
+    Function {
+        path: "roster.storage.list",
+        params: &[],
+        summary: "The names of the Plugin's files",
+        doc: "",
+        returns: ("string[]", "In name order; `{}` before the first write."),
+        errors: &[(
+            "roster.storage.list: the Plugin's data folder is a link …",
+            "its folder was made a link: it's never followed",
+        )],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "for _, name in ipairs(roster.storage.list()) do roster.notify(name) end",
+    },
+    Function {
+        path: "roster.storage.remove",
+        params: &[p("name", "string", "The file's name.")],
+        summary: "Removes one of the Plugin's files",
+        doc: "",
+        returns: ("boolean", "`true` if it was there."),
+        errors: STORAGE_ERRORS,
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.storage.remove(\"cache.json\")",
+    },
+    Function {
+        path: "roster.storage.read_json",
+        params: &[p("name", "string", "The file's name.")],
+        summary: "Reads one of the Plugin's files as JSON",
+        doc: "Objects and arrays become tables, `null` becomes `nil`.",
+        returns: ("any", "The value, or `nil` when there's no such file."),
+        errors: &[
+            (
+                "roster.storage.read_json: NAME isn't JSON (…)",
+                "the file holds something else",
+            ),
+            ("roster.storage.read_json: …", "as `roster.storage.read`"),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "local state = roster.storage.read_json(\"state.json\") or { hosts = {} }",
+    },
+    Function {
+        path: "roster.storage.write_json",
+        params: &[
+            p("name", "string", "The file's name."),
+            p(
+                "value",
+                "any",
+                "Plain data: tables, text, numbers and booleans (no functions).",
+            ),
+        ],
+        summary: "Writes one of the Plugin's files as JSON, whole",
+        doc: "As `roster.storage.write`, with the value as indented JSON. An empty table is written as `{}` (Lua can't tell an empty list from an empty table).",
+        returns: ("", ""),
+        errors: &[
+            (
+                "roster.storage.write_json: a Lua function can't go to roster serve",
+                "the value holds a function (or another value that isn't data)",
+            ),
+            ("roster.storage.write_json: …", "as `roster.storage.write`"),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.storage.write_json(\"state.json\", { hosts = { \"esx-02\" } })",
+    },
+    Function {
         path: "roster.inventory.hosts",
         params: &[],
         summary: "Every Host, in `roster.yml` order",
@@ -1678,6 +1864,11 @@ pub const TYPES: &[Type] = &[
                 "integer",
                 "Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's.",
             ),
+            o(
+                "dropped",
+                "string",
+                "For a section's or a row's `drop`: the Host dropped on it (since api 3).",
+            ),
             o("finder", "string", "The finder's id, for a finder item."),
             o("item", "string", "The item's `id` (its place, if it has none)."),
             o("segment", "string", "The status segment's id."),
@@ -1718,6 +1909,11 @@ pub const TYPES: &[Type] = &[
                 "string|fun(args: CommandArgs): any",
                 "A function, called with what followed the command, or a command line to run instead.",
             ),
+            o(
+                "complete",
+                "fun(arg: string): string[]",
+                "Since api 3: what Tab offers after the command's name. Called with what's typed after it (`\"add esx\"`) as the user types, it returns whole arguments that start with it (`{ \"add esx-02 \" }`; end one with a space when another word follows). At most 200; the app shows the last answer until the next comes. It isn't a call the user started: no clipboard, questions or command lines in it.",
+            ),
         ],
         open: false,
     },
@@ -1742,6 +1938,21 @@ pub const TYPES: &[Type] = &[
                 "session_host",
                 "string",
                 "The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).",
+            ),
+            o(
+                "host",
+                "string",
+                "The Host under the Sidebar's cursor (else the one on screen), as roster's own commands take it; `nil` with none, and without `inventory.read` (since api 3).",
+            ),
+            o(
+                "section",
+                "string",
+                "When the Sidebar's cursor is on a row of one of your own sections: that section's id (since api 3).",
+            ),
+            o(
+                "row",
+                "string",
+                "And that row's `id`, or `nil` on the section's heading (since api 3).",
             ),
         ],
         open: false,
@@ -1808,6 +2019,16 @@ pub const TYPES: &[Type] = &[
                 "RowAction[]",
                 "Buttons on its heading (`\"Dismiss all\"`), at most 4: shown while the heading is selected.",
             ),
+            o(
+                "count",
+                "number",
+                "The count on its heading; the number of rows if left out (since api 3).",
+            ),
+            o(
+                "drop",
+                "Run",
+                "Takes a Host dragged onto the heading or the empty section: it runs with `{ section, dropped = HOST }` (since api 3).",
+            ),
         ],
         open: false,
     },
@@ -1840,6 +2061,31 @@ pub const TYPES: &[Type] = &[
                 "What Enter runs. With `host` and no `run`, it opens the Host; with neither, nothing.",
             ),
             o("actions", "RowAction[]", "Buttons on the row."),
+            o(
+                "icon",
+                "RowGlyph",
+                "A glyph before the label, as the app's Folders and groups have (since api 3).",
+            ),
+            o(
+                "fold",
+                "boolean",
+                "It folds the rows after it with a higher `level`, as a Folder or group does: `h`/`l`, its chevron and a click fold it, the app keeps what's folded, and its id for `:fold` is `SECTION:ID` (since api 3).",
+            ),
+            o(
+                "kind",
+                "\"host\"",
+                "With `host`: drawn as the Inventory draws that Host (its state, address, Details and Review buttons, then the row's own `actions`); `label` and `note` are used only while the Host isn't in the Inventory (since api 3).",
+            ),
+            o(
+                "drop",
+                "Run",
+                "Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged.",
+            ),
+            o(
+                "drag_out",
+                "Run",
+                "Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3).",
+            ),
         ],
         open: false,
     },
@@ -1868,6 +2114,14 @@ pub const TYPES: &[Type] = &[
         open: false,
     },
     Type {
+        name: "RowGlyph",
+        summary: "A Sidebar row's glyph (since api 3)",
+        doc: "",
+        alias: "\"folder\"|\"group\"",
+        fields: &[],
+        open: false,
+    },
+    Type {
         name: "StatusSegment",
         summary: "A status bar segment (`roster.status.set`)",
         doc: "",
@@ -1890,6 +2144,11 @@ pub const TYPES: &[Type] = &[
                 "items",
                 "FinderItem[]|fun(): FinderItem[]",
                 "What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.",
+            ),
+            o(
+                "section",
+                "string",
+                "Instead of `items`: one of your own Sidebar sections, whose rows it finds in (with their paths, unfolded), as roster's own `inventory` finder does (since api 3).",
             ),
         ],
         open: false,
@@ -3413,8 +3672,14 @@ pub fn write_stubs(dir: &std::path::Path) -> Result<std::path::PathBuf, String> 
         return Err(format!("{} isn't a folder", dir.display()));
     }
     let types = dir.join("types");
-    std::fs::create_dir_all(&types).map_err(|e| format!("{}: {e}", types.display()))?;
     let file = types.join("roster.lua");
+    // Never through a link out of the Plugin's folder (ticket 82): `types` or the file itself.
+    for p in [&types, &file] {
+        if std::fs::symlink_metadata(p).is_ok_and(|m| super::folder::is_link(&m)) {
+            return Err(format!("{} is a link: roster won't write through it", p.display()));
+        }
+    }
+    std::fs::create_dir_all(&types).map_err(|e| format!("{}: {e}", types.display()))?;
     std::fs::write(&file, stubs()).map_err(|e| format!("{}: {e}", file.display()))?;
     Ok(file)
 }

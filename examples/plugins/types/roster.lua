@@ -39,6 +39,7 @@
 ---@field section? string The Sidebar section's id, for a row or a row's button.
 ---@field row? string The row's `id` (its place in the list, `"3"`, if it has none).
 ---@field action? integer Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's.
+---@field dropped? string For a section's or a row's `drop`: the Host dropped on it (since api 3).
 ---@field finder? string The finder's id, for a finder item.
 ---@field item? string The item's `id` (its place, if it has none).
 ---@field segment? string The status segment's id.
@@ -53,6 +54,7 @@
 ---@class roster.CommandSpec
 ---@field desc? string Its description, for `:help commands` and completion. The name if left out.
 ---@field run string|fun(args: roster.CommandArgs): any A function, called with what followed the command, or a command line to run instead.
+---@field complete? fun(arg: string): string[] Since api 3: what Tab offers after the command's name. Called with what's typed after it (`"add esx"`) as the user types, it returns whole arguments that start with it (`{ "add esx-02 " }`; end one with a space when another word follows). At most 200; the app shows the last answer until the next comes. It isn't a call the user started: no clipboard, questions or command lines in it.
 
 --- What a command's function is called with
 ---@class roster.CommandArgs
@@ -60,6 +62,9 @@
 ---@field words string[] `args` split at spaces (`{}` for none).
 ---@field session? integer The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3).
 ---@field session_host? string The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).
+---@field host? string The Host under the Sidebar's cursor (else the one on screen), as roster's own commands take it; `nil` with none, and without `inventory.read` (since api 3).
+---@field section? string When the Sidebar's cursor is on a row of one of your own sections: that section's id (since api 3).
+---@field row? string And that row's `id`, or `nil` on the section's heading (since api 3).
 
 --- Where a Plugin's key binding works
 ---@alias roster.KeyContext "leader"|"list"|"list_vim"
@@ -80,6 +85,8 @@
 ---@field empty? string What it says with no rows.
 ---@field rows? roster.Row[] Its rows, at most 2,000.
 ---@field actions? roster.RowAction[] Buttons on its heading (`"Dismiss all"`), at most 4: shown while the heading is selected.
+---@field count? number The count on its heading; the number of rows if left out (since api 3).
+---@field drop? roster.Run Takes a Host dragged onto the heading or the empty section: it runs with `{ section, dropped = HOST }` (since api 3).
 
 --- A row of a Sidebar section
 ---@class roster.Row
@@ -94,6 +101,11 @@
 ---@field title? string Its tooltip.
 ---@field run? roster.Run What Enter runs. With `host` and no `run`, it opens the Host; with neither, nothing.
 ---@field actions? roster.RowAction[] Buttons on the row.
+---@field icon? roster.RowGlyph A glyph before the label, as the app's Folders and groups have (since api 3).
+---@field fold? boolean It folds the rows after it with a higher `level`, as a Folder or group does: `h`/`l`, its chevron and a click fold it, the app keeps what's folded, and its id for `:fold` is `SECTION:ID` (since api 3).
+---@field kind? "host" With `host`: drawn as the Inventory draws that Host (its state, address, Details and Review buttons, then the row's own `actions`); `label` and `note` are used only while the Host isn't in the Inventory (since api 3).
+---@field drop? roster.Run Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged.
+---@field drag_out? roster.Run Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3).
 
 --- A button on a row
 ---@class roster.RowAction
@@ -103,6 +115,9 @@
 
 --- A row action's icon
 ---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"
+
+--- A Sidebar row's glyph (since api 3)
+---@alias roster.RowGlyph "folder"|"group"
 
 --- A status bar segment (`roster.status.set`)
 ---@class roster.StatusSegment
@@ -114,6 +129,7 @@
 ---@class roster.Finder
 ---@field title? string Its title and prompt; the id if left out.
 ---@field items? roster.FinderItem[]|fun(): roster.FinderItem[] What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.
+---@field section? string Instead of `items`: one of your own Sidebar sections, whose rows it finds in (with their paths, unfolded), as roster's own `inventory` finder does (since api 3).
 
 --- One thing a finder lists
 ---@class roster.FinderItem
@@ -541,6 +557,16 @@ function roster.confirm(question) end
 ---@param line string A command line, as typed after `:` (`"finder alerts"`).
 function roster.cmd(line) end
 
+--- Answers on the message line, as roster's own commands do.
+--- Permission: none. Since: api 3.
+---@param text string What to say, on one line.
+function roster.echo(text) end
+
+--- Opens the command line with text typed in.
+--- Permission: none. Since: api 3.
+---@param text string The start of a line for one of your commands (`"folder new "`); the user finishes it.
+function roster.cmdline(text) end
+
 --- Whether the Plugin was granted a permission.
 --- Permission: none. Since: api 3.
 ---@param permission string A permission's name: `"terminal.read"`, `"serve:mesh.status"`.
@@ -795,6 +821,44 @@ roster.clipboard = {}
 --- Permission: none. Since: api 2.
 ---@param text string What to put on the clipboard, at most 64 KB.
 function roster.clipboard.copy(text) end
+
+--- The Plugin's own files. Every Plugin has a data folder of its own, in the app's data folder (next to the State; never the config folder, never on the network), and `roster.storage` reads and writes files there by name (decision Q93). No permission: it's the Plugin's own, and nothing else is reachable through it. A name is a plain file name (letters, digits, `-`, `_` and `.`, not starting with `.`; at most 100 characters), never a path, so there's no way out of the folder; a link there (a symlink, or a junction on Windows) is never followed. A write replaces the whole file at once (a temporary file, then a rename), so a crash leaves the old file or the new one, never half of one. A file holds at most 1 MB, the folder 10 MB in at most 1,000 files. The folder goes when the Plugin is removed (`:plugins remove`, or `:packages clean` for a Package), and stays across reloads, updates and revoked permissions. The time the disk takes doesn't count against the Plugin's budget.
+roster.storage = {}
+
+--- Reads one of the Plugin's files.
+--- Permission: none. Since: api 3.
+---@param name string The file's name (`"folders.json"`).
+---@return string? # What the file holds, or `nil` when there's no such file.
+function roster.storage.read(name) end
+
+--- Writes one of the Plugin's files, whole.
+--- Permission: none. Since: api 3.
+---@param name string The file's name.
+---@param text string What it holds from now on, at most 1 MB (any bytes).
+function roster.storage.write(name, text) end
+
+--- The names of the Plugin's files.
+--- Permission: none. Since: api 3.
+---@return string[] # In name order; `{}` before the first write.
+function roster.storage.list() end
+
+--- Removes one of the Plugin's files.
+--- Permission: none. Since: api 3.
+---@param name string The file's name.
+---@return boolean # `true` if it was there.
+function roster.storage.remove(name) end
+
+--- Reads one of the Plugin's files as JSON.
+--- Permission: none. Since: api 3.
+---@param name string The file's name.
+---@return any # The value, or `nil` when there's no such file.
+function roster.storage.read_json(name) end
+
+--- Writes one of the Plugin's files as JSON, whole.
+--- Permission: none. Since: api 3.
+---@param name string The file's name.
+---@param value any Plain data: tables, text, numbers and booleans (no functions).
+function roster.storage.write_json(name, value) end
 
 --- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget.
 roster.inventory = {}
