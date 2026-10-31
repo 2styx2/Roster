@@ -520,6 +520,11 @@ export class PluginManager {
           r.help.register({ id: op.id, source: plugin, title: op.title, summary: op.summary, order: 1000, body: () => blocks }),
         );
       }
+      case "health": {
+        if (this.taken(r.health, op.id, plugin)) return refuse(`there's a :check section named ${op.id} already`);
+        const checks = op.checks.map((c) => ({ section: op.id, ...c }));
+        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: () => checks }));
+      }
       case "badge": {
         const id = `${plugin}:${op.host}`;
         if (op.text === null) return this.drop(l, `badge:${id}`);

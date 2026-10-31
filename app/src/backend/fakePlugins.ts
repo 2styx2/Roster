@@ -19,6 +19,7 @@ export interface FakeRoster {
   status: { set(id: string, spec: Spec): void; remove(id: string): void };
   finders: { set(id: string, spec: Spec): void; remove(id: string): void };
   help: { set(id: string, spec: Spec): void; remove(id: string): void };
+  health: { set(id: string, spec: Spec): void; remove(id: string): void };
   badges: { set(host: string, text: string | null): void };
   float: { open(spec: Spec): void; close(): void };
   notify(text: string, level?: "info" | "warn" | "error"): void;
@@ -149,6 +150,7 @@ export function fakePluginHost(
       status: piece("status"),
       finders: piece("finder"),
       help: piece("help"),
+      health: piece("health"),
       badges: { set: (host, text) => push({ op: "badge", host, text }) },
       float: { open: (spec) => push({ op: "float", spec }), close: () => push({ op: "float", spec: null }) },
       notify: (text, level = "info") => push({ op: "notify", text, level }),

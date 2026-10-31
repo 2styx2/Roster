@@ -86,7 +86,8 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 | `roster.status.set(id, { text, title, run })` | A status bar segment, after the app's own (a layout can place it: `modes.standard.statusbar`) |
 | `roster.finders.set(id, { title, items })` | A finder: `:finder id`. Items are `{ label, detail, path, run }` |
 | `roster.help.set(topic, { title, summary, markdown })` | A help page, as Markdown: `:help topic`. It's listed under your Plugin's name |
-| `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)` | |
+| `roster.health.set(id, { title, checks })` | A section of `:check` (this Box's health): checks are `{ level = "ok"\|"warn"\|"error", message, fix }`, as the Plugin last set them |
+| `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)`, `roster.health.remove(id)` | |
 | `roster.badges.set(host, text)` | A badge on the Host's Inventory row (`"2 alerts"`); `nil` takes it off |
 | `roster.float.open({ title, lines })`, `roster.float.close()` | A floating window over the terminal; `Esc` closes it |
 | `roster.notify(text, level)` | A notice, `"info"` (the default), `"warn"` or `"error"`, naming your Plugin |

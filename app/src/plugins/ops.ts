@@ -36,6 +36,13 @@ export interface PluginFinderItem {
   run: Run;
 }
 
+/** One line of a Plugin's `:check` section. */
+export interface PluginHealthCheck {
+  level: "ok" | "warn" | "error";
+  message: string;
+  fix?: string;
+}
+
 export interface PluginFloat {
   title: string;
   lines: string[];
@@ -49,6 +56,7 @@ export type PluginOp =
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
   | { op: "finder"; id: string; title: string; items: PluginFinderItem[] }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
+  | { op: "health"; id: string; title: string; checks: PluginHealthCheck[] }
   | { op: "badge"; host: string; text: string | null }
   | { op: "float"; spec: PluginFloat | null }
   | { op: "notify"; text: string; level: "info" | "warn" | "error" }
@@ -56,11 +64,12 @@ export type PluginOp =
   | { op: "send"; session: number; text: string }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "section", "status", "finder", "help"] as const;
+export const REMOVABLE = ["command", "section", "status", "finder", "help", "health"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info"];
 const LEVELS = ["info", "warn", "error"] as const;
+const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
 /** Most rows a section, items a finder, lines a float may have. */
 export const MAX_ROWS = 2000;
@@ -205,6 +214,21 @@ function parse(raw: unknown): PluginOp {
       const what = `roster.help.set ${id}`;
       const title = optStr(spec, "title", what) ?? id;
       return { op: "help", id, title, summary: optStr(spec, "summary", what) ?? title, markdown: str(spec, "markdown", what, MAX_HELP) };
+    }
+    case "health": {
+      const what = `roster.health.set ${id}`;
+      return {
+        op: "health",
+        id,
+        title: optStr(spec, "title", what) ?? id,
+        checks: list(spec, "checks", what).map((c, i): PluginHealthCheck => {
+          const at = `${what} check ${i + 1}`;
+          if (!isObj(c)) throw new Invalid(`${at}: must be a table`);
+          const level = HEALTH_LEVELS.find((l) => l === c.level);
+          if (!level) throw new Invalid(`${at}: level must be "ok", "warn" or "error"`);
+          return defined<PluginHealthCheck>({ level, message: str(c, "message", at), fix: optStr(c, "fix", at) });
+        }),
+      };
     }
     case "badge":
       return { op: "badge", host: str(raw, "host", "roster.badges.set", 200), text: raw.text === null ? null : str(raw, "text", "roster.badges.set", 40) };

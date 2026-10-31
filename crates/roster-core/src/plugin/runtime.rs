@@ -398,6 +398,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str) -> mlua::Result<Table> {
         ("status", "status"),
         ("finders", "finder"),
         ("help", "help"),
+        ("health", "health"),
     ] {
         let t = lua.create_table()?;
         let what = format!("roster.{module}.set");

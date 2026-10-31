@@ -181,3 +181,19 @@ describe("ops from a Plugin are checked", () => {
     expect(plainText("\x1b]0;title\x07\x1b[1;31mERROR\x1b[0m\r\n")).toBe("ERROR\n");
   });
 });
+
+describe(":check sections", () => {
+  it("a Plugin adds one to the health registry, as checks it sets", async () => {
+    const doctor: FakePlugin = {
+      manifest: { name: "doctor", version: "1", description: "", author: null, api: 2, permissions: [] },
+      load(roster) {
+        roster.health.set("doctor", { title: "Doctor", checks: [{ level: "warn", message: "no alerts yet", fix: "open a Session" }] });
+      },
+    };
+    const { manager, registries } = setup({ "/p/doctor": doctor }, { [STATE_KEY]: [{ path: "/p/doctor", name: "doctor", granted: [], asked: [] }] });
+    await manager.start();
+    const section = registries.health.get("doctor");
+    expect(section?.source).toBe("doctor");
+    expect(section?.checks({} as never)).toEqual([{ section: "doctor", level: "warn", message: "no alerts yet", fix: "open a Session" }]);
+  });
+});
