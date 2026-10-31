@@ -2,7 +2,7 @@
 
 <!-- Generated from crates/roster-core/src/plugin/api.rs by `cargo run -p roster-core --example gen_plugin_api`: edit that, then run it. -->
 
-Every function, value, event and data type of the `roster` Lua module a Plugin gets, `roster.api_version` 2. How to write, install and trust a Plugin is the guide, [Writing a Plugin](plugins.md); this is the reference. Each entry is a help topic: `:help roster.inventory.host()` for a function, `:help roster-Host` for a type.
+Every function, value, event and data type of the `roster` Lua module a Plugin gets, `roster.api_version` 3. How to write, install and trust a Plugin is the guide, [Writing a Plugin](plugins.md); this is the reference. Each entry is a help topic: `:help roster.inventory.host()` for a function, `:help roster-Host` for a type.
 
 Types are written as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations write them: `string?` may be `nil`, `Host[]` is a list of Hosts, `table<string, Group>` a table of Groups by name, `"info"|"warn"` one of those strings. The same declarations are [`roster.lua`](../examples/plugins/types/roster.lua), for [your editor](#editor-support).
 
@@ -13,7 +13,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 - Integers are real 64-bit integers (`3 // 2` is `1`, `math.type(1)` is `"integer"`), and the bitwise operators are native (`a & b`, `a | b`, `~a`, `a << 2`): there's no `bit` library.
 - `goto`, `<const>` and `<close>` locals work; there's no `jit` and no FFI.
 - The API is `roster.*`, never `vim.*`: there's no `vim.api`, `vim.fn`, `vim.loop` or `vim.schedule`.
-- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. No `io`, no `os.execute`, no `debug`, no `coroutine`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
+- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. `coroutine` too (since api 3: a coroutine runs within the same time budget and memory limit). No `io`, no `os.execute`, no `debug`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
 - `pairs` visits a table's keys in order: numbers, then text, then the rest. So the same state always makes the same changes in the same order, on every machine; `next` is Lua's own.
 - An empty table is `{}` to the app, whether you meant a list or a table of fields: the app takes `{}` as an empty list wherever it wants one (`rows = {}`, `items = {}`).
 - It runs on a thread of its own with a memory limit and a time budget per call: see [Limits](plugins.md#limits).
@@ -36,7 +36,9 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.commands.add(name, spec)`](#rostercommandsaddname-spec) | Adds a `:` command | none |
 | [`roster.commands.remove(name)`](#rostercommandsremovename) | Removes one of the Plugin's commands | none |
 | [`roster.keymap.set(context, keys, action)`](#rosterkeymapsetcontext-keys-action) | Binds keys to a command line | none |
+| [`roster.keymap.del(context, keys)`](#rosterkeymapdelcontext-keys) | Takes one of the Plugin's key bindings off | none |
 | [`roster.themes.define(id, theme)`](#rosterthemesdefineid-theme) | Adds a Theme | none |
+| [`roster.themes.remove(id)`](#rosterthemesremoveid) | Removes one of the Plugin's Themes | none |
 | [`roster.sidebar.set(id, section)`](#rostersidebarsetid-section) | Adds a Sidebar section, or replaces it | none |
 | [`roster.sidebar.remove(id)`](#rostersidebarremoveid) | Removes a Sidebar section | none |
 | [`roster.status.set(id, segment)`](#rosterstatussetid-segment) | Adds a status bar segment, or replaces it | none |
@@ -66,6 +68,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.clipboard.copy(text)`](#rosterclipboardcopytext) | Puts text on the clipboard | none |
 | [`roster.inventory.hosts()`](#rosterinventoryhosts) | Every Host, in `roster.yml` order | `inventory.read` |
 | [`roster.inventory.host(name)`](#rosterinventoryhostname) | One Host, by its exact name | `inventory.read` |
+| [`roster.inventory.groups()`](#rosterinventorygroups) | Every group, by name | `inventory.read` |
 | [`roster.inventory.update(host, changes)`](#rosterinventoryupdatehost-changes) | Changes a Host's fields, as a Pending change | `inventory.write` |
 | [`roster.inventory.rename(host, to)`](#rosterinventoryrenamehost-to) | Renames a Host, as a Pending change | `inventory.write` |
 | [`roster.inventory.move(host, group)`](#rosterinventorymovehost-group) | Moves a Host to another group, as a Pending change | `inventory.write` |
@@ -86,6 +89,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Timer`](#timer) | A timer's id, from `roster.defer` or `roster.every` |
 | [`Level`](#level) | A notice's level |
 | [`Run`](#run) | What choosing a row, an action, a finder item or a status segment runs |
+| [`HandlerContext`](#handlercontext) | What a row's, a button's, a finder item's, a status segment's, a toolbar control's, a question's, a progress's or a `:check` section's function is called with |
 | [`CommandSpec`](#commandspec) | `roster.commands.add`'s second argument |
 | [`CommandArgs`](#commandargs) | What a command's function is called with |
 | [`KeyContext`](#keycontext) | Where a Plugin's key binding works |
@@ -175,7 +179,7 @@ A function that fails raises a Lua error: `pcall` catches it, with the message a
 Any function can also raise:
 
 - Lua's own `bad argument` error, for an argument of the wrong kind (a number where a table goes);
-- `PATH: a table that mixes a list with named keys (or has gaps): use one or the other`, `PATH: a Lua function can't be a Config value`, `PATH: a userdata can't be a Config value` and the like, for data that can't be handed over (`PATH` is where in your table, `rows.3.label`);
+- `roster.sidebar.set: PATH: a table that mixes a list with named keys (or has gaps): use one or the other`, `roster.float.open: PATH: a thread can't be a Plugin value` and the like, for data that can't be handed over (the function, then `PATH`, where in your table: `rows.3.label`). A function's return value that can't be is `the value it returned: PATH: …`;
 - `more than 1000 UI changes in one go`, when one call sets more than that;
 - `more than 10000 functions handed to roster at once`.
 
@@ -523,7 +527,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.commands.remove: "NAME" isn't a name like …`: a bad `name` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -545,7 +550,7 @@ Binds keys to a command line. Never in the terminal. A function isn't an action:
 
 - `context` ([`KeyContext`](#keycontext)): `"leader"` (a key after the Leader), `"list"` or `"list_vim"` (the Sidebar, and its vim keys).
 - `keys` (`string`): The keys, space-separated: `"w w"`.
-- `action` (`string|false`): A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` claims the keys with no action.
+- `action` (`string|false`): A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.
 
 **Returns**
 
@@ -568,6 +573,31 @@ Nothing.
 
 ```lua
 roster.keymap.set("leader", roster.plugin.config.leader or "w w", "finder alerts")
+```
+
+### `roster.keymap.del(context, keys)`
+
+Takes one of the Plugin's key bindings off. Keys it didn't bind stay as they are: a Plugin can't unbind roster's, `init.lua`'s or another Plugin's.
+
+**Parameters**
+
+- `context` ([`KeyContext`](#keycontext)): Where it was bound.
+- `keys` (`string`): The keys, as `set` took them.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.keymap.del("leader", "w w")
 ```
 
 ## `roster.themes`
@@ -603,6 +633,31 @@ Nothing.
 
 ```lua
 roster.themes.define("dusk", { base = "nord", colors = { accent = "#e0a060" } })
+```
+
+### `roster.themes.remove(id)`
+
+Removes one of the Plugin's Themes. Removing one it doesn't have does nothing. If it was the Theme in use, the app goes back to `init.lua`'s.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's Themes.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.themes.remove: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.themes.remove("dusk")
 ```
 
 ## `roster.sidebar`
@@ -659,7 +714,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.sidebar.remove: "ID" isn't a name like …`: a bad `id` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -718,7 +774,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.status.remove: "ID" isn't a name like …`: a bad `id` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -780,7 +837,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.finders.remove: "ID" isn't a name like …`: a bad `id` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -843,7 +901,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.help.remove: "TOPIC" isn't a name like …`: a bad `topic` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -859,12 +918,12 @@ Sections of `:check`.
 
 ### `roster.health.set(id, section)`
 
-Adds a section to `:check` (this Box's health), or replaces it. `:check` shows the checks as the Plugin last set them: it doesn't call the Plugin.
+Adds a section to `:check` (this Box's health), or replaces it. Like Neovim's `vim.health`: with `check`, each `:check` calls it and shows the lines it returns, under the Plugin's name on `:help health`. It runs with the Plugin's permissions and the time budget of any call (a quarter of a second); one that fails or doesn't answer in time is an `ERROR` line of its section, and `:check` goes on without it. With `checks` and no `check`, `:check` shows them as the Plugin last set them.
 
 **Parameters**
 
 - `id` (`string`): The section's id.
-- `section` ([`HealthSection`](#healthsection)): Its title and checks.
+- `section` ([`HealthSection`](#healthsection)): Its title, and its checks or the function that makes them.
 
 **Returns**
 
@@ -887,7 +946,12 @@ Nothing.
 ```lua
 roster.health.set("recent-alerts", {
   title = "Recent alerts",
-  checks = { { level = "warn", message = "terminal.read isn't granted", fix = "Allow it in :plugins" } },
+  check = function()
+    if not granted("terminal.read") then
+      return { { level = "warn", message = "terminal.read isn't granted", fix = "Allow it in :plugins" } }
+    end
+    return { { level = "ok", message = #alerts .. " alerts so far" } }
+  end,
 })
 ```
 
@@ -905,7 +969,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.health.remove: "ID" isn't a name like …`: a bad `id` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -971,7 +1036,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.tutor.remove: "ID" isn't a name like …`: a bad `id` (since api 3).
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 2
 
@@ -1324,7 +1390,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.views.close: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 3
 
@@ -1348,7 +1415,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.views.remove: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 3
 
@@ -1411,7 +1479,8 @@ Nothing.
 
 **Errors**
 
-Only [those of every function](#errors).
+- `roster.details.remove: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 3
 
@@ -1457,7 +1526,7 @@ Hosts, and Pending changes to them. `nil` unless the Plugin was granted `invento
 
 ### `roster.inventory.hosts()`
 
-Every Host, in `roster.yml` order. From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups aren't in it: `roster.serve.call("hosts.list")` (with `serve:hosts.list`) has them.
+Every Host, in `roster.yml` order. From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups).
 
 **Parameters**
 
@@ -1465,7 +1534,7 @@ None.
 
 **Returns**
 
-- [`Host`](#host)`[]`: The Hosts, each with its Login references (a vault item's name, never a password).
+- [`Host`](#host)`[]`: The Hosts, each with its Login references (a vault item's name, never a password; a `cmd:` or `env:` one cut to its kind).
 
 **Errors**
 
@@ -1484,7 +1553,7 @@ end
 
 ### `roster.inventory.host(name)`
 
-One Host, by its exact name. From serve's [`host.get`](serve-api.md). An unknown name is an error, not `nil`: wrap the call in `pcall` when the name came from the user.
+One Host, by its exact name. From serve's [`host.get`](serve-api.md). An unknown name is `nil` (since api 3; it was an error in api 2).
 
 **Parameters**
 
@@ -1492,11 +1561,10 @@ One Host, by its exact name. From serve's [`host.get`](serve-api.md). An unknown
 
 **Returns**
 
-- [`Host`](#host): The Host.
+- [`Host`](#host)`?`: The Host, or `nil` when no Host has that name.
 
 **Errors**
 
-- `roster.inventory.host: unknown host 'NAME' (code 2)`: no Host has that name.
 - `roster.inventory.host: MESSAGE (code N)`: roster serve failed otherwise.
 - And [those of every function](#errors).
 
@@ -1505,8 +1573,37 @@ One Host, by its exact name. From serve's [`host.get`](serve-api.md). An unknown
 **Example**
 
 ```lua
-local ok, h = pcall(roster.inventory.host, name)
-if ok then roster.notify(name .. " is " .. h.ip) end
+local h = roster.inventory.host(name)
+if h then roster.notify(name .. " is " .. h.ip) end
+```
+
+### `roster.inventory.groups()`
+
+Every group, by name. From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is. A Host's `group` names one of them.
+
+**Parameters**
+
+None.
+
+**Returns**
+
+- `table<string, `[`Group`](#group)`>`: The groups, by name.
+
+**Errors**
+
+- `roster.inventory.groups: MESSAGE (code N)`: roster serve failed (see [Errors](#errors)).
+- And [those of every function](#errors).
+
+**Permission:** `inventory.read` · **Since:** api 3
+
+**Example**
+
+```lua
+local groups = roster.inventory.groups()
+for _, h in ipairs(roster.inventory.hosts()) do
+  local g = groups[h.group]
+  roster.notify(h.name .. " is in " .. (g and g.title ~= "" and g.title or h.group))
+end
 ```
 
 ### `roster.inventory.update(host, changes)`
@@ -1718,7 +1815,7 @@ roster serve's methods, by name. `nil` unless the Plugin was granted at least on
 
 ### `roster.serve.call(method, params)`
 
-Calls a roster serve method the Plugin was granted. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. What each returns is under [roster serve's results](#roster-serves-results).
+Calls a roster serve method the Plugin was granted. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
 
 **Parameters**
 
@@ -1920,9 +2017,30 @@ One of: `"info" \| "warn" \| "error"`
 
 What choosing a row, an action, a finder item or a status segment runs.
 
-What choosing it runs: a function (called with an empty table; its return value is ignored) or a command line (`"open esx-02"`).
+What choosing it runs: a function, called with a [`HandlerContext`](#handlercontext) that says which row, item or segment it was and the Session on screen (its return value is ignored), or a command line (`"open esx-02"`).
 
-One of: `string \| fun(args: table): any`
+One of: `string \| fun(ctx: `[`HandlerContext`](#handlercontext)`): any`
+
+### `HandlerContext`
+
+What a row's, a button's, a finder item's, a status segment's, a toolbar control's, a question's, a progress's or a `:check` section's function is called with.
+
+Since api 3 (api 2 called them with an empty table). Only the fields for what ran it are there: a row button has `section`, `row` and `action`; a finder item `finder` and `item`. A command's function gets [`CommandArgs`](#commandargs), which has `session` and `session_host` too.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `section` | `string` | no | The Sidebar section's id, for a row or a row's button. |
+| `row` | `string` | no | The row's `id` (its place in the list, `"3"`, if it has none). |
+| `action` | `integer` | no | Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's. |
+| `finder` | `string` | no | The finder's id, for a finder item. |
+| `item` | `string` | no | The item's `id` (its place, if it has none). |
+| `segment` | `string` | no | The status segment's id. |
+| `health` | `string` | no | The `:check` section's id, for its `check`. |
+| `toolbar` | `string` | no | The toolbar control's id. |
+| `progress` | `string` | no | The progress's id, for its `cancel`. |
+| `confirm` | `"yes"\|"no"` | no | For a question's `run` (`"yes"`) or `cancel` (`"no"`, also when another Plugin's question replaced it). |
+| `session` | `integer` | no | The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read`. |
+| `session_host` | `string` | no | The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read`. (A table's function gets the row's Host as `host`: [`TableEvent`](#tableevent).) |
 
 ### `CommandSpec`
 
@@ -1941,6 +2059,8 @@ What a command's function is called with.
 |---|---|---|---|
 | `args` | `string` | yes | Everything after the command's name, trimmed (`""` for none). |
 | `words` | `string[]` | yes | `args` split at spaces (`{}` for none). |
+| `session` | `integer` | no | The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3). |
+| `session_host` | `string` | no | The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3). |
 
 ### `KeyContext`
 
@@ -2059,7 +2179,8 @@ A section of `:check` (`roster.health.set`).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
-| `checks` | [`HealthCheck`](#healthcheck)`[]` | no | Its lines. |
+| `checks` | [`HealthCheck`](#healthcheck)`[]` | no | Its lines, as they are now. Left out with `check`. |
+| `check` | `fun(ctx: `[`HandlerContext`](#handlercontext)`): `[`HealthCheck`](#healthcheck)`[]` | no | Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`. |
 
 ### `HealthCheck`
 
@@ -2549,7 +2670,7 @@ Every value is resolved: what the Host doesn't set comes from its group, then `d
 
 A Login reference: where a password is, never the password.
 
-`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too: they name a variable or a command, and a Plugin sees that text. The providers are in [Password providers](cli-reference.md#password-providers).
+`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too, but they say how a secret is fetched (and a secret pasted into a `cmd:` line would show), so a Plugin gets them cut to their kind: `env:` and `cmd:` (since api 3; decision Q92). The providers are in [Password providers](cli-reference.md#password-providers).
 
 One of: `string`
 
@@ -2803,7 +2924,7 @@ No fields.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `session` | `integer` | yes | The Session's id. |
-| `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session, and for a tab closed while it ran. |
+| `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session. A tab closed while it ran has it too (since api 3). |
 | `code` | `integer` | no | ssh's exit code; `nil` when it failed to start or its tab was closed. |
 
 ### `TerminalOutputEvent`

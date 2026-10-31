@@ -467,9 +467,11 @@ function healthPage(ctx: HelpContext): Block[] {
     link(":check", [code(":check")]),
     " runs every check again, and ",
     code("roster check --box"),
-    " runs roster's in a terminal. Every check is local: none connects to a Host. ",
+    " runs roster's in a terminal. A Plugin can add a section of its own, headed with its name. Every check is local: none connects to a Host. ",
     code(":check HOST"),
-    " is the one that does.",
+    " is the one that does (",
+    code(":check %"),
+    " for the Host of the Session on screen).",
   );
   const status: Block =
     report === null

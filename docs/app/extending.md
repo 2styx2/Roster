@@ -19,11 +19,11 @@ Two lines never move, whatever the Config: secrets never reach the app's UI, the
 | Folders | Your own grouping of Hosts | `folders` (read-only in the app); the app's own go in `folders.yml` | [Your init.lua](config.md#folders) |
 | Errors | Every way a Session can fail, with where it lives and the fix | Read-only for now | [Connection errors](errors) |
 | Help pages | These pages | Read-only for now | [roster help](index) |
-| Health sections | What `:check` with no Host checks: the app and `roster serve`, roster's own sections, `init.lua`, the terminal font | Read-only for now; a Plugin will add a section with its own checks | [Health](health) |
+| Health sections | What `:check` with no Host checks: the app and `roster serve`, roster's own sections, `init.lua`, the terminal font, and Plugins' | A Plugin adds a section whose checks run on each `:check` (`roster.health.set`), like Neovim's `vim.health` | [Health](health), [Health sections](../plugins.md#health-sections) |
 
 ## Plugins
 
-A Plugin is Lua, run by the same Lua runtime as `init.lua`, that adds to these same registries: its own commands, keys, Themes, Sidebar sections, status segments, finders, badges on Hosts, floating windows, notices and help pages, plus events such as "a Session opened". It gets only the functions for the permissions you granted, and `:plugins` revokes them at once. Plugins add no HTML: they hand the core data and actions, and the core draws them in roster's style. What they can never do: see a secret, or Publish by themselves. The status bar's Host count is written as one, on the same API ([plugins.md](../plugins.md)).
+A Plugin is Lua, run by the same Lua runtime as `init.lua`, that adds to these same registries: its own commands, keys, Themes, Sidebar sections, status segments, finders, badges on Hosts, floating windows, notices, help pages and `:check` sections, plus events such as "a Session opened". It gets only the functions for the permissions you granted, and `:plugins` revokes them at once. Plugins add no HTML: they hand the core data and actions, and the core draws them in roster's style. What they can never do: see a secret, or Publish by themselves. The status bar's Host count is written as one, on the same API ([plugins.md](../plugins.md)).
 
 A Package will be a Plugin fetched from a git repo and pinned to a commit in a lock file, the way lazy.nvim works; it isn't in the app yet. The core stays small: features only some people need, such as a map of the network, discovering Hosts from the app and the mesh controls, are planned as optional Plugins that roster provides, built on exactly this API (decision Q80).
 

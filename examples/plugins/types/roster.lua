@@ -1,5 +1,5 @@
 ---@meta roster
--- roster's Plugin API, roster.api_version 2: LuaCATS annotations for lua-language-server.
+-- roster's Plugin API, roster.api_version 3: LuaCATS annotations for lua-language-server.
 -- Generated from crates/roster-core/src/plugin/api.rs by `cargo run -p roster-core --example gen_plugin_api`; don't edit.
 -- The reference: docs/plugin-api.md (`:help plugin-api`).
 
@@ -32,7 +32,22 @@
 ---@alias roster.Level "info"|"warn"|"error"
 
 --- What choosing a row, an action, a finder item or a status segment runs
----@alias roster.Run string|fun(args: table): any
+---@alias roster.Run string|fun(ctx: roster.HandlerContext): any
+
+--- What a row's, a button's, a finder item's, a status segment's, a toolbar control's, a question's, a progress's or a `:check` section's function is called with
+---@class roster.HandlerContext
+---@field section? string The Sidebar section's id, for a row or a row's button.
+---@field row? string The row's `id` (its place in the list, `"3"`, if it has none).
+---@field action? integer Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's.
+---@field finder? string The finder's id, for a finder item.
+---@field item? string The item's `id` (its place, if it has none).
+---@field segment? string The status segment's id.
+---@field health? string The `:check` section's id, for its `check`.
+---@field toolbar? string The toolbar control's id.
+---@field progress? string The progress's id, for its `cancel`.
+---@field confirm? "yes"|"no" For a question's `run` (`"yes"`) or `cancel` (`"no"`, also when another Plugin's question replaced it).
+---@field session? integer The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read`.
+---@field session_host? string The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read`. (A table's function gets the row's Host as `host`: `TableEvent`.)
 
 --- `roster.commands.add`'s second argument
 ---@class roster.CommandSpec
@@ -43,6 +58,8 @@
 ---@class roster.CommandArgs
 ---@field args string Everything after the command's name, trimmed (`""` for none).
 ---@field words string[] `args` split at spaces (`{}` for none).
+---@field session? integer The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3).
+---@field session_host? string The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).
 
 --- Where a Plugin's key binding works
 ---@alias roster.KeyContext "leader"|"list"|"list_vim"
@@ -115,7 +132,8 @@
 --- A section of `:check` (`roster.health.set`)
 ---@class roster.HealthSection
 ---@field title? string Its heading; the id if left out.
----@field checks? roster.HealthCheck[] Its lines.
+---@field checks? roster.HealthCheck[] Its lines, as they are now. Left out with `check`.
+---@field check? fun(ctx: roster.HandlerContext): roster.HealthCheck[] Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`.
 
 --- One line of a `:check` section
 ---@class roster.HealthCheck
@@ -557,7 +575,7 @@
 --- `session_exit`'s payload
 ---@class roster.SessionExitEvent
 ---@field session integer The Session's id.
----@field host? string The Host's name; `nil` for a Quick Connect Session, and for a tab closed while it ran.
+---@field host? string The Host's name; `nil` for a Quick Connect Session. A tab closed while it ran has it too (since api 3).
 ---@field code? integer ssh's exit code; `nil` when it failed to start or its tab was closed.
 
 --- `terminal_output`'s payload
@@ -647,8 +665,14 @@ roster.keymap = {}
 --- Permission: none. Since: api 2.
 ---@param context roster.KeyContext `"leader"` (a key after the Leader), `"list"` or `"list_vim"` (the Sidebar, and its vim keys).
 ---@param keys string The keys, space-separated: `"w w"`.
----@param action string|false A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` claims the keys with no action.
+---@param action string|false A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as `roster.keymap.del` does.
 function roster.keymap.set(context, keys, action) end
+
+--- Takes one of the Plugin's key bindings off.
+--- Permission: none. Since: api 3.
+---@param context roster.KeyContext Where it was bound.
+---@param keys string The keys, as `set` took them.
+function roster.keymap.del(context, keys) end
 
 --- Themes. 
 roster.themes = {}
@@ -658,6 +682,11 @@ roster.themes = {}
 ---@param id string The Theme's id, as `:theme ID` takes it.
 ---@param theme roster.Theme As `init.lua`'s `themes` takes one.
 function roster.themes.define(id, theme) end
+
+--- Removes one of the Plugin's Themes.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's Themes.
+function roster.themes.remove(id) end
 
 --- Sidebar sections. 
 roster.sidebar = {}
@@ -721,7 +750,7 @@ roster.health = {}
 --- Adds a section to `:check` (this Box's health), or replaces it.
 --- Permission: none. Since: api 2.
 ---@param id string The section's id.
----@param section roster.HealthSection Its title and checks.
+---@param section roster.HealthSection Its title, and its checks or the function that makes them.
 function roster.health.set(id, section) end
 
 --- Removes a `:check` section.
@@ -850,14 +879,19 @@ roster.inventory = {}
 
 --- Every Host, in `roster.yml` order.
 --- Permission: inventory.read. Since: api 2.
----@return roster.Host[] # The Hosts, each with its Login references (a vault item's name, never a password).
+---@return roster.Host[] # The Hosts, each with its Login references (a vault item's name, never a password; a `cmd:` or `env:` one cut to its kind).
 function roster.inventory.hosts() end
 
 --- One Host, by its exact name.
 --- Permission: inventory.read. Since: api 2.
 ---@param name string The Host's exact name.
----@return roster.Host # The Host.
+---@return roster.Host? # The Host, or `nil` when no Host has that name.
 function roster.inventory.host(name) end
+
+--- Every group, by name.
+--- Permission: inventory.read. Since: api 3.
+---@return table<string, roster.Group> # The groups, by name.
+function roster.inventory.groups() end
 
 --- Changes a Host's fields, as a Pending change.
 --- Permission: inventory.write. Since: api 2.

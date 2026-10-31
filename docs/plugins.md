@@ -24,7 +24,7 @@ return {
   version = "1.0.0",
   description = "Lines your Sessions print that look like trouble",
   author = "you",
-  api = 2,                      -- the roster.api_version it's written for
+  api = 3,                      -- the roster.api_version it's written for
   permissions = { "terminal.read" },
 }
 ```
@@ -86,6 +86,7 @@ Some things it shows that every Plugin meets:
 - **`:plugins`** lists every Plugin: whether it's running or why it stopped, its permissions as switches, and what it did lately. Turning a switch off takes the permission away at once: the Plugin is loaded again without it, with no restart. Turning it on grants it.
 - **`:plugins remove NAME`** unloads it and takes everything it added away. **`:plugins reload NAME`** loads it again, after you've changed it or once it was stopped.
 - `:plugins revoke NAME PERMISSION` and `:plugins grant NAME PERMISSION` do what the switches do.
+- **`:plugins types PATH`** writes the API's types for this app as `types/roster.lua` in the Plugin folder PATH, over an older copy ([Types in your editor](#types-in-your-editor)).
 
 What you granted is kept in the app's State, which neither `init.lua` nor a Plugin can write.
 
@@ -131,7 +132,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 | Permission | What it adds | Why it's flagged |
 |---|---|---|
 | none | Commands, keys, Themes, Sidebar sections, status segments, toolbar controls, finders, badges, floats, views and their tables, Host-details sections, questions (`roster.confirm`), progress, notices, help pages, `roster.cmd` for [the commands that only show something](plugin-api.md#command-lines-a-plugin-may-run), going to a Session (`roster.sessions.show`), the `lock` and `unlock` events | |
-| `inventory.read` | `roster.inventory.hosts()`, `roster.inventory.host(name)`: Hosts with their Login *references* (a vault item's name, never its password); the events that name a Host | |
+| `inventory.read` | `roster.inventory.hosts()`, `roster.inventory.host(name)`, `roster.inventory.groups()`: Hosts with their Login *references* (a vault item's name, never its password; a `cmd:` or `env:` one cut to `cmd:` or `env:`, since it says how a secret is fetched); the events that name a Host; the Session on screen in a handler's context | |
 | `inventory.write` | `roster.inventory.update(host, changes)`, `rename(host, to)`, `move(host, group)`, `review(host, reviewed)`: as Pending changes, which you review and Publish | Can change Hosts |
 | `sessions.open` | `roster.sessions.open(host)`, as `:connect HOST`; `:open` and `:connect` in `roster.cmd` and a `run` line | Can open Sessions on your Hosts |
 | `terminal.read` | The `terminal_output` event: what your Sessions print | Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too |
@@ -139,7 +140,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 | `serve:METHOD` | `roster.serve.call(method, params)` for that method only: `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff`, and the `mesh.*` and `discover.*` methods | Any method that can change something (`mesh.apply`, `mesh.cut`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status` and `mesh.plan` |
 | `network:SITE` | `roster.http.request(request, done)` and `roster.http.get(url, done)`, to that site only | Always: anything the Plugin can read could leave this computer. Also said: plain `http://`, and an address on this computer or a private network |
 
-No permission reaches a secret. The vault, a session's password, askpass and the master password live only in `roster serve` and never pass through the app; the serve methods that touch them (`vault.*`, `session.*`, `quick.*`, `host.add`, `host.save_login`, `changes.publish`) can't be granted at all, and a manifest that asks for one doesn't install.
+No permission reaches a secret, nor how one is fetched: a `cmd:COMMAND` or `env:VAR` Login reference reaches a Plugin as `cmd:` or `env:`, from `roster.inventory` and `roster.serve.call` alike (decision Q92), since a command line can carry a secret pasted into it. The vault, a session's password, askpass and the master password live only in `roster serve` and never pass through the app; the serve methods that touch them (`vault.*`, `session.*`, `quick.*`, `host.add`, `host.save_login`, `changes.publish`) can't be granted at all, and a manifest that asks for one doesn't install.
 
 ### The network
 
@@ -172,14 +173,14 @@ The requests run in roster's core, never in the app's window, and don't wait: `d
 | Commands and keys | [`roster.commands`](plugin-api.md#rostercommands), [`roster.keymap`](plugin-api.md#rosterkeymap) | none |
 | What the app draws for you | [`roster.sidebar`](plugin-api.md#rostersidebar), [`roster.status`](plugin-api.md#rosterstatus), [`roster.toolbar`](plugin-api.md#rostertoolbar), [`roster.finders`](plugin-api.md#rosterfinders), [`roster.badges`](plugin-api.md#rosterbadges), [`roster.float`](plugin-api.md#rosterfloat), [`roster.views`](plugin-api.md#rosterviews), [`roster.details`](plugin-api.md#rosterdetails), [`roster.progress`](plugin-api.md#rosterprogress), [`roster.themes`](plugin-api.md#rosterthemes) | none |
 | Asking, and acting for the user | [`roster.confirm`](plugin-api.md#rosterconfirmquestion), [`roster.cmd`](plugin-api.md#rostercmdline), [`roster.sessions.show`](plugin-api.md#rostersessionsshowsession-line) | none, in a call the user started |
-| Help, health and tutorials | [`roster.help`](plugin-api.md#rosterhelp), [`roster.health`](plugin-api.md#rosterhealth), [`roster.tutor`](plugin-api.md#rostertutor) | none |
+| Help, health and tutorials | [`roster.help`](plugin-api.md#rosterhelp), [`roster.health`](plugin-api.md#rosterhealth) ([below](#health-sections)), [`roster.tutor`](plugin-api.md#rostertutor) | none |
 | The clipboard | [`roster.clipboard`](plugin-api.md#rosterclipboard) | none, in a call the user started |
 | Hosts | [`roster.inventory`](plugin-api.md#rosterinventory) | `inventory.read`, `inventory.write` |
 | Sessions | [`roster.sessions.open`](plugin-api.md#rostersessionsopenhost), [`roster.terminal`](plugin-api.md#rosterterminal) | `sessions.open`, `terminal.write` |
 | roster serve | [`roster.serve`](plugin-api.md#rosterserve) | `serve:<method>` |
 | HTTP | [`roster.http`](plugin-api.md#rosterhttp) | `network:<site>` |
 
-Everywhere a Plugin hands the app something to run (a row, a button, a finder item, a status segment, a toolbar control, a command), `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing. A command line runs only if it's one of your own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run) (`finder`, `view`, `help`, `info`, and `open` or `connect` with `sessions.open`); anything else, `:plugins grant …` above all, is refused with a notice when the user presses the button, whatever its label says. [Events](plugin-api.md#events) come through `roster.on`; a Quick Connect Session's `host` is `nil` in them, since it isn't on a Host: don't badge it or make a row go to it. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command).
+Everywhere a Plugin hands the app something to run (a row, a button, a finder item, a status segment, a toolbar control, a command), `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing. It's told which thing that was: a [`HandlerContext`](plugin-api.md#handlercontext) such as `{ section = "pinned", row = "esx-02", action = 1 }` for a row's first button, `{ finder = "pinned", item = "3" }`, `{ toolbar = "alerts" }`, `{ progress = "sync" }` for its `cancel`, or `{ confirm = "yes" }`, with the Session on screen (`session`, `session_host`) when the Plugin has `inventory.read` or `terminal.read`. So one function can serve every row. A command line runs only if it's one of your own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run) (`finder`, `view`, `help`, `info`, and `open` or `connect` with `sessions.open`); anything else, `:plugins grant …` above all, is refused with a notice when the user presses the button, whatever its label says. [Events](plugin-api.md#events) come through `roster.on`; a Quick Connect Session's `host` is `nil` in them, since it isn't on a Host: don't badge it or make a row go to it. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command).
 
 `terminal_output` is the lines a Session's terminal commits: the app runs each Session's output through a terminal of its own (never shown) and sends a line when the cursor moves past it, as it reads then. So there are no escape sequences, a progress bar arrives as it ended, and a wrapped line comes whole. A line drawn again with the same text in the same row isn't sent again: after the app resizes a Session (a panel, Focus, the window), ConPTY prints the whole screen again on Windows, and that isn't new output. What a full-screen program (`vim`, `top`, `less`) draws isn't sent at all.
 
@@ -193,9 +194,27 @@ Text you hand the app (a label, a notice, a float's lines, a badge, what you cop
 
 A tutorial (`roster.tutor.set`) runs on the demo Inventory, where your Plugin isn't loaded: a step can wait for your command being run there, but your command won't do anything there yet. Its steps wait for the app's own events ([`StepMatch`](plugin-api.md#stepmatch)).
 
+### Health sections
+
+`roster.health.set` adds a section to `:check` (this Box's health, shown on `:help health`), as Neovim's `vim.health` does. With `check`, a function, each `:check` calls it and shows the lines it returns, under the section's title and your Plugin's name:
+
+```lua
+roster.health.set("recent-alerts", {
+  title = "Recent alerts",
+  check = function()
+    if not granted("terminal.read") then
+      return { { level = "warn", message = "terminal.read isn't granted, so no alerts", fix = "allow it in :plugins" } }
+    end
+    return { { level = "ok", message = #alerts .. " alerts since the app started" } }
+  end,
+})
+```
+
+Each line is a [`HealthCheck`](plugin-api.md#healthcheck): `ok`, `warn` or `error`, a message and an optional fix, shown as `OK`, `WARNING` and `ERROR` like roster's own. The function runs like any call into your Plugin: with your permissions, a quarter of a second of Lua, and `roster serve`'s answers not counted against it, so check what you can see locally and keep it quick. One that raises, returns something that isn't a list of lines, or doesn't answer within three seconds is an `ERROR` line of its own section, and the rest of `:check` goes on. Without `check`, `checks = { … }` shows those lines as you last set them.
+
 ### Types in your editor
 
-[`examples/plugins/types/roster.lua`](../examples/plugins/types/roster.lua) declares the whole API for [lua-language-server](https://luals.github.io/), generated with the reference, so your editor completes `roster.` and checks what you hand the app. [Editor support](plugin-api.md#editor-support) says how to point it there; the example Plugins are annotated that way, and CI checks them with it.
+[`examples/plugins/types/roster.lua`](../examples/plugins/types/roster.lua) declares the whole API for [lua-language-server](https://luals.github.io/), generated with the reference, so your editor completes `roster.` and checks what you hand the app. `:plugins types PATH` writes the copy for this app into your Plugin's folder as `types/roster.lua`, so it matches the API the app has; [Editor support](plugin-api.md#editor-support) says how to point the editor there; the example Plugins are annotated that way, and CI checks them with it.
 
 ## Views, tables and Host-details sections
 
@@ -329,10 +348,10 @@ A table's rows can be filtered: `/` in any table opens a filter that keeps the r
 
 ## Limits
 
-Your Plugin runs in its own Lua state, on its own thread, with the sandbox's libraries (no `io`, no `os.execute`, `require` from its own folder only) and:
+Your Plugin runs in its own Lua state, on its own thread, with the sandbox's libraries and `coroutine` (no `io`, no `os.execute`, `require` from its own folder only) and:
 
 - **32 MB** of memory;
-- **1 second** to run `init.lua`, and **a quarter of a second** for each call (a command, an action, an event, an HTTP request's answer). Time spent waiting for roster serve doesn't count; an HTTP request doesn't wait at all. Running out can't be caught with `pcall`;
+- **1 second** to run `init.lua`, and **a quarter of a second** for each call (a command, an action, an event, a `:check` section, an HTTP request's answer). Time spent waiting for roster serve doesn't count; an HTTP request doesn't wait at all; a coroutine's time is the call's. Running out can't be caught with `pcall` or `coroutine.resume`;
 - at most 1,000 UI changes in one call, and 2,000 rows in a section, items in a finder, lines in a float or rows in one `set` or `update` of a table (10,000 in a table after updates). Text is cut to 500 characters (a help page to 200,000);
 - at most 100 timers waiting at once; a deferred function waits at least 50 ms, and a repeating one at least a second between runs, counted from when the last run ended. A timer's run has a call's budget, and an error in it counts like any other.
 
@@ -340,7 +359,7 @@ An error shows a notice naming your Plugin with the file and line: `pinned: init
 
 ## For roster's developers: how it's built
 
-The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. A table's functions are called with the row instead (`{ row, host, view | section }`), and its rows carry no functions, so `roster.views.update` can change some of them without touching the rest; views and Host-details sections are the `views` and `details` registries (`app/src/view/views.ts`), drawn by `ViewContent.tsx` and `ui/DataTable.tsx` over the pure table model in `ui/table.ts`. A question, progress and toolbar control are the ops `confirm`, `progress` and `toolbar` (ticket 78); the question and progress live in the manager's snapshot, drawn by `PluginsPanel.tsx`, and the controls go into the toolbar registry. `roster.cmd` is the op `cmd`; a command line a Plugin hands over runs as `:plugins run NAME LINE`, and both pass `plugins/cmd.ts`, the app's side of the core's rule (`COMMANDS` in api.rs, in `plugin-api.json`). The one exception to "each call answers": an HTTP request's answer (`network`, `plugin/network.rs`) runs the Plugin's function on its own thread later, and the Tauri side sends what it did to the frontend as the `plugin-reply` event, applied like a call's reply. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`). A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
+The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N CONTEXT` (what ran it, as URI-encoded JSON, to which the manager adds the Session on screen when the Plugin may know it). A table's functions are called with the row instead (`{ row, host, view | section }`), and its rows carry no functions, so `roster.views.update` can change some of them without touching the rest; views and Host-details sections are the `views` and `details` registries (`app/src/view/views.ts`), drawn by `ViewContent.tsx` and `ui/DataTable.tsx` over the pure table model in `ui/table.ts`. A question, progress and toolbar control are the ops `confirm`, `progress` and `toolbar` (ticket 78); the question and progress live in the manager's snapshot, drawn by `PluginsPanel.tsx`, and the controls go into the toolbar registry. `roster.cmd` is the op `cmd`; a command line a Plugin hands over runs as `:plugins run NAME LINE`, and both pass `plugins/cmd.ts`, the app's side of the core's rule (`COMMANDS` in api.rs, in `plugin-api.json`). The one exception to "each call answers": an HTTP request's answer (`network`, `plugin/network.rs`) runs the Plugin's function on its own thread later, and the Tauri side sends what it did to the frontend as the `plugin-reply` event, applied like a call's reply. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`). A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
 
 The API is declared once, in `crates/roster-core/src/plugin/api.rs` (decision Q89): each function, value, type and event with its parameters, returns, errors, permission and `Since`. `cargo run -p roster-core --example gen_plugin_api` writes [the reference](plugin-api.md), the stubs (`examples/plugins/types/roster.lua`) and the same as data (`crates/roster-core/tests/fixtures/plugin-api.json`, which the help's topics read). A change to the API isn't done until api.rs says it: `crates/roster-core/tests/plugin_api.rs` fails when the runtime has a function or value api.rs lacks (or the other way round) for any grants, or a generated file is stale; `app/src/plugins/api.test.ts` fails when `ops.ts` reads a field a type doesn't list; `tests/test_plugin_api.py` when a Host, group or service from roster serve has a field the Host type doesn't.
 
