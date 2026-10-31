@@ -616,8 +616,12 @@ fn session_close(sessions: tauri::State<'_, Arc<SessionManager>>, id: SessionId)
 }
 
 /// The State file (GLOSSARY: State) in the OS local app-data dir: per Box, never roamed.
+/// `ROSTER_APP_STATE_DIR` moves it (a test or perf copy, app/scripts/perf.sh).
 fn state_file(app: &tauri::AppHandle) -> Result<StateFile, String> {
     use tauri::Manager;
+    if let Some(dir) = roster_core::env::state_dir() {
+        return Ok(StateFile::in_dir(&dir));
+    }
     let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     Ok(StateFile::in_dir(&dir))
 }
@@ -626,6 +630,9 @@ fn state_file(app: &tauri::AppHandle) -> Result<StateFile, String> {
 /// migrate.rs). Never stops the app: State is only a convenience.
 fn migrate_state(app: &tauri::AppHandle) {
     use tauri::Manager;
+    if roster_core::env::state_dir().is_some() {
+        return;
+    }
     let Ok(dir) = app.path().app_local_data_dir() else {
         return;
     };

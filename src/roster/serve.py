@@ -682,6 +682,8 @@ def hold(state, hid, typed, kind, label, target=None):
         while len(state.held) >= HELD_LIMIT:
             forget_held(state, next(iter(state.held)))
         state.held[hid] = held
+    if state.askpass is not None:
+        state.askpass.nudge()                   # its tick forgets this one when HOLD_FOR is up
     return hid
 
 
@@ -692,12 +694,15 @@ def open_channel(state):
 
 
 def prune_held(state):
+    """Forget the held passwords whose time is up; the seconds until the next one's is (None: nothing held)."""
     with state.held_lock:
         now = time.monotonic()
         for hid, held in list(state.held.items()):
             if held.until <= now:
                 held.forget()
                 del state.held[hid]
+        nxt = min((h.until for h in state.held.values()), default=None)
+    return None if nxt is None else max(0.0, nxt - now)
 
 
 def logged_in_with(state, hid, kind):
@@ -1099,11 +1104,12 @@ def inventory_reload(state, params):
     return {"changed": state.digest != before, "host_count": len(cfg["hosts"]), "error": broken(state)}
 
 
-WATCH_EVERY = 0.2           # s: how often the watcher looks at roster.yml (an outside edit shows within a second)
+WATCH_EVERY = 0.5           # s: how often the watcher looks at roster.yml while it doesn't change
+WATCH_SETTLE = 0.2          # s: how soon it looks again once it did (an outside edit shows within a second)
 
 
 class Watcher(threading.Thread):
-    """Looks at roster.yml every WATCH_EVERY s: its size, time and inode, so an editor that saves by writing a new
+    """Looks at roster.yml every WATCH_EVERY s (WATCH_SETTLE s while a change settles): its size, time and inode, so an editor that saves by writing a new
     file and renaming it over is seen too. A change that has settled (the same for one more look) and differs from
     what serve last loaded (its own writes don't count) is either applied (inventory.watch's auto: reload, then
     `inventory.changed {applied: true, error}`) or only reported once (`{applied: false}`: the app's status bar
@@ -1123,12 +1129,15 @@ class Watcher(threading.Thread):
 
     def run(self):
         last = settling = self.look(self.state.path)
-        while not self.stop.wait(WATCH_EVERY):
+        wait = WATCH_EVERY
+        while not self.stop.wait(wait):
             now = self.look(self.state.path)
+            wait = WATCH_EVERY
             if now == last:
                 continue
-            if now != settling:                     # still being written: look again once it's settled
+            if now != settling:                     # still being written: look again soon, once it's settled
                 settling = now
+                wait = WATCH_SETTLE
                 continue
             last = now
             self.changed()

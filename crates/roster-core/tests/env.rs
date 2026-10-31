@@ -48,3 +48,14 @@ fn blank_values_do_not_count() {
     assert_eq!(var_or_legacy(OVERRIDE_VAR, LEGACY_OVERRIDE_VAR, e), None);
     assert_eq!(var_or_legacy(OVERRIDE_VAR, LEGACY_OVERRIDE_VAR, env(&[])), None);
 }
+
+#[test]
+fn the_state_dir_can_be_moved_for_a_test_copy() {
+    use roster_core::env::{STATE_DIR_VAR, state_dir_for};
+    use std::path::PathBuf;
+    assert_eq!(STATE_DIR_VAR, "ROSTER_APP_STATE_DIR");
+    let set = env(&[("ROSTER_APP_STATE_DIR", r"C:\perf\state")]);
+    assert_eq!(state_dir_for(set), Some(PathBuf::from(r"C:\perf\state")));
+    assert_eq!(state_dir_for(env(&[])), None);
+    assert_eq!(state_dir_for(env(&[("ROSTER_APP_STATE_DIR", "  ")])), None);
+}

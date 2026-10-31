@@ -17,6 +17,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/config.md](../docs/app/config.md) | The Config (`init.lua`): where it lives, every option, the sandbox |
 | [docs/app/themes.md](../docs/app/themes.md) | The bundled Themes and their tokens |
 | [docs/app/roadmap.md](../docs/app/roadmap.md) | The iterations and what "done" means for each |
+| [docs/app/performance.md](../docs/app/performance.md) | What the app costs (CPU, memory, wake-ups, frames), the budgets, and `app/scripts/perf.sh` to measure them |
 | [docs/app/dev/](../docs/app/dev/) | Researched, tested notes: Windows build loop from WSL, PTY and wsl.exe, xterm.js setup, test layout, vault sign-in |
 | [docs/app/errors.md](../docs/app/errors.md) | Every way a connection can fail, with its message and fix |
 | [docs/app/design/taste.md](../docs/app/design/taste.md) | roster's own design identity: what makes it look and feel like ours |
@@ -123,6 +124,9 @@ app/assets/           logo-icon.svg (app icon master: Gap orbit, transparent) + 
 docs/app/design/      taste.md, the interface review, Theme screenshots (themes/, made from the fake Backend)
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)
+app/scripts/perf.sh   measuring (docs/app/performance.md): `browser`, `windows [--build]`, `serve`;
+                      perf/serve.py is a stand-in `roster serve` (made-up Hosts, Sessions that print a busy log)
+app/src/terminal/hold.ts  a hidden terminal holds its Session's output until it's shown (questions go through)
 ```
 
 **Checks** (run all before a commit):

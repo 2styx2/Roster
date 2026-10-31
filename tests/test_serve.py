@@ -472,6 +472,21 @@ def test_a_token_expires(serve, write_config, capsys, fakes, monkeypatch):
     assert (r.returncode, r.stdout) == (1, "")
 
 
+def test_an_unused_typed_password_leaves_memory_when_its_token_expires(monkeypatch):
+    """Nothing connects, yet the password goes at its expiry (the channel sleeps until then, not in 0.2 s steps)."""
+    from roster.askpass import Channel, Typed
+    monkeypatch.setenv("ROSTER_ASKPASS_TTL", "0.3")
+    with Channel(lambda login: "unused") as ch:
+        time.sleep(0.5)                                          # the channel idles first: no token, nothing to wake for
+        ch.mint(Typed("typed secret"), "quick")
+        time.sleep(0.2)
+        assert len(ch.tokens) == 1
+        time.sleep(0.4)
+        assert ch.tokens == {}
+        start = time.monotonic()
+    assert time.monotonic() - start < 0.5                        # closing doesn't wait for a timeout either
+
+
 def test_vault_lock_clears_tokens(serve, write_config, capsys, fakes):
     s = unlocked_serve(serve, write_config, capsys)
     spec = s.call("session.prepare", {"host": "esx"})["result"]

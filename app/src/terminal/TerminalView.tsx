@@ -17,6 +17,7 @@ import { isLeaderKey } from "./keys";
 import { deviceAdvance, lineHeightFor, roundedCellSpacing } from "./fonts";
 import type { TerminalOptions, TerminalTheme, ZoomAction } from "./options";
 import { SearchBar, type SearchResults } from "./SearchBar";
+import { holdWhileHidden, type OutputGate } from "./hold";
 
 /** What every terminal shares: options, keys and the machine's services. One object, so the
  * Session list only passes it through. */
@@ -88,6 +89,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const search = useRef<SearchAddon | null>(null);
+  const gate = useRef<OutputGate | null>(null);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchResults | null>(null);
   // Latest props, read by handlers registered once.
@@ -191,7 +193,10 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       t.onResize(({ cols, rows }) => cb.current.onResize({ cols, rows })),
       s.onDidChangeResults(({ resultIndex, resultCount }) => setResults({ index: resultIndex, count: resultCount })),
     ];
-    const detach = attach((d) => t.write(d));
+    // Off screen, the Session's output waits (hold.ts): xterm would redraw the hidden rows anyway.
+    const g = holdWhileHidden((d) => t.write(d));
+    gate.current = g;
+    const detach = attach((d) => g.write(d));
     term.current = t;
     fit.current = f;
     search.current = s;
@@ -214,6 +219,7 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
       for (const sub of subs) sub.dispose();
       t.dispose();
       term.current = null;
+      gate.current = null;
       fit.current = null;
       search.current = null;
     };
@@ -332,7 +338,9 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
 
   useEffect(() => {
     const t = term.current;
+    if (!active) gate.current?.hide();
     if (!active || !t) return;
+    gate.current?.show();
     fit.current?.fit();
     cb.current.onResize({ cols: t.cols, rows: t.rows });
     t.focus();
