@@ -34,7 +34,7 @@ function setup(plugins: Record<string, FakePlugin> = {}, state: Record<string, u
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
   const ran: string[] = [];
   const sent: [number, string][] = [];
-  const ui: PluginUi = { run: (l) => void ran.push(l), send: (id, t) => void sent.push([id, t]) };
+  const ui: PluginUi = { run: (l) => void ran.push(l), send: (id, t) => void sent.push([id, t]), copy: () => undefined };
   const manager = new PluginManager(backend, registries, store, ui);
   return { manager, registries, state, ran, sent };
 }

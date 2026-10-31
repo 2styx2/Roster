@@ -597,6 +597,9 @@ function streamLog(rate: number, write: (text: string) => void): ReturnType<type
 }
 
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
+/** The logged-in fake Sessions a test can make print (`FakeBackend.print`). */
+type Printers = Set<{ host: string; say(text: string): void }>;
+
 function fakeSession(
   id: number,
   host: string,
@@ -604,14 +607,16 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
-  extra: { onLogin?: () => void; title?: string; stream?: number | undefined } = {},
+  extra: { onLogin?: () => void; title?: string; stream?: number | undefined; printers?: Printers } = {},
 ): SessionHandle {
   let line = "";
   let ended = false;
   let streaming: ReturnType<typeof setInterval> | undefined;
+  const printer = { host, say: (text: string) => events.output(encode(text)) };
   const end = (code: number | null, closed: boolean) => {
     if (ended) return;
     ended = true;
+    extra.printers?.delete(printer);
     clearInterval(streaming);
     setTimeout(() => events.exit({ code, closed }), 0);
   };
@@ -628,6 +633,7 @@ function fakeSession(
     events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
     if (resized && !ended) sayResized(resized);
     if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => events.output(encode(text)));
+    if (!ended) extra.printers?.add(printer);
   }, loginMs);
   return {
     id,
@@ -769,12 +775,16 @@ export interface FakeBackend extends Backend {
   held(): string[];
   quickSaves(): QuickSaveParams[];
   forgotten(): string[];
+  /** Every logged-in Session to `host` prints `text`, as its server would (ticket 56: scripted
+   * output for the Plugins that read the terminal). Gives how many printed it. */
+  print(host: string, text: string): number;
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;
 
 export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let failures = 0;
+  const printers: Printers = new Set();
   const { plugin: packagePlugin, ...packageHost } = fakePackageHost(scenario.packages ?? { named: [], lock: {} }, described);
   // ---- the Inventory as committed, and as edited on this Box (ticket 10)
   let committed = scenario.hosts.hosts;
@@ -1244,7 +1254,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         }
         const handle =
           typed.password === FAKE_HOST_PASSWORD
-            ? fakeSession(id, host, auth, size, events, scenario.loginMs, held ? { onLogin: () => loggedIn(held) } : {})
+            ? fakeSession(id, host, auth, size, events, scenario.loginMs, held ? { onLogin: () => loggedIn(held), printers } : { printers })
             : failingSession(id, auth, `${h.ssh.user}@${h.ip}: Permission denied (publickey,password).\r\n`, events);
         return { ...handle, ...(held ? { held } : {}) };
       }
@@ -1261,7 +1271,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream });
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream, printers });
     },
     async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
@@ -1721,5 +1731,10 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     held: () => [...heldIds],
     quickSaves: () => [...saves],
     forgotten: () => [...forgets],
+    print(host, text) {
+      const to = [...printers].filter((p) => p.host === host);
+      for (const p of to) p.say(text);
+      return to.length;
+    },
   };
 }

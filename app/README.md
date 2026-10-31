@@ -120,6 +120,9 @@ app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in
                       `:plugins`, `:packages`, a float, notices); backend/fakePackages.ts is the fake Backend's
 app/src/view/status.ts  the status segment and Host-badge registries Plugins add to
 examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
+examples/plugins/recent-alerts the worked example in docs/plugins.md, a third-party Plugin end to end (ticket 56): crates/roster-core/tests/recent_alerts.rs
+                      installs it from a git repo and records app/src/plugins/recent-alerts.transcript.json, which
+                      plugins/recentAlerts.test.ts replays against its stand-in, backend/fakeRecentAlerts.ts
 app/src/registry.ts   Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0006; registries.ts = the app's set
 app/src/commands/     table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)
 app/src/keymap.ts     keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)

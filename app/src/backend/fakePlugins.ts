@@ -23,6 +23,7 @@ export interface FakeRoster {
   tutor: { set(id: string, spec: Spec): void; remove(id: string): void };
   badges: { set(host: string, text: string | null): void };
   float: { open(spec: Spec): void; close(): void };
+  clipboard: { copy(text: string): void };
   notify(text: string, level?: "info" | "warn" | "error"): void;
   on(event: PluginEventName, f: Fn): void;
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined };
@@ -61,7 +62,20 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   terminal_output: ["terminal.read"],
 };
 
+/** What the core refuses in a manifest (permission.rs): `network` (not yet) and any serve method
+ * that isn't on the list, every secret one above all. */
+export function manifestProblem(m: FakePlugin["manifest"]): string | null {
+  for (const p of m.permissions) {
+    if (p === "network") return `roster-plugin.lua: permissions: "network" isn't available yet: this roster has no network functions for Plugins`;
+    if (p.startsWith("serve:") && /^(vault|session|quick|changes\.publish|host\.add|host\.save_login)/.test(p.slice(6)))
+      return `roster-plugin.lua: permissions: "${p}" can't be granted: a Plugin may call only inventory.info, hosts.list, host.get, host.check, changes.diff and the mesh.* and discover.* methods, never one that reaches a secret`;
+  }
+  return null;
+}
+
 export function described(m: FakePlugin["manifest"]): PluginManifest {
+  const problem = manifestProblem(m);
+  if (problem) throw new BackendCallError(`${m.name}: ${problem}`);
   return {
     ...m,
     permissions: m.permissions.map((name) => ({
@@ -116,6 +130,8 @@ export function fakePluginHost(
   const running = new Map<string, Running>();
   let next = 0;
   let ops: unknown[] = [];
+  /** Whether the run is a call the user started: only then may a Plugin copy. */
+  let userCall = false;
 
   const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
@@ -160,6 +176,12 @@ export function fakePluginHost(
       tutor: piece("tutor"),
       badges: { set: (host, text) => push({ op: "badge", host, text }) },
       float: { open: (spec) => push({ op: "float", spec }), close: () => push({ op: "float", spec: null }) },
+      clipboard: {
+        copy: (text) => {
+          if (!userCall) throw new Error("roster.clipboard.copy: only while the user runs one of your actions, commands or finder items");
+          push({ op: "copy", text });
+        },
+      },
       notify: (text, level = "info") => push({ op: "notify", text, level }),
       on: (event, f) => {
         const needs = EVENT_NEEDS[event];
@@ -214,7 +236,12 @@ export function fakePluginHost(
       }
       const f = r.handlers.get(handler);
       if (!f) return { plugin, result: null, ops: [], error: { plugin, file: null, line: null, message: "that action is gone: the Plugin replaced it" }, disabled: null };
-      return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
+      userCall = true;
+      try {
+        return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
+      } finally {
+        userCall = false;
+      }
     },
     async pluginEvent(name, payload) {
       const replies: PluginReply[] = [];

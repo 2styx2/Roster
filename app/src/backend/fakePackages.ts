@@ -73,6 +73,15 @@ export function fakePackageHost(
     };
   };
 
+  // As the core: a new version whose manifest can't be used comes with why, and no manifest.
+  const described = (m: FakePlugin["manifest"]): { manifest: PluginManifest | null; manifestError: string | null } => {
+    try {
+      return { manifest: describe(m), manifestError: null };
+    } catch (e) {
+      return { manifest: null, manifestError: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
   return {
     plugin(path) {
       if (!path.startsWith("package:")) return undefined;
@@ -119,8 +128,7 @@ export function fakePackageHost(
               stat: ` init.lua | ${after.length} +\n 1 file changed`,
               diff: after.map((v) => v.diff).join("\n"),
               truncated: false,
-              manifest: describe(to.plugin.manifest),
-              manifestError: null,
+              ...described(to.plugin.manifest),
             },
           },
         ];

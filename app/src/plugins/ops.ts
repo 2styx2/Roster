@@ -78,12 +78,13 @@ export type PluginOp =
   | { op: "notify"; text: string; level: "info" | "warn" | "error" }
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
+  | { op: "copy"; text: string }
   | { op: "remove"; kind: RemovableKind; id: string };
 
 export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
-const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info"];
+const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
 const LEVELS = ["info", "warn", "error"] as const;
 const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
@@ -91,6 +92,7 @@ const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 export const MAX_ROWS = 2000;
 const MAX_TEXT = 500;
 const MAX_HELP = 200_000;
+const MAX_COPY = 64 * 1024;
 
 class Invalid extends Error {}
 
@@ -305,6 +307,8 @@ function parse(raw: unknown): PluginOp {
       if (session === undefined) throw new Invalid("roster.terminal.send: which Session?");
       return { op: "send", session, text: str(raw, "text", "roster.terminal.send", 64 * 1024) };
     }
+    case "copy":
+      return { op: "copy", text: str(raw, "text", "roster.clipboard.copy", MAX_COPY) };
     case "remove": {
       const kind = REMOVABLE.find((k) => k === raw.kind);
       if (!kind) throw new Invalid("remove: of what?");
