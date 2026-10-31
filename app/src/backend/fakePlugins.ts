@@ -65,7 +65,11 @@ function described(m: FakePlugin["manifest"]): PluginManifest {
     permissions: m.permissions.map((name) => ({
       name,
       summary: SUMMARIES[name] ?? `Call roster's ${name.replace(/^serve:/, "")}`,
-      risk: RISKS[name] ?? null,
+      risk:
+        RISKS[name] ??
+        (name.startsWith("serve:") && !["serve:inventory.info", "serve:hosts.list", "serve:host.get", "serve:changes.diff", "serve:mesh.status", "serve:mesh.plan"].includes(name)
+          ? `Can run roster's ${name.slice(6)}, which can change things on your Hosts or in the Inventory.`
+          : null),
     })),
   };
 }

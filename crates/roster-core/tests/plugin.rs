@@ -618,3 +618,16 @@ fn the_host_can_be_shared_across_the_shells_threads() {
     shared::<PluginHost>();
     shared::<roster_core::plugin::Reply>();
 }
+
+#[test]
+fn a_serve_method_that_acts_on_hosts_is_flagged_and_one_that_reads_isnt() {
+    assert!(
+        Permission::parse("serve:mesh.apply")
+            .unwrap()
+            .risk()
+            .unwrap()
+            .contains("mesh.apply")
+    );
+    assert!(Permission::parse("serve:mesh.cut").unwrap().risk().is_some());
+    assert!(Permission::parse("serve:mesh.status").unwrap().risk().is_none());
+}

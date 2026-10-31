@@ -25,6 +25,15 @@ pub enum Permission {
 
 /// The serve methods a Plugin may be granted by name: none of them touches a secret.
 pub const SERVE_METHODS: &[&str] = &["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"];
+/// The grantable methods that only read: every other one is flagged in the install prompt.
+const READS: &[&str] = &[
+    "inventory.info",
+    "hosts.list",
+    "host.get",
+    "changes.diff",
+    "mesh.status",
+    "mesh.plan",
+];
 /// Families a Plugin may be granted methods of (the mesh and discover Plugins, decision Q80).
 pub const SERVE_PREFIXES: &[&str] = &["mesh.", "discover."];
 
@@ -72,20 +81,21 @@ impl Permission {
     }
 
     /// Whether the install prompt flags it, and why (shown under it).
-    pub fn risk(&self) -> Option<&'static str> {
-        match self {
+    pub fn risk(&self) -> Option<String> {
+        Some(match self {
             Permission::InventoryWrite => {
-                Some("Can change Hosts. The changes stay Pending until you review and Publish them.")
+                "Can change Hosts. The changes stay Pending until you review and Publish them.".into()
             }
-            Permission::SessionsOpen => Some("Can open Sessions on your Hosts."),
-            Permission::TerminalRead => Some(
-                "Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too.",
-            ),
+            Permission::SessionsOpen => "Can open Sessions on your Hosts.".into(),
+            Permission::TerminalRead => "Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too.".into(),
             Permission::TerminalWrite => {
-                Some("Can type into your open Sessions, as if you typed it: it can run commands on your servers.")
+                "Can type into your open Sessions, as if you typed it: it can run commands on your servers.".into()
             }
-            _ => None,
-        }
+            Permission::Serve(m) if !READS.contains(&m.as_str()) => {
+                format!("Can run roster's {m}, which can change things on your Hosts or in the Inventory.")
+            }
+            _ => return None,
+        })
     }
 
     /// One line on what it allows.

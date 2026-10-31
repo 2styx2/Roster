@@ -164,7 +164,7 @@ pub struct Manifest {
 struct Described {
     name: String,
     summary: String,
-    risk: Option<&'static str>,
+    risk: Option<String>,
 }
 
 fn described<S: serde::Serializer>(ps: &[Permission], s: S) -> Result<S::Ok, S::Error> {
