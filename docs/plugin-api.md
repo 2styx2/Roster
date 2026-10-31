@@ -610,13 +610,13 @@ Key bindings.
 
 ### `roster.keymap.set(context, keys, action)`
 
-Binds keys to a command line. Never in the terminal. A function isn't an action: add a command and bind its name.
+Binds keys to a command line. Never in the terminal. A function isn't an action: add a command and bind its name. The key runs its line as `:plugins run NAME LINE` (which `:keys` shows), checked each time as a button's line is: never `:plugins`, `:packages`, `:source` or another Plugin's command, and a command that needs a permission only while it's granted.
 
 **Parameters**
 
 - `context` ([`KeyContext`](#keycontext)): `"leader"` (a key after the Leader), `"list"` or `"list_vim"` (the Sidebar, and its vim keys).
 - `keys` (`string`): The keys, space-separated: `"w w"`.
-- `action` (`string|false`): A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.
+- `action` (`string|false`): A command line: one of the Plugin's commands or one of the app's that [`roster.cmd`](#rostercmdline) may run (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.
 
 **Returns**
 
@@ -632,6 +632,7 @@ Nothing.
 - a `context` other than the three (`keys go after the Leader or in the Sidebar …`).
 - keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them): the notice names what has them and up to three free ones like them (`␣ f is taken (by builtin: find). Free after the Leader: a, g, h`).
 - keys that would hide a binding, or be hidden by one (`"a z"` when `a` is bound).
+- when pressed, a line `roster.cmd` couldn't run (`:plugins grant …`, another Plugin's command): a notice says why.
 
 **Permission:** none · **Since:** api 2
 

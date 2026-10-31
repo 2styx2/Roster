@@ -716,11 +716,11 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "action",
                 "string|false",
-                "A command line: one of the Plugin's commands or the app's (`\"finder alerts\"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.",
+                "A command line: one of the Plugin's commands or one of the app's that [`roster.cmd`](#rostercmdline) may run (`\"finder alerts\"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.",
             ),
         ],
         summary: "Binds keys to a command line",
-        doc: "Never in the terminal. A function isn't an action: add a command and bind its name.",
+        doc: "Never in the terminal. A function isn't an action: add a command and bind its name. The key runs its line as `:plugins run NAME LINE` (which `:keys` shows), checked each time as a button's line is: never `:plugins`, `:packages`, `:source` or another Plugin's command, and a command that needs a permission only while it's granted.",
         returns: ("", ""),
         errors: &[(
             "roster.keymap.set: the action is a command line such as \"alerts\" (add a command for a function)",
@@ -730,6 +730,7 @@ pub const FUNCTIONS: &[Function] = &[
             "a `context` other than the three (`keys go after the Leader or in the Sidebar …`)",
             "keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them): the notice names what has them and up to three free ones like them (`␣ f is taken (by builtin: find). Free after the Leader: a, g, h`)",
             "keys that would hide a binding, or be hidden by one (`\"a z\"` when `a` is bound)",
+            "when pressed, a line `roster.cmd` couldn't run (`:plugins grant …`, another Plugin's command): a notice says why",
         ],
         needs: Needs::Nothing,
         since: 2,

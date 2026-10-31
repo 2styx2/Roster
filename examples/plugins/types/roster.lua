@@ -693,7 +693,7 @@ roster.keymap = {}
 --- Permission: none. Since: api 2.
 ---@param context roster.KeyContext `"leader"` (a key after the Leader), `"list"` or `"list_vim"` (the Sidebar, and its vim keys).
 ---@param keys string The keys, space-separated: `"w w"`.
----@param action string|false A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as `roster.keymap.del` does.
+---@param action string|false A command line: one of the Plugin's commands or one of the app's that `roster.cmd` may run (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as `roster.keymap.del` does.
 function roster.keymap.set(context, keys, action) end
 
 --- Takes one of the Plugin's key bindings off.
