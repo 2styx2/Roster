@@ -20,6 +20,8 @@ export interface FakePackage {
   /** As init.lua writes it. */
   source: string;
   tag?: string;
+  /** The folder in the repo (`plugins/topology`), as init.lua's `dir`. */
+  dir?: string;
   config?: Record<string, unknown>;
   versions: FakePackageVersion[];
 }
@@ -63,6 +65,7 @@ export function fakePackageHost(
       name: p.name,
       source: p.source,
       url: p.source.includes("://") || p.source.startsWith("/") ? p.source : `https://github.com/${p.source}.git`,
+      dir: p.dir ?? null,
       wants: p.tag ? `tag ${p.tag}` : "default branch",
       commit,
       locked,

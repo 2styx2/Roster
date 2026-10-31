@@ -1132,6 +1132,10 @@ pub struct PackageSpec {
     pub branch: Option<String>,
     #[serde(default)]
     pub commit: Option<String>,
+    /// The folder in the repo that holds the Plugin (`plugins/topology`), when it isn't the repo's
+    /// top (decision Q94). Relative, inside the repo, `/` between folders.
+    #[serde(default)]
+    pub dir: Option<String>,
     /// Settings handed to the Package as `roster.plugin.config` (a table; never a function).
     #[serde(default)]
     pub config: serde_json::Map<String, serde_json::Value>,
