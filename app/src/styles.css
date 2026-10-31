@@ -1185,6 +1185,44 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .plugin-float-lines {
   margin: 0 0 8px; font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* A float's buttons and links (ticket 78): quiet buttons, and links that show their host in the
+   data font, so where one goes is seen before the click. */
+.plugin-float-foot { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 8px; }
+.plugin-float-action { display: inline-flex; align-items: center; gap: 6px; }
+.plugin-float-action .keycap { color: var(--muted); }
+.plugin-float-link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; overflow-wrap: anywhere; }
+@media (hover: hover) and (pointer: fine) {
+  .plugin-float-link:hover { text-decoration-color: currentColor; }
+}
+.plugin-float-link .mono { font-size: var(--text-xs); }
+/* A Plugin's question (roster.confirm): the Remove Host question's panel, with the word to type. */
+.plugin-confirm-typed { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; }
+.plugin-confirm-typed input { width: 100%; }
+.plugin-confirm .view-facts { margin: 0 0 10px; }
+/* Progress in the status bar (roster.progress): a hairline track like an edge, never a spinner.
+   The fill follows how far it's done (a short linear catch-up between updates, so a scan's
+   steps don't jump); with nothing known, a short edge travels along the track. Neither is the
+   accent (that means a live Session). Reduced motion: the fill steps, and the edge stays put as
+   a dashed track. */
+.statusbar-progress { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.statusbar-progress-title { max-width: 28ch; }
+.statusbar-progress-share { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.progress-track { position: relative; flex: none; width: 48px; height: 1px; background: var(--line-strong); overflow: hidden; }
+.progress-fill { position: absolute; inset: 0; background: var(--text); transform-origin: left center; transform: scaleX(0); transition: transform 120ms linear; }
+.progress-track.going .progress-fill { width: 12px; right: auto; transform: translateX(-12px); animation: progress-going 1.4s linear infinite; }
+@keyframes progress-going { to { transform: translateX(48px); } }
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill { transition: none; }
+  .progress-track.going { background: transparent; border-top: 1px dashed var(--muted); height: 0; }
+  .progress-track.going .progress-fill { display: none; }
+}
+.statusbar .statusbar-progress-stop {
+  width: 16px; height: 16px; padding: 0; display: inline-grid; place-items: center; border-color: transparent; background: transparent; color: var(--muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .statusbar .statusbar-progress-stop:hover { color: var(--text); }
+}
+.statusbar .statusbar-progress-stop svg { width: 10px; height: 10px; }
 .plugin-notices {
   position: fixed; right: 14px; bottom: 14px; z-index: 40; display: flex; flex-direction: column; gap: 8px;
   width: min(520px, calc(100vw - 28px));
@@ -1274,3 +1312,12 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 
 .package-log { list-style: none; margin: 0 0 8px; padding: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .package-diff { max-height: 40vh; }
+
+/* A table's `/` filter (ticket 78): one line above it, the query in the data font. */
+.dt-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
+.dt-filter-slash { color: var(--muted); }
+.dt-filter-input { flex: 1; min-width: 0; height: calc(var(--ui-size) * 1.6); padding: 0 6px; }
+.dt-filter-query {
+  flex: 1; min-width: 0; text-align: left; border-color: transparent; background: transparent; padding: 0 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

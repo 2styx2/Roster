@@ -94,11 +94,11 @@ import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
-import { packagesCommand, pluginsCommand } from "./plugins/command";
+import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
 import { ViewPanel } from "./view/ViewContent";
 import { registerViews, sectionsFor, ViewHost } from "./view/views";
-import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
+import { PackagesPanel, PluginConfirmPanel, PluginFloatPanel, PluginNotices, PluginProgressItems, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { rendererLabel, type RendererInUse } from "./terminal/renderer";
@@ -460,6 +460,9 @@ function Workspace({
   // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
   // and their UI goes into the registries with their name as its source.
   const runRef = useRef<(line: string) => void>(() => {});
+  // `roster.sessions.show` (ticket 78): the Session to go to, and the line to find in it.
+  const showSessionRef = useRef<(id: number, line: string | null) => boolean>(() => false);
+  const [reveal, setReveal] = useState<{ session: number; text: string; nonce: number } | null>(null);
   const [viewHost] = useState(() => new ViewHost());
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
@@ -467,6 +470,10 @@ function Workspace({
         send: (id, text) => tabs.write(id, text),
         copy: (text) => platform.clipboard.writeText(text),
         closeView: (id) => viewHost.close(id),
+        showSession: (id, line) => showSessionRef.current(id, line),
+        openUrl: (url) => {
+          platform.openUrl?.(url).catch(() => undefined);
+        },
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
@@ -514,6 +521,7 @@ function Workspace({
   const [packagesOpen, setPackagesOpen] = useState(false);
   const openPackages = useRef(() => {});
   useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
+  useEffect(() => registries.commands.register(cancelCommand(plugins)), [registries, plugins]);
   useEffect(() => {
     tabs.setOutputTap({ output: (id, host, data, size) => plugins.output(id, host, data, size) });
     return () => tabs.setOutputTap(null);
@@ -1098,6 +1106,15 @@ function Workspace({
     else mainRef.current?.focus();
   };
 
+  // A Plugin's question (ticket 78) takes the keys; answering puts them back where they were.
+  // Before the panel's own effect focuses its button (layout effects run first).
+  const confirmId = pluginSnap.confirm?.id ?? null;
+  useLayoutEffect(() => {
+    if (confirmId !== null && !document.activeElement?.closest(".plugin-confirm")) rememberFocus();
+    // Only when a new question comes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmId]);
+
   const closeOverlay = () => {
     setOverlay(null);
     setMode(terminalMode);
@@ -1317,6 +1334,10 @@ function Workspace({
     },
     // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
+      if (pluginSnap.confirm) {
+        plugins.answerConfirm(false);
+        return restoreFocus();
+      }
       if (pluginSnap.float) return plugins.closeFloat();
       if (openView) return viewHost.close();
       if (helpAt.at) return helpView.close();
@@ -1601,6 +1622,13 @@ function Workspace({
     }
   }
   runRef.current = run;
+  showSessionRef.current = (id, line) => {
+    if (!sessions.tabs.some((t) => t.id === id)) return false;
+    tabs.select(id);
+    ctx.toTerminal();
+    if (line) setReveal((r) => ({ session: id, text: line, nonce: (r?.nonce ?? 0) + 1 }));
+    return true;
+  };
   openPlugins.current = () => {
     rememberFocus();
     setPluginsOpen(true);
@@ -1877,6 +1905,7 @@ function Workspace({
   const statusBar = (
     <footer key="statusbar" className="statusbar">
       {segments.filter((id) => !right.has(id)).map(segment)}
+      <PluginProgressItems progress={pluginSnap.progress} onCancel={(id) => setMessage(plugins.cancelProgress(id))} />
       <span className="statusbar-right">{segments.filter((id) => right.has(id)).map(segment)}</span>
     </footer>
   );
@@ -1963,6 +1992,7 @@ function Workspace({
               addressOf={(name) => hostByName.get(name)?.ip ?? null}
               canSave={canSave}
               saveKeys={hintFor(keymap, "save")}
+              reveal={reveal}
             />
           )}
         </main>
@@ -2220,10 +2250,22 @@ function Workspace({
         )}
         {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
         {packagesOpen && <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />}
+        {pluginSnap.confirm && (
+          <PluginConfirmPanel
+            key={pluginSnap.confirm.id}
+            confirm={pluginSnap.confirm}
+            onAnswer={(yes) => {
+              plugins.answerConfirm(yes);
+              restoreFocus();
+            }}
+          />
+        )}
         {pluginSnap.float && (
           <PluginFloatPanel
             key={pluginSnap.float.plugin}
             float={pluginSnap.float}
+            onAction={(i) => plugins.floatAction(i)}
+            onLink={(i) => plugins.openLink(i)}
             onClose={() => {
               plugins.closeFloat();
               restoreFocus();

@@ -4,6 +4,7 @@
 // as `{ handler: N }`. Errors name the Plugin and `init.lua`, a load error or a third error
 // disables it, as in the core. The built-in `hosts` Plugin is here as the core's Lua is.
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
+import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { BackendCallError, type Host, type PluginEventName, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
@@ -34,8 +35,13 @@ export interface FakeRoster {
   every(ms: number, f: () => void): number;
   cancel(timer: number): void;
   has(permission: string): boolean;
+  /** Ticket 78: a question the app draws, a command line, progress and toolbar controls. */
+  confirm(spec: Spec): void;
+  cmd(line: string): void;
+  progress: { set(id: string, spec: Spec): void; remove(id: string): void };
+  toolbar: { set(id: string, spec: Spec): void; remove(id: string): void };
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined };
-  sessions?: { open(host: string): void };
+  sessions: { show(session: number, line?: string): void; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
 }
 
@@ -140,6 +146,8 @@ interface Running {
   handlers: Map<number, Fn>;
   /** The timers waiting, by handler: whether each repeats. */
   timers: Map<number, boolean>;
+  /** The commands it added: `roster.cmd` may run them (ticket 78). */
+  commands: Set<string>;
   listeners: Map<string, Fn[]>;
   errors: number;
   disabled: string | null;
@@ -184,6 +192,10 @@ export function fakePluginHost(
     return v;
   };
 
+  const userOnly = (what: string) => {
+    if (!userCall) throw new Error(`${what}: only while the user runs one of your actions, commands or finder items`);
+  };
+
   const module = (r: Running, config: Record<string, unknown> = {}): FakeRoster => {
     const push = (op: Record<string, unknown>) => ops.push(data(r, op));
     const piece = (kind: string) => ({
@@ -194,8 +206,14 @@ export function fakePluginHost(
       api_version: 2,
       plugin: { name: r.manifest.name, version: r.manifest.version, permissions: [...r.grants], config },
       commands: {
-        add: (name, spec) => push({ op: "command", name, desc: spec.desc ?? "", run: spec.run }),
-        remove: (name) => push({ op: "remove", kind: "command", id: name }),
+        add: (name, spec) => {
+          r.commands.add(name);
+          push({ op: "command", name, desc: spec.desc ?? "", run: spec.run });
+        },
+        remove: (name) => {
+          r.commands.delete(name);
+          push({ op: "remove", kind: "command", id: name });
+        },
       },
       keymap: { set: (context, keys, action) => push({ op: "key", context, keys, action }) },
       themes: { define: (id, theme) => push({ op: "theme", id, theme }) },
@@ -233,6 +251,30 @@ export function fakePluginHost(
         if (needs.length && !needs.some((p) => r.grants.has(p))) throw new Error(`roster.on: the ${event} event needs the ${needs.join(" or ")} permission`);
         r.listeners.set(event, [...(r.listeners.get(event) ?? []), f]);
       },
+      confirm: (spec) => {
+        userOnly("roster.confirm");
+        if (typeof spec.run !== "function") throw new Error("roster.confirm: `run` must be a function: what happens when the user confirms");
+        push({ op: "confirm", spec });
+      },
+      cmd: (line) => {
+        userOnly("roster.cmd");
+        const word = line.trim().split(/\s+/)[0] ?? "";
+        if (!word) throw new Error('roster.cmd: which command? (a line such as "finder alerts")');
+        if (!r.commands.has(word)) {
+          const rule = PLUGIN_COMMANDS.find((c) => c.name === word);
+          if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
+          if (rule.permission && !r.grants.has(rule.permission)) throw new Error(`roster.cmd: :${word} needs the ${rule.permission} permission`);
+        }
+        push({ op: "cmd", line: line.trim() });
+      },
+      progress: piece("progress"),
+      toolbar: piece("toolbar"),
+      sessions: {
+        show: (session, line) => {
+          userOnly("roster.sessions.show");
+          push({ op: "session_show", session, line: line ?? null });
+        },
+      },
       defer: (ms, f) => timer(r, "roster.defer", ms, f, false),
       every: (ms, f) => timer(r, "roster.every", ms, f, true),
       cancel: (id) => {
@@ -247,7 +289,7 @@ export function fakePluginHost(
       },
     };
     if (r.grants.has("inventory.read")) m.inventory = { hosts: () => hosts(), host: (name) => hosts().find((h) => h.name === name) };
-    if (r.grants.has("sessions.open")) m.sessions = { open: (host) => push({ op: "open", host }) };
+    if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
     return m;
   };
@@ -290,6 +332,7 @@ export function fakePluginHost(
         grants: new Set(p.manifest.permissions.filter((x) => grants.includes(x))),
         handlers: new Map(),
         timers: new Map(),
+        commands: new Set(),
         listeners: new Map(),
         errors: 0,
         disabled: null,
