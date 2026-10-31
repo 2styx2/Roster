@@ -97,6 +97,7 @@ import { sectionBuilder } from "./sidebar/sections";
 import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
 import { ViewPanel } from "./view/ViewContent";
+import { GraphMemory } from "./graph/memory";
 import { registerViews, sectionsFor, ViewHost } from "./view/views";
 import { PackagesPanel, PluginConfirmPanel, PluginFloatPanel, PluginNotices, PluginProgressItems, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
@@ -466,6 +467,8 @@ function Workspace({
   const showSessionRef = useRef<(id: number, line: string | null) => boolean>(() => false);
   const [reveal, setReveal] = useState<{ session: number; text: string; nonce: number } | null>(null);
   const [viewHost] = useState(() => new ViewHost());
+  // Graphs' places and folds (ticket 77), kept in the State.
+  const [graphMemory] = useState(() => new GraphMemory(store));
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
@@ -2022,7 +2025,7 @@ function Workspace({
             sections={sectionsFor(detailsList, detailsHost.name)}
           />
         )}
-        {openView && <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} />}
+        {openView && <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} graphs={graphMemory} />}
         {importing && (
           <ImportPanel
             preview={importing.preview}

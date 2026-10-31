@@ -199,6 +199,15 @@ What a Plugin's buttons, questions and command lines can run into ([plugins.md](
 | 89 | none (a Plugin's notice) | `roster.sessions.show` names a Session that has ended (or never was) | The Plugin / the Session | "recent-alerts: there's no Session 3 now: it has ended" | Open the Host again; the line isn't there any more |
 | 90 | none (a Plugin's notice) | Two Plugins use one progress id | The Plugins | "discover: there's a progress named scan already, from mesh" | The second is ignored until the first is removed; tell an author |
 
+## Plugin graphs
+
+What a Plugin's graph in a view can run into ([plugins.md](../plugins.md#graphs)). Each is a notice naming the Plugin; the view stays as it was.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 91 | none (a Plugin's notice) | `roster.views.set` with a graph that can't be drawn: a field of the wrong kind, a node or cluster id used twice, an edge id used twice, an action key the graph uses itself, more than 5,000 nodes, 10,000 edges or 500 clusters, or a table and a graph in one view | The Plugin | "topology: roster.views.set map graph action 1: the graph uses h itself (h j k l …)" | The whole view is dropped. The Plugin's to fix; tell its author |
+| 92 | none (a Plugin's notice) | `roster.views.update` with nodes or edges for a view that has no graph, or that would leave it over the limits | The Plugin | "topology: roster.views.update map: more than 5,000 nodes" | Nothing changed; the graph stays as it was. The Plugin's to fix |
+
 ## This Box's health
 
 `:check` with no Host checks this Box rather than a Host, like Neovim's `:checkhealth`, and shows the result as a help page, [`health`](health). It opens at once, says it's checking, then fills in. Each section is a heading and each check a line: `OK`, `WARNING` or `ERROR`, what it found, the fix, and a link to the topic that explains it (a row of this catalog, `E6`, or a command). The page's links, `/`, `g O` and `:helpgrep` work as on any help page, and running `:check` again replaces it.

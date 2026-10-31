@@ -59,7 +59,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.float.open(float)`](#rosterfloatopenfloat) | Opens a floating window over the terminal, or replaces the Plugin's | none |
 | [`roster.float.close()`](#rosterfloatclose) | Closes the Plugin's floating window | none |
 | [`roster.views.set(id, view)`](#rosterviewssetid-view) | Adds a view, or replaces it | none |
-| [`roster.views.update(id, changes)`](#rosterviewsupdateid-changes) | Changes some of a view's rows in place, or its text or facts | none |
+| [`roster.views.update(id, changes)`](#rosterviewsupdateid-changes) | Changes some of a view's rows or nodes in place, or its text or facts | none |
 | [`roster.views.open(id)`](#rosterviewsopenid) | Opens a view | none |
 | [`roster.views.close(id)`](#rosterviewscloseid) | Closes a view, if it's open | none |
 | [`roster.views.remove(id)`](#rosterviewsremoveid) | Removes a view | none |
@@ -131,6 +131,19 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`TableEvent`](#tableevent) | What a table's function gets |
 | [`HttpRequest`](#httprequest) | What `roster.http.request` sends |
 | [`HttpResponse`](#httpresponse) | What a site answered |
+| [`Graph`](#graph) | A graph: nodes, edges and clusters as plain data, and what a node can do |
+| [`GraphNode`](#graphnode) | A node of a graph: plain data |
+| [`NodeShape`](#nodeshape) | How a node is drawn |
+| [`NodeState`](#nodestate) | What a node is doing |
+| [`NodeMark`](#nodemark) | A node's mark |
+| [`GraphEdge`](#graphedge) | An edge of a graph: plain data |
+| [`EdgeDir`](#edgedir) | Which way an edge goes |
+| [`EdgeStyle`](#edgestyle) | An edge's line |
+| [`EdgeTone`](#edgetone) | How an edge is marked |
+| [`GraphCluster`](#graphcluster) | A cluster of a graph's nodes |
+| [`NodeAction`](#nodeaction) | Something a graph's selected node can do |
+| [`NodeRun`](#noderun) | What a graph's node or action runs |
+| [`NodeEvent`](#nodeevent) | What a graph's function gets |
 | [`Host`](#host) | A Host, as roster serve's `hosts.list` and `host.get` give it |
 | [`LoginRef`](#loginref) | A Login reference: where a password is, never the password |
 | [`SshLogin`](#sshlogin) | A Host's ssh login |
@@ -1241,7 +1254,7 @@ roster.float.close()
 
 ## `roster.views`
 
-Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again.
+Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again. A view can hold a graph instead of a table: nodes, edges and clusters, also plain data, with a list of every node and edge one key away (`t`).
 
 ### `roster.views.set(id, view)`
 
@@ -1250,7 +1263,7 @@ Adds a view, or replaces it. Setting it again replaces the whole view and drops 
 **Parameters**
 
 - `id` (`string`): The view's id: a name like `discover`. `:view ID` opens it.
-- `view` ([`View`](#view)): Where it goes, its title, text, facts and table.
+- `view` ([`View`](#view)): Where it goes, its title, text, facts, and a table or a graph.
 
 **Returns**
 
@@ -1266,6 +1279,7 @@ Nothing.
 - a view with that id from elsewhere.
 - a field of the wrong kind (`roster.views.set discover table row 2: id must be text`): the whole view is dropped.
 - an action key the table uses itself (`j`, `k`, `g`, `G`, `s`, `S`, `/`, `?`, `q`) or one used twice.
+- a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view.
 
 **Permission:** none · **Since:** api 3
 
@@ -1293,7 +1307,7 @@ roster.views.set("discover", {
 
 ### `roster.views.update(id, changes)`
 
-Changes some of a view's rows in place, or its text or facts. A row whose `id` is in the table already is replaced where it stands; a new one goes at the end (the table's sort still applies). The rest stay as they are, and so does the selection, so a scan can add what it finds as it finds it. Plain data only: the table's functions stay those `roster.views.set` gave.
+Changes some of a view's rows or nodes in place, or its text or facts. A row whose `id` is in the table already is replaced where it stands; a new one goes at the end (the table's sort still applies). The rest stay as they are, and so does the selection, so a scan can add what it finds as it finds it. Plain data only: the table's functions stay those `roster.views.set` gave. A graph's nodes, edges and clusters work the same way, by `id`: a node that turns live, or an edge that appears, changes where it stands, and every placed node keeps its place.
 
 **Parameters**
 
@@ -1315,6 +1329,8 @@ Nothing.
 - a view the Plugin hasn't set.
 - rows for a view without a table.
 - more than 10,000 rows in the table after the update.
+- nodes, edges or clusters for a view without a graph.
+- more than 5,000 nodes, 10,000 edges or 500 clusters in the graph after the update.
 
 **Permission:** none · **Since:** api 3
 
@@ -2316,7 +2332,7 @@ One of: `"find" \| "add" \| "details" \| "help" \| "map"`
 
 A side panel or a full view (`roster.views.set`).
 
-Drawn top to bottom: the text, the facts, then the table. Text is cut to 500 characters, except `text` (4,000).
+Drawn top to bottom: the text, the facts, then the table or the graph (one or the other, not both). Text is cut to 500 characters, except `text` (4,000).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -2325,6 +2341,7 @@ Drawn top to bottom: the text, the facts, then the table. Text is cut to 500 cha
 | `text` | `string` | no | A few lines above the rest, in the app's voice; a blank line starts a paragraph. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs, as a Host's details show them. |
 | `table` | [`Table`](#table) | no | A table of rows. |
+| `graph` | [`Graph`](#graph) | no | A graph of nodes and edges, in place of a table. |
 
 ### `ViewPlace`
 
@@ -2344,7 +2361,11 @@ Plain data, but for `actions`. A field left out stays as it is.
 | `text` | `string` | no | New text; `""` takes it away. |
 | `facts` | [`Fact`](#fact)`[]` | no | New facts, all of them. |
 | `rows` | [`TableRow`](#tablerow)`[]` | no | Rows to add or replace, by `id` (at most 2,000 at once). |
-| `remove` | `string[]` | no | The ids of rows to take away. |
+| `remove` | `string[]` | no | The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose). |
+| `nodes` | [`GraphNode`](#graphnode)`[]` | no | A graph's nodes to add or replace, by `id`. |
+| `edges` | [`GraphEdge`](#graphedge)`[]` | no | A graph's edges to add or replace, by `id`. |
+| `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | A graph's clusters to add or replace, by `id`. |
+| `remove_edges` | `string[]` | no | The ids of a graph's edges to take away. |
 | `columns` | [`Column`](#column)`[]` | no | New columns, all of them; the rows keep their cells. |
 | `sort` | `string` | no | Sort by this column now (the user's sort gives way). |
 | `desc` | `boolean` | no | With `sort`: highest first. |
@@ -2481,6 +2502,142 @@ What a site answered.
 | `url` | `string` | yes | Where it ended, after redirects. |
 | `headers` | `table<string, string>` | yes | By lower-case name; a header sent twice has its values joined with `, `. |
 | `body` | `string` | yes | The body, at most 1 MB, as bytes: not decompressed, not decoded. |
+
+### `Graph`
+
+A graph: nodes, edges and clusters as plain data, and what a node can do.
+
+The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, however many hops away, with the counts. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `nodes` | [`GraphNode`](#graphnode)`[]` | no | Its nodes, in order: a cluster's first node is at its centre (at most 5,000). |
+| `edges` | [`GraphEdge`](#graphedge)`[]` | no | Its edges (at most 10,000). |
+| `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | Its clusters, in order (at most 500). |
+| `open` | [`NodeRun`](#noderun) | no | What `Enter` (or a double click) on a node runs. Without it, a node with a `host` opens that Host. |
+| `actions` | [`NodeAction`](#nodeaction)`[]` | no | What can be done to the selected node (at most 8). |
+
+### `GraphNode`
+
+A node of a graph: plain data.
+
+Its shape says what it is and its state what it's doing, never colour alone: the list says both in words.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Unique among the graph's nodes and clusters (at most 100 characters): edges, updates and the selection follow it. |
+| `label` | `string` | no | Its name on the map; the id if left out. |
+| `kind` | `string` | no | What sort of thing it is (`"esxi"`): searched, and a column in the list. |
+| `shape` | [`NodeShape`](#nodeshape) | no | How it's drawn; `"dot"` if left out. |
+| `state` | [`NodeState`](#nodestate) | no | Live (in the accent) or down. |
+| `mark` | [`NodeMark`](#nodemark) | no | A small warn or error mark beside it. |
+| `note` | `string` | no | A few words (`"out of date"`), beside it when selected and in the list. |
+| `cluster` | `string` | no | The id of the cluster it's in. |
+| `host` | `string` | no | The Host it is: `Enter` opens it when the graph has no `open`, and actions get it as `e.host`. |
+| `detail` | `string` | no | A second line in the data font (an address), when selected and in the list. |
+
+### `NodeShape`
+
+How a node is drawn.
+
+As roster draws its own (taste.md): `"dot"` filled (a key login), `"ring"` (a password login), `"dashed"` a dashed ring in the second tone (unreviewed), `"hollow"` a thin grey ring (ended), `"square"` in the second tone (this Box).
+
+One of: `"dot" \| "ring" \| "dashed" \| "hollow" \| "square"`
+
+### `NodeState`
+
+What a node is doing.
+
+`"live"` is drawn in the accent, which means connected now; keep it for that. `"down"` is drawn quieter and crossed out.
+
+One of: `"live" \| "down"`
+
+### `NodeMark`
+
+A node's mark.
+
+One of: `"warn" \| "error"`
+
+### `GraphEdge`
+
+An edge of a graph: plain data.
+
+An end is a node or a cluster: an edge to a cluster reaches every node in it, and one from a cluster is every node's in it, so one edge can stand for a group's Links. Edges to the same collapsed cluster are drawn as one, with their count.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | no | Unique among its edges; `"FROM>TO"` if left out. |
+| `from` | `string` | yes | The id of the node or cluster it starts at. |
+| `to` | `string` | yes | The id of the node or cluster it goes to. |
+| `dir` | [`EdgeDir`](#edgedir) | no | `"one"` (the default) is one way, with an arrow at `to`; `"both"` is each way. |
+| `style` | [`EdgeStyle`](#edgestyle) | no | Its line; `"solid"` if left out. |
+| `tone` | [`EdgeTone`](#edgetone) | no | Live (in the accent), muted, or marked warn or error. |
+| `cut` | `boolean` | no | `true` draws it broken in the middle by a cross: about to be cut. |
+| `label` | `string` | no | A few words about it, in the list. |
+
+### `EdgeDir`
+
+Which way an edge goes.
+
+One of: `"one" \| "both"`
+
+### `EdgeStyle`
+
+An edge's line.
+
+One of: `"solid" \| "dashed" \| "dotted"`
+
+### `EdgeTone`
+
+How an edge is marked.
+
+`"live"` is the accent: keep it for a connection that's open now. An edge that turns live is drawn in from its start, as a Session's edge is on connect (not under reduced motion).
+
+One of: `"live" \| "muted" \| "warn" \| "error"`
+
+### `GraphCluster`
+
+A cluster of a graph's nodes.
+
+Drawn as a circle around its nodes with its title above, or collapsed to one node with its count.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Unique among the graph's nodes and clusters: nodes name it as their `cluster`. |
+| `title` | `string` | no | Its title; the id if left out. |
+| `mesh` | `boolean` | no | `true`: every node in it reaches every other, both ways, without an edge for each pair (the Mesh's `mesh: true`). |
+| `collapsed` | `boolean` | no | How it starts: collapsed (`true`) or open (`false`). Left out, it collapses when the graph has more than 300 nodes. The user's own choice is kept and wins. |
+
+### `NodeAction`
+
+Something a graph's selected node can do.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it does (`"Check"`), in the key hints. |
+| `key` | `string` | no | One character that runs it on the selected node, not one the graph uses itself. |
+| `icon` | [`RowIcon`](#rowicon) | no | Its icon in the node list's buttons. |
+| `run` | [`NodeRun`](#noderun) | yes | What it runs. |
+
+### `NodeRun`
+
+What a graph's node or action runs.
+
+A function gets a [NodeEvent](#nodeevent): which node, its Host, and the Session on screen. A command line runs as typed after `:`, as the Plugin's (`:plugins run`).
+
+One of: `string \| fun(e: `[`NodeEvent`](#nodeevent)`): any`
+
+### `NodeEvent`
+
+What a graph's function gets.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `node` | `string` | yes | The node's `id`. |
+| `host` | `string` | no | The node's `host`. |
+| `view` | `string` | yes | The view's id. |
+| `session` | `integer` | no | The Session on screen, as in a [`HandlerContext`](#handlercontext): only with `inventory.read` or `terminal.read`. |
+| `session_host` | `string` | no | The Host of the Session on screen, as in a [`HandlerContext`](#handlercontext). |
 
 ### `Host`
 
