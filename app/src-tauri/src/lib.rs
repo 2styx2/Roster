@@ -227,11 +227,9 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     let l = Arc::clone(loader);
     // A save reloads only with `auto_reload = true` (decision Q58); otherwise the frontend
     // hears that the file changed, and `:source` applies it.
-    // folders.yml (ticket 28, decision Q46) is the frontend's to read: it hears that it changed.
+    // folders.yml (decision Q46) is only read once now, to move its Folders into the Folders
+    // Plugin (ticket 61, decision Q93): a save of it changes nothing.
     match config::watch_files(loader.dir(), move |changed| {
-        if changed.folders {
-            let _ = handle.emit("folders-changed", ());
-        }
         if !changed.lua {
             return;
         }
@@ -469,7 +467,8 @@ async fn save_call(
     call(&state, method, Value::Object(params)).await
 }
 
-/// `folders.yml`'s path and text (null: no file yet), next to init.lua (decision Q46).
+/// `folders.yml`'s path and text (null: no file yet), next to init.lua (decision Q46): read at
+/// start, for the Folders Plugin to move its Folders in once (ticket 61). Never written now.
 #[tauri::command]
 async fn folders_read(config: tauri::State<'_, ConfigState>) -> Result<Value, String> {
     let dir = config_dir(&config)?;
@@ -478,13 +477,6 @@ async fn folders_read(config: tauri::State<'_, ConfigState>) -> Result<Value, St
         Ok(json!({ "path": config::folders::path(&dir).display().to_string(), "text": text }))
     })
     .await
-}
-
-/// Replaces `folders.yml` (atomically) with the text the frontend made.
-#[tauri::command]
-async fn folders_write(config: tauri::State<'_, ConfigState>, text: String) -> Result<(), String> {
-    let dir = config_dir(&config)?;
-    blocking(move || config::folders::write(&dir, &text).map_err(|e| e.to_string())).await
 }
 
 /// Mark a Host reviewed (`host.review`): only that flag changes, as a Pending change. With
@@ -580,13 +572,21 @@ async fn plugin_load(
     plugins: tauri::State<'_, Arc<PluginHost>>,
     path: String,
     grants: Vec<String>,
+    settings: Option<Value>,
 ) -> Result<Value, String> {
     let grants: Vec<Permission> = grants.iter().filter_map(|g| Permission::parse(g).ok()).collect();
     let host = Arc::clone(&plugins);
     let (config, packages) = (config.inner().clone(), packages.inner().clone());
     blocking(move || {
-        let (source, settings, shown) = plugin_source(&config, &packages, &path)?;
-        let (manifest, reply) = host.load_with(&source, &grants, &settings).map_err(|e| e.to_string())?;
+        let (source, mut handed, shown) = plugin_source(&config, &packages, &path)?;
+        // A built-in Plugin's settings come from the app (Folders: init.lua's Folders, and
+        // folders.yml's to move in once); a Package's from init.lua, and a folder has none.
+        if matches!(source, plugin::Source::Bundled(_))
+            && let Some(given) = settings
+        {
+            handed = given;
+        }
+        let (manifest, reply) = host.load_with(&source, &grants, &handed).map_err(|e| e.to_string())?;
         Ok(json!({ "manifest": manifest, "dir": shown, "reply": reply }))
     })
     .await
@@ -704,6 +704,14 @@ async fn plugin_event(
 #[tauri::command]
 fn plugin_unload(plugins: tauri::State<'_, Arc<PluginHost>>, plugin: String) -> bool {
     plugins.unload(&plugin)
+}
+
+/// Removes a Plugin's data folder with everything in it (decision Q93): `:plugins remove` and
+/// `:packages clean` call it once the Plugin is gone. A reload or a revoke never does.
+#[tauri::command]
+async fn plugin_forget(plugins: tauri::State<'_, Arc<PluginHost>>, plugin: String) -> Result<bool, String> {
+    let host = Arc::clone(&plugins);
+    blocking(move || host.forget(&plugin)).await
 }
 
 fn session_error(e: SessionError) -> CallError {
@@ -980,6 +988,10 @@ pub fn run() {
             // Packages' clones go in the app's own data dir (next to the State), the lock next
             // to init.lua.
             let data = roster_core::env::state_dir().or_else(|| tauri::Manager::path(app).app_local_data_dir().ok());
+            // Each Plugin's own data folder goes there too, as plugin-data/NAME (decision Q93).
+            if let Some(data) = &data {
+                setup_plugins.set_data(data);
+            }
             let packages = match (data, setup_loader.as_ref()) {
                 (Some(data), Some(loader)) => Some(Arc::new(Packages::new(&data, loader.dir()))),
                 _ => None,
@@ -1014,7 +1026,6 @@ pub fn run() {
             inventory_call,
             save_call,
             folders_read,
-            folders_write,
             changes_diff,
             changes_discard,
             changes_publish,
@@ -1044,6 +1055,7 @@ pub fn run() {
             plugin_call,
             plugin_event,
             plugin_unload,
+            plugin_forget,
             packages_sync,
             packages_pin,
             packages_discard,

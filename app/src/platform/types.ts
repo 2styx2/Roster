@@ -35,12 +35,9 @@ export interface WindowControls {
 
 /** folders.yml next to init.lua (decision Q46): its text, written whole, and when it changed. */
 export interface FoldersSource {
-  /** Its full path, and its text (null while there's no file). */
+  /** Its full path, and its text (null while there's no file). Only read: its Folders move into
+   * the Folders Plugin once (ticket 61, decision Q93). */
   read(): Promise<{ path: string; text: string | null }>;
-  /** Replaces it with `text`, atomically. */
-  write(text: string): Promise<void>;
-  /** Calls `onSaved` after each save of it (the app's own writes too); returns stop. */
-  watch(onSaved: () => void): () => void;
 }
 
 export interface Platform {

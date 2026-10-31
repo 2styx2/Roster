@@ -267,7 +267,7 @@ pub struct PluginHost {
     generation: AtomicU64,
     /// The app's data folder: each Plugin keeps its data in `plugin-data/NAME` there
     /// ([`folder::Storage`], decision Q93). None: `roster.storage` says there's no data folder.
-    data: Option<PathBuf>,
+    data: std::sync::OnceLock<PathBuf>,
 }
 
 impl PluginHost {
@@ -278,22 +278,28 @@ impl PluginHost {
             slots: Arc::default(),
             listener: Arc::default(),
             generation: AtomicU64::new(0),
-            data: None,
+            data: std::sync::OnceLock::new(),
         }
     }
 
     /// The host, with each Plugin's data folder under `data` (the app's data folder, next to the
     /// State; never the config folder): `plugin-data/NAME` (decision Q93).
-    pub fn with_data(mut self, data: &Path) -> Self {
-        self.data = Some(data.to_path_buf());
+    pub fn with_data(self, data: &Path) -> Self {
+        self.set_data(data);
         self
+    }
+
+    /// [`PluginHost::with_data`] for a host already shared (the Tauri shell learns its data
+    /// folder once the app is up). Only the first call counts: a Plugin's folder never moves.
+    pub fn set_data(&self, data: &Path) {
+        let _ = self.data.set(data.to_path_buf());
     }
 
     /// Removes the Plugin `plugin`'s data folder, with everything in it, when the Plugin is
     /// removed (`:plugins remove`, `:packages clean`): true if there was one. Not for a reload
     /// or a revoked permission, which keep it.
     pub fn forget(&self, plugin: &str) -> Result<bool, String> {
-        match &self.data {
+        match self.data.get() {
             Some(data) => folder::forget(data, plugin),
             None => Ok(false),
         }
@@ -509,7 +515,7 @@ impl PluginHost {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
         let (serve, limits) = (Arc::clone(&self.serve), self.limits);
-        let storage = self.data.as_deref().map(|d| folder::Storage::new(d, &name));
+        let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let post: Option<runtime::Post> = grants.iter().any(|p| matches!(p, Permission::Network(_))).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
             Arc::new(move |id: u64, answer: network::Answer| {

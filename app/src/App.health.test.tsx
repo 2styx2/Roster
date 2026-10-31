@@ -56,7 +56,7 @@ describe(":check with no Host", () => {
     const h2 = within(help())
       .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent);
-    expect(h2).toEqual(["The app and roster serve", "roster", "Inventory", "ssh", "Vault", "askpass", "Infra repo", "init.lua", "Terminal font"]);
+    expect(h2).toEqual(["The app and roster serve", "roster", "Inventory", "ssh", "Vault", "askpass", "Infra repo", "init.lua", "Terminal font", "Folders (folders)"]);
     const error = entries().find((e) => e.getAttribute("data-tone") === "error") as HTMLElement;
     expect(error).toHaveTextContent("ERROR");
     expect(error).toHaveTextContent(/isn't logged in on this box.*Fix: sign in from the app's lock screen/);

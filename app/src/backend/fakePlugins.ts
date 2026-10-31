@@ -5,6 +5,7 @@
 // disables it, as in the core. The built-in `hosts` Plugin is here as the core's Lua is.
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
+import { fakeFoldersPlugin } from "./fakeFolders";
 import { BackendCallError, type Host, type PluginEventName, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
@@ -15,6 +16,18 @@ export interface FakeRoster {
   api_version: number;
   plugin: { name: string; version: string; permissions: string[]; config: Record<string, unknown> };
   commands: { add(name: string, spec: Spec): void; remove(name: string): void };
+  /** The Plugin's own files (api 3, decision Q93): kept in memory here, per Plugin. */
+  storage: {
+    read(name: string): string | null;
+    write(name: string, text: string): void;
+    list(): string[];
+    remove(name: string): boolean;
+    read_json(name: string): unknown;
+    write_json(name: string, value: unknown): void;
+  };
+  /** api 3 (ticket 61): the message line, and the command line opened with text. */
+  echo(text: string): void;
+  cmdline(text: string): void;
   keymap: { set(context: string, keys: string, action: string | false): void; del(context: string, keys: string): void };
   themes: { define(id: string, theme: Spec): void; remove(id: string): void };
   sidebar: { set(id: string, spec: Spec): void; remove(id: string): void };
@@ -247,6 +260,16 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
   };
 }
 
+/** A file name `roster.storage` takes, as folder.rs checks it: a plain name, never a path. */
+function storageName(name: string, fn: string): string {
+  if (!name) throw new Error(`roster.storage.${fn}: a file needs a name, like "folders.json"`);
+  if (name.length > 100) throw new Error(`roster.storage.${fn}: the name is over 100 characters`);
+  if (!/^[A-Za-z0-9_.-]+$/.test(name) || name.startsWith(".")) {
+    throw new Error(`roster.storage.${fn}: ${JSON.stringify(name)} isn't a file name: letters, digits, - _ and . only, not starting with . (no folders, no paths)`);
+  }
+  return name;
+}
+
 /** The status bar's Host count, as crates/roster-core/plugins/hosts/init.lua writes it. */
 export const fakeHostsPlugin: FakePlugin = {
   manifest: { name: "hosts", version: "1.0.0", description: "The status bar's Host count", author: "roster", api: 2, permissions: ["inventory.read"] },
@@ -283,7 +306,10 @@ export function fakePluginHost(
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
   pluginTypes(path: string): Promise<string>;
-  pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  pluginForget(plugin: string): Promise<boolean>;
+  /** What each Plugin keeps in its data folder (tests look). */
+  pluginFiles(plugin: string): Map<string, string>;
   pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   pluginUnload(plugin: string): Promise<boolean>;
@@ -291,7 +317,16 @@ export function fakePluginHost(
   /** As the core does when a request answers: hands `reply` to whoever listens. */
   pluginReplied(reply: PluginReply): void;
 } {
-  const all: Record<string, FakePlugin> = { "builtin:hosts": fakeHostsPlugin, ...plugins };
+  const all: Record<string, FakePlugin> = { "builtin:hosts": fakeHostsPlugin, "builtin:folders": fakeFoldersPlugin, ...plugins };
+  /** Each Plugin's data folder, by its name: kept across reloads, gone with pluginForget. */
+  const files = new Map<string, Map<string, string>>();
+  const filesOf = (name: string) => {
+    let f = files.get(name);
+    if (!f) files.set(name, (f = new Map()));
+    return f;
+  };
+  /** The handlers the app calls as it likes (a command's complete): never a user's call. */
+  const quiet = new Set<number>();
   const running = new Map<string, Running>();
   let next = 0;
   let ops: unknown[] = [];
@@ -335,7 +370,10 @@ export function fakePluginHost(
       commands: {
         add: (name, spec) => {
           r.commands.add(name);
-          push({ op: "command", name, desc: spec.desc ?? "", run: spec.run });
+          const op = data(r, { op: "command", name, desc: spec.desc ?? "", run: spec.run, ...(spec.complete ? { complete: spec.complete } : {}) }) as Record<string, unknown>;
+          const c = op.complete as { handler?: number } | undefined;
+          if (c?.handler !== undefined) quiet.add(c.handler);
+          ops.push(op);
         },
         remove: (name) => {
           r.commands.delete(name);
@@ -376,6 +414,35 @@ export function fakePluginHost(
         },
       },
       notify: (text, level = "info") => push({ op: "notify", text, level }),
+      echo: (text) => {
+        userOnly("roster.echo");
+        push({ op: "echo", text });
+      },
+      cmdline: (text) => {
+        userOnly("roster.cmdline");
+        const word = text.trim().split(/\s+/)[0] ?? "";
+        if (!r.commands.has(word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
+        push({ op: "cmdline", text });
+      },
+      storage: {
+        read: (name) => filesOf(r.manifest.name).get(storageName(name, "read")) ?? null,
+        write: (name, text) => {
+          if (text.length > 1024 * 1024) throw new Error(`roster.storage.write: ${name} would be ${text.length} bytes: a file holds at most 1 MB (1048576 bytes)`);
+          filesOf(r.manifest.name).set(storageName(name, "write"), text);
+        },
+        list: () => [...filesOf(r.manifest.name).keys()].sort(),
+        remove: (name) => filesOf(r.manifest.name).delete(storageName(name, "remove")),
+        read_json: (name) => {
+          const text = filesOf(r.manifest.name).get(storageName(name, "read_json"));
+          if (text === undefined) return null;
+          try {
+            return JSON.parse(text) as unknown;
+          } catch (e) {
+            throw new Error(`roster.storage.read_json: ${name} isn't JSON (${String(e)})`, { cause: e });
+          }
+        },
+        write_json: (name, value) => filesOf(r.manifest.name).set(storageName(name, "write_json"), `${JSON.stringify(value, null, 2)}\n`),
+      },
       on: (event, f) => {
         const needs = EVENT_NEEDS[event];
         if (needs.length && !needs.some((p) => r.grants.has(p))) throw new Error(`roster.on: the ${event} event needs the ${needs.join(" or ")} permission`);
@@ -466,7 +533,7 @@ export function fakePluginHost(
     async pluginManifest(path) {
       return { manifest: described(find(path).manifest), dir: path };
     },
-    async pluginLoad(path, grants) {
+    async pluginLoad(path, grants, settings) {
       const p = find(path);
       const manifest = described(p.manifest);
       const r: Running = {
@@ -480,7 +547,8 @@ export function fakePluginHost(
         disabled: null,
       };
       running.set(manifest.name, r);
-      const reply = run(manifest.name, r, () => p.load(module(r, configs.get(path))), true);
+      const config = path.startsWith("builtin:") && settings ? settings : configs.get(path);
+      const reply = run(manifest.name, r, () => p.load(module(r, config)), true);
       return { manifest, dir: path, reply };
     },
     async pluginCall(plugin, handler, args) {
@@ -497,7 +565,7 @@ export function fakePluginHost(
         r.timers.delete(handler);
         r.handlers.delete(handler);
       }
-      userCall = timer === undefined;
+      userCall = timer === undefined && !quiet.has(handler);
       try {
         return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
       } finally {
@@ -518,6 +586,10 @@ export function fakePluginHost(
     async pluginUnload(plugin) {
       return running.delete(plugin);
     },
+    async pluginForget(plugin) {
+      return files.delete(plugin);
+    },
+    pluginFiles: (plugin) => filesOf(plugin),
     onPluginReply(onReply) {
       replyWatchers.add(onReply);
       return () => replyWatchers.delete(onReply);

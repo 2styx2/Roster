@@ -54,8 +54,7 @@ import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
 import { vaultSettingsOf } from "./config/vault";
 import { ImportPanel } from "./config/ImportPanel";
-import { registerFolders } from "./folders/folders";
-import { FOLDERS_FILE, FoldersFile } from "./folders/file";
+import { foldersSettings } from "./folders/file";
 import type { InventoryOp } from "./inventory/commands";
 import { ConfirmPanel } from "./inventory/ConfirmPanel";
 import type { InventoryFileError } from "./backend/types";
@@ -461,6 +460,7 @@ function Workspace({
   // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
   // and their UI goes into the registries with their name as its source.
   const runRef = useRef<(line: string) => void>(() => {});
+  const openCommandLineRef = useRef<(text: string) => void>(() => {});
   // The Session on screen, for a Plugin handler's context (api 3): read when a handler runs.
   const onScreenRef = useRef<{ session: number; host: string | null } | null>(null);
   // `roster.sessions.show` (ticket 78): the Session to go to, and the line to find in it.
@@ -480,6 +480,10 @@ function Workspace({
         openUrl: (url) => {
           platform.openUrl?.(url).catch(() => undefined);
         },
+        say: (text) => setMessage(text),
+        openCommandLine: (text) => openCommandLineRef.current(text),
+        // Folders (ticket 61, decision Q93): init.lua's Folders, and the ones to move in once.
+        builtinSettings: async (name) => (name === "folders" ? foldersSettings(registries.folders, platform.folders, store) : null),
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
@@ -898,41 +902,9 @@ function Workspace({
   // The window's size and place go in the State; the Tauri shell restores them at the next start.
   useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
 
-  // Folders (GLOSSARY) register their section, commands and keys like a Plugin (ADR 0006). They
-  // live in folders.yml next to init.lua (ticket 28, decision Q46) where there's a config folder,
-  // else in the State (a plain browser).
-  const [foldersFile] = useState(() => (platform.folders ? new FoldersFile(platform.folders, store) : null));
-  useEffect(() => registerFolders(registries, foldersFile ?? store), [registries, store, foldersFile]);
-  const autoReloadRef = useRef(autoReload);
-  autoReloadRef.current = autoReload;
-  useEffect(() => {
-    const source = platform.folders;
-    if (!foldersFile || !source) return;
-    foldersFile.load().catch((e: unknown) => setMessage(`Can't read ${FOLDERS_FILE}: ${e instanceof Error ? e.message : String(e)}`));
-    const stop = source.watch(() => {
-      void foldersFile.isOutsideEdit().then(async (outside) => {
-        if (!outside) return;
-        if (!autoReloadRef.current) return setStale(FOLDERS_FILE, true);
-        const problem = await foldersFile.reload();
-        if (problem) setMessage(problem);
-      });
-    });
-    const unregister = registries.reloaders.register({
-      id: FOLDERS_FILE,
-      source: BUILTIN,
-      describe: "folders.yml (your Folders)",
-      files: () => [FOLDERS_FILE],
-      owns: (p) => /(^|[\\/])folders\.yml$/.test(p.trim()),
-      async reload() {
-        setStale(FOLDERS_FILE, false);
-        return foldersFile.reload();
-      },
-    });
-    return () => {
-      stop();
-      unregister();
-    };
-  }, [platform, foldersFile, registries, setStale]);
+  // Folders (GLOSSARY) is a built-in Plugin (ticket 61, decision Q93): init.lua's Folders are its
+  // settings, so a change to them loads it again.
+  useEffect(() => registries.folders.subscribe(() => void plugins.reloadBuiltin("folders")), [registries, plugins]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
   useEffect(() => registerHints(registries, hintsChoice), [registries, hintsChoice]);
   // `:help` (ticket 37): its pages read the live registries and the Config each time they show.
@@ -1640,6 +1612,7 @@ function Workspace({
     }
   }
   runRef.current = run;
+  openCommandLineRef.current = (text) => ctx.openCommandLine(text);
   showSessionRef.current = (id, line) => {
     if (!sessions.tabs.some((t) => t.id === id)) return false;
     tabs.select(id);
