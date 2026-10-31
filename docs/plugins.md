@@ -1,6 +1,6 @@
 # Writing a Plugin
 
-A Plugin is a folder of Lua that adds to roster the way the app's own features do: commands, key bindings, Themes, Sidebar sections, finders, status segments, badges on Hosts, floating windows, notices and help pages. It runs in the same sandbox as your `init.lua` ([config.md](app/config.md#the-sandbox)), and it only gets the functions for the permissions you granted it. It never sees a password, the vault or what you type at a login prompt, and it can't Publish (ADR 0006, decision Q81).
+A Plugin is a folder of Lua that adds to roster the way the app's own features do: commands, key bindings, Themes, Sidebar sections, finders, status segments, badges on Hosts, floating windows, views (side panels and full views with tables), sections of a Host's details, notices and help pages. It runs in the same sandbox as your `init.lua` ([config.md](app/config.md#the-sandbox)), and it only gets the functions for the permissions you granted it. It never sees a password, the vault or what you type at a login prompt, and it can't Publish (ADR 0006, decision Q81).
 
 A Plugin draws nothing itself. It hands the app data (rows, text, items) and the app draws them in roster's own style, with its keys and Theme, so a Plugin looks native and can't do anything else on screen.
 
@@ -130,7 +130,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 
 | Permission | What it adds | Why it's flagged |
 |---|---|---|
-| none | Commands, keys, Themes, Sidebar sections, status segments, finders, badges, floats, notices, help pages, the `lock` and `unlock` events | |
+| none | Commands, keys, Themes, Sidebar sections, status segments, finders, badges, floats, views and their tables, Host-details sections, notices, help pages, the `lock` and `unlock` events | |
 | `inventory.read` | `roster.inventory.hosts()`, `roster.inventory.host(name)`: Hosts with their Login *references* (a vault item's name, never its password); the events that name a Host | |
 | `inventory.write` | `roster.inventory.update(host, changes)`, `rename(host, to)`, `move(host, group)`, `review(host, reviewed)`: as Pending changes, which you review and Publish | Can change Hosts |
 | `sessions.open` | `roster.sessions.open(host)`, as `:connect HOST` | Can open Sessions on your Hosts |
@@ -149,7 +149,7 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 | The Plugin and the app | [`roster.plugin`](plugin-api.md#rosterplugin), [`roster.api_version`](plugin-api.md#rosterapi_version), [`roster.os`](plugin-api.md#rosteros), [`roster.has`](plugin-api.md#rosterhaspermission), [`roster.notify`](plugin-api.md#rosternotifytext-level), [`roster.on`](plugin-api.md#rosteronevent-listener) | none |
 | Timers | [`roster.defer`](plugin-api.md#rosterdeferms-fn), [`roster.every`](plugin-api.md#rostereveryms-fn), [`roster.cancel`](plugin-api.md#rostercanceltimer) | none |
 | Commands and keys | [`roster.commands`](plugin-api.md#rostercommands), [`roster.keymap`](plugin-api.md#rosterkeymap) | none |
-| What the app draws for you | [`roster.sidebar`](plugin-api.md#rostersidebar), [`roster.status`](plugin-api.md#rosterstatus), [`roster.finders`](plugin-api.md#rosterfinders), [`roster.badges`](plugin-api.md#rosterbadges), [`roster.float`](plugin-api.md#rosterfloat), [`roster.themes`](plugin-api.md#rosterthemes) | none |
+| What the app draws for you | [`roster.sidebar`](plugin-api.md#rostersidebar), [`roster.status`](plugin-api.md#rosterstatus), [`roster.finders`](plugin-api.md#rosterfinders), [`roster.badges`](plugin-api.md#rosterbadges), [`roster.float`](plugin-api.md#rosterfloat), [`roster.views`](plugin-api.md#rosterviews), [`roster.details`](plugin-api.md#rosterdetails), [`roster.themes`](plugin-api.md#rosterthemes) | none |
 | Help, health and tutorials | [`roster.help`](plugin-api.md#rosterhelp), [`roster.health`](plugin-api.md#rosterhealth), [`roster.tutor`](plugin-api.md#rostertutor) | none |
 | The clipboard | [`roster.clipboard`](plugin-api.md#rosterclipboard) | none, in a call the user started |
 | Hosts | [`roster.inventory`](plugin-api.md#rosterinventory) | `inventory.read`, `inventory.write` |
@@ -174,20 +174,64 @@ A tutorial (`roster.tutor.set`) runs on the demo Inventory, where your Plugin is
 
 [`examples/plugins/types/roster.lua`](../examples/plugins/types/roster.lua) declares the whole API for [lua-language-server](https://luals.github.io/), generated with the reference, so your editor completes `roster.` and checks what you hand the app. [Editor support](plugin-api.md#editor-support) says how to point it there; the example Plugins are annotated that way, and CI checks them with it.
 
+## Views, tables and Host-details sections
+
+A **view** is a side panel beside the terminal (`place = "panel"`, over it in Focus or a narrow window) or a full view over the whole window (`place = "full"`, as Topology is). It holds a few lines of text, facts (label and value, as a Host's details show them) and a table, top to bottom. `roster.views.set` adds it; it opens with `:view ID`, a key you bind to `view ID`, the `views` finder (`:view` alone), or `roster.views.open` in one of your actions or commands, never on its own at load or on an event. `Esc` closes it and puts the user back where they were. One view is open at a time.
+
+A **table**'s rows are plain data: an `id`, the `cells` by column, and optionally the `host` it's about and a `tone` (`"muted"`, `"warn"`, `"error"`). What a row can do belongs to the table: `open` for `Enter`, and `actions`, each with a one-letter `key` and a button on the selected row. A function there gets the row it ran on (`e.row`, `e.host`, `e.view`). The app sorts it (`s`, `S`, a heading's click), moves with `j`/`k`, `g g`/`G` and `Ctrl+D`/`Ctrl+U`, keeps the selection on its row, and draws only the rows on screen, so thousands stay smooth.
+
+```lua
+local found = {}
+roster.views.set("discover", {
+  title = "Discover",
+  place = "panel",
+  text = "Scanning 10.0.0.0/24",
+  table = {
+    columns = {
+      { id = "address", label = "Address", kind = "data" },
+      { id = "ports", label = "Ports", kind = "number" },
+      { id = "title", label = "Title" },
+    },
+    sort = "address",
+    empty = "Nothing found yet.",
+    actions = {
+      { label = "Keep", key = "a", icon = "add", run = function(e) found[e.row].keep = true end },
+    },
+  },
+})
+roster.commands.add("discover", { desc = "Scan a network", run = function() roster.views.open("discover") end })
+roster.keymap.set("leader", "y d", "view discover")
+
+-- As results come in: only the rows that changed.
+local function arrived(host)
+  found[host.address] = host
+  roster.views.update("discover", {
+    text = "Scanning 10.0.0.0/24: " .. host.percent .. "%",
+    rows = { { id = host.address, cells = { address = host.address, ports = #host.ports, title = host.title } } },
+  })
+end
+```
+
+`roster.views.update` replaces a row whose `id` is there already where it stands, adds new ones at the end, takes away the ids in `remove`, and leaves the rest alone, so a scan doesn't send its whole table each time (a table holds up to 10,000 rows). It's plain data only: the table's functions stay those `roster.views.set` gave. Setting the view again replaces it all.
+
+A **Host-details section** is the same text, facts and table in one Host's details (`:info HOST`), after roster's own, with your Plugin's name on it. Set it per Host, as a badge: `roster.details.set("mesh", "esx-02", { title = "Mesh", facts = { { label = "reach", value = "can reach 7 Hosts" } } })`; `nil` takes that Host's away, `roster.details.remove("mesh")` every Host's. A table action there gets the Host as `e.host`.
+
+Nothing in a view moves: it opens from a key as often as a click, as every side panel does, and a row that changes is simply changed.
+
 ## Limits
 
 Your Plugin runs in its own Lua state, on its own thread, with the sandbox's libraries (no `io`, no `os.execute`, `require` from its own folder only) and:
 
 - **32 MB** of memory;
 - **1 second** to run `init.lua`, and **a quarter of a second** for each call (a command, an action, an event). Time spent waiting for roster serve doesn't count. Running out can't be caught with `pcall`;
-- at most 1,000 UI changes in one call, and 2,000 rows in a section, items in a finder or lines in a float. Text is cut to 500 characters (a help page to 200,000);
+- at most 1,000 UI changes in one call, and 2,000 rows in a section, items in a finder, lines in a float or rows in one `set` or `update` of a table (10,000 in a table after updates). Text is cut to 500 characters (a help page to 200,000);
 - at most 100 timers waiting at once; a deferred function waits at least 50 ms, and a repeating one at least a second between runs, counted from when the last run ended. A timer's run has a call's budget, and an error in it counts like any other.
 
 An error shows a notice naming your Plugin with the file and line: `pinned: init.lua:12: attempt to index a nil value`. An error while loading stops the Plugin; so does a third error after that, and so does a call that doesn't answer within two seconds of its budget (a long pattern match, say). When it stops, everything it added goes away and the rest of the app carries on. `:plugins` says why, and `:plugins reload NAME` tries again.
 
 ## For roster's developers: how it's built
 
-The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
+The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. A table's functions are called with the row instead (`{ row, host, view | section }`), and its rows carry no functions, so `roster.views.update` can change some of them without touching the rest; views and Host-details sections are the `views` and `details` registries (`app/src/view/views.ts`), drawn by `ViewContent.tsx` and `ui/DataTable.tsx` over the pure table model in `ui/table.ts`. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`). A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
 
 The API is declared once, in `crates/roster-core/src/plugin/api.rs` (decision Q89): each function, value, type and event with its parameters, returns, errors, permission and `Since`. `cargo run -p roster-core --example gen_plugin_api` writes [the reference](plugin-api.md), the stubs (`examples/plugins/types/roster.lua`) and the same as data (`crates/roster-core/tests/fixtures/plugin-api.json`, which the help's topics read). A change to the API isn't done until api.rs says it: `crates/roster-core/tests/plugin_api.rs` fails when the runtime has a function or value api.rs lacks (or the other way round) for any grants, or a generated file is stale; `app/src/plugins/api.test.ts` fails when `ops.ts` reads a field a type doesn't list; `tests/test_plugin_api.py` when a Host, group or service from roster serve has a field the Host type doesn't.
 

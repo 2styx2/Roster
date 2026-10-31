@@ -50,6 +50,13 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.badges.set(host, text)`](#rosterbadgessethost-text) | Puts a badge on a Host's Inventory row, or takes it off | none |
 | [`roster.float.open(float)`](#rosterfloatopenfloat) | Opens a floating window over the terminal, or replaces the Plugin's | none |
 | [`roster.float.close()`](#rosterfloatclose) | Closes the Plugin's floating window | none |
+| [`roster.views.set(id, view)`](#rosterviewssetid-view) | Adds a view, or replaces it | none |
+| [`roster.views.update(id, changes)`](#rosterviewsupdateid-changes) | Changes some of a view's rows in place, or its text or facts | none |
+| [`roster.views.open(id)`](#rosterviewsopenid) | Opens a view | none |
+| [`roster.views.close(id)`](#rosterviewscloseid) | Closes a view, if it's open | none |
+| [`roster.views.remove(id)`](#rosterviewsremoveid) | Removes a view | none |
+| [`roster.details.set(id, host, section)`](#rosterdetailssetid-host-section) | Adds a section to a Host's details, or replaces it | none |
+| [`roster.details.remove(id)`](#rosterdetailsremoveid) | Removes a section from every Host's details | none |
 | [`roster.clipboard.copy(text)`](#rosterclipboardcopytext) | Puts text on the clipboard | none |
 | [`roster.inventory.hosts()`](#rosterinventoryhosts) | Every Host, in `roster.yml` order | `inventory.read` |
 | [`roster.inventory.host(name)`](#rosterinventoryhostname) | One Host, by its exact name | `inventory.read` |
@@ -90,6 +97,19 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`StepMatch`](#stepmatch) | An event a step waits for |
 | [`TutorEvent`](#tutorevent) | The events a tutorial's step can wait for |
 | [`Float`](#float) | A floating window (`roster.float.open`) |
+| [`View`](#view) | A side panel or a full view (`roster.views.set`) |
+| [`ViewPlace`](#viewplace) | Where a view goes |
+| [`ViewUpdate`](#viewupdate) | What `roster.views.update` changes |
+| [`DetailsSection`](#detailssection) | A section of a Host's details (`roster.details.set`) |
+| [`Fact`](#fact) | A label and its value |
+| [`Table`](#table) | A table: columns, rows as plain data, and what a row can do |
+| [`Column`](#column) | A table's column |
+| [`ColumnKind`](#columnkind) | How a column's values read and sort |
+| [`TableRow`](#tablerow) | A row of a table: plain data |
+| [`RowTone`](#rowtone) | How a table row is marked |
+| [`TableAction`](#tableaction) | Something a table's selected row can do |
+| [`TableRun`](#tablerun) | What a table's row or action runs |
+| [`TableEvent`](#tableevent) | What a table's function gets |
 | [`Host`](#host) | A Host, as roster serve's `hosts.list` and `host.get` give it |
 | [`LoginRef`](#loginref) | A Login reference: where a password is, never the password |
 | [`SshLogin`](#sshlogin) | A Host's ssh login |
@@ -944,6 +964,238 @@ Only [those of every function](#errors).
 roster.float.close()
 ```
 
+## `roster.views`
+
+Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again.
+
+### `roster.views.set(id, view)`
+
+Adds a view, or replaces it. Setting it again replaces the whole view and drops the functions its old table held; an open view stays open and keeps its selected row. It doesn't open the view: `:view ID`, a key bound to `view ID`, the `views` finder or `roster.views.open` in one of your actions does.
+
+**Parameters**
+
+- `id` (`string`): The view's id: a name like `discover`. `:view ID` opens it.
+- `view` ([`View`](#view)): Where it goes, its title, text, facts and table.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.views.set: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a view with that id from elsewhere.
+- a field of the wrong kind (`roster.views.set discover table row 2: id must be text`): the whole view is dropped.
+- an action key the table uses itself (`j`, `k`, `g`, `G`, `s`, `S`, `/`, `?`, `q`) or one used twice.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.views.set("discover", {
+  title = "Discover",
+  place = "panel",
+  text = "Scanning 10.0.0.0/24",
+  table = {
+    columns = {
+      { id = "address", label = "Address", kind = "data" },
+      { id = "ports", label = "Ports", kind = "number" },
+    },
+    rows = {},
+    sort = "address",
+    empty = "Nothing found yet.",
+    actions = {
+      { label = "Keep", key = "a", icon = "add", run = function(e) keep(e.row) end },
+    },
+  },
+})
+```
+
+### `roster.views.update(id, changes)`
+
+Changes some of a view's rows in place, or its text or facts. A row whose `id` is in the table already is replaced where it stands; a new one goes at the end (the table's sort still applies). The rest stay as they are, and so does the selection, so a scan can add what it finds as it finds it. Plain data only: the table's functions stay those `roster.views.set` gave.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's views.
+- `changes` ([`ViewUpdate`](#viewupdate)): What changes: rows to add or replace, rows to take away, and the text or facts.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.views.update: "ID" isn't a name like …`: a bad `id`.
+- `roster.views.update "ID": … (an update is plain data: functions go in roster.views.set)`: a function in `changes`.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a view the Plugin hasn't set.
+- rows for a view without a table.
+- more than 10,000 rows in the table after the update.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.views.update("discover", {
+  text = "Scanning 10.0.0.0/24: 40%",
+  rows = { { id = "10.0.0.7", cells = { address = "10.0.0.7", ports = 2 } } },
+  remove = { "10.0.0.9" },
+})
+```
+
+### `roster.views.open(id)`
+
+Opens a view. Only while the user runs one of the Plugin's actions, commands or finder items, so a Plugin never takes the screen on its own. One view is open at a time: this replaces the one that is.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's views.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.views.open: "ID" isn't a name like …`: a bad `id`.
+- `roster.views.open: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a view the Plugin hasn't set.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.commands.add("discover", { desc = "Scan a network", run = function()
+  roster.views.open("discover")
+end })
+```
+
+### `roster.views.close(id)`
+
+Closes a view, if it's open. Focus goes back where it was, as with `Esc`. Another view, or one that isn't open, stays as it is.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's views.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.views.close("discover")
+```
+
+### `roster.views.remove(id)`
+
+Removes a view. It closes if it's open, and its functions are dropped.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's views.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.views.remove("discover")
+```
+
+## `roster.details`
+
+Sections of a Host's details. Your own sections in a Host's details panel (`:info HOST`), after roster's: set per Host, like a badge.
+
+### `roster.details.set(id, host, section)`
+
+Adds a section to a Host's details, or replaces it. One section per id per Host; setting it again for the Host replaces it and drops the functions its old table held (other Hosts' stay). A name that isn't a Host shows nowhere. A table's action gets the Host too (`e.host`).
+
+**Parameters**
+
+- `id` (`string`): The section's id: a name like `mesh`.
+- `host` (`string`): The Host's name in the Inventory.
+- `section` ([`DetailsSection`](#detailssection)`?`, optional): Its title, text, facts and table; `nil` takes this Host's away.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.details.set: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a section with that id from another Plugin.
+- a field of the wrong kind: that Host's section is dropped.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.details.set("mesh", "esx-02", {
+  title = "Mesh",
+  facts = { { label = "reach", value = "can reach 7 Hosts" } },
+})
+```
+
+### `roster.details.remove(id)`
+
+Removes a section from every Host's details.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's sections.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.details.remove("mesh")
+```
+
 ## `roster.clipboard`
 
 The clipboard.
@@ -1539,6 +1791,146 @@ A floating window (`roster.float.open`).
 |---|---|---|---|
 | `title` | `string` | no | Its title. |
 | `lines` | `string[]` | no | Its text, a line each (at most 2,000, each cut to 500 characters). |
+
+### `View`
+
+A side panel or a full view (`roster.views.set`).
+
+Drawn top to bottom: the text, the facts, then the table. Text is cut to 500 characters, except `text` (4,000).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | `string` | no | Its heading; the id if left out. |
+| `place` | [`ViewPlace`](#viewplace) | no | Where it goes: `"panel"` (the default) or `"full"`. |
+| `text` | `string` | no | A few lines above the rest, in the app's voice; a blank line starts a paragraph. |
+| `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs, as a Host's details show them. |
+| `table` | [`Table`](#table) | no | A table of rows. |
+
+### `ViewPlace`
+
+Where a view goes.
+
+One of: `"panel" \| "full"`
+
+### `ViewUpdate`
+
+What `roster.views.update` changes.
+
+Plain data. A field left out stays as it is.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | `string` | no | A new heading. |
+| `text` | `string` | no | New text; `""` takes it away. |
+| `facts` | [`Fact`](#fact)`[]` | no | New facts, all of them. |
+| `rows` | [`TableRow`](#tablerow)`[]` | no | Rows to add or replace, by `id` (at most 2,000 at once). |
+| `remove` | `string[]` | no | The ids of rows to take away. |
+
+### `DetailsSection`
+
+A section of a Host's details (`roster.details.set`).
+
+Drawn after roster's own sections, with your Plugin's name under its heading: the text, the facts, then the table.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | `string` | no | Its heading; the id if left out. |
+| `order` | `number` | no | Where it goes among the Plugins' sections, lowest first; 500 if left out. |
+| `text` | `string` | no | A few lines, in the app's voice. |
+| `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs. |
+| `table` | [`Table`](#table) | no | A table of rows. |
+
+### `Fact`
+
+A label and its value.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it is (`reach`). |
+| `value` | `string` | yes | Its value (`can reach 7 Hosts`). |
+| `data` | `boolean` | no | `true` for something you could paste into a shell (an address, a name), set in the data font. |
+
+### `Table`
+
+A table: columns, rows as plain data, and what a row can do.
+
+The app sorts it, keeps the selected row across changes and draws only the rows on screen, so it stays smooth at thousands of rows. Keys, once it has focus: `j`/`k` or the arrows move, `g g`/`G` go to the first and last row, `Ctrl+D`/`Ctrl+U` half a page, `s` sorts by the next column and `S` reverses it, `Enter` runs `open`, an action's `key` runs it. A click selects a row, a double click opens it, and a click on a heading sorts by it. The selected row shows its actions as buttons.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `columns` | [`Column`](#column)`[]` | yes | Its columns, left to right (1 to 20). |
+| `rows` | [`TableRow`](#tablerow)`[]` | no | Its rows (at most 2,000 here; `roster.views.update` adds more, up to 10,000). |
+| `sort` | `string` | no | The column it's sorted by at first; as given if left out. |
+| `desc` | `boolean` | no | Sorted highest first. |
+| `empty` | `string` | no | What it says with no rows. |
+| `open` | [`TableRun`](#tablerun) | no | What `Enter` (or a double click) on a row runs. Without it, a row with a `host` opens that Host; others do nothing. |
+| `actions` | [`TableAction`](#tableaction)`[]` | no | What can be done to the selected row (at most 8). |
+
+### `Column`
+
+A table's column.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | The key of its value in each row's `cells`. |
+| `label` | `string` | yes | Its heading. |
+| `kind` | [`ColumnKind`](#columnkind) | no | How its values read and sort; `"text"` if left out. |
+| `width` | `number` | no | How wide, in characters; it shares the room with the others if left out. |
+
+### `ColumnKind`
+
+How a column's values read and sort.
+
+`"text"` is words, in the app's font. `"data"` is something you could paste into a shell (an address, a name), in the data font, sorted with the numbers in it as numbers (`10.0.0.9` before `10.0.0.10`). `"number"` is right-aligned with even digits, sorted as numbers.
+
+One of: `"text" \| "data" \| "number"`
+
+### `TableRow`
+
+A row of a table: plain data.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Unique in the table (at most 100 characters): updates and the selection follow it. |
+| `cells` | `table<string, string\|number>` | no | Its value in each column, by the column's `id`; a column it lacks is blank and sorts last. |
+| `host` | `string` | no | The Host it's about: `Enter` opens it when the table has no `open`, and actions get it as `e.host`. |
+| `tone` | [`RowTone`](#rowtone) | no | Drawn quieter (`"muted"`: ended, down) or marked (`"warn"`, `"error"`). |
+
+### `RowTone`
+
+How a table row is marked.
+
+One of: `"muted" \| "warn" \| "error"`
+
+### `TableAction`
+
+Something a table's selected row can do.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it does (`"Keep"`), on its button and in the key hints. |
+| `key` | `string` | no | One character that runs it on the selected row, not one the table uses itself. |
+| `icon` | [`RowIcon`](#rowicon) | no | Its button's icon; the label alone if left out. |
+| `run` | [`TableRun`](#tablerun) | yes | What it runs. |
+
+### `TableRun`
+
+What a table's row or action runs.
+
+A function gets a [TableEvent](#tableevent): which row, in which view or section, and its Host. A command line runs as typed after `:`.
+
+One of: `string \| fun(e: `[`TableEvent`](#tableevent)`): any`
+
+### `TableEvent`
+
+What a table's function gets.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `row` | `string` | yes | The row's `id`. |
+| `host` | `string` | no | The row's `host`, or the Host whose details the section is in. |
+| `view` | `string` | no | The view's id, in a view. |
+| `section` | `string` | no | The section's id, in a Host's details. |
 
 ### `Host`
 

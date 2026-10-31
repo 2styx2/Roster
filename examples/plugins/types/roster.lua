@@ -155,6 +155,86 @@
 ---@field title? string Its title.
 ---@field lines? string[] Its text, a line each (at most 2,000, each cut to 500 characters).
 
+--- A side panel or a full view (`roster.views.set`)
+---@class roster.View
+---@field title? string Its heading; the id if left out.
+---@field place? roster.ViewPlace Where it goes: `"panel"` (the default) or `"full"`.
+---@field text? string A few lines above the rest, in the app's voice; a blank line starts a paragraph.
+---@field facts? roster.Fact[] Label and value pairs, as a Host's details show them.
+---@field table? roster.Table A table of rows.
+
+--- Where a view goes
+---@alias roster.ViewPlace "panel"|"full"
+
+--- What `roster.views.update` changes
+---@class roster.ViewUpdate
+---@field title? string A new heading.
+---@field text? string New text; `""` takes it away.
+---@field facts? roster.Fact[] New facts, all of them.
+---@field rows? roster.TableRow[] Rows to add or replace, by `id` (at most 2,000 at once).
+---@field remove? string[] The ids of rows to take away.
+
+--- A section of a Host's details (`roster.details.set`)
+---@class roster.DetailsSection
+---@field title? string Its heading; the id if left out.
+---@field order? number Where it goes among the Plugins' sections, lowest first; 500 if left out.
+---@field text? string A few lines, in the app's voice.
+---@field facts? roster.Fact[] Label and value pairs.
+---@field table? roster.Table A table of rows.
+
+--- A label and its value
+---@class roster.Fact
+---@field label string What it is (`reach`).
+---@field value string Its value (`can reach 7 Hosts`).
+---@field data? boolean `true` for something you could paste into a shell (an address, a name), set in the data font.
+
+--- A table: columns, rows as plain data, and what a row can do
+---@class roster.Table
+---@field columns roster.Column[] Its columns, left to right (1 to 20).
+---@field rows? roster.TableRow[] Its rows (at most 2,000 here; `roster.views.update` adds more, up to 10,000).
+---@field sort? string The column it's sorted by at first; as given if left out.
+---@field desc? boolean Sorted highest first.
+---@field empty? string What it says with no rows.
+---@field open? roster.TableRun What `Enter` (or a double click) on a row runs. Without it, a row with a `host` opens that Host; others do nothing.
+---@field actions? roster.TableAction[] What can be done to the selected row (at most 8).
+
+--- A table's column
+---@class roster.Column
+---@field id string The key of its value in each row's `cells`.
+---@field label string Its heading.
+---@field kind? roster.ColumnKind How its values read and sort; `"text"` if left out.
+---@field width? number How wide, in characters; it shares the room with the others if left out.
+
+--- How a column's values read and sort
+---@alias roster.ColumnKind "text"|"data"|"number"
+
+--- A row of a table: plain data
+---@class roster.TableRow
+---@field id string Unique in the table (at most 100 characters): updates and the selection follow it.
+---@field cells? table<string, string|number> Its value in each column, by the column's `id`; a column it lacks is blank and sorts last.
+---@field host? string The Host it's about: `Enter` opens it when the table has no `open`, and actions get it as `e.host`.
+---@field tone? roster.RowTone Drawn quieter (`"muted"`: ended, down) or marked (`"warn"`, `"error"`).
+
+--- How a table row is marked
+---@alias roster.RowTone "muted"|"warn"|"error"
+
+--- Something a table's selected row can do
+---@class roster.TableAction
+---@field label string What it does (`"Keep"`), on its button and in the key hints.
+---@field key? string One character that runs it on the selected row, not one the table uses itself.
+---@field icon? roster.RowIcon Its button's icon; the label alone if left out.
+---@field run roster.TableRun What it runs.
+
+--- What a table's row or action runs
+---@alias roster.TableRun string|fun(e: roster.TableEvent): any
+
+--- What a table's function gets
+---@class roster.TableEvent
+---@field row string The row's `id`.
+---@field host? string The row's `host`, or the Host whose details the section is in.
+---@field view? string The view's id, in a view.
+---@field section? string The section's id, in a Host's details.
+
 --- A Host, as roster serve's `hosts.list` and `host.get` give it
 ---@class roster.Host
 ---@field name string Its name in the Inventory, unique.
@@ -532,6 +612,51 @@ function roster.float.open(float) end
 --- Closes the Plugin's floating window.
 --- Permission: none. Since: api 2.
 function roster.float.close() end
+
+--- Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again.
+roster.views = {}
+
+--- Adds a view, or replaces it.
+--- Permission: none. Since: api 3.
+---@param id string The view's id: a name like `discover`. `:view ID` opens it.
+---@param view roster.View Where it goes, its title, text, facts and table.
+function roster.views.set(id, view) end
+
+--- Changes some of a view's rows in place, or its text or facts.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's views.
+---@param changes roster.ViewUpdate What changes: rows to add or replace, rows to take away, and the text or facts.
+function roster.views.update(id, changes) end
+
+--- Opens a view.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's views.
+function roster.views.open(id) end
+
+--- Closes a view, if it's open.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's views.
+function roster.views.close(id) end
+
+--- Removes a view.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's views.
+function roster.views.remove(id) end
+
+--- Sections of a Host's details. Your own sections in a Host's details panel (`:info HOST`), after roster's: set per Host, like a badge.
+roster.details = {}
+
+--- Adds a section to a Host's details, or replaces it.
+--- Permission: none. Since: api 3.
+---@param id string The section's id: a name like `mesh`.
+---@param host string The Host's name in the Inventory.
+---@param section? roster.DetailsSection Its title, text, facts and table; `nil` takes this Host's away.
+function roster.details.set(id, host, section) end
+
+--- Removes a section from every Host's details.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's sections.
+function roster.details.remove(id) end
 
 --- The clipboard. 
 roster.clipboard = {}

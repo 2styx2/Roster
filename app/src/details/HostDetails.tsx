@@ -10,6 +10,8 @@ import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
 import { countOf } from "../ui/format";
 import { hostFacts, serviceRows } from "./details";
+import { ViewContent } from "../view/ViewContent";
+import type { DetailsSectionDef } from "../view/views";
 
 export interface HostDetailsProps {
   host: Host;
@@ -20,6 +22,8 @@ export interface HostDetailsProps {
   /** `:open`'s keys hint: the command line's keys, or null when hints are off. */
   cmdlineKeys: string | null;
   leader: string;
+  /** Sections Plugins add for this Host (ticket 76), in order. */
+  sections?: readonly DetailsSectionDef[];
 }
 
 /** An arrow out of a box: it leaves the app, for the default browser. */
@@ -31,7 +35,7 @@ const OutGlyph = () => (
 
 const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
-export function HostDetails({ host, groups, onOpen, onClose, cmdlineKeys, leader }: HostDetailsProps) {
+export function HostDetails({ host, groups, onOpen, onClose, cmdlineKeys, leader, sections = [] }: HostDetailsProps) {
   const facts = hostFacts(host, groups);
   const services = serviceRows(host);
   const problems = host.problems ?? [];
@@ -104,6 +108,14 @@ export function HostDetails({ host, groups, onOpen, onClose, cmdlineKeys, leader
           </ul>
         </>
       )}
+      {sections.map((s) => (
+        <section key={s.id} className="details-section" aria-label={`${s.title} (from ${s.source})`}>
+          <h3 className="details-heading">
+            {s.title} <span className="details-count">{s.source}</span>
+          </h3>
+          <ViewContent content={s.content} label={`${s.title} of ${host.name}`} leader={leader} />
+        </section>
+      ))}
       {anyWeb && (
         <p className="details-foot muted key-hint">
           {cmdlineKeys ? (

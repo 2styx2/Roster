@@ -24,6 +24,8 @@ export interface FakeRoster {
   tutor: { set(id: string, spec: Spec): void; remove(id: string): void };
   badges: { set(host: string, text: string | null): void };
   float: { open(spec: Spec): void; close(): void };
+  views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string): void; close(id: string): void; remove(id: string): void };
+  details: { set(id: string, host: string, spec: Spec | null): void; remove(id: string): void };
   clipboard: { copy(text: string): void };
   notify(text: string, level?: "info" | "warn" | "error"): void;
   on(event: PluginEventName, f: Fn): void;
@@ -205,6 +207,20 @@ export function fakePluginHost(
       tutor: piece("tutor"),
       badges: { set: (host, text) => push({ op: "badge", host, text }) },
       float: { open: (spec) => push({ op: "float", spec }), close: () => push({ op: "float", spec: null }) },
+      views: {
+        set: (id, spec) => push({ op: "view", id, spec }),
+        update: (id, changes) => push({ op: "view_update", id, changes }),
+        open: (id) => {
+          if (!userCall) throw new Error("roster.views.open: only while the user runs one of your actions, commands or finder items");
+          push({ op: "view_open", id });
+        },
+        close: (id) => push({ op: "view_close", id }),
+        remove: (id) => push({ op: "remove", kind: "view", id }),
+      },
+      details: {
+        set: (id, host, spec) => push({ op: "details", id, host, spec }),
+        remove: (id) => push({ op: "remove", kind: "details", id }),
+      },
       clipboard: {
         copy: (text) => {
           if (!userCall) throw new Error("roster.clipboard.copy: only while the user runs one of your actions, commands or finder items");
