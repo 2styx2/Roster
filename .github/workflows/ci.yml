@@ -3,7 +3,8 @@
 #        Tests need no network, SSH server or password manager (stand-in bw/op/pass/ssh in tests/fakes).
 #   App  (app/, crates/roster-core, app/src-tauri): tsc + ESLint + Vitest; rustfmt, clippy and
 #        cargo test on Linux (with the WebKitGTK/D-Bus dev packages, so clippy covers the Tauri
-#        crate too); release builds of the Windows and Linux apps.
+#        crate too); release builds of the Windows and Linux apps; lua-language-server over the
+#        example Plugins, against the Plugin API's generated stubs.
 name: CI
 
 on:
@@ -133,6 +134,25 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npm run check
+
+  plugin-types:
+    name: Plugin types (lua-language-server)
+    runs-on: ubuntu-latest
+    env:
+      LUALS_VERSION: "3.19.2"
+      LUALS_SHA256: 93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947
+    steps:
+      - uses: actions/checkout@v4
+      # The example Plugins, type-checked against the generated stubs (examples/plugins/types/roster.lua,
+      # ticket 70): a pinned release, checked against its digest.
+      - name: Install lua-language-server
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -fsSL -o "$RUNNER_TEMP/luals.tar.gz" \
+            "https://github.com/LuaLS/lua-language-server/releases/download/$LUALS_VERSION/lua-language-server-$LUALS_VERSION-linux-x64.tar.gz"
+          echo "$LUALS_SHA256  $RUNNER_TEMP/luals.tar.gz" | sha256sum --check
+          tar xzf "$RUNNER_TEMP/luals.tar.gz" -C "$RUNNER_TEMP/luals"
+      - run: '"$RUNNER_TEMP/luals/bin/lua-language-server" --check examples/plugins --checklevel=Hint'
 
   app-rust:
     name: App Rust (fmt, clippy, cargo test)

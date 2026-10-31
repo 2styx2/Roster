@@ -19,6 +19,9 @@ import news from "../../../docs/news.md?raw";
 import meshGuide from "../../../docs/mesh.md?raw";
 import newBox from "../../../docs/new-box.md?raw";
 import plugins from "../../../docs/plugins.md?raw";
+import pluginApi from "../../../docs/plugin-api.md?raw";
+import pluginStubs from "../../../examples/plugins/types/roster.lua?raw";
+import pluginApiData from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
 import serveApi from "../../../docs/serve-api.md?raw";
 
 /** Where a page sits on the index, in this order (Neovim's help.txt groups its files the same way,
@@ -185,13 +188,34 @@ export const guides: readonly Guide[] = [
     part: "Extending",
     order: 81,
     aliases: {
-      "plugin-api": "plugins#the-roster-module",
       permissions: "plugins#permissions",
-      "plugin-events": "plugins#events",
+      "plugin-events": "plugin-api#events",
       ":plugins": "plugins#installing-and-trusting",
       ":packages": "plugins#packages",
     },
     markdown: plugins,
+  },
+  {
+    id: "plugin-api",
+    path: "docs/plugin-api.md",
+    title: "The Plugin API",
+    summary: "Every roster.* function and value, with parameters, returns, errors and an example; every type and event",
+    part: "Extending",
+    order: 82,
+    // `:help roster.inventory.host()`, `:help roster-Host`: one topic per function, value, module
+    // and type, written by the generator with the page (crates/roster-core/src/plugin/api.rs).
+    aliases: { "roster-api": "plugin-api", ...pluginApiData.tags },
+    markdown: pluginApi,
+  },
+  {
+    id: "plugin-types",
+    path: "examples/plugins/types/roster.lua",
+    title: "roster.lua: the Plugin API's types",
+    summary: "The LuaCATS annotations for lua-language-server: completion and type checks for Plugins",
+    part: "Extending",
+    order: 83,
+    aliases: { "roster.lua": "plugin-types", luals: "plugin-types", "lua-language-server": "plugin-types" },
+    markdown: `# roster.lua: the Plugin API's types\n\nThe whole [Plugin API](../../../docs/plugin-api.md) as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations. Save it as \`types/roster.lua\` next to your Plugin's \`init.lua\` and point lua-language-server at it: [Editor support](../../../docs/plugin-api.md#editor-support). It's the copy this app was built with, so it matches this app's API.\n\n\`\`\`lua\n${pluginStubs}\n\`\`\`\n`,
   },
   {
     id: "news",

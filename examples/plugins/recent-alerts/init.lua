@@ -6,6 +6,8 @@
 --
 -- Settings come from init.lua, where you name it as a Package:
 --   packages = { { "someone/recent-alerts", config = { patterns = { "ERROR", "panic" }, leader = "w w" } } }
+-- The ---@ comments are LuaCATS annotations: with ../types/roster.lua (docs/plugin-api.md,
+-- "Editor support"), lua-language-server completes roster.* and checks what we hand the app.
 local roster = require("roster")
 local match = require("recent-alerts.match")
 
@@ -24,6 +26,16 @@ local function granted(permission)
 end
 local reads = granted("terminal.read")
 
+---@class Alert
+---@field id integer
+---@field host string? nil: a Quick Connect Session
+---@field session integer
+---@field text string
+---@field pattern string
+---@field at integer
+---@field before string[]
+
+---@type Alert[]
 local alerts = {} -- oldest first: { id, host, session, text, pattern, at, before } (host nil: Quick Connect)
 local next_id = 0
 local carry = {} -- per Session: the end of its output that isn't a whole line yet
@@ -33,7 +45,9 @@ local told = {} -- per Host (or Quick Connect): when its last notice was, and th
 local CONTEXT = 3
 local QUICK = "Quick Connect"
 
-local function clock(at) return os.date("%H:%M:%S", at) end
+---@param at integer
+---@return string
+local function clock(at) return os.date("%H:%M:%S", at) --[[@as string]] end
 
 local function plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
 
@@ -45,11 +59,13 @@ end
 local show -- below: draws everything from `alerts`
 
 -- Where an alert came from, as its row says it: the Host, or Quick Connect (no Host to name).
+---@param a Alert
 local function where(a) return a.host or QUICK end
 
+---@param a Alert
 local function details(a)
   local lines = {
-    "Host     " .. (a.host or "none (" .. QUICK .. ")"),
+    "Host     " .. (a.host or ("none (" .. QUICK .. ")")),
     "Session  " .. a.session,
     "At       " .. os.date("%Y-%m-%d %H:%M:%S", a.at),
     "Matched  " .. a.pattern,
@@ -77,6 +93,7 @@ local function clear()
 end
 
 show = function()
+  ---@type roster.Row[], roster.FinderItem[], table<string, integer>
   local rows, items, per_host = {}, {}, {}
   -- Newest first.
   for i = #alerts, 1, -1 do
@@ -135,6 +152,7 @@ end
 
 roster.commands.add("alerts", {
   desc = "Recent alerts: :alerts shows them, :alerts clear dismisses them all",
+  ---@param a roster.CommandArgs
   run = function(a)
     local what = a.words[1]
     if what == "clear" then
@@ -201,6 +219,7 @@ local function tell(fresh)
 end
 
 if reads then
+  ---@param e roster.TerminalOutputEvent
   roster.on("terminal_output", function(e)
     -- nil for a Quick Connect Session: it isn't a Host of the Inventory.
     local host = e.host

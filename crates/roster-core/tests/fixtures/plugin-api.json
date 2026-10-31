@@ -1,0 +1,1803 @@
+{
+  "api_version": 2,
+  "events": [
+    {
+      "name": "lock",
+      "needs": [],
+      "payload": "EmptyEvent"
+    },
+    {
+      "name": "unlock",
+      "needs": [],
+      "payload": "EmptyEvent"
+    },
+    {
+      "name": "host_selected",
+      "needs": [
+        "inventory.read",
+        "terminal.read"
+      ],
+      "payload": "HostSelectedEvent"
+    },
+    {
+      "name": "session_open",
+      "needs": [
+        "inventory.read",
+        "terminal.read"
+      ],
+      "payload": "SessionOpenEvent"
+    },
+    {
+      "name": "session_exit",
+      "needs": [
+        "inventory.read",
+        "terminal.read"
+      ],
+      "payload": "SessionExitEvent"
+    },
+    {
+      "name": "inventory_changed",
+      "needs": [
+        "inventory.read"
+      ],
+      "payload": "EmptyEvent"
+    },
+    {
+      "name": "terminal_output",
+      "needs": [
+        "terminal.read"
+      ],
+      "payload": "TerminalOutputEvent"
+    }
+  ],
+  "functions": [
+    {
+      "params": [
+        {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "level",
+          "optional": true,
+          "type": "Level"
+        }
+      ],
+      "path": "roster.notify",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "event",
+          "optional": false,
+          "type": "EventName"
+        },
+        {
+          "name": "listener",
+          "optional": false,
+          "type": "fun(e: table)"
+        }
+      ],
+      "path": "roster.on",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "spec",
+          "optional": false,
+          "type": "CommandSpec"
+        }
+      ],
+      "path": "roster.commands.add",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.commands.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "context",
+          "optional": false,
+          "type": "KeyContext"
+        },
+        {
+          "name": "keys",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "action",
+          "optional": false,
+          "type": "string|false"
+        }
+      ],
+      "path": "roster.keymap.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "theme",
+          "optional": false,
+          "type": "Theme"
+        }
+      ],
+      "path": "roster.themes.define",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "section",
+          "optional": false,
+          "type": "Section"
+        }
+      ],
+      "path": "roster.sidebar.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.sidebar.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "segment",
+          "optional": false,
+          "type": "StatusSegment"
+        }
+      ],
+      "path": "roster.status.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.status.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "finder",
+          "optional": false,
+          "type": "Finder"
+        }
+      ],
+      "path": "roster.finders.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.finders.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "topic",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "page",
+          "optional": false,
+          "type": "HelpPage"
+        }
+      ],
+      "path": "roster.help.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "topic",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.help.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "section",
+          "optional": false,
+          "type": "HealthSection"
+        }
+      ],
+      "path": "roster.health.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.health.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "tutorial",
+          "optional": false,
+          "type": "Tutorial"
+        }
+      ],
+      "path": "roster.tutor.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.tutor.remove",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "optional": true,
+          "type": "string"
+        }
+      ],
+      "path": "roster.badges.set",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "float",
+          "optional": false,
+          "type": "Float"
+        }
+      ],
+      "path": "roster.float.open",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [],
+      "path": "roster.float.close",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.clipboard.copy",
+      "permission": null,
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [],
+      "path": "roster.inventory.hosts",
+      "permission": "inventory.read",
+      "returns": "Host[]",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.inventory.host",
+      "permission": "inventory.read",
+      "returns": "Host",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "changes",
+          "optional": false,
+          "type": "Change"
+        }
+      ],
+      "path": "roster.inventory.update",
+      "permission": "inventory.write",
+      "returns": "UpdateResult",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "to",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.inventory.rename",
+      "permission": "inventory.write",
+      "returns": "RenameResult",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "group",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.inventory.move",
+      "permission": "inventory.write",
+      "returns": "MoveResult",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "reviewed",
+          "optional": true,
+          "type": "boolean"
+        }
+      ],
+      "path": "roster.inventory.review",
+      "permission": "inventory.write",
+      "returns": "ReviewResult",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.sessions.open",
+      "permission": "sessions.open",
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "session",
+          "optional": false,
+          "type": "integer"
+        },
+        {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.terminal.send",
+      "permission": "terminal.write",
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "method",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "params",
+          "optional": true,
+          "type": "table"
+        }
+      ],
+      "path": "roster.serve.call",
+      "permission": "serve:*",
+      "returns": "any",
+      "since": 2
+    }
+  ],
+  "tags": {
+    "roster-Change": "plugin-api#change",
+    "roster-ChangesDiff": "plugin-api#changesdiff",
+    "roster-CheckStep": "plugin-api#checkstep",
+    "roster-CommandArgs": "plugin-api#commandargs",
+    "roster-CommandSpec": "plugin-api#commandspec",
+    "roster-EmptyEvent": "plugin-api#emptyevent",
+    "roster-EventName": "plugin-api#eventname",
+    "roster-Finder": "plugin-api#finder",
+    "roster-FinderItem": "plugin-api#finderitem",
+    "roster-Float": "plugin-api#float",
+    "roster-Group": "plugin-api#group",
+    "roster-GroupChange": "plugin-api#groupchange",
+    "roster-HealthCheck": "plugin-api#healthcheck",
+    "roster-HealthSection": "plugin-api#healthsection",
+    "roster-HelpPage": "plugin-api#helppage",
+    "roster-Host": "plugin-api#host",
+    "roster-HostChange": "plugin-api#hostchange",
+    "roster-HostCheck": "plugin-api#hostcheck",
+    "roster-HostList": "plugin-api#hostlist",
+    "roster-HostSelectedEvent": "plugin-api#hostselectedevent",
+    "roster-InventoryError": "plugin-api#inventoryerror",
+    "roster-InventoryInfo": "plugin-api#inventoryinfo",
+    "roster-KeyContext": "plugin-api#keycontext",
+    "roster-LastCommit": "plugin-api#lastcommit",
+    "roster-Lesson": "plugin-api#lesson",
+    "roster-Level": "plugin-api#level",
+    "roster-Login": "plugin-api#login",
+    "roster-LoginRef": "plugin-api#loginref",
+    "roster-Manifest": "plugin-api#manifest",
+    "roster-MoveResult": "plugin-api#moveresult",
+    "roster-Os": "plugin-api#os",
+    "roster-Permission": "plugin-api#permission",
+    "roster-Plugin": "plugin-api#plugin",
+    "roster-RenameResult": "plugin-api#renameresult",
+    "roster-ReviewResult": "plugin-api#reviewresult",
+    "roster-Row": "plugin-api#row",
+    "roster-RowAction": "plugin-api#rowaction",
+    "roster-RowIcon": "plugin-api#rowicon",
+    "roster-Run": "plugin-api#run",
+    "roster-Section": "plugin-api#section",
+    "roster-Service": "plugin-api#service",
+    "roster-ServiceProblem": "plugin-api#serviceproblem",
+    "roster-SessionExitEvent": "plugin-api#sessionexitevent",
+    "roster-SessionOpenEvent": "plugin-api#sessionopenevent",
+    "roster-SshLogin": "plugin-api#sshlogin",
+    "roster-StatusSegment": "plugin-api#statussegment",
+    "roster-Step": "plugin-api#step",
+    "roster-StepMatch": "plugin-api#stepmatch",
+    "roster-TerminalOutputEvent": "plugin-api#terminaloutputevent",
+    "roster-Theme": "plugin-api#theme",
+    "roster-TutorEvent": "plugin-api#tutorevent",
+    "roster-Tutorial": "plugin-api#tutorial",
+    "roster-UpdateResult": "plugin-api#updateresult",
+    "roster.api_version": "plugin-api#rosterapi_version",
+    "roster.badges": "plugin-api#rosterbadges",
+    "roster.badges.set()": "plugin-api#rosterbadgessethost-text",
+    "roster.clipboard": "plugin-api#rosterclipboard",
+    "roster.clipboard.copy()": "plugin-api#rosterclipboardcopytext",
+    "roster.commands": "plugin-api#rostercommands",
+    "roster.commands.add()": "plugin-api#rostercommandsaddname-spec",
+    "roster.commands.remove()": "plugin-api#rostercommandsremovename",
+    "roster.finders": "plugin-api#rosterfinders",
+    "roster.finders.remove()": "plugin-api#rosterfindersremoveid",
+    "roster.finders.set()": "plugin-api#rosterfinderssetid-finder",
+    "roster.float": "plugin-api#rosterfloat",
+    "roster.float.close()": "plugin-api#rosterfloatclose",
+    "roster.float.open()": "plugin-api#rosterfloatopenfloat",
+    "roster.health": "plugin-api#rosterhealth",
+    "roster.health.remove()": "plugin-api#rosterhealthremoveid",
+    "roster.health.set()": "plugin-api#rosterhealthsetid-section",
+    "roster.help": "plugin-api#rosterhelp",
+    "roster.help.remove()": "plugin-api#rosterhelpremovetopic",
+    "roster.help.set()": "plugin-api#rosterhelpsettopic-page",
+    "roster.inventory": "plugin-api#rosterinventory",
+    "roster.inventory.host()": "plugin-api#rosterinventoryhostname",
+    "roster.inventory.hosts()": "plugin-api#rosterinventoryhosts",
+    "roster.inventory.move()": "plugin-api#rosterinventorymovehost-group",
+    "roster.inventory.rename()": "plugin-api#rosterinventoryrenamehost-to",
+    "roster.inventory.review()": "plugin-api#rosterinventoryreviewhost-reviewed",
+    "roster.inventory.update()": "plugin-api#rosterinventoryupdatehost-changes",
+    "roster.keymap": "plugin-api#rosterkeymap",
+    "roster.keymap.set()": "plugin-api#rosterkeymapsetcontext-keys-action",
+    "roster.notify()": "plugin-api#rosternotifytext-level",
+    "roster.on()": "plugin-api#rosteronevent-listener",
+    "roster.os": "plugin-api#rosteros",
+    "roster.plugin": "plugin-api#rosterplugin",
+    "roster.serve": "plugin-api#rosterserve",
+    "roster.serve.call()": "plugin-api#rosterservecallmethod-params",
+    "roster.sessions": "plugin-api#rostersessions",
+    "roster.sessions.open()": "plugin-api#rostersessionsopenhost",
+    "roster.sidebar": "plugin-api#rostersidebar",
+    "roster.sidebar.remove()": "plugin-api#rostersidebarremoveid",
+    "roster.sidebar.set()": "plugin-api#rostersidebarsetid-section",
+    "roster.status": "plugin-api#rosterstatus",
+    "roster.status.remove()": "plugin-api#rosterstatusremoveid",
+    "roster.status.set()": "plugin-api#rosterstatussetid-segment",
+    "roster.terminal": "plugin-api#rosterterminal",
+    "roster.terminal.send()": "plugin-api#rosterterminalsendsession-text",
+    "roster.themes": "plugin-api#rosterthemes",
+    "roster.themes.define()": "plugin-api#rosterthemesdefineid-theme",
+    "roster.tutor": "plugin-api#rostertutor",
+    "roster.tutor.remove()": "plugin-api#rostertutorremoveid",
+    "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial"
+  },
+  "types": {
+    "Change": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "ip",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "user",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "port",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "auth",
+          "required": false,
+          "type": "LoginRef"
+        }
+      ],
+      "open": false
+    },
+    "ChangesDiff": {
+      "fields": [
+        {
+          "name": "path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "diff",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "hosts",
+          "required": true,
+          "type": "HostChange[]"
+        },
+        {
+          "name": "groups",
+          "required": true,
+          "type": "GroupChange[]"
+        },
+        {
+          "name": "count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "last_commit",
+          "required": false,
+          "type": "LastCommit"
+        }
+      ],
+      "open": false
+    },
+    "CheckStep": {
+      "fields": [
+        {
+          "name": "step",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "\"ok\"|\"fail\"|\"skipped\""
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "code",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "fix",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "details",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "data",
+          "required": false,
+          "type": "table"
+        }
+      ],
+      "open": false
+    },
+    "CommandArgs": {
+      "fields": [
+        {
+          "name": "args",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "words",
+          "required": true,
+          "type": "string[]"
+        }
+      ],
+      "open": false
+    },
+    "CommandSpec": {
+      "fields": [
+        {
+          "name": "desc",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "string|fun(args: CommandArgs): any"
+        }
+      ],
+      "open": false
+    },
+    "EmptyEvent": {
+      "fields": [],
+      "open": false
+    },
+    "EventName": {
+      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\""
+    },
+    "Finder": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "items",
+          "required": false,
+          "type": "FinderItem[]"
+        }
+      ],
+      "open": false
+    },
+    "FinderItem": {
+      "fields": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "detail",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "path",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "Float": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "lines",
+          "required": false,
+          "type": "string[]"
+        }
+      ],
+      "open": false
+    },
+    "Group": {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "GroupChange": {
+      "fields": [
+        {
+          "name": "group",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change",
+          "required": true,
+          "type": "\"changed\"|\"added\"|\"removed\""
+        }
+      ],
+      "open": false
+    },
+    "HealthCheck": {
+      "fields": [
+        {
+          "name": "level",
+          "required": true,
+          "type": "\"ok\"|\"warn\"|\"error\""
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fix",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "HealthSection": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "checks",
+          "required": false,
+          "type": "HealthCheck[]"
+        }
+      ],
+      "open": false
+    },
+    "HelpPage": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "markdown",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "Host": {
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "group",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "ip",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "ssh",
+          "required": true,
+          "type": "SshLogin"
+        },
+        {
+          "name": "login",
+          "required": true,
+          "type": "Login"
+        },
+        {
+          "name": "services",
+          "required": true,
+          "type": "table<string, Service>"
+        },
+        {
+          "name": "problems",
+          "required": true,
+          "type": "ServiceProblem[]"
+        },
+        {
+          "name": "web",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "enroll",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "reviewed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "mesh",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "product",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "mac",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "notes",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "user",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "port",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "auth",
+          "required": true,
+          "type": "LoginRef"
+        }
+      ],
+      "open": true
+    },
+    "HostChange": {
+      "fields": [
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "change",
+          "required": true,
+          "type": "\"changed\"|\"added\"|\"removed\""
+        },
+        {
+          "name": "fields",
+          "required": true,
+          "type": "string[]"
+        }
+      ],
+      "open": false
+    },
+    "HostCheck": {
+      "fields": [
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "ok",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "steps",
+          "required": true,
+          "type": "CheckStep[]"
+        }
+      ],
+      "open": false
+    },
+    "HostList": {
+      "fields": [
+        {
+          "name": "hosts",
+          "required": true,
+          "type": "Host[]"
+        },
+        {
+          "name": "groups",
+          "required": true,
+          "type": "table<string, Group>"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "InventoryError"
+        }
+      ],
+      "open": false
+    },
+    "HostSelectedEvent": {
+      "fields": [
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "InventoryError": {
+      "fields": [
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "path",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "line",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "fix",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "InventoryInfo": {
+      "fields": [
+        {
+          "name": "path",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "box",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "host_count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "providers",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "roster_version",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "api_version",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "KeyContext": {
+      "alias": "\"leader\"|\"list\"|\"list_vim\""
+    },
+    "LastCommit": {
+      "fields": [
+        {
+          "name": "commit",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "upstream",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "open": false
+    },
+    "Lesson": {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "steps",
+          "required": false,
+          "type": "Step[]"
+        }
+      ],
+      "open": false
+    },
+    "Level": {
+      "alias": "\"info\"|\"warn\"|\"error\""
+    },
+    "Login": {
+      "fields": [
+        {
+          "name": "user",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "auth",
+          "required": false,
+          "type": "LoginRef"
+        }
+      ],
+      "open": false
+    },
+    "LoginRef": {
+      "alias": "string"
+    },
+    "Manifest": {
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "version",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "author",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "api",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "permissions",
+          "required": false,
+          "type": "Permission[]"
+        }
+      ],
+      "open": false
+    },
+    "MoveResult": {
+      "fields": [
+        {
+          "name": "changed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "host",
+          "required": true,
+          "type": "Host"
+        },
+        {
+          "name": "pinned",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "Os": {
+      "alias": "\"windows\"|\"linux\"|\"macos\""
+    },
+    "Permission": {
+      "alias": "\"inventory.read\"|\"inventory.write\"|\"sessions.open\"|\"terminal.read\"|\"terminal.write\"|string"
+    },
+    "Plugin": {
+      "fields": [
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "version",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "permissions",
+          "required": true,
+          "type": "Permission[]"
+        },
+        {
+          "name": "config",
+          "required": true,
+          "type": "table"
+        }
+      ],
+      "open": false
+    },
+    "RenameResult": {
+      "fields": [
+        {
+          "name": "changed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "host",
+          "required": true,
+          "type": "Host"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "ReviewResult": {
+      "fields": [
+        {
+          "name": "changed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "host",
+          "required": true,
+          "type": "Host"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "Row": {
+      "fields": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "detail",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "note",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "badge",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "count",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "level",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": false,
+          "type": "Run"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "RowAction[]"
+        }
+      ],
+      "open": false
+    },
+    "RowAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "RowIcon"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "RowIcon": {
+      "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\""
+    },
+    "Run": {
+      "alias": "string|fun(args: table): any"
+    },
+    "Section": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "order",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "empty",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "rows",
+          "required": false,
+          "type": "Row[]"
+        }
+      ],
+      "open": false
+    },
+    "Service": {
+      "fields": [
+        {
+          "name": "port",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "scheme",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "user",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "auth",
+          "required": false,
+          "type": "LoginRef"
+        },
+        {
+          "name": "verify",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "login",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "override",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "open": false
+    },
+    "ServiceProblem": {
+      "fields": [
+        {
+          "name": "service",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "fix",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "SessionExitEvent": {
+      "fields": [
+        {
+          "name": "session",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "code",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "SessionOpenEvent": {
+      "fields": [
+        {
+          "name": "session",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "SshLogin": {
+      "fields": [
+        {
+          "name": "user",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "port",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "auth",
+          "required": true,
+          "type": "LoginRef"
+        }
+      ],
+      "open": false
+    },
+    "StatusSegment": {
+      "fields": [
+        {
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": false,
+          "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "Step": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "on",
+          "required": true,
+          "type": "StepMatch|StepMatch[]"
+        }
+      ],
+      "open": false
+    },
+    "StepMatch": {
+      "fields": [
+        {
+          "name": "event",
+          "required": true,
+          "type": "TutorEvent"
+        },
+        {
+          "name": "[string]",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "TerminalOutputEvent": {
+      "fields": [
+        {
+          "name": "session",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "Theme": {
+      "fields": [
+        {
+          "name": "label",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "appearance",
+          "required": false,
+          "type": "\"dark\"|\"light\""
+        },
+        {
+          "name": "base",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "colors",
+          "required": false,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "terminal",
+          "required": false,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "ansi",
+          "required": false,
+          "type": "table<string, string>|false"
+        }
+      ],
+      "open": false
+    },
+    "TutorEvent": {
+      "alias": "\"command\"|\"session_open\"|\"session_exit\"|\"host_selected\"|\"help_open\"|\"help_back\"|\"help_forward\"|\"help_search\""
+    },
+    "Tutorial": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "intro",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "lessons",
+          "required": true,
+          "type": "Lesson[]"
+        },
+        {
+          "name": "outro",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "UpdateResult": {
+      "fields": [
+        {
+          "name": "changed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "host",
+          "required": true,
+          "type": "Host"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "warnings",
+          "required": false,
+          "type": "string[]"
+        }
+      ],
+      "open": false
+    }
+  },
+  "values": [
+    {
+      "path": "roster.api_version",
+      "type": "integer"
+    },
+    {
+      "path": "roster.os",
+      "type": "Os"
+    },
+    {
+      "path": "roster.plugin",
+      "type": "Plugin"
+    }
+  ]
+}
