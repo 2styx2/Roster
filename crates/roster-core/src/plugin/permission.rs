@@ -36,7 +36,14 @@ const READS: &[&str] = &[
     "changes.diff",
     "mesh.status",
     "mesh.plan",
+    "discover.plan",
+    "discover.status",
+    "discover.stop",
 ];
+/// The grantable methods that act on the network or the Inventory: a Plugin may call them only
+/// while the user runs one of its actions, commands or finder items (a question's answer
+/// included), never at load, on an event or from a timer (decision Q100).
+pub const SERVE_USER_ONLY: &[&str] = &["discover.start", "discover.add"];
 /// Families a Plugin may be granted methods of (the mesh and discover Plugins, decision Q80).
 pub const SERVE_PREFIXES: &[&str] = &["mesh.", "discover."];
 
@@ -98,6 +105,10 @@ impl Permission {
                 "Can type into your open Sessions, as if you typed it: it can run commands on your servers.".into()
             }
             Permission::Network(site) => site.risk(),
+            Permission::Serve(m) if m == "discover.start" => "Can scan networks from this computer, once you've confirmed it: roster connects to every address in a range, on many ports. A network's security tools may take a scan for an attack, so scan only networks you may.".into(),
+            Permission::Serve(m) if m == "discover.add" => {
+                "Can add the Hosts a scan found to your Inventory, unreviewed, as Pending changes you review and Publish.".into()
+            }
             Permission::Serve(m) if !READS.contains(&m.as_str()) => {
                 format!("Can run roster's {m}, which can change things on your Hosts or in the Inventory.")
             }
@@ -113,6 +124,8 @@ impl Permission {
             Permission::SessionsOpen => "Open Sessions".into(),
             Permission::TerminalRead => "Read what your Sessions print".into(),
             Permission::TerminalWrite => "Type into your Sessions".into(),
+            Permission::Serve(m) if m == "discover.start" => "Scan a network you name, from this computer".into(),
+            Permission::Serve(m) if m == "discover.add" => "Add the Hosts a scan found, as Pending changes".into(),
             Permission::Serve(m) => format!("Call roster's {m}"),
             Permission::Network(site) => format!("Send and fetch over the network: {}", site.shown()),
         }
@@ -158,6 +171,7 @@ mod tests {
         assert_eq!(list(&t, "serve_methods"), SERVE_METHODS);
         assert_eq!(list(&t, "serve_prefixes"), SERVE_PREFIXES);
         assert_eq!(list(&t, "serve_reads"), READS);
+        assert_eq!(list(&t, "serve_user_only"), SERVE_USER_ONLY);
         let names: Vec<String> = [
             Permission::InventoryRead,
             Permission::InventoryWrite,
@@ -169,6 +183,16 @@ mod tests {
         .map(Permission::to_string)
         .collect();
         assert_eq!(list(&t, "permissions"), names);
+    }
+
+    #[test]
+    fn a_serve_method_is_summed_up_and_flagged_as_the_fake_backend_says() {
+        let t = table();
+        for (p, want) in t["serve"].as_object().unwrap() {
+            let parsed = Permission::parse(p).unwrap();
+            assert_eq!(parsed.summary(), want["summary"].as_str().unwrap(), "{p}");
+            assert_eq!(parsed.risk().as_deref(), want["risk"].as_str(), "{p}");
+        }
     }
 
     #[test]

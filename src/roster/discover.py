@@ -1,6 +1,7 @@
 """Network discovery with nmap (or a built-in scanner) feeding roster.yml."""
 
 import concurrent.futures as cf
+import datetime
 import ipaddress
 import json
 import os
@@ -8,6 +9,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 from pathlib import Path
 
 import yaml
@@ -97,46 +99,58 @@ def parse_nmap_xml(text):
     return found
 
 
+def addresses_of(targets):
+    """The addresses a scan of TARGETS visits: each network's hosts (not its network or broadcast address)."""
+    nets = [ipaddress.ip_network(t, strict=False) for t in targets]
+    return [str(ip) for n in nets for ip in (n.hosts() if n.num_addresses > 2 else n)]
+
+
+def open_ports_of(ips, ports, timeout):
+    """{ip: [open port, ...]} for a plain TCP connect to each of PORTS on each of IPS."""
+    found = {}
+    with cf.ThreadPoolExecutor(256) as ex:
+        pairs = [(ip, p) for ip in ips for p in ports]
+        for (ip, p), ok in zip(pairs, ex.map(lambda t: tcp_ok(t[0], t[1], timeout=timeout), pairs), strict=False):
+            if ok:
+                found.setdefault(ip, []).append(p)
+    return found
+
+
+def describe(ip, open_ports):
+    """A scanned address with OPEN_PORTS, as parse_nmap_xml gives one: reverse DNS, and an SSH port's banner."""
+    rec = {"ip": ip, "hostname": "", "mac": "", "vendor": "", "os": "", "ports": []}
+    try:
+        rec["hostname"] = socket.gethostbyaddr(ip)[0]
+    except OSError:
+        pass
+    for p in sorted(open_ports):
+        try:
+            name = socket.getservbyport(p, "tcp")
+        except OSError:
+            name = "unknown"
+        product = ""
+        if p in (22, 2222) or name == "ssh":
+            try:
+                with socket.create_connection((ip, p), timeout=2) as s:
+                    banner = s.recv(200).decode(errors="replace").strip()
+                if banner.startswith("SSH-"):
+                    name, product = "ssh", banner.split("-", 2)[-1].replace("_", " ")
+            except OSError:
+                pass
+        rec["ports"].append({"port": p, "name": name, "product": product, "title": "",
+                             "ssl": p in (443, 8443, 9443, 8006, 10000)})
+    return rec
+
+
 def builtin_scan(targets, args):
     """No nmap: plain TCP connect scan, plus SSH banners and reverse DNS."""
-    nets = [ipaddress.ip_network(t, strict=False) for t in targets]
-    ips = [str(ip) for n in nets for ip in (n.hosts() if n.num_addresses > 2 else n)]
+    ips = addresses_of(targets)
     ports = [int(p) for p in args.ports.split(",") if p.strip()]
     say(f"scanning     {len(ips)} addresses x {len(ports)} ports with the built-in scanner "
         "(install nmap for service versions and web page titles)")
-    open_ports = {}
-    with cf.ThreadPoolExecutor(256) as ex:
-        pairs = [(ip, p) for ip in ips for p in ports]
-        for (ip, p), ok in zip(pairs, ex.map(lambda t: tcp_ok(t[0], t[1], timeout=args.timeout), pairs), strict=False):
-            if ok:
-                open_ports.setdefault(ip, []).append(p)
-
-    def describe(ip):
-        rec = {"ip": ip, "hostname": "", "mac": "", "vendor": "", "os": "", "ports": []}
-        try:
-            rec["hostname"] = socket.gethostbyaddr(ip)[0]
-        except OSError:
-            pass
-        for p in sorted(open_ports[ip]):
-            try:
-                name = socket.getservbyport(p, "tcp")
-            except OSError:
-                name = "unknown"
-            product = ""
-            if p in (22, 2222) or name == "ssh":
-                try:
-                    with socket.create_connection((ip, p), timeout=2) as s:
-                        banner = s.recv(200).decode(errors="replace").strip()
-                    if banner.startswith("SSH-"):
-                        name, product = "ssh", banner.split("-", 2)[-1].replace("_", " ")
-                except OSError:
-                    pass
-            rec["ports"].append({"port": p, "name": name, "product": product, "title": "",
-                                 "ssl": p in (443, 8443, 9443, 8006, 10000)})
-        return rec
-
+    open_ports = open_ports_of(ips, ports, args.timeout)
     with cf.ThreadPoolExecutor(64) as ex:
-        return list(ex.map(describe, sorted(open_ports, key=ipaddress.ip_address)))
+        return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=ipaddress.ip_address)))
 
 
 def guess_identity(rec):
@@ -307,15 +321,8 @@ def _defaults_user(cfg_path):
     return (raw.get("defaults") or {}).get("user")
 
 
-def write_discovered(cfg_path, group, entries, note, needs_user, today):
-    path = Path(cfg_path or "roster.yml").expanduser()
-    if path.exists():
-        text = path.read_text()
-    else:
-        text = (f"# roster.yml - started by `roster discover` on {today}. NO PASSWORDS IN THIS FILE.\n"
-                "# Every option, with comments:  roster -c example.yml init\n\n"
-                "box_name: \"\"\nkey_path: ~/.ssh/roster_ed25519\n\n"
-                "defaults:\n  auth: prompt\n\ngroups:\n")
+def with_group(text, group, entries, note, needs_user):
+    """roster.yml's TEXT with GROUP and its ENTRIES added first under `groups:` (made if there's none)."""
     m = re.search(r"(?m)^groups:[ \t]*(#.*)?$", text)
     if not m:
         if re.search(r"(?m)^groups:", text):
@@ -327,7 +334,19 @@ def write_discovered(cfg_path, group, entries, note, needs_user, today):
     indent = len(child.group(1)) if child and not after[:child.start()].strip(" \t\n#") else 2
     block = "\n".join(render_group(group, entries, note, needs_user, indent)) + "\n"
     insert_at = m.end() + 1 if text[m.end():m.end() + 1] == "\n" else m.end()
-    new_text = text[:insert_at] + ("" if text[insert_at - 1:insert_at] == "\n" else "\n") + block + text[insert_at:]
+    return text[:insert_at] + ("" if text[insert_at - 1:insert_at] == "\n" else "\n") + block + text[insert_at:]
+
+
+def write_discovered(cfg_path, group, entries, note, needs_user, today):
+    path = Path(cfg_path or "roster.yml").expanduser()
+    if path.exists():
+        text = path.read_text()
+    else:
+        text = (f"# roster.yml - started by `roster discover` on {today}. NO PASSWORDS IN THIS FILE.\n"
+                "# Every option, with comments:  roster -c example.yml init\n\n"
+                "box_name: \"\"\nkey_path: ~/.ssh/roster_ed25519\n\n"
+                "defaults:\n  auth: prompt\n\ngroups:\n")
+    new_text = with_group(text, group, entries, note, needs_user)
 
     tmp = path.with_name(path.name + ".new")
     tmp.write_text(new_text)
@@ -345,3 +364,209 @@ def write_discovered(cfg_path, group, entries, note, needs_user, today):
     say(f"next         open {path.name}: rename hosts (e.g. orion-dev-01), add titles/descriptions,")
     say("             set the login user, move hosts into the right groups if you like,")
     say(f"             then set `reviewed: true` and run:  roster setup --only {group}")
+
+
+# ---------------------------------------------------------------- a scan in roster serve (ticket 44)
+# `discover.*` in serve: the scan runs on a thread of its own, a batch of addresses at a time, so it can say how far
+# it has got, hand over what it found as it finds it, and stop between batches (nmap is killed mid-batch). The app's
+# UI for it is the first-party Plugin plugins/discover, which polls discover.status.
+
+LIMIT = 4096                # addresses a scan may visit without `force` (as `roster discover` without --force)
+MAX = 65536                 # ... and with it: a /16
+BATCH = {"nmap": 32, "built-in": 64}
+
+
+class TooMany(ValueError):
+    """More addresses than a scan may visit."""
+
+    def __init__(self, count, limit):
+        super().__init__(f"that's {count} addresses; at most {limit}")
+        self.count, self.limit = count, limit
+
+
+def address_count(net):
+    """How many addresses addresses_of visits in NET, without listing them."""
+    n = net.num_addresses
+    if n <= 2:
+        return n
+    return n - 2 if net.version == 4 else n - 1
+
+
+def check_targets(targets, force=False):
+    """TARGETS (a list of networks or addresses) normalised, and how many addresses they hold. ValueError if one
+    isn't a network; TooMany past LIMIT (MAX with FORCE)."""
+    if not isinstance(targets, list) or not targets or not all(isinstance(t, str) and t.strip() for t in targets):
+        raise ValueError("targets must be a list of networks or addresses, such as [\"10.0.0.0/24\"]")
+    nets = []
+    for t in targets:
+        try:
+            nets.append(ipaddress.ip_network(t.strip(), strict=False))
+        except ValueError:
+            raise ValueError(f"{t!r} isn't an IP address or network (e.g. 10.0.0.0/24)") from None
+    count = sum(address_count(n) for n in nets)
+    if count > (MAX if force else LIMIT):
+        raise TooMany(count, MAX if force else LIMIT)
+    return [str(n) if n.num_addresses > 1 else str(n.network_address) for n in nets], count
+
+
+def check_ports(ports):
+    """A port list such as "22,80,443" (DEFAULT_SCAN_PORTS if None), as text nmap takes; ValueError if it isn't."""
+    if ports is None:
+        return DEFAULT_SCAN_PORTS
+    bits = ports.split(",") if isinstance(ports, str) else []
+    if not bits or not all(b.strip().isdigit() and 1 <= int(b) <= 65535 for b in bits):
+        raise ValueError("ports must be TCP port numbers separated by commas, such as \"22,80,443\"")
+    return ",".join(str(int(b)) for b in bits)
+
+
+def scanner():
+    """"nmap" when it's installed, else roster's own "built-in" TCP connect scanner."""
+    return "nmap" if shutil.which("nmap") else "built-in"
+
+
+class ScanFailed(Exception):
+    pass
+
+
+def unique(base, taken):
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}-{n}", n + 1
+    return name
+
+
+class Scan(threading.Thread):
+    """One scan of TARGETS for PORTS with SCANNER. KNOWN: {address: the Inventory's Host there}; TAKEN: the names in
+    use, so each new Host's suggested name is free."""
+
+    def __init__(self, sid, targets, ports, kind, known, taken, timeout=1.0):
+        super().__init__(daemon=True, name=f"discover {sid}")
+        self.sid, self.targets, self.ports, self.kind = sid, targets, ports, kind
+        self.known, self.taken, self.timeout = dict(known), set(taken), timeout
+        self.lock = threading.Lock()
+        self.halt = threading.Event()
+        self.proc = None
+        self.state, self.error, self.done, self.quiet = "running", None, 0, 0
+        self.total = sum(address_count(ipaddress.ip_network(t, strict=False)) for t in targets)
+        self.found = []                         # [(rec, the result's record)], in address order
+        self.today = datetime.date.today().isoformat()
+
+    # -- the thread
+
+    def run(self):
+        try:
+            ips = addresses_of(self.targets)
+            step = BATCH[self.kind]
+            for i in range(0, len(ips), step):
+                if self.halt.is_set():
+                    break
+                batch = ips[i:i + step]
+                recs = self.nmap(batch) if self.kind == "nmap" else self.builtin(batch)
+                if self.halt.is_set():
+                    break
+                with self.lock:
+                    for rec in sorted(recs, key=lambda r: ipaddress.ip_address(r["ip"])):
+                        self.add(rec)
+                    self.done += len(batch)
+        except ScanFailed as e:
+            self.error = str(e)
+        except SystemExit as e:                 # parse_nmap_xml's die()
+            self.error = str(e.code).removeprefix("error: ")
+        except Exception as e:
+            self.error = f"{type(e).__name__}: {e}"
+        with self.lock:
+            self.state = "failed" if self.error else "stopped" if self.halt.is_set() else "done"
+
+    def nmap(self, batch):
+        cmd = ["nmap", "-oX", "-", "-T4", "--open", "-sV", "--version-light", "--script", "http-title",
+               "-p", self.ports, *batch]
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if self.halt.is_set():
+            self.proc.kill()
+        out, err = self.proc.communicate()
+        if self.halt.is_set():
+            return []
+        if self.proc.returncode != 0 or not out.strip():
+            raise ScanFailed(f"nmap failed: {(err or out).strip()[:400]}")
+        return parse_nmap_xml(out)
+
+    def builtin(self, batch):
+        ports = [int(p) for p in self.ports.split(",")]
+        open_ports = open_ports_of(batch, ports, self.timeout)
+        return [describe(ip, open_ports[ip]) for ip in sorted(open_ports, key=ipaddress.ip_address)]
+
+    def add(self, rec):
+        if not rec["ports"]:
+            self.quiet += 1
+            return
+        known = self.known.get(rec["ip"])
+        kind, _ = guess_identity(rec)
+        name = None
+        if known is None:
+            name, _ = scan_entry(rec, set(), self.today)
+            name = unique(name, self.taken)
+            self.taken.add(name)
+        title = next((p["title"] for p in rec["ports"] if p["title"]), "")
+        entry = scan_entry(rec, set(), self.today)[1]
+        self.found.append((rec, {
+            "address": rec["ip"], "name": name, "type": kind, "hostname": rec["hostname"], "title": title,
+            "web": entry.get("web"), "known": known, "added": None, "vendor": rec["vendor"], "os": rec["os"],
+            "mac": rec["mac"],
+            "ports": [{"port": p["port"], "name": p["name"], "product": p["product"], "title": p["title"]}
+                      for p in rec["ports"]],
+        }))
+
+    # -- what serve asks
+
+    def stop(self):
+        """Stop it: True if it was going."""
+        with self.lock:
+            if self.state != "running":
+                return False
+            self.state = "stopping"
+        self.halt.set()
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.kill()
+        return True
+
+    def status(self, since=0):
+        with self.lock:
+            return {"scan": self.sid, "state": self.state, "targets": self.targets, "scanner": self.kind,
+                    "done": self.done, "total": self.total, "count": len(self.found), "quiet": self.quiet,
+                    "found": [dict(r) for _, r in self.found[since:]], "error": self.error}
+
+    def picked(self, addresses):
+        """[(rec, record)] for ADDRESSES, in the scan's order; ValueError naming those it can't add."""
+        with self.lock:
+            by = {r["address"]: (rec, r) for rec, r in self.found}
+        bad = [a for a in addresses if a not in by or by[a][1]["known"] or by[a][1]["added"]]
+        if bad:
+            raise ValueError(bad)
+        return [by[a] for a in sorted(set(addresses), key=ipaddress.ip_address)]
+
+    def mark_added(self, names):
+        """NAMES: {address: the name it was added as}."""
+        with self.lock:
+            for _, r in self.found:
+                if r["address"] in names:
+                    r["added"] = names[r["address"]]
+
+
+def defaults_user(text):
+    raw = yaml.safe_load(text) or {}
+    return (raw.get("defaults") or {}).get("user") if isinstance(raw, dict) else None
+
+
+def added_text(text, group, picked, targets, today, taken):
+    """roster.yml's TEXT with the PICKED scan results ([(rec, record)]) in a new GROUP, unreviewed, as `roster
+    discover --write` writes them. A name in TAKEN gets -2, -3, ... Returns (new text, [{address, name}])."""
+    taken = set(taken)
+    entries, added = [], []
+    for rec, r in picked:
+        base, entry = scan_entry(rec, set(), today)
+        name = unique(r["name"] or base, taken)
+        taken.add(name)
+        entries.append((name, entry))
+        added.append({"address": rec["ip"], "name": name})
+    note = f"Found by scanning {', '.join(targets)} on {today} - rename them, fill in titles, then review them"
+    return with_group(text, group, entries, note, not defaults_user(text)), added

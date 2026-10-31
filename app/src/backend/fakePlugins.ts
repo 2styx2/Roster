@@ -66,6 +66,9 @@ const SUMMARIES: Record<string, string> = {
   "terminal.write": "Type into your Sessions",
 };
 
+/** The serve methods whose summary and risk say more than "Call roster's …" (permission.rs). */
+const SERVE: Record<string, { summary: string; risk: string | null } | undefined> = PERMISSIONS.serve;
+
 const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   lock: [],
   unlock: [],
@@ -236,9 +239,10 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
       }
       return {
       name,
-      summary: SUMMARIES[name] ?? `Call roster's ${name.replace(/^serve:/, "")}`,
+      summary: SUMMARIES[name] ?? SERVE[name]?.summary ?? `Call roster's ${name.replace(/^serve:/, "")}`,
       risk:
         RISKS[name] ??
+        SERVE[name]?.risk ??
         (name.startsWith("serve:") && !PERMISSIONS.serve_reads.includes(name.slice(6))
           ? `Can run roster's ${name.slice(6)}, which can change things on your Hosts or in the Inventory.`
           : null),

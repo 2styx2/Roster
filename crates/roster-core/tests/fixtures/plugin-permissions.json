@@ -1,9 +1,16 @@
 {
-  "about": "What a Plugin may be granted (decisions Q81, Q97): the core's tables (crates/roster-core/src/plugin/permission.rs) and cases both it and the fake Backend (app/src/backend/fakePlugins.ts) are tested against. The fake reads its tables from here.",
+  "about": "What a Plugin may be granted (decisions Q81, Q97): the core's tables (crates/roster-core/src/plugin/permission.rs) and cases both it and the fake Backend (app/src/backend/fakePlugins.ts) are tested against. The fake reads its tables from here (Q100: the discover.* rows).",
   "permissions": ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"],
   "serve_methods": ["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"],
   "serve_prefixes": ["mesh.", "discover."],
-  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan"],
+  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan", "discover.plan", "discover.status", "discover.stop"],
+  "serve_user_only": ["discover.start", "discover.add"],
+  "serve": {
+    "serve:discover.start": { "summary": "Scan a network you name, from this computer", "risk": "Can scan networks from this computer, once you've confirmed it: roster connects to every address in a range, on many ports. A network's security tools may take a scan for an attack, so scan only networks you may." },
+    "serve:discover.add": { "summary": "Add the Hosts a scan found, as Pending changes", "risk": "Can add the Hosts a scan found to your Inventory, unreviewed, as Pending changes you review and Publish." },
+    "serve:discover.status": { "summary": "Call roster's discover.status", "risk": null },
+    "serve:mesh.apply": { "summary": "Call roster's mesh.apply", "risk": "Can run roster's mesh.apply, which can change things on your Hosts or in the Inventory." }
+  },
   "network": {
     "network:api.example.com": { "summary": "Send and fetch over the network: api.example.com", "risk": "Can send data to api.example.com and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer." },
     "network:*.example.com": { "summary": "Send and fetch over the network: any site under example.com", "risk": "Can send data to any site under example.com and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer." },
