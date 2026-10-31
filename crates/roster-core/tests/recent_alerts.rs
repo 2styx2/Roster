@@ -650,7 +650,7 @@ fn a_version_that_throws_loops_or_allocates_is_stopped_with_its_name_and_the_res
         ("loops", "while true do end", "ms"),
         (
             "allocates",
-            "local t = {} for i = 1, 1e9 do t[i] = string.rep(\"x\", 1000) .. i end",
+            "local t = {} for i = 1, 1e9 do t[i] = string.rep(\"x\", 1000000) .. i end",
             "used too much memory",
         ),
     ] {
