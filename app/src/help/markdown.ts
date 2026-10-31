@@ -17,6 +17,8 @@ export function parseMarkdown(source: string): Block[] {
   let i = 0;
   const at = (k: number) => lines[k] ?? "";
   const blank = (s: string) => s.trim() === "";
+  // A table starts at a pipe row only when a separator row (|---|) follows it.
+  const tableAt = (k: number) => at(k).trimStart().startsWith("|") && /^\s*\|?\s*:?-+/.test(at(k + 1));
 
   while (i < lines.length) {
     const line = at(i);
@@ -41,7 +43,7 @@ export function parseMarkdown(source: string): Block[] {
       i++;
       continue;
     }
-    if (line.trimStart().startsWith("|") && /^\s*\|?\s*:?-+/.test(at(i + 1))) {
+    if (tableAt(i)) {
       const head = cells(line);
       i += 2;
       const rows: Inline[][][] = [];
@@ -77,7 +79,8 @@ export function parseMarkdown(source: string): Block[] {
     const para: string[] = [];
     while (i < lines.length) {
       const l = at(i);
-      if (blank(l) || /^(#{1,4}\s|```|~~~|>|\s*\|)/.test(l) || (para.length && item.test(l))) break;
+      // The first line always belongs to the paragraph, so the parser always moves on.
+      if (para.length && (blank(l) || /^(#{1,4}\s|\s*```|\s*~~~|>)/.test(l) || tableAt(i) || item.test(l))) break;
       para.push(l.trim());
       i++;
     }
