@@ -215,7 +215,7 @@ def test_serve_locks_unlocks_and_saves_to_keepassxc_like_bitwarden(serve, write_
     monkeypatch.setenv("FAKE_ARGV_LOG", str(tmp_path / "argv.log"))
     write_config(KP_INVENTORY)
     s = serve()
-    locked = {"provider": "kp", "status": "locked", "can_write": True}
+    locked = {"provider": "kp", "status": "locked", "can_write": True, "can_sign_out": False}
     assert s.call("vault.status")["result"] == {**locked, "save_to": {"setting": "personal", "from": "default"},
                                                "providers": [locked]}
     assert s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["error"]["code"] == 14

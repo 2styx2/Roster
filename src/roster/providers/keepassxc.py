@@ -291,5 +291,7 @@ def _delete(item_id, ctx):
 PROVIDERS["kp"].update(unlock=_unlock, lock=_lock, status=_status, not_logged_in=not_set_up,
                        login_help=f"{NAME} has no sign-in, only a master password: set providers: kp: database: in "
                                   "roster.yml (or vault.kp.database in the app's init.lua), then unlock",
+                       logout_help=f"{NAME} has no account to sign out of: it opens a local database file. To use "
+                                   "another one, change vault.kp.database in init.lua",
                        create=_create, delete=_delete, targets=_targets, resolve=_resolve,
                        box_paths=("database", "key_file"))

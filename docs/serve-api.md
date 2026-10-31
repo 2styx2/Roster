@@ -97,7 +97,7 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 It runs the steps of [`roster check HOST`](cli-reference.md#roster-check-host) in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. Every step is in `steps`, in that order. `status` is `ok`, `fail` or `skipped`; after the first `fail`, every later step is `skipped` with no network touched, and a key Host's `provider` and `vault-item` are `skipped` too. A failed step has the `code` (from the tables below), roster's `message` naming the Host, the `fix` in a sentence and, where there is one, the raw text under `details` (ssh's stderr, the resolver's error). `data` carries what the code's row says: `near`, `matches`, `line`, or for `43` the `recorded` and `offered` SHA256 fingerprints. A whole check makes at most one TCP connection and one login attempt. The password login goes through `serve`'s askpass channel like a Session's. `host.check` itself only fails for bad params (`-32602`); a `roster.yml` that doesn't load is a failed `inventory` step.
 
-`api_version` is currently 13 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103; 9 added `host.review`'s `reviewed: false`; 10 added `vault.configure`, `vault.targets`, `save_to` on `vault.create_item` and `host.add`, `target` in their results, `vault.status`'s `save_to`, and codes 64-65; 11 made Sessions check host keys strictly: `session.prepare`'s `StrictHostKeyChecking=yes` and its `44`, `host.scan_key {host}`, `host.trust_key` and code `23`; 12 added Quick Connect: `quick.prepare`; 13 added "Save to vault" after a Session's login: `quick.prepare`'s `save` and `held`, `quick.save`, `vault.forget_typed`, the `session.logged_in` notification, and codes 66-67; for `auth: prompt` Hosts, `session.prepare`'s `password`, `save` and `held`, code 39 and `host.save_login`). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
+`api_version` is currently 14 (2 added `host.check` and codes 30-48; 3 added `vault.login`, `vault.status`'s `sign_in` and codes 50-59; 4 added `vault.create_item`, `vault.undo_create`, `can_write` and codes 60-63; 5 added `inventory.pull`, `host.verify_login`, `host.update`, `changes.diff`, `changes.discard` and codes 70-75; 6 added `host.scan_key`, `host.add`, `host.review` and codes 80-81; 7 added `changes.publish`, codes 90-96, `changes.diff`'s `message` and `groups`, and `data.details` on errors; 8 added the Live Inventory: `host.remove`, `host.rename`, `host.move`, `group.new`, `group.rename`, `group.delete`, `inventory.reload`, `inventory.watch`, the `inventory.changed` notification, `hosts.list`'s `error`, and codes 100-103; 9 added `host.review`'s `reviewed: false`; 10 added `vault.configure`, `vault.targets`, `save_to` on `vault.create_item` and `host.add`, `target` in their results, `vault.status`'s `save_to`, and codes 64-65; 11 made Sessions check host keys strictly: `session.prepare`'s `StrictHostKeyChecking=yes` and its `44`, `host.scan_key {host}`, `host.trust_key` and code `23`; 12 added Quick Connect: `quick.prepare`; 13 added "Save to vault" after a Session's login: `quick.prepare`'s `save` and `held`, `quick.save`, `vault.forget_typed`, the `session.logged_in` notification, and codes 66-67; for `auth: prompt` Hosts, `session.prepare`'s `password`, `save` and `held`, code 39 and `host.save_login`; 14 added `vault.logout`, `vault.status`'s `account` and `can_sign_out`, and codes 15-16). It goes up when a method or a result changes in a way the app has to know about. The app should refuse a roster whose `api_version` is too old.
 
 Errors are JSON-RPC errors. The `code` is stable; the `message` uses roster's usual wording, names the Host, and is ready to show to a person. Where roster knows the fix, `data.fix` says it in a sentence. Ranges: 1-9 general, 10-19 the vault, 20-29 `session.*`, 30-39 a Host's Login and askpass, 40-49 the network and the Host (`host.check`), 50-59 signing the vault in (`vault.login`), 60-69 saving to the vault (`vault.create_item`, `quick.save`, `host.save_login`), 70-79 editing the Inventory, 80-89 adding a Host (`host.add`), 90-99 publishing (`changes.publish`), 100-109 the Live Inventory (removing, renaming and moving Hosts and groups). When roster has another program's raw words (git's, ssh's), `data.details` carries them. [`docs/app/errors.md`](app/errors.md) is the catalog the codes come from.
 
@@ -226,7 +226,7 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 
 | Method | Params | Result |
 |---|---|---|
-| `vault.status` | none | `{provider, status, message?, sign_in?, save_to?, providers: [{provider, status, message?, sign_in?}, ...]}` |
+| `vault.status` | none | `{provider, status, message?, sign_in?, account?, can_sign_out, save_to?, providers: [{provider, status, message?, sign_in?, account?, can_sign_out}, ...]}` |
 | `vault.unlock` | `{password, provider?}` | `{provider, status: "unlocked"}` |
 | `vault.lock` | none | `{locked: [names]}` |
 
@@ -239,6 +239,8 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
   - `unsupported`: no master password, e.g. `env` or `prompt`
 
   For `not-logged-in` and `missing-cli`, `message` says what to run or install. For `not-logged-in`, a provider the app can sign in (`bw`) also has `sign_in: {methods: ["password", "apikey", "sso"], server}`, where `server` is what `bw config server` is set to (`null`: bitwarden.com). See `vault.login` below.
+- `account` (API 14, `locked` or `unlocked`, when the CLI says): the account the CLI is signed in to, `{email, server}`, `server` being what `bw config server` is set to (`null`: bitwarden.com). The lock screen names it in "Use a different account". Taken from the same `bw status` as `status`: no extra call.
+- `can_sign_out` (API 14): whether `vault.logout` can sign this provider's CLI out (`bw` only; KeePassXC, `pass`, `env` and `cmd` have no account).
 - `save_to` (when `provider` can save): where "Save to vault" goes by default, as set and not looked up (no vault call): `{setting, from}`, `from` being `init.lua`, `roster.yml` or `default` (the personal vault).
 - `vault.unlock` unlocks `provider`, or by default the one `vault.status` names. For KeePassXC that's one `keepassxc-cli ls` with the master password (and the key file, if set) to check it; `serve` then holds the password in memory, since `keepassxc-cli` has no session.
 - `vault.lock` forgets every cached secret, session key, held master password and askpass token, then runs the provider's own lock (`bw lock`; KeePassXC has nothing to run). It locks the providers `vault.unlock` opened and those the Inventory uses. `locked` names the ones that have a lock of their own. It never fails; if a provider's lock fails, a warning goes to stderr. After it, any lookup reports code `14` until the next `vault.unlock`.
@@ -250,6 +252,7 @@ With `auto`, `applied` is `true`: `serve` loaded it, within a second of the save
 | `12` | The vault CLI isn't installed: `` `bw` is not installed on this box (...) ``, `` `keepassxc-cli` is not installed on this box (...) `` |
 | `13` | The provider has no master password, or no Host Login uses one |
 | `14` | A secret was needed but the vault is locked: `Bitwarden vault is locked - unlock it first`, `KeePassXC database is locked - unlock it first` |
+| `15`, `16` | `vault.logout`: already signed out, or `bw logout` failed (see [Signing out](#signing-out-vaultlogout)) |
 
 ## This Box's settings: `vault.configure`
 
@@ -302,7 +305,7 @@ How it works, and what never happens to a secret:
 | `51` | The CLI can't do the account's two-step method, which happens when FIDO2 and Duo are its only methods: "... sign in with an API key instead, or add an authenticator app, email or YubiKey OTP as a second method in the web vault". Also SSO for accounts with trusted-device or passkey (PRF) decryption, in bw's words |
 | `52` | The server refused: too many attempts. Wait a few minutes |
 | `53` | The server didn't answer (DNS, refused, TLS, no answer in 40 s): "can't reach the Bitwarden server vault.example.com (...)" |
-| `54` | The CLI is already logged in on this box, so unlock instead. To switch account, run `bw logout` first |
+| `54` | The CLI is already logged in on this box, so unlock instead. To switch account, `vault.logout` first (API 14) |
 | `55` | No sign-in in progress: finished, cancelled, replaced by a newer `start`, or 10 minutes without an answer |
 | `56` | SSO failed in the browser, or wasn't finished within 5 minutes |
 | `57` | `server` isn't `cloud`, `eu` or an `http(s)://` URL |
@@ -310,6 +313,25 @@ How it works, and what never happens to a secret:
 | `59` | The sign-in failed some other way; the message has bw's words |
 
 `ROSTER_SSO_TIMEOUT` (seconds, given to `serve`) can shorten the 5-minute SSO wait, for tests, and `ROSTER_NO_BROWSER=1` stops roster from opening the link on the Box.
+
+## Signing out: `vault.logout`
+
+The Bitwarden CLI holds one account at a time, so signing in to another one means signing this one out first (ticket 42, API 14). The app asks first, naming the account (`vault.status`'s `account`).
+
+| Params | Result |
+|---|---|
+| `{provider?}` | `{provider, status: "not-logged-in", message?, sign_in, can_write, can_sign_out, signed_out: {email, server} \| null}` |
+
+- `provider` defaults to the one `vault.status` names. It works locked or unlocked.
+- Everything `vault.lock` forgets is forgotten **before** the CLI logs out: askpass tokens (spent or not), typed passwords held for "Save to vault", every cached value, a sign-in in progress, the session key and KeePassXC's held master password, for every provider. Then it runs `bw logout` (no `bw lock` first: logging out ends the session anyway). `bw logout` removes the account and the CLI's local copy of the vault; the server setting stays.
+- The result is where the vault stands now, as `vault.status` would describe it (`sign_in` included, so the app can show the full sign-in form straight away), plus `signed_out`: the account it was, or `null` if `bw status` didn't name one.
+- Nothing secret is in a command line, a response or the log.
+
+| Code | Meaning |
+|---|---|
+| `13` | The provider has no account to sign out of. KeePassXC: "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua"; `env`, `cmd`: "provider 'env' has no account to sign out of - its Logins come from this box itself". Nothing was forgotten |
+| `15` | The CLI isn't signed in, so there's no account to sign out of: "the Bitwarden CLI isn't signed in on this box - there's no account to sign out of". `data.fix`: sign in from the lock screen. Everything was forgotten anyway |
+| `16` | `bw logout` failed some other way; the message has bw's words. Everything was forgotten anyway |
 
 ## Saving to the vault: `vault.create_item`
 

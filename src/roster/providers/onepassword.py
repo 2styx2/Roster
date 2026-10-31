@@ -73,3 +73,6 @@ PROVIDERS["op"]["login_help"] = (
     "1Password signs in through its desktop app, not here: turn on Settings > Developer > \"Integrate with "
     "1Password CLI\" (Windows Hello, Touch ID or your system login then unlock it, and the app handles two-step "
     "sign-in), or set OP_SERVICE_ACCOUNT_TOKEN for a service account")
+
+PROVIDERS["op"]["logout_help"] = (
+    "roster doesn't sign 1Password out: the desktop app holds the account. Sign out or switch accounts there")

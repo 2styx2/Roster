@@ -63,7 +63,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 13            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 14            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -1219,10 +1219,13 @@ def referenced_providers(cfg):
 
 def provider_status(name):
     try:
-        status = providers.vault_status(name)
+        status, account = providers.vault_account(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
-    result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name)}
+    result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name),
+              "can_sign_out": providers.can_sign_out(name)}
+    if account:
+        result["account"] = account
     message = providers.status_message(name, status)
     if status == "unauthenticated" and PROVIDERS[name].get("login_info"):
         try:
@@ -1242,7 +1245,7 @@ def vault_status(state, params):
     names = referenced_providers(state.inventory())
     lockable = main_vault(names)
     main = provider_status(lockable) if lockable else {"provider": None, "status": "unsupported",
-                                                       "can_write": False}
+                                                       "can_write": False, "can_sign_out": False}
     others = [main if n == main["provider"] else provider_status(n) for n in sorted(names)]
     if main["can_write"]:                       # where "Save to vault" goes by default (ticket 35), as set
         main = {**main, "save_to": providers.default_target(lockable)}
@@ -1299,22 +1302,52 @@ ON_VAULT_LOCK.append(forget_held)
 def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
     opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails."""
+    names = forget_everything(state)
+    return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+
+
+def forget_everything(state, signing_out=None):
+    """vault.lock's work: end a sign-in, run every ON_VAULT_LOCK hook, and lock every provider (SIGNING_OUT's only
+    in memory: its CLI is about to log out). Returns the providers it locked."""
     names = set(state.unlocked) | (set(referenced_providers(state.cfg)) if state.cfg else set())
     end_sign_in(state)
     for forget in ON_VAULT_LOCK:
         forget(state)
-    for name in sorted(names):
+    for name in sorted(names | ({signing_out} if signing_out else set())):
         try:
-            providers.lock(name)
+            providers.lock(name, cli=name != signing_out)
         except providers.SecretError as e:
             print(f"serve: warning: locking {name}: {e}", file=sys.stderr, flush=True)
     state.unlocked.clear()
-    return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+    return names
+
+
+def vault_logout(state, params):
+    """Sign the vault CLI out of its account, so another can sign in (ticket 42). Everything vault.lock forgets is
+    forgotten first (askpass tokens, held typed passwords, session keys, a sign-in in progress), then the CLI logs
+    out. Answers with where the vault stands now: not-logged-in, with the ways to sign in again."""
+    name = vault_provider(state, params)
+    if not providers.can_sign_out(name):
+        try:
+            providers.logout(name)              # raises Unsupported with the provider's own words
+        except providers.SecretError as e:
+            raise secret_error(e) from None
+    try:
+        _, account = providers.vault_account(name)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    forget_everything(state, signing_out=name)
+    try:
+        providers.logout(name)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    return {**provider_status(name), "signed_out": account}
 
 
 METHODS["vault.status"] = vault_status
 METHODS["vault.unlock"] = vault_unlock
 METHODS["vault.lock"] = vault_lock
+METHODS["vault.logout"] = vault_logout
 
 
 # ---------------------------------------------------------------- vault.configure: this Box's settings (ticket 41)
