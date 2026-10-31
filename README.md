@@ -153,8 +153,13 @@ Point `ROSTER_CONFIG` at the file (`export ROSTER_CONFIG="$HOME/infra/roster.yml
 
 ## Documentation
 
+Start at **[docs/README.md](docs/README.md)**, the index of every doc. In the app, the same docs are inside it: `:help start` is where to begin, and `␣ ?` finds any topic.
+
 | Doc | For |
 |---|---|
+| [docs/README.md](docs/README.md) | Every doc, grouped: getting started, making it yours, reference, extending, working on roster |
+| [docs/app/start.md](docs/app/start.md) | New to the app: open a Host, find any command, make it yours |
+| [docs/app/recipes.md](docs/app/recipes.md), [docs/app/extending.md](docs/app/extending.md) | `init.lua` snippets to paste, and how far roster bends (the registries) |
 | [docs/cli-reference.md](docs/cli-reference.md) | `roster.yml`, resources, password providers, `discover`, every command, how Claude uses it |
 | [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
 | [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, testing the logins |

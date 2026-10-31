@@ -13,6 +13,8 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/architecture.md](../docs/app/architecture.md) | The processes, the `roster serve` API, how Sessions connect, and the backends |
 | [docs/app/security.md](../docs/app/security.md) | Where secrets go and where they never go, and how locking works |
 | [docs/app/keyboard.md](../docs/app/keyboard.md) | The leader key, the two focus modes, and the default bindings |
+| [docs/README.md](../docs/README.md) | Every doc, grouped as `:help`'s index groups them |
+| [docs/app/start.md](../docs/app/start.md), [recipes.md](../docs/app/recipes.md), [extending.md](../docs/app/extending.md) | The start page (`:help start`), `init.lua` recipes, and how far roster bends |
 | [docs/app/help.md](../docs/app/help.md) | `:help` inside the app: topics, keys, how the guides stay in sync with these docs |
 | [docs/app/config.md](../docs/app/config.md) | The Config (`init.lua`): where it lives, every option, the sandbox |
 | [docs/app/themes.md](../docs/app/themes.md) | The bundled Themes and their tokens |

@@ -113,3 +113,7 @@ Standard and Focus (decision Q36) differ only in their layout; every command wor
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.
+
+## See also
+
+[Quick reference](quickref) · [Key bindings](keys) · [Recipes](recipes.md) · [Your init.lua](config.md)

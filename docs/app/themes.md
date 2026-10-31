@@ -168,3 +168,7 @@ fixture data: in `app/`, `npm run dev -- --port 5179`, open
 | Nord | ![](design/themes/nord-standard.png) | ![](design/themes/nord-picker.png) |
 | Catppuccin Mocha | ![](design/themes/catppuccin-mocha-standard.png) | ![](design/themes/catppuccin-mocha-picker.png) |
 | Tokyo Night | ![](design/themes/tokyo-night-standard.png) | ![](design/themes/tokyo-night-picker.png) |
+
+## See also
+
+[Your init.lua](config.md#themes-and-colours) · [Themes in effect](themes) · [Recipes](recipes.md)

@@ -364,3 +364,7 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 | `65` | `save_to` names a collection you may only read; nothing was left behind |
 | `66` | `quick.save`, `host.save_login`: the Session hasn't logged in with the typed password (yet, or the box refused it); nothing is saved |
 | `67` | `quick.save`, `host.save_login`: no typed password is held for that id: never asked for (`save`), already saved, or forgotten (`vault.forget_typed`, `vault.lock`, 10 minutes) |
+
+## See also
+
+[The roster command](cli-reference.md) · [Connection errors](app/errors.md) · [The app's architecture](app/architecture.md)

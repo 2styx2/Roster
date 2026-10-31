@@ -193,3 +193,7 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 - Lua functions as actions or values. Hooks (`on_session_open`), custom `:` commands and finder sources come with Plugins (ticket 23).
 - A Settings screen (decision Q24).
 - Window size, recent Hosts and folded rows. Those are State, which the app keeps by itself.
+
+## See also
+
+[Recipes](recipes.md) · [Options](options) · [Keyboard](keyboard.md) · [Themes](themes.md) · [How far roster bends](extending.md)
