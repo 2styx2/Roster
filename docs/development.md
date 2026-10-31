@@ -18,7 +18,8 @@ src/roster/
   resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
-  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, the roster.yml watcher (inventory.changed)
+  serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, the roster.yml watcher (inventory.changed);
+                    each method's docstring is its row in docs/serve-api.md (scripts/gen-serve-api.py)
   edit.py           editing one Host in roster.yml as text, adding, removing, renaming or moving one, and groups (comments and other entries kept), checked before it's written
   changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak, publish)
   manpage.py        roster(1): generated from the parser (cli.build_parser) and docs/cli-reference.md into
@@ -30,6 +31,10 @@ src/roster/
                     keepassxc (a local .kdbx through keepassxc-cli);
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
 examples/           commented roster.yml, plugin template
+scripts/            gen-serve-api.py: docs/serve-api.md's method tables from serve's docstrings (Params:, Result:,
+                    Errors:, Since:). Regenerate: uv run python scripts/gen-serve-api.py (--check: is it current?);
+                    check-links.py: the docs' external links, weekly in .github/workflows/links.yml;
+                    bump-version.sh: one version everywhere
 docs/               team guides: setting up a new box, adding hosts; docs/app/ for the app, docs/adr/ for decisions
 tests/              pytest suite + fake password-manager CLIs
 app/                the roster app (frontend + app/src-tauri); its Rust core is crates/roster-core (app/README.md)

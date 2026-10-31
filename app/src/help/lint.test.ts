@@ -45,7 +45,7 @@ function links(blocks: Block[]): string[] {
     if (b.t === "h" || b.t === "p" || b.t === "quote") walk(b.text);
     else if (b.t === "list") b.items.forEach(walk);
     else if (b.t === "table") [b.head, ...b.rows].forEach((row) => row.forEach(walk));
-    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body].forEach(walk));
+    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body, d.more ?? []].forEach(walk));
   }
   return out;
 }

@@ -26,6 +26,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import (
+    ASK,
     PROVIDERS,
     AlreadyLoggedIn,
     ApiKeyRejected,
@@ -505,9 +506,12 @@ class BwLogin:
 
 
 
-def login_info(ctx):
-    """vault.status's `sign_in` for a logged-out bw: the ways in, and the server it's set to (None: bitwarden.com)."""
-    return {"methods": ["password", "apikey", "sso"], "server": _bw_status_json(ctx).get("serverUrl")}
+def login_info(ctx, server=ASK):
+    """vault.status's `sign_in` for a logged-out bw: the ways in, and the server it's set to (None: bitwarden.com).
+    SERVER, when the caller knows it already (vault.logout, from the `bw status` before it), saves asking bw again."""
+    if server is ASK:
+        server = _bw_status_json(ctx).get("serverUrl")
+    return {"methods": ["password", "apikey", "sso"], "server": server}
 
 
 PROVIDERS["bw"].update(login=BwLogin, login_info=login_info)
