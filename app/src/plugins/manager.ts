@@ -29,7 +29,9 @@ import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import { MAX_TABLE_ROWS, parseOp, type PluginContent, type PluginFloat, type PluginOp, type PluginRow, type PluginView, type Run } from "./ops";
 import { mergeRows, type TableRow } from "../ui/table";
-import { detailsId, type Content } from "../view/views";
+import { detailsId, type Content, type GraphModel } from "../view/views";
+import { mergeGraph, type GraphNode } from "../graph/model";
+import { MAX_CLUSTERS, MAX_EDGES, MAX_NODES, type PluginGraph } from "./graphOps";
 
 /** What the manager asks of the app. */
 export interface PluginUi {
@@ -882,7 +884,17 @@ export class PluginManager {
         const view = l.views?.get(op.id);
         if (!view) return refuse(`roster.views.update: there's no view ${op.id} (roster.views.set it first)`);
         const u = op.update;
-        if ((u.rows.length || u.remove.length) && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table for rows`);
+        if (u.rows.length && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table for rows`);
+        if (u.graph && !view.graph) return refuse(`roster.views.update ${op.id}: the view has no graph for nodes and edges`);
+        if (u.remove.length && !view.table && !view.graph) return refuse(`roster.views.update ${op.id}: the view has no table for rows`);
+        let graph = view.graph;
+        if (graph && (u.graph || u.remove.length)) {
+          const g = u.graph ?? { nodes: [], edges: [], clusters: [], removeEdges: [] };
+          const data = mergeGraph(graph.data, { ...g, remove: u.remove });
+          const over = graphOver(data);
+          if (over) return refuse(`roster.views.update ${op.id}: more than ${over}`);
+          graph = { ...graph, data };
+        }
         let table = view.table;
         if (table && (u.rows.length || u.remove.length)) {
           const rows = mergeRows(table.rows, u.rows, u.remove);
@@ -894,6 +906,7 @@ export class PluginManager {
           ...(u.title !== undefined ? { title: u.title } : {}),
           ...(u.facts !== undefined ? { facts: u.facts } : {}),
           ...(table ? { table } : {}),
+          ...(graph ? { graph } : {}),
         };
         if (u.text === "") delete next.text;
         else if (u.text !== undefined) next.text = u.text;
@@ -929,6 +942,7 @@ export class PluginManager {
 
   private putView(l: Loaded, plugin: string, id: string, view: PluginView) {
     const content = this.content(plugin, { view: id }, view);
+    if (view.graph) content.graph = this.graph(plugin, id, view.graph);
     this.put(l, `view:${id}`, this.registries.views.register({ id, source: plugin, title: view.title, place: view.place, content }));
   }
 
@@ -960,6 +974,24 @@ export class PluginManager {
             },
           }
         : {}),
+    };
+  }
+
+  /** A view's graph, with what its `open` and actions run. A function gets the node:
+   * `{ node, host, view }`. */
+  private graph(plugin: string, view: string, g: PluginGraph): GraphModel {
+    const go = (run: Run) => (node: GraphNode) => {
+      if ("command" in run) return this.ui.run(run.command);
+      void this.call(plugin, run.handler, { node: node.id, ...(node.host ? { host: node.host } : {}), view });
+    };
+    // Without its own `open`, a node with a Host opens that Host, as a table row does.
+    const openHost = (node: GraphNode) => {
+      if (node.host) this.ui.run(`open ${node.host}`);
+    };
+    return {
+      data: g.data,
+      ...(g.open ? { open: go(g.open) } : g.data.nodes.some((n) => n.host) ? { open: openHost } : {}),
+      actions: g.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
     };
   }
 
@@ -1011,4 +1043,12 @@ export class PluginManager {
     this.snap = { plugins, packages: this.packages, prompts: this.prompts, notices: this.notices, float: this.float };
     for (const l of this.listeners) l();
   }
+}
+
+/** What a graph holds more of than it may, or null. */
+function graphOver(g: { nodes: readonly unknown[]; edges: readonly unknown[]; clusters: readonly unknown[] }): string | null {
+  if (g.nodes.length > MAX_NODES) return `${MAX_NODES.toLocaleString("en-US")} nodes`;
+  if (g.edges.length > MAX_EDGES) return `${MAX_EDGES.toLocaleString("en-US")} edges`;
+  if (g.clusters.length > MAX_CLUSTERS) return `${MAX_CLUSTERS.toLocaleString("en-US")} clusters`;
+  return null;
 }

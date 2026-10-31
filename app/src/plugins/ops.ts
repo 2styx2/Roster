@@ -6,6 +6,7 @@ import type { ThemeDef } from "../config/types";
 import type { RowAction } from "../sidebar/Sidebar";
 import { TUTOR_EVENTS, type StepMatch } from "../tutor/tutor";
 import type { ColumnKind, Sort, TableColumn, TableRow, Tone } from "../ui/table";
+import { GraphInvalid, parseGraph, parseGraphUpdate, type PluginGraph, type PluginGraphUpdate } from "./graphOps";
 
 /** What choosing something runs: a function the Plugin handed over, or a command line. */
 export type Run = { handler: number } | { command: string };
@@ -102,6 +103,8 @@ export type ViewPlace = "panel" | "full";
 export interface PluginView extends PluginContent {
   title: string;
   place: ViewPlace;
+  /** A graph instead of a table (ticket 77). */
+  graph?: PluginGraph;
 }
 
 export interface PluginViewUpdate {
@@ -110,7 +113,10 @@ export interface PluginViewUpdate {
   text?: string;
   facts?: PluginFact[];
   rows: TableRow[];
+  /** Rows' ids, or in a graph, nodes' and clusters'. */
   remove: string[];
+  /** Nodes, edges and clusters, in a graph (ticket 77). */
+  graph?: PluginGraphUpdate;
 }
 
 export interface PluginDetails extends PluginContent {
@@ -333,7 +339,7 @@ export function parseOp(raw: unknown): PluginOp | { invalid: string } {
   try {
     return parse(raw);
   } catch (e) {
-    if (e instanceof Invalid) return { invalid: e.message };
+    if (e instanceof Invalid || e instanceof GraphInvalid) return { invalid: e.message };
     throw e;
   }
 }
@@ -464,7 +470,9 @@ function parse(raw: unknown): PluginOp {
       const what = `roster.views.set ${id}`;
       const place = spec.place === undefined || spec.place === null ? "panel" : spec.place;
       if (place !== "panel" && place !== "full") throw new Invalid(`${what}: place must be "panel" or "full"`);
-      return { op: "view", id, view: { title: optStr(spec, "title", what) ?? id, place, ...content(spec, what) } };
+      const graph = spec.graph === undefined || spec.graph === null ? undefined : parseGraph(spec.graph, what);
+      if (graph && spec.table !== undefined && spec.table !== null) throw new Invalid(`${what}: a view has a table or a graph, not both`);
+      return { op: "view", id, view: { title: optStr(spec, "title", what) ?? id, place, ...content(spec, what), ...(graph ? { graph } : {}) } };
     }
     case "view_update": {
       const what = `roster.views.update ${id}`;
@@ -481,6 +489,7 @@ function parse(raw: unknown): PluginOp {
             if (typeof r !== "string") throw new Invalid(`${what}: remove ${i + 1} must be a row's id`);
             return r;
           }),
+          graph: parseGraphUpdate(c, what),
         }),
       };
     }

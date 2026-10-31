@@ -13,6 +13,7 @@ import type { Registries } from "../registries";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { RowAction } from "../sidebar/Sidebar";
 import type { Sort, TableColumn, TableRow } from "../ui/table";
+import type { GraphData, GraphNode } from "../graph/model";
 
 export interface Fact {
   label: string;
@@ -39,10 +40,28 @@ export interface TableModel {
   actions: readonly TableActionDef[];
 }
 
+/** Something the selected node can do (ticket 77). */
+export interface NodeActionDef {
+  label: string;
+  key?: string;
+  icon?: RowAction["icon"];
+  run(node: GraphNode): void;
+}
+
+/** A graph (ticket 77): nodes, edges and clusters as plain data, and what a node does. */
+export interface GraphModel {
+  data: GraphData;
+  /** Enter or a double click on a node. */
+  open?(node: GraphNode): void;
+  actions: readonly NodeActionDef[];
+}
+
 export interface Content {
   text?: string;
   facts: readonly Fact[];
   table?: TableModel;
+  /** A view's graph, in place of a table. */
+  graph?: GraphModel;
 }
 
 export type ViewPlace = "panel" | "full";

@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+import { parseOp } from "./ops";
+
+const view = (graph: unknown, extra: Record<string, unknown> = {}) => parseOp({ op: "view", id: "topo", spec: { title: "Topology", place: "full", graph, ...extra } });
+
+describe("a view's graph, checked", () => {
+  it("takes nodes, edges and clusters with their defaults filled in", () => {
+    const op = view({
+      clusters: [{ id: "lab", title: "Lab", mesh: true }],
+      nodes: [
+        { id: "box", label: "devbox", shape: "square" },
+        { id: "esx-02", cluster: "lab", state: "live", shape: "ring", kind: "esxi", host: "esx-02", detail: "10.0.0.5", mark: "warn", note: "out of date" },
+      ],
+      edges: [{ from: "box", to: "lab" }, { from: "esx-02", to: "box", dir: "both", style: "dashed", tone: "warn", cut: true }],
+      open: { handler: 3 },
+      actions: [{ label: "Check", key: "c", run: "check" }],
+    });
+    expect(op).toEqual({
+      op: "view",
+      id: "topo",
+      view: {
+        title: "Topology",
+        place: "full",
+        facts: [],
+        graph: {
+          data: {
+            clusters: [{ id: "lab", title: "Lab", mesh: true }],
+            nodes: [
+              { id: "box", label: "devbox", shape: "square" },
+              { id: "esx-02", label: "esx-02", cluster: "lab", state: "live", shape: "ring", kind: "esxi", host: "esx-02", detail: "10.0.0.5", mark: "warn", note: "out of date" },
+            ],
+            edges: [
+              { id: "box>lab", from: "box", to: "lab", dir: "one", style: "solid" },
+              { id: "esx-02>box", from: "esx-02", to: "box", dir: "both", style: "dashed", tone: "warn", cut: true },
+            ],
+          },
+          open: { handler: 3 },
+          actions: [{ label: "Check", key: "c", run: { command: "check" } }],
+        },
+      },
+    });
+  });
+
+  it("an empty Lua table is an empty list", () => {
+    expect(view({ nodes: {}, edges: {}, clusters: {} })).toMatchObject({ view: { graph: { data: { nodes: [], edges: [], clusters: [] } } } });
+  });
+
+  it.each([
+    [{ nodes: [{ id: "a", shape: "star" }] }, "roster.views.set topo graph node 1: shape must be"],
+    [{ nodes: [{ id: "a" }, { id: "a" }] }, "id a is used twice"],
+    [{ nodes: [{ id: "a" }], clusters: [{ id: "a" }] }, "id a is used twice"],
+    [{ edges: [{ from: "a" }] }, "graph edge 1: to must be text"],
+    [{ edges: [{ from: "a", to: "b", dir: "up" }] }, "dir must be"],
+    [{ edges: [{ from: "a", to: "b" }, { from: "a", to: "b" }] }, "edge id a>b is used twice"],
+    [{ actions: [{ label: "Hop", key: "h", run: "x" }] }, "the graph uses h itself"],
+    [{ nodes: Array.from({ length: 5001 }, (_, i) => ({ id: `n${i}` })) }, "more than 5,000"],
+  ])("refuses %j", (graph, message) => {
+    const op = view(graph);
+    expect(op).toHaveProperty("invalid");
+    expect((op as { invalid: string }).invalid).toContain(message);
+  });
+
+  it("a view has a table or a graph, not both", () => {
+    expect(view({}, { table: { columns: [{ id: "a", label: "A" }] } })).toEqual({ invalid: "roster.views.set topo: a view has a table or a graph, not both" });
+  });
+
+  it("an update takes nodes, edges, clusters and what to take away", () => {
+    const op = parseOp({ op: "view_update", id: "topo", changes: { nodes: [{ id: "a", state: "down" }], edges: [{ from: "a", to: "b" }], remove: ["c"], remove_edges: ["x>y"] } });
+    expect(op).toMatchObject({
+      op: "view_update",
+      update: { remove: ["c"], graph: { nodes: [{ id: "a", label: "a", shape: "dot", state: "down" }], edges: [{ id: "a>b" }], clusters: [], removeEdges: ["x>y"] } },
+    });
+  });
+
+  it("an update without graph fields has no graph part", () => {
+    expect(parseOp({ op: "view_update", id: "topo", changes: { text: "hi" } })).not.toHaveProperty("update.graph");
+  });
+});
