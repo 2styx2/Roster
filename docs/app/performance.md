@@ -16,7 +16,7 @@ app/scripts/perf.sh serve             # the real `roster serve`, idle
 
 ## Before and after
 
-Windows 11, release build, 24 logical processors, a 240 Hz display, the 1,284-Host Inventory, 12 Sessions each printing 100 lines a second (1,200 lines/s in all). CPU is in % of one core, summed over every process the app started (`roster-app.exe`, the WebView2 processes, `wsl.exe` and `conhost.exe` per Session, serve and the shells in WSL). **Before** is `dev` at 93560a2; **#63** is `dev` at 9a0a133 (PR #63, `sectionBuilder()`: a Session event rebuilds only the Sidebar's Sessions section); **after** is this branch on top of 9a0a133 (it was rebased onto PR #65 after measuring; #65 doesn't touch the output path).
+Windows 11, release build, 24 logical processors, a 240 Hz display, the 1,284-Host Inventory, 12 Sessions each printing 100 lines a second (1,200 lines/s in all). CPU is in % of one core, summed over every process the app started (`roster-app.exe`, the WebView2 processes, `wsl.exe` and `conhost.exe` per Session, serve and the shells in WSL). **Before** is `dev` at 93560a2; **#63** is `dev` at 9a0a133 (PR #63, `sectionBuilder()`: a Session event rebuilds only the Sidebar's Sessions section); **after** is this branch on top of 9a0a133 (it was rebased onto PR #65 after measuring; #65 only adds a little string work per output chunk while a Session opens or offers "Save to vault", and wasn't re-measured).
 
 | Windows | Before | #63 | After |
 |---|---:|---:|---:|
