@@ -82,12 +82,12 @@ function M.link(x) return x.from .. " → " .. x.to .. (x.via and (" via " .. x.
 ---@return string
 function M.id(name, i) return #name <= 100 and name or ("#" .. i) end
 
--- roster.serve.call's error without the function's name in front.
+-- roster serve's error (roster.serve.request's or .call's) without the function's name in front.
 ---@param e any
 ---@return string
 function M.clean(e)
   local s = tostring(e)
-  return (s:gsub("^.-roster%.serve%.call [%w%._]+: ", ""))
+  return (s:gsub("^.-roster%.serve%.%a+ [%w%._]+: ", ""))
 end
 
 -- The keys of a table, sorted, as a list.

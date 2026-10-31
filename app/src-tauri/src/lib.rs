@@ -978,8 +978,9 @@ pub fn run() {
         .manage(ConfigState(loader))
         .setup(move |app| {
             migrate_state(app.handle());
-            // What a Plugin did when one of its HTTP requests answered (the `network`
-            // permission): nobody asked, so it goes to the frontend as an event.
+            // What a Plugin did when one of its requests answered (`roster.http`, the
+            // `network` permission, or `roster.serve.request`): nobody asked, so it goes to the
+            // frontend as an event.
             let handle = app.handle().clone();
             setup_plugins.set_listener(Arc::new(move |reply: plugin::Reply| {
                 use tauri::Emitter;

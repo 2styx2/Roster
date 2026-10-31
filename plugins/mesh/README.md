@@ -42,14 +42,14 @@ It needs roster serve's API 17 (Mesh jobs). With an older roster it loads and sa
 | Permission | Why | Flagged |
 |---|---|---|
 | `serve:mesh.status` | Who reaches whom as `roster.yml` says, what's pending and whether the Mesh is out of date: the Mesh view, the badges, the status segment and the Host details. It never connects to a Host | no |
-| `serve:mesh.job` | How a plan, apply or cut is getting on and how it ended, polled once a second while one runs (the progress). Also how it learns serve has jobs at all | no |
+| `serve:mesh.job` | How a plan, apply or cut is getting on and how it ended, asked once a second while one runs (the progress). Also how it learns serve has jobs at all | no |
 | `serve:mesh.stop` | Stop a plan or apply before its next Host, from the progress's stop button or `:cancel mesh` | no |
 | `serve:mesh.plan` | Plan: connects to each Host and reads, changing nothing | no |
 | `serve:mesh.apply` | Apply the plan, only after you confirm the question | yes: it writes keys and ssh config on your Hosts |
 | `serve:mesh.cut` | Cut a Host, only after you type its name; it also writes `mesh: false` for it to `roster.yml` as a Pending change | yes: it takes keys off your Hosts |
 | `inventory.read` | Only for the `inventory_changed` event, so "Mesh out of date" shows right after a Publish, a pull or an edit. It never reads a Host's Login | no |
 
-It calls `mesh.plan`, `mesh.apply` and `mesh.cut` only with `background: true` (as jobs), never the forms that wait, because a Plugin's call into serve may not take more than a couple of seconds. It asks for no other serve method, can't Publish, never sees a password or the vault, and doesn't reach the network.
+It calls `mesh.plan`, `mesh.apply` and `mesh.cut` only with `background: true` (as jobs), never the forms that wait, because a Mesh run takes minutes. It asks for no other serve method, can't Publish, never sees a password or the vault, and doesn't reach the network.
 
 **Without them** it still loads and says what's missing: without `serve:mesh.status` or `serve:mesh.job` the Mesh view says "Allow serve:mesh.status and serve:mesh.job in :plugins to see the Mesh."; without `serve:mesh.apply` or `serve:mesh.cut`, `a` and `x` say which permission to allow instead of asking anything; without `inventory.read` it refreshes when you open `:mesh` and after its own runs. Turn any of them off in `:plugins`.
 
@@ -70,10 +70,11 @@ mesh/
   lua/mesh/words.lua     the pure part: what serve's answers say, in words
 ```
 
-- **Every Mesh run is a job.** `mesh.plan`, `mesh.apply` and `mesh.cut` with `background: true` answer at once with the job's number (serve API 17); a timer (`roster.every(1000, …)`) polls `mesh.job` while it runs, sets the progress, and cancels itself when the job is over. A Plugin reloaded mid-run finds the job with `mesh.job` and follows it again.
+- **Every Mesh run is a job.** `mesh.plan`, `mesh.apply` and `mesh.cut` with `background: true` answer at once with the job's number (serve API 17); a timer (`roster.every(1000, …)`) asks `mesh.job` while it runs, sets the progress, and cancels itself when the job is over.
+- **It never waits for serve.** Every question is a `roster.serve.request` (decision Q103): serve answers one request at a time, and the app's Publish can hold it for a minute or two, so the controls keep answering meanwhile and catch up when serve does. The timer has one `mesh.job` question out at a time, a refresh asked for while one is out goes again once it's back, and a plan, apply or cut asked for while the last is still starting says so instead of asking twice. A Plugin reloaded mid-run finds the job with `mesh.job` and follows it again.
 - **It asks, the app draws.** Apply is a plain question (`roster.confirm`); Cut is the stronger one with `danger` and `typed`. Nothing runs until you answer.
 - **The first look is deferred** (`roster.defer(50, …)`): nothing calls serve while the Plugin loads, so a busy serve can't hold the app's start.
 
 ## Testing it
 
-`crates/roster-core/tests/plugin_mesh.rs` installs it as a Package from a git repo with `dir = "plugins/mesh"` and drives it through the Plugin host against a stand-in roster serve: every view and section, plan and apply behind the question, Cut behind the typed name and its warnings, stopping, no permissions, an older serve, a reload mid-run, and 500 and 1,000 Hosts. It records a run in `app/src/plugins/mesh.transcript.json`, which `app/src/plugins/mesh.test.ts` replays against the app's stand-in (`app/src/backend/fakeMesh.ts`); `app/src/App.mesh.test.tsx` then tests it in the app. `?fixture=mesh` (and `?fixture=mesh-worst`, 500 Hosts with long and non-Latin names) shows it in a plain browser. Change the Lua, run `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core --test plugin_mesh`, and update the stand-in to match. serve's side is `tests/test_mesh.py`.
+`crates/roster-core/tests/plugin_mesh.rs` installs it as a Package from a git repo with `dir = "plugins/mesh"` and drives it through the Plugin host against a stand-in roster serve: every view and section, plan and apply behind the question, Cut behind the typed name and its warnings, stopping, no permissions, an older serve, a reload mid-run, a serve busy with a Publish, and 500 and 1,000 Hosts. It waits for every request's answer after each step, and records a run in `app/src/plugins/mesh.transcript.json` (each step's own ops, then each answer's), which `app/src/plugins/mesh.test.ts` replays against the app's stand-in (`app/src/backend/fakeMesh.ts`); `app/src/App.mesh.test.tsx` then tests it in the app. `?fixture=mesh` (and `?fixture=mesh-worst`, 500 Hosts with long and non-Latin names) shows it in a plain browser. Change the Lua, run `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core --test plugin_mesh`, and update the stand-in to match. serve's side is `tests/test_mesh.py`.

@@ -29,7 +29,7 @@ It asks for five `serve:` methods and nothing else: no Inventory, no Sessions, n
 |---|---|---|
 | `serve:discover.plan` | How many addresses a range holds, and whether nmap is there, for the question before a scan and for `:check`. Connects nowhere | no |
 | `serve:discover.start` | Starting a scan you confirmed | **yes**: "Can scan networks from this computer, once you've confirmed it: roster connects to every address in a range, on many ports. A network's security tools may take a scan for an attack, so scan only networks you may." |
-| `serve:discover.status` | How far the scan has got, and what it found, once a second while it runs | no |
+| `serve:discover.status` | How far the scan has got, and what it found, asked once a second while it runs | no |
 | `serve:discover.stop` | Stopping it | no |
 | `serve:discover.add` | Adding the Hosts you kept: a new group in `roster.yml`, `reviewed: false`, as Pending changes. Nothing connects to them and nothing is Published | **yes**: "Can add the Hosts a scan found to your Inventory, unreviewed, as Pending changes you review and Publish." |
 
@@ -65,14 +65,15 @@ discover/
   lua/discover/model.lua     the pure part: settings, rows, ports and details as text
 ```
 
-- **The scan is serve's.** `discover.start` answers at once; a timer (`roster.every(1000, poll)`) asks `discover.status` with `since`, so each poll brings only what's new, and `roster.views.update` adds those rows without sending the rest. The timer stops when the scan ends.
+- **The scan is serve's.** `discover.start` answers at once; a timer (`roster.every(1000, poll)`) asks `discover.status` with `since`, so each answer brings only what's new, and `roster.views.update` adds those rows without sending the rest. The timer stops when the scan ends.
+- **It never waits for serve** but in `:check`. Every question is a `roster.serve.request` (decision Q103): serve answers one request at a time, and the app's Publish can hold it for a minute or two. The question before a scan comes when `discover.plan` answers, still part of what you typed, so it may ask; `discover.plan` is asked with `force` once, and a range over 4,096 addresses gets the stronger question. One `discover.status` question is out at a time. `:check` asks with `roster.serve.call`, since a `:check` section answers when it's run.
 - **The view is set once**, at load, with its table's actions; a new scan takes the old rows away with `remove`, so the actions' functions never change under the user.
 - **Rows carry what decides their actions** (`state`, `pick`) as cells that aren't columns, so Keep shows only on new rows and Add only on kept ones (`when`).
 - **It asks before anything happens.** `roster.confirm` before a scan and before an add; their `run` is what calls `discover.start` and `discover.add`.
 
 ## Testing it
 
-- `crates/roster-core/tests/plugin_discover.rs` installs it as a Package with `dir = "plugins/discover"` from a git repo made from this folder, and drives it through the Plugin host against a stand-in `roster serve`: the install prompt's flags, the question before a scan and the stronger one over 4,096 addresses, polling, stopping, keeping and adding, `:check`, settings, what it does without its permissions, and that the core refuses a scan or an add a Plugin starts on its own. It records what the Lua did in `app/src/plugins/discover.transcript.json`.
+- `crates/roster-core/tests/plugin_discover.rs` installs it as a Package with `dir = "plugins/discover"` from a git repo made from this folder, and drives it through the Plugin host against a stand-in `roster serve`: the install prompt's flags, the question before a scan and the stronger one over 4,096 addresses, the question coming after a busy serve, polling, stopping, keeping and adding, `:check`, settings, what it does without its permissions, and that the core refuses a scan or an add a Plugin starts on its own. It waits for every request's answer after each step, and records what the Lua did in `app/src/plugins/discover.transcript.json` (each step's own ops, then each answer's).
 - `app/src/plugins/discover.test.ts` replays that transcript against the fake Backend's stand-in (`app/src/backend/fakeDiscover.ts`), serve calls and all, and `app/src/App.discover.test.tsx` tests the UI with it. Change the Lua, run `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core --test plugin_discover`, and update the stand-in to match.
 - `tests/test_serve_discover.py` tests serve's `discover.*` with a stand-in nmap (`tests/fakes/nmap`): nothing scans a real network.
 - `?fixture=discover` (and `?fixture=discover-worst`, a /16 where 12,000 answer) in a plain browser (`npm run dev` in `app/`) shows it installed, with a stand-in network to scan.
