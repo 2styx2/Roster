@@ -34,8 +34,11 @@ function setup(settings: Record<string, unknown> | null = {}, plugins: Record<st
   return { manager, registries, backend, said, lines, ran, state };
 }
 
-const section = (registries: ReturnType<typeof builtinRegistries>) =>
-  registries.sidebar.get("folders")!.build({ hostByName } as unknown as SidebarContext);
+function section(registries: ReturnType<typeof builtinRegistries>) {
+  const s = registries.sidebar.get("folders")!.build({ hostByName } as unknown as SidebarContext);
+  if (!s) throw new Error("no Folders section");
+  return s;
+}
 
 /** Runs a `plugins call …` line the way the app's `:plugins call` does. */
 async function call(manager: PluginManager, line: string) {

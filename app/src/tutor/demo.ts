@@ -56,8 +56,8 @@ export async function demoBackend(): Promise<Backend> {
 const LOOKS = [THEME_KEY, THEME_OVER_KEY, HINTS_KEY];
 
 /** A Platform for the demo: a State in memory (seeded with how the app looks, never saved), and
- * from `real` only the window, the clipboard, fonts and init.lua. No folders.yml (Folders made
- * in the demo stay in its State), no browser (its Hosts' addresses are made up), no fullscreen
+ * from `real` only the window, the clipboard, fonts and init.lua. No folders.yml (the demo's
+ * Folders Plugin keeps Folders in the demo's fake Backend), no browser (its Hosts' addresses are made up), no fullscreen
  * (Focus in the demo leaves the window as it is), and `:config import-terminal` can't write. */
 export function demoPlatform(real: Platform, looks: (key: string) => unknown): Platform {
   const seed = Object.fromEntries(LOOKS.flatMap((k) => (looks(k) === undefined ? [] : [[k, looks(k)]])));

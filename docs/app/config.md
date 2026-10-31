@@ -12,7 +12,7 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Command | What it does |
 |---|---|
 | `:config` | Opens `init.lua` with the `editor` below. If there's no file yet, it first makes one from [`examples/init.lua`](../../examples/init.lua) with every line commented out, so it changes nothing until you uncomment something. A file that's there is never overwritten |
-| `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules, `folders.yml` and `roster.yml` (ticket 28). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
+| `:source` (`:so`, `␣ S`) | Reloads the Config now, as Neovim's `:source` does: `init.lua` with its modules, and `roster.yml` (ticket 28). `:source PATH` reloads only the file that owns PATH (`:source lua/keys.lua` is `init.lua` again). Tab completes the files |
 | `:config reload` | The same as `:source init.lua` |
 | `:config path` | Says where the file is |
 | `:config import-terminal` | Copies Windows Terminal's default profile into `init.lua` (ticket 33): font, size, weight, cell height, cursor, how bold text looks, and a Theme made from its colour scheme, which it defines but doesn't set as `theme`: the app chooses it as `:theme` does, so `:theme` can still change it (decision Q69). It reads `settings.json` (Store, Preview or unpackaged), shows the change as a diff, and on Enter writes exactly that diff: if `init.lua` or Windows Terminal's `settings.json` changed since the preview, it writes nothing and asks you to run the import again to see the new diff. The block goes between `-- >>> Windows Terminal >>>` and `-- <<< Windows Terminal <<<` lines, before the file's `return`, and running the import again replaces it. It uses `roster.set`, so a value the file's own returned table sets wins, and the diff names those. Windows only |
@@ -142,20 +142,26 @@ The option names in the app are `Options.defaultMode` ← `default_mode`, `Optio
 folders = { { name = "Lab ESXi", hosts = { "esxi-02", "esxi-03" } } },
 ```
 
-They show first in the Folders section, marked "from init.lua", and only `init.lua` can change them: `folder add`, `rename`, `delete` and `remove` say so. A Folder made in the app with the same name is hidden behind it. Names must be unique, ignoring case, and can't contain a double quote. Folders made in the app live in `folders.yml` (below).
+They show first in the Folders section, marked "from init.lua", and only `init.lua` can change them: `folder add`, `rename`, `delete` and `remove` say so. A Folder made in the app with the same name is hidden behind it. Names must be unique, ignoring case, and can't contain a double quote. Folders made in the app are kept by the built-in Folders Plugin in its own data folder (below); init.lua's are handed to it as its settings, and a change to them applies on `:source` like the rest of the Config.
 
 ### `folders.yml`
 
-The Folders you make in the app (decision Q46) are kept in `folders.yml`, next to `init.lua`: plain data that you and the app both edit. Each Folder is its name and a list of Hosts:
+Folders made in the app used to be kept in `folders.yml`, next to `init.lua` (decision Q46). Since Folders became a built-in Plugin (decision Q93), they're kept in its own data folder, as `plugin-data/folders/folders.json` next to the State, and `folders.yml` is **moved in once**:
+
+- At start, the app reads `folders.yml` and hands its Folders to the Folders Plugin, which moves them in only while it has none of its own yet: every Folder and every Host, in order, a Host that isn't in the Inventory too. A notice says how many moved. Comments in the file don't move.
+- With no `folders.yml`, the Folders an older app kept in the State move in the same way.
+- A `folders.yml` that doesn't parse moves nothing: the Folders section says the line (`folders.yml:3 has an error …`), and Folders can't be changed until it's fixed, so nothing is written over them. Fix it and restart (or `:plugins reload folders`).
+- After that the app never writes, watches or reloads `folders.yml`; `:check` says it's still there and no longer read. Delete it once your Folders look right.
 
 ```yaml
+# folders.yml, as older versions wrote it: moved in once, then unused
 Lab ESXi:
   - esxi-02
-  - esxi-03   # comments are kept
+  - esxi-03
 Night shift: []
 ```
 
-The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from older versions) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
+To write Folders by hand, put them in `init.lua` ([above](#folders)). Folders never go into `roster.yml` or to `roster serve`.
 
 ### The vault
 
@@ -197,7 +203,7 @@ Plugins fetched from git repos, the way lazy.nvim fetches Neovim's ([plugins.md]
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
 | `pull_fresh_minutes` | `5` | How old the last pull of the infra repo may be before a form (`:edit`, `:host add`, Save to vault) pulls again, 0 to 1440; `0` pulls every time. The form opens at once either way and pulls in the background; its Save waits for that pull, and a pull that fails blocks the save, never the form (decision Q88). Not over Pending changes: those were pulled before the first one |
-| `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config, of `folders.yml`, and of `roster.yml` (roster's watcher; the Sidebar follows within a second). Off: `:source` reloads (decision Q58), and the status bar says which file changed |
+| `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config, and of `roster.yml` (roster's watcher; the Sidebar follows within a second). Off: `:source` reloads (decision Q58), and the status bar says which file changed |
 | `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app the desktop opens `.lua` files with; on Windows, the app registered to *edit* `.lua` files, else Notepad, and never the one that *opens* them, which with Lua installed is the interpreter and would run the file), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
 | `backend` | `"auto"` | Which roster the app runs. `"local"`: roster on this machine (on Windows, roster installed on Windows itself, with Windows' own OpenSSH). `"wsl"`: roster in WSL, in the first distro that has it; `"wsl:<distro>"`: in that distro. `"auto"`: on Windows, roster on Windows if it finds an Inventory there, else WSL's, else whichever has roster at all; on Linux, roster always runs locally. Changing it and reloading (`:source`) starts `roster serve` again on the new Backend |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |

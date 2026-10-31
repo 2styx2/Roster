@@ -294,7 +294,7 @@ function Workspace({
   // The Config (ticket 21): the one the app started with, then each save's. A broken save comes
   // with the last good Config and the error, so nothing changes but the toast.
   const [report, setReport] = useState<ConfigReport | null>(configProp);
-  /** Config files saved since their last reload and not applied yet ("init.lua", "folders.yml",
+  /** Config files saved since their last reload and not applied yet ("init.lua",
    * "roster.yml"): the status bar's quiet hint to `:source` (decision Q58). */
   const [stale, setStaleFiles] = useState<readonly string[]>([]);
   const setStale = useCallback((file: string, on: boolean) => {
@@ -956,7 +956,7 @@ function Workspace({
   const onHelpSearch = useCallback((page: string, query: string) => tutorEvent("help_search", { page, query }), [tutorEvent]);
   // `cmdline.help` (ticket 52): the command line to come back to when help closes, as it was.
   const backToLine = useRef<{ line: string; caret: number } | null>(null);
-  // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
+  // init.lua is what `:source` reloads (decision Q58); ticket 28 registers roster.yml.
   const reportPath = useRef<string | null>(null);
   reportPath.current = report?.path ?? null;
   useEffect(() => {
