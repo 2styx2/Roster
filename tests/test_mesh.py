@@ -361,6 +361,32 @@ def test_rewriting_a_file_keeps_its_mode(net):
     assert not list(net.host("orion-2").rglob("*.roster-new"))
 
 
+def test_every_rewrite_on_a_host_is_relabelled_after_the_move():
+    h = {"name": "orion-2", "ssh": {"user": "admin"}}
+    script = mesh.write_script(h, "apply", {}, [], set())
+    body = script[script.index("replace() {"):script.index("put() {")]
+    mv = body.index('mv -f "$n" "$f"')
+    assert body.index('chcon --reference="$f" "$n"') < mv < body.index('restorecon -F "$f"')
+    assert "replace" in mesh.cut_script(h, "orion-3", False)
+
+
+@pytest.mark.parametrize("ok", [True, False])
+def test_an_apply_finishes_with_selinux_tools_that_work_or_fail(net, tmp_path, monkeypatch, ok):
+    d = tmp_path / "selinux"
+    d.mkdir()
+    log = tmp_path / "selinux.log"
+    for tool in ("chcon", "restorecon"):
+        (d / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit {0 if ok else 1}\n')
+        (d / tool).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{d}{os.pathsep}{os.environ['PATH']}")
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert net.mesh_lines("nas-1") == [key_line_of(net, "orion-2", "10.0.0.2")]
+    calls = log.read_text().splitlines()
+    assert f"restorecon -F {net.host('nas-1')}/home/.ssh/authorized_keys" in calls
+    assert any(c.startswith("chcon --reference=") and "nas-1/home/.ssh/authorized_keys" in c for c in calls)
+
+
 # ---------------------------------------------------------------- removal, rotation, drift
 
 def test_removing_a_link_removes_exactly_its_tagged_entries(net):

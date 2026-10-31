@@ -184,10 +184,18 @@ reach() {
 WRITE = r"""
 umask 077
 replace() {  # replace PATH < content: a temp file next to it, then mv, so a run cut short leaves PATH as it was;
-             # the temp starts as a copy (cp -p), so PATH keeps its mode and owner (and ESXi's sticky bit)
+             # the temp starts as a copy (cp -p), so PATH keeps its mode and owner (and ESXi's sticky bit); and
+             # its SELinux label (a new inode may lack ssh_home_t, and sshd refuses it): chcon --reference before
+             # the mv, restorecon after, where they exist (never fatal: busybox, macOS, Alpine have neither)
   f=$1; [ -L "$f" ] && f=$(readlink -f "$f" 2>/dev/null || echo "$f")
   n=$f.roster-new; rm -f "$n"
-  if { [ ! -f "$f" ] || cp -p "$f" "$n"; } && cat > "$n" && mv -f "$n" "$f"; then return 0; fi
+  if { [ ! -f "$f" ] || cp -p "$f" "$n"; } && cat > "$n"; then
+    [ -f "$f" ] && command -v chcon >/dev/null 2>&1 && chcon --reference="$f" "$n" 2>/dev/null
+    if mv -f "$n" "$f"; then
+      command -v restorecon >/dev/null 2>&1 && restorecon -F "$f" 2>/dev/null
+      return 0
+    fi
+  fi
   rm -f "$n"; echo "ERROR couldn't rewrite $1"; return 1
 }
 put() {  # put PATH LABEL < content: write it when it differs

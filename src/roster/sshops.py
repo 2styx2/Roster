@@ -269,8 +269,14 @@ def password_exec(h, command, password, timeout=15, stdin=None):
 
 # Both rewrite authorized_keys as a new file next to it, then mv it into place: a run cut short leaves the old file
 # whole (rewritten in place, it could be left empty and lock everyone out). cp -p first keeps its mode and owner.
+# The new file is a new inode: on an SELinux-enforcing Host it may lack the old one's label (ssh_home_t) and sshd
+# would refuse it. So the old file's context is copied (chcon --reference) before the mv, and restorecon sets the
+# policy's after it. Both only where they exist, and never fatal (ESXi's busybox, macOS, Alpine have neither).
 REPLACE_AK = ("f=~/.ssh/authorized_keys; [ -L \"$f\" ] && f=$(readlink -f \"$f\"); "
               "rm -f \"$f.roster\"; cp -p \"$f\" \"$f.roster\"; ")
+KEEP_LABEL = ("{ command -v chcon >/dev/null 2>&1 && chcon --reference=\"$f\" \"$f.roster\" 2>/dev/null; } "
+              "|| true; ")
+RELABEL = "{ command -v restorecon >/dev/null 2>&1 && restorecon -F \"$f\" 2>/dev/null; } || true; "
 
 
 def add_key_script(pub, tag_re):
@@ -278,13 +284,14 @@ def add_key_script(pub, tag_re):
     return ("set -e; umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; " + REPLACE_AK +
             f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
             f"printf '%s\\n' {shlex.quote(pub)} >> \"$f.roster\"; "
-            "chmod 600 \"$f.roster\"; mv -f \"$f.roster\" \"$f\"; chmod 700 ~/.ssh; echo ROSTER_OK")
+            "chmod 600 \"$f.roster\"; " + KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL +
+            "chmod 700 ~/.ssh; echo ROSTER_OK")
 
 
 def remove_key_script(tag_re):
     return ("set -e; [ -f ~/.ssh/authorized_keys ] || { echo ROSTER_OK; exit 0; }; " + REPLACE_AK +
-            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
-            "mv -f \"$f.roster\" \"$f\"; echo ROSTER_OK")
+            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; " +
+            KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL + "echo ROSTER_OK")
 
 
 def enroll(h, pub, tag_re):

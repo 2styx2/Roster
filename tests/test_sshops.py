@@ -1,6 +1,8 @@
 import os
+import shutil
 import subprocess
 
+import pytest
 from conftest import posix_shell
 
 from roster.config import load_config
@@ -120,3 +122,49 @@ def test_removing_the_key_keeps_the_files_mode(tmp_path):
     ak.chmod(0o640)
     run_remote(remove_key_script(TAG_RE), tmp_path)
     assert ak.stat().st_mode & 0o777 == 0o640
+
+
+def selinux_tools(tmp_path, ok):
+    """Stand-in chcon and restorecon that log their arguments and succeed (OK) or fail."""
+    d = tmp_path / "selinux"
+    d.mkdir()
+    log = tmp_path / "selinux.log"
+    for tool in ("chcon", "restorecon"):
+        (d / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit {0 if ok else 1}\n')
+        (d / tool).chmod(0o755)
+    return d, log
+
+
+def test_the_key_scripts_relabel_authorized_keys_after_the_move():
+    for script in (add_key_script(PUB, TAG_RE), remove_key_script(TAG_RE)):
+        mv = script.index('mv -f "$f.roster" "$f"')
+        assert script.index("chcon --reference=") < mv < script.index('restorecon -F "$f"')
+
+
+@posix_shell
+@pytest.mark.parametrize("tools", ["none", "failing", "working"])
+def test_the_key_scripts_finish_with_or_without_selinux_tools(tmp_path, tools):
+    path = os.environ["PATH"]
+    log = tmp_path / "selinux.log"
+    if tools != "none":
+        d, log = selinux_tools(tmp_path, tools == "working")
+        path = f"{d}:{path}"
+    else:
+        path = ":".join(p for p in path.split(":") if not any(os.path.exists(os.path.join(p, t))
+                                                              for t in ("chcon", "restorecon")))
+        path = f"{tmp_path / 'bin'}:{path}"
+        (tmp_path / "bin").mkdir()
+        for tool in ("sh", "grep", "cp", "mv", "rm", "mkdir", "touch", "chmod", "readlink", "printf"):
+            real = shutil.which(tool)
+            if real and not os.path.exists(tmp_path / "bin" / tool):
+                os.symlink(real, tmp_path / "bin" / tool)
+    home = tmp_path / "host-home"
+    home.mkdir()
+    for script in (add_key_script(PUB, TAG_RE), remove_key_script(TAG_RE)):
+        r = subprocess.run(["sh", "-c", script], env={**os.environ, "HOME": str(home), "PATH": path},
+                           capture_output=True, text=True)
+        assert r.returncode == 0 and "ROSTER_OK" in r.stdout, r.stderr
+    ak = str(home / ".ssh" / "authorized_keys")
+    if tools == "working":
+        assert f"restorecon -F {ak}" in log.read_text().splitlines()
+    assert (home / ".ssh" / "authorized_keys").read_text() == ""

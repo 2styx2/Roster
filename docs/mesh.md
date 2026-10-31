@@ -63,7 +63,7 @@ On a peer it adds one line per source to `authorized_keys`:
 from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster-mesh:orion-2
 ```
 
-`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. Every file roster changes on a Host (`authorized_keys`, `~/.ssh/config`, `~/.claude/CLAUDE.md` and its own) is written to a new file beside it and moved into place, keeping the old one's mode and owner, so a run cut short (a timeout, a dropped connection) leaves each file as it was or as it should be, never half written. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
+`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. Every file roster changes on a Host (`authorized_keys`, `~/.ssh/config`, `~/.claude/CLAUDE.md` and its own) is written to a new file beside it and moved into place, keeping the old one's mode, owner and SELinux label (`chcon --reference`, then `restorecon` where it exists), so a run cut short (a timeout, a dropped connection) leaves each file as it was or as it should be, never half written. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
 
 **Idempotent.** The Mesh comes from `roster.yml` only, so applying it again, from this Box or any other, changes nothing and says `already in the mesh`.
 
