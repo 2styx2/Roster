@@ -93,13 +93,11 @@ import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
-import { pluginsCommand } from "./plugins/command";
+import { packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
-import { PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
+import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
-import { rendererLabel, type RendererInUse } from "./terminal/renderer";
-import { pickerTimer } from "./picker/timing";
 import { isLeaderKey } from "./terminal/keys";
 import { fontFound, fontInUse } from "./terminal/fonts";
 import { runHealth, type HealthContext, type HealthReport } from "./health/health";
@@ -380,6 +378,10 @@ export function App({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const openPlugins = useRef(() => {});
   useEffect(() => registries.commands.register(pluginsCommand(plugins, () => openPlugins.current())), [registries, plugins]);
+  // Packages (ticket 24): `:packages`, and a sync whenever init.lua's `packages` change.
+  const [packagesOpen, setPackagesOpen] = useState(false);
+  const openPackages = useRef(() => {});
+  useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
   useEffect(() => {
     tabs.setOutputTap((id, host, data) => plugins.output(id, host, data));
     return () => tabs.setOutputTap(null);
@@ -459,6 +461,10 @@ export function App({
   useEffect(() => {
     if (backendReady) void plugins.start();
   }, [backendReady, plugins]);
+  const packagesKey = JSON.stringify(config?.packages ?? []);
+  useEffect(() => {
+    if (backendReady) void plugins.syncPackages();
+  }, [backendReady, plugins, packagesKey]);
   useEffect(() => {
     void plugins.event(vault.locked ? "lock" : "unlock");
   }, [vault.locked, plugins]);
@@ -774,14 +780,6 @@ export function App({
     );
   }, [registries, platform, takeReport, setStale]);
 
-  // How long the Picker took to open the last time (ticket 20, decision Q86), for `:info`.
-  const [pickerTime] = useState(pickerTimer);
-  const pickerShown = overlay === "picker" && !vault.locked;
-  useLayoutEffect(() => {
-    if (pickerShown) pickerTime.shown();
-  }, [pickerShown, pickerTime]);
-  // The renderer the visible terminal draws with (ticket 20): WebGL, or DOM and why.
-  const [rendererInUse, setRendererInUse] = useState<RendererInUse | null>(null);
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
     [terminalOptions],
@@ -800,7 +798,6 @@ export function App({
       clipboard: platform.clipboard,
       onZoom,
       layout: layoutKey,
-      onRenderer: setRendererInUse,
     }),
     [terminalOptions, termTheme, fontSize, windowsBuild, terminalKeys, platform, onZoom, layoutKey],
   );
@@ -976,7 +973,6 @@ export function App({
   const ctx: CommandContext = {
     openPicker: () => {
       if (overlay === null) rememberFocus();
-      if (overlay !== "picker") pickerTime.start();
       setOverlay("picker");
     },
     connect: (name, here = false) => {
@@ -1090,6 +1086,7 @@ export function App({
       if (pluginSnap.float) return plugins.closeFloat();
       if (helpAt.at) return helpView.close();
       if (pluginsOpen) return closePlugins();
+      if (packagesOpen) return closePackages();
       if (keysOpen) return closeKeys();
       if (signingOut) return closeSignOut();
       if (confirming) return closeConfirm();
@@ -1153,14 +1150,9 @@ export function App({
         // The terminal font in use (ticket 33): the first installed one in terminal.font.
         const font = fontInUse(terminalOptions.fonts, platform.fontInstalled ?? (() => null));
         const size = `${Math.round(fontSize * 100) / 100} px`;
-        // The visible terminal's, or with none on screen the one terminal.renderer asks for.
-        const shown = sessions.active !== null && rendererInUse !== null;
-        const renderer = rendererLabel(shown ? rendererInUse : terminalOptions.renderer);
-        const picked = pickerTime.last();
         setMessage(
           `Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")} · ` +
-            `Terminal ${font} ${size}, ${renderer}` +
-            (picked === null ? "" : ` · Picker opened in ${Math.round(picked)} ms`),
+            `Terminal ${font} ${size}, ${terminalOptions.renderer === "dom" ? "DOM" : "WebGL"}`,
         );
       }
     },
@@ -1373,6 +1365,14 @@ export function App({
     setPluginsOpen(false);
     restoreFocus();
   };
+  openPackages.current = () => {
+    rememberFocus();
+    setPackagesOpen(true);
+  };
+  const closePackages = () => {
+    setPackagesOpen(false);
+    restoreFocus();
+  };
 
   const staysInAppMode = (line: Line) => commands.get(line.split(" ")[0] ?? "")?.staysInAppMode ?? false;
 
@@ -1382,8 +1382,6 @@ export function App({
     // input gets the keys as a terminal would, until the Leader.
     const leaderKey = isLeaderKey(e, options.leader);
     const chord = leaderKey ? options.leader : chordOf(e);
-    // A key the IME is composing with (chordOf names none) is the IME's.
-    if (chord === "") return;
     const before = keyRef.current;
     const r = press(before, chord, { keymap, leader: options.leader, vim: options.vim, staysInAppMode });
     if (!r.consumed) return;
@@ -1943,7 +1941,7 @@ export function App({
         )}
         {pluginSnap.prompts[0] && (
           <PluginPrompt
-            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}`}
+            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}:${pluginSnap.prompts[0].package?.commit ?? ""}`}
             prompt={pluginSnap.prompts[0]}
             onAnswer={(allow) => {
               const prompt = pluginSnap.prompts[0];
@@ -1953,6 +1951,7 @@ export function App({
           />
         )}
         {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
+        {packagesOpen && <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />}
         {pluginSnap.float && (
           <PluginFloatPanel
             key={pluginSnap.float.plugin}

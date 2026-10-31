@@ -14,16 +14,6 @@ describe("chordOf", () => {
     expect(chordOf(key("ArrowDown"))).toBe("ArrowDown");
     expect(chordOf(key("Escape"))).toBe("Escape");
   });
-
-  // An input method (IBus or Fcitx on Linux, the IME on Windows) owns the keys while it composes:
-  // the Enter that commits a word mustn't also choose a Picker row (ticket 20).
-  it("names no chord for a key that's part of an IME composition", () => {
-    expect(chordOf({ ...key("Enter"), isComposing: true })).toBe("");
-    // WebKit (WebKitGTK, Safari) sends the committing key after compositionend: only keyCode says so.
-    expect(chordOf({ ...key("Enter"), keyCode: 229 })).toBe("");
-    expect(chordOf({ ...key("Process"), keyCode: 229 })).toBe("");
-    expect(chordOf({ ...key("Enter"), isComposing: false, keyCode: 13 })).toBe("Enter");
-  });
 });
 
 describe("resolveKeymap", () => {

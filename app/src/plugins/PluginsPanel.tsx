@@ -6,17 +6,24 @@
 import { useEffect, useRef, useState } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
-import type { Notice, PluginStatus, Prompt, Snapshot } from "./manager";
+import type { PackageStatus, PackageUpdate } from "../backend/types";
+import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
+import { PACKAGE_PREFIX, type Notice, type PluginStatus, type Prompt, type Snapshot } from "./manager";
 
-/** Install or update: who it's from, every permission with the risky ones flagged and explained. */
+/** Install or update: who it's from, every permission with the risky ones flagged and explained.
+ * A Package's shows its git URL as the source, and its update the new commit and its diff. */
 export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(allow: boolean): void }) {
   const yes = useRef<HTMLButtonElement>(null);
   useEffect(() => yes.current?.focus(), []);
   const m = prompt.manifest;
   const install = prompt.kind === "install";
+  const pkg = prompt.package;
+  const update = pkg?.update;
   const asked = m.permissions.filter((p) => prompt.asking.includes(p.name));
-  const title = install ? `Install ${m.name}?` : `${m.name} asks for more`;
-  const action = install ? "Install" : "Allow";
+  const title = install ? `Install ${m.name}?` : update ? `Update ${m.name}?` : `${m.name} asks for more`;
+  const action = install ? "Install" : update ? "Update" : "Allow";
+  const no = install ? "Cancel" : update ? `Keep ${short(update.from)}` : "Not now";
+  const noHint = install ? "cancel" : update ? "keep the version it has" : "run without them";
   return (
     <section
       tabIndex={-1}
@@ -32,7 +39,7 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
     >
       <header>
         <h2>{title}</h2>
-        <button type="button" className="icon-button close" aria-label="Cancel" onClick={() => onAnswer(false)}>
+        <button type="button" className="icon-button close" aria-label={no} onClick={() => onAnswer(false)}>
           <CloseGlyph />
         </button>
       </header>
@@ -41,10 +48,22 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
         {m.author ? <> by {m.author}</> : null}
       </p>
       <p className="plugin-source muted">
-        Unverified: from <span className="mono">{prompt.path}</span>. A Plugin is code; install only what you trust.
+        Unverified: from <span className="mono">{pkg ? pkg.url : prompt.path}</span>
+        {pkg?.commit && !update ? (
+          <>
+            {" "}
+            at <span className="mono">{short(pkg.commit)}</span>
+          </>
+        ) : null}
+        . A Plugin is code; install only what you trust.
       </p>
+      {update && <PackageChange update={update} />}
       {asked.length === 0 ? (
-        <p>It asks for no permissions: it can add commands, keys and its own UI, and nothing else.</p>
+        <p>
+          {update
+            ? "It asks for no new permissions."
+            : "It asks for no permissions: it can add commands, keys and its own UI, and nothing else."}
+        </p>
       ) : (
         <>
           <p>{install ? "It asks to:" : "Its new version also asks to:"}</p>
@@ -64,13 +83,49 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
           {action}
         </button>
         <button type="button" onClick={() => onAnswer(false)}>
-          {install ? "Cancel" : "Not now"}
+          {no}
         </button>
         <span className="edit-keys muted key-hint">
-          <Keys keys="Enter" /> {action.toLowerCase()} <Keys keys="Escape" /> {install ? "cancel" : "run without them"}
+          <Keys keys="Enter" /> {action.toLowerCase()} <Keys keys="Escape" /> {noHint}
         </span>
       </div>
     </section>
+  );
+}
+
+const short = (commit: string | null) => (commit ?? "").slice(0, 7);
+
+/** What a Package's update changes: the commits, then the diff (data, so Iosevka; tinted lines). */
+function PackageChange({ update }: { update: PackageUpdate }) {
+  const lines = update.diff.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return (
+    <>
+      <p>
+        <span className="mono">{short(update.from)}</span> to <span className="mono">{short(update.to)}</span>
+        {update.log.length > 0 && <>, {update.log.length === 1 ? "1 commit" : `${update.log.length} commits`}:</>}
+      </p>
+      {update.log.length > 0 && (
+        <ul className="package-log mono">
+          {update.log.map((l) => (
+            <li key={l}>{l}</li>
+          ))}
+        </ul>
+      )}
+      <pre className="diff package-diff" aria-label={`What changes from ${short(update.from)} to ${short(update.to)}`}>
+        {lines.map((line, i) => {
+          const kind = kindOf(line);
+          return (
+            <span key={i} className={`diff-line ${kind}`}>
+              {(kind === "add" || kind === "del") && <span className="visually-hidden">{SIGN_WORD[kind]}</span>}
+              {line || " "}
+              {"\n"}
+            </span>
+          );
+        })}
+      </pre>
+      {update.truncated && <p className="muted">The diff is cut short here; the rest is in the repo.</p>}
+    </>
   );
 }
 
@@ -88,7 +143,9 @@ function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string,
         {p.manifest && <span className="mono muted">{p.manifest.version}</span>}
         <span className={`plugin-state${p.problem ? " problem" : ""}`}>{state}</span>
       </div>
-      <div className="plugin-source muted mono">{p.builtin ? "built into roster" : p.path}</div>
+      <div className="plugin-source muted mono">
+        {p.builtin ? "built into roster" : p.path.startsWith(PACKAGE_PREFIX) ? `Package ${p.path.slice(PACKAGE_PREFIX.length)}` : p.path}
+      </div>
       {p.problem && <div className="plugin-problem">{p.problem}</div>}
       {p.manifest && p.manifest.permissions.length > 0 ? (
         <ul className="plugin-permissions">
@@ -217,5 +274,71 @@ export function PluginNotices({ notices, onClose }: { notices: readonly Notice[]
         </div>
       ))}
     </div>
+  );
+}
+
+/** What a Package is doing, in a word or two. */
+function packageState(p: PackageStatus, plugin: PluginStatus | undefined): { text: string; problem: boolean } {
+  if (p.error) return { text: "can't fetch", problem: true };
+  if (!p.pinned) return { text: "not installed", problem: false };
+  if (!plugin) return { text: "installed", problem: false };
+  if (plugin.waiting) return { text: "waiting for you", problem: false };
+  if (plugin.problem) return { text: "stopped", problem: true };
+  return { text: "running", problem: false };
+}
+
+/** `:packages`: what init.lua names, the commit each is at, and whether it runs. */
+export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClose(): void }) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => panel.current?.focus(), []);
+  return (
+    <section
+      ref={panel}
+      tabIndex={-1}
+      className="side-panel plugins-panel"
+      aria-label="Packages"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <header>
+        <h2>Packages</h2>
+        <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
+          <CloseGlyph />
+        </button>
+      </header>
+      {snapshot.packages.length === 0 ? (
+        <p className="panel-empty">
+          No Packages. Name one in init.lua: <code>packages = {"{"} {"{"} &quot;owner/repo&quot;, tag = &quot;v1.0.0&quot; {"}"} {"}"}</code>
+        </p>
+      ) : (
+        <ul className="plugin-list">
+          {snapshot.packages.map((p) => {
+            const plugin = snapshot.plugins.find((x) => x.path === `${PACKAGE_PREFIX}${p.name}`);
+            const state = packageState(p, plugin);
+            return (
+              <li key={p.name} className="plugin-row" aria-label={`${p.name}, ${state.text}`}>
+                <div className="plugin-head">
+                  <span className="plugin-name mono">{p.name}</span>
+                  {p.commit && <span className="mono muted">{short(p.commit)}</span>}
+                  <span className={`plugin-state${state.problem ? " problem" : ""}`}>{state.text}</span>
+                </div>
+                <div className="plugin-source muted mono">{p.url}</div>
+                <div className="muted">{p.wants}</div>
+                {p.note && <div className="muted">{p.note}</div>}
+                {(p.error ?? plugin?.problem) && <div className="plugin-problem">{p.error ?? plugin?.problem}</div>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="panel-foot muted">
+        <code>:packages update</code> shows what&rsquo;s new before applying it; <code>:packages clean</code> removes what init.lua no
+        longer names. Pinned in <code>roster.lock</code>, next to init.lua.
+      </p>
+    </section>
   );
 }

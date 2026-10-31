@@ -5,11 +5,8 @@ ssh): HOSTS Hosts in groups of 50 at addresses in 198.18.0.0/15 (RFC 2544's benc
 (no lock screen), and a Session that is this same file run with `--stream`: a fake log that prints RATE
 lines a second until it is closed, so the PTY, wsl.exe, the IPC channel and xterm all do real work.
 
-    python3 serve.py [--hosts N] [--rate LINES_PER_S] [--latency DIR] [anything roster's argv adds: -c PATH serve]
+    python3 serve.py [--hosts N] [--rate LINES_PER_S] [anything roster's argv adds: -c PATH serve]
     python3 serve.py --stream RATE        (what a Session runs)
-
---latency DIR adds a Host named `latency` (group `perf`) whose Session is latency.py: it measures the terminal
-path from inside the Session and saves its results in DIR (app/scripts/linux-run.sh, ticket 20).
 """
 import json
 import os
@@ -87,10 +84,6 @@ def host(i):
 
 
 hosts = [host(i) for i in range(HOSTS)]
-LATENCY = sys.argv[sys.argv.index("--latency") + 1] if "--latency" in sys.argv else None
-if LATENCY:
-    hosts.insert(0, {**host(0), "name": "latency", "group": "perf", "ip": "198.18.255.1", "title": "Latency check",
-                     "reviewed": True, "ssh": {"user": "root", "port": 22, "auth": "key"}})
 by_name = {h["name"]: h for h in hosts}
 groups = {h["group"]: {"title": h["group"].replace("-", " ").title(), "description": ""} for h in hosts}
 me = os.path.abspath(__file__)
@@ -114,11 +107,7 @@ def answer(m, p):
         h = by_name.get(p.get("host"))
         if h is None:
             raise LookupError(2, f"unknown host {p.get('host')!r}")
-        if h["name"] == "latency" and LATENCY:
-            argv = [sys.executable, os.path.join(os.path.dirname(me), "latency.py"), LATENCY]
-        else:
-            argv = [sys.executable, me, "--stream", str(RATE)]
-        return {"argv": argv, "env": {}, "host": h["name"], "auth": "key"}
+        return {"argv": [sys.executable, me, "--stream", str(RATE)], "env": {}, "host": h["name"], "auth": "key"}
     raise LookupError(-32601, f"unknown method {m!r}")
 
 

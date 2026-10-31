@@ -127,27 +127,3 @@ describe("what sits over a terminal (issue #78, item 6)", () => {
     expect(wrap?.[1]).toMatch(/(^|;)\s*isolation\s*:\s*isolate/);
   });
 });
-
-// WebKitGTK (the Linux build, ticket 20) may not know `scrollbar-width` or `scrollbar-color`, so the
-// scrollbars would come out wide and in GTK's colours. ::-webkit-scrollbar says the same for it;
-// Chromium (WebView2) ignores those rules wherever the standard properties are set.
-describe("scrollbars on WebKitGTK (ticket 20)", () => {
-  const all = rules(stylesCss);
-  const webkit = (part: string) => all.filter(([sel]) => sel.includes(`::-webkit-scrollbar${part}`));
-
-  it("are thin and take the Theme's colours, as scrollbar-width and scrollbar-color ask", () => {
-    expect(webkit("").some(([, body]) => /width:\s*\d+px/.test(body) && /height:\s*\d+px/.test(body))).toBe(true);
-    expect(webkit("-thumb").some(([, body]) => body.includes("var(--raised-line)"))).toBe(true);
-  });
-
-  it("are hidden wherever scrollbar-width: none hides them", () => {
-    const hidden = all.filter(([, body]) => /scrollbar-width:\s*none/.test(body)).map(([sel]) => sel);
-    expect(hidden.length).toBeGreaterThan(0);
-    for (const sel of hidden) {
-      expect(
-        webkit("").some(([s, body]) => s.includes(`${sel}::-webkit-scrollbar`) && /display:\s*none/.test(body)),
-        `${sel}::-webkit-scrollbar { display: none }`,
-      ).toBe(true);
-    }
-  });
-});

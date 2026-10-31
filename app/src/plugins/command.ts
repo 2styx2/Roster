@@ -67,3 +67,37 @@ export function pluginsCommand(manager: PluginManager, openPanel: () => void): C
     },
   };
 }
+
+// `:packages` (ticket 24): Plugins from git repos that init.lua names.
+//
+//   packages          the panel: each Package, the commit it's at, and whether it runs
+//   packages update   fetches, then shows each new commit with its diff before applying it
+//   packages clean    removes the Packages init.lua no longer names
+const PACKAGE_SUBCOMMANDS = ["update", "clean"] as const;
+
+export function packagesCommand(manager: PluginManager, openPanel: () => void): CommandDef {
+  return {
+    id: "packages",
+    source: BUILTIN,
+    area: "Plugins",
+    arg: "text",
+    optionalArg: true,
+    seldom: true,
+    label: (a) => (a ? `Packages: ${a}` : "Show the Packages init.lua names, and the commit each is at"),
+    complete: (arg) => matching(PACKAGE_SUBCOMMANDS, arg),
+    run: (ctx, arg) => {
+      const sub = (arg ?? "").trim();
+      switch (sub) {
+        case "":
+          return openPanel();
+        case "update":
+          ctx.say("Checking the Packages for updates…");
+          return void manager.checkPackages().then((m) => ctx.say(m));
+        case "clean":
+          return void manager.cleanPackages().then((m) => ctx.say(m));
+        default:
+          return ctx.say(`:packages ${sub}? There's update and clean`);
+      }
+    },
+  };
+}

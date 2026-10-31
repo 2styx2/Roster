@@ -13,8 +13,7 @@ import type { Config, ConfigReport, ImportPreview } from "./config/types";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
 import { builtinRegistries } from "./registries";
-import { StubTerminal, stubTerminalWith } from "./terminal/StubTerminal";
-import type { TerminalViewComponent } from "./terminal/TerminalView";
+import { StubTerminal } from "./terminal/StubTerminal";
 
 const hosts = makeHosts(6);
 const LEADER = "{Control>} {/Control}";
@@ -44,12 +43,12 @@ const PREVIEW: ImportPreview = {
   theme: "wt-import",
 };
 
-async function ready(opts: { config?: Config; platform?: Partial<Platform>; terminal?: TerminalViewComponent } = {}) {
+async function ready(opts: { config?: Config; platform?: Partial<Platform> } = {}) {
   const user = userEvent.setup();
   const r = report(opts.config ?? defaultConfig);
   const memory = memoryPlatform({ config: r, importPreview: PREVIEW });
   const platform = Object.assign(memory, opts.platform ?? {});
-  render(<App backend={fakeBackend({ hosts })} terminalView={opts.terminal ?? StubTerminal} registries={builtinRegistries()} platform={platform} config={r} />);
+  render(<App backend={fakeBackend({ hosts })} terminalView={StubTerminal} registries={builtinRegistries()} platform={platform} config={r} />);
   await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
   await screen.findByRole("main", { name: /workspace/i });
   return { user, platform: memory };
@@ -75,52 +74,6 @@ describe(":info and the terminal font", () => {
     const { user } = await ready({ platform: { fontInstalled: () => false } });
     await command(user, "info");
     expect(messageLine()).toHaveTextContent("Terminal Iosevka 17.33 px, WebGL");
-  });
-});
-
-// Ticket 20: on WebKitGTK, WSLg or a VM the WebGL context can fail to start or be lost. The
-// terminal falls back to the DOM renderer, and `:info` says which renderer the visible one uses.
-describe(":info and the renderer in use", () => {
-  async function openSession(user: User) {
-    await user.keyboard(`${LEADER}f`);
-    await user.keyboard("{Enter}");
-    await screen.findByRole("treeitem", { current: true });
-  }
-
-  it("says DOM, and why, when the terminal couldn't get a WebGL context", async () => {
-    const { user } = await ready({ terminal: stubTerminalWith({ webgl: "fails" }), platform: { fontInstalled: () => false } });
-    await openSession(user);
-    expect(document.querySelector("[data-renderer]")).toHaveAttribute("data-renderer", "dom-unavailable");
-    await command(user, "info");
-    expect(messageLine()).toHaveTextContent("Terminal Iosevka 17.33 px, DOM (no WebGL here)");
-  });
-
-  it("says WebGL when the visible terminal got it", async () => {
-    const { user } = await ready({ terminal: stubTerminalWith({ webgl: "works" }), platform: { fontInstalled: () => false } });
-    await openSession(user);
-    await command(user, "info");
-    expect(messageLine()).toHaveTextContent("Terminal Iosevka 17.33 px, WebGL");
-  });
-
-  it("says DOM, and why, after the WebGL context was lost", async () => {
-    const { user } = await ready({ terminal: stubTerminalWith({ webgl: "lost" }), platform: { fontInstalled: () => false } });
-    await openSession(user);
-    await command(user, "info");
-    expect(messageLine()).toHaveTextContent("Terminal Iosevka 17.33 px, DOM (WebGL context lost)");
-  });
-});
-
-describe(":info and the Picker's open time (decision Q86)", () => {
-  it("says nothing about it until the Picker has opened, then gives the last time in ms", async () => {
-    const { user } = await ready();
-    await command(user, "info");
-    expect(messageLine()).not.toHaveTextContent("Picker");
-    await user.keyboard(`${LEADER}f`);
-    await screen.findByRole("dialog", { name: /find a host/i });
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    await user.keyboard("{Escape}");
-    await command(user, "info");
-    expect(messageLine()).toHaveTextContent(/ · Picker opened in \d+ ms$/);
   });
 });
 

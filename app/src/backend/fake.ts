@@ -62,7 +62,8 @@ import {
   type SignedOut,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
-import { fakePluginHost, type FakePlugin } from "./fakePlugins";
+import { fakePackageHost, type FakePackages } from "./fakePackages";
+import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
   HOST_KEY_CHANGED_OUTPUT,
@@ -163,6 +164,8 @@ export interface FakeScenario {
   stream?: number;
   /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
   plugins?: Record<string, FakePlugin>;
+  /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
+  packages?: FakePackages;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -772,6 +775,7 @@ const NAME = /^[A-Za-z0-9._-]+$/;
 
 export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let failures = 0;
+  const { plugin: packagePlugin, ...packageHost } = fakePackageHost(scenario.packages ?? { named: [], lock: {} }, described);
   // ---- the Inventory as committed, and as edited on this Box (ticket 10)
   let committed = scenario.hosts.hosts;
   let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
@@ -1708,7 +1712,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
-    ...fakePluginHost(scenario.plugins ?? {}, () => hosts),
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin),
+    ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,
     adds: () => added,

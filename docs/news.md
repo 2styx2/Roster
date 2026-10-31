@@ -16,6 +16,8 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Help from where you are: in the command line, `Ctrl+]` or `F1` opens help on the command you're typing, and Esc in help brings the line back as you left it. In App mode, `␣ F1` opens help on what's selected (a Host's row: `:connect`), and `F1` does the same in the Picker, every finder and the Key bindings panel. See [Help from where you are](app/help.md#help-from-where-you-are).
 - Health: `:check` with no Host checks this Box (roster, `roster.yml`, ssh, the vault, askpass, the infra repo) without connecting anywhere, and shows the result as the [Health](health) page, each check with its fix and help topic. `:help health` shows the last one.
 - What's new: this page, `:help news`, and the status line says once after an upgrade that it's there. Old names that still work are on [Deprecated names](deprecated.md), and `:help` on an old name lands on its row.
+- Plugins: Lua that adds commands, keys, Themes, Sidebar sections, finders, status segments, badges, floating windows and help pages, drawn in roster's own style. `:plugins install PATH` asks first, naming every permission it wants and why a risky one is risky; `:plugins` lists them with their permissions as switches, and turning one off takes it away at once. A Plugin never sees a password or the vault, and can't Publish. See [Writing a Plugin](plugins.md).
+- Packages: name Plugins from git repos in `init.lua` (`packages = { { "owner/repo", tag = "v1.0.0" } }`), the way lazy.nvim does it. The app fetches them into its own data folder, asks before running one, and pins each commit in `roster.lock` next to `init.lua`, so your dotfiles get the same versions everywhere, offline included. `:packages update` shows each new commit and its diff, and asks again for any new permission, before applying it; `:packages clean` removes what `init.lua` no longer names. See [Packages](plugins.md#packages).
 
 **CLI**
 
@@ -34,7 +36,6 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **App**
 
 - The finders say how many results a query left, and "No matches", to a screen reader once you stop typing; help's search count is announced as it changes; the outline's section sits at the right, as in `:helpgrep`.
-- Linux: when WebGL can't start or loses its context, the terminal draws with the DOM renderer instead, and `:info` names the renderer in use and how fast the Picker opened. The Enter that finishes an input-method word (IBus, Fcitx) no longer also opens a Host. See [Linux and WSLg](app/dev/linux.md).
 
 ## v0.1.0
 

@@ -36,7 +36,7 @@ try {
 new ResizeObserver(() => fit.fit()).observe(el);   // then send term.cols/rows to session_resize (debounce ~50ms)
 term.onResize(({ cols, rows }) => resizeSession(id, cols, rows));
 ```
-Load WebGL **after** `open()`. `:info` names the renderer in use, and why it isn't WebGL (`app/src/terminal/renderer.ts`, ticket 20; [linux.md](linux.md)). Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. The build number comes from Rust: `roster_core::platform::windows_build()` (`RtlGetVersion`) through the `platform_info` command, 10.0.**26200** here (ticket 08).
+Load WebGL **after** `open()`. Show `renderer` in `:info` so ticket 20 can measure it. Set `windowsPty` whenever the PTY is ConPTY, including the WSL backend, because ConPTY sits in the middle. The build number comes from Rust: `roster_core::platform::windows_build()` (`RtlGetVersion`) through the `platform_info` command, 10.0.**26200** here (ticket 08).
 
 ## Keys: everything goes to the shell except the leader
 

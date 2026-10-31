@@ -238,18 +238,10 @@ export interface KeyLike {
   altKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
-  /** Part of an IME composition (IBus, Fcitx, the Windows IME). */
-  isComposing?: boolean;
-  /** 229 while an IME handles the key; WebKit sends the key that commits a composition after
-   * compositionend, so only this says so there. */
-  keyCode?: number;
-  /** React's key events leave isComposing out; the DOM event under them has it. */
-  nativeEvent?: { isComposing?: boolean };
 }
 
-/** The keymap name of a key event; "" (no chord, so no binding) for a key the IME is using. */
+/** The keymap name of a key event. */
 export function chordOf(e: KeyLike): string {
-  if (e.isComposing || e.nativeEvent?.isComposing || e.keyCode === 229) return "";
   const key = e.key === " " ? "Space" : e.key;
   const printable = key.length === 1;
   const withMods = e.ctrlKey || e.altKey || e.metaKey;
