@@ -8,7 +8,7 @@ import platform
 import shutil
 
 from . import __version__, changes, providers
-from .common import known_hosts_file, ssh_config_file, ssh_dir
+from .common import known_hosts_file, ssh_config_file, ssh_dir, ssh_path
 from .errors import Problem
 from .providers import PROVIDERS
 from .sshops import hk_name, known_names
@@ -100,7 +100,7 @@ def ssh(cfg):
         return out
     hosts = [h for h in cfg["hosts"].values() if h["reviewed"]]
     ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or str(ours) not in main.read_text():
+    if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
         out.append(check("ssh", "error", f"roster's ssh config ({ours}) isn't written, or ~/.ssh/config doesn't "
                                          "include it", "run `roster sync` (or `roster setup` on a new Box)", "E2"))
     else:

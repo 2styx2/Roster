@@ -312,8 +312,8 @@ Vault
 
 | File | What it is |
 |---|---|
-| `./roster.yml` | The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml` |
-| `~/.config/roster/` | This box's roster folder: `roster.yml` if you keep it here, `providers/` for provider plugins, `bw-session` |
+| `./roster.yml` | The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml` (`%APPDATA%\roster\roster.yml` on Windows) |
+| `~/.config/roster/` | This box's roster folder (on Windows, `%APPDATA%\roster`, next to the app's `init.lua`): `roster.yml` if you keep it here, `providers/` for provider plugins, `bw-session` |
 | `~/.config/roster/bw-session` | A saved Bitwarden session (`bw unlock --raw`), used only if only you can read it |
 | `~/.ssh/roster_ed25519` | This box's SSH key (`key_path:` in `roster.yml` moves it), made by `roster setup` |
 | `~/.ssh/roster_known_hosts` | Host keys recorded on first contact |
@@ -321,7 +321,7 @@ Vault
 | `ROSTER.md`, `CLAUDE.md`, `.claude/settings.json` | What Claude reads, written next to `roster.yml` by `setup` and `sync` |
 | `~/.config/roster/mesh.json` | What `roster mesh` couldn't finish (pending Hosts, cuts pending) and when it last applied, on this box |
 | `~/.ssh/roster-mesh/`, `~/ROSTER.md` (on Hosts) | A Mesh source's key, known hosts, ssh config and its peers for Claude, written by `roster mesh` ([The Mesh](mesh.md)) |
-| `$XDG_RUNTIME_DIR/roster/` | Short-lived private state: kept web logins and the askpass socket |
+| `$XDG_RUNTIME_DIR/roster/` | Short-lived private state: kept web logins and the askpass socket (on Windows, the askpass channel is a named pipe and its folder is in `%TEMP%`) |
 
 ## Environment
 
@@ -332,6 +332,18 @@ Vault
 | `BW_CLIENTID`, `BW_CLIENTSECRET` | A Bitwarden API key, for headless boxes |
 | `OP_SERVICE_ACCOUNT_TOKEN` | A 1Password service account, for headless boxes |
 | `XDG_RUNTIME_DIR` | Where roster keeps its short-lived private state |
+
+## On Windows
+
+roster also runs on Windows itself, without WSL, so the roster app works for teammates who don't use WSL.
+
+- Install it with `uv tool install .` in the roster repo (it lands in `%USERPROFILE%\.local\bin`). That also installs `roster-askpass.exe` and `roster-askpass-login.exe`, the programs Windows' ssh runs to ask roster serve for a password; they do nothing on their own.
+- roster uses Windows' built-in OpenSSH (`ssh.exe`, `ssh-keygen.exe`, `ssh-keyscan.exe`). `roster setup` writes the same files under `%USERPROFILE%\.ssh`, with forward slashes in the config, and without connection sharing (`ControlMaster`), which Windows' OpenSSH doesn't have.
+- roster's own folder is `%APPDATA%\roster` (where the app's `init.lua` is too), so `roster.yml` can live there, as can `providers/` and `bw-session`.
+- `roster run` waits for ssh and exits with its status (Windows has no `exec`).
+- A vault CLI installed as a batch file (npm installs `bw` as `bw.cmd`) runs through `cmd.exe`, so roster won't pass it an argument with `"`, `%`, `^`, `&`, `|`, `<`, `>` or `!` in it: rename the item, or install the tool as an `.exe`.
+- Signing the vault in from the app with a password or SSO isn't there yet on Windows (it drives `bw login` on a terminal roster can't open there): run `roster bw login` in a terminal, or sign in with an API key, then unlock in the app.
+- Commands that run a shell script on this machine (a `cmd:` provider, a provider's `command:`) run it with `cmd.exe`.
 
 ## Exit status
 

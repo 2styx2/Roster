@@ -12,11 +12,11 @@ You need three things:
 
 ## 1. Prerequisites
 
-- Linux, macOS or WSL with Python 3.10 or newer
-- The OpenSSH client (`ssh`, `ssh-keygen`, `ssh-keyscan`)
+- Linux, macOS or WSL with Python 3.10 or newer; or Windows itself (see [On Windows](cli-reference.md#on-windows))
+- The OpenSSH client (`ssh`, `ssh-keygen`, `ssh-keyscan`); on Windows, the one built in (Settings, Optional features, OpenSSH Client)
 - [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Your password manager's CLI:
-  - Bitwarden: `npm install -g @bitwarden/cli`, or the standalone binary from https://bitwarden.com/help/cli/
+  - Bitwarden: `npm install -g @bitwarden/cli`, or the standalone binary from https://bitwarden.com/help/cli/ (on Windows the standalone `bw.exe` is better: npm's `bw.cmd` is a batch file, which roster passes nothing unusual to)
   - 1Password: https://developer.1password.com/docs/cli/get-started/
 - Network access to the subnets in `roster.yml`
 - Optional: `nmap`, if this box will run `roster discover`

@@ -8,6 +8,11 @@ from pathlib import Path
 import pytest
 
 FAKES = Path(__file__).parent / "fakes"
+WINDOWS = os.name == "nt"
+REAL_PATH = os.environ.get("PATH", "")       # before any test put the stand-ins first (test_quick's real ssh)
+# For tests that run a POSIX shell script on this machine (the remote half of a command, a stand-in written in sh):
+# native Windows has no sh to run them with.
+posix_shell = pytest.mark.skipif(WINDOWS, reason="runs a POSIX shell script; native Windows has no sh")
 EXAMPLES = Path(__file__).parent.parent / "examples"
 
 
@@ -23,6 +28,10 @@ def isolated(tmp_path, monkeypatch):
     saved_env = dict(os.environ)
     saved_providers = dict(providers.PROVIDERS)
     monkeypatch.setenv("HOME", str(home))
+    # Windows finds the home and roster's folders through these, never HOME: a test there must not touch the real ones
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     for var in ("BW_SESSION", "BW_PASSWORD", "BW_CLIENTID", "BW_CLIENTSECRET", "OP_SERVICE_ACCOUNT_TOKEN",
                 "OP_SESSION_test", "ROSTER_CONFIG", "OLD_OP"):
@@ -30,6 +39,10 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.chdir(work)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
     monkeypatch.setattr(providers, "MANUAL_UNLOCK", False)         # an in-process serve test sets it
+    if WINDOWS:                         # files the tests write read as on Linux: "\n", not CRLF
+        write_text = Path.write_text
+        monkeypatch.setattr(Path, "write_text", lambda self, data, encoding=None, errors=None, newline="\n":
+                            write_text(self, data, encoding=encoding, errors=errors, newline=newline))
     providers._secrets.clear()
     providers.PROVIDER_STATE.clear()
     providers.PROVIDER_SETTINGS.clear()
@@ -42,11 +55,21 @@ def isolated(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def fakes(monkeypatch):
-    """Put stand-in bw / op / pass / ssh commands first on PATH."""
+def fakes(monkeypatch, tmp_path):
+    """Put stand-in bw / op / pass / ssh commands first on PATH. Windows runs no script by its #! line, so there each
+    one gets a NAME.cmd next to it that runs it with this Python (roster finds a tool by PATHEXT, as it would find
+    npm's bw.cmd), and no real ssh stays on PATH."""
     for f in FAKES.iterdir():
         f.chmod(f.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    monkeypatch.setenv("PATH", f"{FAKES}{os.pathsep}{os.environ['PATH']}")
+    if not WINDOWS:
+        monkeypatch.setenv("PATH", f"{FAKES}{os.pathsep}{os.environ['PATH']}")
+        return FAKES
+    shims = tmp_path / "fakes"
+    shims.mkdir(exist_ok=True)
+    for f in FAKES.iterdir():
+        (shims / f"{f.name}.cmd").write_text(f'@"{sys.executable}" "{f}" %*\r\n')
+    kept = [d for d in os.environ["PATH"].split(os.pathsep) if d and "openssh" not in d.lower()]
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), *kept]))
     return FAKES
 
 
@@ -54,7 +77,7 @@ def fakes(monkeypatch):
 def write_config(isolated):
     def _write(text, name="roster.yml"):
         p = isolated["work"] / name
-        p.write_text(text)
+        p.write_text(text, newline="\n")           # as written on Linux, on Windows too (no CRLF)
         return p
     return _write
 

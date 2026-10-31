@@ -5,10 +5,14 @@ import shutil
 import subprocess
 
 import pytest
+from conftest import posix_shell
 
 from roster import mesh
 from roster.cli import main
 from roster.config import load_config
+
+# The stand-in Hosts run their side with sh (tests/fakes/ssh, FAKE_HOSTS), and ESXi's datastore is a symlink.
+pytestmark = posix_shell
 
 HOSTS = {"orion-2": "10.0.0.2", "orion-3": "10.0.0.3", "esx-02": "10.0.0.12", "sw-1": "10.0.0.20",
          "nas-1": "10.0.0.30", "db-9": "10.0.9.9", "new-1": "10.0.0.40"}

@@ -24,7 +24,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/errors.md](../docs/app/errors.md) | Every way a connection can fail, with its message and fix |
 | [docs/app/design/taste.md](../docs/app/design/taste.md) | roster's own design identity: what makes it look and feel like ours |
 | [docs/app/decisions.md](../docs/app/decisions.md) | Every design question we asked and the answer |
-| [docs/adr/](../docs/adr/) | Architecture decisions for the CLI and the app (0001–0002 roster serve and ssh, 0003–0006 the app, 0007 one repo) |
+| [docs/adr/](../docs/adr/) | Architecture decisions for the CLI and the app (0001–0002 roster serve and ssh, 0003–0006 the app, 0007 one repo, 0008 the docs website and PDF) |
 | [docs/app/spec/](../docs/app/spec/) | Product specs. Start with [0001](../docs/app/spec/0001-roster-app.md) |
 | [GitHub issues](https://github.com/2styx2/roster/issues) | Vertical-slice tickets (`TNN: …`) with their blockers, one milestone per iteration |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Branch model: Work branches → pull request to `dev` → `main` |
@@ -158,6 +158,10 @@ app/assets/           logo-icon.svg (app icon master: Gap orbit, transparent) + 
 docs/app/design/      taste.md, the interface review, Theme screenshots (themes/, made from the fake Backend)
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)
+app/src/docs-site/    the docs website and PDF (ticket 46, ADR 0008): site.tsx renders every help page with HelpPanel's
+                      HelpDoc and help/doc.css, writes tags.json, tag.html, print.html; the build fails on a dead link
+app/scripts/gen-docs-site.ts  `npm run docs` (`-- --out DIR`, `--pdf FILE`): writes it; run through vite-run.mjs
+                      (Vite's module runner, so the app's `?raw` imports work)
 app/scripts/perf.sh   measuring (docs/app/performance.md): `browser`, `windows [--build]`, `serve`;
                       perf/serve.py is a stand-in `roster serve` (made-up Hosts, Sessions that print a busy log)
 app/src/terminal/hold.ts  a hidden terminal holds its Session's output until it's shown (questions go through)

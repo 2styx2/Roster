@@ -81,6 +81,14 @@ The Markdown in `docs/` is the only copy. The app imports it as text when it's b
 
 CI also checks the docs themselves, the way Neovim's `make lintdoc` does: every link in every page goes to a topic, a heading or a file that exists, no two topics share a name, and every relative link in `docs/` and the READMEs resolves (`app/src/help/lint.test.ts`, `tests/test_docs.py`). Every `roster serve` method and error code is in [serve-api.md](../serve-api.md), and every `roster` command in [cli-reference.md](../cli-reference.md).
 
+## On the web and on paper
+
+The same pages are a website, [2styx2.github.io/roster/](https://2styx2.github.io/roster/), and one PDF, `roster-docs.pdf` there and `roster-docs-X.Y.Z.pdf` on each Release. Both are made from the same Markdown, the same generated pages and the same renderer as help in the app, the way Neovim's website is made from its `:help`, so they can't say something different. The generated pages show roster's defaults there (no `init.lua`, no Plugins) and say so; in the app they show what's in effect.
+
+Every topic has a web address: `tag.html?t=TOPIC`, such as [2styx2.github.io/roster/tag.html?t=terminal.size](https://2styx2.github.io/roster/tag.html?t=terminal.size). Every page ends with the commit it was made from, a link to edit its Markdown, and "Wrong or unclear? Report it", which opens a new issue naming the page.
+
+To build them yourself, in `app/`: `npm run docs` writes the website to `app/dist-docs/`, and `npm run docs -- --pdf FILE` prints the PDF too, with Chrome or Chromium (`CHROME=PATH` if it's not on `PATH`). The build stops on a link that goes nowhere. The website updates when a Release reaches `main` (ADR 0008).
+
 ## Writing help
 
 What a guide in `docs/` needs so it reads well in `:help`, on GitHub, and stays linked:

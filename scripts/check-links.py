@@ -97,7 +97,7 @@ def status(url, fetch=fetch):
 def check(root=ROOT, fetch=fetch):
     """{url: (why, [files])} for every dead link."""
     where = {}
-    for doc in sorted(docs(root)):
+    for doc in sorted(docs(root), key=lambda p: p.as_posix()):         # the same order on Windows
         if doc.exists():
             for url in urls(doc.read_text(encoding="utf-8")):
                 where.setdefault(url, []).append(doc.relative_to(root).as_posix())

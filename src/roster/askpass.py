@@ -1,6 +1,7 @@
 """The askpass channel: how a password Session's ssh gets its password from `roster serve` (ADR 0002).
 
-Server side (Channel, run by serve): a Unix socket in a fresh user-only directory. session.prepare mints a
+Server side (Channel, run by serve): a Unix socket in a fresh user-only directory, or on Windows a named pipe only
+this user can open (roster/winpipe.py). session.prepare mints a
 one-time token for one Host's ssh Login; the token is good once, for TTL seconds, and until vault.lock.
 quick.prepare mints one for a password the user typed (Typed, Quick Connect): the token holds it as is, and it goes
 with the token (spent, expired and pruned, or vault.lock).
@@ -19,8 +20,12 @@ Wire format, one exchange per connection, then serve closes:
 REASON is safe to show in the terminal; CODE is one of errors.py's stable codes. The helper prints it as
 the one line "roster askpass: [CODE] REASON" on stderr, which the app's classifier parses.
 
-Stdlib only, and nothing else from roster: ssh runs the helper for every prompt, it must start fast and
-never load roster.yml.
+Stdlib only, and nothing else from roster (but winpipe, on Windows): ssh runs the helper for every prompt, it must
+start fast and never load roster.yml.
+
+On Windows ssh can't run a script as SSH_ASKPASS, only a program, so the helpers are the launchers pip and uv install
+for roster's entry points roster-askpass and roster-askpass-login (pyproject.toml), found next to the Python serve
+runs on.
 """
 
 import os
@@ -28,15 +33,18 @@ import re
 import secrets
 import select
 import shlex
+import shutil
 import socket
 import struct
 import sys
+import sysconfig
 import tempfile
 import threading
 import time
 
 SOCKET_ENV, TOKEN_ENV = "ROSTER_ASKPASS_SOCKET", "ROSTER_ASKPASS_TOKEN"
 LOGIN_ENV = "ROSTER_ASKPASS_LOGGED_IN"     # set only by the logged-in script, never by ssh or the app
+WINDOWS = os.name == "nt"
 TTL = 60.0                  # seconds a token lives; ROSTER_ASKPASS_TTL may shorten it (tests), never lengthen
 REPLY_TIMEOUT = 30          # the helper waits this long for serve (a vault lookup can take a few seconds)
 PROMPT_LIMIT = 300          # characters of an unexpected prompt that are reported (it comes from the Host)
@@ -98,13 +106,7 @@ def main(argv=None):
         return 1 if expected else complain(UNEXPECTED_PROMPT, refused_prompt_reason(None, prompt))
     request = token if expected else f"prompt {token} {shown_prompt(prompt)}"
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-            s.settimeout(REPLY_TIMEOUT)
-            s.connect(path)
-            s.sendall(request.encode() + b"\n")
-            reply = b""
-            while chunk := s.recv(4096):
-                reply += chunk
+        reply = exchange(path, request, REPLY_TIMEOUT)
     except OSError as e:
         if not expected:
             return complain(UNEXPECTED_PROMPT, refused_prompt_reason(None, prompt))
@@ -125,15 +127,35 @@ def report_login():
     path, token = os.environ.get(SOCKET_ENV), os.environ.get(TOKEN_ENV)
     if path and token:
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                s.settimeout(5)
-                s.connect(path)
-                s.sendall(f"login {token}\n".encode())
-                while s.recv(64):
-                    pass
+            exchange(path, f"login {token}", 5)
         except OSError:
             pass
     return 0
+
+
+def logged_in_main():
+    """roster-askpass-login (Windows): the logged-in script as a program of its own, ssh's LocalCommand there."""
+    return report_login()
+
+
+def exchange(address, request, timeout):
+    """Send serve one request line over the channel at ADDRESS (a socket path, or a pipe name on Windows) and return
+    its whole answer."""
+    if WINDOWS:
+        from . import winpipe
+        conn = winpipe.connect(address, timeout)
+    else:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+    with conn:
+        if not WINDOWS:
+            conn.connect(address)
+        conn.settimeout(timeout)
+        conn.sendall(request.encode() + b"\n")
+        reply = b""
+        while chunk := conn.recv(4096):
+            reply += chunk
+    return reply
 
 
 def complain(code, reason):
@@ -153,6 +175,21 @@ def runtime_dir():
             return d
         os.rmdir(d)
     return tempfile.mkdtemp(prefix="roster-askpass-")    # mkdtemp makes it 0700
+
+
+def installed_helper(name):
+    """Windows: the launcher of roster's entry point NAME (NAME.exe), next to the Python serve runs on (a venv's or a
+    uv tool's Scripts), in that Python's scripts folders, or on PATH; None if it isn't installed."""
+    dirs = [os.path.dirname(sys.executable), sysconfig.get_path("scripts")]
+    try:
+        dirs.append(sysconfig.get_path("scripts", f"{os.name}_user"))
+    except KeyError:
+        pass
+    for d in dirs:
+        exe = os.path.join(d or "", f"{name}.exe")
+        if d and os.path.isfile(exe):
+            return exe
+    return shutil.which(name)
 
 
 def ttl():
@@ -194,11 +231,15 @@ class Channel:
         self.lock = threading.Lock()
         self.dir = runtime_dir()
         os.chmod(self.dir, 0o700)
+        self.known_hosts = os.path.join(self.dir, "quick_known_hosts")   # Quick Connect's keys (serve writes it)
+        self.stopping = threading.Event()
+        self.problem = None                  # why password Sessions can't work here (Windows: no helper installed)
+        if WINDOWS:
+            self._open_pipe()
+            return
         self.socket_path = os.path.join(self.dir, "socket")
         self.helper = os.path.join(self.dir, "askpass")
         self.login_helper = os.path.join(self.dir, "logged-in")         # ssh's LocalCommand (Save to vault)
-        self.known_hosts = os.path.join(self.dir, "quick_known_hosts")   # Quick Connect's keys (serve writes it)
-        self.stopping = threading.Event()
         old = os.umask(0o177)                # the socket is created 0600
         try:
             self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -216,6 +257,43 @@ class Channel:
         self.thread = threading.Thread(target=self._accept_loop, name="askpass", daemon=True)
         self.thread.start()
 
+    def _open_pipe(self):
+        """Windows: a named pipe only this user can open, the installed helpers, and two threads: one accepts, one
+        prunes what expires and runs tick() (on Linux the one select() loop does both)."""
+        from . import winpipe
+        self.socket_path = rf"\\.\pipe\roster-askpass-{secrets.token_hex(16)}"   # the pipe's name: env and logs
+        self.helper = installed_helper("roster-askpass")
+        self.login_helper = installed_helper("roster-askpass-login")
+        if not self.helper or not self.login_helper:
+            self.problem = ("roster-askpass.exe isn't installed next to roster, so ssh has no way to ask for a "
+                            "password - reinstall roster (`uv tool install --force .` in the roster repo)")
+        self.server = winpipe.Server(self.socket_path)
+        self.wake = threading.Event()
+        self.thread = threading.Thread(target=self._accept_pipe, name="askpass", daemon=True)
+        self.thread.start()
+        self.housekeeper = threading.Thread(target=self._housekeeping, name="askpass-expiry", daemon=True)
+        self.housekeeper.start()
+
+    def _accept_pipe(self):
+        while not self.stopping.is_set():
+            try:
+                conn = self.server.accept()
+            except OSError:
+                if self.stopping.is_set():
+                    return
+                time.sleep(0.05)            # a client that came and went; never spin
+                continue
+            threading.Thread(target=self._answer, args=(conn,), daemon=True).start()
+
+    def _housekeeping(self):
+        while not self.stopping.is_set():
+            self.wake.wait(self._next_expiry())
+            self.wake.clear()
+            if self.stopping.is_set():
+                return
+            self._prune()
+            self._run_tick()
+
     # ---- tokens
 
     def mint(self, login, label):
@@ -231,6 +309,9 @@ class Channel:
         return token
 
     def _nudge(self):
+        if WINDOWS:
+            self.wake.set()
+            return
         try:
             os.write(self.wake_w, b"x")
         except OSError:
@@ -298,8 +379,9 @@ class Channel:
 
     def login_options(self):
         """ssh's options that run the logged-in script once it has logged in (ssh runs LocalCommand with the user's
-        shell, after authentication; '%' is its escape)."""
-        return ["-o", "PermitLocalCommand=yes", "-o", f"LocalCommand={shlex.quote(self.login_helper).replace('%', '%%')}"]
+        shell, after authentication, cmd.exe on Windows; '%' is its escape)."""
+        quoted = f'"{self.login_helper}"' if WINDOWS else shlex.quote(self.login_helper)
+        return ["-o", "PermitLocalCommand=yes", "-o", f"LocalCommand={quoted.replace('%', '%%')}"]
 
     def logged_in(self, token):
         """The Session with this token has logged in: tell its Typed (once), if this token handed it to ssh."""
@@ -385,6 +467,21 @@ class Channel:
     def close(self):
         self.stopping.set()
         self._nudge()
+        if WINDOWS:
+            self.server.close()             # wakes the accept thread
+            self.thread.join(timeout=2)
+            self.housekeeper.join(timeout=2)
+            self.forget()
+            for f in (self.known_hosts,):   # the helpers are roster's installed programs: they stay
+                try:
+                    os.unlink(f)
+                except FileNotFoundError:
+                    pass
+            try:
+                os.rmdir(self.dir)
+            except OSError:
+                pass
+            return
         self.thread.join(timeout=2)
         self.server.close()
         for fd in (self.wake_r, self.wake_w):
@@ -408,8 +505,9 @@ class Channel:
 
 
 def same_user(conn):
-    """Is the other end this user? (the directory's 0700 already says so; this checks it on Linux)"""
-    if not hasattr(socket, "SO_PEERCRED"):
+    """Is the other end this user? (the directory's 0700 already says so; this checks it on Linux. On Windows the
+    pipe's DACL lets nobody else open it.)"""
+    if WINDOWS or not hasattr(socket, "SO_PEERCRED"):
         return True
     _pid, uid, _gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
                                                           struct.calcsize("3i")))

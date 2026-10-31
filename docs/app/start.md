@@ -4,6 +4,8 @@ roster opens a terminal to any Host in your team's Inventory, logged in with the
 
 To follow a link here, Tab to it and press Enter, or click it. Try it on [links](help.md#links): `Ctrl+o` brings you back. `␣ ?` finds any topic, `:help TOPIC` opens one, and `Esc` closes help. `␣` is the Leader, `Ctrl+Space` unless you've changed it.
 
+These pages are also online, at [2styx2.github.io/roster/](https://2styx2.github.io/roster/), and in one PDF, [2styx2.github.io/roster/roster-docs.pdf](https://2styx2.github.io/roster/roster-docs.pdf) ([On the web and on paper](help.md#on-the-web-and-on-paper)).
+
 ## New to roster
 
 `:tutor` is the quickest way in: a short tutorial, like Neovim's `:Tutor`, that you do rather than read, on a demo Inventory of made-up Hosts so nothing you try reaches your network. Its steps tick themselves as you do them, and it comes back where you left off. Or start here:

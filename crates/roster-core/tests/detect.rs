@@ -1,9 +1,11 @@
 //! Finding the Backend: which WSL distro (or the local machine) has roster and an Inventory, and
 //! the exact argv that starts `roster serve` there. Driven through a scripted command runner.
 
-use roster_core::detect::{Candidate, ErrorKind, Output, Platform, Runner, Target, detect, roster_command};
+use roster_core::detect::{
+    Candidate, Choice, ErrorKind, Output, Platform, Runner, Target, detect, detect_choice, roster_command,
+};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Answers by the argv it's asked to run; records every call.
 #[derive(Default)]
@@ -11,6 +13,9 @@ struct Scripted {
     distros: Option<String>,
     probes: HashMap<String, String>, // distro ("" = local) -> probe stdout
     calls: RefCell<Vec<Vec<String>>>,
+    /// Native Windows detection: the app's env vars and the files that exist.
+    vars: HashMap<String, String>,
+    files: HashSet<String>,
 }
 
 impl Runner for Scripted {
@@ -35,6 +40,14 @@ impl Runner for Scripted {
             String::new()
         };
         ok(self.probes.get(&distro).map(String::as_str).unwrap_or(""))
+    }
+
+    fn var(&self, name: &str) -> Option<String> {
+        self.vars.get(name).cloned()
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        self.files.contains(path)
     }
 }
 
@@ -456,4 +469,146 @@ fn the_real_probe_expands_a_tilde_in_the_program_and_its_arguments() {
             "serve".into()
         ][..]
     );
+}
+
+// ---- native Windows roster (ticket 19)
+
+/// A Windows PC with roster installed by `uv tool install` (in `~\.local\bin`, not on the app's
+/// PATH yet) and, if `inventory`, a `roster.yml` in `%APPDATA%\roster`.
+fn windows_pc(inventory: bool, wsl: Option<(&str, &str)>) -> Scripted {
+    let mut files = HashSet::from([r"C:\Users\you\.local\bin\roster.exe".to_string()]);
+    if inventory {
+        files.insert(r"C:\Users\you\AppData\Roaming\roster\roster.yml".into());
+    }
+    Scripted {
+        distros: wsl.map(|(name, _)| list(&[("*", name, "Running")])),
+        probes: wsl
+            .map(|(name, probe)| HashMap::from([(name.to_string(), probe.to_string())]))
+            .unwrap_or_default(),
+        vars: HashMap::from([
+            ("PATH".into(), r"C:\Windows\system32;C:\Windows".into()),
+            ("PATHEXT".into(), ".COM;.EXE;.BAT;.CMD".into()),
+            ("USERPROFILE".into(), r"C:\Users\you".into()),
+            ("APPDATA".into(), r"C:\Users\you\AppData\Roaming".into()),
+        ]),
+        files,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn auto_on_windows_takes_roster_on_windows_with_an_inventory_and_never_runs_wsl() {
+    let r = windows_pc(true, Some(("Ubuntu", FOUND)));
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Auto).unwrap();
+    assert_eq!(c.target, Target::Local);
+    assert_eq!(
+        c.serve_argv,
+        s(&[
+            r"C:\Users\you\.local\bin\roster.exe",
+            "-c",
+            r"C:\Users\you\AppData\Roaming\roster\roster.yml",
+            "serve"
+        ])
+    );
+    assert!(
+        r.calls.borrow().is_empty(),
+        "nothing runs, WSL stays asleep: {:?}",
+        r.calls.borrow()
+    );
+}
+
+#[test]
+fn auto_on_windows_prefers_a_wsl_distro_with_an_inventory_over_windows_roster_without_one() {
+    let r = windows_pc(false, Some(("Ubuntu", FOUND)));
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Auto).unwrap();
+    assert_eq!(
+        c.target,
+        Target::Wsl {
+            distro: "Ubuntu".into()
+        }
+    );
+    // ... and with no WSL at all, Windows roster without an Inventory is the Backend (it says so).
+    let r = windows_pc(false, None);
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Auto).unwrap();
+    assert_eq!((c.target, c.has_inventory), (Target::Local, false));
+    assert_eq!(c.serve_argv, s(&[r"C:\Users\you\.local\bin\roster.exe", "serve"]));
+}
+
+#[test]
+fn local_on_windows_never_looks_in_wsl_and_says_what_to_install() {
+    let mut r = windows_pc(false, Some(("Ubuntu", FOUND)));
+    r.files.clear();
+    let e = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Local).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::RosterMissing);
+    assert!(
+        e.message.contains("on Windows") && e.hint.contains("uv tool install"),
+        "{e}"
+    );
+    assert!(r.calls.borrow().is_empty());
+    // Without an Inventory it's still this Backend: roster then says the Inventory is missing.
+    let r = windows_pc(false, Some(("Ubuntu", FOUND)));
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Local).unwrap();
+    assert_eq!(c.target, Target::Local);
+}
+
+#[test]
+fn wsl_on_windows_never_takes_windows_roster() {
+    let r = windows_pc(true, Some(("Ubuntu", FOUND)));
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Wsl(None)).unwrap();
+    assert_eq!(
+        c.target,
+        Target::Wsl {
+            distro: "Ubuntu".into()
+        }
+    );
+}
+
+#[test]
+fn windows_roster_is_found_on_path_with_pathext_and_roster_config_wins() {
+    let mut r = windows_pc(true, None);
+    r.files = HashSet::from([
+        r"D:\tools\roster.CMD".to_string(),
+        r"C:\Users\you\infra\roster.yml".into(),
+        r"C:\Users\you\team\roster.yml".into(),
+    ]);
+    r.vars.insert("PATH".into(), r"C:\Windows\system32;D:\tools\".into());
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Local).unwrap();
+    assert_eq!(
+        c.serve_argv,
+        s(&[r"D:\tools\roster.CMD", "-c", r"C:\Users\you\infra\roster.yml", "serve"])
+    );
+    r.vars.insert("ROSTER_CONFIG".into(), r"~\team\roster.yml".into());
+    let c = detect_choice(&r, Platform::Windows, &s(&["roster"]), &Choice::Local).unwrap();
+    assert_eq!(c.serve_argv[2], r"C:\Users\you\team\roster.yml");
+}
+
+#[test]
+fn an_override_on_windows_runs_natively_with_its_home_expanded() {
+    let mut r = windows_pc(true, None);
+    r.files.insert(r"C:\Users\you\.cargo\bin\uv.exe".into());
+    r.vars.insert("PATH".into(), r"C:\Users\you\.cargo\bin".into());
+    let cmd = s(&["uv", "run", "--project", r"~\work\roster", "roster"]);
+    let c = detect_choice(&r, Platform::Windows, &cmd, &Choice::Local).unwrap();
+    assert_eq!(
+        c.serve_argv,
+        s(&[
+            r"C:\Users\you\.cargo\bin\uv.exe",
+            "run",
+            "--project",
+            r"C:\Users\you\work\roster",
+            "roster",
+            "-c",
+            r"C:\Users\you\AppData\Roaming\roster\roster.yml",
+            "serve"
+        ])
+    );
+}
+
+#[test]
+fn no_roster_anywhere_on_windows_names_both_places() {
+    let mut r = windows_pc(false, None);
+    r.files.clear();
+    let e = detect(&r, Platform::Windows, &s(&["roster"]), None).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::NoWsl);
+    assert!(e.hint.contains("roster on Windows itself"), "{e}");
 }

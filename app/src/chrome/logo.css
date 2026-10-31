@@ -1,0 +1,8 @@
+/* The Gap orbit mark (chrome/Logo.tsx), in the app and on the docs website's start page (src/docs-site). */
+.logo { flex: none; display: block; overflow: visible; }
+.logo-orbit { stroke: var(--text); opacity: 0.5; }
+.logo-edges { stroke: var(--text); opacity: 0.5; }
+.logo.small .logo-orbit { opacity: 0.65; }
+.logo.small .logo-edges { opacity: 0.75; }
+.logo-node { fill: var(--text); }
+.logo-host { stroke: var(--accent); }

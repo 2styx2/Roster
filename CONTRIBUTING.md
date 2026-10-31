@@ -18,7 +18,7 @@ One branch model for the whole repo: the Python CLI at the root and the roster a
 
 ## Docs
 
-**Docs ship with the change, in the same pull request.** A feature isn't done until `:help` can answer a question about it. roster's docs follow the model of Neovim's: one source for the in-app `:help` (and, later, the docs website and PDF), complete, and never stale. For each kind of change:
+**Docs ship with the change, in the same pull request.** A feature isn't done until `:help` can answer a question about it. roster's docs follow the model of Neovim's: one source for the in-app `:help`, the docs website and the PDF (`npm run docs` in `app/`, ADR 0008), complete, and never stale. For each kind of change:
 
 - **New or changed command** (app `:name`, or `roster NAME`): the command has a `label` and an `area`, so `:help commands` lists it. Default keys go in `docs/app/keyboard.md`'s table. A CLI command gets its section in `docs/cli-reference.md`.
 - **New `init.lua` option:** one row in `docs/app/config.md`'s option tables (Option | Default | What it does). That row is the only copy; `options.test.ts` fails without it.

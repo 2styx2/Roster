@@ -7,6 +7,7 @@ import json
 import os
 
 import pytest
+from conftest import WINDOWS
 
 from roster import askpass, errors, providers
 from roster import serve as rpc
@@ -109,6 +110,7 @@ def test_already_signed_out(bw, serve):
     no_secrets(s, bw)
 
 
+@pytest.mark.skipif(WINDOWS, reason="signing in with a password needs a PTY: not on native Windows yet")
 def test_a_different_account_signs_in_afterwards(bw, serve, monkeypatch):
     monkeypatch.setenv("FAKE_BW_ACCOUNT", json.dumps({"email": OTHER, "password": PASSWORD}))
     s = serve()

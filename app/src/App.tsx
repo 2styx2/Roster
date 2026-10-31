@@ -711,6 +711,22 @@ function Workspace({
     void connect(false);
   }, [connect]);
 
+  // Which roster runs (init.lua's `backend` and `roster_command`, ticket 19): the core reads them
+  // when it starts serve, so a reload that changes either starts serve again, on the new Backend
+  // (WSL to Windows and back). The first Config is the one the start used. Open Sessions keep
+  // running where they are; the vault locks, since the new serve has never been unlocked.
+  const backendPlan = config ? JSON.stringify([config.backend, config.rosterCommand]) : null;
+  const startedPlan = useRef<string | null>(null);
+  useEffect(() => {
+    if (backendPlan === null) return;
+    if (startedPlan.current === null || startedPlan.current === backendPlan) {
+      startedPlan.current = backendPlan;
+      return;
+    }
+    startedPlan.current = backendPlan;
+    void connect(true);
+  }, [backendPlan, connect]);
+
   // Pending changes (ticket 10): asked for once the Backend is up, and after every edit, discard
   // and pull. A roster older than API 5 has none to show.
   const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;

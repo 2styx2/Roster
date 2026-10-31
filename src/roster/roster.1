@@ -272,10 +272,10 @@ with \-\-install: install into DIR/share/man/man1/ instead
 .SH FILES
 .TP
 \fB\&./roster.yml\fR
-The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: \fB\-c PATH\fR, \fB$ROSTER_CONFIG\fR, \fB\&./roster.yml\fR, \fB~/.config/roster/roster.yml\fR
+The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: \fB\-c PATH\fR, \fB$ROSTER_CONFIG\fR, \fB\&./roster.yml\fR, \fB~/.config/roster/roster.yml\fR (\fB%APPDATA%\eroster\eroster.yml\fR on Windows)
 .TP
 \fB~/.config/roster/\fR
-This box's roster folder: \fBroster.yml\fR if you keep it here, \fBproviders/\fR for provider plugins, \fBbw\-session\fR
+This box's roster folder (on Windows, \fB%APPDATA%\eroster\fR, next to the app's \fBinit.lua\fR): \fBroster.yml\fR if you keep it here, \fBproviders/\fR for provider plugins, \fBbw\-session\fR
 .TP
 \fB~/.config/roster/bw\-session\fR
 A saved Bitwarden session (\fBbw unlock \-\-raw\fR), used only if only you can read it
@@ -299,7 +299,7 @@ What \fBroster mesh\fR couldn't finish (pending Hosts, cuts pending) and when it
 A Mesh source's key, known hosts, ssh config and its peers for Claude, written by \fBroster mesh\fR (The Mesh)
 .TP
 \fB$XDG_RUNTIME_DIR/roster/\fR
-Short\-lived private state: kept web logins and the askpass socket
+Short\-lived private state: kept web logins and the askpass socket (on Windows, the askpass channel is a named pipe and its folder is in \fB%TEMP%\fR)
 .SH ENVIRONMENT
 .TP
 \fBROSTER_CONFIG\fR

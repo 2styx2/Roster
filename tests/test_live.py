@@ -318,7 +318,7 @@ def names(s):
 def test_inventory_edits_through_serve_are_pending_changes(live, repo):
     s = live()
     r = s.ok("host.remove", {"host": "block"})
-    assert r["removed"] == "block" and r["group"] == "lab" and ".git/roster/roster.yml.bak" in r["backup"]
+    assert r["removed"] == "block" and r["group"] == "lab" and ".git/roster/roster.yml.bak" in r["backup"].replace("\\", "/")
     assert "block" not in names(s)
     assert s.ok("host.rename", {"host": "flow", "to": "flow-2"})["host"]["name"] == "flow-2"
     moved = s.ok("host.move", {"host": "sw1", "group": "lab"})

@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 
-from ..common import say, user_config_dir
+from ..common import WINDOWS, say, user_config_dir
 from . import (
     PROVIDERS,
     ItemExists,
@@ -45,11 +45,12 @@ def session_file():
 
 def load_session_file():
     """BW_SESSION from ~/.config/roster/bw-session, so sessions without your shell's env (background jobs,
-    other terminals) can use an unlocked vault. Ignored unless only you can read it."""
+    other terminals) can use an unlocked vault. Ignored unless only you can read it (on Windows the file is in your own
+    %APPDATA%, which only you can open)."""
     f = session_file()
     if os.environ.get("BW_SESSION") or not f.is_file():
         return False
-    if f.stat().st_mode & 0o077:
+    if not WINDOWS and f.stat().st_mode & 0o077:
         say(f"warning      {f} is readable by others - ignored (chmod 600 {f})")
         return False
     key = f.read_text().strip()

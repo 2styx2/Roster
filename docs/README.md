@@ -1,6 +1,6 @@
 # roster's docs
 
-Everything about roster, the CLI and the app, in one place. The pages marked **:help** are also inside the app, as the same Markdown: `:help TOPIC` opens one, and `:help start` is where to begin. They're grouped the way `:help`'s index groups them.
+Everything about roster, the CLI and the app, in one place. The pages marked **:help** are also inside the app, as the same Markdown: `:help TOPIC` opens one, and `:help start` is where to begin. They're grouped the way `:help`'s index groups them. The same pages are also a website, [2styx2.github.io/roster/](https://2styx2.github.io/roster/), and one [PDF](https://2styx2.github.io/roster/roster-docs.pdf) ([how](app/help.md#on-the-web-and-on-paper)).
 
 ## Getting started
 
