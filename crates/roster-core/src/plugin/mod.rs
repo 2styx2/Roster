@@ -226,8 +226,8 @@ enum Job {
     Load(String),
     Call(u64, Json),
     Event(Event),
-    /// A `roster.http` request's answer, for the function waiting for it.
-    Answer(u64, network::Answer),
+    /// A `roster.http` or `roster.serve.request` answer, for the function waiting for it.
+    Answer(u64, runtime::Arrival),
 }
 
 /// Gets the replies nobody asked for: what a Plugin did when a request answered (the Tauri
@@ -437,6 +437,16 @@ impl PluginHost {
             .collect()
     }
 
+    /// How many of the Plugin's requests (`roster.serve.request`, `roster.http`) haven't answered
+    /// and run yet: 0 when it isn't loaded.
+    pub fn requests(&self, plugin: &str) -> usize {
+        self.slots
+            .lock()
+            .expect("plugin slots")
+            .get(plugin)
+            .map_or(0, |s| s.serving.requests.load(Ordering::SeqCst))
+    }
+
     /// Every Plugin loaded, in name order.
     pub fn list(&self) -> Vec<Status> {
         self.slots
@@ -489,10 +499,13 @@ impl PluginHost {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
         let (serve, limits, serving) = (Arc::clone(&self.serve), self.limits, Arc::clone(serving));
-        let post: Option<runtime::Post> = grants.iter().any(|p| matches!(p, Permission::Network(_))).then(|| {
+        let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
+        let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
-            Arc::new(move |id: u64, answer: network::Answer| {
+            let waits = Arc::clone(&serving);
+            Arc::new(move |id: u64, answer: runtime::Arrival| {
                 deliver(&slots, &listener, limits, &plugin, generation, Job::Answer(id, answer));
+                waits.requests.fetch_sub(1, Ordering::SeqCst);
             }) as runtime::Post
         });
         let spawned = std::thread::Builder::new()
@@ -664,20 +677,25 @@ fn wait(rx: &Receiver<Answer>, start: Instant, wall: Duration, serving: &ServeWa
 /// How often the host looks again at a Plugin waiting for roster serve.
 const SERVE_LOOK: Duration = Duration::from_millis(50);
 
-/// How long one Plugin's thread has spent waiting for roster serve (`roster.serve.call`, the
-/// `roster.inventory` reads), so the host's wall clock leaves it out (decision Q103).
+/// What one Plugin waits for: how long its thread has spent waiting for roster serve
+/// (`roster.serve.call`, the `roster.inventory` reads), so the host's wall clock leaves it out
+/// (decision Q103), and how many of its requests haven't answered yet.
 #[derive(Default)]
-pub(crate) struct ServeWait(Mutex<(Duration, Option<Instant>)>);
+pub(crate) struct ServeWait {
+    serve: Mutex<(Duration, Option<Instant>)>,
+    /// `roster.serve.request` and `roster.http` requests not yet answered and run.
+    pub(crate) requests: std::sync::atomic::AtomicUsize,
+}
 
 impl ServeWait {
     /// The thread starts waiting for serve.
     pub(crate) fn begin(&self) {
-        self.0.lock().expect("serve wait").1 = Some(Instant::now());
+        self.serve.lock().expect("serve wait").1 = Some(Instant::now());
     }
 
     /// serve answered.
     pub(crate) fn end(&self) {
-        let mut w = self.0.lock().expect("serve wait");
+        let mut w = self.serve.lock().expect("serve wait");
         if let Some(since) = w.1.take() {
             w.0 += since.elapsed();
         }
@@ -685,12 +703,12 @@ impl ServeWait {
 
     /// All the time spent waiting so far, the wait going on included.
     fn total(&self) -> Duration {
-        let w = self.0.lock().expect("serve wait");
+        let w = self.serve.lock().expect("serve wait");
         w.0 + w.1.map_or(Duration::ZERO, |since| since.elapsed())
     }
 
     fn busy(&self) -> bool {
-        self.0.lock().expect("serve wait").1.is_some()
+        self.serve.lock().expect("serve wait").1.is_some()
     }
 }
 

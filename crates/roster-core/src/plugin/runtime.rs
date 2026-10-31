@@ -20,10 +20,12 @@ use std::time::{Duration, Instant};
 
 const HANDLERS: &str = "roster.plugin.handlers";
 const LISTENERS: &str = "roster.plugin.listeners";
-/// The functions waiting for a `roster.http` request's answer, by request id.
+/// The functions waiting for a `roster.http` or `roster.serve.request` answer, by request id.
 const REQUESTS: &str = "roster.plugin.requests";
 /// The keys `roster.http.request` takes.
 const REQUEST_KEYS: &[&str] = &["url", "method", "headers", "body", "timeout"];
+/// How many `roster.serve.request` calls one Plugin may have waiting at once (decision Q103).
+pub(crate) const MAX_SERVE_REQUESTS: usize = 8;
 /// The most UI ops one call may produce.
 pub(crate) const MAX_OPS: usize = 1000;
 /// The most text `roster.clipboard.copy` takes.
@@ -131,14 +133,27 @@ struct Shared {
     /// Where an answer goes: to the host, which runs it on this Plugin's thread.
     post: Option<Post>,
     next_request: Cell<u64>,
+    /// The `roster.serve.request` calls waiting, by request id: the method, and whether it was
+    /// made in a call the user started (its answer runs as part of that call, decision Q103).
+    serving_requests: RefCell<HashMap<u64, (String, bool)>>,
+    /// Whether the run is an answer carrying the user's call: a request made in it doesn't carry
+    /// the call any further.
+    carried: Cell<bool>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
     /// How long this thread has waited for roster serve: the host doesn't count it.
     serving: Arc<ServeWait>,
 }
 
-/// Hands a request's answer back to the host (request id, answer), from a network thread.
-pub(crate) type Post = Arc<dyn Fn(u64, Answer) + Send + Sync>;
+/// Hands a request's answer back to the host (request id, answer), from a network or serve thread.
+pub(crate) type Post = Arc<dyn Fn(u64, Arrival) + Send + Sync>;
+
+/// A request's answer: from the network (`roster.http`), or from roster serve
+/// (`roster.serve.request`, redacted already).
+pub(crate) enum Arrival {
+    Http(Answer),
+    Serve(Result<Json, String>),
+}
 
 #[derive(Default)]
 struct Handlers {
@@ -197,6 +212,8 @@ impl Runtime {
             net,
             post,
             next_request: Cell::new(0),
+            serving_requests: RefCell::default(),
+            carried: Cell::new(false),
             timers: RefCell::default(),
             serving,
         });
@@ -279,7 +296,12 @@ impl Runtime {
     }
 
     /// Calls the function waiting for request `id` with its answer: `(response)` or `(nil, why)`.
-    pub(crate) fn answer(&self, id: u64, answer: Answer) -> Outcome {
+    /// A serve request's answer runs as part of the user's call when the request was made in one.
+    pub(crate) fn answer(&self, id: u64, arrival: Arrival) -> Outcome {
+        let answer = match arrival {
+            Arrival::Http(answer) => answer,
+            Arrival::Serve(result) => return self.served(id, result),
+        };
         self.run(self.budget, move |lua| {
             let requests: Table = lua.named_registry_value(REQUESTS)?;
             let Some(done) = requests.raw_get::<Option<Function>>(id)? else {
@@ -308,6 +330,30 @@ impl Runtime {
             }
             Ok(Json::Null)
         })
+    }
+
+    /// Calls the function waiting for serve request `id` with `result`: `(result)` or `(nil, why)`.
+    fn served(&self, id: u64, result: Result<Json, String>) -> Outcome {
+        let Some((method, user)) = self.shared.serving_requests.borrow_mut().remove(&id) else {
+            return self.run(self.budget, |_| Ok(Json::Null));
+        };
+        self.shared.user_call.set(user);
+        self.shared.carried.set(user);
+        let outcome = self.run(self.budget, move |lua| {
+            let requests: Table = lua.named_registry_value(REQUESTS)?;
+            let Some(done) = requests.raw_get::<Option<Function>>(id)? else {
+                return Ok(Json::Null);
+            };
+            requests.raw_set(id, Value::Nil)?;
+            match result {
+                Ok(v) => done.call::<()>(to_lua(lua, &v)?)?,
+                Err(why) => done.call::<()>((Value::Nil, format!("roster.serve.request {method}: {why}")))?,
+            }
+            Ok(Json::Null)
+        });
+        self.shared.user_call.set(false);
+        self.shared.carried.set(false);
+        outcome
     }
 
     /// Whether the Plugin listens for `event`.
@@ -660,8 +706,58 @@ fn request(
     s.next_request.set(id);
     let requests: Table = lua.named_registry_value(REQUESTS)?;
     let post = Arc::clone(post);
-    net.start(req, move |answer| post(id, answer)).map_err(fail)?;
+    net.start(req, move |answer| post(id, Arrival::Http(answer))).map_err(fail)?;
+    s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     requests.raw_set(id, done)
+}
+
+/// Checks and starts `roster.serve.request`: roster serve is asked on a thread of its own, and
+/// `done` gets the answer later on the Plugin's thread. The same rules as `roster.serve.call`.
+fn serve_request(
+    lua: &Lua,
+    s: &Shared,
+    method: String,
+    params: Option<Value>,
+    done: Function,
+) -> mlua::Result<()> {
+    let what = format!("roster.serve.request {method}");
+    need(s, &Permission::Serve(method.clone()), "roster.serve.request")?;
+    if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
+        user_only(s, &what)?;
+    }
+    let params = match params {
+        Some(Value::Nil) | None => json!({}),
+        Some(v) => plain(s, "roster.serve.request", &v)?,
+    };
+    let Some(post) = &s.post else {
+        return Err(mlua::Error::runtime(format!("{what}: not granted (serve:{method})")));
+    };
+    if s.serving_requests.borrow().len() >= MAX_SERVE_REQUESTS {
+        return Err(mlua::Error::runtime(format!(
+            "{what}: {MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer"
+        )));
+    }
+    let id = s.next_request.get() + 1;
+    s.next_request.set(id);
+    let (serve, post) = (Arc::clone(&s.serve), Arc::clone(post));
+    let asked = method.clone();
+    s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    std::thread::Builder::new()
+        .name(format!("plugin:{} serve", s.plugin))
+        .spawn(move || {
+            let result = serve.call(&asked, params).map(|mut v| {
+                redact(&mut v);
+                v
+            });
+            post(id, Arrival::Serve(result));
+        })
+        .map_err(|e| {
+            s.serving.requests.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            mlua::Error::runtime(format!("{what}: couldn't start: {e}"))
+        })?;
+    let user = s.user_call.get() && !s.carried.get();
+    s.serving_requests.borrow_mut().insert(id, (method, user));
+    lua.named_registry_value::<Table>(REQUESTS)?.raw_set(id, done)
 }
 
 /// The `roster` module for one Plugin: everything every Plugin gets, then what its grants add.
@@ -1121,6 +1217,14 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             };
             serve(lua, s, &format!("roster.serve.call {method}"), &method, params)
         });
+        // The same call, without waiting (decision Q103): `done(result)` or `done(nil, why)`.
+        func!(
+            t,
+            "request",
+            |lua, s, (method, params, done): (String, Option<Value>, Function)| {
+                serve_request(lua, s, method, params, done)
+            }
+        );
         roster.raw_set("serve", t)?;
     }
     if g.iter().any(|p| matches!(p, Permission::Network(_))) {
