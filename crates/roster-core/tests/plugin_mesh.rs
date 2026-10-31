@@ -541,7 +541,7 @@ fn it_shows_each_hosts_reach_out_of_date_and_no_via() {
 #[test]
 fn a_links_details_explain_no_via_and_what_to_do() {
     let mut run = started(World::default());
-    let ops = run.action("mesh-links", "What this means", "l1");
+    let ops = run.action("mesh-links", "Explain", "l1");
     let f = of(&ops, "float")[0];
     let lines: Vec<&str> = f["spec"]["lines"]
         .as_array()
@@ -601,7 +601,7 @@ fn plan_shows_the_changes_and_apply_comes_only_after_a_question() {
     );
     // Apply: a question first, nothing started until it's answered.
     run.serve.take();
-    let ops = run.action("mesh-plan", "Apply the plan", "esx-02");
+    let ops = run.action("mesh-plan", "Apply", "esx-02");
     let q = of(&ops, "confirm")[0];
     assert_eq!(q["spec"]["action"], "Apply");
     assert!(q["spec"]["danger"].is_null());
@@ -632,7 +632,7 @@ fn apply_without_a_plan_plans_first() {
 fn cut_asks_for_the_hosts_name_and_warns_about_each_host_that_was_down() {
     let mut run = started(World::default());
     run.serve.take();
-    let ops = run.action("mesh", "Cut from the Mesh", "orion-2");
+    let ops = run.action("mesh", "Cut", "orion-2");
     let q = &of(&ops, "confirm")[0]["spec"];
     assert_eq!(q["title"], "Cut orion-2 from the Mesh?");
     assert_eq!(
@@ -776,13 +776,13 @@ fn revoking_a_permission_reloads_it_without_and_its_controls_say_so() {
         .unwrap();
     run.take(reply);
     run.tick();
-    let ops = run.action("mesh", "Cut from the Mesh", "orion-2");
+    let ops = run.action("mesh", "Cut", "orion-2");
     assert!(of(&ops, "confirm").is_empty(), "it doesn't ask what it can't do");
     assert_eq!(
         texts(&ops)[0],
         "Allow serve:mesh.cut in :plugins to cut the Mesh from here."
     );
-    let ops = run.action("mesh", "Apply the plan", "orion-2");
+    let ops = run.action("mesh", "Apply", "orion-2");
     assert!(of(&ops, "confirm").is_empty());
     assert!(!run.serve.methods().iter().any(|m| m == "mesh.cut" || m == "mesh.apply"));
 }
@@ -809,15 +809,15 @@ fn steps() -> Value {
         { "do": "load", "grants": ALL },
         { "do": "timer" },
         { "do": "command", "args": "" },
-        { "do": "action", "view": "mesh-links", "label": "What this means", "row": "l1" },
+        { "do": "action", "view": "mesh-links", "label": "Explain", "row": "l1" },
         { "do": "command", "args": "plan" },
         { "do": "timer" },
         { "do": "timer" },
-        { "do": "action", "view": "mesh-plan", "label": "Apply the plan", "row": "esx-02" },
+        { "do": "action", "view": "mesh-plan", "label": "Apply", "row": "esx-02" },
         { "do": "confirm" },
         { "do": "timer" },
         { "do": "timer" },
-        { "do": "action", "view": "mesh", "label": "Cut from the Mesh", "row": "orion-2" },
+        { "do": "action", "view": "mesh", "label": "Cut", "row": "orion-2" },
         { "do": "confirm" },
         { "do": "timer" },
         { "do": "timer" },

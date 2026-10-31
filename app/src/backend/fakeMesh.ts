@@ -453,6 +453,10 @@ function load(roster: FakeRoster) {
     return i === undefined ? undefined : links()[i - 1];
   };
   const byHost = (e: Obj) => e.host as string;
+  const info = (e: Obj): void => {
+    roster.views.close(e.view as string);
+    roster.cmd(`info ${e.host as string}`);
+  };
 
   const drawDetails = (names: string[]): void => {
     const st = state.status;
@@ -497,7 +501,7 @@ function load(roster: FakeRoster) {
             const x = i === undefined ? undefined : (mine.get(e.host as string) ?? [])[i - 1];
             if (x) explain(x);
           },
-          actions: [{ label: "Cut from the Mesh", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) }],
+          actions: [{ label: "Cut", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) }],
         };
       }
       roster.details.set("mesh", h, section);
@@ -596,19 +600,19 @@ function load(roster: FakeRoster) {
       table: {
         columns: [
           { id: "host", label: "Host", kind: "data" },
-          { id: "reach", label: "Can reach", kind: "number", width: 10 },
-          { id: "reached", label: "Reached from", kind: "number", width: 13 },
+          { id: "reach", label: "Can reach", kind: "number" },
+          { id: "reached", label: "Reached from", kind: "number" },
           { id: "state", label: "State" },
         ],
         rows,
         sort: "host",
         empty: st ? "No Hosts in the Mesh." : (state.problem ?? "Loading…"),
-        open: (e: Obj) => roster.cmd(`info ${e.host as string}`),
+        open: info,
         actions: [
-          { label: "Plan the Mesh", key: "p", run: plan },
-          { label: "Apply the plan", key: "a", run: apply },
+          { label: "Plan", key: "p", run: plan },
+          { label: "Apply", key: "a", run: apply },
           { label: "Links", key: "l", run: () => roster.views.open("mesh-links") },
-          { label: "Cut from the Mesh", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) },
+          { label: "Cut", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) },
         ],
       },
     });
@@ -648,14 +652,14 @@ function load(roster: FakeRoster) {
         },
         actions: [
           {
-            label: "What this means",
+            label: "Explain",
             key: "e",
             run: (e: Obj) => {
               const x = linkOf(e);
               if (x) explain(x);
             },
           },
-          { label: "Plan the Mesh", key: "p", run: plan },
+          { label: "Plan", key: "p", run: plan },
         ],
       },
     });
@@ -703,9 +707,9 @@ function load(roster: FakeRoster) {
         rows: prows,
         sort: "host",
         empty: "Nothing planned yet.",
-        open: (e: Obj) => roster.cmd(`info ${e.host as string}`),
+        open: info,
         actions: [
-          { label: "Apply the plan", key: "a", run: apply },
+          { label: "Apply", key: "a", run: apply },
           { label: "Plan again", key: "p", run: plan },
           { label: "Links", key: "l", run: () => roster.views.open("mesh-links") },
         ],

@@ -316,6 +316,12 @@ end
 
 local function by_host(e) return e.host end
 
+-- A Host's details, from a row: the full view closes first, so the details panel isn't under it.
+local function info(e)
+  roster.views.close(e.view)
+  roster.cmd("info " .. e.host)
+end
+
 local function draw_details(names)
   local st = state.status
   if not st then return end
@@ -353,7 +359,7 @@ local function draw_details(names)
           if x then explain(x) end
         end,
         actions = {
-          { label = "Cut from the Mesh", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
+          { label = "Cut", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
         },
       }
     end
@@ -463,19 +469,19 @@ local function views()
     table = {
       columns = {
         { id = "host", label = "Host", kind = "data" },
-        { id = "reach", label = "Can reach", kind = "number", width = 10 },
-        { id = "reached", label = "Reached from", kind = "number", width = 13 },
+        { id = "reach", label = "Can reach", kind = "number" },
+        { id = "reached", label = "Reached from", kind = "number" },
         { id = "state", label = "State" },
       },
       rows = rows,
       sort = "host",
       empty = st and "No Hosts in the Mesh." or (state.problem or "Loading…"),
-      open = function(e) roster.cmd("info " .. e.host) end,
+      open = function(e) info(e) end,
       actions = {
-        { label = "Plan the Mesh", key = "p", run = plan },
-        { label = "Apply the plan", key = "a", run = apply },
+        { label = "Plan", key = "p", run = plan },
+        { label = "Apply", key = "a", run = apply },
         { label = "Links", key = "l", run = function() roster.views.open("mesh-links") end },
-        { label = "Cut from the Mesh", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
+        { label = "Cut", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
       },
     },
   })
@@ -515,11 +521,11 @@ local function views()
         if x then explain(x) end
       end,
       actions = {
-        { label = "What this means", key = "e", run = function(e)
+        { label = "Explain", key = "e", run = function(e)
           local x = link_of(e)
           if x then explain(x) end
         end },
-        { label = "Plan the Mesh", key = "p", run = plan },
+        { label = "Plan", key = "p", run = plan },
       },
     },
   })
@@ -561,9 +567,9 @@ local function views()
       rows = prows,
       sort = "host",
       empty = "Nothing planned yet.",
-      open = function(e) roster.cmd("info " .. e.host) end,
+      open = function(e) info(e) end,
       actions = {
-        { label = "Apply the plan", key = "a", run = apply },
+        { label = "Apply", key = "a", run = apply },
         { label = "Plan again", key = "p", run = plan },
         { label = "Links", key = "l", run = function() roster.views.open("mesh-links") end },
       },
