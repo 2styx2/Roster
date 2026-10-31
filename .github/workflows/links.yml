@@ -1,0 +1,59 @@
+# The docs' external links, once a week (ticket 53, decision Q85), like Neovim's lintdocurls.yml.
+# Not on pull requests: it's slow and other people's sites are flaky, so a dead link never fails a PR.
+# Relative links are checked on every PR already (tests/test_docs.py, app/src/help/lint.test.ts).
+# Dead links go into ONE standing issue, "Dead links in the docs": opened, or reopened with its body
+# replaced, and closed again by the first run that finds none. Run it by hand from the Actions tab.
+name: Docs links
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"        # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: docs-links
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  links:
+    name: External links
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TITLE: Dead links in the docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the links
+        id: check
+        # Prints only the docs' own public URLs (made-up and private addresses are skipped).
+        run: |
+          set +e
+          python scripts/check-links.py --report dead.md \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+      - name: Open, update or close the standing issue
+        if: steps.check.outputs.status == '0' || steps.check.outputs.status == '1'
+        run: |
+          number=$(gh issue list --state all --search "in:title \"$TITLE\"" --json number,title \
+            --jq "[.[] | select(.title == env.TITLE)][0].number // empty")
+          if [ -s dead.md ]; then
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --body-file dead.md
+              gh issue reopen "$number" 2>/dev/null || true
+            else
+              gh issue create --title "$TITLE" --body-file dead.md --label documentation --label needs-triage
+            fi
+          elif [ -n "$number" ] && [ "$(gh issue view "$number" --json state --jq .state)" = OPEN ]; then
+            gh issue close "$number" --comment "Every link in the docs works again (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          fi
+      - name: Fail if the check itself broke
+        if: steps.check.outputs.status != '0' && steps.check.outputs.status != '1'
+        run: exit 1

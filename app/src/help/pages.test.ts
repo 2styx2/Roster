@@ -59,6 +59,33 @@ describe("generated pages follow the registries", () => {
     expect(plain(home?.body ?? [])).toBe("Home box");
   });
 
+  it("commands: a command's doc is a paragraph of its own under the label, with its links", () => {
+    const r = builtinRegistries();
+    r.commands.register({
+      id: "home",
+      source: CONFIG,
+      area: "Hosts",
+      label: () => "Home box",
+      doc: "Opens the **home** box; see [options](options).",
+      run: () => {},
+    });
+    const home = entry(ctxOf(r), "commands", ":home");
+    expect(plain(home?.body ?? [])).toBe("Home box");
+    expect(home?.more).toEqual([
+      { t: "text", text: "Opens the " },
+      { t: "strong", children: [{ t: "text", text: "home" }] },
+      { t: "text", text: " box; see " },
+      { t: "link", href: "options", children: [{ t: "text", text: "options" }] },
+      { t: "text", text: "." },
+    ]);
+    expect(entry(ctxOf(r), "commands", ":find")?.more).toBeUndefined();
+  });
+
+  it(":help :connect shows the command's doc paragraph", () => {
+    const connect = entry(ctxOf(), "commands", ":connect");
+    expect(plain(connect?.more ?? [])).toMatch(/Quick Connect/);
+  });
+
   it("options: the value in effect and where it was set", () => {
     const config = configWith({
       terminal: { ...defaultConfig.terminal, size: 18.666666 },
@@ -153,7 +180,19 @@ describe("finding your way, as in Neovim's help.txt", () => {
     expect(first).toContain('"href":"help#links"');
     expect(findTopic(ctx, "help#links")).toMatchObject({ page: "help" });
     const groups = index.filter((b) => b.t === "h" && b.level === 2).map((b) => (b.t === "h" ? plain(b.text) : ""));
-    expect(groups.slice(0, 4)).toEqual(["Getting started", "Make it yours", "Reference", "Extending"]);
+    expect(groups.slice(0, 5)).toEqual(["Getting started", "Make it yours", "Reference", "Extending", "What's new"]);
+  });
+
+  it("news and deprecated are pages; an old name lands on its deprecated row", () => {
+    const ctx = ctxOf();
+    expect(findTopic(ctx, "news")).toMatchObject({ page: "news", kind: "page" });
+    expect(findTopic(ctx, "deprecated")).toMatchObject({ page: "deprecated", kind: "page" });
+    const old = findTopic(ctx, "ROSTER_DESK_ROSTER");
+    expect(old).toMatchObject({ page: "deprecated", anchor: "deprecated#roster_desk_roster" });
+    const table = pageBody(ctx, "deprecated").find((b) => b.t === "table" && b.anchors?.includes("deprecated#roster_desk_roster"));
+    const row = table?.t === "table" ? table.rows[table.anchors?.indexOf("deprecated#roster_desk_roster") ?? -1] : undefined;
+    expect(plain(row?.[1] ?? [])).toBe("ROSTER_APP_ROSTER");
+    expect(findTopic(ctx, "deprecated#key-bindings")).toMatchObject({ page: "deprecated" });
   });
 
   it("a Plugin's page is listed under its source", () => {

@@ -1035,6 +1035,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
 /* Sources whose items are prose (help's outline and :helpgrep) read in Inter, as prose does. */
 .finder.prose .finder-name { font-family: var(--font-ui); }
+/* Their path (the heading an entry sits under) stays at the right, apart from the label, so the
+   outline's "Themes and colours" never reads as part of the option's name (ticket 54). */
+.finder.prose .finder-path { flex: 0 1 auto; margin-left: auto; text-align: right; }
 .finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); }
 .finder-legend { font-family: var(--font-mono); white-space: nowrap; }
 
@@ -1164,6 +1167,16 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .help-meta code { color: var(--text); }
 .help-def dd { margin: 2px 0 0; color: var(--muted); }
 .help-def dd code { color: var(--text); }
+/* `:help health`: one line per check, Neovim's `- OK message` laid out as two columns: the level
+   word, then what was found and the fix. OK stays quiet; only a warning or an error takes a colour. */
+.help-def[data-tone] { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); column-gap: 12px; padding: 5px 8px; }
+.help-def[data-tone] dt { display: block; }
+.help-def[data-tone] dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.help-def[data-tone="ok"] .help-term code { color: var(--muted); }
+.help-def[data-tone="warn"] .help-term code { color: var(--warn); }
+.help-def[data-tone="error"] .help-term code { color: var(--error); }
+/* A command's doc: its own paragraph under the label, a step down so the label still leads. */
+.help-def dd.help-def-more { margin-top: 4px; max-width: 72ch; }
 /* The entry `:help TOPIC` landed on: raised, as the App-mode cursor is. */
 .help-target { background: var(--raised); box-shadow: inset 2px 0 0 var(--muted); }
 .help-doc h2.help-target, .help-doc h3.help-target { border-radius: var(--radius-sm); }
@@ -1182,3 +1195,29 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
     border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
   }
 }
+
+/* ---------- Plugins (ticket 23): the prompt, :plugins, a Plugin's float and notices ---------- */
+
+.plugin-prompt p, .plugins-panel p { margin: 0 0 8px; }
+.plugin-source { overflow-wrap: anywhere; }
+.plugin-permissions { list-style: none; margin: 0 0 8px; padding: 0; }
+.plugin-permissions li { padding: 4px 0 4px 10px; border-left: 2px solid var(--line); }
+.plugin-permissions li + li { margin-top: 4px; }
+.plugin-permissions li.risky { border-left-color: var(--warn); }
+.plugin-risk { display: block; margin-top: 2px; color: var(--muted); }
+.plugin-list { list-style: none; margin: 0; padding: 0; }
+.plugin-row { padding: 8px 0; border-top: 1px solid var(--line); }
+.plugin-head { display: flex; align-items: baseline; gap: 8px; }
+.plugin-name { font-weight: 600; }
+.plugin-state { margin-left: auto; color: var(--muted); }
+.plugin-state.problem, .plugin-problem { color: var(--error); }
+.plugin-problem { overflow-wrap: anywhere; margin: 2px 0 4px; }
+.plugin-uses { margin-top: 4px; }
+.plugin-float-lines {
+  margin: 0 0 8px; font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.plugin-notices {
+  position: fixed; right: 14px; bottom: 14px; z-index: 40; display: flex; flex-direction: column; gap: 8px;
+  width: min(520px, calc(100vw - 28px));
+}
+.plugin-notices .config-toast { position: static; width: auto; }

@@ -56,6 +56,14 @@ _Avoid_: VPN, tailnet, fleet
 A one-way (or `both`) permission in the Inventory for one Host or group to reach another across groups or networks.
 _Avoid_: route, peering
 
+**Password peer**:
+A Host in the Mesh that takes no key (`enroll: false`, appliances): its peers' ssh asks the person for its password, and roster never copies one to a Host.
+_Avoid_: password host (that's how the Box logs in to it), appliance
+
+**Cut**:
+Taking one Host out of the Mesh at once, on every Host in parallel (`roster mesh cut HOST`), without waiting for a Publish; it leaves `mesh: false` for that Host as a Pending change.
+_Avoid_: revoke (that removes the Box's own key), ban
+
 ## The app
 
 The desktop app's own words, on top of the ones above (which mean the same thing in the app).
@@ -116,13 +124,21 @@ _Avoid_: skin, colour scheme
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
 
+**Health**:
+How this Box stands for roster, as `:check` with no Host (or `roster check --box`) finds it: a section at a time (`roster.yml`, ssh, the vault, askpass, the infra repo, `init.lua`, the font), each check OK, WARNING or ERROR with its fix. Every check is local; checking one Host is `:check HOST`.
+_Avoid_: diagnostics (that's `:check HOST`), doctor, status page
+
 **Help topic**:
 A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:connect`, `E13`), a guide's heading (`config#the-sandbox`) or another name for one (`roster.yml`). The topic finder (`␣ ?`) lists them all, and `:help all` lists them A to Z.
 _Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
 
 **Plugin**:
-Lua code that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks). It never sees secrets.
+A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
+
+**Permission**:
+What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`, `serve:<method>`, …): asked for in its manifest, granted at install, revoked in `:plugins`. None reaches a secret.
+_Avoid_: scope, capability, right
 
 **Package**:
 A Plugin fetched from a git repo, named in the Config and pinned to a commit in the lock file.

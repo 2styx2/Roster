@@ -156,6 +156,30 @@ export interface HostCheck {
   steps: CheckStep[];
 }
 
+/** The first `api_version` with `box.check`: `:check` with no Host (ticket 49). */
+export const BOX_CHECK_API_VERSION = 16;
+
+/** How a health check came out (`box.check`), as Neovim's `:checkhealth` says them. */
+export type HealthLevel = "ok" | "warn" | "error";
+
+/** One of `box.check`'s checks. `section` is `roster`, `inventory`, `ssh`, `vault`, `askpass` or
+ * `repo` (a newer roster may send others); `topic` is a `:help` topic (`E6`, `:publish`). */
+export interface HealthCheck {
+  section: string;
+  level: HealthLevel;
+  message: string;
+  fix?: string;
+  topic?: string;
+}
+
+/** `box.check`: this Box's health, every check local (nothing connects to a Host). */
+export interface BoxCheck {
+  checks: HealthCheck[];
+  ok: boolean;
+  roster_version: string;
+  api_version: number;
+}
+
 /** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
 export const EDIT_API_VERSION = 5;
 
@@ -432,6 +456,66 @@ export interface VaultAccount {
 
 /** The first `api_version` with `vault.logout` and `vault.status`'s `account` (ticket 42). */
 export const SIGN_OUT_API_VERSION = 14;
+
+/** The first `api_version` with the Mesh's methods (ticket 39): `mesh.plan`, `mesh.apply`,
+ * `mesh.cut`, `mesh.status`, and a Host's `mesh`. The app's controls for them are T50's Plugin. */
+export const MESH_API_VERSION = 15;
+
+/** roster's code for the Mesh (ticket 39): `rotate` names a Host that isn't a Mesh source. */
+export const MeshError = { notASource: 110 } as const;
+
+/** One Link of the Mesh: `from` reaches `to` (as `to`'s own user). `status` only in a plan or apply. */
+export interface MeshLink {
+  from: string;
+  to: string;
+  /** `password`: the peer takes no key, so ssh asks the person. */
+  kind: "key" | "password";
+  status?: "ok" | "untested" | "unreachable" | "no-host-key" | "pending" | "skipped";
+  why?: string;
+  skip?: "password-source";
+}
+
+/** What `mesh.plan` or `mesh.apply` found or did on one Host. */
+export interface MeshHost {
+  host: string;
+  status: "same" | "would-change" | "changed" | "pending";
+  /** Short phrases: "make key", "add key from orion-2", "write ssh config", ... */
+  changes: string[];
+  error?: string;
+}
+
+/** `mesh.plan` (`applied: false`) and `mesh.apply`. */
+export interface MeshResult {
+  applied: boolean;
+  links: MeshLink[];
+  hosts: MeshHost[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  pending: Record<string, string>;
+  /** Nothing to change and nothing pending: "already in the mesh". */
+  already: boolean;
+  warnings: string[];
+  cut_pending: Record<string, string[]>;
+}
+
+/** `mesh.cut`: confirmed Hosts, the ones that didn't answer, and the `mesh: false` Pending change. */
+export interface MeshCut {
+  host: string;
+  confirmed: string[];
+  pending: Record<string, string>;
+  change: { written: boolean; backup?: string | null; note?: string; error?: string; fix?: string };
+}
+
+/** `mesh.status`: no connections. */
+export interface MeshStatus {
+  links: MeshLink[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  members: string[];
+  pending: Record<string, string>;
+  cut_pending: Record<string, string[]>;
+  out_of_date: boolean;
+}
 
 /** `vault.logout`: where the vault stands now (not-logged-in, with `sign_in`), and the account it
  * signed out of (null when the CLI didn't name one). */
@@ -728,6 +812,9 @@ export interface Backend {
   onLoggedIn(onLogin: (held: string) => void): () => void;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
+  /** `box.check` (API 16, ticket 49): this Box's health, a section at a time. Every check is
+   * local; nothing connects to a Host. */
+  checkBox(): Promise<BoxCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code
    * (71 Pending or other uncommitted changes, 72 diverged, 73 fetch failed, 70 not a git repo). */
   pullInventory(): Promise<PullResult>;
@@ -777,4 +864,63 @@ export interface Backend {
   /** `host.review`: mark a Host reviewed (only that flag), as a Pending change; `reviewed: false`
    * (API 9) marks it unreviewed again, for a review made by mistake. */
   reviewHost(host: string, reviewed?: boolean): Promise<HostUpdate>;
+  /** Plugins (ticket 23, docs/plugins.md): the manifest of the Plugin folder at `path` (`~/…`,
+   * absolute, or under the config folder), for the permission prompt. Runs none of its code. */
+  pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
+  /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
+   * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
+  pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  /** Calls a function the Plugin handed over (`{handler}` in its ops). */
+  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
+  pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  /** Takes a Plugin out of the core. */
+  pluginUnload(plugin: string): Promise<boolean>;
 }
+
+/** A permission as the manifest asks for it, with what it allows and why it's risky (decision Q81). */
+export interface PluginPermission {
+  name: string;
+  summary: string;
+  risk: string | null;
+}
+
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description: string;
+  author: string | null;
+  /** The `roster.api_version` it was written for. */
+  api: number;
+  permissions: PluginPermission[];
+}
+
+/** An error in a Plugin: `recent-alerts: init.lua:12: message`. */
+export interface PluginErrorInfo {
+  plugin: string;
+  file: string | null;
+  line: number | null;
+  message: string;
+}
+
+/** What a Plugin answered: its function's result, the UI changes it asked for (untrusted data:
+ * plugins/ops.ts checks them), an error, and whether it's now disabled. */
+export interface PluginReply {
+  plugin: string;
+  result: unknown;
+  ops: unknown[];
+  error: PluginErrorInfo | null;
+  disabled: string | null;
+}
+
+/** The events a Plugin can listen for (roster-core's plugin::EVENTS). */
+export const PLUGIN_EVENTS = [
+  "lock",
+  "unlock",
+  "host_selected",
+  "session_open",
+  "session_exit",
+  "inventory_changed",
+  "terminal_output",
+] as const;
+export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

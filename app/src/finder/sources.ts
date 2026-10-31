@@ -59,6 +59,9 @@ export interface FinderSourceDef extends Entry {
   /** A line for the footer while the Finder is open ("set in init.lua"), for the item under
    * the cursor (undefined when nothing matches). */
   note?(item: FinderItem | undefined): string | undefined;
+  /** The help topic for an item (F1, `picker.help`): `themes#nord`. Without it, the topic is the
+   * command Enter would run (`:session`), or a `help TOPIC` command's topic. */
+  help?(item: FinderItem): string | undefined;
 }
 
 export type FinderRegistry = Registry<FinderSourceDef>;

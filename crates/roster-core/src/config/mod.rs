@@ -11,7 +11,7 @@
 pub(crate) mod editor;
 pub mod folders;
 mod locate;
-mod lua;
+pub(crate) mod lua;
 pub mod schema;
 mod watch;
 
@@ -27,7 +27,7 @@ use std::time::Duration;
 /// The file the app runs.
 pub const FILE_NAME: &str = "init.lua";
 /// The version of the `roster` Lua table (`roster.api_version`), raised when it changes.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 
 /// What went wrong: where, and what. Shown as `init.lua:12: message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -193,6 +193,11 @@ pub fn returned_table(dir: &Path, source: &str) -> Result<serde_json::Value, Con
 
 /// The Config `source` gives as `dir`'s init.lua, without reading the file.
 pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, ConfigError> {
+    load_source_renaming(dir, source, env, DEPRECATED_OPTIONS)
+}
+
+/// [`load_source`], with `renamed` as the deprecated options (tests pass their own).
+pub fn load_source_renaming(dir: &Path, source: &str, env: &Env, renamed: &[Renamed]) -> Result<Config, ConfigError> {
     let source = source.to_string();
     let out = lua::run(dir, &source, env).map_err(|e| place(e, &source, &[]))?;
 
@@ -201,6 +206,9 @@ pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, Config
     for entry in &out.api {
         set_if_absent(&mut value, &entry.path, entry.value.clone());
     }
+    // A deprecated option moves to its new name (which wins when both are set), before the schema
+    // check would call it unknown.
+    let used = rename_deprecated(&mut value, renamed);
     let api_lines: Vec<(Vec<String>, Location)> = out
         .api
         .iter()
@@ -243,7 +251,56 @@ pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, Config
     }
     config.set = set_paths(&value);
     config.lines = lines(&config, &source, &api_lines);
+    for r in used {
+        let path: Vec<String> = r.old.split('.').map(str::to_string).collect();
+        if let Some(line) = locate::line_of(&source, &path) {
+            config.lines.insert(
+                r.old.to_string(),
+                Location {
+                    file: FILE_NAME.into(),
+                    line,
+                },
+            );
+        }
+        config.deprecated.push(DeprecatedUse {
+            old: r.old.into(),
+            new: r.new.into(),
+            topic: format!("deprecated#{}", anchor(r.old)),
+        });
+    }
     Ok(config)
+}
+
+/// Moves each deprecated option `value` sets to its new name, unless that's set too; returns the
+/// ones it set.
+fn rename_deprecated(value: &mut serde_json::Value, renamed: &[Renamed]) -> Vec<Renamed> {
+    let mut used = Vec::new();
+    for r in renamed {
+        let path: Vec<&str> = r.old.split('.').collect();
+        let Some((last, parents)) = path.split_last() else {
+            continue;
+        };
+        let parent: String = parents.iter().map(|k| format!("/{k}")).collect();
+        let taken = value
+            .pointer_mut(&parent)
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|m| m.remove(*last));
+        if let Some(v) = taken {
+            let new: Vec<String> = r.new.split('.').map(str::to_string).collect();
+            set_if_absent(value, &new, v);
+            used.push(*r);
+        }
+    }
+    used
+}
+
+/// A docs/deprecated.md row's anchor for an old name, as the app's help makes it (doc.ts `slug`):
+/// lower case, only letters, digits, `_` and `-`.
+fn anchor(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .collect()
 }
 
 /// Every value's path in what the file returned (with its `roster.*` calls), sorted: a table is

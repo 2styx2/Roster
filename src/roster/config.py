@@ -13,7 +13,7 @@ from .resources import load_resources
 
 HOST_DEFAULTS = {"user": None, "port": 22, "enroll": True, "auth": "prompt",
                  "web": None, "services": {}, "notes": "",
-                 "title": "", "description": "", "type": "", "product": "", "reviewed": True, "mac": ""}
+                 "title": "", "description": "", "type": "", "product": "", "reviewed": True, "mac": "", "mesh": None}
 TEXT_FIELDS = ("title", "description", "type", "product")
 GROUP_ONLY = ("hosts", "title", "description")   # describe the group itself, not copied onto hosts
 LOGIN = ("user", "auth")
@@ -86,6 +86,9 @@ def parse_config(text, path):
             m["services"], m["web"], m["problems"] = resolve_services(hname, m, layers, names)
             m["enroll"] = bool(m["enroll"])
             m["reviewed"] = bool(m["reviewed"])
+            m["mesh"] = first(layers, "mesh")
+            if m["mesh"] is not None and not isinstance(m["mesh"], bool):
+                die(f"host {hname!r}: mesh: must be true or false")
             for k in TEXT_FIELDS:
                 m[k] = oneline(m.get(k))
             m["description"] = m["description"] or oneline(m.get("notes"))   # old name for it
@@ -99,8 +102,45 @@ def parse_config(text, path):
     return {"path": path, "box": box, "tag": f"{KEY_TAG}:{box}", "tag_re": tag_re, "key": key,
             "pub": Path(str(key) + ".pub"), "workers": int(raw.get("workers") or 32),
             "inline_limit": int(raw.get("claude_inline_limit") or 60), "hosts": hosts, "groups": groups,
-            "resources": load_resources(raw, groups, hosts),
+            "resources": load_resources(raw, groups, hosts), "links": load_links(raw, hosts, groups),
             "providers": providers_conf(raw), "provider_dirs": list(raw.get("provider_dirs") or [])}
+
+
+# ---------------------------------------------------------------- the Mesh's links (decision Q63)
+
+LINK_KEYS = ("from", "to", "both")
+
+
+def load_links(raw, hosts, groups):
+    """roster.yml's top-level `links:`, checked: [{from, to, both}], each end a Host or a group by name.
+    One-way unless `both: true`. Unknown names, self-links and names that are both a Host and a group stop here."""
+    links = raw.get("links")
+    if links is None:
+        return []
+    if not isinstance(links, list):
+        die("links: must be a list of { from: HOST-OR-GROUP, to: HOST-OR-GROUP, both: true|false }")
+    out = []
+    for n, link in enumerate(links, 1):
+        where = f"links: entry {n}"
+        if not isinstance(link, dict) or set(map(str, link)) - set(LINK_KEYS) or not {"from", "to"} <= set(link):
+            die(f"{where} must be a mapping with from: and to: (and both: true for two-way), nothing else")
+        ends = {}
+        for k in ("from", "to"):
+            name = str(link[k]) if link[k] is not None else ""
+            if name in hosts and name in groups:
+                die(f"{where}: {name!r} is both a Host and a group - rename one of them")
+            if name not in hosts and name not in groups:
+                near = sorted(x for x in (*hosts, *groups) if name and (name in x or x in name))[:5]
+                die(f"{where}: {k}: {name!r} isn't a Host or a group in roster.yml"
+                    + (f" (did you mean: {', '.join(near)})" if near else ""))
+            ends[k] = name
+        if ends["from"] == ends["to"]:
+            die(f"{where} links {ends['from']!r} to itself - a group's Hosts reach each other with mesh: true")
+        both = link.get("both", False)
+        if not isinstance(both, bool):
+            die(f"{where}: both: must be true or false")
+        out.append({"from": ends["from"], "to": ends["to"], "both": both})
+    return out
 
 
 # ---------------------------------------------------------------- ssh and services

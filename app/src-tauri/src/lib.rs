@@ -5,6 +5,7 @@
 use roster_core::backend::{Backend, BackendInfo, QuickTarget};
 use roster_core::config::{self, Config, Loader, Report};
 use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect_choice};
+use roster_core::plugin::{self, Permission, PluginHost};
 use roster_core::rpc::{CallError, Notify};
 use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use roster_core::slot::Slot;
@@ -326,6 +327,13 @@ async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) ->
     call(&state, "host.check", json!({ "host": host })).await
 }
 
+/// This Box's health (`box.check`, api 16, ticket 49): roster.yml, ssh, the vault CLIs, askpass and the
+/// infra repo, each ok, warn or error with its fix. Every check is local: nothing connects to a Host.
+#[tauri::command]
+async fn box_check(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "box.check", json!({})).await
+}
+
 /// Fast-forward the infra repo before an edit (`inventory.pull`, api 4, ticket 10). A fetch can take
 /// a while on a slow link: serve holds it to its deadline, and the app waits longer (`timeout_for`).
 #[tauri::command]
@@ -492,6 +500,86 @@ async fn host_review(
         json!({ "host": host })
     };
     call(&state, "host.review", params).await
+}
+
+/// Plugins reach `roster serve` through the running Backend, for the methods their permissions
+/// name (roster-core's plugin module checks them; none touches a secret).
+struct PluginServe(Arc<BackendState>);
+
+impl plugin::Serve for PluginServe {
+    fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        let backend = self.0.get().map_err(|e| e.to_string())?;
+        backend.call(method, params).map_err(|e| e.to_string())
+    }
+}
+
+/// The folder a Plugin path means (decision Q82): `~/…`, absolute, or under the config dir.
+fn plugin_dir(config: &ConfigState, path: &str) -> Result<std::path::PathBuf, String> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from);
+    plugin::resolve_dir(path, config_dir(config).ok().as_deref(), home.as_deref())
+}
+
+/// `:plugins install PATH`, step 1: the manifest, for the permission prompt. Runs none of its code.
+#[tauri::command]
+async fn plugin_manifest(config: tauri::State<'_, ConfigState>, path: String) -> Result<Value, String> {
+    let dir = plugin_dir(&config, &path)?;
+    blocking(move || {
+        let m = plugin::read_manifest(&dir).map_err(|e| e.to_string())?;
+        Ok(json!({ "manifest": m, "dir": dir.display().to_string() }))
+    })
+    .await
+}
+
+/// Loads (or reloads) a Plugin with the permissions the user granted.
+#[tauri::command]
+async fn plugin_load(
+    config: tauri::State<'_, ConfigState>,
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    path: String,
+    grants: Vec<String>,
+) -> Result<Value, String> {
+    // `builtin:hosts` is a built-in feature written as a Plugin; anything else is a folder.
+    let source = match path.strip_prefix("builtin:") {
+        Some(name) => plugin::Source::Bundled(name.to_string()),
+        None => plugin::Source::Dir(plugin_dir(&config, &path)?),
+    };
+    let grants: Vec<Permission> = grants.iter().filter_map(|g| Permission::parse(g).ok()).collect();
+    let host = Arc::clone(&plugins);
+    blocking(move || {
+        let (manifest, reply) = host.load(&source, &grants).map_err(|e| e.to_string())?;
+        let dir = match &source {
+            plugin::Source::Dir(dir) => dir.display().to_string(),
+            plugin::Source::Bundled(name) => format!("builtin:{name}"),
+        };
+        Ok(json!({ "manifest": manifest, "dir": dir, "reply": reply }))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn plugin_call(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    plugin: String,
+    handler: u64,
+    args: Value,
+) -> Result<plugin::Reply, ()> {
+    let host = Arc::clone(&plugins);
+    blocking(move || Ok(host.call(&plugin, handler, args))).await
+}
+
+#[tauri::command]
+async fn plugin_event(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    name: String,
+    payload: Value,
+) -> Result<Vec<plugin::Reply>, ()> {
+    let host = Arc::clone(&plugins);
+    blocking(move || Ok(host.event(plugin::Event { name, payload }))).await
+}
+
+#[tauri::command]
+fn plugin_unload(plugins: tauri::State<'_, Arc<PluginHost>>, plugin: String) -> bool {
+    plugins.unload(&plugin)
 }
 
 fn session_error(e: SessionError) -> CallError {
@@ -744,9 +832,15 @@ pub fn run() {
         Arc::new(Loader::new(&dir))
     });
     let setup_loader = loader.clone();
+    let backend = Arc::new(BackendState::default());
+    let plugins = Arc::new(PluginHost::new(
+        Arc::new(PluginServe(Arc::clone(&backend))),
+        plugin::Limits::default(),
+    ));
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(Arc::new(BackendState::default()))
+        .manage(backend)
+        .manage(plugins)
         .manage(Arc::clone(&sessions))
         .manage(ConfigState(loader))
         .setup(move |app| {
@@ -768,6 +862,7 @@ pub fn run() {
             hosts_list,
             host_get,
             host_check,
+            box_check,
             inventory_pull,
             host_verify_login,
             host_update,
@@ -802,7 +897,12 @@ pub fn run() {
             config_open,
             config_reload,
             config_import_preview,
-            config_import_apply
+            config_import_apply,
+            plugin_manifest,
+            plugin_load,
+            plugin_call,
+            plugin_event,
+            plugin_unload
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

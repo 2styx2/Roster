@@ -25,6 +25,7 @@ import {
   UNREVIEW_API_VERSION,
   BackendStartError,
   CHECK_API_VERSION,
+  BOX_CHECK_API_VERSION,
   EDIT_API_VERSION,
   PUBLISH_API_VERSION,
   LIVE_API_VERSION,
@@ -70,7 +71,10 @@ import { shownControls, Toolbar, type ToolbarContext } from "./chrome/toolbar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { HelpView, registerHelp } from "./help/command";
 import { HelpPanel } from "./help/HelpPanel";
-import { helpContext } from "./help/pages";
+import { NEWS_KEY, newsNote } from "./news/news";
+import { version as APP_VERSION } from "../package.json";
+import { itemTopic, lineTopic, optionTopic } from "./help/lookup";
+import { helpContext, topics } from "./help/pages";
 import { defaultConfig } from "./config/fixture";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
@@ -89,9 +93,14 @@ import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
+import { pluginsCommand } from "./plugins/command";
+import { PluginManager } from "./plugins/manager";
+import { PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
+import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
-import { fontInUse } from "./terminal/fonts";
+import { fontFound, fontInUse } from "./terminal/fonts";
+import { runHealth, type HealthContext, type HealthReport } from "./health/health";
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
@@ -125,7 +134,7 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | "quick" | { cmdline: string } | { finder: string; query?: string } | null;
+type Overlay = "picker" | "quick" | { cmdline: string; caret?: number } | { finder: string; query?: string } | null;
 
 /** How long the hint on entering a mode stays. */
 const HINT_MS = 2000;
@@ -171,6 +180,9 @@ export interface AppProps {
   /** Hosts to open Sessions to once the Backend is up, in order (a fixture's open Sessions: the
    * dev page's `?fixture=worst-case`, and the UI tests), once the app is first unlocked. */
   openAtStart?: readonly string[];
+  /** This build's version (package.json's), for what's new after an upgrade (ticket 47); tests
+   * pass their own. */
+  appVersion?: string;
   /** The Config as the app starts (ticket 21): it replaces `options`, `appearance`,
    * `terminalOptions` and `layouts`, and its keys, Themes and Folders go into the registries.
    * Later saves come through `platform.config`. */
@@ -189,6 +201,7 @@ export function App({
   layouts: layoutsProp,
   openAtStart,
   config: configProp = null,
+  appVersion = APP_VERSION,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
@@ -267,6 +280,9 @@ export function App({
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [check, setCheck] = useState<CheckState | null>(null);
+  // `:check` with no Host (ticket 49): this Box's health, shown as `:help health`.
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const healthRun = useRef(0);
   /** `:config import-terminal`'s diff, while it's open (ticket 33). */
   const [importing, setImporting] = useState<{ preview: ImportPreview; problem: string | null; writing: boolean } | null>(null);
   const checkRun = useRef(0);
@@ -349,6 +365,46 @@ export function App({
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
+  // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
+  // and their UI goes into the registries with their name as its source.
+  const runRef = useRef<(line: string) => void>(() => {});
+  const [plugins] = useState(
+    () => new PluginManager(backend, registries, store, { run: (line) => runRef.current(line), send: (id, text) => tabs.write(id, text) }),
+  );
+  const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
+  const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
+  const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const openPlugins = useRef(() => {});
+  useEffect(() => registries.commands.register(pluginsCommand(plugins, () => openPlugins.current())), [registries, plugins]);
+  useEffect(() => {
+    tabs.setOutputTap((id, host, data) => plugins.output(id, host, data));
+    return () => tabs.setOutputTap(null);
+  }, [tabs, plugins]);
+  // Sessions opening and ending, and the Session on screen, as Plugin events.
+  const seenTabs = useRef(new Map<number, "live" | "ended">());
+  useEffect(() => {
+    const before = seenTabs.current;
+    const now = new Map<number, "live" | "ended">();
+    for (const t of sessions.tabs) {
+      const ended = t.status.state === "ended" || t.status.state === "failed";
+      now.set(t.id, ended ? "ended" : "live");
+      if (!ended && before.get(t.id) !== "live") void plugins.event("session_open", { session: t.id, host: t.host });
+      if (ended && before.get(t.id) === "live") {
+        const code = t.status.state === "ended" ? t.status.exit.code : null;
+        void plugins.event("session_exit", { session: t.id, host: t.host, code });
+      }
+    }
+    for (const [id, was] of before) {
+      if (!now.has(id) && was === "live") void plugins.event("session_exit", { session: id, host: null, code: null });
+    }
+    seenTabs.current = now;
+  }, [sessions.tabs, plugins]);
+  const onScreenHost = sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
+  useEffect(() => {
+    if (onScreenHost) void plugins.event("host_selected", { host: onScreenHost });
+  }, [onScreenHost, plugins]);
   const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
@@ -397,11 +453,25 @@ export function App({
   const quickConnects = conn.state === "ready" && conn.info.inventory.api_version >= QUICK_CONNECT_API_VERSION;
   useEffect(() => tabs.setAsksAboutKeys(asksAboutKeys), [tabs, asksAboutKeys]);
   const vaultUnlocked = vault.view.state === "unlocked";
+  const backendReady = conn.state === "ready";
+  useEffect(() => {
+    if (backendReady) void plugins.start();
+  }, [backendReady, plugins]);
+  useEffect(() => {
+    void plugins.event(vault.locked ? "lock" : "unlock");
+  }, [vault.locked, plugins]);
   useEffect(() => {
     if (vaultUnlocked) tabs.resumeAfterUnlock();
   }, [vaultUnlocked, tabs]);
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
+  // Each new Host list the app gets is an `inventory_changed` for the Plugins (the Host count).
+  const firstHosts = useRef<typeof hosts>(null);
+  useEffect(() => {
+    if (!hosts) return;
+    if (firstHosts.current === null) firstHosts.current = hosts;
+    else void plugins.event("inventory_changed");
+  }, [hosts, plugins]);
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
   const groupNames = useMemo(() => {
     const names = Object.keys(hosts?.groups ?? {});
@@ -451,9 +521,10 @@ export function App({
             folded,
             ...(live ? { live } : {}),
             addHost,
+            badges: hostBadges,
           })
         : [],
-    [buildSections, shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost],
+    [buildSections, shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost, hostBadges],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
@@ -604,9 +675,15 @@ export function App({
 
   // The State file and the Windows build, once. What changed before the file was read (Hosts
   // picked) is replayed over it.
+  // What's new (ticket 47): said once after an upgrade, when the workspace first shows.
+  const [newsLine, setNewsLine] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    void store.load();
+    void store.load().then(() => {
+      const { note, seen } = newsNote(store.snapshot(), appVersion);
+      if (store.get(NEWS_KEY) !== seen) store.set(NEWS_KEY, seen);
+      if (note && live) setNewsLine(note);
+    });
     platform.windowsBuild().then(
       (build) => live && setWindowsBuild(build),
       () => {},
@@ -614,7 +691,7 @@ export function App({
     return () => {
       live = false;
     };
-  }, [platform, store]);
+  }, [platform, store, appVersion]);
 
   // The window's size and place go in the State; the Tauri shell restores them at the next start.
   useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
@@ -662,6 +739,7 @@ export function App({
   useEffect(() => registerHelp(registries, helpView), [registries, helpView]);
   const themeList = useSyncExternalStore(registries.themes.subscribe, registries.themes.list);
   const helpPages = useSyncExternalStore(registries.help.subscribe, registries.help.list);
+  const healthSections = useSyncExternalStore(registries.health.subscribe, registries.health.list);
   const hintsStored = hintsChoice.stored();
   const configPath = report?.path ?? null;
   const helpCtx = useMemo(
@@ -681,11 +759,14 @@ export function App({
           configPath,
           state: { theme: themeInEffect, hints: hintsStored },
           activeTheme: theme.id,
+          health: { sections: healthSections, report: health },
         },
       ),
-    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources],
+    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health],
   );
   helpView.setContext(() => helpCtx);
+  // `cmdline.help` (ticket 52): the command line to come back to when help closes, as it was.
+  const backToLine = useRef<{ line: string; caret: number } | null>(null);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
   const reportPath = useRef<string | null>(null);
   reportPath.current = report?.path ?? null;
@@ -758,6 +839,12 @@ export function App({
     opened.current = true;
     for (const host of openAtStart) tabs.open(host);
   }, [unlockedOnce, openAtStart, tabs]);
+  useEffect(() => {
+    if (!unlockedOnce || !newsLine) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- saying it once the workspace shows is the effect
+    setMessage(newsLine);
+    setNewsLine(null);
+  }, [unlockedOnce, newsLine]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
@@ -791,6 +878,19 @@ export function App({
     setMode(terminalMode);
     restoreFocus();
   };
+
+  // Help opened from the command line (ticket 52) has closed: the line comes back as it was.
+  useEffect(
+    () =>
+      helpView.subscribe(() => {
+        const back = backToLine.current;
+        if (helpView.snapshot().at || !back) return;
+        backToLine.current = null;
+        // Focus goes back, when the line closes, where it was before the line first opened.
+        setOverlay({ cmdline: back.line, caret: back.caret });
+      }),
+    [helpView],
+  );
 
   const closeEdit = () => {
     setEditing(null);
@@ -852,6 +952,32 @@ export function App({
   };
 
   // What commands act on. Rebuilt each render, so it always sees the current state.
+  /** `:check` with no Host (ticket 49): every health section, shown as `:help health` (open at once,
+   * saying it's checking, then filled in). roster's own sections need `box.check` (API 16). */
+  const checkBox = () => {
+    const run = ++healthRun.current;
+    setHealth({ state: "running" });
+    helpView.open({ page: "health" });
+    const info = conn.state === "ready" ? conn.info : null;
+    const api = info?.inventory.api_version ?? 0;
+    const finish = (box: HealthContext["box"], boxProblem: string | null) => {
+      if (run !== healthRun.current) return;
+      const hctx: HealthContext = {
+        box,
+        boxProblem,
+        backend: info ? { name: info.backend, rosterVersion: info.inventory.roster_version, apiVersion: api } : null,
+        config: { path: report?.path ?? null, error: report?.error ?? null, warnings },
+        font: { families: terminalOptions.fonts, inUse: fontFound(terminalOptions.fonts, platform.fontInstalled ?? (() => null)) },
+      };
+      setHealth({ state: "done", at: new Date(), sections: runHealth(registries.health.list(), hctx) });
+    };
+    if (!info || api < BOX_CHECK_API_VERSION) return finish(null, null);
+    backend.checkBox().then(
+      (box) => finish(box, null),
+      (e: unknown) => finish(null, e instanceof Error ? e.message : String(e)),
+    );
+  };
+
   const ctx: CommandContext = {
     openPicker: () => {
       if (overlay === null) rememberFocus();
@@ -879,7 +1005,8 @@ export function App({
     },
     // A Host, or a web service in the default browser (ticket 18, decision Q71).
     open: (arg) => {
-      const to = resolveOpen(arg, hostByName, details ?? ctx.selectedHost());
+      const sessionHosts = sessions.tabs.map((t) => t.host);
+      const to = resolveOpen(arg, hostByName, details ?? ctx.selectedHost(), sessionHosts);
       if (to.kind === "error") return setMessage(to.message);
       if (to.kind === "web") return openWeb(to.host, to.service, to.url);
       const tab = sessions.tabs.find((t) => t.host === to.host);
@@ -890,8 +1017,8 @@ export function App({
       if (sessions.active !== null) tabs.reconnect(sessions.active);
     },
     check: (name) => {
-      const host = name ?? sessions.tabs.find((t) => t.id === sessions.active)?.host;
-      if (!host) return setMessage("check needs a Host name (no Session is open)");
+      if (name === null) return checkBox();
+      const host = name;
       if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
       const api = conn.state === "ready" ? conn.info.inventory.api_version : 0;
       if (api < CHECK_API_VERSION) {
@@ -964,7 +1091,9 @@ export function App({
     },
     // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
+      if (pluginSnap.float) return plugins.closeFloat();
       if (helpAt.at) return helpView.close();
+      if (pluginsOpen) return closePlugins();
       if (keysOpen) return closeKeys();
       if (signingOut) return closeSignOut();
       if (confirming) return closeConfirm();
@@ -1234,6 +1363,15 @@ export function App({
     setMessage("");
     runLine(commands, ctx, line);
   }
+  runRef.current = run;
+  openPlugins.current = () => {
+    rememberFocus();
+    setPluginsOpen(true);
+  };
+  const closePlugins = () => {
+    setPluginsOpen(false);
+    restoreFocus();
+  };
 
   const staysInAppMode = (line: Line) => commands.get(line.split(" ")[0] ?? "")?.staysInAppMode ?? false;
 
@@ -1327,6 +1465,7 @@ export function App({
         )}
         <div className="window-body">{content}</div>
         {toast}
+        <PluginNotices notices={pluginSnap.notices} onClose={(id) => plugins.dismissNotice(id)} />
       </div>
     </HintsShown>
   );
@@ -1392,12 +1531,6 @@ export function App({
             <span className="statusbar-cut">{info.inventory.box}</span>
           </span>
         );
-      case "hosts":
-        return (
-          <span key={id} className="count">
-            {countOf(conn.hosts.hosts.length, "Host")}
-          </span>
-        );
       case "path":
         return (
           <span key={id} className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
@@ -1454,11 +1587,33 @@ export function App({
             </span>
           )
         );
-      default:
-        return null;
+      default: {
+        // A Plugin's segment (the Host count is one: the built-in `hosts` Plugin).
+        const def = statusDefs.find((d) => d.id === id);
+        if (!def) return null;
+        const title = def.title ?? `From ${def.source}`;
+        return def.command ? (
+          <button
+            key={id}
+            type="button"
+            className="statusbar-plugin"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => run(def.command ?? "")}
+            title={title}
+          >
+            {def.text}
+          </button>
+        ) : (
+          <span key={id} className={id === "hosts" ? "count" : "statusbar-plugin"} title={title}>
+            {def.text}
+          </span>
+        );
+      }
     }
   };
-  const segments = layout.segments ?? STATUS_SEGMENTS;
+  // Segments Plugins add show after the layout's own, unless the layout lists them itself.
+  const segments =
+    layout.segments ?? [...STATUS_SEGMENTS, ...statusDefs.map((d) => d.id).filter((d) => !(STATUS_SEGMENTS as readonly string[]).includes(d))];
   const right = new Set(["hints", "mode"]);
   const statusBar = (
     <footer key="statusbar" className="statusbar">
@@ -1776,14 +1931,45 @@ export function App({
             }
             action="Sign out"
             onConfirm={async () => {
+              const account = signingOut;
               setSigningOut(null);
-              await vault.signOut();
+              await vault.signOut(account);
             }}
             onClose={closeSignOut}
           />
         )}
+        {pluginSnap.prompts[0] && (
+          <PluginPrompt
+            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}`}
+            prompt={pluginSnap.prompts[0]}
+            onAnswer={(allow) => {
+              const prompt = pluginSnap.prompts[0];
+              if (prompt) void plugins.answer(prompt, allow);
+              restoreFocus();
+            }}
+          />
+        )}
+        {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
+        {pluginSnap.float && (
+          <PluginFloatPanel
+            key={pluginSnap.float.plugin}
+            float={pluginSnap.float}
+            onClose={() => {
+              plugins.closeFloat();
+              restoreFocus();
+            }}
+          />
+        )}
         {keysOpen && (
-          <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
+          <BindingsPanel
+            rows={bindingRows(keymap, options, commands)}
+            leader={options.leader}
+            onClose={closeKeys}
+            onHelp={(option) => {
+              closeKeys();
+              run(`help ${optionTopic(option, new Set(topics(helpCtx).map((t) => t.tag)))}`);
+            }}
+          />
         )}
         {helpAt.at && (
           <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} onOutline={() => run("finder outline")} />
@@ -1814,6 +2000,15 @@ export function App({
           }}
           keys={keymap.cmdline}
           leader={options.leader}
+          {...(overlay.caret !== undefined ? { caret: overlay.caret } : {})}
+          onHelp={(line, caret) => {
+            const topic = lineTopic(commands, line);
+            if (!topic) return setMessage(`No command starts with ${line.trim().split(/\s+/)[0]}: Tab lists them`);
+            closeOverlay();
+            backToLine.current = { line, caret };
+            run(`help ${topic}`);
+            if (!helpView.snapshot().at) backToLine.current = null;
+          }}
           onClose={closeOverlay}
           onRun={(line) => {
             closeOverlay();
@@ -1850,6 +2045,11 @@ export function App({
             closeOverlay();
             run(item.command);
           }}
+          onHelp={(item: FinderItem) => {
+            const topic = itemTopic(commands, finderSource, item);
+            closeOverlay();
+            run(topic ? `help ${topic}` : "help");
+          }}
         />
       )}
       {(overlay === "picker" || overlay === "quick") && !vault.locked && (
@@ -1875,6 +2075,10 @@ export function App({
           onInfo={(host: Host) => {
             closeOverlay();
             run(`info ${host.name}`);
+          }}
+          onHelp={(topic: string) => {
+            closeOverlay();
+            run(`help ${topic}`);
           }}
           {...(canAdd
             ? {

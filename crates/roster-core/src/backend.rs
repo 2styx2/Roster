@@ -69,11 +69,15 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("changes.publish", 180),
     ("inventory.pull", 90),
     ("host.check", 90),
+    ("box.check", 90),
     ("host.verify_login", 90),
     ("vault.create_item", 90),
     ("quick.save", 90),
     ("host.save_login", 90),
     ("vault.login", 100),
+    ("mesh.plan", 300),
+    ("mesh.apply", 300),
+    ("mesh.cut", 120),
 ];
 
 /// How long the app waits for `method` (see [`CALL_SECS`]).

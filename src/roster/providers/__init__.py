@@ -171,6 +171,8 @@ PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "
                           #                              fn(ctx) -> that text)
                           #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
                           #             "login_help": why this provider has no sign-in here, and what to do
+                          #             "login_info": fn(ctx, server=ASK) -> vault.status's sign_in for a logged-out
+                          #                           CLI (SERVER: the server it's set to, when already known)
                           #             "account": fn(ctx) -> (status, {"email", "server"} | None): the status
                           #                        and the account the CLI is signed in to, in one call
                           #             "logout": fn(ctx), sign the CLI out (vault.logout); NotSignedIn if it isn't
@@ -340,20 +342,26 @@ def vault_account(name):
     return vault_status(name), None
 
 
+ASK = object()              # status_result's server: not known yet, so login_info asks the CLI
+
+
 def can_sign_out(name):
     return bool(PROVIDERS.get(name, {}).get("logout"))
 
 
+def no_account(name):
+    """The Unsupported error for signing out provider NAME, which has no account: in the provider's own words."""
+    return Unsupported(PROVIDERS[name].get("logout_help")
+                       or f"provider '{name}' has no account to sign out of - its Logins come from this box itself")
+
+
 def logout(name):
-    """Sign provider NAME's CLI out of its account (vault.logout). Every cached secret and NAME's state are forgotten
-    first, so nothing outlives the account even if the CLI then fails. Unsupported for a provider with no account."""
+    """Sign provider NAME's CLI out of its account (vault.logout). The caller forgets every cached secret and NAME's
+    state first (serve's forget_everything, through lock(name, cli=False)), so nothing outlives the account even if
+    the CLI then fails. Unsupported for a provider with no account."""
     fn = _vault_op(name, "logout")
     if not fn:
-        raise Unsupported(PROVIDERS[name].get("logout_help")
-                          or f"provider '{name}' has no account to sign out of - its Logins come from this box itself")
-    with _secret_lock:
-        _secrets.clear()
-        PROVIDER_STATE.pop(name, None)
+        raise no_account(name)
     fn(Ctx(name, None))
 
 

@@ -8,6 +8,7 @@
 // bindings themselves (`binding-keys`), so `ui.hints = false` never hides them.
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { Announce } from "../ui/Announce";
 import { Keys } from "../ui/Keys";
 import type { HelpSnapshot, HelpView } from "./command";
 import type { Block, Def, Inline } from "./doc";
@@ -103,6 +104,7 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
     marks[current]?.scrollIntoView?.({ block: "center" });
   }, [hit, query, blocks, at, searchSeq, placedSeq, snapshot.seq]);
 
+  const count = query ? (hits ? `${(((hit % hits) + hits) % hits) + 1} of ${hits}` : "No matches") : "";
   const step = (by: number) => setHit((h) => (hits ? (((h + by) % hits) + hits) % hits : 0));
 
   function onKeyDown(e: KeyboardEvent<HTMLElement>) {
@@ -204,11 +206,14 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
               setHit(0);
             }}
           />
-          <span className="help-count" aria-live="polite">
-            {query ? (hits ? `${(((hit % hits) + hits) % hits) + 1} of ${hits}` : "No matches") : ""}
+          <span className="help-count" aria-hidden="true">
+            {count}
           </span>
         </div>
       ) : null}
+      {/* Mounted, empty, for as long as help is open, so the count is heard when a search
+          (`:helpgrep`, `:help TOPIC /TEXT`) arrives with the page (ticket 54). */}
+      <Announce text={count} delay={150} />
       <div className="help-scroll" ref={scrollRef} tabIndex={0} role="region" aria-label={page?.title ?? at.page}>
         <Env value={env}>
           <article className="help-doc">
@@ -315,7 +320,7 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
 
 function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
   return (
-    <div data-tag={d.anchor} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
+    <div data-tag={d.anchor} data-tone={d.tone} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
       <dt>
         <span className="help-term">
           {/* The entry's own name isn't a link (to itself). */}
@@ -332,6 +337,11 @@ function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
       <dd>
         <Inlines items={d.body} />
       </dd>
+      {d.more && (
+        <dd className="help-def-more">
+          <Inlines items={d.more} />
+        </dd>
+      )}
     </div>
   );
 }

@@ -3,19 +3,21 @@
 // `vault.logout` signs the CLI out and the lock screen shows the full sign-in form (Q52). Hidden or
 // explained for providers without an account. Through the typed client and the fake Backend.
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_EMAIL, FAKE_PASSWORD, fakeBackend, fixtures, type FakeScenario } from "./backend/fake";
+import { BackendCallError, VaultError } from "./backend/types";
 import { manualClock } from "./lock/manualClock";
 
 async function start(scenario: FakeScenario = fixtures["sign-out"]!) {
   const backend = fakeBackend(scenario);
   const user = userEvent.setup();
-  render(<App backend={backend} clock={manualClock()} />);
+  const clock = manualClock();
+  render(<App backend={backend} clock={clock} />);
   await screen.findByRole("dialog", { name: /locked/i });
   await screen.findByLabelText(/master password/i);
-  return { user, backend };
+  return { user, backend, clock };
 }
 
 const lockScreen = () => screen.getByRole("dialog", { name: /locked|sign in/i });
@@ -63,6 +65,35 @@ describe("signing out from the lock screen", () => {
     await screen.findByRole("dialog", { name: /sign in to bitwarden/i });
   });
 
+  it("is still offered after a lock: by hand and when idle", async () => {
+    const { user, clock } = await start();
+    await user.type(screen.getByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await user.keyboard("{Control>} {/Control}:lock{Enter}");
+    await screen.findByLabelText(/master password/i);
+    expect(differentAccount()).toBeInTheDocument();
+    expect(lockScreen()).toHaveTextContent(`Signed in as ${FAKE_EMAIL} on bitwarden.com`);
+    await user.type(screen.getByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    act(() => clock.advance(60 * 60_000));
+    await screen.findByLabelText(/master password/i);
+    expect(differentAccount()).toBeInTheDocument();
+  });
+
+  it("is offered after a lock that follows a sign-in from the lock screen", async () => {
+    const { user } = await start();
+    await user.click(differentAccount()!);
+    await user.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: /sign in to bitwarden/i });
+    await user.keyboard("{Enter}");
+    await user.type(within(dialog).getByLabelText(/email/i), `${FAKE_EMAIL}{Enter}`);
+    await user.type(within(dialog).getByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await user.keyboard("{Control>} {/Control}:lock{Enter}");
+    await screen.findByLabelText(/master password/i);
+    expect(await within(lockScreen()).findByRole("button", { name: /use a different account/i })).toBeInTheDocument();
+  });
+
   it("isn't offered for KeePassXC, which has no account", async () => {
     await start({ ...fixtures["sign-out"]!, vault: { status: "locked", provider: "kp" } });
     expect(differentAccount()).toBeNull();
@@ -94,6 +125,17 @@ describe(":vault signout", () => {
     await user.keyboard("{Enter}");
     await screen.findByRole("dialog", { name: /sign in to bitwarden/i });
     expect((await backend.vaultStatus()).status).toBe("not-logged-in");
+  });
+
+  it("a failed sign-out locks with the reason, and the account can be tried again", async () => {
+    const { user, backend } = await unlocked();
+    backend.signOut = () => Promise.reject(new BackendCallError("`bw logout` failed: the server said no", VaultError.signOutFailed));
+    await command(user, "vault signout");
+    await screen.findByRole("alertdialog", { name: QUESTION });
+    await user.keyboard("{Enter}");
+    await within(lockScreen()).findByText(/the server said no/);
+    expect(lockScreen()).toHaveTextContent("Signing out failed: bw logout failed: the server said no");
+    expect(differentAccount()).toBeInTheDocument();
   });
 
   it("Esc keeps the account and the app unlocked", async () => {

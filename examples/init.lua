@@ -113,9 +113,9 @@ return {
   -- what you'd type after `:` ("close", "session 1", "finder sessions"); false unbinds a default.
   -- Contexts: leader (after the Leader), list and list_vim (the Sidebar), picker and picker_vim
   -- (Tab / Shift+Tab: picker.next / picker.prev), cmdline (the `:` line: cmdline.next,
-  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel), terminal (before the shell sees the key: terminal.copy, terminal.copyIfSelected, terminal.paste, terminal.search,
+  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel, cmdline.help), terminal (before the shell sees the key: terminal.copy, terminal.copyIfSelected, terminal.paste, terminal.search,
   -- terminal.zoomIn, …), global (everywhere, no Leader; keep it to keys a shell doesn't use).
-  -- The Key bindings panel (Leader ?) lists every binding and where it comes from.
+  -- The Key bindings panel (Leader K) lists every binding and where it comes from.
   keys = {
     leader = {
       -- t = "next",          -- Leader t: the next Session

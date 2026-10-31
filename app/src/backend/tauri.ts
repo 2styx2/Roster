@@ -13,6 +13,7 @@ import {
   type AddHostParams,
   type HostAdd,
   type HostChanges,
+  type BoxCheck,
   type HostCheck,
   type HostKeyScan,
   type HostKeyTrust,
@@ -28,6 +29,7 @@ import {
   type InventoryChanged,
   type InventoryReload,
   type PendingChanges,
+  type PluginReply,
   type PublishResult,
   type PullResult,
   type SaveTargets,
@@ -174,6 +176,7 @@ export function tauriBackend(): Backend {
     openSession,
     openQuickSession,
     checkHost: (host) => call<HostCheck>("host_check", { host }),
+    checkBox: () => call<BoxCheck>("box_check"),
     pullInventory: () => call<PullResult>("inventory_pull"),
     verifyLogin: (host, changes: HostChanges) => call<HostCheck>("host_verify_login", { host, changes }),
     updateHost: (host, changes: HostChanges) => call<HostUpdate>("host_update", { host, changes }),
@@ -199,6 +202,12 @@ export function tauriBackend(): Backend {
     saveQuick: (params: QuickSaveParams) => call<QuickSave>("save_call", { method: "quick.save", params }),
     saveLogin: (params: SaveLoginParams) => call<SaveLogin>("save_call", { method: "host.save_login", params }),
     forgetTyped: (held) => call<{ forgotten: boolean }>("save_call", { method: "vault.forget_typed", params: { held } }),
+    // Plugins (ticket 23): they run in the core; only data comes back.
+    pluginManifest: (path) => call("plugin_manifest", { path }),
+    pluginLoad: (path, grants) => call("plugin_load", { path, grants }),
+    pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
+    pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
+    pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
     onLoggedIn(onLogin) {
       const stop = listen<{ method: string; params: { held?: unknown } }>("roster-notification", (e) => {
         const held = e.payload.params?.held;

@@ -80,3 +80,36 @@ def test_every_cli_command_is_in_cli_reference_md():
     sub = next(a for a in build_parser()._actions if a.dest == "cmd")
     missing = [name for name in sub.choices if not re.search(rf"^\| `{re.escape(name)}\b", doc, re.M)]
     assert missing == []
+
+
+SYNC = ROOT / "app/scripts/app-sync.sh"
+APP_IMPORT = re.compile(r"""from\s+["']((?:\.\./)+[^"'?]+)(?:\?raw)?["']""")
+
+
+def sync_filters() -> list[str]:
+    """The --include/--exclude rules app-sync.sh hands rsync, in order."""
+    text = SYNC.read_text(encoding="utf-8")
+    return re.findall(r"--((?:in|ex)clude)[ =]('[^']*'|\S+)", text)
+
+
+@pytest.mark.skipif(not __import__("shutil").which("rsync"), reason="rsync not installed")
+def test_windows_sync_copies_every_file_the_app_imports_from_outside_app(tmp_path):
+    """The Windows build copies only what app-sync.sh syncs, so a file the frontend imports
+    from elsewhere in the repo (a docs/*.md bundled into :help) must be synced, or the
+    Windows build fails while CI, which has the whole checkout, passes."""
+    import subprocess
+
+    wanted = set()
+    for src in (ROOT / "app/src").rglob("*.ts*"):
+        for m in APP_IMPORT.finditer(src.read_text(encoding="utf-8")):
+            target = (src.parent / m.group(1)).resolve()
+            if not target.is_relative_to(ROOT / "app"):
+                wanted.add(target.relative_to(ROOT).as_posix())
+    assert wanted, "expected the app to bundle some docs from outside app/"
+    args = [f"--{kind}={pat.strip(chr(39))}" for kind, pat in sync_filters()]
+    out = subprocess.run(
+        ["rsync", "-an", "--out-format=%n", *args, f"{ROOT}/", f"{tmp_path}/"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    missing = sorted(wanted - set(out))
+    assert not missing, f"app-sync.sh doesn't sync files the app imports: {missing}"

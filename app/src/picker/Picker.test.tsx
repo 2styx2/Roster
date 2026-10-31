@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Picker } from "./Picker";
 import type { Host, HostList } from "../backend/types";
@@ -108,7 +108,8 @@ describe("Picker", () => {
     expect(within(row).getByText(/unreviewed/i)).toBeInTheDocument();
     await user.keyboard("scan{Enter}");
     expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent(/scan-99 isn't reviewed/i);
+    // The notice, beside the hidden count that a screen reader hears.
+    expect(screen.getAllByRole("status").map((s) => s.textContent).join(" ")).toMatch(/scan-99 isn't reviewed/i);
     await user.click(screen.getByText("scan-99"));
     expect(onOpen).not.toHaveBeenCalled();
   });
@@ -123,4 +124,16 @@ describe("Picker", () => {
     setup({ recent: ["unifi"] });
     expect(rows()[0]!.dataset.host).toBe("unifi");
   });
+
+  it("tells a screen reader how many Hosts a query left, once typing pauses", async () => {
+    const { user } = setup();
+    const said = () => screen.getAllByRole("status").map((s) => s.textContent).join("|");
+    await user.keyboard("zzqxj");
+    expect(said()).not.toContain("No Hosts match");
+    await waitFor(() => expect(said()).toContain("No Hosts match"));
+    await user.clear(screen.getByRole("combobox"));
+    await user.keyboard("esxi");
+    await waitFor(() => expect(said()).toContain("1 Host"));
+  });
 });
+

@@ -6,7 +6,7 @@ roster \- give this box (and Claude) access to the hosts in roster.yml
 roster init
 roster setup [\-\-only LIST] [\-\-dry\-run]
 roster sync
-roster check [\-\-only LIST] [host]
+roster check [\-\-box] [\-\-only LIST] [host]
 roster hosts [\-\-only LIST] [\-\-find TEXT] [\-\-all] [\-\-long]
 roster resources [\-\-only LIST] [\-\-find TEXT]
 roster reveal [\-\-wifi] name
@@ -17,6 +17,7 @@ roster bw ...
 roster providers
 roster auth\-check [\-\-only LIST]
 roster web [\-d BODY] [\-H HEADER] [\-k] [\-\-timeout SECONDS] HOST [SERVICE] METHOD PATH [HOST [SERVICE] METHOD PATH ...]
+roster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [{cut,status}] [HOST]
 roster revoke [\-\-only LIST] [\-y]
 roster serve
 roster askpass [prompt]
@@ -64,12 +65,15 @@ show what would happen, change nothing remote
 Rewrite the SSH config and Claude files after editing \fBroster.yml\fR
 .SS check
 .PP
-\fBroster check [\-\-only LIST] [host]\fR
+\fBroster check [\-\-box] [\-\-only LIST] [host]\fR
 .PP
-Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see \fBroster check HOST\fR)
+Reachability of SSH, web UIs and services, and the Mesh's drift (without \fB\-\-only\fR). With one HOST: why a Session to it would or wouldn't open, step by step (see \fBroster check HOST\fR). With \fB\-\-box\fR: this Box's health, without connecting anywhere (see \fBroster check \-\-box\fR)
 .TP
 \fBHOST\fR
 diagnose this one Host: inventory, ssh config, vault, DNS, port, host key, login (one connection)
+.TP
+\fB\-\-box\fR
+check this Box instead, without connecting anywhere: roster.yml, ssh and its config, vault CLIs, askpass, the infra repo
 .TP
 \fB\-\-only LIST\fR
 only these hosts, groups, types or products (comma\-separated)
@@ -210,6 +214,26 @@ don't verify the TLS certificate
 .TP
 \fB\-\-timeout SECONDS\fR
 how long to wait for the answer (default: 30)
+.SS mesh
+.PP
+\fBroster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [{cut,status}] [HOST]\fR
+.PP
+Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change. See The Mesh
+.TP
+\fBACTION\fR
+cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)
+.TP
+\fBHOST\fR
+with cut: the Host to cut out
+.TP
+\fB\-\-dry\-run\fR
+show the plan; change nothing on any Host
+.TP
+\fB\-\-rotate HOST\fR
+replace HOST's Mesh key (repeatable)
+.TP
+\fB\-y, \-\-yes\fR
+with cut: don't ask first
 .SS revoke
 .PP
 \fBroster revoke [\-\-only LIST] [\-y]\fR
@@ -238,7 +262,7 @@ the prompt ssh shows
 .PP
 \fBroster man [\-\-install] [\-\-prefix DIR]\fR
 .PP
-Show the \fBroster(1)\fR man page. \fB\-\-install\fR copies it to \fBPREFIX/share/man/man1/roster.1\fR, next to \fBPREFIX/bin/roster\fR (\fB~/.local\fR after \fBuv tool install\fR), where \fBman roster\fR finds it. \fBinstall.sh\fR does this for you
+Show the \fBroster(1)\fR man page. \fB\-\-install\fR copies it to \fBPREFIX/share/man/man1/roster.1\fR, next to \fBPREFIX/bin/roster\fR (\fB~/.local\fR after \fBuv tool install\fR), where \fBman roster\fR finds it; into a prefix you can't write to, it says so and exits 1 (pick \fB\-\-prefix ~/.local\fR, or use sudo). \fBinstall.sh\fR does this for you
 .TP
 \fB\-\-install\fR
 copy it to PREFIX/share/man/man1/, next to PREFIX/bin/roster (~/.local for uv tool install)
@@ -267,6 +291,12 @@ The SSH config entries \fBroster setup\fR and \fBroster sync\fR write
 .TP
 \fBROSTER.md\fR, \fBCLAUDE.md\fR, \fB\&.claude/settings.json\fR
 What Claude reads, written next to \fBroster.yml\fR by \fBsetup\fR and \fBsync\fR
+.TP
+\fB~/.config/roster/mesh.json\fR
+What \fBroster mesh\fR couldn't finish (pending Hosts, cuts pending) and when it last applied, on this box
+.TP
+\fB~/.ssh/roster\-mesh/\fR, \fB~/ROSTER.md\fR (on Hosts)
+A Mesh source's key, known hosts, ssh config and its peers for Claude, written by \fBroster mesh\fR (The Mesh)
 .TP
 \fB$XDG_RUNTIME_DIR/roster/\fR
 Short\-lived private state: kept web logins and the askpass socket
@@ -300,7 +330,7 @@ Wrong arguments
 \fB130\fR
 Interrupted with Ctrl+C
 .PP
-\fBroster run\fR exits with the remote command's status, and \fBroster bw\fR with \fBbw\fR\&'s.
+\fBroster run\fR exits with the remote command's status, and \fBroster bw\fR with \fBbw\fR\&'s. \fBroster mesh\fR and \fBroster mesh cut\fR exit 1 while a Host is pending.
 .SH EXAMPLES
 .PP
 .nf
@@ -310,6 +340,7 @@ roster setup \-\-dry\-run                   # which hosts would get this box's k
 roster hosts \-\-find esx                  # search names, titles, types, addresses
 roster info esx\-02                       # everything about one host
 roster check esx\-02                      # why a Session to esx\-02 would or wouldn't open
+roster check \-\-box                       # this Box's health: roster.yml, ssh, vault, infra repo
 roster run esx\-02 \-\- uptime              # run a command with the stored login
 roster web esx\-02 GET /api/status        # an HTTP request, logged in
 roster discover 10.0.5.0/24              # scan a network, preview only

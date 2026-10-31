@@ -29,6 +29,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `help [TOPIC]` | Help, like Neovim's `:help` (ticket 37): with no topic, the topic finder; `:help terminal.size`, `:help :connect`, `:help E13` open a page at that entry. Tab completes topics. See [help.md](help.md) |
+| `<leader> F1` | `lookup` | Help on what's selected, like Neovim's `K` (which `␣ K` can't be here): a Host's row in the Sidebar opens `:connect`, another row the command it runs, nothing selected the topic finder. In the Key bindings panel's filter, F1 opens help on the first binding's option ([help.md](help.md#help-from-where-you-are)) |
 | `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | (no key) | `vault signout` | Sign the vault CLI out, to sign in to a different account (ticket 42). It asks first, naming the account ("Sign out of you@example.com on this Box?"; Enter signs out, Esc keeps it), then locks and shows the full sign-in form. The lock screen's "Use a different account" does the same. KeePassXC, `pass`, `env` and `cmd` have no account: the command says why. Needs API 14 |
@@ -52,18 +53,20 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | — | `info HOST` | Host details (ticket 18, decision Q71): a side panel opposite the Sidebar with what `roster info HOST` shows (address, type, product, description, services, the Vault item each Login uses by name, enrolled and reviewed). Tab completes Host names. Also the ⓘ on every Host row in the tree, the ⓘ on a Picker row, and Ctrl+I in the Picker. In Focus it floats over the terminal, like the Sidebar. Esc (App mode) closes it with the other side panels |
 | `<leader> i` | `details` | Show or hide Host details for the selected Host (the Sidebar's cursor, else the Session on screen); also the Host details toggle by the window's buttons (toolbar id `details`), pressed while they show |
 | `<leader> S` | `source [PATH]` (`so`) | Reload the Config now, Neovim-style: `init.lua` and its modules; with PATH, only the file that owns it. Saving doesn't reload unless `auto_reload = true` (decision Q58) |
+| — | `plugins [install PATH\|remove NAME\|reload NAME\|revoke NAME PERM\|grant NAME PERM]` | The Plugins: with no word, the panel (each Plugin, whether it runs, its permissions as switches, what it did lately); `install` asks first, naming every permission ([plugins.md](../plugins.md)) |
 | — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is ([config.md](config.md)) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |
-| — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs) |
-| — | `open SERVICE`, `open HOST SERVICE` | Open a web service (http or https) in the default browser (ticket 18): SERVICE of the Host in Host details (else the selected Host), or of HOST. A Host's name wins over a service of the same name. Tab completes the current Host's web services first, then Host names, then HOST's services. Also each service's Open button in Host details |
+| — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs). Also takes an open Session's name (a Quick Connect's `user@address`, or a Host no longer in the Inventory) and a Quick Connect address, `user@address[:port]`, which it connects to |
+| — | `open SERVICE`, `open HOST SERVICE` | Open a web service (http or https) in the default browser (ticket 18): SERVICE of the Host in Host details (else the selected Host), or of HOST. A Host's name, an open Session's or a Quick Connect address wins over a service of the same name. Tab completes the current Host's web services first, then Host names, then HOST's services. Also each service's Open button in Host details |
 | `<leader> a` | `folder add` | Add the Host under the cursor (or on screen) to a Folder: opens the command line at `folder add HOST ` for the Folder's name (Tab completes; a new name creates the Folder) |
 | `<leader> A` | `folder remove` | Remove the Host under the cursor from its Folder |
 | — | `folder new NAME`, `folder rename NAME NEW`, `folder delete NAME`, `folder add HOST NAME`, `folder remove HOST NAME` | Folders (GLOSSARY), kept in State. Names may have spaces; quote one (`"Lab ESXi"`) only where it would be ambiguous. Without a name, `new` and `rename` open the command line for it |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
 | In the Picker: Ctrl+I | `picker.info` | The selected Host's details (closes the Picker) |
+| In the Picker and every finder: F1 | `picker.help` | Help on the selected result: a Host opens `:connect`, a Theme its entry (`themes#nord`), a help topic itself, anything else the command Enter runs ([help.md](help.md#help-from-where-you-are)) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (the keymap's `terminal` table; see "Copy and paste" below) |
 
@@ -94,6 +97,7 @@ The command line completes like bash or zsh, and like Neovim's wildmenu. The can
 | Ctrl+Y | `cmdline.accept` | Accept the candidate in the line; the list then shows the next argument's |
 | Enter | `cmdline.run` | Run the line. On a command that still needs its argument (`connect `) it only accepts it |
 | Esc | `cmdline.cancel` | Cancel the completion, back to what you typed; a second Esc closes the line |
+| Ctrl+], F1 | `cmdline.help` | Help on the command you're typing (`:conn` → `:help :connect`; nothing typed: the Commands page). Esc in help brings the line back as it was, the cursor too ([help.md](help.md#help-from-where-you-are)) |
 
 Typing anything also accepts the candidate. A click on one accepts it too.
 
@@ -108,7 +112,7 @@ Standard and Focus (decision Q36) differ only in their layout; every command wor
 | `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #54) |
 | `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
-| `<leader> ?`, `<leader> K`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
+| `<leader> ?`, `<leader> K`, `<leader> :`, `:check HOST`, `:check` (help) | Panels beside the terminal | The same panels, over the terminal |
 
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 

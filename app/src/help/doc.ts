@@ -39,6 +39,10 @@ export interface Def {
   /** Right of the term: the value in effect, the keys, where it came from. */
   meta: Inline[];
   body: Inline[];
+  /** How it came out, for an entry that's a check (`:help health`): drawn in the warn or error colour. */
+  tone?: "ok" | "warn" | "error";
+  /** A paragraph of its own under `body`: a command's `doc`. */
+  more?: Inline[];
 }
 
 export const text = (s: string): Inline => ({ t: "text", text: s });

@@ -6,6 +6,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Host, HostList } from "../backend/types";
 import { chordOf, defaultKeymap, type Keymap, type KeyTable, type PickerAction } from "../keymap";
+import { Announce } from "../ui/Announce";
 import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { prefixFill } from "../ui/completion";
@@ -42,13 +43,15 @@ export interface PickerProps {
   quickFirst?: boolean;
   /** Shows the Host's details (ticket 18): a row's info control, or Ctrl+I. */
   onInfo?: (host: Host) => void;
+  /** `picker.help` (F1): help on the selected row, a topic (ticket 52). */
+  onHelp?: (topic: string) => void;
 }
 
 /** The first key bound to `action`, for the footer's hints. */
 const keyFor = (table: KeyTable<PickerAction>, action: PickerAction) =>
   Object.entries(table).find(([, b]) => b.action === action)?.[0] ?? null;
 
-export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose, onQuick, quickFirst = false, onInfo }: PickerProps) {
+export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose, onQuick, quickFirst = false, onInfo, onHelp }: PickerProps) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [inList, setInList] = useState(false);
@@ -140,6 +143,10 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
         if (host && onInfo) onInfo(host);
         break;
       }
+      case "picker.help":
+        // A Host opens with :connect; the Quick Connect row is :quick (ticket 52).
+        onHelp?.(hostAt(current) ? ":connect" : ":quick");
+        break;
       case "picker.close":
         onClose();
         break;
@@ -269,7 +276,9 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           <span role="status" title={notice || undefined}>
             {notice}
           </span>
-          <span className="picker-count">
+          {/* The count, said once typing pauses (ticket 54); the one beside it is only seen. */}
+          <Announce text={results.length ? countOf(results.length, "Host") : query.trim() ? "No Hosts match" : ""} />
+          <span className="picker-count" aria-hidden="true">
             {results.length > shown.length
               ? `${formatCount(shown.length)} of ${countOf(results.length, "Host")}`
               : countOf(results.length, "Host")}
