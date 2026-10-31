@@ -67,3 +67,23 @@ def test_ssh_config_written_and_included_once(isolated, write_config):
     assert "# Web box" in generated
     assert "IdentityFile" in web and "IdentityFile" not in sw
     assert "Port 2222" in sw
+
+
+def test_ssh_config_offers_only_rosters_key_or_none(isolated, write_config):
+    """Catalog row 19: an ssh agent full of keys mustn't use up the Host's tries before the password.
+    Key Hosts offer only roster's key; password Hosts offer none. `auth: agent` Hosts keep the agent."""
+    cfg = load_config(write_config(
+        "groups:\n"
+        "  g:\n"
+        "    user: u\n"
+        "    hosts:\n"
+        "      key: 10.0.0.1\n"
+        "      pw: {ip: 10.0.0.2, enroll: false, auth: 'bw:pw ssh'}\n"
+        "      agent: {ip: 10.0.0.3, enroll: false, auth: agent}\n"))
+    write_ssh_config(cfg)
+    text = (isolated["home"] / ".ssh" / "config.d" / "roster").read_text()
+    block = {name: text.split(f"Host {name}\n")[1].split("\n\n")[0] for name in ("key", "pw", "agent")}
+    assert "IdentitiesOnly yes" in block["key"] and "IdentityFile" in block["key"]
+    assert "IdentitiesOnly yes" in block["pw"] and "IdentityFile" not in block["pw"]
+    assert "PubkeyAuthentication no" in block["pw"]
+    assert "IdentitiesOnly" not in block["agent"]

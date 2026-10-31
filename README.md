@@ -1,366 +1,187 @@
-# Roster
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="app/assets/logo-mark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="app/assets/logo-mark-light.svg">
+    <img src="app/assets/logo-icon.svg" alt="roster" width="88" height="88">
+  </picture>
+</p>
 
-**Your password manager knows the secrets. Roster knows your network: every host, what it is, how to reach it, and which login goes with which service.**
+<h1 align="center">roster</h1>
 
-A password manager holds an item like `ESXI web`, but it doesn't know that the item opens both SSH and the SOAP API on one ESXi host. It doesn't know that two boxes with the same web title are different machines, or that one address is really a second interface of a box you already have. It doesn't know that the core switch only takes a password over SSH. That knowledge usually lives in someone's head, a stale wiki page, or a dozen `~/.ssh/config` files that all differ.
+<p align="center">
+  Your password manager knows the secrets. roster knows your network.<br>
+  A team's hosts in one file, logins from the shared vault, and a keyboard-first app to reach them.
+</p>
 
-Roster keeps it in one file, `roster.yml`:
+<p align="center">
+  <a href="https://github.com/2styx2/roster/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://github.com/2styx2/roster/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
+  <a href="https://github.com/2styx2/roster/releases"><img src="https://img.shields.io/github/v/release/2styx2/roster?include_prereleases&sort=semver&label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later"></a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/app-light.webp">
+    <img src="docs/images/app-dark.webp" alt="The roster app: the Sidebar lists Hosts by group, a Session is open, and the Picker finds two Hosts for the query 'prox'" width="860">
+  </picture>
+</p>
+
+## What it is
+
+A password manager holds an item like `ESXI web`, but it doesn't know that the item opens both SSH and the API on one host, that two boxes with the same web title are different machines, or that the core switch only takes a password over SSH. That knowledge usually lives in someone's head, a stale wiki page, or a dozen `~/.ssh/config` files that all differ.
+
+roster keeps it in one file, `roster.yml`, in your team's own private git repo:
 
 - **Hosts and what they are:** name, address, type, product, title, description.
-- **How to reach them:** SSH port and user, whether the box takes a key or only a password, web UIs and other services.
-- **Which login goes where:** each host's default login, plus SSH-only or per-service overrides. These point at password-manager items (`bw:esxi-02 ssh+web`, `op:Network gear`) and never contain a password.
+- **How to reach them:** SSH port and user, key or password only, web UIs and other services.
+- **Which login goes where:** references to vault items (`bw:esxi-02 ssh+web`, `op:Network gear`), never a password.
 
-From that one file, any box (a laptop, a jump host, a box where Claude runs) gets the same access:
+It comes in two parts that share that file:
 
-```
-roster discover 10.0.1.0/24 --write     # scan the network into roster.yml
-roster setup                            # one time on each box: key, fingerprints, ssh config
-roster hosts --find orion              # what's out there
-ssh orion-dev-01 uptime                # key login just works
-roster run net-sw-core-01 -- show ver   # password-only gear; the password is fetched for you
-roster run --sudo orion-dev-01 -- id  # as root; sudo gets the stored password
-roster web esxi api POST /sdk -d @q.xml # web API call made with the service's stored login
-```
+- **The CLI, `roster`** (Python). It sets up each box with its own SSH key, runs commands on password-only gear, calls web APIs with the stored login, scans networks into the inventory, and tells Claude which hosts exist without ever showing it a secret.
+- **The roster app** (Tauri, for Windows and Linux). A fast, keyboard-first terminal: find a Host in a few keystrokes and you're in a shell, with the password fetched from the vault and never shown. It talks to the CLI through `roster serve`, so the file and the vault stay roster's.
 
-### Why it exists
+> **Status:** pre-release. Everything builds up on `dev`; the first Release, `v0.1.0`, comes after iteration 4 ([roadmap](docs/app/roadmap.md)).
 
-- **One source of truth for the team.** The host list lives in git and the logins live in the shared vault. Adding a host takes one change to `roster.yml`, and rotating a password takes one vault edit. Every box picks the change up.
-- **No passwords on disk.** Passwords are fetched from Bitwarden, 1Password, `pass`, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
-- **Claude works on the network without seeing secrets.** `roster setup` writes `ROSTER.md`, which tells Claude which hosts exist and how to reach them. Claude uses `ssh`, `roster run` and `roster web`: roster supplies the credentials and Claude sees only the output.
-- **Scans become inventory safely.** `roster discover` turns an nmap sweep into `roster.yml` entries marked `reviewed: false`. Nothing logs in to them until a person has reviewed them.
+## Features
 
-### What `roster setup` does on a box
+**The CLI**
 
-1. Creates an SSH key for that box, tagged with the box's name.
-2. Records every host's fingerprint.
-3. Installs the key on each host that accepts keys, using the password from your password manager once.
-4. Writes SSH config entries, so `ssh orion-dev-01` just works.
-5. Writes `ROSTER.md`, so Claude knows which hosts exist and how to reach them.
+- `roster setup`: one key per box, host fingerprints recorded, the key installed where hosts take one, and `ssh <host>` just works.
+- `roster run HOST -- CMD`: password-only gear (switches, appliances) with the password fetched for that one run, and `--sudo`.
+- `roster web HOST api …`: web API calls made with the service's stored login.
+- `roster discover 10.0.1.0/24 --write`: an nmap sweep becomes inventory, marked unreviewed until a person looks.
+- `roster check`: SSH, web UI and service ports on every host; `roster check HOST` says which step fails and what to do.
+- Password providers: Bitwarden, 1Password, `pass`, KeePassXC, an environment variable, or any command.
+- `ROSTER.md` for Claude: which hosts exist and how to reach them, with rules. Claude uses `ssh`, `roster run` and `roster web`; roster supplies the credentials and Claude sees only the output.
 
-## Documentation
+**The app**
 
-| Doc | For |
-|---|---|
-| This README | Concepts, `roster.yml` reference, providers, commands, security model |
-| [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
-| [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, and testing the logins |
-| [examples/roster.example.yml](examples/roster.example.yml) | Fully commented `roster.yml` (also produced by `roster init`) |
+- **The Picker:** fuzzy-find any Host by name, address or group, then Enter. Or type `user@address` for a Quick Connect.
+- **Sessions** over your own `ssh`, by key or password. A password goes from the vault to ssh through a one-time askpass channel and never reaches the UI.
+- **The lock screen is the vault:** unlock Bitwarden to start (or sign in, two-step methods included), and it locks itself after 15 minutes idle.
+- **Edit the inventory in place:** add or edit a Host with a test login first, see the diff, and Publish it to the team's git repo.
+- **Keyboard first:** the Leader (Ctrl+Space) takes the keys back from the terminal; vim keys; keycaps next to everything.
+- **Configured in code:** one `init.lua`, like Neovim or WezTerm, applied with `:source`, six bundled Themes, and `:help` for every option.
+- **Plain errors:** each connection failure says where it lives (the vault, the network, the Host) and the one thing to do next.
+
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/keys-dark.webp">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/keys-light.webp">
+        <img src="docs/images/keys-dark.webp" alt="The Key bindings panel next to an open Session, listing each binding with its keycaps and the init.lua option that sets it">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/lock-dark.webp">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/lock-light.webp">
+        <img src="docs/images/lock-dark.webp" alt="The lock screen: the roster mark, 'Locked', and one field for the Bitwarden master password">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td>Every binding shows its keys and the option that changes it (<code>␣ K</code>).</td>
+    <td>Unlocking the vault is the app's lock.</td>
+  </tr>
+</table>
+
+<sub>The screenshots use the app's built-in fixtures: made-up Hosts on made-up addresses, with a fake terminal.</sub>
 
 ## Install
 
-Requires Python 3.10+, the OpenSSH client, and [uv](https://docs.astral.sh/uv/). nmap is optional but recommended for `discover`. You also need your password manager's CLI (`bw` or `op`).
+### The app
 
-**The easy way: the installer.** It walks through each stage, asks before every change and shows its progress. The stages are:
+Download it from [Releases](https://github.com/2styx2/roster/releases):
 
-1. Prerequisites
-2. uv
-3. roster
-4. the Bitwarden CLI
-5. the config folder (clones [yourteam/infra](https://example.com/yourteam/infra) into `~/infra`)
-6. making roster work from any directory
-7. unlocking the vault
-8. `roster setup`
-9. auto-updates from cron
+| Platform | File |
+|---|---|
+| Windows | `roster-app-<version>-windows-x64-setup.exe` (or the `.msi`, or the portable `.zip`) |
+| Linux | `roster-app-<version>-linux-x64.AppImage` or `.deb` (or the `.tar.gz` with the bare binary) |
+| macOS | `roster-app-<version>-macos-universal.dmg` (it builds; it isn't tested day to day yet) |
 
-```bash
-git clone git@github.com:2styx2/roster.git
-cd roster
-./install.sh              # interactive; safe to re-run
-./install.sh --dry-run    # show what it would do, change nothing
-./install.sh --yes        # take every default (skips steps that need you, like bw login)
-```
+The app needs the roster CLI on the same machine; on Windows it also finds a roster installed in WSL. The builds aren't code-signed yet, so Windows SmartScreen asks once ("More info", then "Run anyway") and macOS needs right-click, Open the first time. Each Release has a `SHA256SUMS` to check the files against.
 
-Each step's output goes to `~/.cache/roster/install.log`, and is shown only if the step fails.
+### The CLI
 
-**By hand:**
+Requires Python 3.10+, the OpenSSH client, [uv](https://docs.astral.sh/uv/), and your password manager's CLI (`bw` or `op`). nmap is optional, for `discover`.
 
 ```bash
-git clone git@github.com:2styx2/roster.git
-cd roster
-
-# install the `roster` command for your user (recommended, especially on boxes Claude uses)
-uv tool install .
+uv tool install git+https://github.com/2styx2/roster      # from the repo
+uv tool install ./roster-<version>-py3-none-any.whl       # or the wheel from a Release
 roster --help
-
-# or try it from the project folder without installing
-uv sync
-uv run roster --help
 ```
 
-If you don't install it as a tool, Claude's instructions automatically use the full path to the project's Python, so Claude can still run it. To update later, run `git pull && uv tool install --force .`.
-
-To run roster commands from any directory, point `ROSTER_CONFIG` at your map in `~/.bashrc` (the installer does this for you):
+Or use the installer. It walks through every stage (uv, roster, the Bitwarden CLI, your team's config repo, `ROSTER_CONFIG`, unlocking the vault, `roster setup`, auto-updates), asks before each change, and is safe to re-run:
 
 ```bash
-export ROSTER_CONFIG="$HOME/infra/roster.yml"
+git clone https://github.com/2styx2/roster.git && cd roster
+./install.sh              # interactive
+./install.sh --dry-run    # show what it would do, change nothing
 ```
 
-Use the variable, not a symlink. roster writes `ROSTER.md` and the Claude files next to the config's path, so they stay in `~/infra`.
+A Release also has `roster-cli-<version>.tar.gz`: unpack it and run `./install.sh` inside, no git needed. Setting up another box, step by step: [docs/new-box.md](docs/new-box.md).
 
 ## Quick start
 
 ```bash
 mkdir ~/infra && cd ~/infra
-
-# Option A: start from a scan
-roster discover 10.0.1.0/24 10.0.2.0/24            # preview
-roster discover 10.0.1.0/24 10.0.2.0/24 --write    # write roster.yml
-
-# Option B: start from the commented example
-roster init
-
-# edit roster.yml: names, titles, users, password sources; set reviewed: true on scanned groups
-roster providers        # are the password managers you reference installed?
-roster auth-check       # can every group's password be found? (prints nothing secret)
-roster setup --dry-run  # what would happen
-roster setup            # do it
-roster check            # SSH, web UI and service ports on every host
+roster discover 10.0.1.0/24 --write   # start from a scan (or `roster init` for the commented example)
+# edit roster.yml: names, users, vault items; set reviewed: true on the groups you checked
+roster auth-check                     # can every login be found? (prints nothing secret)
+roster setup --dry-run && roster setup
+roster hosts --find orion
+ssh orion-dev-01 uptime               # key login just works
+roster run net-sw-core-01 -- show ver # password-only gear; the password is fetched for you
 ```
 
-Then start Claude Code in that folder. `CLAUDE.md` imports `ROSTER.md`, which lists the hosts and tells Claude how to reach them.
+Point `ROSTER_CONFIG` at the file (`export ROSTER_CONFIG="$HOME/infra/roster.yml"`) so every command and the app find it. Then open the app, unlock the vault, press **Ctrl+Space f**, type part of a Host's name and press **Enter**.
 
-## roster.yml
+**Your `roster.yml` is private.** It names your hosts, addresses, users and vault items, so it belongs in your team's own private repo, never in a public one and never in this one.
 
-Settings cascade `defaults` → group → host, with the most specific winning. Run `roster init` to get a fully commented example; there is also one at `examples/roster.example.yml`.
+## Configuration
 
-```yaml
-defaults:
-  user: admin
-  auth: prompt
+- **The CLI** reads `roster.yml`. The format, the providers and every command are in the [CLI reference](docs/cli-reference.md); [examples/roster.example.yml](examples/roster.example.yml) is a fully commented example (also what `roster init` writes).
+- **The app** reads `init.lua` (`%APPDATA%\roster\init.lua` on Windows, `~/.config/roster/init.lua` on Linux). `:config` opens it, `:source` applies it, and `:help` explains every option and where its value came from. [examples/init.lua](examples/init.lua) has every option with its default; [docs/app/config.md](docs/app/config.md) is the reference.
 
-groups:
-  orion:
-    title: Product Orion              # describes the group itself
-    product: orion                    # cascades to the hosts
-    user: deploy
-    auth: bw:Orion servers            # where the password lives
-    hosts:
-      orion-dev-01:
-        ip: 10.0.1.15
-        type: dev
-        title: Orion - dev box (main)
-        description: Shared dev environment; full stack under /srv/orion.
-        web: "https://10.0.1.15:8443"
-        services: { postgres: 5432 }
+## Documentation
 
-  network:
-    enroll: false                      # switches/routers: no key, log in by password
-    user: netops
-    auth: op:Network gear
-    hosts:
-      net-sw-core-01: { ip: 10.0.0.2, type: switch, title: "Core switch, rack A" }
-```
-
-| Field | Meaning |
+| Doc | For |
 |---|---|
-| `ip`, `port`, `user` | How to reach it over SSH (port defaults to 22). `user` is also the box's default login |
-| `title`, `description`, `type`, `product` | Who the box is; searchable with `roster hosts --find` |
-| `web` | Web UI URL; listed for Claude and checked by `roster check` |
-| `services` | Other ports to know about and check, e.g. `{ postgres: 5432 }`, or long form with its own login (below) |
-| `auth` | Where the password comes from (see below); the default for every service on the box |
-| `ssh` | Optional `{ port, user, auth }` that override the defaults for SSH only |
-| `enroll` | `true` installs a key (default); `false` for gear that only takes passwords |
-| `reviewed` | `false` on scanned hosts; `setup` skips them until you flip it |
+| [docs/cli-reference.md](docs/cli-reference.md) | `roster.yml`, resources, password providers, `discover`, every command, how Claude uses it |
+| [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
+| [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, testing the logins |
+| [docs/serve-api.md](docs/serve-api.md) | `roster serve`: the JSON-RPC API the app uses, and its error codes |
+| [app/README.md](app/README.md) | The app: module map, the two builds, fixtures, the Windows build loop |
+| [docs/app/](docs/app/) | The app's design: [keyboard](docs/app/keyboard.md), [Config](docs/app/config.md), [Themes](docs/app/themes.md), [errors](docs/app/errors.md), [architecture](docs/app/architecture.md), [decisions](docs/app/decisions.md) |
+| [docs/adr/](docs/adr/) | Architecture decisions for the CLI and the app |
+| [docs/development.md](docs/development.md) | Working on the CLI: checks, the module map, trying it safely |
+| [docs/releasing.md](docs/releasing.md) | Cutting a Release |
+| [GLOSSARY.md](GLOSSARY.md) | The words, for the CLI and the app |
 
-### One login per box, overrides per service
+## Security
 
-A host's `user` + `auth` are its default login for everything on it. An `ssh:` block or a long-form service entry can override them. This is useful when a web UI uses a different account from SSH:
+- **No passwords on disk.** They're fetched from the vault when needed, kept in memory for one run, and never written or printed.
+- **Each box has its own SSH key**, tagged with the box's name, so `roster revoke` removes exactly one box's access.
+- **Secrets never reach the app's UI or its Rust core.** ssh gets a password from `roster serve` through a one-time askpass token.
+- **Scanned hosts are left alone** until a person marks them reviewed.
 
-```yaml
-      orion3:
-        ip: 10.19.1.211
-        user: admin                  # default login for every service on this box
-        auth: "bw:orion3 db"
-        ssh: { user: sshuser, auth: "bw:orion3 ssh" }      # SSH only; port defaults to 22
-        services:
-          https:
-            port: 443                # url is derived (https://10.19.1.211) unless you give one
-            user: webadmin
-            auth: "bw:orion3 web"
-            # verify: false          # self-signed certificate
-          postgres: 5432             # short form: inherits admin / bw:orion3 db
-```
+The details: [the CLI's security model](docs/cli-reference.md#security-model) and [the app's](docs/app/security.md).
 
-- For SSH, the first match wins: the host's `ssh:` block, then the host's `port`/`user`/`auth`, then the group's `ssh:` block, then the group's keys, then `defaults:` in the same order.
-- A service uses its own `user`/`auth` if it sets them, otherwise the host's default login.
-- `ssh:` and `services:` work at host, group and `defaults:` level. Service entries with the same name merge field by field, so a group can define `modbus: { port: 502, user: mb }` and one host can override just its `auth`.
-- A service accepts `port`, `url`, `scheme`, `user`, `auth` and `verify`. `web: "https://..."` still works and becomes a service named `web`.
-- `roster info HOST` shows each service's login as a reference (`webadmin, auth bw:orion3 web (own login)`), never the password. `roster auth-check` tests every reference in use, service ones included.
+## Contributing
 
-### Web APIs with stored logins: `roster web`
-
-`roster web esxi GET /folder` or `roster web orion3 https GET /api/status` sends a request to that service, logged in with its `user`/`auth`. Without SERVICE it uses the host's web UI. The response status goes to stderr and the body to stdout.
-
-- `login: basic` (default) sends HTTP Basic; `login: bearer` sends the `auth` value as a bearer token; `login: none` sends nothing. Generic HTML form logins aren't supported.
-- `login: vsphere` (ESXi, vCenter) logs in through the SOAP API, sends the request with the session cookie, then logs out. Send SOAP bodies to `/sdk`, e.g. `roster web esxi POST /sdk -d @call.xml`. The right `SOAPAction` header is added for you.
-- `login: unifi` (UniFi OS consoles: UDM, Cloud Key, UniFi OS Server) logs in through `/api/auth/login` and sends the request with the session cookie and CSRF token. The session is kept for up to 10 minutes (never past the token's expiry) in a private file under `$XDG_RUNTIME_DIR/roster/sessions/`, so a loop of calls logs in once instead of tripping UniFi OS's login limit (HTTP 429); if the console rejects a kept session, roster logs in again and retries once. Paths: `/api/...` for UniFi OS, `/proxy/network/api/s/default/...` for the Network app, e.g. `roster web unifi GET /proxy/network/api/s/default/stat/health`.
-- `login: openvpnas` (OpenVPN Access Server admin API, port 943) logs in through `/api/auth/login/userpassword` and sends the token as `X-OpenVPN-As-AuthToken`. Access Server has no logout call, so the token just expires. Example: `roster web vpn admin GET /api/server/info`. The old XML-RPC `/RPC2` API is often locked down by the relay level, so use `/api/...`.
-- `login: hub` (Hub web UI) logs in through `/api/auth/login` and sends the access token as a bearer token. The token expires after an hour; there is no logout call. Example: `roster web lab-hub2 GET /api/auth/me`.
-- Only paths are accepted, and redirects are reported, not followed, so the credentials never go anywhere but the service's own address.
-- The password, the token and the Authorization header are never printed. If a response happens to contain the password, it is masked.
-- `verify: false` on the service (or `-k`) accepts a self-signed certificate.
-- Hosts with `reviewed: false` are refused.
-
-**Naming tip:** use `<product>-<role>-<nn>` (`orion-web-01`, `net-sw-core-01`). A product's boxes then sort together, and `ssh orion-<Tab>` shows only that product.
-
-## Resources: secrets with no address
-
-Some things need a secret but aren't hosts: a Wi-Fi network, a vendor portal, an API key. List them under `resources:` (next to `groups:`). Like everything else in `roster.yml`, they hold vault references, never values.
-
-```yaml
-resources:
-  lab-guest:
-    type: wifi
-    ssid: Lab-Guest
-    auth: "bw:wifi lab-guest"
-    group: subnet-42
-    title: Contoso guest Wi-Fi
-```
-
-Every resource has the same fields, plus the fixed fields of its type. Anything else is an error, so every resource of a type looks the same in every view.
-
-| Type | Its own fields | Use for |
-|---|---|---|
-| (every type) | `title`, `description`, `group` (an existing group), `user`, `auth` | |
-| `wifi` | `ssid` (required), `security` (`wpa2` default, `wpa3`, `wpa`, `wep`, `open`, `wpa2-enterprise`, `wpa3-enterprise`), `hidden` | Wi-Fi networks; `auth` is the password (not needed for `open`) |
-| `account` | `url` (required) | Website, portal or SaaS logins |
-| `secret` | none | API keys, license keys, PSKs |
-
-- `roster resources` lists them (`--only NAME,TYPE,GROUP`, `--find TEXT`), and `roster info NAME` shows every field. Both show where the secret comes from, never the secret itself.
-- `roster reveal NAME` prints the secret, for a person to type in. `roster reveal NAME --wifi` prints a `WIFI:T:WPA;S:…;P:…;;` string instead; pipe it to `qrencode -t ansiutf8` and phones can join by scanning it.
-- `roster auth-check` checks resource references too, and ROSTER.md lists resources for Claude. Claude is told never to run `reveal` and to send the user to it instead.
-- Old roster versions ignore `resources:`, so you can add it to a shared map before every box has upgraded.
-
-## Password providers
-
-`auth:` takes the form `PROVIDER:WHAT`. Passwords are fetched only when needed, kept in memory for that run, and never printed.
-
-| auth | Source |
-|---|---|
-| `prompt` | Ask once per group when `setup` runs |
-| `agent` | No password; an SSH key you already have gets in |
-| `env:VAR` | Environment variable |
-| `cmd:COMMAND` | Any command that prints the password |
-| `bw:ITEM`, `bw:ITEM#FIELD` | Bitwarden CLI (login password, custom field, `#username`, `#notes`) |
-| `op:ITEM`, `op:VAULT/ITEM#FIELD`, `op:op://…` | 1Password CLI |
-
-**Naming vault items:** name each item `<roster host name> <what it opens>` (`orion3 ssh`, `esxi-02 ssh+web`, `shared hub web`, `wifi lab-guest`), and put the address in the item's URI field. The full convention is in [docs/adding-hosts.md](docs/adding-hosts.md#2-add-the-logins-to-the-vault).
-
-**Bitwarden:** run `bw login` once. A locked vault is unlocked once per run, using a master password prompt, `BW_PASSWORD`, or an existing `BW_SESSION`. For headless boxes, set `BW_CLIENTID`/`BW_CLIENTSECRET`.
-
-**1Password:** use one of these:
-- the 1Password app integration,
-- `OP_SERVICE_ACCOUNT_TOKEN` for headless boxes,
-- or `eval $(op signin)`.
-
-Set a default vault under `providers: op: vault:`.
-
-**Adding your own:**
-
-- **Command template, no code:**
-  ```yaml
-  providers:
-    vault:
-      command: vault kv get -field={field} {item}   # auth: vault:secret/infra/web
-  ```
-- **Python plugin, for anything that needs login or unlock logic:** drop a `.py` file into `~/.config/roster/providers/` or a `providers/` folder next to `roster.yml`. `examples/providers/pass_store.py` is a complete, documented example for `pass`. Copy it to get started.
-
-## Discover
+Work happens on branches cut from `dev` and lands through pull requests that the maintainer reviews and merges; [CONTRIBUTING.md](CONTRIBUTING.md) has the branch model and the commit rules. Tickets are [GitHub issues](https://github.com/2styx2/roster/issues), one milestone per iteration. The checks CI runs:
 
 ```bash
-roster discover 10.0.1.0/24 [more networks] [--write] [--top-ports 1000] [--no-ping] [--os]
+uv run ruff check src tests && uv run pytest     # the CLI
+cd app && npm ci && npm run check               # the app's frontend
+cargo test && cargo clippy -p roster-core --all-targets -- -D warnings && cargo fmt --check
 ```
 
-With nmap installed, discover collects open ports, service versions, web page titles, and hardware vendor. It uses these to guess each host's type: `server`, `db`, `network`, `bmc`, `windows`, or `appliance`. It then fills in a name, title, SSH port, web URL, services, and a description. Without nmap, it falls back to a built-in TCP scanner.
+## License
 
-`--write` adds new hosts to a `discovered-YYYYMMDD` group with `reviewed: false`:
-- It keeps your comments.
-- It saves `roster.yml.bak`.
-- It refuses to write a file that wouldn't load.
-- It never overwrites hosts that are already in the file.
-
-Let your security team know before scanning big ranges.
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `init` | Write the commented example `roster.yml` |
-| `discover CIDR…` | Scan networks; `--write` adds the results to `roster.yml` |
-| `setup` | One-time per box: key, fingerprints, key install, SSH config, Claude files (`--only`, `--dry-run`) |
-| `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
-| `check` | Reachability of SSH, web UIs and services |
-| `hosts [--find TEXT] [--all] [--long]` | The hosts and resources you can use: name, IP, user, logins (`ssh (key), web (admin), api`, `wifi`) and title. Unreviewed scanned hosts are hidden unless you pass `--all`, `--find` or `--only`. `--long` shows the full table (type, product, web URL, scan description) |
-| `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
-| `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
-| `reveal NAME [--wifi]` | Print a resource's secret for a person to use (`--wifi`: a QR-ready `WIFI:` string) |
-| `run [--sudo] HOST -- CMD` | Run a command; password-only hosts get their password from the provider. `--sudo` runs it as root, handing sudo the login's password (never shown) |
-| `web HOST [SERVICE] METHOD PATH` | HTTP request to a host's web service, logged in with its stored credentials (`-d BODY`, `-H 'Name: value'`, `-k`) |
-| `bw BW_ARGS…` | The Bitwarden CLI with this box's vault session from `~/.config/roster/bw-session` (never prompts), e.g. `roster bw list items --search proxmox` |
-| `providers` | Available providers, whether their tools are installed, unknown ones in use |
-| `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
-| `revoke` | Remove this box's key from every host |
-
-`--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
-
-Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then `~/.config/roster/roster.yml`.
-
-## How Claude uses it
-
-`roster setup` and `roster sync` write three things:
-
-- **`ROSTER.md`** holds the hosts table (or a summary for big inventories), how to connect, and rules. The rules tell Claude to:
-  - never read keys or fetch passwords,
-  - ask before changing state on a host,
-  - ask you to unlock a locked password manager rather than trying itself,
-  - leave unreviewed hosts alone.
-- **`CLAUDE.md`** gets an `@ROSTER.md` line added, and its existing content is kept.
-- **`.claude/settings.json`** gets deny rules for reading and editing `~/.ssh`. These are a guardrail, not a wall.
-
-For Bitwarden, `(umask 077; bw unlock --raw > ~/.config/roster/bw-session)` lets every roster run on this box use the unlocked vault, including Claude sessions that don't inherit your shell's environment, and `roster bw …` runs any other `bw` command with it. roster ignores the file unless only you can read it. `bw lock` ends the session, and the file goes stale with it.
-
-For password-only gear, start Claude from a shell where your password manager is unlocked, for example `export BW_SESSION=$(bw unlock --raw)`. `roster run` can then fetch the password without Claude ever seeing it.
-
-Web UIs: Claude won't type passwords into login pages. Sign in once in the browser Claude uses.
-
-## Security model
-
-- **Each box gets its own key.** The key is tagged `roster-managed:<box>` in `authorized_keys`, so `revoke` removes exactly that box's key, and running `setup` again replaces it cleanly. Keys tagged `fleet-managed` by the earlier script are recognized too.
-- **The key has no passphrase,** so automation can use it. Anyone with access to the box can reach the fleet, so treat these boxes accordingly.
-- **Host fingerprints are recorded on first contact** in `~/.ssh/roster_known_hosts`.
-- **Passwords exist only in memory,** for one run.
-- **Scanned hosts are never touched until you mark them reviewed.**
-- **At larger scale,** consider an SSH certificate authority, so new boxes only need their key signed instead of installed everywhere.
-
-## Development
-
-```bash
-uv sync                  # creates .venv with dev tools
-uv run pytest            # 138 tests, no network or SSH server needed
-uv run ruff check src tests
-uv build                 # wheel + sdist in dist/
-```
-
-The tests use stand-in `bw`, `op` and `pass` commands from `tests/fakes/`, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
-
-```
-src/roster/
-  cli.py            commands and argument parsing
-  config.py         loading/validating roster.yml, search, --only
-  example.py        the `roster init` template
-  sshops.py         keys, fingerprints, ssh config, key install/removal, password logins
-  resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
-  claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
-  discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
-  providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword
-examples/           commented roster.yml, plugin template
-docs/               team guides: setting up a new box, adding hosts
-tests/              pytest suite + fake password-manager CLIs
-```
-
-### Trying it safely
-
-- `roster setup --dry-run` shows which hosts would get a key without touching them.
-- `--only` lets you start with one host or group.
-- `roster revoke` undoes `setup`.
-- To experiment without real servers, run an SSH server in a container (for example the `linuxserver/openssh-server` image with password auth enabled), point a `roster.yml` at it, and run the full flow.
+GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -1,0 +1,230 @@
+# roster Release: build the app and the CLI for every platform, then put them on a draft GitHub Release.
+#
+#   push a tag vX.Y.Z (on main)  build everything, write SHA256SUMS, and create a DRAFT Release with all of it;
+#                                the maintainer checks it and publishes it (docs/releasing.md)
+#   workflow_dispatch            the same builds, uploaded as workflow artifacts only: no Release, no tag
+#   pull_request touching this   the same builds, as a dry run, so a broken release pipeline shows up
+#   file or the version script   before a tag needs it
+#
+# One version for everything (scripts/bump-version.sh); a tag whose version differs from the files fails first.
+# No code signing yet: Windows SmartScreen and macOS Gatekeeper warn (docs/releasing.md says how to add it).
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/bump-version.sh
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.23"
+  UV_PYTHON_DOWNLOADS: "never"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Every file has one version (and it's the tag's)
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v=$(scripts/bump-version.sh --check "${GITHUB_REF_NAME#v}")
+          else
+            v=$(scripts/bump-version.sh --check)
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Version $v" >> "$GITHUB_STEP_SUMMARY"
+
+  cli:
+    name: CLI (wheel, sdist, source tarball)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv build --python python3.12 --out-dir out
+      # The CLI's own files with install.sh, for boxes without git: unpack and run ./install.sh in it.
+      - name: roster-cli tarball
+        run: |
+          files=(pyproject.toml uv.lock .python-version README.md install.sh src examples
+                 docs/cli-reference.md docs/serve-api.md docs/new-box.md docs/adding-hosts.md)
+          [ -f LICENSE ] && files+=(LICENSE)
+          git archive --format=tar.gz --prefix="roster-cli-$VERSION/" -o "out/roster-cli-$VERSION.tar.gz" HEAD "${files[@]}"
+      - run: ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-cli
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  app:
+    name: App (${{ matrix.name }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            args: ""
+            target_dir: target/release
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: "--bundles appimage,deb"
+            target_dir: target/release
+          # Both Mac architectures in one app. Ad-hoc signed (app/src-tauri/tauri.macos.conf.json), not
+          # notarized: see docs/releasing.md.
+          - name: macos-universal
+            os: macos-latest
+            args: "--target universal-apple-darwin"
+            target_dir: target/universal-apple-darwin/release
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Tauri system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev patchelf file pkg-config build-essential
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.name }}
+      - run: npm ci
+        working-directory: app
+      - name: tauri build
+        working-directory: app
+        run: npm run tauri build -- ${{ matrix.args }}
+
+      # Same names on every platform: roster-app-<version>-<platform>.<ext>.
+      - name: Collect (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          d="${{ matrix.target_dir }}"; p="roster-app-$VERSION-${{ matrix.name }}"
+          mkdir -p out
+          cp "$d"/bundle/nsis/*-setup.exe "out/$p-setup.exe"
+          cp "$d"/bundle/msi/*.msi "out/$p.msi"
+          7z a -tzip "out/$p.zip" "./$d/roster-app.exe" > /dev/null
+          if [ -f LICENSE ]; then 7z a -tzip "out/$p.zip" ./LICENSE > /dev/null; fi
+      - name: Collect (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          d="${{ matrix.target_dir }}"; p="roster-app-$VERSION-${{ matrix.name }}"
+          mkdir -p out
+          cp "$d"/bundle/appimage/*.AppImage "out/$p.AppImage"
+          cp "$d"/bundle/deb/*.deb "out/$p.deb"
+          cp "$d/roster-app" out/roster-app; [ -f LICENSE ] && cp LICENSE out/LICENSE
+          tar -czf "out/$p.tar.gz" -C out roster-app $( [ -f LICENSE ] && echo LICENSE )
+          rm -f out/roster-app out/LICENSE
+      - name: Collect (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          d="${{ matrix.target_dir }}"; p="roster-app-$VERSION-macos"
+          mkdir -p out
+          cp "$d"/bundle/dmg/*.dmg "out/$p-universal.dmg"
+          mkdir -p pack && cp -R "$d/bundle/macos/Roster.app" pack/; [ -f LICENSE ] && cp LICENSE pack/
+          tar -czf "out/$p.tar.gz" -C pack .
+      - run: ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-app-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  checksums:
+    name: SHA256SUMS
+    needs: [version, cli, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: out
+      - name: SHA256SUMS
+        working-directory: out
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          { echo '| File | Size |'; echo '|---|---|'
+            for f in *; do echo "| \`$f\` | $(du -h -- "$f" | cut -f1) |"; done; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-all
+          path: out/*
+          retention-days: 14
+
+  release:
+    name: Draft Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, checksums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only this job writes: it creates the draft Release and uploads its files
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-all
+          path: out
+      - name: Install notes
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          **The app:** Windows \`roster-app-$VERSION-windows-x64-setup.exe\` (or the \`.msi\`, or the portable \`.zip\`);
+          Linux \`.AppImage\` or \`.deb\` (or the \`.tar.gz\` with the bare binary); macOS \`roster-app-$VERSION-macos-universal.dmg\`.
+          The app needs the roster CLI (\`roster serve\`) on the same machine, or in WSL on Windows.
+
+          **The CLI:** \`uv tool install roster-$VERSION-py3-none-any.whl\`, or unpack \`roster-cli-$VERSION.tar.gz\` and run \`./install.sh\`.
+
+          These builds aren't code-signed yet: Windows SmartScreen asks "More info → Run anyway", and macOS needs
+          right-click → Open the first time. Check downloads against \`SHA256SUMS\` (\`sha256sum -c SHA256SUMS --ignore-missing\`).
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: roster ${{ github.ref_name }}
+          body_path: notes.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: out/*

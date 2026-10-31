@@ -4,7 +4,7 @@ import json
 import os
 import re
 
-from . import SecretError, errtext, register, split_field
+from . import PROVIDERS, SecretError, errtext, register, split_field
 
 # ---- built-in: 1Password
 
@@ -67,3 +67,9 @@ def _onepassword(spec, ctx):
     if not val:
         raise SecretError(f"1Password item '{item}' has no value in field '{field}'")
     return val
+
+
+PROVIDERS["op"]["login_help"] = (
+    "1Password signs in through its desktop app, not here: turn on Settings > Developer > \"Integrate with "
+    "1Password CLI\" (Windows Hello, Touch ID or your system login then unlock it, and the app handles two-step "
+    "sign-in), or set OP_SERVICE_ACCOUNT_TOKEN for a service account")

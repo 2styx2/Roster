@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .claude import write_claude_files
-from .common import die, say, ssh_config_file, tcp_ok
+from .common import die, not_reviewed, say, ssh_config_file, tcp_ok
 from .config import access_label, find_config, load_config, matches, selected
 from .discover import DEFAULT_SCAN_PORTS, cmd_discover
 from .example import EXAMPLE_CONFIG
@@ -112,6 +112,7 @@ def cmd_sync(cfg, args):
 
 def cmd_check(cfg, args):
     hosts = selected(cfg, args.only)
+    warn_problems(hosts)
 
     def check(h):
         res = {"ssh": ssh_ok(h["name"]) if h["enroll"] else tcp_ok(h["ip"], h["ssh"]["port"])}
@@ -129,6 +130,36 @@ def cmd_check(cfg, args):
     say(f"\n{len(hosts) - bad}/{len(hosts)} hosts fully reachable"
         + ("" if all(h["enroll"] for h in hosts) else "  (password-only hosts: ssh = port open)"))
     return 1 if bad else 0
+
+
+def cmd_check_host(args):
+    """`roster check HOST`: why a Session to HOST would or wouldn't open, step by step (as host.check).
+    It loads roster.yml itself, so a broken one is the first failed step rather than an exit."""
+    from . import askpass, diagnose
+    from .errors import inventory_problem
+
+    def inventory():
+        path = None
+        try:
+            path = find_config(args.config)
+            cfg = load_config(path)
+            setup_providers(cfg)
+            return cfg
+        except SystemExit as e:
+            raise inventory_problem(str(e.code).removeprefix("error: "), path) from None
+
+    with askpass.Channel(diagnose.askpass_lookup) as channel:
+        result = diagnose.check_host(args.host, inventory, channel)
+    words = {"ok": "ok", "fail": "FAIL", "skipped": "skip"}
+    width = max(len(s["step"]) for s in result["steps"])
+    for s in result["steps"]:
+        code = f"[{s['code']}] " if "code" in s else ""
+        say(f"{words[s['status']]:<4} {s['step']:<{width}}  {code}{s['message']}")
+        if s.get("fix"):
+            say(f"     {'':<{width}}  fix: {s['fix']}")
+        for line in (s.get("details") or "").splitlines():
+            say(f"     {'':<{width}}  | {line}")
+    return 0 if result["ok"] else 1
 
 
 def logins_label(h):
@@ -150,8 +181,17 @@ def logins_label(h):
     return ", ".join(parts)
 
 
+def warn_problems(hosts):
+    """Service entries roster left out of the Inventory (bad port, url, login...), on stderr: the rest still works."""
+    for h in sorted(hosts, key=lambda h: h["name"]):
+        for p in h["problems"]:
+            print(f"warning: {h['name']} {p['message']} - left out\n         fix: {p['fix']}", file=sys.stderr,
+                  flush=True)
+
+
 def cmd_hosts(cfg, args):
     hosts, rs = selected(cfg, args.only, resources=True)
+    warn_problems(hosts)
     if args.find:
         hosts = [h for h in hosts if matches(h, args.find)]
         rs = [r for r in rs if resource_matches(r, args.find)]
@@ -286,6 +326,8 @@ def cmd_info(cfg, args):
     for i, r in enumerate(rows):
         say(f"{'services' if i == 0 else '':<12} " + "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=False))
             + "  " + r[-1])
+    for i, p in enumerate(h["problems"]):
+        say(f"{'problems' if i == 0 else '':<12} {p['message']} - left out; fix: {p['fix']}")
     return 0
 
 
@@ -305,7 +347,7 @@ def cmd_run(cfg, args):
         die("nothing to run: roster run HOST -- COMMAND")
     command = " ".join(words)
     if not h["reviewed"]:
-        die(f"{h['name']} is not reviewed yet (reviewed: false in roster.yml) - not logging in")
+        die(not_reviewed(h))
     if args.sudo:
         return run_sudo(h, command)
     if h["enroll"]:
@@ -400,6 +442,7 @@ def cmd_providers(cfg, args):
 def cmd_auth_check(cfg, args):
     uses = {}                                    # (ref, group) -> [(service, host, user)]
     hosts, resources = selected(cfg, args.only, resources=True)
+    warn_problems(hosts)
     for h in hosts:
         for svc, s in [("ssh", h["ssh"]), *h["services"].items()]:
             if svc == "ssh" or s["auth"] is not None:
@@ -469,7 +512,9 @@ def _main(argv=None):
     s.add_argument("--only")
     s.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing remote")
     sub.add_parser("sync", help="rewrite ssh config and Claude files from roster.yml")
-    s = sub.add_parser("check", help="test reachability")
+    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step")
+    s.add_argument("host", nargs="?", help="diagnose this one Host: inventory, ssh config, vault, DNS, port, "
+                   "host key, login (one connection)")
     s.add_argument("--only")
     s = sub.add_parser("hosts", help="list hosts")
     s.add_argument("--only")
@@ -516,7 +561,14 @@ def _main(argv=None):
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only")
     s.add_argument("-y", "--yes", action="store_true")
+    sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see docs/serve-api.md)")
+    s = sub.add_parser("askpass", help="SSH_ASKPASS helper for a `roster serve` password Session (ssh runs it)")
+    s.add_argument("prompt", nargs="?", default="")
     args = p.parse_args(argv)
+
+    if args.cmd == "askpass":
+        from .askpass import main as askpass_main
+        return askpass_main([args.prompt])
 
     if args.cmd == "init":
         return cmd_init(args)
@@ -524,6 +576,11 @@ def _main(argv=None):
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
+    if args.cmd == "check" and args.host:
+        return cmd_check_host(args)
+    if args.cmd == "serve":
+        from .serve import serve
+        return serve(args.config)            # loads roster.yml itself, so a bad one becomes an API error
     if args.cmd == "providers":
         try:
             cfg = load_config(find_config(args.config))

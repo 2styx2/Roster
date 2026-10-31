@@ -1,8 +1,30 @@
 #!/usr/bin/env python3
 # Test stand-in for the Bitwarden CLI (bw). Logged in, locked; master password "hunter2".
-# Stand-in for the Bitwarden CLI: logged in, locked, master password "hunter2".
-import json, os, sys
-a = [x for x in sys.argv[1:] if x != "--nointeraction"]
+# FAKE_BW_LOGGED_OUT=1: not logged in (status "unauthenticated", unlock fails).
+# FAKE_BW_ITEMS=FILE: a JSON list of items to use instead of the ones below (read on every call). `bw create item`
+#   (base64 JSON on stdin or as an argument, like bw) and `bw delete item ID` write it back.
+# FAKE_BW_WRITE_FAIL=TEXT: create and delete fail with TEXT on stderr (e.g. a server or policy refusal).
+# Signing in (`bw login`, vault.login) - prompts like bw's inquirer ones, on stderr, answers read from stdin:
+# FAKE_BW_STATE=FILE: {"logged_in": bool, "server": url|null, "email": ...}, kept across calls (overrides
+#   FAKE_BW_LOGGED_OUT once it exists).
+# FAKE_BW_ACCOUNT=JSON: the account to sign in to - email, password, methods (authenticator, email, yubikey,
+#   webauthn, duo), codes {method: code}, new_device + new_device_code, rate_limited, unreachable,
+#   client_id + client_secret, sso ("ok", "fail", "hang", "tde").
+# FAKE_ARGV_LOG=FILE: every call's full argv, one JSON list per line.
+# FAKE_BW_MAIL=FILE: one line per code bw "emailed" (two-step email, new-device OTP).
+# FAKE_BW_SLOW=JSON: {"sync": 30, "list": 5, ...}: sleep that many seconds before answering that command.
+# FAKE_BW_CREATE_HANG=SECONDS: `bw create item` saves the item, then hangs before answering (a slow server).
+# FAKE_BW_ORGS=JSON: the organizations the account is in, each with its collections:
+#   [{"id", "name", "status": 2, "type": 2, "enabled": true, "collections": [{"id", "name", "readOnly": bool}]}]
+#   `bw list organizations` and `bw list collections [--organizationid ID]` print them as bw 2026.9.1 does: a
+#   collection has id, organizationId, name and externalId, and nothing says it's read-only (the CLI's
+#   CollectionResponse doesn't carry it). `bw create item` with organizationId and collectionIds keeps the item in
+#   the collections the account may write to, and drops the read-only ones, as the server does.
+import json, os, subprocess, sys, time
+argv = sys.argv[1:]
+os.environ.get("FAKE_ARGV_LOG") and open(os.environ["FAKE_ARGV_LOG"], "a").write(json.dumps(argv) + "\n")
+nointeraction = "--nointeraction" in argv
+a = [x for x in argv if x not in ("--nointeraction", "--raw")]
 SESSION = "fake-session-key"
 items = [
  {"id": "11111111-aaaa", "name": "Orion servers", "login": {"username": "deploy", "password": "pw-deploy"},
@@ -11,19 +33,158 @@ items = [
  {"id": "33333333-cccc", "name": "Network gear (old)", "login": {"password": "stale"}},
  {"id": "44444444-dddd", "name": "Empty one", "login": {}},
 ]
+if os.environ.get("FAKE_BW_ITEMS"):
+    items = json.load(open(os.environ["FAKE_BW_ITEMS"]))
 unlocked = os.environ.get("BW_SESSION") == SESSION
+if a and os.environ.get("FAKE_BW_SLOW"):
+    time.sleep(json.loads(os.environ["FAKE_BW_SLOW"]).get(a[0], 0))
 os.environ.get("FAKE_LOG") and open(os.environ["FAKE_LOG"], "a").write("bw " + " ".join(a[:2]) + "\n")
+state_file = os.environ.get("FAKE_BW_STATE")
+state = json.load(open(state_file)) if state_file and os.path.exists(state_file) else \
+    {"logged_in": not os.environ.get("FAKE_BW_LOGGED_OUT"), "server": None}
+account = json.loads(os.environ.get("FAKE_BW_ACCOUNT") or "{}")
+logged_out = not state["logged_in"]
+
+
+def save():
+    if state_file:
+        json.dump(state, open(state_file, "w"))
+
+
+def fail(msg):
+    print(msg, file=sys.stderr); sys.exit(1)
+
+
+def ask(msg):
+    """Like inquirer: '? MSG ' on stderr (colours and all), the answer is a line on stdin."""
+    if nointeraction:
+        return None
+    sys.stderr.write(f"\x1b[32m?\x1b[39m \x1b[1m{msg}\x1b[22m "); sys.stderr.flush()
+    line = sys.stdin.readline()
+    if not line: sys.exit(1)
+    return line.rstrip("\r\n")
+
+
+def mailed(what):
+    os.environ.get("FAKE_BW_MAIL") and open(os.environ["FAKE_BW_MAIL"], "a").write(what + "\n")
+
+
+def logged_in(email):
+    state.update(logged_in=True, email=email); save()
+
+
 if a[0] == "status":
-    print(json.dumps({"status": "unlocked" if unlocked else "locked"})); sys.exit()
+    print(json.dumps({"serverUrl": state.get("server"), "userEmail": None if logged_out else state.get("email"),
+                      "status": "unauthenticated" if logged_out else "unlocked" if unlocked else "locked"})); sys.exit()
+if a[:2] == ["config", "server"]:
+    if len(a) == 2: print(state.get("server") or "https://bitwarden.com"); sys.exit()
+    if not logged_out: fail("Logout required before server config update.")
+    state["server"] = None if a[2] in ("bitwarden.com", "https://bitwarden.com") else a[2]; save()
+    print("Saved setting `config`."); sys.exit()
+if a[0] == "login":
+    if not logged_out: fail(f"You are already logged in as {state.get('email') or 'someone@example.com'}.")
+    if account.get("unreachable"):
+        fail(f"request to {state.get('server') or 'https://vault.bitwarden.com'}/identity/accounts/prelogin failed, "
+             "reason: getaddrinfo ENOTFOUND")
+    if account.get("rate_limited"): fail("Slow down! Too many requests. Try again soon.")
+    if "--apikey" in a:
+        cid, secret = os.environ.get("BW_CLIENTID"), os.environ.get("BW_CLIENTSECRET")
+        if not cid.startswith("user"): fail("Invalid API Key; Organization API Key currently not supported")
+        if (cid, secret) != (account.get("client_id"), account.get("client_secret")):
+            fail("client_id or client_secret is incorrect. Try again.")
+        logged_in(account.get("email")); print('You are logged in!\n$ export BW_SESSION="throwaway-key"'); sys.exit()
+    if "--sso" in a:
+        if nointeraction: fail("Email address is required.")              # bw ignores --sso without a prompt
+        subprocess.run(["xdg-open", "https://vault.bitwarden.com/#/sso?clientId=cli&redirectUri=http%3A%2F%2F"
+                        "localhost%3A8065&state=fake-state&codeChallenge=fake-challenge"])
+        how = account.get("sso", "ok")
+        if how == "hang": time.sleep(3600)
+        time.sleep(float(os.environ.get("FAKE_SSO_DELAY", "0.3")))
+        if how == "fail": fail("Something went wrong. Try again.")
+        if how == "tde": fail("The CLI does not support SSO login for accounts using trusted device encryption. "
+                              "Log in through the web vault, desktop app, or browser extension.")
+        logged_in(account.get("email")); print("You are logged in!"); sys.exit()
+    email = a[1] if len(a) > 1 and not a[1].startswith("--") else ask("Email address:")
+    if not email: fail("Email address is required.")
+    pw = os.environ.get(a[a.index("--passwordenv") + 1]) if "--passwordenv" in a else None
+    if not pw: fail("Master password is required.")
+    if (email, pw) != (account.get("email"), account.get("password")):
+        fail(f"Invalid master password. Confirm your email is correct and your account was created on "
+             f"{(state.get('server') or 'https://vault.bitwarden.com').split('//')[-1]}.")
+    names = {"authenticator": "Authenticator App", "yubikey": "Yubico OTP Security Key", "email": "Email"}
+    methods = account.get("methods") or []
+    usable = [m for m in ("authenticator", "yubikey", "email") if m in methods]     # bw's order; no FIDO2, no Duo
+    if methods:
+        if not usable: fail("No providers available for this client.")
+        if "--method" in a:
+            pick = {0: "authenticator", 1: "email", 3: "yubikey"}.get(int(a[a.index("--method") + 1]))
+            if pick not in usable: fail("Login failed. No provider selected.")
+        elif len(usable) == 1:
+            pick = usable[0]
+        elif nointeraction:
+            fail("Login failed. No provider selected.")
+        else:
+            sys.stderr.write("\x1b[32m?\x1b[39m \x1b[1mTwo-step login method:\x1b[22m \x1b[2m(Use arrow keys)\x1b[22m\n"
+                             + "".join(f"{'❯' if i == 0 else ' '} {names[m]}\n" for i, m in enumerate(usable))
+                             + "  ──────────────\n  Cancel\n"); sys.stderr.flush()
+            line = sys.stdin.readline()
+            i = line.count("\x1b[B")
+            if i >= len(usable): fail("Login failed.")
+            pick = usable[i]
+        if pick == "email": mailed("two-step code")
+        code = ask("Two-step login code:")
+        if not code: fail("Code is required.")
+        if code != account.get("codes", {}).get(pick): fail("Two-step token is invalid. Try again.")
+    elif account.get("new_device"):
+        mailed("new-device code")
+        code = ask("New device verification required. Enter OTP sent to login email:")
+        if not code: fail("Code is required.")
+        if code != account.get("new_device_code"): fail("Invalid new device OTP. Try again.")
+    logged_in(email)
+    print(SESSION); sys.exit()
+if logged_out: print("You are not logged in.", file=sys.stderr); sys.exit(1)
 if a[0] == "unlock":
     pw = os.environ.get(a[a.index("--passwordenv") + 1])
     if pw == "hunter2": print(SESSION); sys.exit()
     print("Invalid master password.", file=sys.stderr); sys.exit(1)
+if a[0] == "lock": print("Your vault is locked."); sys.exit()
 if not unlocked: print("Vault is locked.", file=sys.stderr); sys.exit(1)
 if a[0] == "sync": print("Syncing complete."); sys.exit()
-q = a[2]
+orgs = json.loads(os.environ.get("FAKE_BW_ORGS") or "[]")
+if a[:2] == ["list", "organizations"]:
+    print(json.dumps([{"object": "organization", **{k: v for k, v in o.items() if k != "collections"}}
+                      for o in orgs])); sys.exit()
+if a[:2] in (["list", "collections"], ["list", "org-collections"]):
+    only = a[a.index("--organizationid") + 1] if "--organizationid" in a else None
+    print(json.dumps([{"object": "collection", "id": c["id"], "organizationId": o["id"], "name": c["name"],
+                       "externalId": None}
+                      for o in orgs if only in (None, o["id"]) for c in o["collections"]])); sys.exit()
+if a[:2] == ["create", "item"]:
+    import base64, uuid
+    if os.environ.get("FAKE_BW_WRITE_FAIL"): fail(os.environ["FAKE_BW_WRITE_FAIL"])
+    encoded = a[2] if len(a) > 2 else sys.stdin.read()
+    try:
+        req = json.loads(base64.b64decode(encoded))
+    except ValueError:
+        fail("Error parsing the encoded request data.")
+    if req.get("organizationId"):
+        org = next((o for o in orgs if o["id"] == req["organizationId"]), None)
+        if org is None: fail("Organization not found.")
+        mine = {c["id"]: c for c in org["collections"]}
+        req["collectionIds"] = [c for c in req.get("collectionIds") or [] if c in mine and not mine[c].get("readOnly")]
+    item = {**req, "object": "item", "id": str(uuid.uuid4()), "revisionDate": "2026-10-30T12:00:00.000Z"}
+    with open(os.environ["FAKE_BW_ITEMS"], "w") as f:
+        json.dump(items + [item], f)
+    if os.environ.get("FAKE_BW_CREATE_HANG"): time.sleep(float(os.environ["FAKE_BW_CREATE_HANG"]))
+    print(json.dumps(item)); sys.exit()                    # like bw: the new item, password and all
+if a[:2] == ["delete", "item"]:
+    if os.environ.get("FAKE_BW_WRITE_FAIL"): fail(os.environ["FAKE_BW_WRITE_FAIL"])
+    if not any(i["id"] == a[2] for i in items): fail("Not found.")
+    json.dump([i for i in items if i["id"] != a[2]], open(os.environ["FAKE_BW_ITEMS"], "w")); sys.exit()
 if a[:2] == ["list", "items"]:
-    print(json.dumps([i for i in items if a[3].lower() in i["name"].lower()])); sys.exit()
+    search = a[a.index("--search") + 1].lower() if "--search" in a else ""
+    print(json.dumps([i for i in items if search in i["name"].lower()])); sys.exit()
+q = a[2]
 if a[:2] == ["get", "item"]:
     hits = [i for i in items if i["id"] == q] or [i for i in items if q.lower() in i["name"].lower()]
     if not hits: print("Not found.", file=sys.stderr); sys.exit(1)

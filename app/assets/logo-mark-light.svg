@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 57 57" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- Gap orbit without the tile, for light backgrounds (Roster light's text and accent). -->
+  <path d="M39.01 57.04A26 26 0 1 1 55.44 43.25" fill="none" stroke="#1e1f20" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+  <path d="M25 17.5V45.5M25 17.5H38L44 24.5L38 31.5H25M38 31.5L46.03 46.81" fill="none" stroke="#1e1f20" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+  <g fill="#1e1f20"><circle cx="25" cy="17.5" r="4.2"/><circle cx="25" cy="31.5" r="4.2"/><circle cx="38" cy="17.5" r="4.2"/><circle cx="44" cy="24.5" r="4.2"/><circle cx="38" cy="31.5" r="4.2"/></g>
+  <rect x="20.88" y="41.38" width="8.23" height="8.23" rx="1.6" fill="#1e1f20"/>
+  <circle cx="48.71" cy="51.92" r="5.3" fill="none" stroke="#9b411a" stroke-width="2.85"/>
+</svg>

@@ -1,0 +1,63 @@
+// sectionBuilder keeps a section, and so its row objects, while what it read is unchanged: the
+// memoized Sidebar rows then skip re-rendering when only the Sessions change (#62).
+import { describe, expect, it } from "vitest";
+import { makeHosts } from "../backend/fake";
+import type { Tab, TabsSnapshot } from "../session/tabs";
+import { inventorySection, sectionBuilder, sessionsSection, type SidebarContext } from "./sections";
+
+const hosts = makeHosts(5);
+const hostByName = new Map(hosts.hosts.map((h) => [h.name, h]));
+const first = hosts.hosts[0]?.name ?? "";
+
+function tab(id: number, host: string, status: Tab["status"] = { state: "connecting" }): Tab {
+  return { id, host, label: host, status, auth: null, shell: false, attempt: 1, quick: null, save: null };
+}
+
+// The App memoizes these, so they're the same between builds unless they change.
+const state = {};
+const noFolds = new Set<string>();
+
+function ctx(sessions: TabsSnapshot, over: Partial<SidebarContext> = {}): SidebarContext {
+  return { sessions, hosts, hostByName, sessionsIn: "sidebar", state, folded: noFolds, ...over };
+}
+
+const defs = [sessionsSection, inventorySection];
+const none: TabsSnapshot = { tabs: [], active: null, previous: null };
+const one: TabsSnapshot = { tabs: [tab(1, "nowhere")], active: 1, previous: null };
+const inventory = (s: ReturnType<ReturnType<typeof sectionBuilder>>) => s.find((x) => x.id === "inventory");
+
+describe("sectionBuilder", () => {
+  it("keeps the Inventory's rows when only the Sessions change", () => {
+    const build = sectionBuilder();
+    const before = inventory(build(defs, ctx(none)));
+    const after = build(defs, ctx(one));
+    const rows = inventory(after)?.rows ?? [];
+    expect(rows.length).toBeGreaterThan(5);
+    rows.forEach((r, i) => expect(r).toBe(before?.rows[i]));
+    expect(after.find((s) => s.id === "sessions")?.rows).toHaveLength(1);
+  });
+
+  it("builds again what changed: the Hosts, the folds, the on-screen Host", () => {
+    const build = sectionBuilder();
+    const base = ctx(none);
+    const before = inventory(build(defs, base));
+
+    const fewer = makeHosts(3);
+    const rebuilt = inventory(build(defs, { ...base, hosts: fewer, hostByName: new Map(fewer.hosts.map((h) => [h.name, h])) }));
+    expect(rebuilt?.rows.filter((r) => r.host)).toHaveLength(3);
+
+    const group = before?.rows.find((r) => r.foldable)?.id ?? "";
+    const folded = inventory(build(defs, { ...base, folded: new Set([group]) }));
+    expect(folded?.rows.find((r) => r.id === group)?.folded).toBe(true);
+    expect(folded?.rows.some((r) => r.parent === group)).toBe(false);
+
+    // The on-screen Host's row is marked (its Session's row is raised, so this one is "also");
+    // every other row is the very same object as before.
+    const onScreen = inventory(build(defs, { ...base, sessions: { tabs: [tab(1, first)], active: 1, previous: null } }));
+    expect(onScreen?.rows.find((r) => r.host === first)?.also).toBe(true);
+    const unfolded = inventory(build(defs, base));
+    const others = (s: typeof unfolded) => s?.rows.filter((r) => r.host !== first) ?? [];
+    expect(others(onScreen)).toEqual(others(unfolded));
+    others(onScreen).forEach((r, i) => expect(r).toBe(others(unfolded)[i]));
+  });
+});

@@ -1,0 +1,7 @@
+node_modules
+dist
+src-tauri/gen/schemas
+src-tauri/tauri.dev-port.json
+*.local
+test-results
+playwright-report

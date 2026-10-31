@@ -42,7 +42,8 @@ EXAMPLE_CONFIG = """\
 #       https: { port: 443, user: webadmin, auth: "bw:orion3 web" }   # web UI with its own account
 #       postgres: 5432               # short form: uses the default login
 #   Long-form services also take url (derived from ip + port if missing), verify: false for
-#   self-signed certificates, and login: basic|bearer|none for `roster web HOST [SERVICE] GET /path`.
+#   self-signed certificates, and login: basic|bearer|none for `roster web HOST [SERVICE] GET /path`
+#   (also vsphere, unifi, openvpnas, hub; see docs/cli-reference.md).
 #   ssh: and services: work in defaults and groups too.
 #
 # Bitwarden: run `bw login` once on the box (or set BW_CLIENTID / BW_CLIENTSECRET). A locked
@@ -54,6 +55,8 @@ box_name: ""                 # name tagged on this box's key; blank = this machi
 key_path: ~/.ssh/roster_ed25519
 workers: 32                  # how many hosts to work on in parallel
 claude_inline_limit: 60      # list hosts inside Claude's instructions up to this many
+# web_login_names:           # your team's own names for roster's login types: login: appliance
+#   appliance: hub           # on a service then works exactly like login: hub
 
 providers:
   bw:

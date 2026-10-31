@@ -1,3 +1,5 @@
+import json
+import os
 import shutil
 
 import pytest
@@ -125,6 +127,62 @@ def test_bitwarden_existing_session_needs_no_password(fakes, monkeypatch):
     assert get_secret("bw:Network gear", "g") == "pw-netops"
 
 
+# ---- unlock / lock without a terminal (what `roster serve` calls)
+
+def test_unlock_with_master_password_needs_no_terminal_or_session_file(isolated, fakes):
+    providers.unlock("bw", "hunter2")
+    assert get_secret("bw:Network gear", "g") == "pw-netops"
+    assert not (isolated["home"] / ".config" / "roster" / "bw-session").exists()
+
+
+def test_unlock_with_wrong_master_password_says_so_without_echoing_it(fakes):
+    with pytest.raises(SecretError, match="wrong master password") as e:
+        providers.unlock("bw", "not-the-password-xyzzy")
+    assert "xyzzy" not in str(e.value)
+    with pytest.raises(SecretError, match="locked"):
+        get_secret("bw:Network gear", "g")
+
+
+def test_lock_forgets_session_cache_and_state_and_runs_bw_lock(fakes, monkeypatch, tmp_path):
+    log = tmp_path / "calls.log"
+    monkeypatch.setenv("FAKE_LOG", str(log))
+    providers.unlock("bw", "hunter2")
+    assert get_secret("bw:Network gear", "g") == "pw-netops"
+    providers.lock("bw")
+    assert "BW_SESSION" not in os.environ
+    assert "bw lock" in log.read_text().splitlines()
+    with pytest.raises(SecretError, match="locked"):           # cached value and "ready" are gone too
+        get_secret("bw:Network gear", "g")
+
+
+def test_vault_status_tells_missing_cli_from_logged_out(fakes, monkeypatch, tmp_path):
+    assert providers.vault_status("bw") == "locked"
+    providers.unlock("bw", "hunter2")
+    assert providers.vault_status("bw") == "unlocked"
+    providers.lock("bw")
+    monkeypatch.setenv("FAKE_BW_LOGGED_OUT", "1")
+    assert providers.vault_status("bw") == "unauthenticated"
+    with pytest.raises(SecretError, match="isn't logged in"):
+        providers.unlock("bw", "hunter2")
+    monkeypatch.setenv("PATH", str(tmp_path))                  # no bw anywhere
+    assert providers.vault_status("bw") == "missing"
+    with pytest.raises(SecretError, match="not installed"):
+        providers.unlock("bw", "hunter2")
+
+
+def test_providers_without_unlock_degrade(monkeypatch):
+    assert providers.vault_status("env") == "unsupported"
+    with pytest.raises(SecretError, match="can't be unlocked"):
+        providers.unlock("env", "x")
+    monkeypatch.setenv("SOME_PW", "s3cret")
+    assert get_secret("env:SOME_PW", "g") == "s3cret"
+    providers.lock("env")                                       # still forgets cached values
+    monkeypatch.setenv("SOME_PW", "changed")
+    assert get_secret("env:SOME_PW", "g") == "changed"
+    with pytest.raises(SecretError, match="unknown password source"):
+        providers.lock("keeper")
+
+
 # ---- 1Password (fake op: signed out until signin; items live in vault "Infra")
 
 def test_onepassword_items_and_references(isolated, fakes):
@@ -180,3 +238,72 @@ def test_bw_expired_session_file_says_refresh(isolated, fakes):
     _session_file(isolated, "stale-key\n")
     with pytest.raises(SecretError, match="has expired.*bw unlock --raw >"):
         get_secret("bw:Network gear", "g")
+
+
+# ---- creating Vault items (ticket 13; fake bw keeps its items in FAKE_BW_ITEMS)
+
+NEW_PW = "n3w-s3cret-pw"                # the password a create hands to bw; never in argv or an error
+
+
+@pytest.fixture
+def bw_items(fakes, tmp_path, monkeypatch):
+    f = tmp_path / "items.json"
+    f.write_text(json.dumps([{"id": "aaaa-1111", "name": "esx ssh", "login": {"username": "root", "password": "old"}}]))
+    monkeypatch.setenv("FAKE_BW_ITEMS", str(f))
+    monkeypatch.setenv("FAKE_ARGV_LOG", str(tmp_path / "argv.log"))
+    providers.unlock("bw", "hunter2")
+    return f
+
+
+def test_bitwarden_creates_a_login_item_with_the_password_off_the_command_line(bw_items, tmp_path):
+    made = providers.create_item("bw", name="box ssh", username="ops", password=NEW_PW, uri="ssh://10.0.0.5")
+    assert made["name"] == "box ssh" and made["id"]
+    item = next(i for i in json.loads(bw_items.read_text()) if i["name"] == "box ssh")
+    assert item["id"] == made["id"] and item["type"] == 1
+    assert item["login"]["username"] == "ops" and item["login"]["password"] == NEW_PW
+    assert [u["uri"] for u in item["login"]["uris"]] == ["ssh://10.0.0.5"]
+    assert get_secret("bw:box ssh", "g") == NEW_PW
+    argv = (tmp_path / "argv.log").read_text()
+    assert ["create", "item", "--nointeraction"] in [json.loads(x) for x in argv.splitlines()]
+    assert NEW_PW not in argv
+    assert NEW_PW not in json.dumps(made)
+
+
+def test_bitwarden_refuses_a_name_that_is_already_there(bw_items):
+    before = bw_items.read_text()
+    with pytest.raises(providers.ItemExists, match="'esx ssh' already exists") as e:
+        providers.create_item("bw", name="esx ssh", username="root", password=NEW_PW, uri="ssh://10.0.0.6")
+    assert e.value.matches == [{"name": "esx ssh", "revised": None, "uris": []}]
+    assert bw_items.read_text() == before
+    made = providers.create_item("bw", name="esx ssh+web", password=NEW_PW)     # a longer name is another item
+    assert made["name"] == "esx ssh+web"
+
+
+def test_bitwarden_undoes_a_create(bw_items):
+    made = providers.create_item("bw", name="box ssh", username="ops", password=NEW_PW)
+    assert get_secret("bw:box ssh", "g") == NEW_PW
+    providers.delete_item("bw", made["id"])
+    assert [i["name"] for i in json.loads(bw_items.read_text())] == ["esx ssh"]
+    with pytest.raises(providers.ItemNotFound):                 # nothing cached from it either
+        get_secret("bw:box ssh", "g")
+    with pytest.raises(providers.WriteFailed, match="didn't delete"):
+        providers.delete_item("bw", made["id"])
+
+
+def test_a_refused_create_never_echoes_the_password(bw_items, monkeypatch):
+    monkeypatch.setenv("FAKE_BW_WRITE_FAIL", f"Creating this item type is restricted by organizational policy. {NEW_PW}")
+    with pytest.raises(providers.WriteFailed, match="restricted by organizational policy") as e:
+        providers.create_item("bw", name="box ssh", password=NEW_PW)
+    assert NEW_PW not in str(e.value)
+
+
+def test_only_providers_that_can_write_create_items(bw_items, monkeypatch):
+    assert providers.can_write("bw")
+    for name in ("op", "env", "prompt", "cmd"):
+        assert not providers.can_write(name)
+        with pytest.raises(providers.CantWrite, match=f"provider '{name}' can't save to the vault"):
+            providers.create_item(name, name="box ssh", password=NEW_PW)
+    with pytest.raises(providers.CantWrite):
+        providers.delete_item("op", "aaaa-1111")
+    with pytest.raises(SecretError, match="unknown password source"):
+        providers.create_item("keeper", name="box ssh", password=NEW_PW)

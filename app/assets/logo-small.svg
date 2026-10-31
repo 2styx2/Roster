@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024" role="img" aria-label="roster">
+  <!-- Gap orbit on the Ink tile, the 16-32 px cut: the R as stem, bowl and leg, heavier strokes. The app icon's small cut has no tile: logo-icon-small.svg. -->
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#0f1011" stroke="#2c2d2e" stroke-width="1"/>
+  <path d="M32.92 57.98A26 26 0 1 1 57.43 37.41" fill="none" stroke="#e8e8ea" stroke-width="3.74" stroke-linecap="round" opacity="0.65"/>
+  <path d="M25 43.5V15.5H35A8 8 0 0 1 35 31.5H25M34 31.5L43.74 45.02" fill="none" stroke="#e8e8ea" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>
+  <rect x="19.32" y="37.82" width="11.37" height="11.37" rx="2.2" fill="#e8e8ea"/>
+  <circle cx="48.71" cy="51.92" r="7.5" fill="none" stroke="#ff9a70" stroke-width="4"/>
+</svg>

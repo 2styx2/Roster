@@ -1,0 +1,6 @@
+{
+    "profiles": [
+        { "guid": "{a}", "name": "First", "colorScheme": { "dark": "One Half Dark", "light": "One Half Light" }, "fontWeight": 300 },
+        { "guid": "{b}", "name": "Second" }
+    ]
+}
