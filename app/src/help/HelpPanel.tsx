@@ -11,6 +11,7 @@ import { CloseGlyph } from "../ui/CloseGlyph";
 import "./doc.css";
 import { Announce } from "../ui/Announce";
 import { Keys } from "../ui/Keys";
+import { highlight, shellCommand } from "./highlight";
 import type { HelpSnapshot, HelpView } from "./command";
 import type { Block, Def, Inline } from "./doc";
 import { linkKind, pageBody, topics, type HelpContext } from "./pages";
@@ -306,9 +307,9 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
     }
     case "pre":
       return (
-        <pre>
+        <pre data-lang={b.lang}>
           <code>
-            <Highlighted text={b.text} />
+            <Code text={b.text} lang={b.lang} />
           </code>
         </pre>
       );
@@ -424,7 +425,17 @@ function InlineView({ item }: { item: Inline }): ReactNode {
       if (isKeys(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
       // A code span naming a topic links to it: `:connect`, `terminal.size`, `init.lua`.
       const tag = codeTopic(item.text, env.tags);
-      const el = (
+      // A `:command` reads as one; a shell line (`roster sync --dry-run`) is coloured as in a block.
+      const shell = shellCommand(item.text);
+      const el = item.text.startsWith(":") ? (
+        <code className="help-cmd">
+          <Highlighted text={item.text} />
+        </code>
+      ) : shell ? (
+        <code className="help-shell">
+          <Code text={item.text} lang="sh" />
+        </code>
+      ) : (
         <code>
           <Highlighted text={item.text} />
         </code>
@@ -453,7 +464,11 @@ function InlineView({ item }: { item: Inline }): ReactNode {
       if (kind !== "topic") {
         const to = env.outside?.(item.href);
         if (to) return <a className="help-link" href={to}>{children}</a>;
-        return <span title={item.href.replace(/^file:/, "")}>{children}</span>;
+        return (
+          <span className="help-file" title={item.href.replace(/^file:/, "")}>
+            {children}
+          </span>
+        );
       }
       return env.tags.has(item.href) ? <TopicLink tag={item.href}>{children}</TopicLink> : children;
     }
@@ -498,6 +513,41 @@ function TopicLink({ tag, children }: { tag: string; children: ReactNode }) {
       <Env value={{ ...env, inLink: true }}>{children}</Env>
     </a>
   );
+}
+
+/** Code coloured by its language (highlight.ts), with the search's matches marked. A match is one
+ * `<mark>` around the coloured runs it covers, so the panel counts it once. */
+function Code({ text, lang }: { text: string; lang: string | undefined }) {
+  const { query } = useContext(Env);
+  const tokens = useMemo(() => highlight(text, lang), [text, lang]);
+  if (tokens.length === 1 && !tokens[0]?.kind) return <Highlighted text={text} />;
+  // Each run with where it starts, so a match's range can take the slices it covers.
+  const starts: number[] = [];
+  tokens.reduce((at, t) => (starts.push(at), at + t.text.length), 0);
+  const slice = (from: number, to: number): ReactNode[] =>
+    tokens.flatMap((t, k) => {
+      const a = Math.max(from, starts[k] as number);
+      const b = Math.min(to, (starts[k] as number) + t.text.length);
+      if (a >= b) return [];
+      const part = t.text.slice(a - (starts[k] as number), b - (starts[k] as number));
+      return [t.kind ? <span key={`${k}-${a}`} className={`hl-${t.kind}`}>{part}</span> : part];
+    });
+  if (!query) return <>{slice(0, text.length)}</>;
+  const parts: ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  let from = 0;
+  for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) {
+    parts.push(...slice(from, i));
+    parts.push(
+      <mark key={`m${i}`} className="help-hit">
+        {slice(i, i + q.length)}
+      </mark>,
+    );
+    from = i + q.length;
+  }
+  parts.push(...slice(from, text.length));
+  return <>{parts}</>;
 }
 
 /** Text with the search's matches marked. */

@@ -35,7 +35,7 @@ Editing `roster.yml` from roster keeps `links:` in step: renaming a Host or a gr
 
 ## roster mesh
 
-```
+```sh
 roster mesh --dry-run        # the plan: who reaches whom, what changes on which Host
 roster mesh                  # apply it, one Host at a time
 roster mesh --rotate esx-02  # replace esx-02's Mesh key everywhere
@@ -59,7 +59,7 @@ On a source it writes:
 
 On a peer it adds one line per source to `authorized_keys`:
 
-```
+```text
 from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster-mesh:orion-2
 ```
 

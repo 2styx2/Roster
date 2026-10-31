@@ -51,7 +51,7 @@ Plugins never see what you type, but the shell echoes it, so `grep ERROR /var/lo
 
 ## How it's made
 
-```
+```text
 recent-alerts/
   roster-plugin.lua            the manifest: name, version, author, api, permissions
   init.lua                     the Plugin: the section, badges, status, finder, command, key, help page

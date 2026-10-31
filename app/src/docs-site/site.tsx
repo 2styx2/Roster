@@ -54,6 +54,8 @@ export const FONTS = [
   { family: "Inter", pkg: "inter", weight: 600, style: "normal" },
   { family: "Iosevka", pkg: "iosevka", weight: 400, style: "normal" },
   { family: "Iosevka", pkg: "iosevka", weight: 500, style: "normal" },
+  // The PDF's keywords and commands (PRINT below); a page that doesn't use it never loads it.
+  { family: "Iosevka", pkg: "iosevka", weight: 600, style: "normal" },
 ].map((f) => ({ ...f, file: `${f.pkg}-latin-${f.weight}-${f.style}.woff2` }));
 
 /** What every page is generated from on the website: the built-in registries and the Config's
@@ -345,7 +347,7 @@ function baseCss(mode: "screen" | "print"): string {
   const tokens =
     mode === "print"
       ? `:root {\n${vars(themeVariables(rosterLight))}\n}`
-      : `:root {\n${vars(themeVariables(rosterDark))}\n}\n@media (prefers-color-scheme: light) {\n  :root {\n${vars(themeVariables(rosterLight))}\n  }\n}\n@media print {\n  :root {\n${vars(themeVariables(rosterLight))}\n  }\n}`;
+      : `:root {\n${vars(themeVariables(rosterDark))}\n}\n@media (prefers-color-scheme: light) {\n  :root {\n${vars(themeVariables(rosterLight))}\n  }\n}\n@media print {\n  :root {\n${vars(themeVariables(rosterLight))}\n${vars(printSyntax())}\n  }\n  .hl-keyword, .hl-command { font-weight: 600; }\n}`;
   return [fonts, tokens, FRAME, keysCss, logoCss, helpDocCss, PAGE, mode === "print" ? PRINT : SCREEN].join("\n\n");
 }
 
@@ -368,6 +370,7 @@ const FRAME = `:root {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "cv11", "calt";
   accent-color: var(--accent);
 }
@@ -384,8 +387,7 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .site-start p { margin: 0; color: var(--muted); max-width: 60ch; }`;
 
 /** After help/doc.css: the page fills its column on the web, where the panel pads it. */
-const PAGE = `.help-doc { padding: 0; }
-.help-doc h1 { font-size: var(--text-lg); margin-bottom: 12px; }`;
+const PAGE = `.help-doc { padding: 0; }`;
 
 /** The website around the page: a top bar, the pages by part on the left, the page, its footer.
  * Nothing moves: a docs page has nothing to confirm (taste.md, "motion confirms"). */
@@ -445,8 +447,29 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
   main { padding: 20px 16px 32px; }
 }`;
 
+/** Code's colours on paper (ticket 71, decision Q90): Roster light's hues taken darker, each at
+ * least 7:1 on white, so they hold on a greyscale printer. There the comments are the light grey
+ * and keywords and commands the bold ones; strings and keys stay near black, as text. */
+export const PRINT_SYNTAX = {
+  "syntax-keyword": "#3b1f78",
+  "syntax-string": "#14522a",
+  "syntax-number": "#5e1a5a",
+  "syntax-comment": "#545557",
+  "syntax-function": "#123f78",
+  "syntax-punctuation": "#3d3e40",
+  "syntax-key": "#26405f",
+  "syntax-command": "#111213",
+};
+
 /** The PDF: light, each page on a new sheet, and a link names the page it goes to. */
-const PRINT = `@page { size: A4; margin: 18mm 16mm; }
+const printSyntax = () => Object.fromEntries(Object.entries(PRINT_SYNTAX).map(([k, v]) => [`--${k}`, v]));
+
+const PRINT = `:root {
+${vars(printSyntax())}
+}
+.hl-keyword, .hl-command { font-weight: 600; }
+.help-doc pre { background: #fff; border-color: var(--line-strong); }
+@page { size: A4; margin: 18mm 16mm; }
 body.print { background: #fff; }
 .print-page { break-before: page; }
 .print-page:first-child { break-before: auto; }
