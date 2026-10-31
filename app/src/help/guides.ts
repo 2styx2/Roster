@@ -14,13 +14,16 @@ import start from "../../../docs/app/start.md?raw";
 import themes from "../../../docs/app/themes.md?raw";
 import addingHosts from "../../../docs/adding-hosts.md?raw";
 import cli from "../../../docs/cli-reference.md?raw";
+import deprecated from "../../../docs/deprecated.md?raw";
+import news from "../../../docs/news.md?raw";
 import meshGuide from "../../../docs/mesh.md?raw";
 import newBox from "../../../docs/new-box.md?raw";
 import plugins from "../../../docs/plugins.md?raw";
 import serveApi from "../../../docs/serve-api.md?raw";
 
-/** Where a page sits on the index, in this order (Neovim's help.txt groups its files the same way). */
-export const PARTS = ["Getting started", "Make it yours", "Reference", "Extending"] as const;
+/** Where a page sits on the index, in this order (Neovim's help.txt groups its files the same way,
+ * and ends with news.txt and deprecated.txt as roster ends with What's new). */
+export const PARTS = ["Getting started", "Make it yours", "Reference", "Extending", "What's new"] as const;
 export type Part = (typeof PARTS)[number];
 
 export interface Guide {
@@ -36,6 +39,9 @@ export interface Guide {
   order: number;
   /** Other names for it or a place on it (`init.lua` → `config`), as tag → topic. */
   aliases?: Record<string, string>;
+  /** Each table row is a topic, `<id>#<slug of its first cell>` (deprecated.md's old names), so
+   * an alias can land on the row itself. */
+  rowTopics?: boolean;
   markdown: string;
 }
 
@@ -185,6 +191,32 @@ export const guides: readonly Guide[] = [
       ":plugins": "plugins#installing-and-trusting",
     },
     markdown: plugins,
+  },
+  {
+    id: "news",
+    path: "docs/news.md",
+    title: "What's new",
+    summary: "What changed in each Release: new, changed, removed and deprecated, by area",
+    part: "What's new",
+    order: 95,
+    aliases: { "whats-new": "news", changelog: "news" },
+    markdown: news,
+  },
+  {
+    id: "deprecated",
+    path: "docs/deprecated.md",
+    title: "Deprecated names",
+    summary: "Old names that still work, and what replaces each one",
+    part: "What's new",
+    order: 96,
+    rowTopics: true,
+    // Every old name lands on its row (CONTRIBUTING.md, "Docs"). The old `␣ ?` for Key bindings
+    // is `deprecated#key-bindings`: `␣ ?` itself is help's key now.
+    aliases: {
+      ROSTER_DESK_ROSTER: "deprecated#roster_desk_roster",
+      ROSTER_DESK_WSL_DISTRO: "deprecated#roster_desk_wsl_distro",
+    },
+    markdown: deprecated,
   },
 ];
 

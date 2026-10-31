@@ -1041,6 +1041,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
 /* Sources whose items are prose (help's outline and :helpgrep) read in Inter, as prose does. */
 .finder.prose .finder-name { font-family: var(--font-ui); }
+/* Their path (the heading an entry sits under) stays at the right, apart from the label, so the
+   outline's "Themes and colours" never reads as part of the option's name (ticket 54). */
+.finder.prose .finder-path { flex: 0 1 auto; margin-left: auto; text-align: right; }
 .finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); }
 .finder-legend { font-family: var(--font-mono); white-space: nowrap; }
 

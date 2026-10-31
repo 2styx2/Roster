@@ -125,7 +125,11 @@ app/src/health/       `:check` with no Host (ticket 49): health.ts (the health s
 app/src/help/         `:help` (ticket 37, docs/app/help.md): pages.ts (the help page registry, the pages generated from the
                       registries, topics), guides.ts (docs/app's Markdown bundled at build time), markdown.ts (that Markdown
                       → blocks, doc.ts), options.ts (config.md's option tables + each value and where it came from),
-                      command.ts (`:help`, the `help` finder, HelpView), HelpPanel.tsx
+                      command.ts (`:help`, the `help` finder, HelpView, `:lookup`), lookup.ts (which topic the lookup
+                      keys open: the command typed, the selected result or row, a binding's option, ticket 52), HelpPanel.tsx
+app/src/news/         news.ts: what's new after an upgrade, said once in the status line (`newsSeen` in the State, ticket 47)
+app/src/ui/Announce.tsx
+                      a live region that speaks a count once it settles (finders, the Picker, help's search; ticket 54)
 app/src/sidebar/      Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
 app/src/inventory/    the Live Inventory (ticket 28): commands.ts (`:host add|remove|rename|move`, `:group new|rename|delete`),
                       ConfirmPanel.tsx (removing a Host asks first)

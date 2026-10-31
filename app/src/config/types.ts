@@ -114,6 +114,17 @@ export interface Config {
   /** The options the file set, as Lua paths down to each value (`terminal.size`), sorted:
    * `:help options` says these came from init.lua (ticket 37). */
   set: string[];
+  /** The deprecated options the file set (ticket 48), applied under their new names: each is
+   * warned about at `lines[old]`, with its row in `:help deprecated`. */
+  deprecated: DeprecatedUse[];
+}
+
+/** A deprecated option init.lua set (roster-core schema.rs `DeprecatedUse`). */
+export interface DeprecatedUse {
+  old: string;
+  new: string;
+  /** Its row in help: `deprecated#terminalfont_size`. */
+  topic: string;
 }
 
 /** init.lua's `vault` table (tickets 35, 41). */

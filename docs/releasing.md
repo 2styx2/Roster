@@ -21,7 +21,7 @@ A Release is one version of the whole repo: the CLI and the app ship together, w
 | `roster.1` | The `roster(1)` man page on its own, for packagers (the wheel also installs it to `PREFIX/share/man/man1/`) |
 | `SHA256SUMS` | The SHA-256 of every file above |
 
-The Release notes start with a short install note and then list the pull requests merged since the last Release (GitHub's generated notes).
+The Release notes start with that version's section of [news.md](news.md) (what's new, changed, removed and deprecated, by area; `scripts/news_section.py` makes its links work on GitHub), then a short install note, then the pull requests merged since the last Release (GitHub's generated notes). The Version job fails a tag whose version has no section in `news.md`, before anything is built.
 
 ## One version
 
@@ -36,7 +36,7 @@ CI runs `--check` on every pull request, and the release workflow checks the tag
 
 ## Cutting a Release
 
-1. **Bump the version** on a Work branch from `dev`, and land it like any change:
+1. **Bump the version** on a Work branch from `dev`, and land it like any change. The script also renames `docs/news.md`'s `## Unreleased` to `## v0.2.0`; read that section over, since it's the top of the Release's notes:
 
    ```bash
    git switch -c chore/release-0.2.0 origin/dev

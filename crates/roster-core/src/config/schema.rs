@@ -66,6 +66,32 @@ pub struct Config {
     /// in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
     pub set: Vec<String>,
+    /// The deprecated options the file set (ticket 48), each applied under its new name; the
+    /// frontend warns about each one, at `lines[old]`. Never read from Lua.
+    #[serde(skip_deserializing)]
+    pub deprecated: Vec<DeprecatedUse>,
+}
+
+/// An `init.lua` option that was renamed: docs/deprecated.md's "init.lua options" rows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Renamed {
+    /// Its Lua path, `terminal.font_size`.
+    pub old: &'static str,
+    pub new: &'static str,
+}
+
+/// Every renamed option, still applied under its new name with a warning until it's removed
+/// (CONTRIBUTING.md, "Docs"; docs/deprecated.md says when). None yet.
+pub const DEPRECATED_OPTIONS: &[Renamed] = &[];
+
+/// A deprecated option the file set, for the frontend's warning.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeprecatedUse {
+    pub old: String,
+    pub new: String,
+    /// Its row in `:help deprecated`: `deprecated#terminalfont_size`.
+    pub topic: String,
 }
 
 impl Default for Config {
@@ -94,6 +120,7 @@ impl Default for Config {
             vault: Vault::default(),
             lines: BTreeMap::new(),
             set: Vec::new(),
+            deprecated: Vec::new(),
         }
     }
 }

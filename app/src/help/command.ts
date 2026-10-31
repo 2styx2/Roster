@@ -6,6 +6,7 @@ import type { FinderItem, FinderSourceDef } from "../finder/sources";
 import type { Registries } from "../registries";
 import { BUILTIN } from "../registry";
 import { plain } from "./doc";
+import { lineTopic } from "./lookup";
 import { findTopic, headingTag, pageBody, pageTexts, topics, type HelpContext, type Topic } from "./pages";
 
 /** Where the help panel is: a page, and the entry or heading on it. */
@@ -145,6 +146,23 @@ export function helpFinder(view: HelpView): FinderSourceDef {
   };
 }
 
+/** `:lookup` (␣ F1, ticket 52): help on what's selected, Neovim's `K`. A Host's row opens
+ * `:connect`, any other row the command it runs; with no row under the cursor, the topic finder. */
+export function lookupCommand(view: HelpView): CommandDef {
+  return {
+    id: "lookup",
+    source: BUILTIN,
+    area: "App",
+    label: () => "Help on what's selected",
+    run: (ctx) => {
+      const row = ctx.cursorRow();
+      const hctx = view.context();
+      const topic = row && hctx ? (row.host ? ":connect" : lineTopic(hctx.commands, row.command)) : null;
+      if (!topic || !view.openTopic(topic)) ctx.openFinder("help");
+    },
+  };
+}
+
 /** `:helpgrep [TEXT]`: searches the text of every page (Neovim's `:helpgrep`), in a finder. */
 export function helpgrepCommand(): CommandDef {
   return {
@@ -244,6 +262,7 @@ export function registerHelp(registries: Registries, view: HelpView): () => void
   const disposers = [
     registries.commands.register(helpCommand(view)),
     registries.commands.register(helpgrepCommand()),
+    registries.commands.register(lookupCommand(view)),
     registries.finders.register(helpFinder(view)),
     registries.finders.register(helpgrepFinder(view)),
     registries.finders.register(outlineFinder(view)),

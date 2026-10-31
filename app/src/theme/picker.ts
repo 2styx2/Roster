@@ -159,6 +159,7 @@ export function themesFinder(choice: ThemeChoice): FinderSourceDef {
       if (item) choice.preview(item.command.slice("theme ".length));
     },
     close: () => choice.preview(null),
+    help: (item) => `themes#${item.command.slice("theme ".length)}`,
     note: (item) => {
       const pinned = choice.pinNote();
       if (pinned) return pinned;

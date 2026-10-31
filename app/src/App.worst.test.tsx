@@ -125,7 +125,8 @@ describe("the worst case", () => {
     // filters 1,284 Hosts again, and only where it ends up matters here (#62).
     await user.paste(LONG_NAME);
     await user.keyboard("{Enter}");
-    expect(within(picker).getByRole("status")).toHaveTextContent(/isn't reviewed yet/);
+    // The notice, beside the hidden count that a screen reader hears.
+    expect(within(picker).getAllByRole("status").map((s) => s.textContent).join(" ")).toMatch(/isn't reviewed yet/);
     expect(cutWithoutTooltip()).toEqual([]);
     await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}K`);
