@@ -31,7 +31,9 @@ pub fn state_dir() -> Option<std::path::PathBuf> {
 
 /// [`state_dir`] for any environment (testable).
 pub fn state_dir_for(var: impl Fn(&str) -> Option<String>) -> Option<std::path::PathBuf> {
-    var(STATE_DIR_VAR).filter(|v| !v.trim().is_empty()).map(std::path::PathBuf::from)
+    var(STATE_DIR_VAR)
+        .filter(|v| !v.trim().is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 fn system_var(name: &str) -> Option<String> {

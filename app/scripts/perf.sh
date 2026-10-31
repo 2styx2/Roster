@@ -32,7 +32,7 @@ case "$what" in
     port="${PERF_PORT:-5181}"
     # Playwright isn't one of the app's packages: borrow it from npm's cache (fetched once).
     nm="$(npm exec --yes --package=playwright@1.64.0 -- sh -c 'cd "$(dirname "$(command -v playwright)")/.." && pwd')"
-    npm exec --yes --package=playwright@1.64.0 -- playwright install chromium >/dev/null
+    npm exec --yes --package=playwright@1.64.0 -- playwright install chromium >/dev/null 2>&1 || true
     npx vite --port "$port" --strictPort >/dev/null 2>&1 &
     vite=$!
     trap 'kill $vite 2>/dev/null || true' EXIT
