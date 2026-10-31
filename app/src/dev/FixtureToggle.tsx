@@ -13,6 +13,8 @@ const SEGMENTS: [fixture: string, label: string][] = [
   ["worst-case-start", "Start error"],
   ["worst-case-vault", "Vault error"],
   ["recent-alerts", "Plugin"],
+  ["discover", "Discover"],
+  ["discover-worst", "Discover worst"],
 ];
 
 const track: React.CSSProperties = {

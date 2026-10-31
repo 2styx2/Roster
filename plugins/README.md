@@ -5,9 +5,8 @@ Plugins the roster project writes and looks after, for features only some people
 | Plugin | What it adds | Install (`dir =`) |
 |---|---|---|
 | [`mesh`](mesh/README.md) | The Mesh's controls: each Host's reach, "Mesh out of date", plan and apply, Cut, Links through a jump Host | `plugins/mesh` |
+| [discover](discover/README.md) | Scan a network from the app, review what answered, and add the Hosts you keep as Pending changes, unreviewed. The scan runs in `roster serve` (`discover.*`) | `plugins/discover` |
 | [`topology`](topology/README.md) | The Topology view: this Box, every Host by group and the Mesh as a map, what each Host can reach every hop away, live Sessions, Check and Cut from a node | `plugins/topology` |
-
-The Discover UI is planned next.
 
 ## What first-party means
 

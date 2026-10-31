@@ -226,6 +226,8 @@ With nmap installed, discover collects open ports, service versions, web page ti
 
 Let your security team know before scanning big ranges.
 
+From the app, the first-party [discover](../plugins/discover/README.md) Plugin does the same scan through `roster serve` (`discover.*`, [serve-api.md](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd)): it asks first, shows what answers as it comes in, and adds the Hosts you keep as Pending changes, unreviewed (`:help discover` once it's installed).
+
 ## Commands
 
 | Command | What it does |

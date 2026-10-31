@@ -109,6 +109,13 @@ NOT_A_SOURCE = 110          # mesh.plan / mesh.apply: rotate names a Host that i
 MESH_BUSY = 111             # mesh.plan / mesh.apply / mesh.cut while a Mesh job (background: true) still runs;
                             #   data.job, data.action
 
+# Discover in roster serve (ticket 44): a scan of a network, run in the background. A bad target is -32602.
+SCAN_RUNNING = 120          # discover.start: a scan is going already (one at a time); data.scan
+TOO_MANY_ADDRESSES = 121    # discover.plan / discover.start: more addresses than allowed; data.addresses, limit, max
+NO_SCAN = 122               # discover.status / stop / add: no scan by that id in this serve (or none yet)
+CANT_ADD = 123              # discover.add: an address the scan didn't find, or one already in the Inventory or added;
+                            #   data.addresses
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""

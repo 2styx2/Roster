@@ -22,18 +22,20 @@ import sys
 import threading
 import time
 
-from . import __version__, askpass, changes, diagnose, edit, health, mesh, providers
+from . import __version__, askpass, changes, diagnose, discover, edit, health, mesh, providers
 from .claude import write_claude_files
 from .common import deadline, not_reviewed, ssh_config_file, ssh_path
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     ALREADY_SIGNED_OUT,
+    CANT_ADD,
     CANT_WRITE,
     CLI_MISSING,
     GROUP_NOT_EMPTY,
     HOST_EXISTS,
     HOST_KEY_CHANGED_WHILE_ASKED,
     HOST_KEY_UNKNOWN,
+    INVALID_EDIT,
     INVALID_HOST,
     INVENTORY_ERROR,
     ITEM_EXISTS,
@@ -41,6 +43,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     MESH_BUSY,
     NAME_TAKEN,
     NO_ASKPASS,
+    NO_SCAN,
     NO_SIGN_IN,
     NOT_A_SOURCE,
     NOT_CREATED_HERE,
@@ -52,7 +55,9 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     PASSWORD_NEEDED,
     READ_ONLY_TARGET,
     ROSTER_ERROR,
+    SCAN_RUNNING,
     SIGN_OUT_FAILED,
+    TOO_MANY_ADDRESSES,
     UNKNOWN_GROUP,
     UNKNOWN_HOST,
     UNKNOWN_TARGET,
@@ -105,6 +110,8 @@ class State:
         # state.held is also changed on the askpass channel's threads (a login report), so it has a lock of its own:
         # never state.lock, which a long request holds for up to its deadline and would hold up askpass's answers.
         self.held_lock = threading.RLock()
+        self.scan = None                    # the latest discover.start's Scan (discover.Scan), going or not
+        self.scans = 0                      # how many discover.start started: the next one's id
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -2128,6 +2135,169 @@ METHODS["mesh.job"] = mesh_job
 METHODS["mesh.stop"] = mesh_stop
 
 
+# ---------------------------------------------------------------- Discover (ticket 44, decisions Q80 and Q100)
+# `roster discover` for the app: a scan that runs here, on a thread of its own (discover.Scan), never in the app or
+# a Plugin. discover.start answers at once; discover.status says how far it has got and what it found, discover.stop
+# ends it, and discover.add writes the Hosts the user picked as a Pending change, unreviewed, as `roster discover
+# --write` would. The app's UI for it is the first-party Plugin plugins/discover.
+
+def scan_params(params):
+    """(targets, how many addresses, ports) from params, checked: -32602 for a bad one, 121 for too many."""
+    force = params.get("force", False)
+    if not isinstance(force, bool):
+        raise RpcError(INVALID_PARAMS, "params.force must be true or false")
+    try:
+        targets, count = discover.check_targets(params.get("targets"), force)
+        ports = discover.check_ports(params.get("ports"))
+    except discover.TooMany as e:
+        raise RpcError(TOO_MANY_ADDRESSES, f"that's {e.count:,} addresses; a scan visits at most {e.limit:,}"
+                       + ("" if force else " without force"),
+                       {"addresses": e.count, "limit": discover.LIMIT, "max": discover.MAX},
+                       fix="scan a smaller range, or confirm the larger scan (force)") from None
+    except ValueError as e:
+        raise RpcError(INVALID_PARAMS, f"params: {e}") from None
+    return targets, count, ports
+
+
+def the_scan(state, params):
+    """The scan params.scan names (the latest if it names none), or 122."""
+    sid = params.get("scan")
+    scan = state.scan
+    if scan is None or (sid is not None and sid != scan.sid):
+        raise RpcError(NO_SCAN, "no scan has started in this roster serve" if scan is None
+                       else f"no scan {sid!r} here: the latest is {scan.sid}",
+                       fix="start one with discover.start")
+    return scan
+
+
+def discover_plan(state, params):
+    """What a scan of `targets` would visit, and with what. Starts nothing, connects nowhere.
+
+    Params: `{targets: [network], ports?, force?}`: networks or addresses (`10.0.0.0/24`); `ports` a list such as
+        `"22,80,443"` (`roster discover`'s default list if left out); `force` allows up to `max` addresses
+    Result: `{targets, addresses, ports, scanner, limit, max}`: the targets as written back, how many addresses
+        they hold, how many ports, `"nmap"` or `"built-in"` (no nmap: roster's own TCP connect scan), and the
+        most addresses without and with `force` (4,096 and 65,536)
+    Errors: -32602, 121
+    Since: API 18
+    """
+    targets, count, ports = scan_params(params)
+    return {"targets": targets, "addresses": count, "ports": len(ports.split(",")), "scanner": discover.scanner(),
+            "limit": discover.LIMIT, "max": discover.MAX}
+
+
+def discover_start(state, params):
+    """Start scanning `targets` from this Box, in the background: it answers at once. One scan at a time.
+
+    Params: as `discover.plan`
+    Result: the new scan's `discover.status`: `{scan, state: "running", targets, scanner, done: 0, total, ...}`
+    Errors: 1, -32602, 120, 121
+    Since: API 18
+    """
+    targets, _, ports = scan_params(params)
+    if state.scan is not None and state.scan.state in ("running", "stopping"):
+        raise RpcError(SCAN_RUNNING, f"a scan of {', '.join(state.scan.targets)} is going already",
+                       {"scan": state.scan.sid}, fix="wait for it, or stop it first (discover.stop)")
+    cfg = state.inventory()
+    known = {h["ip"]: h["name"] for h in cfg["hosts"].values()}
+    state.scans += 1
+    state.scan = discover.Scan(f"scan-{state.scans}", targets, ports, discover.scanner(), known, set(cfg["hosts"]))
+    state.scan.start()
+    return state.scan.status()
+
+
+def discover_status(state, params):
+    """How far the scan has got, and what it has found.
+
+    Params: `{scan?, since?}`: the scan's id (the latest if left out); `since` skips the first that many found
+    Result: `{scan, state, targets, scanner, done, total, count, quiet, found: [Found], error}`. `state` is
+        `running`, `stopping`, `done`, `stopped` or `failed` (`error` says why); `done` of `total` addresses
+        visited; `count` how many were found in all (pass it as the next `since`); `quiet` how many answered with
+        none of the ports open. A Found is `{address, name, type, hostname, title, web, known, added, vendor, os,
+        mac, ports: [{port, name, product, title}]}`: `name` the name it would be added as (`null` when `known`
+        names the Host already at that address), `type` the guessed kind, `added` the name `discover.add` gave it
+    Errors: -32602, 122
+    Since: API 18
+    """
+    since = params.get("since", 0)
+    if not isinstance(since, int) or isinstance(since, bool) or since < 0:
+        raise RpcError(INVALID_PARAMS, "params.since must be a count (0 or more)")
+    return the_scan(state, params).status(since)
+
+
+def discover_stop(state, params):
+    """Stop the scan: what it found so far stays.
+
+    Params: `{scan?}`
+    Result: `{scan, stopping}`: `stopping: false` when it had ended already. `discover.status` says `stopped` once
+        it has
+    Errors: 122
+    Since: API 18
+    """
+    scan = the_scan(state, params)
+    return {"scan": scan.sid, "stopping": scan.stop()}
+
+
+def discover_add(state, params):
+    """Add Hosts the scan found to roster.yml in a new group, unreviewed, as a Pending change (as `roster discover
+    --write` writes them, with the names `discover.status` showed). Nothing else changes.
+
+    Params: `{scan, addresses: [address], group?}`: `group` is new (`discovered-YYYYMMDD` if left out)
+    Result: `{group, added: [{address, name}], backup}`
+    Errors: 1, -32602, 70, 74, 100, 122, 123
+    Since: API 18
+    """
+    scan = the_scan(state, {"scan": text_param(params, "scan")})
+    addresses = params.get("addresses")
+    if not isinstance(addresses, list) or not addresses or not all(isinstance(a, str) and a for a in addresses):
+        raise RpcError(INVALID_PARAMS, "params.addresses must be a list of the addresses to add")
+    group = params.get("group")
+    if group is not None:
+        group = name_param(params, "group")
+        if not edit.NAME_RE.match(group):
+            raise RpcError(INVALID_PARAMS, f"bad group name {group!r} (use letters, digits, . _ -)")
+    repo = live_repo(state)
+    cfg = state.cfg
+    try:
+        picked = scan.picked(addresses)
+    except ValueError as e:
+        bad = e.args[0]
+        raise RpcError(CANT_ADD, f"{', '.join(bad)}: not found by this scan, or in the Inventory already",
+                       {"addresses": bad}, fix="pick from the scan's new Hosts") from None
+    ips = {h["ip"] for h in cfg["hosts"].values()}
+    there = [r["address"] for _, r in picked if r["address"] in ips]
+    if there:
+        raise RpcError(CANT_ADD, f"{', '.join(there)}: in the Inventory already", {"addresses": there},
+                       fix="pick from the scan's new Hosts")
+    today = scan.today
+    if group is None:
+        group = discover.unique(f"discovered-{today.replace('-', '')}", set(cfg["groups"]) | set(cfg["hosts"]))
+    elif group in cfg["groups"] or group in cfg["hosts"]:
+        kind = "group" if group in cfg["groups"] else "Host"
+        raise RpcError(NAME_TAKEN, f"{group} is a {kind}'s name already", {"kind": kind},
+                       fix="name a new group")
+    old_text = edit.read_text(repo.path)
+    try:
+        new_text, added = discover.added_text(old_text, group, picked, scan.targets, today, set(cfg["hosts"]))
+    except SystemExit as e:
+        raise RpcError(INVALID_EDIT, die_message(e)) from None
+    after = edit.load_text(repo.path, new_text)
+    names = [a["name"] for a in added]
+    if any(after["hosts"].get(n) != cfg["hosts"].get(n) for n in cfg["hosts"]) or \
+            any(n not in after["hosts"] or after["hosts"][n]["group"] != group for n in names):
+        raise RpcError(INVALID_EDIT, "the result loads differently than asked: nothing was written")
+    backup = write_edit(state, old_text, new_text)
+    scan.mark_added({a["address"]: a["name"] for a in added})
+    return {"group": group, "added": added, "backup": backup}
+
+
+METHODS["discover.plan"] = discover_plan
+METHODS["discover.start"] = discover_start
+METHODS["discover.status"] = discover_status
+METHODS["discover.stop"] = discover_stop
+METHODS["discover.add"] = discover_add
+
+
 # ---------------------------------------------------------------- the loop
 
 # Each long method's overall deadline (s). The app waits longer for each (app/src-tauri/src/lib.rs CALL_SECS),
@@ -2215,4 +2385,6 @@ def serve(config_arg):
             if state.watcher is not None:
                 state.watcher.stop.set()
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
+            if state.scan is not None:
+                state.scan.stop()           # nor does a scan (its nmap is killed)
     return 0

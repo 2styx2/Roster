@@ -1406,12 +1406,16 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Calls a roster serve method the Plugin was granted",
-        doc: "A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).",
+        doc: "A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).",
         returns: ("any", "The method's result, as Lua tables (JSON `null` is `nil`)."),
         errors: &[
             (
                 "roster.serve.call: not granted (serve:METHOD)",
                 "the Plugin wasn't granted that method",
+            ),
+            (
+                "roster.serve.call METHOD: only while the user runs one of your actions, commands or finder items",
+                "`discover.start` or `discover.add` at load, in an event listener or a timer",
             ),
             (
                 "roster.serve.call METHOD: MESSAGE (code N)",
@@ -1569,6 +1573,11 @@ pub const SERVE_RESULTS: &[ServeResult] = &[
         method: "mesh.*",
         result: "",
         link: "serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus",
+    },
+    ServeResult {
+        method: "discover.*",
+        result: "",
+        link: "serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd",
     },
 ];
 
