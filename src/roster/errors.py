@@ -103,6 +103,10 @@ UNKNOWN_GROUP = 101         # no group by that name in roster.yml; data.group
 GROUP_NOT_EMPTY = 102       # group.delete: the group still has Hosts and no `to` says where they go; data.hosts
 WOULD_CHANGE = 103          # host.move / group.delete: the Host would come out different in the new group; data.fields
 
+# The Mesh (ticket 39, decision Q63). roster.yml's mesh:/links: that don't load are 1, an unknown Host 2.
+NOT_A_SOURCE = 110          # mesh.plan / mesh.apply: rotate names a Host that isn't a Mesh source (has no Mesh key);
+                            #   data.hosts
+
 
 class Problem(Exception):
     """A clean error: a stable code, roster's message, and (optionally) the fix and extra data."""

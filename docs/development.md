@@ -7,7 +7,7 @@ uv run ruff check src tests
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), stand-in Hosts for the Mesh (the `ssh` one runs commands in a directory per Host when `FAKE_HOSTS` is set: down Hosts, blocked ports, ESXi's paths), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
 
 ```
 src/roster/
@@ -24,6 +24,8 @@ src/roster/
   manpage.py        roster(1): generated from the parser (cli.build_parser) and docs/cli-reference.md into
                     roster.1 (committed, shipped in the wheel); `roster man`. Regenerate: uv run python -m roster.manpage
   errors.py         the stable error codes and Problem (code, message, fix): what serve, askpass and check report
+  mesh.py           the Mesh: who reaches whom (mesh:, links:), plan/apply over ssh one Host at a time, cut, status,
+                    drift for `roster check`; the sh it runs on Hosts (docs/mesh.md)
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper and the logged-in report (stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,

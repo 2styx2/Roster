@@ -470,6 +470,15 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "See the details: the CLI's own words. `roster bw logout` in a terminal shows the same.",
     actions: [copy(() => "roster bw logout")],
   }),
+  // The Mesh (`mesh.plan`, `mesh.apply`, ticket 39): docs/app/errors.md row 73. Rows 74-79 are a
+  // Link's or a Host's status in the result, not errors.
+  row("mesh-not-a-source", {
+    row: 73,
+    codes: [110],
+    where: ["roster.yml"],
+    fix: () => "Rotate a Host that reaches peers; the Mesh's plan lists them.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

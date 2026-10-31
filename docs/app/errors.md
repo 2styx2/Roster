@@ -160,6 +160,20 @@ Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permiss
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.
 
+## The Mesh
+
+`roster mesh`, `roster check` and the `mesh.*` methods (see [The Mesh](../mesh.md)). Most of what can go wrong is one Link or one Host, not the whole run: the rest is applied, and the result says what wasn't. A `links:` or `mesh:` entry that doesn't load is row 1, an unknown Host code 2.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 73 | 110 | `--rotate` (or `rotate`) names a Host that isn't a Mesh source | `roster.yml` | "nas-1 isn't a Mesh source, so it has no Mesh key to replace" | Rotate a Host that reaches peers; the plan lists them |
+| 74 | none (a Link's status) | The source can't reach the peer's ssh port: another network, a firewall | Network | "orion-3 can't reach 10.0.9.9:22" | The Link is left out until the port answers from there; check routing and firewalls, then apply again |
+| 75 | none (a Link's status) | This Box has no recorded host key for the peer | Box | "no recorded host key for nas-1 on this Box" | `roster setup --only nas-1` after checking its key, then apply again |
+| 76 | none (a Host's status) | A Host didn't answer during an apply: down, or the rate limiter | Host / network | "nas-1: no answer: … Connection timed out" | Nothing to do now: it's pending, and the next `roster mesh` finishes it |
+| 77 | none (a warning) | A Host that was cut didn't confirm: down or not answering | Host / network | "CUT PENDING ON 1 HOST: nas-1" | `roster mesh cut HOST` again, or `roster mesh`, once it answers; until then that Host may still let the cut one in |
+| 78 | none (a warning) | A source has a `~/ROSTER.md` roster didn't write | Host | "orion-3: ~/ROSTER.md isn't roster's, so roster left it alone" | Move the file away and apply again |
+| 79 | none (drift) | `roster check` found a Host that doesn't hold what roster wrote: a key removed by hand, a file edited, an ESXi reboot that dropped `~/.ssh/config`'s `Include` | Host | "mesh drift: esx-02: write Include in ~/.ssh/config" | `roster mesh` puts it back |
+
 ## See also
 
 [The error catalog](errors) · [`roster check HOST`](../cli-reference.md#roster-check-host) · [The roster serve API](../serve-api.md)

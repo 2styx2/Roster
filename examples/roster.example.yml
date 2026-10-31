@@ -134,6 +134,13 @@ groups:
         title: Edge router / internet gateway
         web: "https://10.0.0.1"
 
+# The Mesh: Hosts that reach each other, set up from this box by `roster mesh` (docs/mesh.md).
+#   mesh: true on a group (or defaults, or a host) lets its hosts ssh to each other with keys made on them;
+#   mesh: false opts out. links: add one-way reach across groups (both: true for two-way).
+#   Start small: try `roster mesh --dry-run` on two or three hosts first.
+# links:
+#   - { from: orion, to: net-sw-core-01 }
+
 # Things with a secret but no address to connect to. Each type has a fixed set of fields:
 #   every type   title, description, group (one of the groups above), user, auth
 #   wifi         ssid (required), security (wpa2 | wpa3 | wpa | wep | open | wpa2-enterprise | wpa3-enterprise,
