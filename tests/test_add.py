@@ -52,7 +52,9 @@ def test_a_host_without_a_login_is_added_unreviewed_without_touching_the_network
                                                ({"name": "x", "group": "a b"}, 80, "group"),
                                                ({"name": "x", "address": "a b"}, -32602, None),
                                                ({"name": "x", "port": 0}, -32602, None),
-                                               ({"name": "x", "auth": "bw:x", "password": "p"}, -32602, None)])
+                                               ({"name": "x", "auth": "bw:x", "password": "p"}, -32602, None),
+                                               ({"name": "x", "password": "p", "item": "a:b"}, -32602, None),
+                                               ({"name": "x", "password": "p", "item": "a\nb"}, -32602, None)])
 def test_bad_adds_are_refused_and_nothing_is_written(app, box, vault, isolated, params, code, field):
     err = add(app, **params)["error"]
     assert err["code"] == code, err

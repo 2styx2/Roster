@@ -171,7 +171,9 @@ def test_a_save_to_of_the_wrong_shape_is_refused(serve, write_config, bw, save_t
     s = start(serve, write_config)
     assert s.call("vault.create_item", {"name": "x ssh", "password": NEW_PW, "save_to": save_to})["error"]["code"] \
         == -32602
-    assert s.call("vault.configure", {"save_to": save_to})["error"]["code"] == -32602
+    r = s.call("vault.configure", {"save_to": save_to})["result"]          # left out alone, the rest still applies
+    assert [x["setting"] for x in r["refused"]] == ["save_to"] and "save_to" in r["refused"][0]["message"]
+    assert s.call("vault.status")["result"]["save_to"]["from"] != "init.lua"
 
 
 def test_a_bad_save_to_in_roster_yml_is_a_config_error(serve, write_config, bw):

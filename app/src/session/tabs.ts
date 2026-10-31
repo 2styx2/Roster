@@ -119,7 +119,7 @@ interface Entry {
   windowFrom: number | null;
   /** The current attempt's last output after the window (decoded), for classifyDrop. */
   late: string;
-  /** Decodes this tab's output for `preAuth` and `late`. Its own, and new each attempt: a streaming decoder
+  /** Decodes this tab's output for `preAuth`, `late` and `saveScan`. Its own, and new each attempt: a streaming decoder
    * holds a character split across chunks, which must not end up in another tab's text. */
   decoder: TextDecoder;
   sink: Sink | null;
@@ -132,7 +132,7 @@ interface Entry {
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
    * to ConPTY's cursor-position request, which ConPTY waits for before starting anything. */
   pending: string[];
-  /** The output since the login, while a save is offered: where the box's name is read from. */
+  /** The attempt's last output while a save may be offered: where the box's name is read from. */
   saveScan: string;
 }
 
@@ -170,6 +170,8 @@ export class Tabs {
       return;
     }
     entry.tab = { ...entry.tab, save: { ...entry.tab.save, loggedIn: true } };
+    // The shell's first prompt (and title) usually arrived before serve said so.
+    this.scanForName(entry, "");
     this.changed();
   }
 
@@ -180,6 +182,11 @@ export class Tabs {
     entry.tab = { ...entry.tab, save: null };
     entry.saveScan = "";
     if (save.saved === null) void this.backend.forgetTyped(save.held).catch(() => {});
+  }
+
+  /** Tells serve to forget what it holds for a Session no tab will offer to save. */
+  private forgetHeld(session: SessionHandle) {
+    if (session.held !== undefined) void this.backend.forgetTyped(session.held).catch(() => {});
   }
 
   /** The user turned the offer down: serve forgets the password now. */
@@ -198,11 +205,14 @@ export class Tabs {
     this.changed();
   }
 
-  /** Reads the box's name from what its shell printed since the login. */
+  /** Keeps the attempt's recent output, while a save may still be offered, and reads the box's name
+   * from it once the Session has logged in. serve's `session.logged_in` usually lands after the
+   * shell's first prompt, so the output before it is kept too (only the last SAVE_SCAN_LIMIT). */
   private scanForName(entry: Entry, text: string) {
     const save = entry.tab.save;
-    if (!save?.loggedIn || save.saved !== null) return;
-    entry.saveScan = (entry.saveScan + text).slice(-SAVE_SCAN_LIMIT);
+    if (save ? save.saved !== null : entry.session !== null) return;
+    if (text) entry.saveScan = (entry.saveScan + text).slice(-SAVE_SCAN_LIMIT);
+    if (!save?.loggedIn) return;
     const user = entry.tab.quick?.to.user;
     const name = user ? hostnameIn(entry.saveScan, user) : null;
     if (name && name !== save.hostname) entry.tab = { ...entry.tab, save: { ...save, hostname: name } };
@@ -256,16 +266,19 @@ export class Tabs {
     return entry.windowFrom !== null;
   }
 
-  private keepTail(entry: Entry, data: Uint8Array) {
+  /** Keeps the attempt's output for classifyExit / classifyDrop; returns it decoded (the tab's
+   * streaming decoder, so a character split across chunks comes out whole). */
+  private keepTail(entry: Entry, data: Uint8Array): string {
     const text = entry.decoder.decode(data, { stream: true });
     if (this.windowOpen(entry) && entry.preAuthBytes + data.length <= PRE_AUTH_BYTES) {
       entry.preAuth += text;
       entry.preAuthBytes += data.length;
-      return;
+      return text;
     }
     entry.windowFrom = null;
     entry.late += text;
     if (entry.late.length > LATE_LIMIT) entry.late = entry.late.slice(-LATE_LIMIT);
+    return text;
   }
 
   /** A Quick Connect's Problem says so (its fixes then leave out the Host-only ones). */
@@ -402,12 +415,13 @@ export class Tabs {
     entry.windowFrom = this.now();
     entry.late = "";
     entry.decoder = new TextDecoder();
+    entry.saveScan = "";
     open(entry.size, {
         output: (data) => {
           if (!current()) return;
           const before = entry.tab;
-          this.keepTail(entry, data);
-          if (entry.tab.save) this.scanForName(entry, new TextDecoder().decode(data));
+          const text = this.keepTail(entry, data);
+          this.scanForName(entry, text);
           this.output(entry, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
@@ -423,6 +437,8 @@ export class Tabs {
       .then(
         (session) => {
           if (!current()) {
+            // Closed or started again while it opened: nothing will ever save what serve holds for it.
+            this.forgetHeld(session);
             void session.close().catch(() => {});
             return;
           }
@@ -430,12 +446,15 @@ export class Tabs {
           // knowing the auth now tells a refused password from a refused key.
           const s = entry.tab.status;
           if (s.state === "ended") {
-            if (session.held !== undefined) void this.backend.forgetTyped(session.held).catch(() => {});
+            this.forgetHeld(session);
             entry.tab = { ...entry.tab, auth: session.auth };
             this.setStatus(entry, { ...s, problem: this.classify(entry, s.exit) });
             return;
           }
-          if (s.state !== "connecting") return;
+          if (s.state !== "connecting") {
+            this.forgetHeld(session);
+            return;
+          }
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
           const quick = entry.tab.quick && { ...entry.tab.quick, id: session.quick ?? null };
@@ -443,6 +462,8 @@ export class Tabs {
           const save: SaveOffer | null =
             held === undefined ? null : { held, loggedIn: this.loggedInEarly.delete(held), hostname: null, saved: null };
           entry.tab = { ...entry.tab, auth: session.auth, quick, save };
+          if (save) this.scanForName(entry, "");
+          else entry.saveScan = "";
           this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },

@@ -1170,6 +1170,47 @@ fn the_keepassxc_database_and_key_file_are_paths_on_the_backend() {
     }
 }
 
+/// roster serve runs on Linux (in WSL on Windows), so a Windows path in init.lua is refused with
+/// the path it most likely means there, instead of roster refusing all of `vault.configure`.
+#[test]
+fn a_windows_path_for_the_keepassxc_database_is_refused_with_its_wsl_path() {
+    for (name, path, hint) in [
+        (
+            "vault-drive",
+            r"C:\Users\you\roster.kdbx",
+            "/mnt/c/Users/you/roster.kdbx",
+        ),
+        (
+            "vault-drive-slash",
+            "d:/vaults/roster.kdbx",
+            "/mnt/d/vaults/roster.kdbx",
+        ),
+        (
+            "vault-wsl-share",
+            r"\\wsl.localhost\Ubuntu\home\you\roster.kdbx",
+            "/home/you/roster.kdbx",
+        ),
+        (
+            "vault-wsl-dollar",
+            r"\\wsl$\Ubuntu\home\you\roster.keyx",
+            "/home/you/roster.keyx",
+        ),
+    ] {
+        let lua = format!("return {{\n  vault = {{ kp = {{ database = [[{path}]] }} }},\n}}\n");
+        let e = config::load(&with_init(name, &lua)).unwrap_err();
+        assert_eq!(e.line, Some(2), "{e}");
+        assert!(e.message.contains("vault.kp.database"), "{name}: {e}");
+        assert!(e.message.contains("Windows path"), "{name}: {e}");
+        assert!(e.message.contains(hint), "{name}: {e}");
+    }
+    let lua = "return {\n  vault = { kp = { key_file = [[\\\\nas\\keys\\roster.keyx]] } },\n}\n";
+    let e = config::load(&with_init("vault-unc", lua)).unwrap_err();
+    assert!(
+        e.message.contains("vault.kp.key_file") && e.message.contains("Windows path"),
+        "{e}"
+    );
+}
+
 /// Ticket 35: where "Save to vault" puts new Vault items on this Box: "personal", an
 /// organization's collection (Bitwarden) or a group (KeePassXC). It wins over roster.yml's.
 #[test]

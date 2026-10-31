@@ -94,7 +94,8 @@ def test_a_key_that_changed_since_the_question_is_refused(app, sshd, unknown, is
     assert err["code"] == 23
     assert err["message"] == "esx's host key changed while roster was asking - nothing was recorded"
     assert err["data"]["asked"] == asked and err["data"]["offered"] == fingerprint(sshd.key)
-    assert "fix" in err["data"]
+    assert err["data"]["fix"] == ("don't trust it blindly: compare the new fingerprint with the Host's console or "
+                                  "owner, then open the Session again to see it")
     assert known_hosts(isolated).read_text() == ""
 
 

@@ -10,13 +10,15 @@ Against the local paramiko Host and the stand-in bw from test_changes; no networ
 import json
 import os
 import subprocess
+import threading
+import time
 
 import pytest
 from conftest import SECRET
 from test_changes import app, box, git, infra, result, sshd  # noqa: F401 (fixtures)
 from test_quick import needs_ssh, run_ssh, to
 
-from roster import edit
+from roster import askpass, edit
 from roster import serve as rpc
 from roster.sshops import fingerprint
 
@@ -245,3 +247,76 @@ def test_the_log_names_the_login_never_the_password(app, box, sshd, vault, unkno
     assert f"askpass: root@127.0.0.1:{sshd.port}: logged in" in err
     assert SECRET not in "".join(app.responses) + out + err
     assert fingerprint(sshd.key) in "".join(app.responses)
+
+
+# ---------------------------------------------------------------- the held passwords across serve's threads
+
+def test_a_login_report_waits_while_the_held_passwords_change(box):
+    """ssh's login report arrives on the askpass channel's thread: it marks the Held under the same lock as every
+    change to the held passwords, so a password being forgotten is never reported as logged in."""
+    state = rpc.State(str(box.yml))
+    notes = []
+    state.notify = lambda method, params: notes.append((method, params))
+    typed = askpass.Typed(SECRET)
+    hid = rpc.hold(state, "q1", typed, "quick", "root@box")
+    with state.held_lock:
+        report = threading.Thread(target=typed.on_login)
+        report.start()
+        report.join(0.2)
+        assert report.is_alive()                # it waits for the lock
+        assert rpc.forget_held(state, hid)
+    report.join(2)
+    assert notes == [] and state.held == {} and typed.password is None
+
+
+def eventually(check, timeout=3.0):
+    end = time.monotonic() + timeout
+    while not check() and time.monotonic() < end:
+        time.sleep(0.05)
+    return check()
+
+
+def test_a_held_password_goes_once_hold_for_is_up_without_another_call(box, sshd, vault, unknown, fakes,
+                                                                       monkeypatch):
+    """HOLD_FOR is enforced by serve itself (the askpass channel's tick), not only when the next save comes."""
+    state = unlocked(box)
+    monkeypatch.setattr(rpc, "HOLD_FOR", 0.5)
+    with rpc.open_channel(state) as state.askpass:
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        typed = state.held[spec["held"]].typed
+        assert eventually(lambda: state.held == {})
+        assert typed.password is None
+
+
+def test_a_password_handed_to_ssh_goes_once_its_login_report_is_overdue(box, sshd, vault, unknown, fakes,
+                                                                        monkeypatch):
+    """The box refused the password, so no login report ever comes: the channel drops what it kept for one."""
+    monkeypatch.setenv("ROSTER_ASKPASS_TTL", "0.2")
+    state = unlocked(box)
+    with rpc.open_channel(state) as state.askpass:
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        log_in(spec, password="wrong")
+        assert eventually(lambda: state.askpass.handed == {})
+
+
+def test_nothing_is_left_of_a_quick_connect_once_its_password_is_saved_or_was_never_held(box, sshd, vault, unknown,
+                                                                                        fakes):
+    state = unlocked(box)
+    with rpc.open_channel(state) as state.askpass:
+        for _ in range(3):
+            call(state, "quick.prepare", to(sshd))
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        log_in(spec)
+        assert "result" in call(state, "quick.save", {"quick": spec["quick"], "name": "nas", "group": "lab"})
+        assert state.held == {} and not getattr(state, "quick", {})
+
+
+def test_serve_holds_at_most_held_limit_passwords(box, monkeypatch):
+    """The oldest goes first: a box that types passwords faster than it saves them can't grow serve's memory."""
+    state = rpc.State(str(box.yml))
+    monkeypatch.setattr(rpc, "HELD_LIMIT", 2)
+    typed = [askpass.Typed(f"pw{i}") for i in range(3)]
+    for i, t in enumerate(typed):
+        rpc.hold(state, f"q{i}", t, "quick", "root@box")
+    assert list(state.held) == ["q1", "q2"]
+    assert typed[0].password is None

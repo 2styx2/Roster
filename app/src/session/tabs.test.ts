@@ -850,3 +850,74 @@ describe('"Save to vault" on Quick Connect (ticket 15)', () => {
     expect(backend.forgotten()).toEqual([]);
   });
 });
+
+describe("a held password, around the Session's life (iteration-4 review)", () => {
+  /** The fake Backend, but the test resolves the Session's opening and says when it logged in. */
+  function heldSessions() {
+    const backend = fakeBackend({ ...unlocked, hosts, apiVersion: SAVE_TO_VAULT_API_VERSION });
+    let events: SessionEvents | null = null;
+    let resolve: (held: string) => void = () => {};
+    backend.openSession = (_host, _size, ev) => {
+      events = ev;
+      return new Promise((r) => {
+        const done = async () => {};
+        resolve = (held) => r({ id: 1, auth: "password", held, write: done, resize: done, close: done });
+      });
+    };
+    backend.openQuickSession = (_to, _password, size, ev) => backend.openSession("", size, ev);
+    let login: (held: string) => void = () => {};
+    backend.onLoggedIn = (cb) => ((login = cb), () => {});
+    const tabs = new Tabs(backend);
+    const print = (s: string | Uint8Array) => events!.output(typeof s === "string" ? new TextEncoder().encode(s) : s);
+    return { backend, tabs, open: (held: string) => resolve(held), login: (held: string) => login(held), print };
+  }
+  /** A Quick Connect as `user` to a box, with "Save to vault" ticked and serve holding `h1`. */
+  async function quickSaving(user: string) {
+    const t = heldSessions();
+    const id = t.tabs.openQuick({ user, address: "10.0.0.5", port: 22 });
+    await vi.waitFor(() => {
+      const s = t.tabs.snapshot().tabs[0]!.status;
+      if (s.state !== "asking" || !s.key) throw new Error("not asking yet");
+    });
+    t.tabs.connectQuick(id, FAKE_HOST_PASSWORD, true);
+    await settle();
+    t.open("h1");
+    await vi.waitFor(() => expect(t.tabs.snapshot().tabs[0]!.save?.held).toBe("h1"));
+    return { ...t, save: () => t.tabs.snapshot().tabs[0]!.save };
+  }
+
+  it("forgets the password a Session holds when it opens after its tab was closed", async () => {
+    const { backend, tabs, open } = heldSessions();
+    const id = tabs.open(reviewed[0]!);
+    await settle();
+    tabs.close(id);
+    open("h1");
+    await vi.waitFor(() => expect(backend.forgotten()).toEqual(["h1"]));
+  });
+
+  it("reads the box's name across a character split between two chunks of output", async () => {
+    const { login, print, save } = await quickSaving("jé");
+    login("h1");
+    const bytes = new TextEncoder().encode("[jé@nas-01 ~]$ ");
+    const split = 3; // "[j" and the first of "é"'s two bytes
+    print(bytes.slice(0, split));
+    print(bytes.slice(split));
+    expect(save()?.hostname).toBe("nas-01");
+  });
+
+  it("reads the box's name from a prompt printed before serve said it logged in", async () => {
+    const { login, print, save } = await quickSaving("root");
+    print("\x1b]0;root@nas-01: ~\x07[root@nas-01 ~]# ");
+    expect(save()?.hostname).toBeNull();
+    login("h1");
+    expect(save()).toMatchObject({ loggedIn: true, hostname: "nas-01" });
+  });
+
+  it("keeps only a bounded tail of that output", async () => {
+    const { login, print, save } = await quickSaving("root");
+    print("[root@old-name ~]# ");
+    print("x".repeat(8 * 1024));
+    login("h1");
+    expect(save()?.hostname).toBeNull();
+  });
+});

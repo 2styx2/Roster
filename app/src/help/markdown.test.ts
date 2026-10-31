@@ -55,4 +55,22 @@ describe("parseMarkdown (the guides' Markdown, as help blocks)", () => {
     const anchors = parseMarkdown("## Keys\n\n### Keys\n").map((b) => (b.t === "h" ? b.anchor : null));
     expect(anchors).toEqual(["keys", "keys-2"]);
   });
+  it("reads a line that starts with a pipe but isn't a table as text, and moves on", () => {
+    expect(parseMarkdown("| not a table\nnext line\n")).toEqual([
+      { t: "p", text: [{ t: "text", text: "| not a table next line" }] },
+    ]);
+    expect(parseMarkdown("Some words\n  | wrapped on\n\n|\n")).toEqual([
+      { t: "p", text: [{ t: "text", text: "Some words | wrapped on" }] },
+      { t: "p", text: [{ t: "text", text: "|" }] },
+    ]);
+  });
+
+  it("ends a table at a row that isn't one, and reads a table that follows a paragraph", () => {
+    const blocks = parseMarkdown("Intro\n| A |\n|---|\n| 1 |\nafter\n");
+    expect(blocks).toEqual([
+      { t: "p", text: [{ t: "text", text: "Intro" }] },
+      { t: "table", head: [[{ t: "text", text: "A" }]], rows: [[[{ t: "text", text: "1" }]]] },
+      { t: "p", text: [{ t: "text", text: "after" }] },
+    ]);
+  });
 });
