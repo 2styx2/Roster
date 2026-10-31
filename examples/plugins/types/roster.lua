@@ -550,7 +550,7 @@
 ---@class roster.ChangesDiff
 ---@field path string `roster.yml`'s path.
 ---@field repo string The infra repo's top folder.
----@field diff string git's diff of `roster.yml` against the last commit; `""` for none.
+---@field diff string git's diff of `roster.yml` against the last commit; `""` for none. A `cmd:` reference in it reaches a Plugin cut to `cmd:` (the rest of its line), an `env:` one to `env:`.
 ---@field hosts roster.HostChange[] The Hosts it changes.
 ---@field groups roster.GroupChange[] The groups it changes.
 ---@field count integer How many Hosts change (1 for a change that touches none, 0 for no change).

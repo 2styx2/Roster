@@ -655,28 +655,79 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
 }
 
 /// The Login references that say how a secret is fetched, `cmd:COMMAND` and `env:VAR`, cut to
-/// their kind (`cmd:`, `env:`) wherever an `auth` holds one (decision Q92): a command line can
-/// carry a secret pasted into it, and a Plugin never needs either to do its work.
+/// their kind (`cmd:`, `env:`) in every text of serve's answer, not only an `auth` (decision Q92,
+/// ticket 86): a command line can carry a secret pasted into it, a Plugin never needs either to
+/// do its work, and raw text (`changes.diff`'s diff, `host.check`'s messages) shows them as
+/// written. The app's own UI gets serve's answers whole; only a Plugin's are cut.
 fn redact(v: &mut Json) {
     match v {
-        Json::Object(map) => {
-            for (key, item) in map.iter_mut() {
-                if key == "auth"
-                    && let Json::String(text) = item
-                {
-                    for kind in ["cmd:", "env:"] {
-                        if text.len() >= kind.len() && text[..kind.len()].eq_ignore_ascii_case(kind) {
-                            *text = kind.to_string();
-                        }
-                    }
-                } else {
-                    redact(item);
-                }
+        Json::String(text) => {
+            if let Some(cut) = redact_text(text) {
+                *text = cut;
             }
         }
+        Json::Object(map) => map.values_mut().for_each(redact),
         Json::Array(items) => items.iter_mut().for_each(redact),
         _ => {}
     }
+}
+
+/// `text` with each `cmd:`/`env:` reference cut to its kind, or `None` when it has none. A
+/// reference starts a text or follows a space, a quote or one of `=:,({[`, in any case. A
+/// `cmd:` one runs to the end of its line (a command can hold anything; a closing quote is put
+/// back), an `env:` one is the variable's name. `cmd: is ready` is the kind alone, kept.
+fn redact_text(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let starts = |i: usize| -> Option<&'static str> {
+        let word = bytes.get(i..i + 4)?;
+        let before = i.checked_sub(1).map(|j| bytes[j]);
+        let boundary = before.is_none_or(|b| b.is_ascii_whitespace() || b"\"'=:,({[".contains(&b));
+        if !boundary {
+            return None;
+        }
+        ["cmd:", "env:"]
+            .into_iter()
+            .find(|k| word.eq_ignore_ascii_case(k.as_bytes()))
+    };
+    let mut out = String::new();
+    let (mut copied, mut i, mut cut) = (0, 0, false);
+    while i < bytes.len() {
+        let Some(kind) = starts(i) else {
+            i += 1;
+            continue;
+        };
+        let from = i + 4;
+        let to = if kind == "cmd:" {
+            if bytes.get(from).is_none_or(|b| b.is_ascii_whitespace()) {
+                from
+            } else {
+                text[from..].find(['\n', '\r']).map_or(bytes.len(), |n| from + n)
+            }
+        } else {
+            from + bytes[from..]
+                .iter()
+                .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
+                .count()
+        };
+        if to > from || !text[i..from].eq(kind) {
+            out.push_str(&text[copied..i]);
+            out.push_str(kind);
+            let quote = i.checked_sub(1).map(|j| bytes[j]).filter(|b| *b == b'"' || *b == b'\'');
+            if kind == "cmd:"
+                && to > from
+                && let Some(q) = quote
+            {
+                out.push(q as char);
+            }
+            copied = to;
+            cut = true;
+        }
+        i = to.max(from);
+    }
+    cut.then(|| {
+        out.push_str(&text[copied..]);
+        out
+    })
 }
 
 /// roster serve's answer as Lua, or an error naming `what` called it.

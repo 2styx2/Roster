@@ -2050,7 +2050,7 @@ roster serve's methods, by name. `nil` unless the Plugin was granted at least on
 
 ### `roster.serve.call(method, params)`
 
-Calls a roster serve method the Plugin was granted. Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
+Calls a roster serve method the Plugin was granted. Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.
 
 **Parameters**
 
@@ -2962,7 +2962,7 @@ Every value is resolved: what the Host doesn't set comes from its group, then `d
 
 A Login reference: where a password is, never the password.
 
-`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too, but they say how a secret is fetched (and a secret pasted into a `cmd:` line would show), so a Plugin gets them cut to their kind: `env:` and `cmd:` (since api 3; decision Q92). The providers are in [Password providers](cli-reference.md#password-providers).
+`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too, but they say how a secret is fetched (and a secret pasted into a `cmd:` line would show), so a Plugin gets them cut to their kind: `env:` and `cmd:` (since api 3; decision Q92), in raw text such as a diff or a check's message too. The providers are in [Password providers](cli-reference.md#password-providers).
 
 One of: `string`
 
@@ -3143,7 +3143,7 @@ One step of a `host.check`.
 |---|---|---|---|
 | `path` | `string` | yes | `roster.yml`'s path. |
 | `repo` | `string` | yes | The infra repo's top folder. |
-| `diff` | `string` | yes | git's diff of `roster.yml` against the last commit; `""` for none. |
+| `diff` | `string` | yes | git's diff of `roster.yml` against the last commit; `""` for none. A `cmd:` reference in it reaches a Plugin cut to `cmd:` (the rest of its line), an `env:` one to `env:`. |
 | `hosts` | [`HostChange`](#hostchange)`[]` | yes | The Hosts it changes. |
 | `groups` | [`GroupChange`](#groupchange)`[]` | yes | The groups it changes. |
 | `count` | `integer` | yes | How many Hosts change (1 for a change that touches none, 0 for no change). |
