@@ -97,6 +97,28 @@ describe("the Plugin API reference and ops.ts agree", () => {
       changes: typed("ViewUpdate", { title: "V", text: "t", facts: [], rows: [{ id: "r", cells: { a: 2 } }], remove: ["q"] }),
     },
     {
+      op: "view",
+      id: "g",
+      spec: typed("View", {
+        title: "G",
+        place: "full",
+        graph: typed("Graph", {
+          clusters: [typed("GraphCluster", { id: "lab", title: "Lab", mesh: true, collapsed: false })],
+          nodes: [
+            typed("GraphNode", { id: "esx-02", label: "esx-02", kind: "esxi", shape: "ring", state: "live", mark: "warn", note: "out of date", cluster: "lab", host: "esx-02", detail: "10.0.0.5" }),
+          ],
+          edges: [typed("GraphEdge", { id: "e", from: "esx-02", to: "lab", dir: "both", style: "dashed", tone: "warn", cut: true, label: "Link" })],
+          open: { handler: 1 },
+          actions: [typed("NodeAction", { label: "Check", key: "c", icon: "info", run: { handler: 2 } })],
+        }),
+      }),
+    },
+    {
+      op: "view_update",
+      id: "g",
+      changes: typed("ViewUpdate", { nodes: [{ id: "a" }], edges: [{ from: "a", to: "b" }], clusters: [{ id: "c" }], remove_edges: ["a>b"] }),
+    },
+    {
       op: "details",
       id: "d",
       host: "esx-02",
@@ -108,7 +130,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
     for (const op of ops) expect(parseOp(op)).not.toHaveProperty("invalid");
   });
 
-  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction"])(
+  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction", "Graph", "GraphNode", "GraphEdge", "GraphCluster", "NodeAction"])(
     "%s: ops.ts reads exactly the fields the reference lists",
     (type) => {
       for (const op of ops) parseOp(op);

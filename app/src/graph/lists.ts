@@ -3,7 +3,7 @@
 // edges' table's Enter goes to the edge's first end in the graph.
 import type { TableModel } from "../view/views";
 import type { TableRow } from "../ui/table";
-import { reachOf, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type NodeShape } from "./model";
+import { reachCounts, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type NodeShape } from "./model";
 import type { GraphModel } from "../view/views";
 
 /** A shape in words, as the list says it. */
@@ -16,9 +16,10 @@ export function stateWords(n: GraphNode): string {
 
 export function nodeTable(model: GraphModel, ix: GraphIndex): TableModel {
   const titles = new Map(model.data.clusters.map((c) => [c.id, c.title]));
+  const counts = reachCounts(ix);
   const rows: TableRow[] = model.data.nodes.map((n) => {
-    const r = reachOf(ix, n.id);
-    const cells: Record<string, string | number> = { name: n.label, shape: SHAPE_WORDS[n.shape], reaches: r.out.size, reached: r.in.size };
+    const r = counts.get(n.id) ?? { out: 0, in: 0 };
+    const cells: Record<string, string | number> = { name: n.label, shape: SHAPE_WORDS[n.shape], reaches: r.out, reached: r.in };
     if (n.kind) cells.kind = n.kind;
     const state = stateWords(n);
     if (state) cells.state = state;

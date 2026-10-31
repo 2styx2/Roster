@@ -21,7 +21,7 @@ export interface DataTableProps {
   autoFocus?: boolean;
   leader: string;
   /** The row selected when it first draws (a graph's list starts on the graph's node). */
-  selectedId?: string;
+  selectedId?: string | undefined;
   /** Told the selected row as it changes. */
   onSelect?(row: TableRow): void;
 }

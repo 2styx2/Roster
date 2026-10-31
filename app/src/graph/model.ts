@@ -105,7 +105,8 @@ export function mergeGraph(graph: GraphData, update: GraphUpdate): GraphData {
 }
 
 function withoutCluster(n: GraphNode): GraphNode {
-  const { cluster: _, ...rest } = n;
+  const rest = { ...n };
+  delete rest.cluster;
   return rest;
 }
 
@@ -146,10 +147,10 @@ export function graphIndex(g: GraphData): GraphIndex {
   return { nodes, members, meshed, next, prev };
 }
 
-function walk(ix: GraphIndex, start: string, links: ReadonlyMap<string, readonly string[]>): Set<string> {
-  const seen = new Set<string>([start]);
+function walk(ix: GraphIndex, starts: readonly string[], links: ReadonlyMap<string, readonly string[]>): Set<string> {
+  const seen = new Set<string>(starts);
   const opened = new Set<string>();
-  const queue = [start];
+  const queue = [...starts];
   const reach = (id: string) => {
     if (ix.nodes.has(id)) {
       if (!seen.has(id)) {
@@ -172,12 +173,128 @@ function walk(ix: GraphIndex, start: string, links: ReadonlyMap<string, readonly
       if (ix.meshed.has(cluster)) reach(cluster);
     }
   }
-  seen.delete(start);
+  for (const s of starts) seen.delete(s);
   return seen;
 }
 
-/** The nodes `id` can reach, however many hops away, and those that can reach it. */
+/** The nodes `id` can reach, however many hops away, and those that can reach it. For a cluster,
+ * what its nodes reach (and what reaches them) outside it. */
 export function reachOf(ix: GraphIndex, id: string): { out: Set<string>; in: Set<string> } {
-  if (!ix.nodes.has(id)) return { out: new Set(), in: new Set() };
-  return { out: walk(ix, id, ix.next), in: walk(ix, id, ix.prev) };
+  const starts = ix.nodes.has(id) ? [id] : (ix.members.get(id) ?? []);
+  if (starts.length === 0) return { out: new Set(), in: new Set() };
+  return { out: walk(ix, starts, ix.next), in: walk(ix, starts, ix.prev) };
+}
+
+/** How many nodes each node reaches and is reached by, for every node at once: the graph's
+ * strongly connected parts (Tarjan), then each part's reach as a bitset, sinks first. Linear in
+ * the graph plus nodes × parts / 32, where a walk per node would be nodes × graph. */
+export function reachCounts(ix: GraphIndex): Map<string, { out: number; in: number }> {
+  const ids = [...ix.nodes.keys()];
+  const n = ids.length;
+  const at = new Map(ids.map((id, i) => [id, i]));
+  // Each cluster is up to three extra vertices: edges into it, edges out of it, and its mesh.
+  let next = n;
+  const ports = new Map<string, { in: number; out: number; mesh: number }>();
+  for (const c of ix.members.keys()) ports.set(c, { in: next++, out: next++, mesh: ix.meshed.has(c) ? next++ : -1 });
+  const fwd: number[][] = Array.from({ length: next }, () => []);
+  const back: number[][] = Array.from({ length: next }, () => []);
+  const link = (a: number, b: number) => {
+    fwd[a]?.push(b);
+    back[b]?.push(a);
+  };
+  for (const [c, p] of ports)
+    for (const m of ix.members.get(c) ?? []) {
+      const i = at.get(m) as number;
+      link(p.in, i);
+      link(i, p.out);
+      if (p.mesh >= 0) {
+        link(i, p.mesh);
+        link(p.mesh, i);
+      }
+    }
+  for (const [from, tos] of ix.next) {
+    const a = at.get(from) ?? ports.get(from)?.out;
+    if (a === undefined) continue;
+    for (const to of tos) {
+      const b = at.get(to) ?? ports.get(to)?.in;
+      if (b !== undefined) link(a, b);
+    }
+  }
+  const out = countAll(fwd, n);
+  const inn = countAll(back, n);
+  return new Map(ids.map((id, i) => [id, { out: out[i] ?? 0, in: inn[i] ?? 0 }]));
+}
+
+/** For each of the first `real` vertices, how many other real vertices it reaches. */
+function countAll(adj: number[][], real: number): number[] {
+  const V = adj.length;
+  const words = Math.ceil(real / 32) || 1;
+  const index = new Int32Array(V).fill(-1);
+  const low = new Int32Array(V);
+  const part = new Int32Array(V).fill(-1);
+  const onStack = new Uint8Array(V);
+  const stack: number[] = [];
+  const bits: Uint32Array[] = [];
+  let counter = 0;
+  for (let root = 0; root < V; root++) {
+    if (index[root] !== -1) continue;
+    // An iterative Tarjan: a frame is a vertex and how far through its edges it is.
+    const frames: [number, number][] = [[root, 0]];
+    index[root] = low[root] = counter++;
+    stack.push(root);
+    onStack[root] = 1;
+    while (frames.length) {
+      const frame = frames[frames.length - 1] as [number, number];
+      const v = frame[0];
+      const edges = adj[v] as number[];
+      if (frame[1] < edges.length) {
+        const w = edges[frame[1]++] as number;
+        if (index[w] === -1) {
+          index[w] = low[w] = counter++;
+          stack.push(w);
+          onStack[w] = 1;
+          frames.push([w, 0]);
+        } else if (onStack[w]) low[v] = Math.min(low[v] as number, index[w] as number);
+        continue;
+      }
+      frames.pop();
+      const parent = frames[frames.length - 1];
+      if (parent) low[parent[0]] = Math.min(low[parent[0]] as number, low[v] as number);
+      if (low[v] !== index[v]) continue;
+      // A part is complete: its reach is its own real vertices and every later part it points to,
+      // which Tarjan has finished already.
+      const p = bits.length;
+      const set = new Uint32Array(words);
+      const members: number[] = [];
+      let w: number;
+      do {
+        w = stack.pop() as number;
+        onStack[w] = 0;
+        part[w] = p;
+        members.push(w);
+        if (w < real) set[w >>> 5] = (set[w >>> 5] as number) | (1 << (w & 31));
+      } while (w !== v);
+      for (const m of members)
+        for (const t of adj[m] as number[]) {
+          const q = part[t] as number;
+          if (q === p || q < 0) continue;
+          const other = bits[q] as Uint32Array;
+          for (let k = 0; k < words; k++) set[k] = (set[k] as number) | (other[k] as number);
+        }
+      bits.push(set);
+    }
+  }
+  const counts: number[] = [];
+  for (let v = 0; v < real; v++) {
+    const set = bits[part[v] as number] as Uint32Array;
+    let c = 0;
+    for (let k = 0; k < words; k++) {
+      let x = set[k] as number;
+      x -= (x >>> 1) & 0x55555555;
+      x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+      c += (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+    }
+    counts.push(c - 1);
+  }
+  return counts;
 }

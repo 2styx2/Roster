@@ -24,7 +24,7 @@ import { drawFrame, easeOut, nodeRadius, readPalette, STAND_IN_RADIUS, toScreen,
 import { edgeTable, nodeTable, SHAPE_WORDS, stateWords } from "./lists";
 import { GraphPlaces, type GraphMemory } from "./memory";
 import { graphIndex } from "./model";
-import { buildScene, foldsFor, highlightOf, matchesOf, stepFrom, type Direction, type Scene } from "./scene";
+import { buildScene, foldsFor, highlightOf, matchesOf, stepFrom, type Direction, type Highlight, type Scene } from "./scene";
 
 export interface GraphViewProps {
   model: GraphModel;
@@ -32,7 +32,7 @@ export interface GraphViewProps {
   label: string;
   leader: string;
   /** Where positions and folds are kept; none, nothing is kept. */
-  memory?: GraphMemory;
+  memory?: GraphMemory | undefined;
   /** The view's key in the State (`source/id`). */
   memoKey: string;
   autoFocus?: boolean;
@@ -84,6 +84,90 @@ function drawDuration(el: Element): number {
   return Number.isFinite(ms) ? ms : 120;
 }
 
+/** Draws frames: on request, at most one a frame, and in a loop only while an edge is drawn in. */
+class Painter {
+  canvas: HTMLCanvasElement | null = null;
+  camera: Camera | null = null;
+  now: { scene: Scene; highlight: Highlight | null; selected: string | null; matchSet: ReadonlySet<string> | null; size: { w: number; h: number } } | null = null;
+  private frame = 0;
+  private readonly drawing = new Map<number, { start: number; ms: number }>();
+  private wasLive: Set<string> | null = null;
+
+  attach(canvas: HTMLCanvasElement | null) {
+    this.canvas = canvas;
+  }
+
+  setCamera(c: Camera) {
+    this.camera = c;
+    this.request();
+  }
+
+  show(now: NonNullable<Painter["now"]>) {
+    this.now = now;
+  }
+
+  request() {
+    if (this.frame || typeof requestAnimationFrame !== "function") return;
+    this.frame = requestAnimationFrame(this.draw);
+  }
+
+  stop() {
+    if (this.frame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(this.frame);
+    this.frame = 0;
+  }
+
+  /** Notes the scene's live edges; those that weren't live before are drawn in. */
+  liveEdges(scene: Scene) {
+    const live = new Set<string>();
+    const fresh: number[] = [];
+    scene.edges.forEach((e, i) => {
+      if (e.tone !== "live") return;
+      const key = `${e.from}\u0000${e.to}`;
+      live.add(key);
+      if (this.wasLive && !this.wasLive.has(key)) fresh.push(i);
+    });
+    this.wasLive = live;
+    this.drawing.clear();
+    const el = this.canvas;
+    if (!el || fresh.length === 0 || fresh.length > MAX_DRAWN_IN) return;
+    const ms = drawDuration(el);
+    const start = performance.now();
+    if (ms > 0) for (const i of fresh) this.drawing.set(i, { start, ms });
+    this.request();
+  }
+
+  private readonly draw = () => {
+    this.frame = 0;
+    const el = this.canvas;
+    const ctx = el?.getContext?.("2d");
+    const now = this.now;
+    if (!el || !ctx || !now || now.size.w === 0 || now.size.h === 0) return;
+    const cam = (this.camera ??= fitted(now.scene, now.size.w, now.size.h));
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const t = performance.now();
+    const progress = new Map<number, number>();
+    for (const [i, a] of this.drawing) {
+      const p = (t - a.start) / a.ms;
+      if (p >= 1) this.drawing.delete(i);
+      else progress.set(i, easeOut(p));
+    }
+    drawFrame(ctx, {
+      scene: now.scene,
+      camera: cam,
+      width: now.size.w,
+      height: now.size.h,
+      palette: readPalette(el),
+      selected: now.selected,
+      highlight: now.highlight,
+      matches: now.matchSet,
+      drawing: progress,
+    });
+    // Only while an edge is being drawn in: then nothing until the next change.
+    if (this.drawing.size) this.request();
+  };
+}
+
 export function GraphView({ model, label, leader, memory, memoKey, autoFocus = false }: GraphViewProps) {
   const base = useId();
   const data = model.data;
@@ -119,62 +203,18 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const canvas = useRef<HTMLCanvasElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const camera = useRef<Camera | null>(null);
-  const drawing = useRef(new Map<number, { start: number; ms: number }>());
-  const frame = useRef(0);
+  const [painter] = useState(() => new Painter());
 
   // What a frame draws: the latest of everything, read when it's drawn.
-  const now = useRef({ scene, highlight, selected, matchSet, size });
   useLayoutEffect(() => {
-    now.current = { scene, highlight, selected, matchSet, size };
+    painter.attach(canvas.current);
+    painter.show({ scene, highlight, selected, matchSet, size });
   });
-
-  const draw = useCallback(() => {
-    frame.current = 0;
-    const el = canvas.current;
-    const ctx = el?.getContext?.("2d");
-    const { scene: s, highlight: h, selected: sel, matchSet: m, size: sz } = now.current;
-    if (!el || !ctx || sz.w === 0 || sz.h === 0) return;
-    const cam = (camera.current ??= fitted(s, sz.w, sz.h));
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const t = performance.now();
-    const progress = new Map<number, number>();
-    for (const [i, a] of drawing.current) {
-      const p = a.ms <= 0 ? 1 : (t - a.start) / a.ms;
-      if (p >= 1) drawing.current.delete(i);
-      else progress.set(i, easeOut(p));
-    }
-    drawFrame(ctx, { scene: s, camera: cam, width: sz.w, height: sz.h, palette: readPalette(el), selected: sel, highlight: h, matches: m, drawing: progress });
-    // Only while an edge is being drawn in: then nothing until the next change.
-    if (drawing.current.size) frame.current = requestAnimationFrame(draw);
-  }, []);
-  const redraw = useCallback(() => {
-    if (frame.current || typeof requestAnimationFrame !== "function") return;
-    frame.current = requestAnimationFrame(draw);
-  }, [draw]);
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  useEffect(() => () => painter.stop(), [painter]);
+  const redraw = useCallback(() => painter.request(), [painter]);
 
   // Edges that turn live are drawn in (the connect edge, taste.md); the first drawing isn't.
-  const wasLive = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    const live = new Set<string>();
-    const fresh: number[] = [];
-    scene.edges.forEach((e, i) => {
-      if (e.tone !== "live") return;
-      const key = `${e.from}\u0000${e.to}`;
-      live.add(key);
-      if (wasLive.current && !wasLive.current.has(key)) fresh.push(i);
-    });
-    wasLive.current = live;
-    drawing.current.clear();
-    const el = canvas.current;
-    if (el && fresh.length > 0 && fresh.length <= MAX_DRAWN_IN) {
-      const ms = drawDuration(el);
-      const start = performance.now();
-      if (ms > 0) for (const i of fresh) drawing.current.set(i, { start, ms });
-    }
-  }, [scene]);
+  useEffect(() => painter.liveEdges(scene), [painter, scene]);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -193,11 +233,12 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   useEffect(() => {
     const el = canvas.current;
     if (!el || size.w === 0) return;
+    painter.attach(el);
     const dpr = window.devicePixelRatio || 1;
     el.width = Math.round(size.w * dpr);
     el.height = Math.round(size.h * dpr);
     redraw();
-  }, [size, redraw]);
+  }, [size, redraw, painter]);
   useEffect(redraw, [scene, highlight, selected, matchSet, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
@@ -213,23 +254,26 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   }, [autoFocus, mode]);
 
   const pan = (dx: number, dy: number) => {
-    const c = camera.current;
+    const c = painter.camera;
     if (!c) return;
-    camera.current = { ...c, x: c.x + dx / c.k, y: c.y + dy / c.k };
+    painter.setCamera({ ...c, x: c.x + dx / c.k, y: c.y + dy / c.k });
     redraw();
   };
   const zoomBy = (f: number, at?: { x: number; y: number }) => {
-    const c = camera.current;
+    const c = painter.camera;
     if (!c) return;
     const k = clampZoom(c.k * f);
-    const p = at ?? { x: size.w / 2, y: size.h / 2 };
+    // From a key, around the selected node when it's on screen; else the middle.
+    const sel = selected === null ? undefined : scene.byId.get(selected);
+    const on = sel ? toScreen(c, size.w, size.h, sel.x, sel.y) : null;
+    const p = at ?? (on && on.x >= 0 && on.y >= 0 && on.x <= size.w && on.y <= size.h ? on : { x: size.w / 2, y: size.h / 2 });
     const w0 = toWorld(c, size.w, size.h, p.x, p.y);
     // Keep the point under the pointer where it is.
-    camera.current = { k, x: w0.x - (p.x - size.w / 2) / k, y: w0.y - (p.y - size.h / 2) / k };
+    painter.setCamera({ k, x: w0.x - (p.x - size.w / 2) / k, y: w0.y - (p.y - size.h / 2) / k });
     redraw();
   };
   const fit = () => {
-    camera.current = fitted(scene, size.w, size.h);
+    painter.setCamera(fitted(scene, size.w, size.h));
     redraw();
   };
 
@@ -238,11 +282,11 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     if (id === null) return;
     setChosen(id);
     const n = scene.byId.get(id);
-    const c = camera.current;
+    const c = painter.camera;
     if (!n || !c || size.w === 0) return;
     const s = toScreen(c, size.w, size.h, n.x, n.y);
     const m = 56;
-    if (s.x < m || s.y < m || s.x > size.w - m * 3 || s.y > size.h - m) camera.current = { ...c, x: n.x, y: n.y };
+    if (s.x < m || s.y < m || s.x > size.w - m * 3 || s.y > size.h - m) painter.setCamera({ ...c, x: n.x, y: n.y });
   };
 
   const toggle = (cluster: string, open?: boolean) => {
@@ -356,7 +400,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // The pointer: a click selects, a drag on a node moves it, a drag elsewhere pans.
   const drag = useRef<{ id: string | null; x: number; y: number; moved: boolean; pointer: number } | null>(null);
   const hit = (sx: number, sy: number): string | null => {
-    const c = camera.current;
+    const c = painter.camera;
     if (!c) return null;
     let best: string | null = null;
     let bestD = Infinity;
@@ -373,7 +417,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return best;
   };
   const local = (e: { clientX: number; clientY: number }) => {
-    const r = canvas.current?.getBoundingClientRect();
+    const r = painter.canvas?.getBoundingClientRect();
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
   };
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -390,14 +434,14 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     if (!d || d.pointer !== e.pointerId) return;
     const p = local(e);
     if (!d.moved && Math.hypot(p.x - d.x, p.y - d.y) < 4) return;
-    const c = camera.current;
+    const c = painter.camera;
     if (!c) return;
     if (d.id !== null && scene.byId.get(d.id)?.node) {
       const w = toWorld(c, size.w, size.h, p.x, p.y);
       places.move(d.id, w.x, w.y);
       setMoved((m) => m + 1);
     } else {
-      camera.current = { ...c, x: c.x - (p.x - d.x) / c.k, y: c.y - (p.y - d.y) / c.k };
+      painter.setCamera({ ...c, x: c.x - (p.x - d.x) / c.k, y: c.y - (p.y - d.y) / c.k });
       redraw();
     }
     drag.current = { ...d, x: p.x, y: p.y, moved: true };
@@ -412,17 +456,17 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      const c = camera.current;
+      const c = painter.camera;
       if (!c) return;
       const k = clampZoom(c.k * Math.exp(-e.deltaY * 0.0015));
       const p = { x: e.clientX - r.left, y: e.clientY - r.top };
       const w0 = toWorld(c, r.width, r.height, p.x, p.y);
-      camera.current = { k, x: w0.x - (p.x - r.width / 2) / k, y: w0.y - (p.y - r.height / 2) / k };
+      painter.setCamera({ k, x: w0.x - (p.x - r.width / 2) / k, y: w0.y - (p.y - r.height / 2) / k });
       redraw();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [mode, redraw]);
+  }, [mode, redraw, painter]);
 
   // The lists, built only when shown (each node's reach counts are a walk of the graph).
   const nodesModel = useMemo(() => (mode === "nodes" ? nodeTable(model, ix) : null), [mode, model, ix]);
@@ -440,11 +484,15 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // What the selected node is, in words: shown under the graph and said to a screen reader.
   const about = (() => {
     if (!current) return "";
-    if (current.count !== undefined) return `${current.label}: ${countOf(current.count, "node")}, collapsed`;
+    const reach = highlight ? `. Reaches ${countOf(highlight.out, "node")}; reached by ${formatCount(highlight.in)}` : "";
+    if (current.count !== undefined) {
+      const inside = [current.live ? `${formatCount(current.live)} live` : "", current.mark === "error" ? "an error" : current.mark === "warn" ? "a warning" : ""].filter(Boolean);
+      return `${current.label}: ${countOf(current.count, "node")}${inside.length ? ` (${inside.join(", ")})` : ""}, collapsed${reach}`;
+    }
     const n = currentNode;
     if (!n) return current.label;
     const words = [n.label, n.kind, SHAPE_WORDS[n.shape], stateWords(n), n.detail].filter(Boolean).join(", ");
-    return highlight ? `${words}. Reaches ${countOf(highlight.out, "node")}; reached by ${formatCount(highlight.in)}` : words;
+    return `${words}${reach}`;
   })();
   const searchSays = query.trim() ? (matches.length ? `${countOf(matches.length, "match", "matches")} for ${query.trim()}` : `Nothing matches ${query.trim()}`) : "";
   const keyed = model.actions.filter((a) => a.key);
@@ -527,7 +575,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
       <Announce text={mode === "graph" ? [about, searchSays].filter(Boolean).join(". ") : ""} delay={150} />
       <p className="dt-foot muted key-hint graph-foot">
         <span className="graph-about" aria-hidden="true">
-          {mode === "graph" && current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
+          {mode !== "graph" ? "" : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
         </span>
         <span className="dt-keys">
           {mode === "graph" && (

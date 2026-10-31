@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { graphIndex, mergeGraph, reachOf, type GraphData, type GraphEdge, type GraphNode } from "./model";
+import { graphIndex, mergeGraph, reachCounts, reachOf, type GraphData, type GraphEdge, type GraphNode } from "./model";
 
 const node = (id: string, cluster?: string): GraphNode => ({ id, label: id, shape: "dot", ...(cluster ? { cluster } : {}) });
 const edge = (from: string, to: string, dir: "one" | "both" = "one"): GraphEdge => ({ id: `${from}>${to}`, from, to, dir, style: "solid" });
@@ -77,5 +77,33 @@ describe("an update in place", () => {
 
   it("takes edges away by id", () => {
     expect(mergeGraph(base, { nodes: [], edges: [], clusters: [], remove: [], removeEdges: ["a>b"] }).edges.map((e) => e.id)).toEqual(["b>c"]);
+  });
+});
+
+describe("every node's reach counts at once", () => {
+  it("agree with walking from each node", () => {
+    const nodes = Array.from({ length: 120 }, (_, i) => node(`n${i}`, i % 3 === 0 ? undefined : `c${i % 7}`));
+    const clusters = Array.from({ length: 7 }, (_, i) => ({ id: `c${i}`, title: `c${i}`, ...(i % 2 ? { mesh: true as const } : {}) }));
+    const edges = [
+      ...Array.from({ length: 90 }, (_, i) => edge(`n${(i * 7) % 120}`, `n${(i * 13 + 5) % 120}`, i % 5 === 0 ? "both" : "one")),
+      edge("n0", "c1"),
+      edge("c2", "n3"),
+      edge("c4", "c5"),
+    ];
+    const ix = graphIndex({ nodes, edges: edges.filter((e, i, all) => all.findIndex((x) => x.id === e.id) === i && e.from !== e.to), clusters });
+    const all = reachCounts(ix);
+    for (const n of nodes) {
+      const r = reachOf(ix, n.id);
+      expect(all.get(n.id), n.id).toEqual({ out: r.out.size, in: r.in.size });
+    }
+  });
+
+  it("takes well under a second at 5,000 nodes", () => {
+    const nodes = Array.from({ length: 5000 }, (_, i) => node(`h${i}`, `c${i % 50}`));
+    const clusters = Array.from({ length: 50 }, (_, i) => ({ id: `c${i}`, title: `c${i}`, ...(i % 2 ? { mesh: true as const } : {}) }));
+    const edges = Array.from({ length: 5000 }, (_, i) => edge(`h${i}`, `h${(i * 31 + 7) % 5000}`)).filter((e) => e.from !== e.to);
+    const t = performance.now();
+    reachCounts(graphIndex({ nodes, edges, clusters }));
+    expect(performance.now() - t).toBeLessThan(500);
   });
 });

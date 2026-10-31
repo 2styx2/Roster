@@ -2,7 +2,7 @@
 // node each, with its edges joined; and what the keys do with it: move to the nearest node one
 // way, search, and light up a selected node's reach. Pure, so it's tested without a canvas.
 import type { Circle, Layout } from "./layout";
-import { reachOf, type EdgeDir, type EdgeStyle, type EdgeTone, type GraphData, type GraphEdge, type GraphIndex, type GraphNode } from "./model";
+import { reachOf, type EdgeDir, type EdgeStyle, type EdgeTone, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type Mark } from "./model";
 
 /** A node as drawn: a node, or a collapsed cluster standing for its nodes. */
 export interface SceneNode {
@@ -11,8 +11,11 @@ export interface SceneNode {
   y: number;
   label: string;
   node?: GraphNode;
-  /** A collapsed cluster: how many nodes it stands for. */
+  /** A collapsed cluster: how many nodes it stands for, how many of them are live, and the
+   * worst mark among them. */
   count?: number;
+  live?: number;
+  mark?: Mark;
 }
 
 export interface SceneEdge {
@@ -27,6 +30,8 @@ export interface SceneEdge {
   cut?: true;
   /** How many edges it stands for. */
   count: number;
+  /** Joined edges: the worst mark among them (the edge itself keeps a tone only all of them share). */
+  mark?: Mark;
   edges: GraphEdge[];
 }
 
@@ -57,8 +62,8 @@ export function foldsFor(g: GraphData, folds: Readonly<Record<string, boolean>>)
   return new Set(g.clusters.filter((c) => folds[c.id] ?? c.collapsed ?? big).map((c) => c.id));
 }
 
-const TONE_RANK: Record<string, number> = { muted: 0, none: 1, live: 2, warn: 3, error: 4 };
-const worse = (a: EdgeTone | undefined, b: EdgeTone | undefined) => ((TONE_RANK[b ?? "none"] ?? 1) > (TONE_RANK[a ?? "none"] ?? 1) ? b : a);
+const worseMark = (a: Mark | undefined, b: Mark | undefined): Mark | undefined => (a === "error" || b === "error" ? "error" : (a ?? b));
+const markOf = (t: EdgeTone | undefined): Mark | undefined => (t === "warn" || t === "error" ? t : undefined);
 
 export function buildScene(g: GraphData, layout: Layout, collapsed: ReadonlySet<string>): Scene {
   const clusterOf = new Map(g.clusters.map((c) => [c.id, c]));
@@ -73,6 +78,15 @@ export function buildScene(g: GraphData, layout: Layout, collapsed: ReadonlySet<
   const nodes: SceneNode[] = [];
   const shownAs = new Map<string, string>();
   const standIns = new Set<string>();
+  const inside = new Map<string, { live: number; mark?: Mark }>();
+  for (const n of g.nodes) {
+    if (n.cluster === undefined || !collapsed.has(n.cluster)) continue;
+    const t = inside.get(n.cluster) ?? { live: 0 };
+    if (n.state === "live") t.live++;
+    const mark = worseMark(t.mark, n.mark);
+    if (mark) t.mark = mark;
+    inside.set(n.cluster, t);
+  }
   for (const n of g.nodes) {
     const p = layout.nodes.get(n.id);
     if (!p) continue;
@@ -82,7 +96,8 @@ export function buildScene(g: GraphData, layout: Layout, collapsed: ReadonlySet<
       if (!standIns.has(c)) {
         standIns.add(c);
         const circle = layout.clusters.get(c);
-        nodes.push({ id: c, x: circle?.x ?? p.x, y: circle?.y ?? p.y, label: clusterOf.get(c)?.title ?? c, count: counts.get(c) ?? 0 });
+        const t = inside.get(c);
+        nodes.push({ id: c, x: circle?.x ?? p.x, y: circle?.y ?? p.y, label: clusterOf.get(c)?.title ?? c, count: counts.get(c) ?? 0, ...(t?.live ? { live: t.live } : {}), ...(t?.mark ? { mark: t.mark } : {}) });
       }
       continue;
     }
@@ -117,9 +132,11 @@ export function buildScene(g: GraphData, layout: Layout, collapsed: ReadonlySet<
     if (had) {
       had.count++;
       had.edges.push(e);
-      const tone = worse(had.tone, e.tone);
-      if (tone) had.tone = tone;
-      if (e.cut) had.cut = true;
+      // A joined edge is live, marked or cut only if every edge in it is; else it says so with a mark.
+      if (had.tone !== e.tone) delete had.tone;
+      if (had.cut && !e.cut) delete had.cut;
+      const mark = worseMark(had.mark, e.cut ? "error" : markOf(e.tone));
+      if (mark) had.mark = mark;
       continue;
     }
     const se: SceneEdge = {
@@ -197,12 +214,14 @@ export interface Highlight {
   in: number;
 }
 
-/** What selecting `id` lights up. A collapsed cluster lights up only itself. */
+/** What selecting `id` lights up. A collapsed cluster stands for its nodes: what they reach
+ * outside it, and what reaches them. */
 export function highlightOf(s: Scene, ix: GraphIndex, id: string): Highlight {
-  if (!ix.nodes.has(id)) return { nodes: new Set(s.byId.has(id) ? [id] : []), edges: [], out: 0, in: 0 };
+  const own = ix.nodes.has(id) ? [id] : (ix.members.get(id) ?? []);
+  if (own.length === 0) return { nodes: new Set(s.byId.has(id) ? [id] : []), edges: [], out: 0, in: 0 };
   const r = reachOf(ix, id);
-  const fwd = new Set(r.out).add(id);
-  const back = new Set(r.in).add(id);
+  const fwd = new Set([...r.out, ...own]);
+  const back = new Set([...r.in, ...own]);
   const nodes = new Set<string>();
   for (const n of [...fwd, ...back]) {
     const at = s.shownAs.get(n);

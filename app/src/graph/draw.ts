@@ -150,6 +150,7 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   const arrows: { seg: Seg; color: string; alpha: number }[] = [];
   const cuts: Seg[] = [];
   const counts: Seg[] = [];
+  const marks: Seg[] = [];
   scene.edges.forEach((e, i) => {
     const ca = e.fromCluster ? null : nodeAt.get(e.from);
     const cb = e.toCluster ? null : nodeAt.get(e.to);
@@ -163,8 +164,10 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
     if ((a.x < -margin && b.x < -margin) || (a.y < -margin && b.y < -margin) || (a.x > w + margin && b.x > w + margin) || (a.y > h + margin && b.y > h + margin)) return;
     const on = litEdges.has(i);
     const quiet = (lit !== null && !on) || (f.matches !== null && !(f.matches.has(e.from) || f.matches.has(e.to)));
-    const color = e.tone === "live" ? p.accent : e.tone === "warn" ? p.warn : e.tone === "error" ? p.error : on ? p.text : e.tone === "muted" ? p.faint : p.lineStrong;
-    const width = on || e.tone === "live" ? 1.5 : 1;
+    // The selected node's own edges are the brightest; the rest of its reach a step quieter.
+    const own = on && (e.from === f.selected || e.to === f.selected);
+    const color = e.tone === "live" ? p.accent : e.tone === "warn" ? p.warn : e.tone === "error" ? p.error : own ? p.text : on ? p.muted : e.tone === "muted" ? p.faint : p.lineStrong;
+    const width = own || e.tone === "live" ? 1.5 : 1;
     const alpha = quiet ? 0.18 : e.tone === "muted" ? 0.6 : 1;
     const key = `${color}|${width}|${e.style}|${alpha}|${on ? 1 : 0}`;
     const seg = { a, b, e, i };
@@ -173,7 +176,8 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
     batch.segs.push(seg);
     if (on || cam.k >= 0.45) arrows.push({ seg, color, alpha });
     if (e.cut) cuts.push(seg);
-    if (e.count > 1 && (on || cam.k >= 0.7)) counts.push(seg);
+    if ((e.count > 1 || e.mark) && cam.k >= 0.6) counts.push(seg);
+    else if (e.mark) marks.push(seg);
   });
   const ordered = [...batches.values()].sort((x, y) => x.alpha - y.alpha || x.width - y.width);
   for (const b of ordered) {
@@ -218,19 +222,29 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
     ctx.lineTo(mx - 3, my + 3);
     ctx.stroke();
   }
+  // Zoomed out, a joined edge with a marked edge in it is a small node in the mark's colour.
+  for (const s of marks) {
+    const [x1, y1, x2, y2] = trimmed(s.a, s.b);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = s.e.mark === "error" ? p.error : p.warn;
+    ctx.beginPath();
+    ctx.arc((x1 + x2) / 2, (y1 + y2) / 2, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.font = font(p.size);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of counts) {
     const [x1, y1, x2, y2] = trimmed(s.a, s.b);
-    const label = `×${s.e.count}`;
+    const label = s.e.count > 1 ? `×${s.e.count}` : "•";
     const mx = (x1 + x2) / 2;
     const my = (y1 + y2) / 2;
     const tw = ctx.measureText(label).width + 6;
     ctx.globalAlpha = 1;
     ctx.fillStyle = p.bg;
     ctx.fillRect(mx - tw / 2, my - p.size * 0.6, tw, p.size * 1.2);
-    ctx.fillStyle = p.muted;
+    // A joined edge with a marked one in it: its count in the mark's colour.
+    ctx.fillStyle = s.e.mark === "error" ? p.error : s.e.mark === "warn" ? p.warn : p.muted;
     ctx.fillText(label, mx, my);
   }
 
@@ -255,9 +269,10 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   // Labels where there's room: the selected node's, then its reach's and the matches, then live
   // nodes, then the rest, each skipped if it would cover one already drawn.
   const taken = new Boxes();
-  const order = [...nodeAt.values()].filter((a) => a.n.count === undefined && onScreen(a.x, a.y, 0));
+  const order = [...nodeAt.values()].filter((a) => onScreen(a.x, a.y, 0));
+  // A collapsed cluster's title is as important as a lit node's: it names a whole group.
   const rank = (a: { n: SceneNode }) =>
-    a.n.id === f.selected ? 0 : lit?.nodes.has(a.n.id) || f.matches?.has(a.n.id) ? 1 : a.n.node?.state === "live" ? 2 : dimmed(a.n.id) ? 4 : 3;
+    a.n.id === f.selected ? 0 : lit?.nodes.has(a.n.id) || f.matches?.has(a.n.id) || a.n.count !== undefined ? 1 : a.n.node?.state === "live" ? 2 : dimmed(a.n.id) ? 4 : 3;
   order.sort((a, b) => rank(a) - rank(b));
   ctx.font = font(p.size);
   ctx.textAlign = "left";
@@ -269,18 +284,21 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
     const isSel = a.n.id === f.selected;
     const text = clip(ctx, a.n.label, isSel ? 360 : 180);
     const tw = ctx.measureText(text).width;
-    const bx = a.x + r + 5;
-    const by = a.y - lh / 2;
+    // A node's label is to its right; a collapsed cluster's under it, centred.
+    const under = a.n.count !== undefined;
+    const bx = under ? Math.max(2, Math.min(w - tw - 2, a.x - tw / 2)) : a.x + r + 5;
+    const by = under ? a.y + STAND_IN_RADIUS + 3 : a.y - lh / 2;
+    const ty = under ? by + lh / 2 : a.y;
     const extra = isSel ? [a.n.node?.detail, a.n.node?.note].filter(Boolean).join(" · ") : "";
     const bh = extra ? lh * 2 : lh;
     if (!isSel && taken.hits(bx - 2, by, tw + 4, bh)) continue;
     taken.add(bx - 2, by, tw + 4, bh);
     ctx.globalAlpha = dimmed(a.n.id) ? 0.35 : 1;
     ctx.fillStyle = isSel || lit?.nodes.has(a.n.id) ? p.text : p.muted;
-    ctx.fillText(text, bx, a.y);
+    ctx.fillText(text, bx, ty);
     if (extra) {
       ctx.fillStyle = p.muted;
-      ctx.fillText(clip(ctx, extra, 360), bx, a.y + lh);
+      ctx.fillText(clip(ctx, extra, 360), bx, ty + lh);
     }
     drawn++;
   }
@@ -381,10 +399,15 @@ function standIn(ctx: CanvasRenderingContext2D, x: number, y: number, n: SceneNo
   ctx.textBaseline = "middle";
   const count = n.count ?? 0;
   ctx.fillText(count > 999 ? `${Math.floor(count / 1000)}k` : String(count), x, y + 0.5);
-  ctx.fillStyle = p.muted;
-  ctx.font = font(p.size);
-  ctx.textBaseline = "top";
-  ctx.fillText(clip(ctx, n.label, 160), x, y + STAND_IN_RADIUS + 4);
+  // Live Sessions inside: a small node in the accent; a mark inside: one in its colour.
+  const dot = (dx: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x + dx, y - STAND_IN_RADIUS + 1, 3, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if (n.live) dot(-STAND_IN_RADIUS + 2, p.accent);
+  if (n.mark) dot(STAND_IN_RADIUS - 2, n.mark === "warn" ? p.warn : p.error);
 }
 
 /** `text` cut to `max` pixels with an ellipsis, never inside a character. */

@@ -67,12 +67,15 @@ interface Group {
   id: string;
   members: string[];
   r: number;
-  centre?: Point;
+  centre: Point;
+  /** Placed before (its centre is saved). */
+  fixed: boolean;
 }
 
 export function layoutGraph(g: GraphData, saved?: SavedLayout): Layout {
   const clusterIds = new Set(g.clusters.map((c) => c.id));
-  const groups: Group[] = [{ id: "", members: [], r: 0 }, ...g.clusters.map((c) => ({ id: c.id, members: [] as string[], r: 0 }))];
+  const group = (id: string): Group => ({ id, members: [], r: 0, centre: { x: 0, y: 0 }, fixed: false });
+  const groups: Group[] = [group(""), ...g.clusters.map((c) => group(c.id))];
   const byId = new Map(groups.map((x) => [x.id, x]));
   for (const n of g.nodes) byId.get(n.cluster !== undefined && clusterIds.has(n.cluster) ? n.cluster : "")?.members.push(n.id);
   const used = groups.filter((x) => x.id !== "" || x.members.length > 0);
@@ -81,14 +84,17 @@ export function layoutGraph(g: GraphData, saved?: SavedLayout): Layout {
   const nodes = new Map<string, Point>();
   for (const grp of used) {
     const keep = saved?.clusters[grp.id];
-    if (keep) grp.centre = { x: keep[0], y: keep[1] };
+    if (keep) {
+      grp.centre = { x: keep[0], y: keep[1] };
+      grp.fixed = true;
+    }
     const taken = new Taken();
     const fresh: string[] = [];
     let far = 0;
     for (const id of grp.members) {
-      const p = grp.centre && saved?.nodes[id];
+      const p = grp.fixed ? saved?.nodes[id] : undefined;
       if (p) {
-        const o = { x: p[0] - grp.centre!.x, y: p[1] - grp.centre!.y };
+        const o = { x: p[0] - grp.centre.x, y: p[1] - grp.centre.y };
         taken.add(o);
         nodes.set(id, { x: p[0], y: p[1] });
         far = Math.max(far, Math.hypot(o.x, o.y));
@@ -106,22 +112,22 @@ export function layoutGraph(g: GraphData, saved?: SavedLayout): Layout {
   }
 
   // Groups without a place go in rows: from the top left when nothing was placed, else below it all.
-  const placed = used.filter((x) => x.centre);
-  const todo = used.filter((x) => !x.centre);
+  const placed = used.filter((x) => x.fixed);
+  const todo = used.filter((x) => !x.fixed);
   const area = used.reduce((a, x) => a + (2 * x.r + GAP) ** 2, 0);
   let width = Math.max(Math.sqrt(area) * 1.25, ...used.map((x) => 2 * x.r));
   let left = 0;
   let top = 0;
   if (placed.length) {
-    left = Math.min(...placed.map((x) => x.centre!.x - x.r));
-    width = Math.max(width, Math.max(...placed.map((x) => x.centre!.x + x.r)) - left);
-    top = Math.max(...placed.map((x) => x.centre!.y + x.r)) + GAP;
+    left = Math.min(...placed.map((x) => x.centre.x - x.r));
+    width = Math.max(width, Math.max(...placed.map((x) => x.centre.x + x.r)) - left);
+    top = Math.max(...placed.map((x) => x.centre.y + x.r)) + GAP;
   }
   let row: Group[] = [];
   let x = left;
   const flush = () => {
     const h = Math.max(0, ...row.map((r) => 2 * r.r));
-    for (const r of row) r.centre = { x: r.centre!.x, y: Math.round(top + h / 2) };
+    for (const r of row) r.centre = { x: r.centre.x, y: Math.round(top + h / 2) };
     top += h + GAP;
     row = [];
     x = left;
@@ -138,11 +144,11 @@ export function layoutGraph(g: GraphData, saved?: SavedLayout): Layout {
   const clusters = new Map<string, Circle>();
   const out: SavedLayout = { nodes: {}, clusters: {} };
   for (const grp of used) {
-    const c = grp.centre!;
+    const c = grp.centre;
     out.clusters[grp.id] = [c.x, c.y];
     if (grp.id !== "") clusters.set(grp.id, { x: c.x, y: c.y, r: grp.r });
     for (const id of grp.members) {
-      const p = nodes.get(id)!;
+      const p = nodes.get(id) ?? { x: 0, y: 0 };
       const abs = saved?.nodes[id] && saved.clusters[grp.id] ? p : { x: p.x + c.x, y: p.y + c.y };
       nodes.set(id, abs);
       out.nodes[id] = [abs.x, abs.y];

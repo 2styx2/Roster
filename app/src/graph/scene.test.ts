@@ -37,10 +37,17 @@ describe("the scene", () => {
       ["y1", 0],
       ["y2", 0],
     ]);
-    expect(s.edges.map((e) => [`${e.from}>${e.to}`, e.count, e.tone])).toEqual([
-      ["box>lab", 1, undefined],
-      ["lab>y1", 2, "warn"],
+    // Joined, the edge keeps only a tone all of its edges share; one marked edge marks it.
+    expect(s.edges.map((e) => [`${e.from}>${e.to}`, e.count, e.tone, e.mark])).toEqual([
+      ["box>lab", 1, undefined, undefined],
+      ["lab>y1", 2, undefined, "warn"],
     ]);
+  });
+
+  it("a collapsed cluster says how many of its nodes are live and the worst mark among them", () => {
+    const live: GraphData = { ...g, nodes: g.nodes.map((n) => (n.id === "y1" ? { ...n, state: "live" as const, mark: "error" as const } : n)) };
+    const s = buildScene(live, layoutGraph(live), new Set(["web"]));
+    expect(s.byId.get("web")).toMatchObject({ count: 2, live: 1, mark: "error" });
   });
 
   it("clusters start collapsed when the Plugin says, or when the graph is big", () => {
@@ -100,6 +107,15 @@ describe("selecting a node", () => {
   it("through a collapsed cluster, the cluster lights up", () => {
     const h = highlightOf(scene(["lab"]), graphIndex(g), "y1");
     expect(h.in).toBe(3);
+    expect([...h.nodes].sort()).toEqual(["box", "lab", "y1"]);
+  });
+});
+
+describe("selecting a collapsed cluster", () => {
+  it("lights up what its nodes reach outside it, and what reaches them", () => {
+    const s = buildScene(g, layoutGraph(g), new Set(["lab"]));
+    const h = highlightOf(s, graphIndex(g), "lab");
+    expect([h.out, h.in]).toEqual([1, 1]);
     expect([...h.nodes].sort()).toEqual(["box", "lab", "y1"]);
   });
 });
