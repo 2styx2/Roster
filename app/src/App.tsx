@@ -98,6 +98,8 @@ import { PluginManager } from "./plugins/manager";
 import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
+import { rendererLabel, type RendererInUse } from "./terminal/renderer";
+import { pickerTimer } from "./picker/timing";
 import { isLeaderKey } from "./terminal/keys";
 import { fontFound, fontInUse } from "./terminal/fonts";
 import { runHealth, type HealthContext, type HealthReport } from "./health/health";
@@ -934,6 +936,14 @@ function Workspace({
     );
   }, [registries, platform, takeReport, setStale]);
 
+  // How long the Picker took to open the last time (ticket 20, decision Q86), for `:info`.
+  const [pickerTime] = useState(pickerTimer);
+  const pickerShown = overlay === "picker" && !vault.locked;
+  useLayoutEffect(() => {
+    if (pickerShown) pickerTime.shown();
+  }, [pickerShown, pickerTime]);
+  // The renderer the visible terminal draws with (ticket 20): WebGL, or DOM and why.
+  const [rendererInUse, setRendererInUse] = useState<RendererInUse | null>(null);
   const onZoom = useCallback(
     (action: ZoomAction) => setFontSize((size) => zoom(terminalOptions, size, action)),
     [terminalOptions],
@@ -952,6 +962,7 @@ function Workspace({
       clipboard: platform.clipboard,
       onZoom,
       layout: layoutKey,
+      onRenderer: setRendererInUse,
     }),
     [terminalOptions, termTheme, fontSize, windowsBuild, terminalKeys, platform, onZoom, layoutKey],
   );
@@ -1145,6 +1156,7 @@ function Workspace({
   const ctx: CommandContext = {
     openPicker: () => {
       if (overlay === null) rememberFocus();
+      if (overlay !== "picker") pickerTime.start();
       setOverlay("picker");
     },
     connect: (name, here = false) => {
@@ -1322,9 +1334,14 @@ function Workspace({
         // The terminal font in use (ticket 33): the first installed one in terminal.font.
         const font = fontInUse(terminalOptions.fonts, platform.fontInstalled ?? (() => null));
         const size = `${Math.round(fontSize * 100) / 100} px`;
+        // The visible terminal's, or with none on screen the one terminal.renderer asks for.
+        const shown = sessions.active !== null && rendererInUse !== null;
+        const renderer = rendererLabel(shown ? rendererInUse : terminalOptions.renderer);
+        const picked = pickerTime.last();
         setMessage(
           `Backend ${backend} · Box ${inventory.box} · Inventory ${inventory.path} · Command ${command.join(" ")} · ` +
-            `Terminal ${font} ${size}, ${terminalOptions.renderer === "dom" ? "DOM" : "WebGL"}`,
+            `Terminal ${font} ${size}, ${renderer}` +
+            (picked === null ? "" : ` · Picker opened in ${Math.round(picked)} ms`),
         );
       }
     },
@@ -1558,6 +1575,8 @@ function Workspace({
     // input gets the keys as a terminal would, until the Leader.
     const leaderKey = isLeaderKey(e, options.leader);
     const chord = leaderKey ? options.leader : chordOf(e);
+    // A key the IME is composing with (chordOf names none) is the IME's.
+    if (chord === "") return;
     const before = keyRef.current;
     const r = press(before, chord, { keymap, leader: options.leader, vim: options.vim, staysInAppMode });
     if (!r.consumed) return;
