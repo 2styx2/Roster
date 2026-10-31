@@ -876,6 +876,62 @@ export interface Backend {
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   /** Takes a Plugin out of the core. */
   pluginUnload(plugin: string): Promise<boolean>;
+  /** Packages (ticket 24, docs/plugins.md): clones what init.lua names and isn't cloned yet, and
+   * checks out what roster.lock pins. A Package loads as the Plugin `package:NAME`. */
+  packagesSync(): Promise<PackageStatus[]>;
+  /** Pins a Package's commit in roster.lock: the user allowed its install prompt. */
+  packagesPin(name: string): Promise<PackageStatus>;
+  /** Removes a Package's clone, the lock as it is: its install prompt was cancelled. */
+  packagesDiscard(name: string): Promise<void>;
+  /** Removes a Package's clone and its roster.lock entry (`:plugins remove`). */
+  packagesRemove(name: string): Promise<void>;
+  /** `:packages update`, step 1: fetches and describes each new commit. Changes nothing. */
+  packagesCheck(): Promise<PackageChecked[]>;
+  /** Step 2: moves a Package to a commit the user saw and allowed, and pins it. */
+  packagesApply(name: string, commit: string): Promise<PackageStatus>;
+  /** `:packages clean`: removes what init.lua no longer names; gives their names. */
+  packagesClean(): Promise<string[]>;
+}
+
+/** A Package as roster-core's `package::Status` describes it. */
+export interface PackageStatus {
+  name: string;
+  /** As init.lua writes it (`owner/repo`). */
+  source: string;
+  /** The git URL that means. */
+  url: string;
+  /** `tag v1.0.0`, `branch main`, `commit 1a2b3c4` or `default branch`. */
+  wants: string;
+  /** The commit its clone is at. */
+  commit: string | null;
+  /** The commit roster.lock pins. */
+  locked: string | null;
+  /** Installed: the lock pins the commit the clone is at. */
+  pinned: boolean;
+  /** init.lua's settings for it (`roster.plugin.config`). */
+  config: Record<string, unknown>;
+  note: string | null;
+  error: string | null;
+}
+
+/** A newer commit, shown before it's applied. */
+export interface PackageUpdate {
+  from: string;
+  to: string;
+  /** `1a2b3c4 Subject`, newest first. */
+  log: string[];
+  stat: string;
+  diff: string;
+  truncated: boolean;
+  manifest: PluginManifest | null;
+  manifestError: string | null;
+}
+
+/** One Package's answer to `packagesCheck`: an update, an error, or neither (up to date). */
+export interface PackageChecked {
+  name: string;
+  update: PackageUpdate | null;
+  error: string | null;
 }
 
 /** A permission as the manifest asks for it, with what it allows and why it's risky (decision Q81). */

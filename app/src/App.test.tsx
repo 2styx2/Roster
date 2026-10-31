@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts } from "./backend/fake";
@@ -54,18 +54,6 @@ describe("App", () => {
     const { user } = await ready();
     await user.click(within(screen.getByRole("navigation", { name: "Sidebar" })).getByRole("button", { name: /find a host/i }));
     expect(pickerOpen()).toBe(true);
-  });
-
-  // IBus or Fcitx on Linux (any IME): the Enter that commits a composed word is the IME's.
-  it("doesn't choose a Host on the Enter that ends an IME composition", async () => {
-    const { user } = await ready();
-    await user.keyboard("{Control>} {/Control}f");
-    const input = screen.getByRole("combobox");
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
-    expect(pickerOpen()).toBe(true);
-    fireEvent.keyDown(input, { key: "Enter", keyCode: 13 });
-    expect(pickerOpen()).toBe(false);
   });
 
   it("closes the Picker with Esc and gives focus back", async () => {

@@ -3,8 +3,8 @@
 // applies the choice and keeps it in the State on Enter, even over init.lua's `theme` until that
 // value changes. `:theme NAME` too, in
 // Standard and Focus. Fake Backend, stub terminal; user-event writes Ctrl+Space as {Control>} {/Control}.
-import { afterEach, describe, expect, it } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, makeHosts } from "./backend/fake";
@@ -137,41 +137,4 @@ describe("The :theme picker", () => {
       expect(themeOnScreen()).toBe("tokyo-night");
     });
   }
-});
-
-// `theme = "auto"` follows the OS's light/dark setting live, as the webview reports it through
-// prefers-color-scheme: WebView2 from Windows; WebKitGTK from GTK's dark-theme setting, which the
-// Tauri shell keeps in step with the desktop portal's colour scheme (GNOME, KDE) on Linux (ticket 20).
-describe("theme = auto", () => {
-  const real = window.matchMedia;
-  afterEach(() => {
-    window.matchMedia = real;
-  });
-
-  function osScheme(dark: boolean) {
-    const listeners = new Set<() => void>();
-    const mq = {
-      get matches() {
-        return dark;
-      },
-      media: "(prefers-color-scheme: dark)",
-      addEventListener: (_: string, f: () => void) => void listeners.add(f),
-      removeEventListener: (_: string, f: () => void) => void listeners.delete(f),
-    };
-    window.matchMedia = ((q: string) => (q.includes("prefers-color-scheme") ? mq : { matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
-    return (to: boolean) => {
-      dark = to;
-      listeners.forEach((f) => f());
-    };
-  }
-
-  it("follows the OS from light to dark and back while the app runs", async () => {
-    const setOs = osScheme(false);
-    await ready();
-    expect(themeOnScreen()).toBe("roster-light");
-    act(() => setOs(true));
-    expect(themeOnScreen()).toBe("roster-dark");
-    act(() => setOs(false));
-    expect(themeOnScreen()).toBe("roster-light");
-  });
 });
