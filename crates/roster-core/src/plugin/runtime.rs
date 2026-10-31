@@ -21,6 +21,8 @@ const HANDLERS: &str = "roster.plugin.handlers";
 const LISTENERS: &str = "roster.plugin.listeners";
 /// The most UI ops one call may produce.
 pub(crate) const MAX_OPS: usize = 1000;
+/// The most text `roster.clipboard.copy` takes.
+const MAX_COPY: usize = 64 * 1024;
 /// The most Lua functions a Plugin may have handed over at once.
 const MAX_HANDLERS: usize = 10_000;
 
@@ -69,6 +71,9 @@ struct Shared {
     ops: RefCell<Vec<Json>>,
     budget: Cell<Budget>,
     handlers: RefCell<Handlers>,
+    /// Whether the run is a call the user started (an action, a command, a finder item): only
+    /// then may the Plugin put text on the clipboard.
+    user_call: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -109,6 +114,7 @@ impl Runtime {
             ops: RefCell::default(),
             budget: Cell::new(Budget::default()),
             handlers: RefCell::default(),
+            user_call: Cell::new(false),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -133,7 +139,8 @@ impl Runtime {
     /// Calls a function the Plugin handed over, with `args`; its return value comes back as data.
     pub(crate) fn call(&self, handler: u64, args: &Json) -> Outcome {
         let shared = Rc::clone(&self.shared);
-        self.run(self.budget, move |lua| {
+        self.shared.user_call.set(true);
+        let outcome = self.run(self.budget, move |lua| {
             let handlers: Table = lua.named_registry_value(HANDLERS)?;
             let f: Option<Function> = handlers.raw_get(handler)?;
             let Some(f) = f else {
@@ -143,7 +150,9 @@ impl Runtime {
             };
             let value: Value = f.call(to_lua(lua, args)?)?;
             data(lua, &shared, &value, &format!("call:{handler}"))
-        })
+        });
+        self.shared.user_call.set(false);
+        outcome
     }
 
     /// Runs each listener for `event` (the caller has checked the Plugin may hear it).
@@ -442,6 +451,24 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "float", "spec": null }))
     });
     roster.raw_set("float", float)?;
+
+    // The clipboard: only while the user runs one of the Plugin's actions, commands or finder
+    // items, never on its own (at load, on an event), so it can't swap what you copied.
+    let clipboard = lua.create_table()?;
+    func!(clipboard, "copy", |_lua, s, text: String| {
+        if !s.user_call.get() {
+            return Err(mlua::Error::runtime(
+                "roster.clipboard.copy: only while the user runs one of your actions, commands or finder items",
+            ));
+        }
+        if text.len() > MAX_COPY {
+            return Err(mlua::Error::runtime(format!(
+                "roster.clipboard.copy: the text is over {MAX_COPY} bytes"
+            )));
+        }
+        push(s, json!({ "op": "copy", "text": text }))
+    });
+    roster.raw_set("clipboard", clipboard)?;
 
     func!(roster, "notify", |_lua, s, (text, level): (String, Option<String>)| {
         let level = level.unwrap_or_else(|| "info".into());

@@ -6,41 +6,80 @@ A Plugin draws nothing itself. It hands the app data (rows, text, items) and the
 
 ## A first Plugin
 
-[`examples/plugins/pinned`](../examples/plugins/pinned) is a complete one: a Sidebar section of the Hosts you pin with `:pin HOST`, a status segment, a finder, a key and a help page. Copy the folder to start your own.
+[`examples/plugins/recent-alerts`](../examples/plugins/recent-alerts) is the worked example, built the way an author outside roster would build one: it watches what your Sessions print and lists the lines with `ERROR`, `panic` or `disk full` in a Sidebar section, with a badge on each Host that has some, a status segment with the count, a finder, a floating window with an alert's details, a notice when one arrives, `:alerts` and `:alerts clear`, a Leader key from its settings and its own help page. It asks for one permission, `terminal.read`. Copy the folder to start your own; its [README](../examples/plugins/recent-alerts/README.md) is the template for yours. [`examples/plugins/pinned`](../examples/plugins/pinned) is a smaller one that reads the Inventory.
 
 ```
-pinned/
-  roster-plugin.lua   the manifest: who it is and what it asks for
-  init.lua            its code
-  lua/pinned/*.lua    its own modules, if it has any: require("pinned.util")
+recent-alerts/
+  roster-plugin.lua            the manifest: who it is and what it asks for
+  init.lua                     its code
+  lua/recent-alerts/match.lua  its own modules, if it has any: require("recent-alerts.match")
+  README.md                    what it does, what it asks for and why, and its settings
 ```
 
 The manifest is read before any of the Plugin's code runs, for the install prompt:
 
 ```lua
 return {
-  name = "pinned",              -- lower case letters, digits and -; how it's known everywhere
+  name = "recent-alerts",       -- lower case letters, digits and -; how it's known everywhere
   version = "1.0.0",
-  description = "A Sidebar section of the Hosts you pin",
+  description = "Lines your Sessions print that look like trouble",
   author = "you",
   api = 2,                      -- the roster.api_version it's written for
-  permissions = { "inventory.read" },
+  permissions = { "terminal.read" },
 }
 ```
 
-And a few lines of `init.lua`:
+And the heart of its `init.lua`, shortened:
 
 ```lua
 local roster = require("roster")
+local settings = roster.plugin.config          -- init.lua's config = { … }, when it's a Package
+local alerts = {}
 
-roster.commands.add("hello", {
-  desc = "Say hello",
-  run = function(a) roster.notify("hello " .. a.args) end,
+local function show()
+  local rows = {}
+  for i = #alerts, 1, -1 do
+    local a = alerts[i]
+    rows[#rows + 1] = { id = tostring(a.id), label = a.text, detail = a.host, host = a.host,
+      actions = { { label = "Copy " .. a.text, icon = "copy", run = function() roster.clipboard.copy(a.text) end } } }
+  end
+  roster.sidebar.set("recent-alerts", { title = "Recent alerts", empty = "No alerts.", rows = rows })
+  roster.status.set("alerts", { text = "⚠ " .. #alerts, run = "finder alerts" })
+end
+
+roster.commands.add("alerts", {
+  desc = "Recent alerts",
+  run = function(a) if a.words[1] == "clear" then alerts = {} show() end end,
 })
-roster.keymap.set("leader", "h h", "hello world")
+roster.keymap.set("leader", settings.leader or "w w", "finder alerts")
+
+-- Only with terminal.read: listening for an event it may not hear is an error.
+local function granted(p)
+  for _, g in ipairs(roster.plugin.permissions) do if g == p then return true end end
+end
+if granted("terminal.read") then
+  roster.on("terminal_output", function(e)
+    for line in e.text:gmatch("[^\n]+") do
+      if line:find("ERROR", 1, true) then
+        alerts[#alerts + 1] = { id = #alerts + 1, host = e.host, text = line }
+      end
+    end
+    show()
+  end)
+end
+show()
 ```
 
-`:plugins install ~/plugins/pinned` installs it. To share it, push the folder to a git repo: others name it in `init.lua` as a [Package](#packages). A path is `~/…`, a full path, or a folder under the config folder (`plugins/pinned`).
+Some things it shows that every Plugin meets:
+
+- **Draw everything from your own state in one function.** Each `set` replaces what was there, so calling `show()` after any change keeps the section, finder, status and badges in step.
+- **Check `roster.plugin.config`**: anyone can write anything in init.lua. Name a bad setting in a notice and use the default.
+- **Ask only for what you need**, and keep working without it: check `roster.plugin.permissions`, and say what's missing (its section reads "Allow terminal.read in :plugins to see alerts.").
+- **`terminal_output` comes in batches**, so a line can be split across two of them: keep each Session's unfinished end until the rest arrives.
+- **Keys after the Leader that roster uses are refused** (`a` is Folders', `f` the Picker's; `:keys` lists them all), with a notice. Make yours a setting.
+- **Do things in a fixed order** (sort what comes from `pairs`), so the same state makes the same changes.
+
+`:plugins install ~/plugins/recent-alerts` installs it. To share it, push the folder to a git repo: others name it in `init.lua` as a [Package](#packages). A path is `~/…`, a full path, or a folder under the config folder (`plugins/pinned`).
 
 ## Installing and trusting
 
@@ -110,10 +149,11 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 | `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)`, `roster.health.remove(id)` | |
 | `roster.badges.set(host, text)` | A badge on the Host's Inventory row (`"2 alerts"`); `nil` takes it off |
 | `roster.float.open({ title, lines })`, `roster.float.close()` | A floating window over the terminal; `Esc` closes it |
+| `roster.clipboard.copy(text)` | Puts text on the clipboard. Only while the user runs one of your actions, commands or finder items: at load or on an event it's an error, so a Plugin can't change what you copied behind your back |
 | `roster.notify(text, level)` | A notice, `"info"` (the default), `"warn"` or `"error"`, naming your Plugin |
 | `roster.on(event, function(e) … end)` | Runs on an event (below) |
 
-A Sidebar row is `{ id, label, detail, note, host, badge, count, level, title, run, actions }`. With `host`, the row is that Host's: Enter opens it and it lights up while it's on screen. `actions` are buttons on the row: `{ label, icon, run }`, with `icon` one of `close`, `edit`, `add`, `addGroup`, `review`, `unreview`, `info`. Everywhere, `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing.
+A Sidebar row is `{ id, label, detail, note, host, badge, count, level, title, run, actions }`. With `host`, the row is that Host's: Enter opens it and it lights up while it's on screen. `actions` are buttons on the row: `{ label, icon, run }`, with `icon` one of `close`, `edit`, `add`, `addGroup`, `review`, `unreview`, `info`, `copy`. Everywhere, `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing.
 
 ### Events
 

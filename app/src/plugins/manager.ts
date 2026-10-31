@@ -33,6 +33,8 @@ export interface PluginUi {
   run(line: string): void;
   /** Types `text` into Session `id` (terminal.write). */
   send(id: number, text: string): void;
+  /** Puts `text` on the clipboard (`roster.clipboard.copy`, only in a call the user started). */
+  copy(text: string): void;
 }
 
 /** A Plugin as the State keeps it. */
@@ -497,7 +499,7 @@ export class PluginManager {
     if (!this.loaded.has(plugin)) return undefined;
     this.used(plugin, "ran an action");
     const reply = await this.backend.pluginCall(plugin, handler, args).catch((e: unknown) => this.lost(plugin, e));
-    this.apply(reply);
+    this.apply(reply, true);
     return reply.result;
   }
 
@@ -601,14 +603,16 @@ export class PluginManager {
     };
   }
 
-  /** Applies a reply: its ops, then its error and whether it's now disabled. */
-  private apply(reply: PluginReply) {
+  /** Applies a reply: its ops, then its error and whether it's now disabled. `userCall`: the
+   * reply to a call the user started (an action, a command), the only one that may copy. */
+  private apply(reply: PluginReply, userCall = false) {
     const name = reply.plugin;
     const l = this.loaded.get(name);
     if (l) {
       for (const raw of reply.ops) {
         const op = parseOp(raw);
         if ("invalid" in op) this.notify(name, "warn", `${name}: ${op.invalid}`);
+        else if (op.op === "copy" && !userCall) this.notify(name, "warn", `${name}: it may copy only when you run one of its actions`);
         else this.applyOp(l, name, op);
       }
     }
@@ -752,6 +756,8 @@ export class PluginManager {
         return this.ui.run(`connect ${op.host}`);
       case "send":
         return this.ui.send(op.session, op.text);
+      case "copy":
+        return this.ui.copy(op.text);
       case "remove":
         return this.drop(l, `${op.kind}:${op.id}`);
     }
