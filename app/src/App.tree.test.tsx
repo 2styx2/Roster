@@ -175,6 +175,13 @@ describe("Folders", () => {
     expect(within(folders()).queryByRole("treeitem", { name: /^Daily/ })).toBeNull();
   });
 
+  it("still folds a Folder by its old id (:fold folder:NAME)", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:folder new Lab{Enter}`);
+    await user.keyboard(`${LEADER}:fold folder:Lab{Enter}`);
+    expect(within(folders()).getByRole("treeitem", { name: /^Lab/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("adds the Host under the cursor with ␣ a, and removes it with ␣ A", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}ggjjjj`);

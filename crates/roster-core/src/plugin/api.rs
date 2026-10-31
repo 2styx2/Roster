@@ -2196,7 +2196,12 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            o("title", "string", "Its title and prompt; the id if left out."),
+            o("title", "string", "Its title (the `:finder` command's label and the dialog's name); the id if left out."),
+            o(
+                "prompt",
+                "string",
+                "What it shows before the query (`Folders ›`), at most 64 characters; its title if left out (since api 3).",
+            ),
             o(
                 "items",
                 "FinderItem[]|fun(): FinderItem[]",

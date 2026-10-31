@@ -2435,7 +2435,8 @@ A finder (`roster.finders.set`).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `title` | `string` | no | Its title and prompt; the id if left out. |
+| `title` | `string` | no | Its title (the `:finder` command's label and the dialog's name); the id if left out. |
+| `prompt` | `string` | no | What it shows before the query (`Folders ›`), at most 64 characters; its title if left out (since api 3). |
 | `items` | [`FinderItem`](#finderitem)`[]\|fun(): `[`FinderItem`](#finderitem)`[]` | no | What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again. |
 | `section` | `string` | no | Instead of `items`: one of your own Sidebar sections, whose rows it finds in (with their paths, unfolded), as roster's own `inventory` finder does (since api 3). |
 
