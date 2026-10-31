@@ -8,7 +8,7 @@ The roster app keeps roster's promise: **secrets are fetched when needed, kept i
 |---|---|
 | Vault (Bitwarden, …) | yes, at rest |
 | `roster serve` process memory | yes, while unlocked |
-| Private askpass socket, one-time token | yes, in transit, once |
+| Private askpass socket (a user-only named pipe on Windows), one-time token | yes, in transit, once |
 | Session process env (the token only, never the password) | the token, for the Session's life |
 | `roster askpass` → `ssh` | yes, in transit |
 | Rust core | **never** |
@@ -44,6 +44,8 @@ The roster app never stores secrets: there's no built-in vault, now or later (de
 ## The askpass token
 
 `session.prepare` hands back a one-time token (60 s, spent on first use) in the Session's env. The Rust core sets it on the Session's process and never in an argv: a command line is readable by any process and logged by process-creation auditing for the process's whole life, while the environment is only readable by the same user. On WSL that means setting it on `wsl.exe` and naming it in `WSLENV` (`docs/app/dev/tauri-pty-wsl.md`, section 2). It never appears in Debug output or error text: names only, and spawn errors are redacted.
+
+**Native Windows roster (ticket 19, decision Q78).** The channel is a named pipe instead of a Unix socket. Windows has no `0700` folder for a socket to hide in, so the pipe carries its own security: owned by the user's SID, with a protected DACL whose only entry is that SID (no Administrators, no SYSTEM, nothing inherited), remote clients refused, and a name with 128 random bits that serve claims first (`FILE_FLAG_FIRST_PIPE_INSTANCE`), so nobody can create it beforehand and listen in. The helper opens it with identification-level impersonation only. Another user on the PC, or a network client, can't open it; the token in the Session's env is still needed by anyone who can. The helpers are `roster-askpass.exe` and `roster-askpass-login.exe`, installed with roster (Windows' ssh runs a program, not a script). Quick Connect's known-hosts file sits in a folder under `%TEMP%`, which only the user (and administrators) can open.
 
 ## The webview
 

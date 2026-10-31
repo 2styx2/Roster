@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+from conftest import posix_shell
+
 from roster.config import load_config
 from roster.sshops import add_key_script, public_key_line, remove_key_script, write_ssh_config
 
@@ -15,6 +17,7 @@ def run_remote(script, home):
     return r.stdout
 
 
+@posix_shell
 def test_add_key_is_idempotent_and_replaces_old_keys(tmp_path):
     ak = tmp_path / ".ssh" / "authorized_keys"
     ak.parent.mkdir()
@@ -28,12 +31,14 @@ def test_add_key_is_idempotent_and_replaces_old_keys(tmp_path):
     assert oct(ak.stat().st_mode & 0o777) == "0o600"
 
 
+@posix_shell
 def test_add_key_creates_ssh_dir(tmp_path):
     run_remote(add_key_script(PUB, TAG_RE), tmp_path)
     assert (tmp_path / ".ssh" / "authorized_keys").read_text() == PUB + "\n"
     assert oct((tmp_path / ".ssh").stat().st_mode & 0o777) == "0o700"
 
 
+@posix_shell
 def test_remove_key_only_touches_this_box(tmp_path):
     run_remote(add_key_script(PUB, TAG_RE), tmp_path)
     ak = tmp_path / ".ssh" / "authorized_keys"

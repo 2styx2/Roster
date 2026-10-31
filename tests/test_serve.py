@@ -525,6 +525,7 @@ def test_a_wrong_token_gets_nothing(serve, write_config, capsys, fakes):
     assert run_askpass(spec).stdout == PASSWORD + "\n"           # a guess doesn't spend the real one
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a named pipe on Windows: test_windows.py")
 def test_the_askpass_socket_is_the_users_alone_and_goes_away(serve, write_config, capsys, fakes, isolated):
     run = isolated["home"].parent / "run"
     run.mkdir(mode=0o700)                                        # $XDG_RUNTIME_DIR, as systemd/WSL make it

@@ -13,7 +13,7 @@ import subprocess
 
 import paramiko
 import pytest
-from conftest import SECRET
+from conftest import REAL_PATH, SECRET
 from test_changes import app, box, infra, result, sshd  # noqa: F401 (fixtures)
 
 from roster.sshops import fingerprint
@@ -44,7 +44,7 @@ def run_askpass(spec, prompt=PROMPT):
 
 def real_ssh():
     """OpenSSH's ssh, not the stand-in in tests/fakes that PATH finds first."""
-    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep) if not d.rstrip("/").endswith("fakes"))
+    path = os.pathsep.join(d for d in REAL_PATH.split(os.pathsep) if not d.rstrip("/\\").endswith("fakes"))
     return shutil.which("ssh", path=path)
 
 

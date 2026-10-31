@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -261,8 +262,7 @@ def cmd_discover(args):
     known_ips = {h["ip"] for h in cfg["hosts"].values()} if cfg else set()
     taken = set(cfg["hosts"]) if cfg else set()
 
-    use_nmap = not args.builtin and subprocess.run(["sh", "-c", "command -v nmap"],
-                                                   capture_output=True).returncode == 0
+    use_nmap = not args.builtin and shutil.which("nmap") is not None
     if not use_nmap and not args.builtin:
         say("note         nmap isn't installed - using the built-in scanner. For service versions,")
         say("             web page titles and hardware vendors: apt install nmap / brew install nmap")

@@ -116,6 +116,11 @@ impl Backend {
         let shown = c.serve_argv.join(" ");
         let mut cmd = Command::new(&c.serve_argv[0]);
         cmd.args(&c.serve_argv[1..]);
+        if c.target == Target::Local && cfg!(windows) {
+            // Native Windows roster: Python's UTF-8 mode, so roster.yml, the vault CLI's output and
+            // every file roster writes are UTF-8 whatever the Windows code page is.
+            cmd.env("PYTHONUTF8", "1");
+        }
         let client = RpcClient::spawn_with(cmd, notify).map_err(|e| {
             BackendError::new(
                 ErrorKind::Failed,

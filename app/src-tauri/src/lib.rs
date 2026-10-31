@@ -4,7 +4,7 @@
 
 use roster_core::backend::{Backend, BackendInfo, QuickTarget};
 use roster_core::config::{self, Config, Loader, Report};
-use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect};
+use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect_choice};
 use roster_core::package::{self, Packages};
 use roster_core::plugin::{self, Permission, PluginHost};
 use roster_core::rpc::{CallError, Notify};
@@ -37,12 +37,7 @@ impl BackendState {
                         "Fix it in init.lua (docs/app/config.md), then Retry.",
                     )
                 })?;
-            let candidate = detect(
-                &SystemRunner,
-                Platform::current(),
-                &plan.command,
-                plan.distro.as_deref(),
-            )?;
+            let candidate = detect_choice(&SystemRunner, Platform::current(), &plan.command, &plan.choice)?;
             Backend::start_with(&candidate, Some(notify))
         })?;
         Ok(backend.info.clone())

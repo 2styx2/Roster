@@ -51,7 +51,7 @@ JSON-RPC 2.0, one JSON object per line on stdin/stdout. Logging goes to stderr. 
 3. The core starts that command in a PTY (ConPTY on Windows), wrapped in `wsl.exe -d <distro> --` on the WSL backend.
 4. If `ssh` asks for a password, it runs `roster askpass`. The helper sends the token over serve's private socket and prints the password. It refuses every other kind of prompt, such as host-key questions.
 
-The askpass socket is the one deliberate exception to stdio-only. If it grows beyond that, write a new ADR.
+The askpass socket (on native Windows, a named pipe only the user can open) is the one deliberate exception to stdio-only. If it grows beyond that, write a new ADR.
 
 
 ## How a Quick Connect connects (ticket 14)
@@ -67,7 +67,7 @@ The askpass socket is the one deliberate exception to stdio-only. If it grows be
 | Mode | App runs on | roster and ssh run on |
 |---|---|---|
 | WSL: <distro> | Windows | the WSL distro (auto-detected when roster and `~/infra` are there) |
-| Local | Windows | Windows (iteration 6: roster ported, built-in OpenSSH, named-pipe askpass) |
+| Local | Windows | Windows itself: roster installed with `uv tool install`, Windows' built-in OpenSSH, askpass over a named pipe (ticket 19) |
 | Local | Linux (X11, Wayland, WSLg) | Linux |
 
 ## Config (`init.lua`)
