@@ -1,6 +1,7 @@
 // The fake Backend: same interface as the real one, answering from fixtures. Used by the UI tests
 // and by `npm run dev` in a plain browser, where `?fixture=<name>` picks a scenario.
 import { demoScanPlugin, VIEWS_PATH } from "./fakeViews";
+import { demoMapPlugin, GRAPH_PATH } from "./fakeGraph";
 import {
   AddError,
   type AddHostParams,
@@ -402,6 +403,11 @@ export const fixtures: Record<string, FakeScenario> = {
   "plugin-views": { hosts: makeHosts(12), plugins: { [VIEWS_PATH]: demoScanPlugin() }, app: { state: installedPlugin(VIEWS_PATH, "demo-scan") } },
   /** The same with worst-case cells (long, unbreakable, non-Latin, emoji, huge, missing). */
   "plugin-views-worst": { hosts: makeHosts(12), plugins: { [VIEWS_PATH]: demoScanPlugin(true, 2000) }, app: { state: installedPlugin(VIEWS_PATH, "demo-scan") } },
+  /** Ticket 77: a Plugin with a graph of this Box and 640 Hosts in 16 clusters (`␣ y m`,
+   * `:view demo-map`): live, down, marked and unreviewed nodes, Links, password peers and cuts. */
+  "plugin-graph": { hosts: makeHosts(12), plugins: { [GRAPH_PATH]: demoMapPlugin() }, app: { state: installedPlugin(GRAPH_PATH, "demo-map") } },
+  /** The same at 2,000 Hosts in 40 clusters, with worst-case names. */
+  "plugin-graph-worst": { hosts: makeHosts(12), plugins: { [GRAPH_PATH]: demoMapPlugin(2000, 40, true) }, app: { state: installedPlugin(GRAPH_PATH, "demo-map") } },
   "few-hosts": { hosts: makeHosts(12) },
   /** Ticket 10: a roster that can edit and publish (api 7), no Pending changes yet. */
   edit: { hosts: makeHosts(12), apiVersion: 7 },
