@@ -3,8 +3,8 @@
 #        Tests need no network, SSH server or password manager (stand-in bw/op/pass/ssh in tests/fakes).
 #   App  (app/, crates/roster-core, app/src-tauri): tsc + ESLint + Vitest; rustfmt, clippy and
 #        cargo test on Linux (with the WebKitGTK/D-Bus dev packages, so clippy covers the Tauri
-#        crate too); release builds of the Windows and Linux apps; lua-language-server over the
-#        example and first-party Plugins, against the Plugin API's generated stubs. The first-party
+#        crate too); roster-core's cargo test on Windows; release builds of the Windows and Linux
+#        apps; lua-language-server over the example and first-party Plugins, against the Plugin API's generated stubs. The first-party
 #        Plugins' own tests (plugins/README.md) run in cargo test and npm run check.
 name: CI
 
@@ -180,6 +180,28 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # Default member roster-core: the PTY, JSON-RPC (tests/fake_serve.py) and Lua Config tests.
       - run: cargo test
+
+  # roster-core's tests on Windows (ticket 92): its cfg(windows) code, such as the junctions and reparse points of the
+  # Plugin "stays inside its folder" rule (mklink /J), only runs here. The core only: the Tauri crate is built by the
+  # release build below, and its own cache keeps this job to the core's tests.
+  core-test-windows:
+    name: Core tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # tests/fake_serve.py stands in for roster serve; the tests run it as python3, which Windows lacks.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Add python3
+        shell: pwsh
+        run: |
+          $d = Split-Path (Get-Command python).Source
+          if (-not (Test-Path "$d\python3.exe")) { Copy-Item "$d\python.exe" "$d\python3.exe" }
+          python3 --version
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p roster-core
 
   app-windows:
     name: App Windows release build
