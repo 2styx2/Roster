@@ -22,7 +22,7 @@ Two lines never move, whatever the Config: secrets never reach the app's UI, the
 
 ## Plugins and Packages: not yet
 
-A Plugin will be Lua, run by the same Lua runtime as `init.lua`, that adds to these same registries: its own commands, finder sources, Sidebar sections, status segments, error rows and help pages, plus hooks such as "a Session opened". A Package will be a Plugin fetched from a git repo and pinned to a commit in a lock file, the way lazy.nvim works. Neither is in the app yet. What they'll be able to do, and what they never will (see a secret, or Publish by themselves), is settled already.
+A Plugin will be Lua, run by the same Lua runtime as `init.lua`, that adds to these same registries: its own commands, finder sources, Sidebar sections, status segments, error rows and help pages, plus hooks such as "a Session opened". A Package will be a Plugin fetched from a git repo and pinned to a commit in a lock file, the way lazy.nvim works. Neither is in the app yet. The core stays small: features only some people need, such as a map of the network, discovering Hosts from the app and the mesh controls, are planned as optional Plugins that roster provides, built on exactly this API (decision Q80). Plugins add no HTML: they hand the core data and actions (panels, lists, tables, text with links, status segments), and the core draws them in roster's style. What they'll be able to do, and what they never will (see a secret, or Publish by themselves), is settled already.
 
 Until then, a help page from a Plugin is plain data, never HTML, so it will look like these: see [Plugins add pages](help.md#plugins-add-pages).
 
