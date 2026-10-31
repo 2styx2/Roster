@@ -14,15 +14,20 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Sign out of the vault to use another account: `:vault signout`, or "Use a different account" on the lock screen. It asks first, naming the account. See [Signing out](app/errors.md#signing-out).
 - Help, redone the way Neovim's is: an index grouped as Getting started, Make it yours, Reference, Extending and What's new; [Getting started](app/start.md); `:helpgrep TEXT` searches every page; `g O` is a page's outline; `Ctrl+]` follows a link; the generated [Quick reference](quickref) and [Every topic](all) pages, [Recipes](app/recipes.md), [How far roster bends](app/extending.md), and the CLI's docs in help too ([The roster command](cli-reference.md)).
 - Help from where you are: in the command line, `Ctrl+]` or `F1` opens help on the command you're typing, and Esc in help brings the line back as you left it. In App mode, `␣ F1` opens help on what's selected (a Host's row: `:connect`), and `F1` does the same in the Picker, every finder and the Key bindings panel. See [Help from where you are](app/help.md#help-from-where-you-are).
+- Health: `:check` with no Host checks this Box (roster, `roster.yml`, ssh, the vault, askpass, the infra repo) without connecting anywhere, and shows the result as the [Health](health) page, each check with its fix and help topic. `:help health` shows the last one.
 - What's new: this page, `:help news`, and the status line says once after an upgrade that it's there. Old names that still work are on [Deprecated names](deprecated.md), and `:help` on an old name lands on its row.
 
 **CLI**
 
+- The Mesh: `mesh:` on a group or Host and top-level `links:` in `roster.yml` say which Hosts reach which, and `roster mesh` sets it up from this Box, one Host at a time (a key made on each source, tagged entries on its peers; `--dry-run` shows the plan). `roster mesh status` shows who reaches whom without connecting, and `roster mesh cut HOST` takes a Host out everywhere at once. `roster check` reports the Mesh's drift. See [The Mesh](mesh.md).
+- `roster check --box`: this Box's health, like Neovim's `:checkhealth`, each check `ok`, `warn` or `error` with its fix. Local only: it never connects to a Host. See [`roster check --box`](cli-reference.md#roster-check---box).
 - A man page: `man roster` after `roster man --install`, generated from the parser and [The roster command](cli-reference.md#commands). The Release's files carry it too.
 
-**serve API (API 14)**
+**serve API (API 14 to 16)**
 
-- `vault.logout` signs the vault CLI out, after forgetting every secret roster holds.
+- API 14: `vault.logout` signs the vault CLI out, after forgetting every secret roster holds.
+- API 15: the Mesh's `mesh.plan`, `mesh.apply`, `mesh.cut` and `mesh.status`, and error code 110. See [The Mesh](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus).
+- API 16: `box.check`, this Box's health. See [This Box's health](serve-api.md#this-boxs-health-boxcheck).
 
 ### Changed
 
