@@ -2196,7 +2196,11 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            o("title", "string", "Its title (the `:finder` command's label and the dialog's name); the id if left out."),
+            o(
+                "title",
+                "string",
+                "Its title (the `:finder` command's label and the dialog's name); the id if left out.",
+            ),
             o(
                 "prompt",
                 "string",
