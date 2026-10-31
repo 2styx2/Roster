@@ -1,6 +1,7 @@
 // `:host add` (ticket 11): a side panel to add a Host. Like `:edit`, it opens at once and pulls the
-// infra repo in the background when the last pull is stale (decision Q88; not over Pending changes);
-// adding waits for that pull, and a failed one blocks it. A Host with a Login is a verified add (decision Q43):
+// infra repo in the background when the last pull is stale (decision Q88; not over Pending
+// changes); adding waits for that pull, and a failed one blocks it. A Host with a Login is a
+// verified add (decision Q43):
 // roster scans the address's host key and the user confirms it, then `host.add` runs one test login,
 // saves a typed password to the vault as `<host> ssh`, and adds the Host as a Pending change.
 // Nothing is written when the test login fails. Without a Login the Host goes in unreviewed.
@@ -93,21 +94,11 @@ interface FieldDef {
 
 const FIELDS: readonly FieldDef[] = [
   { name: "name", label: "Name", mono: true, placeholder: "e.g. esx-02" },
-  {
-    name: "address",
-    label: "Address",
-    mono: true,
-    placeholder: "e.g. 10.19.77.5",
-  },
+  { name: "address", label: "Address", mono: true, placeholder: "e.g. 10.19.77.5" },
   { name: "port", label: "Port", mono: true },
   { name: "user", label: "User", mono: true, placeholder: "e.g. root" },
   { name: "group", label: "Group", mono: true },
-  {
-    name: "type",
-    label: "Type",
-    mono: true,
-    placeholder: "esxi, switch, linux…",
-  },
+  { name: "type", label: "Type", mono: true, placeholder: "esxi, switch, linux…" },
   { name: "title", label: "Title", mono: false },
 ];
 
@@ -129,10 +120,7 @@ export function AddPanel({
   /** Problems show once a field was left, or after a try to add. */
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
   /** roster's own word on a field (80 with data.field, 81 for the name). */
-  const [rosterSays, setRosterSays] = useState<{
-    field: string;
-    message: string;
-  } | null>(null);
+  const [rosterSays, setRosterSays] = useState<{ field: string; message: string } | null>(null);
   // Uncontrolled on purpose: the password lives only in the input, never in React state.
   const password = useRef<HTMLInputElement>(null);
   const [hasPassword, setHasPassword] = useState(false);
@@ -148,14 +136,9 @@ export function AddPanel({
 
   /** A pull brought new commits while the form was open (decision Q88). */
   const [pulledIn, setPulledIn] = useState(false);
-  const formPull = useFormPull(
-    pull,
-    pendingCount > 0,
-    "the infra repo",
-    (outcome) => {
-      if (!outcome.fresh && outcome.result.updated) setPulledIn(true);
-    },
-  );
+  const formPull = useFormPull(pull, pendingCount > 0, "the infra repo", (outcome) => {
+    if (!outcome.fresh && outcome.result.updated) setPulledIn(true);
+  });
   useEffect(() => {
     document.getElementById(`${ids}-name`)?.focus();
   }, [ids]);
@@ -165,8 +148,7 @@ export function AddPanel({
   }, [confirming]);
 
   const fieldId = (f: string) => `${ids}-${f}`;
-  const busy =
-    phase.at === "waiting" || phase.at === "scanning" || phase.at === "adding";
+  const busy = phase.at === "waiting" || phase.at === "scanning" || phase.at === "adding";
   const login = draft.login;
 
   // ---- Save to (ticket 35)
@@ -179,20 +161,15 @@ export function AddPanel({
   const suggestions = itemSuggestions(draft, hosts);
 
   const problemOf = (f: AddField): string | null => {
-    const mine =
-      touched.has(f) || touched.has("*") ? addProblem(f, draft, hosts) : null;
+    const mine = touched.has(f) || touched.has("*") ? addProblem(f, draft, hosts) : null;
     return mine ?? (rosterSays?.field === f ? rosterSays.message : null);
   };
-  const passwordMissing =
-    login === "password" &&
-    !hasPassword &&
-    (touched.has("password") || touched.has("*"));
+  const passwordMissing = login === "password" && !hasPassword && (touched.has("password") || touched.has("*"));
 
   const set = (patch: Partial<AddDraft>) => {
     setDraft((d) => ({ ...d, ...patch }));
     setRosterSays(null);
-    if (phase.at !== "ready" && !busy && phase.at !== "confirm-key")
-      setPhase({ at: "ready" });
+    if (phase.at !== "ready" && !busy && phase.at !== "confirm-key") setPhase({ at: "ready" });
   };
 
   /** Empties the password input: after every call that carried it, pass or fail. */
@@ -200,41 +177,25 @@ export function AddPanel({
     if (password.current) password.current.value = "";
     setHasPassword(false);
     // Emptied on purpose: no "type the password" nag until the next try.
-    setTouched(
-      (t) => new Set([...t].filter((f) => f !== "password" && f !== "*")),
-    );
+    setTouched((t) => new Set([...t].filter((f) => f !== "password" && f !== "*")));
   };
 
   const add = async (hostKey?: string) => {
-    const params = addParams(
-      draft,
-      hosts,
-      login === "password" ? password.current?.value : undefined,
-      target?.save_to,
-    );
+    const params = addParams(draft, hosts, login === "password" ? password.current?.value : undefined, target?.save_to);
     if (!params) return;
     setPhase({ at: "adding" });
     try {
       // After a timeout, addHostChecked asks roster whether the Host went in, and says so.
-      const result = await addHostChecked(
-        backend,
-        hostKey ? { ...params, host_key: hostKey } : params,
-      );
+      const result = await addHostChecked(backend, hostKey ? { ...params, host_key: hostKey } : params);
       if (live.current) onAdded(result);
     } catch (e) {
       if (!live.current) return;
       const problem = problemFromCallError(params.name, e);
-      const steps =
-        e instanceof BackendCallError && Array.isArray(e.data?.["steps"])
-          ? (e.data["steps"] as CheckStep[])
-          : null;
+      const steps = e instanceof BackendCallError && Array.isArray(e.data?.["steps"]) ? (e.data["steps"] as CheckStep[]) : null;
       if (steps) return setPhase({ at: "verify-failed", problem, steps });
       if (e instanceof BackendCallError && (e.code === 80 || e.code === 81)) {
         const field = e.code === 81 ? "name" : String(e.data?.["field"] ?? "");
-        setRosterSays({
-          field: field === "ip" ? "address" : field,
-          message: e.message,
-        });
+        setRosterSays({ field: field === "ip" ? "address" : field, message: e.message });
       }
       setPhase({ at: "failed", problem });
     } finally {
@@ -249,20 +210,13 @@ export function AddPanel({
     const problems = problemsOf(draft, hosts);
     if (problems.length || (login === "password" && !password.current?.value)) {
       const first = problems[0]?.[0] ?? "password";
-      (first === "password"
-        ? password.current
-        : document.getElementById(fieldId(first))
-      )?.focus();
+      (first === "password" ? password.current : document.getElementById(fieldId(first)))?.focus();
       return;
     }
     if (found && !target) {
       // The default names a place that isn't there: this Host's choice has to be made here.
       setPickMissing(true);
-      document
-        .querySelector<HTMLInputElement>(
-          `input[name="${fieldId("saveto")}-saveto"]`,
-        )
-        ?.focus();
+      document.querySelector<HTMLInputElement>(`input[name="${fieldId("saveto")}-saveto"]`)?.focus();
       return;
     }
     // The pull first (decision Q88): the one running, or a new one if the last is stale. A failed
@@ -275,10 +229,7 @@ export function AddPanel({
     // A Login means a first login to this address: its host key is shown and confirmed first.
     setPhase({ at: "scanning" });
     try {
-      const key = await backend.scanKey(
-        draft.address.trim(),
-        Number(draft.port.trim()),
-      );
+      const key = await backend.scanKey(draft.address.trim(), Number(draft.port.trim()));
       if (!live.current) return;
       if (key.recorded === "match") return add();
       if (key.recorded === "changed") {
@@ -298,10 +249,7 @@ export function AddPanel({
     } catch (e) {
       if (!live.current) return;
       forgetPassword();
-      setPhase({
-        at: "failed",
-        problem: problemFromCallError(draft.name.trim(), e),
-      });
+      setPhase({ at: "failed", problem: problemFromCallError(draft.name.trim(), e) });
     }
   };
 
@@ -310,8 +258,7 @@ export function AddPanel({
     setPhase({ at: "key-refused", key });
   };
 
-  const touch = (f: string) =>
-    setTouched((t) => (t.has(f) ? t : new Set(t).add(f)));
+  const touch = (f: string) => setTouched((t) => (t.has(f) ? t : new Set(t).add(f)));
 
   return (
     <section
@@ -329,21 +276,14 @@ export function AddPanel({
     >
       <header>
         <h2>Add a Host</h2>
-        <button
-          type="button"
-          className="icon-button close"
-          aria-label="Close the add form"
-          onClick={onClose}
-        >
+        <button type="button" className="icon-button close" aria-label="Close the add form" onClick={onClose}>
           <CloseGlyph />
         </button>
       </header>
       <PullStatus pull={formPull} rows={rows} actions={actions} />
       {pulledIn && hosts.hosts.some((h) => h.name === draft.name.trim()) && (
         <p className="edit-note" role="status">
-          The pull brought a Host named{" "}
-          <span className="mono">{draft.name.trim()}</span>, so this one needs
-          another name.
+          The pull brought a Host named <span className="mono">{draft.name.trim()}</span>, so this one needs another name.
         </p>
       )}
       <form
@@ -351,8 +291,7 @@ export function AddPanel({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          if (phase.at === "confirm-key")
-            return void add(phase.key.fingerprint);
+          if (phase.at === "confirm-key") return void add(phase.key.fingerprint);
           void submit();
         }}
       >
@@ -397,11 +336,7 @@ export function AddPanel({
           </datalist>
           <fieldset className="add-login" disabled={busy}>
             <legend>Login</legend>
-            <div
-              className="add-ways"
-              role="radiogroup"
-              aria-label="How it logs in"
-            >
+            <div className="add-ways" role="radiogroup" aria-label="How it logs in">
               {LOGIN_WAYS.map(({ way, label }) => (
                 <label key={way} className="add-way">
                   <input
@@ -429,11 +364,7 @@ export function AddPanel({
                   autoComplete="off"
                   spellCheck={false}
                   aria-invalid={passwordMissing ? true : undefined}
-                  aria-describedby={
-                    passwordMissing
-                      ? `${fieldId("password")}-problem`
-                      : undefined
-                  }
+                  aria-describedby={passwordMissing ? `${fieldId("password")}-problem` : undefined}
                   onBlur={() => touch("password")}
                   onChange={(e) => {
                     // Only whether there is one: the value stays in the input.
@@ -442,10 +373,7 @@ export function AddPanel({
                   }}
                 />
                 {passwordMissing && (
-                  <span
-                    id={`${fieldId("password")}-problem`}
-                    className="edit-field-problem"
-                  >
+                  <span id={`${fieldId("password")}-problem`} className="edit-field-problem">
                     Type the password {name} takes
                   </span>
                 )}
@@ -453,18 +381,12 @@ export function AddPanel({
             )}
             {login !== "none" && (
               <div className="edit-field">
-                <label htmlFor={fieldId("item")}>
-                  {login === "password" ? "Save it as" : "Vault item"}
-                </label>
+                <label htmlFor={fieldId("item")}>{login === "password" ? "Save it as" : "Vault item"}</label>
                 <input
                   id={fieldId("item")}
                   className="mono"
                   value={draft.item}
-                  placeholder={
-                    login === "password"
-                      ? defaultItem(draft.name)
-                      : defaultRef(draft.name)
-                  }
+                  placeholder={login === "password" ? defaultItem(draft.name) : defaultRef(draft.name)}
                   list={`${ids}-items`}
                   spellCheck={false}
                   autoComplete="off"
@@ -478,12 +400,7 @@ export function AddPanel({
                     <option key={s} value={s} />
                   ))}
                 </datalist>
-                <span
-                  id={`${fieldId("item")}-hint`}
-                  className={
-                    problemOf("item") ? "edit-field-problem" : "edit-hint"
-                  }
-                >
+                <span id={`${fieldId("item")}-hint`} className={problemOf("item") ? "edit-field-problem" : "edit-hint"}>
                   {problemOf("item") ??
                     (login === "password"
                       ? "Saved to the vault only after the test login passes. Name it <host> <what it opens>."
@@ -492,19 +409,10 @@ export function AddPanel({
               </div>
             )}
             {choosing && (
-              <SaveToField
-                id={fieldId("saveto")}
-                choice={saveTo}
-                pickMissing={pickMissing}
-                onChoose={() => setPickMissing(false)}
-              />
+              <SaveToField id={fieldId("saveto")} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
             )}
             <label className="add-check">
-              <input
-                type="checkbox"
-                checked={draft.enroll}
-                onChange={(e) => set({ enroll: e.target.checked })}
-              />
+              <input type="checkbox" checked={draft.enroll} onChange={(e) => set({ enroll: e.target.checked })} />
               Install this Box's key on it later (enroll)
             </label>
           </fieldset>
@@ -514,34 +422,17 @@ export function AddPanel({
             ? `With no Login to test, ${name} goes in unreviewed: it can't be opened until it's marked reviewed.`
             : "roster tests the login first: one attempt, after you confirm the host key. Nothing is saved if it fails."}
         </p>
-        {phase.at === "scanning" && (
-          <p className="muted edit-status">
-            Reading the host key at {draft.address.trim()}…
-          </p>
-        )}
+        {phase.at === "scanning" && <p className="muted edit-status">Reading the host key at {draft.address.trim()}…</p>}
         {phase.at === "confirm-key" && (
-          <div
-            className="add-key"
-            role="group"
-            aria-label="Confirm the host key"
-          >
+          <div className="add-key" role="group" aria-label="Confirm the host key">
             <p className="edit-status">
               First login to {phase.key.address}
-              {phase.key.port === 22 ? "" : `:${phase.key.port}`}. Its{" "}
-              {phase.key.key_type} host key is:
+              {phase.key.port === 22 ? "" : `:${phase.key.port}`}. Its {phase.key.key_type} host key is:
             </p>
             <p className="mono add-fingerprint">{phase.key.fingerprint}</p>
-            <p className="muted edit-status">
-              Compare it with the Host's console or its owner before you trust
-              it.
-            </p>
+            <p className="muted edit-status">Compare it with the Host's console or its owner before you trust it.</p>
             <div className="edit-actions">
-              <button
-                type="button"
-                className="primary"
-                ref={trustRef}
-                onClick={() => void add(phase.key.fingerprint)}
-              >
+              <button type="button" className="primary" ref={trustRef} onClick={() => void add(phase.key.fingerprint)}>
                 Trust it and add
               </button>
               <button type="button" onClick={() => refuseKey(phase.key)}>
@@ -552,42 +443,22 @@ export function AddPanel({
         )}
         {phase.at === "key-refused" && (
           <p className="edit-status" role="alert">
-            Not added: you didn't trust the host key at {phase.key.address}.
-            Nothing was written.
+            Not added: you didn't trust the host key at {phase.key.address}. Nothing was written.
           </p>
         )}
-        {phase.at === "waiting" && (
-          <p className="muted edit-status">Waiting for the pull to finish…</p>
-        )}
+        {phase.at === "waiting" && <p className="muted edit-status">Waiting for the pull to finish…</p>}
         {phase.at === "adding" && (
-          <p className="muted edit-status">
-            {login === "none"
-              ? "Adding…"
-              : `Testing the login to ${draft.address.trim()}…`}
-          </p>
+          <p className="muted edit-status">{login === "none" ? "Adding…" : `Testing the login to ${draft.address.trim()}…`}</p>
         )}
         {phase.at === "verify-failed" && (
           <div className="edit-problem" role="alert">
-            <p className="edit-status">
-              The test login failed, so nothing was saved: not the Host, not the
-              password.
-            </p>
-            <CheckSteps
-              host={draft.name.trim()}
-              steps={phase.steps}
-              rows={rows}
-              actions={actions}
-            />
+            <p className="edit-status">The test login failed, so nothing was saved: not the Host, not the password.</p>
+            <CheckSteps host={draft.name.trim()} steps={phase.steps} rows={rows} actions={actions} />
           </div>
         )}
         {phase.at === "failed" && (
           <div className="edit-problem" role="alert">
-            <ProblemBody
-              problem={phase.problem}
-              rows={rows}
-              actions={actions}
-              notInTab
-            />
+            <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
           </div>
         )}
         {phase.at !== "confirm-key" && (

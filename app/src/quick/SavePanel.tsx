@@ -11,12 +11,7 @@
 // opens from a click or `:save`, keyboard first: Name has focus, Enter saves, Esc closes (the offer
 // stays). No motion of its own, like the other side panels.
 import { useEffect, useId, useRef, useState } from "react";
-import {
-  type Backend,
-  type HostList,
-  type QuickSave,
-  type SaveLogin,
-} from "../backend/types";
+import { type Backend, type HostList, type QuickSave, type SaveLogin } from "../backend/types";
 import { problemFromCallError, type ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
 import { ProblemBody, type ProblemActions } from "../errors/ErrorPanel";
@@ -41,9 +36,7 @@ export interface SavePanelProps {
   hosts: HostList;
   /** What's saved: a Quick Connect (serve's id for it, where it went, what its shell calls the
    * box), or an `auth: prompt` Host's Session (serve's held id, the Host's name). */
-  what:
-    | { quick: { id: string; to: QuickTarget; hostname: string | null } }
-    | { host: { held: string; name: string } };
+  what: { quick: { id: string; to: QuickTarget; hostname: string | null } } | { host: { held: string; name: string } };
   /** The group the form starts in. */
   group: string;
   pendingCount: number;
@@ -78,10 +71,7 @@ export function SavePanel({
   const [typedName, setTypedName] = useState<string | null>(null);
   const quick = "quick" in what ? what.quick : null;
   const fixed = "host" in what ? what.host : null;
-  const name =
-    fixed?.name ??
-    typedName ??
-    (quick ? suggestedName(quick.hostname, quick.to.address) : "");
+  const name = fixed?.name ?? typedName ?? (quick ? suggestedName(quick.hostname, quick.to.address) : "");
   const [group, setGroup] = useState(startGroup);
   const [tried, setTried] = useState(false);
   const [pickMissing, setPickMissing] = useState(false);
@@ -100,10 +90,7 @@ export function SavePanel({
     if (!outcome.fresh && outcome.result.updated) setPulledIn(true);
   });
   useEffect(() => {
-    (
-      document.getElementById(`${ids}-name`) ??
-      document.getElementById(`${ids}-save`)
-    )?.focus();
+    (document.getElementById(`${ids}-name`) ?? document.getElementById(`${ids}-save`))?.focus();
   }, [ids]);
 
   const saveTo = useSaveTo(backend, chooseTarget, targetsVersion);
@@ -117,22 +104,14 @@ export function SavePanel({
       : taken
         ? `${trimmed} is already a Host (group ${taken.group})`
         : null;
-  const groupProblem = !quick
-    ? null
-    : !group.trim()
-      ? "Pick a group"
-      : !NAME.test(group.trim())
-        ? "Use letters, digits, . _ -"
-        : null;
+  const groupProblem = !quick ? null : !group.trim() ? "Pick a group" : !NAME.test(group.trim()) ? "Use letters, digits, . _ -" : null;
   const item = `${trimmed || "<name>"} ssh`;
 
   const save = async () => {
     if (busy) return;
     setTried(true);
     if (nameProblem || groupProblem) {
-      document
-        .getElementById(`${ids}-${nameProblem ? "name" : "group"}`)
-        ?.focus();
+      document.getElementById(`${ids}-${nameProblem ? "name" : "group"}`)?.focus();
       return;
     }
     if (saveTo.found && !saveTo.target) {
@@ -141,8 +120,7 @@ export function SavePanel({
     }
     // The pull first (decision Q88). A failed one says why above, and nothing is saved.
     setPhase({ at: "waiting" });
-    if ((await formPull.ready()) === null)
-      return live.current && setPhase({ at: "ready" });
+    if ((await formPull.ready()) === null) return live.current && setPhase({ at: "ready" });
     if (!live.current) return;
     setPhase({ at: "saving" });
     try {
@@ -182,26 +160,18 @@ export function SavePanel({
     >
       <header>
         <h2>Save to vault</h2>
-        <button
-          type="button"
-          className="icon-button close"
-          aria-label="Close the save form"
-          onClick={onClose}
-        >
+        <button type="button" className="icon-button close" aria-label="Close the save form" onClick={onClose}>
           <CloseGlyph />
         </button>
       </header>
       <p className="edit-note">
-        <span className="mono">{label}</span> logged in with the password you
-        typed. roster saves it as a Vault item, then{" "}
-        {quick ? "adds the Host" : "points the Host's Login at it"}, as a
-        Pending change.
+        <span className="mono">{label}</span> logged in with the password you typed. roster saves it as a Vault item, then{" "}
+        {quick ? "adds the Host" : "points the Host's Login at it"}, as a Pending change.
       </p>
       <PullStatus pull={formPull} rows={rows} actions={actions} />
       {pulledIn && taken && (
         <p className="edit-note" role="status">
-          The pull brought a Host named <span className="mono">{trimmed}</span>,
-          so this one needs another name.
+          The pull brought a Host named <span className="mono">{trimmed}</span>, so this one needs another name.
         </p>
       )}
       <form
@@ -236,12 +206,7 @@ export function SavePanel({
                   if (phase.at === "failed") setPhase({ at: "ready" });
                 }}
               />
-              <span
-                id={`${ids}-name-hint`}
-                className={
-                  tried && nameProblem ? "edit-field-problem" : "edit-hint"
-                }
-              >
+              <span id={`${ids}-name-hint`} className={tried && nameProblem ? "edit-field-problem" : "edit-hint"}>
                 {tried && nameProblem ? (
                   nameProblem
                 ) : (
@@ -264,19 +229,14 @@ export function SavePanel({
                 autoComplete="off"
                 disabled={busy}
                 aria-invalid={tried && groupProblem ? true : undefined}
-                aria-describedby={
-                  tried && groupProblem ? `${ids}-group-problem` : undefined
-                }
+                aria-describedby={tried && groupProblem ? `${ids}-group-problem` : undefined}
                 onChange={(e) => {
                   setGroup(e.target.value);
                   if (phase.at === "failed") setPhase({ at: "ready" });
                 }}
               />
               {tried && groupProblem && (
-                <span
-                  id={`${ids}-group-problem`}
-                  className="edit-field-problem"
-                >
+                <span id={`${ids}-group-problem`} className="edit-field-problem">
                   {groupProblem}
                 </span>
               )}
@@ -288,37 +248,18 @@ export function SavePanel({
             </div>
           )}
           {chooseTarget && (
-            <SaveToField
-              id={`${ids}-saveto`}
-              choice={saveTo}
-              pickMissing={pickMissing}
-              onChoose={() => setPickMissing(false)}
-            />
+            <SaveToField id={`${ids}-saveto`} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
           )}
         </div>
-        {phase.at === "waiting" && (
-          <p className="muted edit-status">Waiting for the pull to finish…</p>
-        )}
-        {phase.at === "saving" && (
-          <p className="muted edit-status">Saving {item} to the vault…</p>
-        )}
+        {phase.at === "waiting" && <p className="muted edit-status">Waiting for the pull to finish…</p>}
+        {phase.at === "saving" && <p className="muted edit-status">Saving {item} to the vault…</p>}
         {phase.at === "failed" && (
           <div className="edit-problem" role="alert">
-            <ProblemBody
-              problem={phase.problem}
-              rows={rows}
-              actions={actions}
-              notInTab
-            />
+            <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
           </div>
         )}
         <div className="edit-actions">
-          <button
-            type="submit"
-            className="primary"
-            id={`${ids}-save`}
-            disabled={busy}
-          >
+          <button type="submit" className="primary" id={`${ids}-save`} disabled={busy}>
             Save
           </button>
           <button type="button" onClick={onClose}>

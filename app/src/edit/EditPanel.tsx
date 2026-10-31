@@ -17,19 +17,9 @@ import { CheckSteps } from "../errors/CheckPanel";
 import { ProblemBody, type ProblemActions } from "../errors/ErrorPanel";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
-import { PullStatus } from "./PullStatus";
-import {
-  changesOf,
-  draftOf,
-  FIELDS,
-  fieldProblem,
-  needsVerify,
-  rebaseDraft,
-  touchesLogin,
-  type Draft,
-  type FieldName,
-} from "./form";
+import { changesOf, draftOf, FIELDS, fieldProblem, needsVerify, rebaseDraft, touchesLogin, type Draft, type FieldName } from "./form";
 import { useFormPull, type PullGate, type PullOutcome } from "./pull";
+import { PullStatus } from "./PullStatus";
 
 type Phase =
   | { at: "ready" }
@@ -58,42 +48,19 @@ export interface EditPanelProps {
   onUnreview?(host: string): void;
 }
 
-const label = (name: FieldName) =>
-  FIELDS.find((f) => f.name === name)?.label ?? name;
+const label = (name: FieldName) => FIELDS.find((f) => f.name === name)?.label ?? name;
 const listOf = (names: readonly FieldName[]) => names.map(label).join(", ");
 
 /** What a pull that changed the Host did to the form (decision Q88). */
-function changedLine(
-  host: string,
-  r: { theirs: FieldName[]; both: FieldName[] },
-): string {
+function changedLine(host: string, r: { theirs: FieldName[]; both: FieldName[] }): string {
   const parts = [
-    ...(r.theirs.length
-      ? [
-          `${listOf(r.theirs)} now ${r.theirs.length === 1 ? "shows" : "show"} the new value${r.theirs.length === 1 ? "" : "s"}`,
-        ]
-      : []),
-    ...(r.both.length
-      ? [
-          `${listOf(r.both)} changed there too, and yours ${r.both.length === 1 ? "is" : "are"} kept`,
-        ]
-      : []),
+    ...(r.theirs.length ? [`${listOf(r.theirs)} now ${r.theirs.length === 1 ? "shows the new value" : "show the new values"}`] : []),
+    ...(r.both.length ? [`${listOf(r.both)} changed there too, and yours ${r.both.length === 1 ? "is" : "are"} kept`] : []),
   ];
   return `The pull changed ${host}: ${parts.join("; ")}.`;
 }
 
-export function EditPanel({
-  backend,
-  host,
-  pendingCount,
-  rows,
-  actions,
-  onSaved,
-  pull,
-  onClose,
-  onReview,
-  onUnreview,
-}: EditPanelProps) {
+export function EditPanel({ backend, host, pendingCount, rows, actions, onSaved, pull, onClose, onReview, onUnreview }: EditPanelProps) {
   const [current, setCurrent] = useState(host);
   const [draft, setDraft] = useState<Draft>(() => draftOf(host));
   const [phase, setPhase] = useState<Phase>({ at: "ready" });
@@ -137,22 +104,15 @@ export function EditPanel({
     rebased.current.set(outcome.result, done);
     return done;
   };
-  const formPull = useFormPull(
-    pull,
-    pendingCount > 0,
-    host.name,
-    (outcome) => void rebase(outcome),
-  );
+  const formPull = useFormPull(pull, pendingCount > 0, host.name, (outcome) => void rebase(outcome));
 
   useEffect(() => {
     first.current?.focus();
   }, []);
 
-  const busy =
-    phase.at === "waiting" || phase.at === "verifying" || phase.at === "saving";
+  const busy = phase.at === "waiting" || phase.at === "verifying" || phase.at === "saving";
   const changes = changesOf(current, draft);
-  const verify =
-    changes !== null ? needsVerify(changes) : touchesLogin(current, draft);
+  const verify = changes !== null ? needsVerify(changes) : touchesLogin(current, draft);
   const nothing = changes !== null && Object.keys(changes).length === 0;
 
   const save = async () => {
@@ -163,8 +123,7 @@ export function EditPanel({
     if (!live.current) return;
     // A pull that failed says why (above); one that changed this Host shows how, and the next
     // Save is on the new values.
-    if (outcome === null || (outcome !== "skipped" && (await rebase(outcome))))
-      return setPhase({ at: "ready" });
+    if (outcome === null || (outcome !== "skipped" && (await rebase(outcome)))) return setPhase({ at: "ready" });
     try {
       if (verify) {
         setPhase({ at: "verifying" });
@@ -176,11 +135,7 @@ export function EditPanel({
       const update = await backend.updateHost(current.name, changes);
       if (live.current) onSaved(update);
     } catch (e) {
-      if (live.current)
-        setPhase({
-          at: "save-failed",
-          problem: problemFromCallError(current.name, e),
-        });
+      if (live.current) setPhase({ at: "save-failed", problem: problemFromCallError(current.name, e) });
     }
   };
 
@@ -203,12 +158,7 @@ export function EditPanel({
           <span className="muted">Edit · </span>
           <span className="mono">{host.name}</span>
         </h2>
-        <button
-          type="button"
-          className="icon-button close"
-          aria-label="Close the edit"
-          onClick={onClose}
-        >
+        <button type="button" className="icon-button close" aria-label="Close the edit" onClick={onClose}>
           <CloseGlyph />
         </button>
       </header>
@@ -232,11 +182,7 @@ export function EditPanel({
             const changed = draft[f.name].trim() !== original[f.name];
             const id = `edit-${f.name}`;
             return (
-              <div
-                key={f.name}
-                className="edit-field"
-                data-changed={changed || undefined}
-              >
+              <div key={f.name} className="edit-field" data-changed={changed || undefined}>
                 <label htmlFor={id}>
                   {f.label}
                   {changed && <span className="edit-changed"> · changed</span>}
@@ -256,11 +202,7 @@ export function EditPanel({
                   onChange={(e) => {
                     const value = e.target.value;
                     setDraft((d) => ({ ...d, [f.name]: value }));
-                    if (
-                      phase.at === "verify-failed" ||
-                      phase.at === "save-failed"
-                    )
-                      setPhase({ at: "ready" });
+                    if (phase.at === "verify-failed" || phase.at === "save-failed") setPhase({ at: "ready" });
                   }}
                 />
                 {problem && (
@@ -274,68 +216,38 @@ export function EditPanel({
         </div>
         {verify && (
           <p className="edit-note">
-            The address, user or Login changed, so roster tests the login first:
-            one attempt, and the host key must match the recorded one.
+            The address, user or Login changed, so roster tests the login first: one attempt, and the host key must
+            match the recorded one.
           </p>
         )}
-        {phase.at === "verifying" && (
-          <p className="muted edit-status">
-            Testing the login to {draft.ip.trim()}…
-          </p>
-        )}
-        {phase.at === "waiting" && (
-          <p className="muted edit-status">Waiting for the pull to finish…</p>
-        )}
+        {phase.at === "verifying" && <p className="muted edit-status">Testing the login to {draft.ip.trim()}…</p>}
+        {phase.at === "waiting" && <p className="muted edit-status">Waiting for the pull to finish…</p>}
         {phase.at === "saving" && <p className="muted edit-status">Saving…</p>}
         {phase.at === "verify-failed" && (
           <div className="edit-problem" role="alert">
-            <p className="edit-status">
-              The test login failed, so nothing was saved.
-            </p>
-            <CheckSteps
-              host={current.name}
-              steps={phase.result.steps}
-              rows={rows}
-              actions={actions}
-            />
+            <p className="edit-status">The test login failed, so nothing was saved.</p>
+            <CheckSteps host={current.name} steps={phase.result.steps} rows={rows} actions={actions} />
           </div>
         )}
         {phase.at === "save-failed" && (
           <div className="edit-problem" role="alert">
-            <ProblemBody
-              problem={phase.problem}
-              rows={rows}
-              actions={actions}
-              notInTab
-            />
+            <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
           </div>
         )}
         <div className="edit-actions">
-          <button
-            type="submit"
-            className="primary"
-            disabled={busy || changes === null || nothing}
-          >
+          <button type="submit" className="primary" disabled={busy || changes === null || nothing}>
             {verify ? "Test login and save" : "Save"}
           </button>
           <button type="button" onClick={onClose}>
             Cancel
           </button>
           {!current.reviewed && onReview && (
-            <button
-              type="button"
-              onClick={() => onReview(current.name)}
-              disabled={busy}
-            >
+            <button type="button" onClick={() => onReview(current.name)} disabled={busy}>
               Mark reviewed
             </button>
           )}
           {current.reviewed && onUnreview && (
-            <button
-              type="button"
-              onClick={() => onUnreview(current.name)}
-              disabled={busy}
-            >
+            <button type="button" onClick={() => onUnreview(current.name)} disabled={busy}>
               Mark unreviewed
             </button>
           )}

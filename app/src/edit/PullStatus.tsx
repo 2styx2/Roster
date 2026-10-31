@@ -15,17 +15,11 @@ export function PullStatus({
   actions: ProblemActions;
 }) {
   const { state } = pull;
-  if (state.at !== "failed")
-    return <p className="muted edit-status">{pullLine(state)}</p>;
+  if (state.at !== "failed") return <p className="muted edit-status">{pullLine(state)}</p>;
   return (
     <div className="edit-problem" role="alert">
       <p className="edit-status">{pullLine(state)}</p>
-      <ProblemBody
-        problem={state.problem}
-        rows={rows}
-        actions={actions}
-        notInTab
-      />
+      <ProblemBody problem={state.problem} rows={rows} actions={actions} notInTab />
       <div className="edit-actions">
         <button type="button" onClick={pull.retry}>
           Try again

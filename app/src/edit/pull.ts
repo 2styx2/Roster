@@ -13,8 +13,7 @@ import type { Problem } from "../errors/classify";
 import type { PullResult } from "../backend/types";
 
 /** What a form's pull came to: no pull needed (the last good one was `ago` ms back), or what the pull did. */
-export type PullOutcome =
-  { fresh: true; ago: number } | { fresh: false; result: PullResult };
+export type PullOutcome = { fresh: true; ago: number } | { fresh: false; result: PullResult };
 
 export interface PullGate {
   /** Pulls unless the last good pull is fresh; joins a pull already running. Rejects as the pull did. */
@@ -31,10 +30,7 @@ export interface PullGateOptions {
   onUpdated(result: PullResult): void;
 }
 
-export function pullGate(
-  pull: () => Promise<PullResult>,
-  opts: PullGateOptions,
-): PullGate {
+export function pullGate(pull: () => Promise<PullResult>, opts: PullGateOptions): PullGate {
   let lastGood: number | null = null;
   let running: Promise<PullResult> | null = null;
   const start = () => {
@@ -56,8 +52,7 @@ export function pullGate(
     ensure() {
       const window = opts.windowMs();
       const ago = lastGood === null ? null : opts.now() - lastGood;
-      if (!running && window > 0 && ago !== null && ago < window)
-        return Promise.resolve({ fresh: true, ago });
+      if (!running && window > 0 && ago !== null && ago < window) return Promise.resolve({ fresh: true, ago });
       return start().then((result) => ({ fresh: false, result }));
     },
     pull: start,
@@ -85,9 +80,7 @@ export function useFormPull(
   ready(): Promise<PullOutcome | "skipped" | null>;
   retry(): void;
 } {
-  const [state, setState] = useState<FormPull>(() =>
-    skip ? { at: "skipped" } : { at: "pulling" },
-  );
+  const [state, setState] = useState<FormPull>(() => (skip ? { at: "skipped" } : { at: "pulling" }));
   const live = useRef(true);
   const onResultRef = useRef(onResult);
   useEffect(() => {
@@ -98,28 +91,19 @@ export function useFormPull(
     skipRef.current = skip;
   });
 
-  const ready = useCallback(async (): Promise<
-    PullOutcome | "skipped" | null
-  > => {
+  const ready = useCallback(async (): Promise<PullOutcome | "skipped" | null> => {
     if (skipRef.current) return "skipped";
-    setState((s) =>
-      s.at === "fresh" || s.at === "pulled" ? s : { at: "pulling" },
-    );
+    setState((s) => (s.at === "fresh" || s.at === "pulled" ? s : { at: "pulling" }));
     try {
       const outcome = await gate.ensure();
       if (!live.current) return null;
       setState((s) =>
-        outcome.fresh
-          ? s.at === "pulled"
-            ? s
-            : { at: "fresh", ago: outcome.ago }
-          : { at: "pulled", result: outcome.result },
+        outcome.fresh ? (s.at === "pulled" ? s : { at: "fresh", ago: outcome.ago }) : { at: "pulled", result: outcome.result },
       );
       onResultRef.current?.(outcome);
       return outcome;
     } catch (e) {
-      if (live.current)
-        setState({ at: "failed", problem: problemFromCallError(subject, e) });
+      if (live.current) setState({ at: "failed", problem: problemFromCallError(subject, e) });
       return null;
     }
   }, [gate, subject]);
@@ -143,10 +127,7 @@ export function pullLine(state: FormPull): string {
       return "Pending changes are already here, so roster didn't pull.";
     case "fresh": {
       const minutes = Math.floor(state.ago / 60_000);
-      const when =
-        minutes < 1
-          ? "under a minute"
-          : `${minutes} minute${minutes === 1 ? "" : "s"}`;
+      const when = minutes < 1 ? "under a minute" : `${minutes} minute${minutes === 1 ? "" : "s"}`;
       return `Pulled the infra repo ${when} ago, so roster didn't pull again.`;
     }
     case "pulling":
@@ -155,10 +136,8 @@ export function pullLine(state: FormPull): string {
       return "Couldn't pull the infra repo, so nothing can be saved yet.";
     case "pulled": {
       const p = state.result;
-      if (!p.upstream)
-        return "No upstream to pull from; this Box's copy is the one.";
-      if (p.updated)
-        return `Pulled ${p.commits} new commit${p.commits === 1 ? "" : "s"} from ${p.upstream}.`;
+      if (!p.upstream) return "No upstream to pull from; this Box's copy is the one.";
+      if (p.updated) return `Pulled ${p.commits} new commit${p.commits === 1 ? "" : "s"} from ${p.upstream}.`;
       return `Up to date with ${p.upstream}.`;
     }
   }
