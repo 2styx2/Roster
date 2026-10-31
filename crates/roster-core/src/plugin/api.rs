@@ -27,6 +27,8 @@ pub enum Needs {
     Permission(&'static str),
     /// Any `serve:<method>` permission.
     AnyServe,
+    /// Any `network:<site>` permission.
+    AnyNetwork,
 }
 
 impl Needs {
@@ -35,6 +37,7 @@ impl Needs {
             Needs::Nothing => "none".into(),
             Needs::Permission(p) => format!("`{p}`"),
             Needs::AnyServe => "`serve:<method>` (that method)".into(),
+            Needs::AnyNetwork => "`network:<site>` (that site)".into(),
         }
     }
 }
@@ -247,6 +250,11 @@ pub const MODULES: &[Module] = &[
         summary: "roster serve's methods, by name",
         doc: "`nil` unless the Plugin was granted at least one `serve:<method>` permission.",
     },
+    Module {
+        name: "roster.http",
+        summary: "HTTP requests to the sites the manifest lists",
+        doc: "`nil` unless the Plugin was granted at least one `network:<site>` permission ([Permissions](plugins.md#permissions)). The request runs in roster's core, never in the app's window, and doesn't wait: the function you pass gets the answer later, as a call of its own with a call's budget. Only the sites granted are reached, redirects included; a name that resolves to an address on this computer or a private network is refused unless the manifest lists the address itself. No cookies, proxy or credentials of roster's go along. At most 4 requests at once, a 256 KB body out, a 1 MB body back, 30 seconds each.",
+    },
 ];
 
 pub const VALUES: &[Value] = &[
@@ -339,7 +347,7 @@ pub const FUNCTIONS: &[Function] = &[
             "A permission's name: `\"terminal.read\"`, `\"serve:mesh.status\"`.",
         )],
         summary: "Whether the Plugin was granted a permission",
-        doc: "Ask before you use what a permission gives: listening for an event the Plugin may not hear is an error, and a module it wasn't granted is `nil`. One that can't be granted here (`network`, a serve method roster doesn't allow) is `false`, so you can ask about what a newer roster has.",
+        doc: "Ask before you use what a permission gives: listening for an event the Plugin may not hear is an error, and a module it wasn't granted is `nil`. `roster.has(\"network:api.example.com\")` asks about that one site, and a bare `roster.has(\"network\")` whether any site was granted (whether `roster.http` is there). One that can't be granted here (a serve method roster doesn't allow, a site that isn't one) is `false`, so you can ask about what a newer roster has.",
         returns: ("boolean", "`true` when it's granted (and not revoked in `:plugins`)."),
         errors: &[(
             "roster.has: \"NAME\" isn't a permission (there's …)",
@@ -1173,6 +1181,74 @@ pub const FUNCTIONS: &[Function] = &[
         since: 2,
         example: "local info = roster.serve.call(\"inventory.info\")\nroster.status.set(\"box\", { text = info.box .. \": \" .. info.host_count .. \" Hosts\" })",
     },
+    Function {
+        path: "roster.http.request",
+        params: &[
+            p("request", "HttpRequest", "What to send: at least its `url`."),
+            p(
+                "done",
+                "fun(response: HttpResponse?, err: string?)",
+                "Runs once with the answer: `response` for any status the site gave (a 404 too), or `nil` and why there was none (refused, unreachable, timed out, too big). Its return value is ignored; an error in it counts like an action's.",
+            ),
+        ],
+        summary: "Sends an HTTP request to a site the Plugin was granted",
+        doc: "Returns at once; `done` runs later. Each request is checked before anything is sent: its site must be one of the Plugin's `network:<site>` grants (https, unless the site was listed with `http://`; the port the site names, or the scheme's own). The same check stops a redirect to anywhere else.",
+        returns: ("", ""),
+        errors: &[
+            (
+                "roster.http.request: https://elsewhere.example isn't a site this Plugin may reach (it may reach SITES)",
+                "the URL's scheme, host or port isn't granted",
+            ),
+            ("roster.http.request: \"URL\" isn't a URL: …", "`url` doesn't parse"),
+            (
+                "roster.http.request: a URL with a user or password in it isn't sent",
+                "the URL has `user:password@`",
+            ),
+            (
+                "roster.http.request: the NAME header is roster's to set",
+                "a header that steers the connection: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Expect`, `Proxy-…`",
+            ),
+            (
+                "roster.http.request: \"METHOD\" isn't a method (there's GET, HEAD, POST, PUT, PATCH, DELETE)",
+                "another method",
+            ),
+            ("roster.http.request: the body is over 262144 bytes", "a longer body"),
+            (
+                "roster.http.request: 4 requests are going already: wait for one to answer",
+                "4 haven't answered yet",
+            ),
+            (
+                "roster.http.request: \"KEY\" isn't a key of a request (there's url, method, headers, body, timeout)",
+                "another key in `request`",
+            ),
+        ],
+        refused: &[],
+        needs: Needs::AnyNetwork,
+        since: 2,
+        example: "roster.http.request({\n  url = \"https://hooks.example.com/alerts\",\n  method = \"POST\",\n  headers = { [\"Content-Type\"] = \"application/json\", Authorization = \"Bearer \" .. roster.plugin.config.token },\n  body = '{\"text\": \"esx-02 is down\"}',\n}, function(res, err)\n  if not res then return roster.notify(\"webhook: \" .. err, \"warn\") end\n  if res.status >= 300 then roster.notify(\"webhook said \" .. res.status, \"warn\") end\nend)",
+    },
+    Function {
+        path: "roster.http.get",
+        params: &[
+            p("url", "string", "The URL, on a site the Plugin was granted."),
+            p(
+                "done",
+                "fun(response: HttpResponse?, err: string?)",
+                "As [`roster.http.request`](#rosterhttprequestrequest-done)'s.",
+            ),
+        ],
+        summary: "Fetches a URL from a site the Plugin was granted",
+        doc: "`roster.http.request({ url = url }, done)`.",
+        returns: ("", ""),
+        errors: &[(
+            "roster.http.get: …",
+            "as [`roster.http.request`](#rosterhttprequestrequest-done)'s",
+        )],
+        refused: &[],
+        needs: Needs::AnyNetwork,
+        since: 2,
+        example: "roster.http.get(\"https://status.example.com/api/v2/status.json\", function(res, err)\n  roster.status.set(\"upstream\", { text = res and res.status == 200 and \"upstream ok\" or \"upstream ?\" })\nend)",
+    },
 ];
 
 pub const EVENTS: &[Event] = &[
@@ -1292,7 +1368,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "Permission",
         summary: "A permission's name, as a manifest writes it",
-        doc: "What each gives is in [Permissions](plugins.md#permissions). `network` isn't available yet; a serve method that reaches a secret can't be asked for.",
+        doc: "What each gives is in [Permissions](plugins.md#permissions). `serve:<method>` names one method and `network:<site>` one site (`network:api.example.com`, `network:*.example.com`, `network:http://10.0.0.5:8080`); a bare `network`, or a serve method that reaches a secret, can't be asked for.",
         alias: "\"inventory.read\"|\"inventory.write\"|\"sessions.open\"|\"terminal.read\"|\"terminal.write\"|string",
         fields: &[],
         open: false,
@@ -1961,6 +2037,58 @@ pub const TYPES: &[Type] = &[
             ),
             o("view", "string", "The view's id, in a view."),
             o("section", "string", "The section's id, in a Host's details."),
+        ],
+        open: false,
+    },
+    // ---------------------------------------------------------------- HTTP
+    Type {
+        name: "HttpRequest",
+        summary: "What `roster.http.request` sends",
+        doc: "Any other key is an error.",
+        alias: "",
+        fields: &[
+            f(
+                "url",
+                "string",
+                "Where: on a site the Plugin was granted (`https://api.example.com/v1/alerts`).",
+            ),
+            o(
+                "method",
+                "string",
+                "`GET` (the default), `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`, in any case.",
+            ),
+            o(
+                "headers",
+                "table<string, string>",
+                "Headers to send, such as a token of the Plugin's own (`Authorization`). Not the ones that steer the connection (`Host`, `Content-Length`, `Proxy-…`). roster adds only `User-Agent: roster/VERSION` and what HTTP needs.",
+            ),
+            o("body", "string", "The body, at most 256 KB; bytes as they are."),
+            o(
+                "timeout",
+                "number",
+                "Seconds to wait for the whole answer; at most 30 (the default). 10 seconds to connect.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "HttpResponse",
+        summary: "What a site answered",
+        doc: "",
+        alias: "",
+        fields: &[
+            f("status", "integer", "The status code (`200`, `404`)."),
+            f("url", "string", "Where it ended, after redirects."),
+            f(
+                "headers",
+                "table<string, string>",
+                "By lower-case name; a header sent twice has its values joined with `, `.",
+            ),
+            f(
+                "body",
+                "string",
+                "The body, at most 1 MB, as bytes: not decompressed, not decoded.",
+            ),
         ],
         open: false,
     },
@@ -2930,7 +3058,7 @@ pub fn json() -> Json {
                 "path": func.path,
                 "params": func.params.iter().map(|p| json!({ "name": p.name, "type": p.ty, "optional": p.optional })).collect::<Vec<_>>(),
                 "returns": func.returns.0,
-                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*") },
+                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*"), Needs::AnyNetwork => json!("network:*") },
                 "since": func.since,
             })
         })

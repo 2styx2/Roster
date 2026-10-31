@@ -211,6 +211,10 @@ export function tauriBackend(): Backend {
     pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
+    onPluginReply(onReply) {
+      const stop = listen<PluginReply>("plugin-reply", (e) => onReply(e.payload));
+      return () => void stop.then((f) => f());
+    },
     // Packages (ticket 24): git runs in the core; init.lua says what may be fetched.
     packagesSync: () => call<PackageStatus[]>("packages_sync"),
     packagesPin: (name) => call<PackageStatus>("packages_pin", { name }),

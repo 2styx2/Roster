@@ -108,7 +108,8 @@ examples/init.lua     every option with its default, commented (a Rust test load
 crates/roster-core/src/plugin/
                       Plugins (ticket 23, docs/plugins.md): mod.rs (PluginHost: one thread and Lua state per Plugin,
                       load/call/event, time budget, strikes, the manifest), runtime.rs (the `roster` module a
-                      Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list)
+                      Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list),
+                      network.rs (`network:SITE`: the HTTP client, sites, the private-address check; Q97)
 crates/roster-core/src/package/
                       Packages (ticket 24, Q83): mod.rs (Packages: clones in the app's data dir, roster.lock next to
                       init.lua; sync/pin/discard/check/apply/clean, only for what init.lua names), git.rs (system git,

@@ -315,6 +315,43 @@ describe("the clipboard", () => {
   });
 });
 
+describe("replies nobody asked for (an HTTP request's answer, decision Q97)", () => {
+  const reply = (text: string) => ({
+    plugin: "recent-alerts",
+    result: null,
+    ops: [{ op: "status", id: "alerts", spec: { text } }],
+    error: null,
+    disabled: null,
+  });
+
+  it("are applied like a call's while the Plugin runs, and dropped once it's gone", async () => {
+    const { manager, registries, backend } = setup({ [ALERTS]: alerts() });
+    backend.onPluginReply((r) => manager.replied(r));
+    await manager.install(ALERTS);
+    const prompt = manager.snapshot().prompts[0];
+    if (prompt) await manager.answer(prompt, true);
+    backend.pluginReplied(reply("⚠ 9"));
+    expect(registries.status.get("alerts")?.text).toBe("⚠ 9");
+    expect(manager.snapshot().plugins[0]?.uses.at(-1)?.what).toBe("got an answer over the network");
+    await manager.remove("recent-alerts");
+    backend.pluginReplied(reply("⚠ 10"));
+    expect(registries.status.get("alerts")).toBeUndefined();
+  });
+
+  it("an update that asks for a new site asks first, with the site flagged", async () => {
+    const plugin = alerts();
+    plugin.manifest.permissions = ["terminal.read", "network:hooks.example.com", "network:*.chat.example"];
+    const state = {
+      [STATE_KEY]: [{ path: ALERTS, name: "recent-alerts", granted: ["terminal.read", "network:hooks.example.com"], asked: ["terminal.read", "network:hooks.example.com"] }],
+    };
+    const { manager } = setup({ [ALERTS]: plugin }, state);
+    await manager.start();
+    const [prompt] = manager.snapshot().prompts;
+    expect(prompt).toMatchObject({ kind: "update", asking: ["network:*.chat.example"] });
+    expect(prompt?.manifest.permissions[2]?.risk).toMatch(/^Can send data to any site under chat\.example/);
+  });
+});
+
 // Ticket 79 (#137): timers and finders whose items come from a function.
 describe("timers", () => {
   const ticker = (log: string[]): FakePlugin => ({

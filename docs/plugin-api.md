@@ -70,6 +70,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.sessions.open(host)`](#rostersessionsopenhost) | Opens a Session on a Host, as `:connect HOST` | `sessions.open` |
 | [`roster.terminal.send(session, text)`](#rosterterminalsendsession-text) | Types into an open Session | `terminal.write` |
 | [`roster.serve.call(method, params)`](#rosterservecallmethod-params) | Calls a roster serve method the Plugin was granted | `serve:<method>` (that method) |
+| [`roster.http.request(request, done)`](#rosterhttprequestrequest-done) | Sends an HTTP request to a site the Plugin was granted | `network:<site>` (that site) |
+| [`roster.http.get(url, done)`](#rosterhttpgeturl-done) | Fetches a URL from a site the Plugin was granted | `network:<site>` (that site) |
 
 | Type | What it is |
 |---|---|
@@ -114,6 +116,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`TableAction`](#tableaction) | Something a table's selected row can do |
 | [`TableRun`](#tablerun) | What a table's row or action runs |
 | [`TableEvent`](#tableevent) | What a table's function gets |
+| [`HttpRequest`](#httprequest) | What `roster.http.request` sends |
+| [`HttpResponse`](#httpresponse) | What a site answered |
 | [`Host`](#host) | A Host, as roster serve's `hosts.list` and `host.get` give it |
 | [`LoginRef`](#loginref) | A Login reference: where a password is, never the password |
 | [`SshLogin`](#sshlogin) | A Host's ssh login |
@@ -262,7 +266,7 @@ end)
 
 ### `roster.has(permission)`
 
-Whether the Plugin was granted a permission. Ask before you use what a permission gives: listening for an event the Plugin may not hear is an error, and a module it wasn't granted is `nil`. One that can't be granted here (`network`, a serve method roster doesn't allow) is `false`, so you can ask about what a newer roster has.
+Whether the Plugin was granted a permission. Ask before you use what a permission gives: listening for an event the Plugin may not hear is an error, and a module it wasn't granted is `nil`. `roster.has("network:api.example.com")` asks about that one site, and a bare `roster.has("network")` whether any site was granted (whether `roster.http` is there). One that can't be granted here (a serve method roster doesn't allow, a site that isn't one) is `false`, so you can ask about what a newer roster has.
 
 **Parameters**
 
@@ -1589,6 +1593,79 @@ local info = roster.serve.call("inventory.info")
 roster.status.set("box", { text = info.box .. ": " .. info.host_count .. " Hosts" })
 ```
 
+## `roster.http`
+
+HTTP requests to the sites the manifest lists. `nil` unless the Plugin was granted at least one `network:<site>` permission ([Permissions](plugins.md#permissions)). The request runs in roster's core, never in the app's window, and doesn't wait: the function you pass gets the answer later, as a call of its own with a call's budget. Only the sites granted are reached, redirects included; a name that resolves to an address on this computer or a private network is refused unless the manifest lists the address itself. No cookies, proxy or credentials of roster's go along. At most 4 requests at once, a 256 KB body out, a 1 MB body back, 30 seconds each.
+
+### `roster.http.request(request, done)`
+
+Sends an HTTP request to a site the Plugin was granted. Returns at once; `done` runs later. Each request is checked before anything is sent: its site must be one of the Plugin's `network:<site>` grants (https, unless the site was listed with `http://`; the port the site names, or the scheme's own). The same check stops a redirect to anywhere else.
+
+**Parameters**
+
+- `request` ([`HttpRequest`](#httprequest)): What to send: at least its `url`.
+- `done` (`fun(response: `[`HttpResponse`](#httpresponse)`?, err: string?)`): Runs once with the answer: `response` for any status the site gave (a 404 too), or `nil` and why there was none (refused, unreachable, timed out, too big). Its return value is ignored; an error in it counts like an action's.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.http.request: https://elsewhere.example isn't a site this Plugin may reach (it may reach SITES)`: the URL's scheme, host or port isn't granted.
+- `roster.http.request: "URL" isn't a URL: …`: `url` doesn't parse.
+- `roster.http.request: a URL with a user or password in it isn't sent`: the URL has `user:password@`.
+- `roster.http.request: the NAME header is roster's to set`: a header that steers the connection: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Expect`, `Proxy-…`.
+- `roster.http.request: "METHOD" isn't a method (there's GET, HEAD, POST, PUT, PATCH, DELETE)`: another method.
+- `roster.http.request: the body is over 262144 bytes`: a longer body.
+- `roster.http.request: 4 requests are going already: wait for one to answer`: 4 haven't answered yet.
+- `roster.http.request: "KEY" isn't a key of a request (there's url, method, headers, body, timeout)`: another key in `request`.
+- And [those of every function](#errors).
+
+**Permission:** `network:<site>` (that site) · **Since:** api 2
+
+**Example**
+
+```lua
+roster.http.request({
+  url = "https://hooks.example.com/alerts",
+  method = "POST",
+  headers = { ["Content-Type"] = "application/json", Authorization = "Bearer " .. roster.plugin.config.token },
+  body = '{"text": "esx-02 is down"}',
+}, function(res, err)
+  if not res then return roster.notify("webhook: " .. err, "warn") end
+  if res.status >= 300 then roster.notify("webhook said " .. res.status, "warn") end
+end)
+```
+
+### `roster.http.get(url, done)`
+
+Fetches a URL from a site the Plugin was granted. `roster.http.request({ url = url }, done)`.
+
+**Parameters**
+
+- `url` (`string`): The URL, on a site the Plugin was granted.
+- `done` (`fun(response: `[`HttpResponse`](#httpresponse)`?, err: string?)`): As [`roster.http.request`](#rosterhttprequestrequest-done)'s.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.http.get: …`: as [`roster.http.request`](#rosterhttprequestrequest-done)'s.
+- And [those of every function](#errors).
+
+**Permission:** `network:<site>` (that site) · **Since:** api 2
+
+**Example**
+
+```lua
+roster.http.get("https://status.example.com/api/v2/status.json", function(res, err)
+  roster.status.set("upstream", { text = res and res.status == 200 and "upstream ok" or "upstream ?" })
+end)
+```
+
 ## Events
 
 `roster.on(event, function(e) … end)` runs the function with the event's payload. Listening for an event the Plugin may not hear is an error. Each needs any one of the permissions listed.
@@ -1637,7 +1714,7 @@ The file returns this table. It's read before any of the Plugin's code runs, for
 
 A permission's name, as a manifest writes it.
 
-What each gives is in [Permissions](plugins.md#permissions). `network` isn't available yet; a serve method that reaches a secret can't be asked for.
+What each gives is in [Permissions](plugins.md#permissions). `serve:<method>` names one method and `network:<site>` one site (`network:api.example.com`, `network:*.example.com`, `network:http://10.0.0.5:8080`); a bare `network`, or a serve method that reaches a secret, can't be asked for.
 
 One of: `"inventory.read" \| "inventory.write" \| "sessions.open" \| "terminal.read" \| "terminal.write" \| string`
 
@@ -2049,6 +2126,31 @@ What a table's function gets.
 | `host` | `string` | no | The row's `host`, or the Host whose details the section is in. |
 | `view` | `string` | no | The view's id, in a view. |
 | `section` | `string` | no | The section's id, in a Host's details. |
+
+### `HttpRequest`
+
+What `roster.http.request` sends.
+
+Any other key is an error.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | `string` | yes | Where: on a site the Plugin was granted (`https://api.example.com/v1/alerts`). |
+| `method` | `string` | no | `GET` (the default), `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`, in any case. |
+| `headers` | `table<string, string>` | no | Headers to send, such as a token of the Plugin's own (`Authorization`). Not the ones that steer the connection (`Host`, `Content-Length`, `Proxy-…`). roster adds only `User-Agent: roster/VERSION` and what HTTP needs. |
+| `body` | `string` | no | The body, at most 256 KB; bytes as they are. |
+| `timeout` | `number` | no | Seconds to wait for the whole answer; at most 30 (the default). 10 seconds to connect. |
+
+### `HttpResponse`
+
+What a site answered.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `status` | `integer` | yes | The status code (`200`, `404`). |
+| `url` | `string` | yes | Where it ended, after redirects. |
+| `headers` | `table<string, string>` | yes | By lower-case name; a header sent twice has its values joined with `, `. |
+| `body` | `string` | yes | The body, at most 1 MB, as bytes: not decompressed, not decoded. |
 
 ### `Host`
 

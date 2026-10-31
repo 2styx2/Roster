@@ -584,6 +584,14 @@ export class PluginManager {
     return reply.result;
   }
 
+  /** A reply nobody asked for, from the core: what a Plugin did when one of its HTTP requests
+   * answered (decision Q97). Applied like a call's, if the Plugin still runs. */
+  replied(reply: PluginReply): void {
+    if (!this.loaded.has(reply.plugin)) return;
+    this.used(reply.plugin, "got an answer over the network");
+    this.apply(reply);
+  }
+
   /** Tells the Plugins that listen. */
   async event(name: PluginEventName, payload: Record<string, unknown> = {}): Promise<void> {
     if (name === "session_exit" && typeof payload.session === "number") this.sessionGone(payload.session);
