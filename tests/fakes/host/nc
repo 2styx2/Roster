@@ -1,0 +1,7 @@
+#!/bin/sh
+# A stand-in Host's `nc -z -w SECS ADDRESS PORT` (tests/fakes/ssh, FAKE_HOSTS): fails for the ip:port lines in the
+# Host's `blocked` file, succeeds otherwise.
+for last; do :; done
+eval "addr=\${$(($# - 1))}"
+if [ -f "$FAKE_HOST_ROOT/blocked" ] && grep -qxF "$addr:$last" "$FAKE_HOST_ROOT/blocked"; then exit 1; fi
+exit 0

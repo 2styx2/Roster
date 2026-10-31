@@ -91,6 +91,11 @@ describe("the error catalog", () => {
     }
   });
 
+  it("gives the Mesh's code its row (docs/app/errors.md row 73, ticket 39)", () => {
+    expect(rowFor(rows, 110)).toMatchObject({ row: 73, id: "mesh-not-a-source" });
+    expect(rowFor(rows, 110).where).toContain("roster.yml");
+  });
+
   it("puts git's own words from roster's data.details under Details", () => {
     const e = new BackendCallError("couldn't push", 96, { fix: "publish again", details: "! [remote rejected] main" });
     const problem = problemFromCallError("", e);

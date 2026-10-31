@@ -26,6 +26,7 @@ Everything about roster, the CLI and the app, in one place. The pages marked **:
 |---|---|---|
 | [cli-reference.md](cli-reference.md) | `roster.yml`, resources, password providers, `discover`, every `roster` command | `cli` |
 | [app/errors.md](app/errors.md) | Every way a Session can fail: what happened, where it lives, the fix | `errors-guide` |
+| [mesh.md](mesh.md) | The Mesh: Hosts that reach each other, `roster mesh`, cut, drift, ESXi | `mesh` |
 | [serve-api.md](serve-api.md) | `roster serve`: the JSON-RPC API the app uses, and its error codes | `serve-api` |
 | (generated in the app) | The quick reference, every command, key, option, Theme, finder and error, with what's in effect now | `quickref`, `commands`, `keys`, `options`, `themes`, `finders`, `errors`, `all` |
 
@@ -51,6 +52,7 @@ Everything about roster, the CLI and the app, in one place. The pages marked **:
 | [development.md](development.md) | Working on the CLI: checks, the module map, trying it safely |
 | [../app/README.md](../app/README.md) | Working on the app: the module map, the two builds, fixtures |
 | [releasing.md](releasing.md) | Cutting a Release |
+| [mesh-pilot.md](mesh-pilot.md) | The Mesh's research notes, and the checklist for its first run on real Hosts |
 | [../GLOSSARY.md](../GLOSSARY.md) | The words, for the CLI and the app |
 | [app/decisions.md](app/decisions.md) | Every design question asked about the app, and its answer |
 | [adr/](adr/) | Architecture decisions for the CLI and the app |

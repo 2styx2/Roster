@@ -40,7 +40,7 @@ def current(h):
     """The editable fields of a loaded Host, as the edit form shows them, and its flags."""
     return {"title": h["title"], "description": h["description"], "type": h["type"], "ip": h["ip"],
             "user": h["ssh"]["user"], "port": h["ssh"]["port"], "auth": h["ssh"]["auth"],
-            "enroll": h["enroll"], "reviewed": h["reviewed"]}
+            "enroll": h["enroll"], "reviewed": h["reviewed"], "mesh": h["mesh"]}
 
 
 def check_value(field, v):
@@ -285,7 +285,7 @@ def load_text(path, text):
 
 def same_except(before, after, name):
     """Nothing but Host NAME changed between two loaded configs."""
-    keep = ("hosts", "groups", "resources", "box", "providers")
+    keep = ("hosts", "groups", "resources", "box", "providers", "links")
     hb = {k: v for k, v in before["hosts"].items() if k != name}
     ha = {k: v for k, v in after["hosts"].items() if k != name}
     return hb == ha and list(before["hosts"]) == list(after["hosts"]) and \
