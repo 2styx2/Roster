@@ -158,7 +158,7 @@ describe("runLine", () => {
     expect(calls).toEqual(["open esxi-02", "open web", "open esxi-02 admin"]);
   });
 
-  it("runs :check for a Host, or for the current Session's Host with no argument", () => {
+  it("runs :check for a Host, or for this Box with no argument", () => {
     const { ctx, calls } = recorder();
     runLine(ctx, "check esxi-02");
     runLine(ctx, "check");

@@ -332,6 +332,13 @@ async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) ->
     call(&state, "host.check", json!({ "host": host })).await
 }
 
+/// This Box's health (`box.check`, api 16, ticket 49): roster.yml, ssh, the vault CLIs, askpass and the
+/// infra repo, each ok, warn or error with its fix. Every check is local: nothing connects to a Host.
+#[tauri::command]
+async fn box_check(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "box.check", json!({})).await
+}
+
 /// Fast-forward the infra repo before an edit (`inventory.pull`, api 4, ticket 10). A fetch can take
 /// a while on a slow link: serve holds it to its deadline, and the app waits longer (`timeout_for`).
 #[tauri::command]
@@ -860,6 +867,7 @@ pub fn run() {
             hosts_list,
             host_get,
             host_check,
+            box_check,
             inventory_pull,
             host_verify_login,
             host_update,

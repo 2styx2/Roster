@@ -28,7 +28,7 @@ export interface CommandContext {
   open(host: string): void;
   /** Reconnects the current tab if its Session has ended or was refused. */
   reconnect(): void;
-  /** Runs roster's diagnostics (`host.check`) for the Host, or the current Session's Host. */
+  /** Runs roster's diagnostics (`host.check`) for the Host; with none, this Box's health (`:help health`). */
   check(host: string | null): void;
   /** The Session `delta` places after the current one, wrapping. */
   selectRelative(delta: number): void;
@@ -254,7 +254,10 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Hosts",
     arg: "host",
     optionalArg: true,
-    label: (h) => (h ? `Check ${h}` : "Check a Host: inventory, ssh config, vault item, network, host key, login"),
+    label: (h) =>
+      h
+        ? `Check ${h}`
+        : "Check this Box's health: roster.yml, ssh, the vault, askpass, init.lua, the font. With a Host: why a Session to it would fail",
     run: (ctx, h) => ctx.check(h ?? null),
   },
   {

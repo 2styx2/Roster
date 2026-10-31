@@ -17,6 +17,7 @@ import { searchItems, type FinderSourceDef } from "../finder/sources";
 import type { Keymap, Options } from "../keymap";
 import { BUILTIN, Registry, type Entry, type Source } from "../registry";
 import type { Theme } from "../theme/theme";
+import { healthSummary, type HealthReport, type HealthSection } from "../health/health";
 import { code, h, keys, link, p, plain, text, type Block, type Inline } from "./doc";
 import { configMarkdown, guideLink, guides, PARTS, type Guide } from "./guides";
 import { inline, parseMarkdown, withoutDevNotes } from "./markdown";
@@ -40,6 +41,8 @@ export interface HelpContext {
   errors: readonly ErrorRow[];
   /** Every help page, the Plugins' too. */
   pages: readonly HelpPage[];
+  /** `:help health`: the health sections, and the last `:check` with no Host (ticket 49). */
+  health?: { sections: readonly HealthSection[]; report: HealthReport | null };
 }
 
 export interface HelpPage extends Entry {
@@ -69,7 +72,7 @@ interface HelpRegistries {
 
 export function helpContext(
   r: HelpRegistries,
-  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme">,
+  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme" | "health">,
 ): HelpContext {
   return {
     ...live,
@@ -440,6 +443,65 @@ function errorsPage(ctx: HelpContext): Block[] {
   ];
 }
 
+const LEVEL_WORD = { ok: "OK", warn: "WARNING", error: "ERROR" } as const;
+
+/** `:help health` (ticket 49): the last `:check` with no Host, a section at a time, each check OK,
+ * WARNING or ERROR with its fix and the topic that explains it. The headings are the registered
+ * sections, so `health#vault` is a topic before anything has run. */
+function healthPage(ctx: HelpContext): Block[] {
+  const report = ctx.health?.report ?? null;
+  const intro = p(
+    "This Box's health, like Neovim's ",
+    code(":checkhealth"),
+    ": how the app reaches roster, ",
+    code("roster.yml"),
+    ", ssh, the vault, askpass, the infra repo, ",
+    link("config", "init.lua"),
+    " and the terminal font. ",
+    link(":check", [code(":check")]),
+    " runs every check again, and ",
+    code("roster check --box"),
+    " runs roster's in a terminal. Every check is local: none connects to a Host. ",
+    code(":check HOST"),
+    " is the one that does.",
+  );
+  const status: Block =
+    report === null
+      ? p("Not checked yet: ", code(":check"), " runs the checks.")
+      : report.state === "running"
+        ? p("Checking this Box…")
+        : p(`Checked at ${report.at.toLocaleTimeString()}: ${healthSummary(report.sections)}.`);
+  const done = report?.state === "done" ? report.sections : null;
+  const sections = done ?? [...(ctx.health?.sections ?? [])].sort((a, b) => a.order - b.order).map((s) => ({ id: s.id, title: s.title, source: s.source, checks: [] }));
+  return [
+    h(1, "Health", "health"),
+    intro,
+    status,
+    ...sections.flatMap((s): Block[] => [
+      { t: "h", level: 2, text: [text(s.title), ...(s.source === BUILTIN ? [] : [text(` (${s.source})`)])], anchor: `health#${s.id}` },
+      ...(done === null
+        ? []
+        : s.checks.length === 0
+          ? [p("Nothing to check here.")]
+          : [
+              {
+                t: "defs" as const,
+                items: s.checks.map((c) => ({
+                  tone: c.level,
+                  term: [code(LEVEL_WORD[c.level])],
+                  meta: [],
+                  body: [
+                    ...inline(c.message),
+                    ...(c.fix ? [text(". Fix: "), ...inline(c.fix)] : []),
+                    ...(c.topic ? [text(". See "), link(c.topic, [code(c.topic)])] : []),
+                  ],
+                })),
+              },
+            ]),
+    ]),
+  ];
+}
+
 function indexPage(ctx: HelpContext): Block[] {
   const listed = ctx.pages.filter((pg) => pg.id !== "index");
   const groups = new Map<string, HelpPage[]>();
@@ -677,6 +739,7 @@ export const builtinHelpPages: readonly HelpPage[] = [
   page("themes", 53, "Reference", "Themes", "The registered Themes, and the one in use", themesPage),
   page("finders", 54, "Reference", "Finders", "The finder sources: Sessions, Hosts, the tree, Themes, help topics…", findersPage),
   page("errors", 60, "Reference", "Connection errors", "The error catalog: where each problem lives and its fix", errorsPage),
+  page("health", 61, "Reference", "Health", "This Box's health: the last :check with no Host, with each fix", healthPage, { checkhealth: "health" }),
   page("all", 90, "Reference", "Every topic", "Every page, command, key, option and error, A to Z", allPage, { "help-index": "all" }),
   ...guides.map((g) => page(g.id, g.order, g.part, g.title, g.summary, () => guideBlocks(g), g.aliases)),
 ];

@@ -49,7 +49,7 @@ The [index](index) groups them, like Neovim's `help.txt`:
 
 - **Getting started:** [Getting started](start.md), this page, [Set up a Box](../new-box.md) and [Add your Hosts](../adding-hosts.md).
 - **Make it yours:** [Your init.lua](config.md), [Recipes](recipes.md), [Keyboard](keyboard.md), [Themes](themes.md).
-- **Reference**, mostly generated from what the app has now, every time it's shown, so it can't go stale: `quickref` (the commands you'll use most, with their keys now), `commands`, `keys`, `options` (each with the value in effect and where it came from), `themes`, `finders`, `errors`, `all` (every topic, A to Z), and the guides [Connection errors](errors.md), [The roster command](../cli-reference.md) and [The roster serve API](../serve-api.md).
+- **Reference**, mostly generated from what the app has now, every time it's shown, so it can't go stale: `quickref` (the commands you'll use most, with their keys now), `commands`, `keys`, `options` (each with the value in effect and where it came from), `themes`, `finders`, `errors`, `health` (this Box's health, as the last `:check` with no Host found it), `all` (every topic, A to Z), and the guides [Connection errors](errors.md), [The roster command](../cli-reference.md) and [The roster serve API](../serve-api.md).
 - **Extending:** [How far roster bends](extending.md).
 
 ### Where an option's value came from

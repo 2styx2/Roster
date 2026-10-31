@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 
-from . import __version__, askpass, changes, diagnose, edit, mesh, providers
+from . import __version__, askpass, changes, diagnose, edit, health, mesh, providers
 from .claude import write_claude_files
 from .common import deadline, not_reviewed, ssh_config_file
 from .config import find_config, load_config
@@ -69,7 +69,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 15            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 16            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -353,8 +353,31 @@ def host_check(state, params):
     return diagnose.check_host(name, state.inventory, state.askpass)
 
 
+def box_check(state, params):
+    """`roster check --box` for the app (ticket 49): this Box's health, every check local (health.check_box). It reads
+    roster.yml as it is now (without applying it: that's the watcher's or :source's to do), so a file that doesn't
+    load is an error even while the app shows the last good Inventory.
+
+    Params: none
+    Result: `{checks: [{section, level, message, fix?, topic?}, ...], ok, roster_version, api_version}`
+    Since: API 16
+    """
+    error = state.error
+    if state.path is not None and error is None:
+        try:
+            load_config(state.path)
+        except SystemExit as e:
+            error = die_message(e)
+    with state.lock:
+        channel = (True, "the askpass channel is open") if state.askpass else \
+            (False, "this roster serve has no askpass channel, so password Sessions can't log in")
+        checks = health.check_box(state.path, state.cfg, error, channel, API_VERSION)
+    return {"checks": checks, "ok": not any(c["level"] == "error" for c in checks), **versions()}
+
+
 METHODS = {
     "inventory.info": inventory_info,
+    "box.check": box_check,
     "hosts.list": hosts_list,
     "host.get": host_get,
     "session.prepare": session_prepare,
@@ -1432,15 +1455,7 @@ STATUS_WORDS = {"unauthenticated": "not-logged-in", "missing": "missing-cli"}   
 secret_error = vault_problem          # a provider's SecretError as the error to answer with (safe to show)
 
 
-def referenced_providers(cfg):
-    """Providers the Inventory's Host Logins use (ssh and services), most used first, known ones only."""
-    counts = {}
-    for h in cfg["hosts"].values():
-        for login in (h["ssh"], h["login"], *h["services"].values()):
-            name = str(login.get("auth") or "").partition(":")[0].strip()
-            if name and name not in providers.NO_PASSWORD and name in PROVIDERS:
-                counts[name] = counts.get(name, 0) + 1
-    return sorted(counts, key=lambda n: (-counts[n], n))
+referenced_providers = health.referenced_providers
 
 
 def provider_status(name):
@@ -1954,7 +1969,7 @@ METHODS["mesh.status"] = mesh_status
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
              "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
-             "host.save_login": 45, "mesh.plan": 240, "mesh.apply": 240, "mesh.cut": 60}
+             "host.save_login": 45, "box.check": 45, "mesh.plan": 240, "mesh.apply": 240, "mesh.cut": 60}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 

@@ -4,6 +4,7 @@ import { builtinCommandRegistry, type CommandRegistry } from "./commands/table";
 import { builtinErrorRegistry, type ErrorRegistry } from "./errors/catalog";
 import { finderCommand } from "./finder/command";
 import { builtinHelpRegistry, type HelpRegistry } from "./help/pages";
+import { builtinHealthRegistry, type HealthRegistry } from "./health/health";
 import { folderRegistry, type FolderRegistry } from "./folders/folders";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { reloaderRegistry, sourceCommands, type ReloaderRegistry } from "./config/source";
@@ -38,6 +39,8 @@ export interface Registries {
   status: StatusRegistry;
   /** Badges Plugins put on Host rows (ticket 23). */
   badges: BadgeRegistry;
+  /** `:check`'s sections with no Host (ticket 49): roster's, the app's, and what Plugins add. */
+  health: HealthRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -59,5 +62,6 @@ export function builtinRegistries(): Registries {
     help: builtinHelpRegistry(),
     status: new Registry<StatusSegmentDef>(),
     badges: new Registry<BadgeEntry>(),
+    health: builtinHealthRegistry(),
   };
 }

@@ -8,6 +8,9 @@ import {
   type Backend,
   type BackendInfo,
   type BackendProblem,
+  type BoxCheck,
+  BOX_CHECK_API_VERSION,
+  type HealthCheck,
   type CallErrorData,
   CHECK_STEPS,
   EditError,
@@ -102,6 +105,8 @@ export interface FakeScenario {
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
   checks?: Record<string, HostCheck>;
+  /** `box.check`'s checks (default: HEALTHY_BOX, every one ok). */
+  boxChecks?: HealthCheck[];
   /** `inventory.info`'s api_version (default 2; editing needs 5). */
   apiVersion?: number;
   /** Ticket 10: `inventory.pull` refuses with this (62 diverged, 63 offline…). */
@@ -212,6 +217,40 @@ export function passingCheck(host: Host): HostCheck {
     ),
   };
 }
+
+/** `box.check` on a Box with nothing wrong. */
+export const HEALTHY_BOX: readonly HealthCheck[] = [
+  { section: "roster", level: "ok", message: "roster 0.1.0, serve API 16, Python 3.12.7" },
+  { section: "inventory", level: "ok", message: "roster.yml loads: /home/you/infra/roster.yml (12 Hosts, 3 groups)" },
+  { section: "ssh", level: "ok", message: "ssh found: /usr/bin/ssh" },
+  { section: "ssh", level: "ok", message: "roster's ssh config has every Host: /home/you/.ssh/config.d/roster" },
+  { section: "ssh", level: "ok", message: "roster's known hosts has every Host's key: /home/you/.ssh/roster_known_hosts" },
+  { section: "vault", level: "ok", message: "bw (12 Logins): logged in as you@example.com, locked; it asks for the master password when a Login needs it" },
+  { section: "askpass", level: "ok", message: "the askpass channel is open" },
+  { section: "repo", level: "ok", message: "clean: /home/you/infra" },
+];
+
+/** `box.check` with a vault CLI that isn't logged in, a Host since the last sync, and Pending changes. */
+export const UNHEALTHY_BOX: readonly HealthCheck[] = [
+  ...HEALTHY_BOX.slice(0, 3),
+  { section: "ssh", level: "warn", message: "1 Host not in roster's ssh config yet: nas-01", fix: "run `roster sync`", topic: "E2" },
+  HEALTHY_BOX[4] as HealthCheck,
+  {
+    section: "vault",
+    level: "error",
+    message: "bw (12 Logins): Bitwarden CLI isn't logged in on this box - run `bw login` once",
+    fix: "sign in from the app's lock screen, or in a terminal",
+    topic: "E6",
+  },
+  HEALTHY_BOX[6] as HealthCheck,
+  {
+    section: "repo",
+    level: "warn",
+    message: "2 Pending changes to roster.yml, not published yet",
+    fix: "`:publish` in the app sends them, `:discard` drops them",
+    topic: ":publish",
+  },
+];
 
 /** ssh failing: its message in the PTY, then exit 255 (as a refused port or a changed key do). */
 function failingSession(id: number, auth: SessionAuth, output: string, events: SessionEvents): SessionHandle {
@@ -462,6 +501,8 @@ export const fixtures: Record<string, FakeScenario> = {
   /** Ticket 42 (API 14): a locked Bitwarden signed in as you@example.com; "Use a different account"
    * and `:vault signout` sign it out, and the sign-in form takes the same fake account. */
   "sign-out": { hosts: makeHosts(12), apiVersion: SIGN_OUT_API_VERSION },
+  /** Ticket 49 (API 16): `:check` with no Host shows this Box's health, with an error and two warnings. */
+  health: { hosts: makeHosts(12), apiVersion: BOX_CHECK_API_VERSION, boxChecks: [...UNHEALTHY_BOX] },
   "sign-in-rate-limited": signingIn({
     refuse: {
       code: SignInError.rateLimited,
@@ -1361,6 +1402,11 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     onLoggedIn(onLogin) {
       loginWatchers.add(onLogin);
       return () => loginWatchers.delete(onLogin);
+    },
+    async checkBox(): Promise<BoxCheck> {
+      await wait();
+      const checks = scenario.boxChecks ?? [...HEALTHY_BOX];
+      return { checks, ok: !checks.some((c) => c.level === "error"), roster_version: "0.1.0", api_version: scenario.apiVersion ?? 2 };
     },
     async checkHost(host) {
       await wait();

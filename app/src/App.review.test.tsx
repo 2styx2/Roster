@@ -141,7 +141,7 @@ describe("S8: command line completions say what they do", () => {
     await user.keyboard(`${LEADER}:c`);
     const options = screen.getAllByRole("option");
     expect(options.map((o) => o.querySelector(".cmd-id")?.textContent)).toEqual(["changes", "check", "close", "cmdline", "connect ", "config", "choose"]);
-    expect(options[1]).toHaveTextContent(/Check a Host/);
+    expect(options[1]).toHaveTextContent(/Check this Box's health/);
     expect(options[3]).toHaveTextContent(/Command line.*Leader\s*:/);
   });
 });
