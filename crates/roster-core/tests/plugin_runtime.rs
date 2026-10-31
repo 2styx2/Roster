@@ -188,6 +188,32 @@ fn reloading_drops_the_old_timers() {
     assert!(host.list()[0].errors == 0);
 }
 
+/// A handler id is unique to its load (ticket 85): a late timer or a queued click from before a
+/// reload can't run a new, unrelated function that happens to have the same number.
+#[test]
+fn a_handler_id_from_before_a_reload_never_reaches_the_new_load() {
+    let (host, reply) = load(
+        "stale-id",
+        &[],
+        r#"roster.defer(1000, function() roster.notify("old") end)"#,
+    );
+    let id = timer_id(ops_of(&reply, "timer")[0]);
+    let grants: Vec<Permission> = Vec::new();
+    let dir = plugin_dir(
+        "stale-id",
+        &[],
+        r#"roster.status.set("s", { text = "x", run = function() roster.notify("new") end })"#,
+    );
+    let (_, again) = host.load(&Source::Dir(dir), &grants).unwrap();
+    let fresh = ops_of(&again, "status")[0]["spec"]["run"]["handler"].as_u64().unwrap();
+    assert_ne!(fresh, id, "the new load handed over the old load's number");
+    let r = host.call("t", id, json!({}));
+    assert!(notices(&r).is_empty(), "{:?}", r.ops);
+    assert!(r.error.unwrap().message.contains("gone"));
+    let r = host.call("t", fresh, json!({}));
+    assert_eq!(notices(&r), ["new"]);
+}
+
 // ------------------------------------------------------------------------------- roster.has
 
 #[test]

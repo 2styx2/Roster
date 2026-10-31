@@ -160,8 +160,14 @@ pub(crate) enum Arrival {
     Serve(Result<Json, String>),
 }
 
+/// A handler's number carries its load's generation above these bits (ticket 85), so an id
+/// from before a reload (a late timer, a queued click) can't name a function of the new load.
+/// 2^32 handlers a load, and the ids stay below 2^53, a whole number to JavaScript, for 2^21 loads.
+const HANDLER_BITS: u32 = 32;
+
 #[derive(Default)]
 struct Handlers {
+    /// The last handler's number: the load's generation in the high bits.
     next: u64,
     /// Which handlers each owner (a section, a command, a call's result) handed over, so setting
     /// the owner again drops the old ones.
@@ -189,6 +195,7 @@ impl Runtime {
         post: Option<Post>,
         storage: Option<Result<Storage, String>>,
         serving: Arc<ServeWait>,
+        generation: u64,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -212,7 +219,10 @@ impl Runtime {
             clock,
             ops: RefCell::default(),
             budget: Cell::new(Budget::default()),
-            handlers: RefCell::default(),
+            handlers: RefCell::new(Handlers {
+                next: generation << HANDLER_BITS,
+                ..Handlers::default()
+            }),
             user_call: Cell::new(false),
             commands: RefCell::default(),
             net,
