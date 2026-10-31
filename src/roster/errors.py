@@ -122,14 +122,10 @@ VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: 
                 providers.VaultLocked: VAULT_LOCKED, providers.NotSignedIn: ALREADY_SIGNED_OUT,
                 providers.SignOutFailed: SIGN_OUT_FAILED}
 
-SIGN_OUT_FIXES = {ALREADY_SIGNED_OUT: "sign in from the lock screen",
-                  SIGN_OUT_FAILED: "see the message; `roster bw logout` in a terminal shows the same"}
-
-
 def vault_problem(e):
-    """A provider's SecretError about the vault itself (locked, not logged in, ...) as a Problem."""
-    code = VAULT_ERRORS.get(type(e), ROSTER_ERROR)
-    return Problem(code, str(e), fix=SIGN_OUT_FIXES.get(code))
+    """A provider's SecretError about the vault itself (locked, not logged in, ...) as a Problem. Shared by the CLI
+    and serve, so it carries no fix only one of them could act on (serve adds the lock screen's: sign_out_error)."""
+    return Problem(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
 
 
 def write_problem(e):

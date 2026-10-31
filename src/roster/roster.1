@@ -259,7 +259,7 @@ the prompt ssh shows
 .PP
 \fBroster man [\-\-install] [\-\-prefix DIR]\fR
 .PP
-Show the \fBroster(1)\fR man page. \fB\-\-install\fR copies it to \fBPREFIX/share/man/man1/roster.1\fR, next to \fBPREFIX/bin/roster\fR (\fB~/.local\fR after \fBuv tool install\fR), where \fBman roster\fR finds it. \fBinstall.sh\fR does this for you
+Show the \fBroster(1)\fR man page. \fB\-\-install\fR copies it to \fBPREFIX/share/man/man1/roster.1\fR, next to \fBPREFIX/bin/roster\fR (\fB~/.local\fR after \fBuv tool install\fR), where \fBman roster\fR finds it; into a prefix you can't write to, it says so and exits 1 (pick \fB\-\-prefix ~/.local\fR, or use sudo). \fBinstall.sh\fR does this for you
 .TP
 \fB\-\-install\fR
 copy it to PREFIX/share/man/man1/, next to PREFIX/bin/roster (~/.local for uv tool install)

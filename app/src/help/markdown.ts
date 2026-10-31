@@ -1,7 +1,7 @@
 // The Markdown that docs/app is written in, read into help blocks (doc.ts), so the guides render
 // in the app's own type instead of as HTML. Only what those files use: headings, paragraphs,
-// lists, tables, fenced code, quotes, and inline code, bold, italics and links. Anything else
-// stays as its text, never as markup.
+// lists, tables, fenced code, quotes, and inline code, bold, italics and links (a line that is an
+// HTML comment is left out). Anything else stays as its text, never as markup.
 import { slug, type Block, type Inline } from "./doc";
 
 export function parseMarkdown(source: string): Block[] {
@@ -17,12 +17,19 @@ export function parseMarkdown(source: string): Block[] {
   let i = 0;
   const at = (k: number) => lines[k] ?? "";
   const blank = (s: string) => s.trim() === "";
+  const comment = (s: string) => /^\s*<!--.*-->\s*$/.test(s);
   // A table starts at a pipe row only when a separator row (|---|) follows it.
   const tableAt = (k: number) => at(k).trimStart().startsWith("|") && /^\s*\|?\s*:?-+/.test(at(k + 1));
 
   while (i < lines.length) {
     const line = at(i);
     if (blank(line)) {
+      i++;
+      continue;
+    }
+    // An HTML comment on a line of its own (serve-api.md's generated-table markers) isn't shown,
+    // as on GitHub.
+    if (comment(line)) {
       i++;
       continue;
     }
@@ -80,7 +87,7 @@ export function parseMarkdown(source: string): Block[] {
     while (i < lines.length) {
       const l = at(i);
       // The first line always belongs to the paragraph, so the parser always moves on.
-      if (para.length && (blank(l) || /^(#{1,4}\s|\s*```|\s*~~~|>)/.test(l) || tableAt(i) || item.test(l))) break;
+      if (para.length && (blank(l) || comment(l) || /^(#{1,4}\s|\s*```|\s*~~~|>)/.test(l) || tableAt(i) || item.test(l))) break;
       para.push(l.trim());
       i++;
     }
