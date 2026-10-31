@@ -105,15 +105,15 @@ describe(":help", () => {
     await user.keyboard("require");
     const marks = help().querySelectorAll("mark");
     expect(marks.length).toBeGreaterThan(1);
-    expect(within(help()).getByText(new RegExp(`^1 of ${marks.length}$`))).toBeInTheDocument();
+    expect(within(help()).getByText(new RegExp(`^1 of ${marks.length}$`), { selector: ".help-count" })).toBeInTheDocument();
     await user.keyboard("{Enter}");
-    expect(within(help()).getByText(new RegExp(`^2 of ${marks.length}$`))).toBeInTheDocument();
+    expect(within(help()).getByText(new RegExp(`^2 of ${marks.length}$`), { selector: ".help-count" })).toBeInTheDocument();
     expect(marks[1]).toHaveClass("current");
     // Esc leaves the search, then closes help.
     await user.keyboard("{Escape}");
     expect(helpOrNull()).not.toBeNull();
     await user.keyboard("n");
-    expect(within(help()).getByText(new RegExp(`^3 of ${marks.length}$`))).toBeInTheDocument();
+    expect(within(help()).getByText(new RegExp(`^3 of ${marks.length}$`), { selector: ".help-count" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(helpOrNull()).toBeNull();
   });
