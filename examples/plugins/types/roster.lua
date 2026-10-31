@@ -876,7 +876,7 @@ roster.clipboard = {}
 ---@param text string What to put on the clipboard, at most 64 KB.
 function roster.clipboard.copy(text) end
 
---- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget.
+--- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on.
 roster.inventory = {}
 
 --- Every Host, in `roster.yml` order.
@@ -946,7 +946,7 @@ roster.terminal = {}
 ---@param text string What to type, as if the user typed it: `"uptime\n"` runs `uptime`.
 function roster.terminal.send(session, text) end
 
---- roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission.
+--- roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers one request at a time, so a call can wait behind the app's own (a Publish: a minute or two). `roster.serve.request` doesn't wait: prefer it in anything the user starts, and for a job's progress. `roster.serve.call` waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
 roster.serve = {}
 
 --- Calls a roster serve method the Plugin was granted.
@@ -955,6 +955,13 @@ roster.serve = {}
 ---@param params? table The method's params; `{}` if left out. Data only: no functions.
 ---@return any # The method's result, as Lua tables (JSON `null` is `nil`).
 function roster.serve.call(method, params) end
+
+--- Asks roster serve without waiting: `done` gets the answer.
+--- Permission: serve:<method> (that method). Since: api 3.
+---@param method string A roster serve method the Plugin was granted, as `roster.serve.call`'s.
+---@param params? table The method's params; `nil` or `{}` for none. Data only: no functions.
+---@param done fun(result: any, err: string?) Runs once with the answer: the method's `result` (as `roster.serve.call` returns it), or `nil` and why (`roster.serve.request METHOD: MESSAGE (code N)`). Its return value is ignored; an error in it counts like an action's.
+function roster.serve.request(method, params, done) end
 
 --- HTTP requests to the sites the manifest lists. `nil` unless the Plugin was granted at least one `network:<site>` permission (Permissions). The request runs in roster's core, never in the app's window, and doesn't wait: the function you pass gets the answer later, as a call of its own with a call's budget. Only the sites granted are reached, redirects included; a name that resolves to an address on this computer or a private network is refused unless the manifest lists the address itself. No cookies, proxy or credentials of roster's go along. At most 4 requests at once, a 256 KB body out, a 1 MB body back, 30 seconds each.
 roster.http = {}

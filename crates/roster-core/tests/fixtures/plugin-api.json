@@ -903,6 +903,29 @@
     {
       "params": [
         {
+          "name": "method",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "params",
+          "optional": true,
+          "type": "table"
+        },
+        {
+          "name": "done",
+          "optional": false,
+          "type": "fun(result: any, err: string?)"
+        }
+      ],
+      "path": "roster.serve.request",
+      "permission": "serve:*",
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "request",
           "optional": false,
           "type": "HttpRequest"
@@ -1079,6 +1102,7 @@
     "roster.progress.set()": "plugin-api#rosterprogresssetid-progress",
     "roster.serve": "plugin-api#rosterserve",
     "roster.serve.call()": "plugin-api#rosterservecallmethod-params",
+    "roster.serve.request()": "plugin-api#rosterserverequestmethod-params-done",
     "roster.sessions": "plugin-api#rostersessions",
     "roster.sessions.open()": "plugin-api#rostersessionsopenhost",
     "roster.sessions.show()": "plugin-api#rostersessionsshowsession-line",
