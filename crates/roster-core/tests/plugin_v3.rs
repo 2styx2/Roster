@@ -240,3 +240,40 @@ fn the_stubs_are_written_into_a_plugins_folder() {
             .contains("isn't a folder")
     );
 }
+
+/// A timer's run (ticket 79) has a call's budget: a loop in it, in a coroutine or not, is stopped
+/// by the same global hook, and `roster.has` answers in it.
+#[test]
+fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
+    let (host, ops, error) = load(
+        "timer-loop",
+        &["inventory.read"],
+        r#"
+        roster.defer(50, function() while true do end end)
+        roster.defer(50, function()
+          roster.status.set("has", { text = tostring(roster.has("inventory.read")) .. " " .. tostring(roster.has("terminal.read")) })
+          coroutine.wrap(function() while true do end end)()
+        end)
+        "#,
+    );
+    assert_eq!(error, None);
+    let timers: Vec<u64> = ops
+        .iter()
+        .filter(|o| o["op"] == "timer")
+        .map(|o| o["run"]["handler"].as_u64().unwrap())
+        .collect();
+    assert_eq!(timers.len(), 2, "{ops:?}");
+    for t in timers {
+        let r = host.call("t", t, json!({}));
+        let e = r.error.expect("it ran out of time").to_string();
+        assert!(e.contains("an endless loop?"), "{e}");
+        // A failed run's UI changes are dropped, so `has` is checked on its own below.
+        assert!(r.ops.is_empty());
+    }
+    let (_, ops, _) = load(
+        "has",
+        &["inventory.read"],
+        r#"roster.status.set("has", { text = tostring(roster.has("inventory.read")) .. " " .. tostring(roster.has("terminal.read")) })"#,
+    );
+    assert_eq!(said(&ops, "has"), "true false");
+}

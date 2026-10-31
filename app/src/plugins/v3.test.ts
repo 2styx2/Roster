@@ -49,12 +49,12 @@ describe("a handler's context", () => {
     const { manager, registries, run } = setup(plugin(["inventory.read"]));
     await manager.start();
     const row = registries.sidebar.get("pins")!.build({} as never)!.rows[0]!;
-    expect(await run(row.command)).toEqual({ section: "pins", row: "esx  02 {x}", session: 7, host: "esx-02" });
-    expect(await run(row.actions![1]!.command)).toEqual({ section: "pins", row: "esx  02 {x}", action: 2, session: 7, host: "esx-02" });
+    expect(await run(row.command)).toEqual({ section: "pins", row: "esx  02 {x}", session: 7, session_host: "esx-02" });
+    expect(await run(row.actions![1]!.command)).toEqual({ section: "pins", row: "esx  02 {x}", action: 2, session: 7, session_host: "esx-02" });
     const items = registries.finders.get("pins")!.items({} as never);
-    expect(await run(items[0]!.command)).toEqual({ finder: "pins", item: "1", session: 7, host: "esx-02" });
-    expect(await run(items[1]!.command)).toEqual({ finder: "pins", item: "two", session: 7, host: "esx-02" });
-    expect(await run(registries.status.get("count")!.command)).toEqual({ segment: "count", session: 7, host: "esx-02" });
+    expect(await run(items[0]!.command)).toEqual({ finder: "pins", item: "1", session: 7, session_host: "esx-02" });
+    expect(await run(items[1]!.command)).toEqual({ finder: "pins", item: "two", session: 7, session_host: "esx-02" });
+    expect(await run(registries.status.get("count")!.command)).toEqual({ segment: "count", session: 7, session_host: "esx-02" });
   });
 
   it("leaves the Session out without inventory.read or terminal.read, and with none on screen", async () => {
@@ -71,7 +71,7 @@ describe("a handler's context", () => {
     await manager.start();
     registries.commands.get("ctx")!.run({} as CommandContext, "a b");
     await new Promise((r) => setTimeout(r, 0));
-    expect(heard.pop()).toEqual({ args: "a b", words: ["a", "b"], session: 3, host: null });
+    expect(heard.pop()).toEqual({ args: "a b", words: ["a", "b"], session: 3, session_host: null });
   });
 });
 

@@ -90,6 +90,68 @@
     {
       "params": [
         {
+          "name": "permission",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.has",
+      "permission": null,
+      "returns": "boolean",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "ms",
+          "optional": false,
+          "type": "number"
+        },
+        {
+          "name": "fn",
+          "optional": false,
+          "type": "fun()"
+        }
+      ],
+      "path": "roster.defer",
+      "permission": null,
+      "returns": "Timer",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "ms",
+          "optional": false,
+          "type": "number"
+        },
+        {
+          "name": "fn",
+          "optional": false,
+          "type": "fun()"
+        }
+      ],
+      "path": "roster.every",
+      "permission": null,
+      "returns": "Timer",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "timer",
+          "optional": false,
+          "type": "Timer"
+        }
+      ],
+      "path": "roster.cancel",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "name",
           "optional": false,
           "type": "string"
@@ -749,6 +811,7 @@
     "roster-TableRun": "plugin-api#tablerun",
     "roster-TerminalOutputEvent": "plugin-api#terminaloutputevent",
     "roster-Theme": "plugin-api#theme",
+    "roster-Timer": "plugin-api#timer",
     "roster-TutorEvent": "plugin-api#tutorevent",
     "roster-Tutorial": "plugin-api#tutorial",
     "roster-UpdateResult": "plugin-api#updateresult",
@@ -758,20 +821,24 @@
     "roster.api_version": "plugin-api#rosterapi_version",
     "roster.badges": "plugin-api#rosterbadges",
     "roster.badges.set()": "plugin-api#rosterbadgessethost-text",
+    "roster.cancel()": "plugin-api#rostercanceltimer",
     "roster.clipboard": "plugin-api#rosterclipboard",
     "roster.clipboard.copy()": "plugin-api#rosterclipboardcopytext",
     "roster.commands": "plugin-api#rostercommands",
     "roster.commands.add()": "plugin-api#rostercommandsaddname-spec",
     "roster.commands.remove()": "plugin-api#rostercommandsremovename",
+    "roster.defer()": "plugin-api#rosterdeferms-fn",
     "roster.details": "plugin-api#rosterdetails",
     "roster.details.remove()": "plugin-api#rosterdetailsremoveid",
     "roster.details.set()": "plugin-api#rosterdetailssetid-host-section",
+    "roster.every()": "plugin-api#rostereveryms-fn",
     "roster.finders": "plugin-api#rosterfinders",
     "roster.finders.remove()": "plugin-api#rosterfindersremoveid",
     "roster.finders.set()": "plugin-api#rosterfinderssetid-finder",
     "roster.float": "plugin-api#rosterfloat",
     "roster.float.close()": "plugin-api#rosterfloatclose",
     "roster.float.open()": "plugin-api#rosterfloatopenfloat",
+    "roster.has()": "plugin-api#rosterhaspermission",
     "roster.health": "plugin-api#rosterhealth",
     "roster.health.remove()": "plugin-api#rosterhealthremoveid",
     "roster.health.set()": "plugin-api#rosterhealthsetid-section",
@@ -990,7 +1057,7 @@
           "type": "integer"
         },
         {
-          "name": "host",
+          "name": "session_host",
           "required": false,
           "type": "string"
         }
@@ -1079,7 +1146,7 @@
         {
           "name": "items",
           "required": false,
-          "type": "FinderItem[]"
+          "type": "FinderItem[]|fun(): FinderItem[]"
         }
       ],
       "open": false
@@ -1202,7 +1269,7 @@
           "type": "integer"
         },
         {
-          "name": "host",
+          "name": "session_host",
           "required": false,
           "type": "string"
         }
@@ -2165,6 +2232,9 @@
         }
       ],
       "open": false
+    },
+    "Timer": {
+      "alias": "integer"
     },
     "TutorEvent": {
       "alias": "\"command\"|\"session_open\"|\"session_exit\"|\"host_selected\"|\"help_open\"|\"help_back\"|\"help_forward\"|\"help_search\""

@@ -124,7 +124,8 @@ export type PluginOp =
   | { op: "theme"; id: string; theme: ThemeDef }
   | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[] }
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
-  | { op: "finder"; id: string; title: string; items: PluginFinderItem[] }
+  /** `items` is a handler when the Plugin hands a function (ticket 79): run as the finder opens. */
+  | { op: "finder"; id: string; title: string; items: PluginFinderItem[] | { handler: number } }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
   | { op: "health"; id: string; title: string; checks: PluginHealthCheck[]; check?: Run }
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
@@ -139,9 +140,11 @@ export type PluginOp =
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
   | { op: "copy"; text: string }
+  /** A timer (ticket 79): run `run` after `ms`, again every `ms` when `every`. */
+  | { op: "timer"; id: string; ms: number; every: boolean; run: { handler: number } }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor", "view", "details"] as const;
+export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
@@ -247,6 +250,30 @@ function healthChecks(v: unknown, what: string): PluginHealthCheck[] {
 export function parseHealthChecks(v: unknown, what: string): PluginHealthCheck[] | { invalid: string } {
   try {
     return healthChecks(v, what);
+  } catch (e) {
+    if (e instanceof Invalid) return { invalid: e.message };
+    throw e;
+  }
+}
+
+function finderItems(o: Obj, what: string): PluginFinderItem[] {
+  return list(o, "items", what).map((v, i): PluginFinderItem => {
+    const at = `${what} item ${i + 1}`;
+    if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+    return defined<PluginFinderItem>({
+      id: optStr(v, "id", at, 100) ?? String(i + 1),
+      label: str(v, "label", at),
+      detail: optStr(v, "detail", at),
+      path: optStr(v, "path", at),
+      run: run(v.run, at),
+    });
+  });
+}
+
+/** What a finder's items function returned (ticket 79), checked as a finder's `items`. */
+export function parseFinderItems(result: unknown, what: string): PluginFinderItem[] | { invalid: string } {
+  try {
+    return finderItems({ items: result }, what);
   } catch (e) {
     if (e instanceof Invalid) return { invalid: e.message };
     throw e;
@@ -395,22 +422,20 @@ function parse(raw: unknown): PluginOp {
     }
     case "finder": {
       const what = `roster.finders.set ${id}`;
+      const items = spec.items;
       return {
         op: "finder",
         id,
         title: optStr(spec, "title", what) ?? id,
-        items: list(spec, "items", what).map((v, i): PluginFinderItem => {
-          const at = `${what} item ${i + 1}`;
-          if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
-          return defined<PluginFinderItem>({
-            id: optStr(v, "id", at, 100) ?? String(i + 1),
-            label: str(v, "label", at),
-            detail: optStr(v, "detail", at),
-            path: optStr(v, "path", at),
-            run: run(v.run, at),
-          });
-        }),
+        items: isObj(items) && typeof items.handler === "number" && Number.isInteger(items.handler) ? { handler: items.handler } : finderItems(spec, what),
       };
+    }
+    case "timer": {
+      const ms = num(raw, "ms", "timer");
+      if (ms === undefined || ms < 0) throw new Invalid("timer: ms must be a number");
+      const r = run(raw.run, "timer");
+      if (!("handler" in r)) throw new Invalid("timer: run must be a function");
+      return { op: "timer", id, ms, every: raw.every === true, run: r };
     }
     case "help": {
       const what = `roster.help.set ${id}`;

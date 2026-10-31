@@ -5,10 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { fakeBackend, makeHosts } from "../backend/fake";
 import type { FakePlugin } from "../backend/fakePlugins";
 import { builtinRegistries } from "../registries";
-import { PluginManager, plainText, STATE_KEY, type PluginUi } from "./manager";
+import { PluginManager, STATE_KEY, type PluginUi } from "./manager";
 import { parseOp } from "./ops";
 
 const ALERTS = "~/plugins/recent-alerts";
+const SIZE = { cols: 80, rows: 24 };
 
 function alerts(seen: string[] = []): FakePlugin {
   return {
@@ -95,47 +96,34 @@ describe("running", () => {
     const seen: string[] = [];
     const { manager, registries } = setup({ [ALERTS]: alerts(seen) }, { ...installed });
     await manager.start();
-    manager.output(1, "esx-02", new TextEncoder().encode("\x1b[31mERROR\x1b[0m disk full\r\n"));
-    manager.flushOutput();
-    await new Promise((r) => setTimeout(r, 0));
+    manager.output(1, "esx-02", new TextEncoder().encode("\x1b[31mERROR\x1b[0m disk full\r\n"), SIZE);
+    await manager.flushOutput();
     expect(seen).toEqual(["esx-02: ERROR disk full"]);
     expect(registries.status.get("alerts")?.text).toBe("⚠ 1");
 
     await manager.setGrant("recent-alerts", "terminal.read", false);
     expect(manager.readsTerminal()).toBe(false);
-    manager.output(1, "esx-02", new TextEncoder().encode("ERROR again\n"));
-    manager.flushOutput();
-    await new Promise((r) => setTimeout(r, 0));
+    manager.output(1, "esx-02", new TextEncoder().encode("ERROR again\r\n"), SIZE);
+    await manager.flushOutput();
     expect(seen).toHaveLength(1);
   });
 
-  // Ticket 73 (#126): after a resize, ConPTY (every Windows Session) prints the whole screen again,
-  // and a full-screen program redraws; recent-alerts took each repaint for new lines, so opening
-  // a float beside the terminal (which narrows it) added a copy of every alert on screen.
+  // Ticket 73 (#126), then 79 (#137): after a resize ConPTY prints the whole screen again;
+  // what reaches the Plugins is the terminal's committed lines, so the repaint isn't output.
   it("a Session's screen printed again after a resize isn't new output; what's new is", async () => {
     const seen: string[] = [];
-    let t = 1_000;
-    const { manager } = setup({ [ALERTS]: alerts(seen) }, { ...installed }, undefined, () => t);
+    const { manager } = setup({ [ALERTS]: alerts(seen) }, { ...installed });
     await manager.start();
-    const say = async (text: string) => {
-      manager.output(1, "esx-02", new TextEncoder().encode(text));
-      manager.flushOutput();
-      await new Promise((r) => setTimeout(r, 0));
+    const say = async (text: string, size = SIZE) => {
+      manager.output(1, "esx-02", new TextEncoder().encode(text), size);
+      await manager.flushOutput();
     };
     await say("mounting\r\nERROR: disk full\r\nesx-02$ ");
-    expect(seen).toEqual(["esx-02: mounting\nERROR: disk full\nesx-02$"]);
-    manager.resized(1);
-    t += 50;
-    // ConPTY's repaint: home, each row cleared to its end, the cursor back where it was.
-    await say("\x1b[?25l\x1b[H(fake, 100x30)\x1b[K\r\nmounting\x1b[K\r\nERROR: disk full   \x1b[K\r\nesx-02$ \x1b[K\x1b[3;9H\x1b[?25h");
+    expect(seen).toEqual(["esx-02: mounting\nERROR: disk full"]);
+    await say("\x1b[?25l\x1b[Hmounting\x1b[K\r\nERROR: disk full   \x1b[K\r\nesx-02$ \x1b[K\x1b[3;9H\x1b[?25h", { cols: 60, rows: 20 });
     expect(seen).toHaveLength(1);
-    // A new line in the same moment still goes through; the window closes after a second.
-    t += 100;
-    await say("\r\nERROR: new one\r\n");
-    expect(seen.at(-1)).toMatch(/ERROR: new one/);
-    t += 2_000;
-    await say("ERROR: disk full\r\n");
-    expect(seen).toHaveLength(3);
+    await say("\r\nERROR: new one\r\n", { cols: 60, rows: 20 });
+    expect(seen.at(-1)).toBe("esx-02: esx-02$\nERROR: new one");
   });
 
   it("a function it handed over runs through `plugins call`, and its float shows", async () => {
@@ -164,6 +152,22 @@ describe("running", () => {
     expect(said).toMatch(/:connect is taken/);
     expect(said).toMatch(/keys go after the Leader or in the Sidebar/);
     expect(said).toMatch(/d \(leader\) would hide d d, bound by builtin/);
+  });
+
+  // Ticket 79: a taken Leader key says what's free instead, so the author can pick one at once.
+  it("a taken Leader key is refused naming what has it, and what's free", async () => {
+    const late: FakePlugin = {
+      manifest: { name: "late", version: "1", description: "", author: null, api: 2, permissions: [] },
+      load(roster) {
+        roster.keymap.set("leader", "f", "late");
+        roster.keymap.set("leader", "d d", "late");
+      },
+    };
+    const { manager } = setup({ "/p/late": late }, { [STATE_KEY]: [{ path: "/p/late", name: "late", granted: [], asked: [] }] });
+    await manager.start();
+    const said = manager.snapshot().notices.map((n) => n.text);
+    expect(said).toContain("late: ␣ f is taken (by builtin: find). Free after the Leader: a, g, h. Choose another (:keys lists them all)");
+    expect(said).toContain("late: ␣ d d is taken (by builtin: close). Free after the Leader: d a, d b, d c. Choose another (:keys lists them all)");
   });
 
   it("a Plugin that fails to load is named in a toast, disabled, and leaves nothing behind", async () => {
@@ -211,13 +215,6 @@ describe("ops from a Plugin are checked", () => {
     expect("text" in long ? long.text?.length : 0).toBe(500);
   });
 
-  it("strips escape sequences from terminal output", () => {
-    expect(plainText("\x1b]0;title\x07\x1b[1;31mERROR\x1b[0m\r\n")).toBe("ERROR\n");
-  });
-
-  it("a cursor move to a row is a line break, so rows drawn by position don't run together", () => {
-    expect(plainText("\x1b[Hone\x1b[2;1Htwo\x1b[K")).toBe("\none\ntwo");
-  });
 });
 
 describe(":check sections", () => {
@@ -315,5 +312,96 @@ describe("the clipboard", () => {
     vi.spyOn(backend, "pluginEvent").mockResolvedValue([{ plugin: "copier", result: null, ops: [{ op: "copy", text: "from the core" }], error: null, disabled: null }]);
     await manager.event("lock");
     expect(copied).toEqual(["from the core"]);
+  });
+});
+
+// Ticket 79 (#137): timers and finders whose items come from a function.
+describe("timers", () => {
+  const ticker = (log: string[]): FakePlugin => ({
+    manifest: { name: "ticker", version: "1", description: "", author: null, api: 2, permissions: [] },
+    load(roster) {
+      let n = 0;
+      roster.defer(500, () => {
+        log.push("once");
+        roster.status.set("once", { text: "ran" });
+      });
+      const t = roster.every(1000, () => {
+        n += 1;
+        log.push(`tick ${n}`);
+        roster.status.set("ticks", { text: String(n) });
+        if (n === 3) roster.cancel(t);
+      });
+    },
+  });
+  const installed = { [STATE_KEY]: [{ path: "/p/ticker", name: "ticker", granted: [], asked: [] }] };
+
+  it("run in the Plugin when it's time: once, or again until cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      const log: string[] = [];
+      const { manager, registries } = setup({ "/p/ticker": ticker(log) }, { ...installed });
+      await manager.start();
+      expect(log).toEqual([]);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(log).toEqual(["once"]);
+      expect(registries.status.get("once")?.text).toBe("ran");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(log).toEqual(["once", "tick 1", "tick 2", "tick 3"]);
+      expect(registries.status.get("ticks")?.text).toBe("3");
+      // Timers aren't something the user did: :plugins' recent use doesn't fill up with them.
+      expect(manager.snapshot().plugins.find((p) => p.name === "ticker")?.uses).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("end with the Plugin: removing or reloading it cancels them", async () => {
+    vi.useFakeTimers();
+    try {
+      const log: string[] = [];
+      const { manager } = setup({ "/p/ticker": ticker(log) }, { ...installed });
+      await manager.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(log).toEqual(["once", "tick 1"]);
+      await manager.reload("ticker");
+      await vi.advanceTimersByTimeAsync(1000);
+      // Only the new load's timers: its own "once" and "tick 1".
+      expect(log).toEqual(["once", "tick 1", "once", "tick 1"]);
+      await manager.remove("ticker");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(log).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("a finder whose items come from a function", () => {
+  it("asks the Plugin each time it opens, and says it's loading until then", async () => {
+    let n = 0;
+    const lazy: FakePlugin = {
+      manifest: { name: "lazy", version: "1", description: "", author: null, api: 2, permissions: [] },
+      load(roster) {
+        roster.finders.set("lazy", {
+          title: "Lazy",
+          items: () => {
+            n += 1;
+            return [{ label: `item ${n}`, run: () => roster.notify(`chose ${n}`) }];
+          },
+        });
+      },
+    };
+    const { manager, registries } = setup({ "/p/lazy": lazy }, { [STATE_KEY]: [{ path: "/p/lazy", name: "lazy", granted: [], asked: [] }] });
+    await manager.start();
+    const source = () => registries.finders.get("lazy");
+    expect(source()?.items({} as never)).toEqual([]);
+    expect(source()?.empty).toBe("Loading…");
+    expect(n).toBe(0);
+    source()?.open?.();
+    await vi.waitFor(() => expect(source()?.items({} as never).map((i) => i.label)).toEqual(["item 1"]));
+    expect(source()?.empty).toBeUndefined();
+    expect(source()?.items({} as never)[0]?.command).toMatch(/^plugins call lazy \d+ \S+$/);
+    source()?.open?.();
+    await vi.waitFor(() => expect(source()?.items({} as never).map((i) => i.label)).toEqual(["item 2"]));
   });
 });

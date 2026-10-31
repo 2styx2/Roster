@@ -25,6 +25,9 @@
 --- `roster.os`
 ---@alias roster.Os "windows"|"linux"|"macos"
 
+--- A timer's id, from `roster.defer` or `roster.every`
+---@alias roster.Timer integer
+
 --- A notice's level
 ---@alias roster.Level "info"|"warn"|"error"
 
@@ -41,7 +44,7 @@
 ---@field segment? string The status segment's id.
 ---@field health? string The `:check` section's id, for its `check`.
 ---@field session? integer The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read`.
----@field host? string Its Host; `nil` with no Session on screen, for a Quick Connect Session, and without `inventory.read` or `terminal.read`.
+---@field session_host? string The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read`. (A table's function gets the row's Host as `host`: `TableEvent`.)
 
 --- `roster.commands.add`'s second argument
 ---@class roster.CommandSpec
@@ -53,7 +56,7 @@
 ---@field args string Everything after the command's name, trimmed (`""` for none).
 ---@field words string[] `args` split at spaces (`{}` for none).
 ---@field session? integer The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3).
----@field host? string Its Host; `nil` with no Session on screen, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).
+---@field session_host? string The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).
 
 --- Where a Plugin's key binding works
 ---@alias roster.KeyContext "leader"|"list"|"list_vim"
@@ -106,7 +109,7 @@
 --- A finder (`roster.finders.set`)
 ---@class roster.Finder
 ---@field title? string Its title and prompt; the id if left out.
----@field items? roster.FinderItem[] What it finds in, at most 2,000.
+---@field items? roster.FinderItem[]|fun(): roster.FinderItem[] What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.
 
 --- One thing a finder lists
 ---@class roster.FinderItem
@@ -435,7 +438,7 @@
 ---@class roster.TerminalOutputEvent
 ---@field session integer The Session's id.
 ---@field host? string The Host's name; `nil` for a Quick Connect Session.
----@field text string What it printed since the last one, as text without colours or escape sequences (at most the last 16 KB); a cursor move to a row is a line break. A line can be split across two batches. Right after the app resizes the Session, the screen it prints again (ConPTY does on Windows, and full-screen programs redraw) isn't sent: for a second, lines it already sent lately are left out, and only new ones come.
+---@field text string The lines it finished since the last one, each ending in `\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.
 
 ---@class roster.module
 ---@field api_version integer The version of the `roster` module this app has
@@ -461,6 +464,31 @@ function roster.notify(text, level) end
 ---@overload fun(event: "inventory_changed", listener: fun(e: roster.EmptyEvent))
 ---@overload fun(event: "terminal_output", listener: fun(e: roster.TerminalOutputEvent))
 function roster.on(event, listener) end
+
+--- Whether the Plugin was granted a permission.
+--- Permission: none. Since: api 3.
+---@param permission string A permission's name: `"terminal.read"`, `"serve:mesh.status"`.
+---@return boolean # `true` when it's granted (and not revoked in `:plugins`).
+function roster.has(permission) end
+
+--- Runs a function once, later.
+--- Permission: none. Since: api 3.
+---@param ms number How long to wait, in milliseconds: at least 50 (less waits 50), at most 2,147,483,647.
+---@param fn fun() What to run then, in the Plugin, with the budget of a call.
+---@return roster.Timer # Its id, for `roster.cancel`.
+function roster.defer(ms, fn) end
+
+--- Runs a function again and again, until it's cancelled.
+--- Permission: none. Since: api 3.
+---@param ms number How long between runs, in milliseconds: at least 1,000.
+---@param fn fun() What to run each time, in the Plugin.
+---@return roster.Timer # Its id, for `roster.cancel`.
+function roster.every(ms, fn) end
+
+--- Cancels a timer.
+--- Permission: none. Since: api 3.
+---@param timer roster.Timer What `roster.defer` or `roster.every` returned.
+function roster.cancel(timer) end
 
 --- `:` commands. 
 roster.commands = {}

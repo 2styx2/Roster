@@ -18,13 +18,7 @@ end
 
 -- Whether it was granted terminal.read: without it there's no terminal_output event to listen to,
 -- and listening would be an error. It still loads, and says what it's missing.
-local function granted(permission)
-  for _, p in ipairs(roster.plugin.permissions) do
-    if p == permission then return true end
-  end
-  return false
-end
-local reads = granted("terminal.read")
+local reads = roster.has("terminal.read")
 
 ---@class Alert
 ---@field id integer
@@ -42,6 +36,7 @@ local carry = {} -- per Session: the end of its output that isn't a whole line y
 local context = {} -- per Session: its last few lines, shown above an alert in its details
 local badged = {} -- the Hosts that have a badge now
 local told = {} -- per Host (or Quick Connect): when its last notice was, and the alerts since
+local ticking -- while there are alerts, a timer that draws them again so "2 min ago" stays true
 local CONTEXT = 3
 local QUICK = "Quick Connect"
 
@@ -50,6 +45,16 @@ local QUICK = "Quick Connect"
 local function clock(at) return os.date("%H:%M:%S", at) --[[@as string]] end
 
 local function plural(n, one, many) return n .. " " .. (n == 1 and one or many) end
+
+-- How long ago, as a row's note says it: "just now", "4 min ago", then the time.
+---@param at integer
+---@return string
+local function ago(at)
+  local s = os.time() - at
+  if s < 60 then return "just now" end
+  if s < 3600 then return (s // 60) .. " min ago" end
+  return os.date("%H:%M", at) --[[@as string]]
+end
 
 local function list(patterns)
   if #patterns == 1 then return patterns[1] end
@@ -104,7 +109,7 @@ show = function()
       id = tostring(a.id),
       label = a.text,
       detail = where(a),
-      note = clock(a.at),
+      note = ago(a.at),
       title = where(a) .. " at " .. clock(a.at) .. ": " .. a.text,
       -- With `host`, Enter goes to that Host's Session, and the row lights up while it's on screen.
       host = a.host,
@@ -149,6 +154,14 @@ show = function()
     roster.badges.set(host, n and tostring(n) or nil)
   end
   badged = per_host
+
+  -- Redrawn every 30 seconds while there's something to say "2 min ago" about.
+  if #alerts > 0 and not ticking then
+    ticking = roster.every(30000, show)
+  elseif #alerts == 0 and ticking then
+    roster.cancel(ticking)
+    ticking = nil
+  end
 end
 
 roster.commands.add("alerts", {

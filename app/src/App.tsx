@@ -48,7 +48,7 @@ import {
 import { publishChecked } from "./backend/afterTimeout";
 import { CommandLine } from "./cmdline/CommandLine";
 import { complete, runLine, type CommandContext, type Commands, type FoldHow } from "./commands/table";
-import { deriveConfig, registerConfig, type ConfigWarning } from "./config/apply";
+import { deriveConfig, layoutWarnings, registerConfig, type ConfigWarning } from "./config/apply";
 import { ConfigToast } from "./config/ConfigToast";
 import { initLuaReloader } from "./config/source";
 import type { ConfigReport, ImportPreview } from "./config/types";
@@ -339,7 +339,7 @@ function Workspace({
   const terminalOptions = derived?.terminalOptions ?? terminalOptionsProp;
   // Keys, Themes and Folders go through the registries as "init.lua"; the next Config replaces
   // them. Before paint, so a custom Theme never flashes the default.
-  const [warnings, setWarnings] = useState<readonly ConfigWarning[]>([]);
+  const [configWarnings, setWarnings] = useState<readonly ConfigWarning[]>([]);
   useLayoutEffect(() => {
     if (!config) return;
     const registered = registerConfig(registries, config);
@@ -482,6 +482,15 @@ function Workspace({
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
   const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
   const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);
+  // The layouts' names are checked once the Plugins have loaded, and again as they come and go:
+  // a Plugin's section or segment isn't there while the Config is applied (ticket 79).
+  const layoutsJudged = pluginSnap.settled || conn.state === "failed";
+  const warnings = useMemo(
+    () => (config && layoutsJudged ? [...configWarnings, ...layoutWarnings(registries, config)] : configWarnings),
+    // The registries' lists are what layoutWarnings reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [config, configWarnings, layoutsJudged, registries, sectionDefs, statusDefs, toolbarDefs],
+  );
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const openPlugins = useRef(() => {});
   useEffect(() => registries.commands.register(pluginsCommand(plugins, () => openPlugins.current())), [registries, plugins]);
@@ -509,7 +518,7 @@ function Workspace({
   const openPackages = useRef(() => {});
   useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
   useEffect(() => {
-    tabs.setOutputTap({ output: (id, host, data) => plugins.output(id, host, data), resized: (id) => plugins.resized(id) });
+    tabs.setOutputTap({ output: (id, host, data, size) => plugins.output(id, host, data, size) });
     return () => tabs.setOutputTap(null);
   }, [tabs, plugins]);
   // `:tutor` (ticket 55): on the demo Inventory, what happens is fed to the tutorial running, whose

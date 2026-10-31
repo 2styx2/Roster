@@ -272,7 +272,7 @@ pub const VALUES: &[Value] = &[
         summary: "The Plugin itself: its name, version, what it was granted and its settings",
         doc: "",
         since: 2,
-        example: "local function granted(p)\n  for _, g in ipairs(roster.plugin.permissions) do\n    if g == p then return true end\n  end\n  return false\nend\nlocal leader = roster.plugin.config.leader or \"w w\"",
+        example: "roster.notify(roster.plugin.name .. \" \" .. roster.plugin.version)\nlocal leader = roster.plugin.config.leader or \"w w\"",
     },
 ];
 
@@ -314,7 +314,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Runs a function on an event",
-        doc: "Several listeners for one event run in the order they were added. There's no way to stop listening short of `:plugins reload`.",
+        doc: "Several listeners for one event run in the order they were added. There's no way to stop listening short of `:plugins reload`. Ask [`roster.has`](#rosterhaspermission) first for an event that needs a permission.",
         returns: ("", ""),
         errors: &[
             (
@@ -330,6 +330,101 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 2,
         example: "roster.on(\"session_open\", function(e)\n  if e.host then roster.badges.set(e.host, \"open\") end\nend)",
+    },
+    Function {
+        path: "roster.has",
+        params: &[p(
+            "permission",
+            "string",
+            "A permission's name: `\"terminal.read\"`, `\"serve:mesh.status\"`.",
+        )],
+        summary: "Whether the Plugin was granted a permission",
+        doc: "Ask before you use what a permission gives: listening for an event the Plugin may not hear is an error, and a module it wasn't granted is `nil`. One that can't be granted here (`network`, a serve method roster doesn't allow) is `false`, so you can ask about what a newer roster has.",
+        returns: ("boolean", "`true` when it's granted (and not revoked in `:plugins`)."),
+        errors: &[(
+            "roster.has: \"NAME\" isn't a permission (there's …)",
+            "a name that's no permission at all (a typo)",
+        )],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "if roster.has(\"terminal.read\") then\n  roster.on(\"terminal_output\", function(e) end)\nelse\n  roster.notify(\"allow terminal.read in :plugins to see alerts\", \"warn\")\nend",
+    },
+    Function {
+        path: "roster.defer",
+        params: &[
+            p(
+                "ms",
+                "number",
+                "How long to wait, in milliseconds: at least 50 (less waits 50), at most 2,147,483,647.",
+            ),
+            p(
+                "fn",
+                "fun()",
+                "What to run then, in the Plugin, with the budget of a call.",
+            ),
+        ],
+        summary: "Runs a function once, later",
+        doc: "The app keeps the clock and runs `fn` on the Plugin's own thread when it's time, as it runs an action, except that it isn't something the user started (so `roster.clipboard.copy` refuses). An error in it counts toward stopping the Plugin. Timers end with the Plugin: unloading, reloading or disabling it cancels every one. At most 100 timers wait at once.",
+        returns: ("Timer", "Its id, for `roster.cancel`."),
+        errors: &[
+            (
+                "roster.defer: ms must be a number of milliseconds from 0 to …",
+                "a negative, infinite or huge `ms`",
+            ),
+            (
+                "roster.defer: more than 100 timers waiting at once …",
+                "too many timers",
+            ),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.defer(5000, function()\n  roster.status.remove(\"saved\")\nend)",
+    },
+    Function {
+        path: "roster.every",
+        params: &[
+            p(
+                "ms",
+                "number",
+                "How long between runs, in milliseconds: at least 1,000.",
+            ),
+            p("fn", "fun()", "What to run each time, in the Plugin."),
+        ],
+        summary: "Runs a function again and again, until it's cancelled",
+        doc: "The first run is `ms` from now. The next wait starts when a run has finished, so a slow run never piles up behind itself. Everything else is as `roster.defer`: on the Plugin's own thread, cancelled with the Plugin.",
+        returns: ("Timer", "Its id, for `roster.cancel`."),
+        errors: &[
+            ("roster.every: at least 1000 ms between runs …", "a shorter `ms`"),
+            (
+                "roster.every: ms must be a number of milliseconds from 0 to …",
+                "a negative, infinite or huge `ms`",
+            ),
+            (
+                "roster.every: more than 100 timers waiting at once …",
+                "too many timers",
+            ),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "-- \"2 min ago\" stays true.\nroster.every(30000, show)",
+    },
+    Function {
+        path: "roster.cancel",
+        params: &[p("timer", "Timer", "What `roster.defer` or `roster.every` returned.")],
+        summary: "Cancels a timer",
+        doc: "A timer that already ran (a deferred one) or was cancelled is nothing to cancel: that's not an error. A repeating timer may cancel itself from its own function.",
+        returns: ("", ""),
+        errors: &[(
+            "roster.cancel: a timer, as roster.defer or roster.every returned it",
+            "something else",
+        )],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "local t = roster.every(60000, refresh)\nroster.commands.add(\"stop\", { run = function() roster.cancel(t) end })",
     },
     Function {
         path: "roster.commands.add",
@@ -400,7 +495,7 @@ pub const FUNCTIONS: &[Function] = &[
         )],
         refused: &[
             "a `context` other than the three (`keys go after the Leader or in the Sidebar …`)",
-            "keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them)",
+            "keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them): the notice names what has them and up to three free ones like them (`␣ f is taken (by builtin: find). Free after the Leader: a, g, h`)",
             "keys that would hide a binding, or be hidden by one (`\"a z\"` when `a` is bound)",
         ],
         needs: Needs::Nothing,
@@ -1232,6 +1327,14 @@ pub const TYPES: &[Type] = &[
         open: false,
     },
     Type {
+        name: "Timer",
+        summary: "A timer's id, from `roster.defer` or `roster.every`",
+        doc: "",
+        alias: "integer",
+        fields: &[],
+        open: false,
+    },
+    Type {
         name: "Level",
         summary: "A notice's level",
         doc: "",
@@ -1251,7 +1354,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "HandlerContext",
         summary: "What a row's, a button's, a finder item's, a status segment's or a `:check` section's function is called with",
-        doc: "Since api 3 (api 2 called them with an empty table). Only the fields for what ran it are there: a row button has `section`, `row` and `action`; a finder item `finder` and `item`. A command's function gets [`CommandArgs`](#commandargs), which has `session` and `host` too.",
+        doc: "Since api 3 (api 2 called them with an empty table). Only the fields for what ran it are there: a row button has `section`, `row` and `action`; a finder item `finder` and `item`. A command's function gets [`CommandArgs`](#commandargs), which has `session` and `session_host` too.",
         alias: "",
         fields: &[
             o(
@@ -1279,9 +1382,9 @@ pub const TYPES: &[Type] = &[
                 "The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read`.",
             ),
             o(
-                "host",
+                "session_host",
                 "string",
-                "Its Host; `nil` with no Session on screen, for a Quick Connect Session, and without `inventory.read` or `terminal.read`.",
+                "The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read`. (A table's function gets the row's Host as `host`: [`TableEvent`](#tableevent).)",
             ),
         ],
         open: false,
@@ -1323,9 +1426,9 @@ pub const TYPES: &[Type] = &[
                 "The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3).",
             ),
             o(
-                "host",
+                "session_host",
                 "string",
-                "Its Host; `nil` with no Session on screen, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).",
+                "The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).",
             ),
         ],
         open: false,
@@ -1465,7 +1568,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its title and prompt; the id if left out."),
-            o("items", "FinderItem[]", "What it finds in, at most 2,000."),
+            o(
+                "items",
+                "FinderItem[]|fun(): FinderItem[]",
+                "What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.",
+            ),
         ],
         open: false,
     },
@@ -2329,7 +2436,7 @@ pub const TYPES: &[Type] = &[
             f(
                 "text",
                 "string",
-                "What it printed since the last one, as text without colours or escape sequences (at most the last 16 KB); a cursor move to a row is a line break. A line can be split across two batches. Right after the app resizes the Session, the screen it prints again (ConPTY does on Windows, and full-screen programs redraw) isn't sent: for a second, lines it already sent lately are left out, and only new ones come.",
+                "The lines it finished since the last one, each ending in `\\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.",
             ),
         ],
         open: false,
@@ -2343,6 +2450,8 @@ const LUA_DOC: &str = "roster embeds **Lua 5.4** (built into the app, nothing to
 - `goto`, `<const>` and `<close>` locals work; there's no `jit` and no FFI.
 - The API is `roster.*`, never `vim.*`: there's no `vim.api`, `vim.fn`, `vim.loop` or `vim.schedule`.
 - It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. `coroutine` too (since api 3: a coroutine runs within the same time budget and memory limit). No `io`, no `os.execute`, no `debug`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
+- `pairs` visits a table's keys in order: numbers, then text, then the rest. So the same state always makes the same changes in the same order, on every machine; `next` is Lua's own.
+- An empty table is `{}` to the app, whether you meant a list or a table of fields: the app takes `{}` as an empty list wherever it wants one (`rows = {}`, `items = {}`).
 - It runs on a thread of its own with a memory limit and a time budget per call: see [Limits](plugins.md#limits).";
 
 /// The errors any function can raise, and what a call that fails does.
