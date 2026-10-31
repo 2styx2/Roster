@@ -4,6 +4,7 @@
 //! the Plugin asks of the UI during a call comes back as that call's ops (data, never HTML); a
 //! Lua function inside them is kept here and sent as `{ "handler": N }`.
 
+use super::folder::Storage;
 use super::network::{self, Answer, Net};
 use super::{Event, Outcome, PluginError, Serve, ServeWait, permission::Permission};
 use crate::config::lua::{self, Budget, Clock};
@@ -141,6 +142,10 @@ struct Shared {
     carried: Cell<bool>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
+    /// The handlers that run as the app asks, not as the user's call: a command's `complete`.
+    quiet: RefCell<BTreeSet<u64>>,
+    /// Its data folder (`roster.storage`, decision Q93): None when the host has no data folder.
+    storage: Option<Result<Storage, String>>,
     /// How long this thread has waited for roster serve: the host doesn't count it.
     serving: Arc<ServeWait>,
 }
@@ -182,6 +187,7 @@ impl Runtime {
         memory: usize,
         budget: Duration,
         post: Option<Post>,
+        storage: Option<Result<Storage, String>>,
         serving: Arc<ServeWait>,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
@@ -215,6 +221,8 @@ impl Runtime {
             serving_requests: RefCell::default(),
             carried: Cell::new(false),
             timers: RefCell::default(),
+            quiet: RefCell::default(),
+            storage,
             serving,
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
@@ -251,7 +259,9 @@ impl Runtime {
     pub(crate) fn call(&self, handler: u64, args: &Json) -> Outcome {
         let shared = Rc::clone(&self.shared);
         let timer = self.shared.timers.borrow().get(&handler).copied();
-        self.shared.user_call.set(timer.is_none());
+        // A timer, or the app asking for completions, isn't something the user did.
+        let quiet = self.shared.quiet.borrow().contains(&handler);
+        self.shared.user_call.set(timer.is_none() && !quiet);
         let outcome = self.run(self.budget, move |lua| {
             let f = match timer {
                 // Gone before it runs, so it can defer itself again.
@@ -677,6 +687,24 @@ fn answer(lua: &Lua, what: &str, result: Result<Json, String>) -> mlua::Result<V
     }
 }
 
+/// Runs `work` on the Plugin's data folder, giving the time the disk took back to its run (like
+/// waiting for roster serve); an error names `what`.
+fn on_disk<T>(shared: &Shared, what: &str, work: impl FnOnce(&Storage) -> Result<T, String>) -> mlua::Result<T> {
+    let storage = match &shared.storage {
+        None => {
+            return Err(mlua::Error::runtime(format!(
+                "{what}: there's no data folder for Plugins here"
+            )));
+        }
+        Some(Err(e)) => return Err(mlua::Error::runtime(format!("{what}: {e}"))),
+        Some(Ok(st)) => st,
+    };
+    let started = Instant::now();
+    let result = work(storage);
+    shared.clock.extend(started.elapsed());
+    result.map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))
+}
+
 /// Checks and starts a request for `roster.http`; `done` gets the answer later.
 #[allow(clippy::too_many_arguments)] // the request's parts, as Lua gave them
 fn request(
@@ -812,8 +840,24 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                 "roster.commands.add: `run` must be a function or a command line",
             ));
         };
+        let mut op = json!({ "op": "command", "name": name, "desc": desc, "run": run });
+        // `complete` (api 3): a function the app calls as the user types, never a user's call.
+        match spec.get("complete") {
+            None => {}
+            Some(c) => match c.get("handler").and_then(Json::as_u64) {
+                Some(id) => {
+                    s.quiet.borrow_mut().insert(id);
+                    op["complete"] = c.clone();
+                }
+                None => {
+                    return Err(mlua::Error::runtime(
+                        "roster.commands.add: `complete` must be a function: fun(arg: string): string[]",
+                    ));
+                }
+            },
+        }
         s.commands.borrow_mut().insert(name.clone());
-        push(s, json!({ "op": "command", "name": name, "desc": desc, "run": run }))
+        push(s, op)
     });
     func!(commands, "remove", |_lua, s, name: String| {
         check_id("roster.commands.remove", &name)?;
@@ -1064,6 +1108,31 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "cmd", "line": line }))
     });
 
+    // A line on the message line, as roster's own commands answer (api 3): only in a call the
+    // user started, so it always answers something they did.
+    func!(roster, "echo", |_lua, s, text: mlua::LuaString| {
+        user_only(s, "roster.echo")?;
+        let text = text.to_string_lossy();
+        push(s, json!({ "op": "echo", "text": text }))
+    });
+
+    // Opens the command line with text typed in (api 3), for the user to finish: only the
+    // Plugin's own commands, and only in a call the user started.
+    func!(roster, "cmdline", |_lua, s, text: mlua::LuaString| {
+        user_only(s, "roster.cmdline")?;
+        let text = text.to_string_lossy();
+        if text.len() > 500 {
+            return Err(mlua::Error::runtime("roster.cmdline: the line is over 500 characters"));
+        }
+        let word = text.split_whitespace().next().unwrap_or("");
+        if !s.commands.borrow().contains(word) {
+            return Err(mlua::Error::runtime(format!(
+                "roster.cmdline: {word:?} isn't one of your commands (a line such as \"alerts \")"
+            )));
+        }
+        push(s, json!({ "op": "cmdline", "text": text }))
+    });
+
     func!(
         roster,
         "notify",
@@ -1128,6 +1197,46 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         };
         list.raw_push(f)
     });
+
+    // The Plugin's own data folder (decision Q93): files by plain name, never a path. Every
+    // Plugin has it; nothing outside its folder is reachable through it.
+    let storage = lua.create_table()?;
+    func!(storage, "read", |lua, s, name: String| {
+        let bytes = on_disk(s, "roster.storage.read", |st| st.read(&name))?;
+        match bytes {
+            Some(b) => Ok(Value::String(lua.create_string(b)?)),
+            None => Ok(Value::Nil),
+        }
+    });
+    func!(storage, "write", |_lua, s, (name, text): (String, mlua::LuaString)| {
+        let bytes = text.as_bytes().to_vec();
+        on_disk(s, "roster.storage.write", |st| st.write(&name, &bytes))
+    });
+    func!(storage, "list", |lua, s, (): ()| {
+        let names = on_disk(s, "roster.storage.list", Storage::list)?;
+        lua.create_sequence_from(names)
+    });
+    func!(storage, "remove", |_lua, s, name: String| {
+        on_disk(s, "roster.storage.remove", |st| st.remove(&name))
+    });
+    func!(storage, "read_json", |lua, s, name: String| {
+        let what = "roster.storage.read_json";
+        let Some(bytes) = on_disk(s, what, |st| st.read(&name))? else {
+            return Ok(Value::Nil);
+        };
+        let value: Json = serde_json::from_slice(&bytes)
+            .map_err(|e| mlua::Error::runtime(format!("{what}: {name} isn't JSON ({e})")))?;
+        to_lua(lua, &value)
+    });
+    func!(storage, "write_json", |_lua, s, (name, value): (String, Value)| {
+        let what = "roster.storage.write_json";
+        let value = plain(s, what, &value)?;
+        let mut text =
+            serde_json::to_string_pretty(&value).map_err(|e| mlua::Error::runtime(format!("{what}: {e}")))?;
+        text.push('\n');
+        on_disk(s, what, |st| st.write(&name, text.as_bytes()))
+    });
+    roster.raw_set("storage", storage)?;
 
     // What the grants add. Without a grant the function isn't there at all (decision Q81).
     let g = &shared.grants;

@@ -230,6 +230,12 @@ fn internal(e: mlua::Error) -> ConfigError {
 
 /// Takes away what a Config must not have, and adds `require`.
 fn sandbox(lua: &Lua, dir: Option<&Path>, clock: Rc<Clock>, label: String) -> mlua::Result<()> {
+    // init.lua's modules come from the config dir; a Plugin's from its own folder.
+    let place = if label == FILE_NAME {
+        "the config dir"
+    } else {
+        "the Plugin's folder"
+    };
     let g = lua.globals();
     for name in ["dofile", "loadfile", "collectgarbage"] {
         g.raw_set(name, Value::Nil)?;
@@ -322,7 +328,7 @@ fn sandbox(lua: &Lua, dir: Option<&Path>, clock: Rc<Clock>, label: String) -> ml
     g.raw_set(
         "require",
         lua.create_function(move |lua, name: String| match &root {
-            Some(root) => require(lua, root, &name),
+            Some(root) => require(lua, root, &name, place),
             None if name == "roster" => lua.named_registry_value(API),
             None => Err(mlua::Error::runtime(format!(
                 "require {name:?}: there's no folder to load it from"
@@ -497,7 +503,7 @@ pub(crate) fn caller(lua: &Lua) -> Option<Location> {
     .flatten()
 }
 
-fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
+fn require(lua: &Lua, root: &Path, name: &str, place: &str) -> mlua::Result<Value> {
     if name == "roster" {
         return lua.named_registry_value(API);
     }
@@ -507,7 +513,7 @@ fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
             .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
     if !valid {
         return Err(mlua::Error::runtime(format!(
-            "require {name:?}: a module is a name like \"keys\" or \"themes.mine\", found in the config dir"
+            "require {name:?}: a module is a name like \"keys\" or \"themes.mine\", found in {place}"
         )));
     }
     let loaded: Table = lua.named_registry_value(LOADED)?;
@@ -527,21 +533,18 @@ fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
         format!("lua/{rel}.lua"),
         format!("lua/{rel}/init.lua"),
     ];
-    let Some((path, shown)) = candidates.iter().find_map(|c| {
+    let Some((_, shown)) = candidates.iter().find_map(|c| {
         let p = root.join(c);
         p.is_file().then(|| (p, c.clone()))
     }) else {
         return Err(mlua::Error::runtime(format!(
-            "module {name:?} not found in the config dir (looked for {})",
+            "module {name:?} not found in {place} (looked for {})",
             candidates.join(", ")
         )));
     };
-    let real: PathBuf = path.canonicalize().map_err(mlua::Error::external)?;
-    if !real.starts_with(root) {
-        return Err(mlua::Error::runtime(format!(
-            "require {name:?}: {shown} points outside the config dir"
-        )));
-    }
+    // The one rule for a Plugin's files and the Config's (ticket 82): its real path is inside.
+    let real: PathBuf = crate::plugin::folder::inside(root, Path::new(&shown))
+        .map_err(|_| mlua::Error::runtime(format!("require {name:?}: {shown} leads outside {place}")))?;
     let source = std::fs::read_to_string(&real)
         .map_err(|e| mlua::Error::runtime(format!("require {name:?}: can't read {shown}: {e}")))?;
     let chunk = lua

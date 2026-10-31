@@ -108,7 +108,7 @@ Otherwise saving does nothing until `:source` (`␣ S`), as in Neovim, so a half
 folders = { { name = "Lab", hosts = { "esx-02", "esx-03" } } },
 ```
 
-Folders in `init.lua` are read-only in the app. Folders you make in the app (`␣ a`) are kept in `folders.yml` instead.
+Folders in `init.lua` are read-only in the app. Folders you make in the app (`␣ a`) are kept by the built-in Folders Plugin in roster's own data instead (a `folders.yml` from older versions is moved in once: [config.md](config.md#foldersyml)).
 
 ## Split init.lua into modules
 

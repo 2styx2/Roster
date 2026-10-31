@@ -162,6 +162,32 @@
     {
       "params": [
         {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.echo",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.cmdline",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "permission",
           "optional": false,
           "type": "string"
@@ -735,6 +761,88 @@
       "since": 2
     },
     {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.storage.read",
+      "permission": null,
+      "returns": "string?",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.storage.write",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [],
+      "path": "roster.storage.list",
+      "permission": null,
+      "returns": "string[]",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.storage.remove",
+      "permission": null,
+      "returns": "boolean",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.storage.read_json",
+      "permission": null,
+      "returns": "any",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "name",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "optional": false,
+          "type": "any"
+        }
+      ],
+      "path": "roster.storage.write_json",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
       "params": [],
       "path": "roster.inventory.hosts",
       "permission": "inventory.read",
@@ -1022,6 +1130,7 @@
     "roster-ReviewResult": "plugin-api#reviewresult",
     "roster-Row": "plugin-api#row",
     "roster-RowAction": "plugin-api#rowaction",
+    "roster-RowGlyph": "plugin-api#rowglyph",
     "roster-RowIcon": "plugin-api#rowicon",
     "roster-RowTone": "plugin-api#rowtone",
     "roster-Run": "plugin-api#run",
@@ -1057,6 +1166,7 @@
     "roster.clipboard": "plugin-api#rosterclipboard",
     "roster.clipboard.copy()": "plugin-api#rosterclipboardcopytext",
     "roster.cmd()": "plugin-api#rostercmdline",
+    "roster.cmdline()": "plugin-api#rostercmdlinetext",
     "roster.commands": "plugin-api#rostercommands",
     "roster.commands.add()": "plugin-api#rostercommandsaddname-spec",
     "roster.commands.remove()": "plugin-api#rostercommandsremovename",
@@ -1065,6 +1175,7 @@
     "roster.details": "plugin-api#rosterdetails",
     "roster.details.remove()": "plugin-api#rosterdetailsremoveid",
     "roster.details.set()": "plugin-api#rosterdetailssetid-host-section",
+    "roster.echo()": "plugin-api#rosterechotext",
     "roster.every()": "plugin-api#rostereveryms-fn",
     "roster.finders": "plugin-api#rosterfinders",
     "roster.finders.remove()": "plugin-api#rosterfindersremoveid",
@@ -1112,6 +1223,13 @@
     "roster.status": "plugin-api#rosterstatus",
     "roster.status.remove()": "plugin-api#rosterstatusremoveid",
     "roster.status.set()": "plugin-api#rosterstatussetid-segment",
+    "roster.storage": "plugin-api#rosterstorage",
+    "roster.storage.list()": "plugin-api#rosterstoragelist",
+    "roster.storage.read()": "plugin-api#rosterstoragereadname",
+    "roster.storage.read_json()": "plugin-api#rosterstorageread_jsonname",
+    "roster.storage.remove()": "plugin-api#rosterstorageremovename",
+    "roster.storage.write()": "plugin-api#rosterstoragewritename-text",
+    "roster.storage.write_json()": "plugin-api#rosterstoragewrite_jsonname-value",
     "roster.terminal": "plugin-api#rosterterminal",
     "roster.terminal.send()": "plugin-api#rosterterminalsendsession-text",
     "roster.themes": "plugin-api#rosterthemes",
@@ -1305,6 +1423,21 @@
           "name": "session_host",
           "required": false,
           "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "section",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "row",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false
@@ -1320,6 +1453,11 @@
           "name": "run",
           "required": true,
           "type": "string|fun(args: CommandArgs): any"
+        },
+        {
+          "name": "complete",
+          "required": false,
+          "type": "fun(arg: string): string[]"
         }
       ],
       "open": false
@@ -1446,6 +1584,11 @@
           "name": "items",
           "required": false,
           "type": "FinderItem[]|fun(): FinderItem[]"
+        },
+        {
+          "name": "section",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false
@@ -1726,6 +1869,11 @@
           "name": "action",
           "required": false,
           "type": "integer"
+        },
+        {
+          "name": "dropped",
+          "required": false,
+          "type": "string"
         },
         {
           "name": "finder",
@@ -2493,6 +2641,31 @@
           "name": "actions",
           "required": false,
           "type": "RowAction[]"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "RowGlyph"
+        },
+        {
+          "name": "fold",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "kind",
+          "required": false,
+          "type": "\"host\""
+        },
+        {
+          "name": "drop",
+          "required": false,
+          "type": "Run"
+        },
+        {
+          "name": "drag_out",
+          "required": false,
+          "type": "Run"
         }
       ],
       "open": false
@@ -2516,6 +2689,9 @@
         }
       ],
       "open": false
+    },
+    "RowGlyph": {
+      "alias": "\"folder\"|\"group\""
     },
     "RowIcon": {
       "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\""
@@ -2552,6 +2728,16 @@
           "name": "actions",
           "required": false,
           "type": "RowAction[]"
+        },
+        {
+          "name": "count",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "drop",
+          "required": false,
+          "type": "Run"
         }
       ],
       "open": false

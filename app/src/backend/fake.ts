@@ -935,6 +935,8 @@ export interface FakeBackend extends Backend {
   /** A reply the core sends on its own (an HTTP request's answer, decision Q97), to whoever
    * listens through `onPluginReply`. */
   pluginReplied(reply: PluginReply): void;
+  /** What a Plugin keeps in its data folder (`roster.storage`, decision Q93), by file name. */
+  pluginFiles(plugin: string): Map<string, string>;
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;

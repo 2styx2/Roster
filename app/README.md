@@ -99,7 +99,7 @@ app/src/lock/         the Lock: useVault.ts (lock state, idle lock), idle.ts (id
 crates/roster-core/src/config/
                       the Lua Config (ticket 21, docs/app/config.md): schema.rs (every option and default), lua.rs
                       (sandboxed Lua 5.4, `require` in the config dir, the `roster` table), locate.rs (file:line
-                      for schema errors), watch.rs (live reload; folders.yml too), folders.rs (folders.yml's text), editor.rs (`:config`: the commented-out
+                      for schema errors), watch.rs (live reload), folders.rs (folders.yml's text, read once to move its Folders in), editor.rs (`:config`: the commented-out
                       starter file, made once, and opening it in the `editor`), mod.rs (load, Loader
                       keeping the last good one)
 app/src/config/       the Config in the frontend (ImportPanel.tsx: `:config import-terminal`'s diff): types.ts (the core's object), apply.ts (→ options, and keys,
@@ -109,13 +109,18 @@ crates/roster-core/src/plugin/
                       Plugins (ticket 23, docs/plugins.md): mod.rs (PluginHost: one thread and Lua state per Plugin,
                       load/call/event, time budget, strikes, the manifest), runtime.rs (the `roster` module a
                       Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list),
-                      network.rs (`network:SITE`: the HTTP client, sites, the private-address check; Q97)
+                      network.rs (`network:SITE`: the HTTP client, sites, the private-address check; Q97),
+                      folder.rs (a Plugin's folders are its own, Q93: `inside` for its code's files, `Storage` for
+                      its data folder `plugin-data/NAME` behind `roster.storage`)
 crates/roster-core/src/package/
                       Packages (ticket 24, Q83): mod.rs (Packages: clones in the app's data dir, roster.lock next to
                       init.lua; sync/pin/discard/check/apply/clean, only for what init.lua names), git.rs (system git,
                       no shell, no credentials, https/ssh/file only); tests use local bare repos
 crates/roster-core/plugins/hosts/
                       the status bar's Host count, a built-in Plugin on the public API (`builtin:hosts`)
+crates/roster-core/plugins/folders/
+                      the Sidebar's Folders (`builtin:folders`, Q93): section, `:folder`, ␣ a / ␣ A, its Folders in
+                      its own data folder; init.lua's handed over as settings, folders.yml's moved in once
 app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in the State, prompts, ops → registries,
                       events, timers, the Sessions' output for terminal.read; Packages as `package:NAME`), committed.ts
                       (a Session's committed lines, from a terminal of its own, for terminal_output), ops.ts (checks every
@@ -154,8 +159,9 @@ app/src/ui/Announce.tsx
 app/src/sidebar/      Sidebar.tsx (sections of rows, raised row, cursor), sections.ts (section registry, Sessions)
 app/src/inventory/    the Live Inventory (ticket 28): commands.ts (`:host add|remove|rename|move`, `:group new|rename|delete`),
                       ConfirmPanel.tsx (removing a Host asks first)
-app/src/folders/      Folders (GLOSSARY): folders.ts (the `folder` command, the section), file.ts (folders.yml: parse, write
-                      keeping comments, the one-time move from the State)
+app/src/folders/      Folders (GLOSSARY), now the built-in Plugin's: folders.ts (the Folder model and the `folders` registry
+                      init.lua's go into), file.ts (folders.yml parsed for the one-time move, the Plugin's settings);
+                      backend/fakeFolders.ts is the same Plugin for the fake Backend
 app/src/cmdline/      CommandLine.tsx (␣ :, Tab completion from the command table and Host names)
 app/src/theme/        Themes (ticket 09): theme.ts (the colour-token set, AppearanceOptions, terminal colours), themes.ts
                       (Roster dark/light, Gruvbox Dark, Nord, Catppuccin Mocha, Tokyo Night as a registry; docs/app/themes.md),

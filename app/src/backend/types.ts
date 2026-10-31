@@ -872,13 +872,16 @@ export interface Backend {
   pluginTypes(path: string): Promise<string>;
   /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
    * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
-  pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   /** Calls a function the Plugin handed over (`{handler}` in its ops). */
   pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
   /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   /** Takes a Plugin out of the core. */
   pluginUnload(plugin: string): Promise<boolean>;
+  /** Removes a Plugin's data folder with everything in it (decision Q93), when the Plugin is
+   * removed: `:plugins remove`, `:packages clean`. True if it had one. */
+  pluginForget(plugin: string): Promise<boolean>;
   /** The replies nobody asked for: what a Plugin did when one of its HTTP requests answered
    * (the `network` permission, decision Q97). The core sends them as they come. */
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;

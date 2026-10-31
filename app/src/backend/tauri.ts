@@ -207,10 +207,11 @@ export function tauriBackend(): Backend {
     // Plugins (ticket 23): they run in the core; only data comes back.
     pluginManifest: (path) => call("plugin_manifest", { path }),
     pluginTypes: (path) => call<string>("plugin_types", { path }),
-    pluginLoad: (path, grants) => call("plugin_load", { path, grants }),
+    pluginLoad: (path, grants, settings) => call("plugin_load", { path, grants, settings: settings ?? null }),
     pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
+    pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin }),
     onPluginReply(onReply) {
       const stop = listen<PluginReply>("plugin-reply", (e) => onReply(e.payload));
       return () => void stop.then((f) => f());

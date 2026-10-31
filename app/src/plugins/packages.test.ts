@@ -158,7 +158,7 @@ describe("taking a Package out", () => {
     expect(await manager.cleanPackages()).toBe("Removed recent-alerts");
     expect(state[STATE_KEY]).toEqual([]);
     expect(packages.lock).toEqual({});
-    expect(manager.snapshot().plugins.map((p) => p.name)).toEqual(["hosts"]);
+    expect(manager.snapshot().plugins.map((p) => p.name)).toEqual(["folders", "hosts"]);
     expect(await manager.cleanPackages()).toMatch(/Nothing to clean/);
   });
 
