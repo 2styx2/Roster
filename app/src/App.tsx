@@ -452,7 +452,7 @@ function Workspace({
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
         send: (id, text) => tabs.write(id, text),
-        copy: (text) => void platform.clipboard.writeText(text).catch(() => undefined),
+        copy: (text) => platform.clipboard.writeText(text),
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
@@ -506,12 +506,13 @@ function Workspace({
       const ended = t.status.state === "ended" || t.status.state === "failed";
       now.set(t.id, ended ? "ended" : "live");
       if (!ended && before.get(t.id) !== "live") {
-        void plugins.event("session_open", { session: t.id, host: t.host });
+        // A Quick Connect Session's `host` is nil to a Plugin: it isn't a Host of the Inventory.
+        void plugins.event("session_open", { session: t.id, host: t.quick ? null : t.host });
         tutorEvent("session_open", { host: t.host });
       }
       if (ended && before.get(t.id) === "live") {
         const code = t.status.state === "ended" ? t.status.exit.code : null;
-        void plugins.event("session_exit", { session: t.id, host: t.host, code });
+        void plugins.event("session_exit", { session: t.id, host: t.quick ? null : t.host, code });
         tutorEvent("session_exit", { host: t.host, code });
       }
     }
@@ -528,6 +529,11 @@ function Workspace({
   }, [onScreenHost, plugins, tutorEvent]);
   const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
+  /** The safe choice of this workspace's Plugin prompt, while one is up. */
+  const promptRef = useRef<HTMLButtonElement | null>(null);
+  const setPromptButton = useCallback((el: HTMLButtonElement | null) => {
+    promptRef.current = el;
+  }, []);
   const returnFocus = useRef<Element | null>(null);
   // init.lua's vault settings reach roster (`vault.configure`, API 10; tickets 35 and 41) before the
   // lock screen asks where the vault stands (a KeePassXC database may be init.lua's), and again on
@@ -962,9 +968,9 @@ function Workspace({
   useEffect(() => {
     if (conn.state !== "ready" || vault.locked) return;
     // A Plugin's prompt that came up behind the lock screen (a Package init.lua names, at start)
-    // keeps the keys, so Enter and Esc answer it (ticket 56).
-    const prompt = document.querySelector<HTMLElement>(".plugin-prompt .edit-actions button");
-    (prompt ?? mainRef.current)?.focus();
+    // keeps the keys, on its safe choice, so Esc answers it and a stray Enter installs nothing
+    // (ticket 56, decision Q87). This workspace's own prompt: the demo's never reaches for yours.
+    (promptRef.current ?? mainRef.current)?.focus();
   }, [conn.state, vault.locked]);
 
   // With the last Session closed, the keys need somewhere to go.
@@ -1600,7 +1606,7 @@ function Workspace({
   // Back from the demo Inventory: the keys come back here.
   const wasSuspended = useRef(suspended);
   useEffect(() => {
-    if (wasSuspended.current && !suspended) mainRef.current?.focus();
+    if (wasSuspended.current && !suspended) (promptRef.current ?? mainRef.current)?.focus();
     wasSuspended.current = suspended;
   }, [suspended]);
 
@@ -2120,6 +2126,7 @@ function Workspace({
           <PluginPrompt
             key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}:${pluginSnap.prompts[0].package?.commit ?? ""}`}
             prompt={pluginSnap.prompts[0]}
+            safe={setPromptButton}
             onAnswer={(allow) => {
               const prompt = pluginSnap.prompts[0];
               if (prompt) void plugins.answer(prompt, allow);

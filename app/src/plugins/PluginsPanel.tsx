@@ -12,9 +12,14 @@ import { PACKAGE_PREFIX, type Notice, type PluginStatus, type Prompt, type Snaps
 
 /** Install or update: who it's from, every permission with the risky ones flagged and explained.
  * A Package's shows its git URL as the source, and its update the new commit and its diff. */
-export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(allow: boolean): void }) {
-  const yes = useRef<HTMLButtonElement>(null);
-  useEffect(() => yes.current?.focus(), []);
+/** It opens with the keys on the safe choice (Cancel, Keep, Not now), never on Install: a prompt can
+ * come up while you're typing elsewhere (behind the lock screen, after a command line), and a stray
+ * Enter mustn't run code you haven't read about. Install is a deliberate move (Shift+Tab, or a
+ * click), and a held-down Enter answers nothing (decision Q87). `safe` is that button, for the
+ * workspace to give the keys back to. */
+export function PluginPrompt({ prompt, onAnswer, safe }: { prompt: Prompt; onAnswer(allow: boolean): void; safe?: (button: HTMLButtonElement | null) => void }) {
+  const no = useRef<HTMLButtonElement>(null);
+  useEffect(() => no.current?.focus(), []);
   const m = prompt.manifest;
   const install = prompt.kind === "install";
   const pkg = prompt.package;
@@ -22,7 +27,7 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
   const asked = m.permissions.filter((p) => prompt.asking.includes(p.name));
   const title = install ? `Install ${m.name}?` : update ? `Update ${m.name}?` : `${m.name} asks for more`;
   const action = install ? "Install" : update ? "Update" : "Allow";
-  const no = install ? "Cancel" : update ? `Keep ${short(update.from)}` : "Not now";
+  const noLabel = install ? "Cancel" : update ? `Keep ${short(update.from)}` : "Not now";
   const noHint = install ? "cancel" : update ? "keep the version it has" : "run without them";
   return (
     <section
@@ -31,6 +36,11 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
       role="alertdialog"
       aria-label={title}
       onKeyDown={(e) => {
+        // A key held down from before the prompt (the Enter that unlocked, say) answers nothing.
+        if (e.key === "Enter" && e.repeat) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();
@@ -39,7 +49,7 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
     >
       <header>
         <h2>{title}</h2>
-        <button type="button" className="icon-button close" aria-label={no} onClick={() => onAnswer(false)}>
+        <button type="button" className="icon-button close" aria-label={noLabel} onClick={() => onAnswer(false)}>
           <CloseGlyph />
         </button>
       </header>
@@ -79,14 +89,21 @@ export function PluginPrompt({ prompt, onAnswer }: { prompt: Prompt; onAnswer(al
       )}
       <p className="muted">It never sees a password, the vault or what you type at a login prompt, and it can&rsquo;t Publish.</p>
       <div className="edit-actions">
-        <button ref={yes} type="button" onClick={() => onAnswer(true)}>
+        <button type="button" onClick={() => onAnswer(true)}>
           {action}
         </button>
-        <button type="button" onClick={() => onAnswer(false)}>
-          {no}
+        <button
+          ref={(el) => {
+            no.current = el;
+            safe?.(el);
+          }}
+          type="button"
+          onClick={() => onAnswer(false)}
+        >
+          {noLabel}
         </button>
         <span className="edit-keys muted key-hint">
-          <Keys keys="Enter" /> {action.toLowerCase()} <Keys keys="Escape" /> {noHint}
+          <Keys keys="Shift+Tab Enter" /> {action.toLowerCase()} <Keys keys="Escape" /> {noHint}
         </span>
       </div>
     </section>
@@ -194,6 +211,11 @@ export function PluginsPanel({
       className="side-panel plugins-panel"
       aria-label="Plugins"
       onKeyDown={(e) => {
+        // A key held down from before the prompt (the Enter that unlocked, say) answers nothing.
+        if (e.key === "Enter" && e.repeat) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();
@@ -235,6 +257,11 @@ export function PluginFloatPanel({ float, onClose }: { float: NonNullable<Snapsh
       className="side-panel plugin-float"
       aria-label={`${float.title || float.plugin} (from ${float.plugin})`}
       onKeyDown={(e) => {
+        // A key held down from before the prompt (the Enter that unlocked, say) answers nothing.
+        if (e.key === "Enter" && e.repeat) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();
@@ -298,6 +325,11 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
       className="side-panel plugins-panel"
       aria-label="Packages"
       onKeyDown={(e) => {
+        // A key held down from before the prompt (the Enter that unlocked, say) answers nothing.
+        if (e.key === "Enter" && e.repeat) {
+          e.preventDefault();
+          return;
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();

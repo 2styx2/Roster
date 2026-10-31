@@ -66,7 +66,7 @@ describe(":plugins install", () => {
     expect(prompt).toHaveTextContent("Unverified: from ~/plugins/recent-alerts");
     expect(prompt).toHaveTextContent("terminal.read");
     expect(prompt).toHaveTextContent(/A password you type at a prompt that echoes it would be visible too/);
-    expect(within(prompt).getByRole("button", { name: "Install" })).toHaveFocus();
+    expect(within(prompt).getAllByRole("button", { name: "Cancel" }).at(-1)).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.queryByText("Recent alerts")).toBeNull();
