@@ -1164,6 +1164,14 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .help-meta code { color: var(--text); }
 .help-def dd { margin: 2px 0 0; color: var(--muted); }
 .help-def dd code { color: var(--text); }
+/* `:help health`: one line per check, Neovim's `- OK message` laid out as two columns: the level
+   word, then what was found and the fix. OK stays quiet; only a warning or an error takes a colour. */
+.help-def[data-tone] { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); column-gap: 12px; padding: 5px 8px; }
+.help-def[data-tone] dt { display: block; }
+.help-def[data-tone] dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.help-def[data-tone="ok"] .help-term code { color: var(--muted); }
+.help-def[data-tone="warn"] .help-term code { color: var(--warn); }
+.help-def[data-tone="error"] .help-term code { color: var(--error); }
 /* A command's doc: its own paragraph under the label, a step down so the label still leads. */
 .help-def dd.help-def-more { margin-top: 4px; max-width: 72ch; }
 /* The entry `:help TOPIC` landed on: raised, as the App-mode cursor is. */

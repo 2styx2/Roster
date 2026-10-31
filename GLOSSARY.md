@@ -124,6 +124,10 @@ _Avoid_: skin, colour scheme
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
 
+**Health**:
+How this Box stands for roster, as `:check` with no Host (or `roster check --box`) finds it: a section at a time (`roster.yml`, ssh, the vault, askpass, the infra repo, `init.lua`, the font), each check OK, WARNING or ERROR with its fix. Every check is local; checking one Host is `:check HOST`.
+_Avoid_: diagnostics (that's `:check HOST`), doctor, status page
+
 **Help topic**:
 A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:connect`, `E13`), a guide's heading (`config#the-sandbox`) or another name for one (`roster.yml`). The topic finder (`␣ ?`) lists them all, and `:help all` lists them A to Z.
 _Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id

@@ -108,7 +108,7 @@ Standard and Focus (decision Q36) differ only in their layout; every command wor
 | `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #54) |
 | `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
-| `<leader> ?`, `<leader> K`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
+| `<leader> ?`, `<leader> K`, `<leader> :`, `:check HOST`, `:check` (help) | Panels beside the terminal | The same panels, over the terminal |
 
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 
