@@ -366,6 +366,9 @@ export function App({
         bumpTargets();
         // A KeePassXC database that changed forgot the master password: the lock screen again.
         if (r.locked.length) void checkVault();
+        // A setting roster can't use is left out on its own; the rest apply.
+        const refused = (r.refused ?? []).map((x) => `roster left out init.lua's vault.${x.setting}: ${x.message}`);
+        if (refused.length) setMessage(refused.join(" "));
       },
       (e: unknown) => {
         if (!live) return;

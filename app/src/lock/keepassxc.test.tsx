@@ -71,6 +71,18 @@ describe("the KeePassXC database from init.lua", () => {
     expect(await screen.findByRole("main", { name: /workspace/i })).toBeInTheDocument();
   });
 
+  it("says which setting roster left out, and goes on with the rest", async () => {
+    const backend = fakeBackend(scenario());
+    const configure = backend.configureVault.bind(backend);
+    const why = "params.kp.key_file must be an absolute path or start with ~ (a path on the Box roster runs on): 'k'";
+    const refused = [{ setting: "kp.key_file", message: why }];
+    backend.configureVault = async (s) => ({ ...(await configure(s)), refused });
+    const config = withDatabase(MINE);
+    render(<App backend={backend} terminalView={StubTerminal} platform={memoryPlatform({ config })} config={config} />);
+    expect(await screen.findByRole("dialog", { name: "Locked" })).toBeInTheDocument();
+    expect(await screen.findByText(`roster left out init.lua's vault.kp.key_file: ${why}`)).toBeInTheDocument();
+  });
+
   it("without one, roster.yml's (none here) is used, and the lock screen says so", async () => {
     const backend = fakeBackend(scenario());
     const config = withDatabase(null);

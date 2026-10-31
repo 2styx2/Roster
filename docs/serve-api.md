@@ -257,10 +257,10 @@ The app sends what its `init.lua` says about the vault at start, before `vault.s
 
 | Method | Params | Result |
 |---|---|---|
-| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names]}` |
+| `vault.configure` | `{save_to?, kp?: {database?, key_file?}}` | `{configured: true, locked: [names], refused: [{setting, message}]}` |
 
 - Each call replaces the last one. A setting it leaves out (or `{}`) goes back to `roster.yml`'s. `serve` keeps them across `roster.yml` reloads.
-- Paths and choices only, never a secret: a key that isn't listed here is refused (`-32602`), and so is a path that isn't absolute or `~/…`. A path is on the Box `roster serve` runs on (inside WSL for a WSL Backend).
+- Paths and choices only, never a secret: a key that isn't listed here refuses the whole call (`-32602`), so nothing else can ride along. A value roster can't use (a path that isn't absolute or `~/…`, such as a Windows path; a `save_to` of the wrong shape) is left out on its own, as if `init.lua` didn't set it, and named in `refused` (`setting` is `kp.key_file`, `save_to`; `message` says why); the other settings still apply. A path is on the Box `roster serve` runs on (inside WSL for a WSL Backend).
 - `save_to` is where "Save to vault" goes by default on this Box (ticket 35), the same shape as `roster.yml`'s: `"personal"` goes to every provider, a collection to Bitwarden, a group to KeePassXC.
 - `kp.database` and `kp.key_file` are KeePassXC's (ticket 41). When one changes, the master password `serve` held for the old database is forgotten, along with every cached value: `locked` names the providers that were unlocked and aren't now, so the app shows its lock screen again. A database that isn't there is `vault.status`'s `not-logged-in`, and the message names `vault.kp.database in init.lua`.
 

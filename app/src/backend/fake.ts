@@ -1010,7 +1010,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         // Another KeePassXC database: the master password held for the old one is forgotten.
         const relocked = kp && named() !== before && vaultWord === "unlocked";
         if (relocked) vaultWord = "locked";
-        return { configured: true as const, locked: relocked ? [vaultName] : [] };
+        return { configured: true as const, locked: relocked ? [vaultName] : [], refused: [] };
       }),
     saveTargets: () =>
       inOrder(async () => {

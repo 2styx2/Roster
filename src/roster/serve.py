@@ -1311,7 +1311,8 @@ METHODS["vault.lock"] = vault_lock
 # ---------------------------------------------------------------- vault.configure: this Box's settings (ticket 41)
 # The app sends what its init.lua says about the vault at start and after every `:source`. They're this Box's own
 # (a local KeePassXC database is personal, not team Inventory) and win over roster.yml's. Paths and choices only:
-# a key that isn't one of these is refused, so nothing else (a secret above all) can ride along.
+# a key that isn't one of these is refused, so nothing else (a secret above all) can ride along. A value roster can't
+# use (a relative or Windows path, a save_to of the wrong shape) is refused alone: the other settings still apply.
 
 BOX_PATHS = {"kp": ("database", "key_file")}
 
@@ -1325,11 +1326,19 @@ def box_path(value, field):
     return value
 
 
-
 def box_settings(params):
-    """vault.configure's params as providers.configure_box's {provider: {key: value}}, checked."""
-    box = {}
-    save_to = save_to_param(params)
+    """vault.configure's params as providers.configure_box's {provider: {key: value}}, checked, and the settings
+    whose value was refused ([{setting, message}]; each is left out, as if init.lua didn't set it). A key roster
+    doesn't take refuses the whole call."""
+    box, refused = {}, []
+
+    def take(setting, check, *args):
+        try:
+            return check(*args)
+        except RpcError as e:
+            refused.append({"setting": setting, "message": e.message})
+            return None
+    save_to = take("save_to", save_to_param, params)
     if save_to is not None:
         # init.lua has one save_to; it goes to the provider it fits: a collection is Bitwarden's, a group KeePassXC's
         fits = ("bw", "kp") if save_to == providers.PERSONAL else ("kp",) if "group" in save_to else ("bw",)
@@ -1347,18 +1356,22 @@ def box_settings(params):
             if key not in BOX_PATHS[name]:
                 raise RpcError(INVALID_PARAMS, f"params.{name}.{key} isn't a setting roster takes from init.lua "
                                                f"(it takes: {', '.join(BOX_PATHS[name])})")
-            if value is not None:
-                box.setdefault(name, {})[key] = box_path(value, f"{name}.{key}")
-    return box
+            setting = f"{name}.{key}"
+            path = None if value is None else take(setting, box_path, value, setting)
+            if path is not None:
+                box.setdefault(name, {})[key] = path
+    return box, refused
 
 
 def vault_configure(state, params):
     """This Box's vault settings from the app's init.lua, replacing the last ones (a key left out is roster.yml's
     again). A KeePassXC database or key file that changed forgets the master password held for the old one:
-    `locked` names the providers that were unlocked and now aren't."""
-    locked = providers.configure_box(box_settings(params))
+    `locked` names the providers that were unlocked and now aren't; `refused` the settings left out because roster
+    can't use their value."""
+    box, refused = box_settings(params)
+    locked = providers.configure_box(box)
     state.unlocked.difference_update(locked)
-    return {"configured": True, "locked": locked}
+    return {"configured": True, "locked": locked, "refused": refused}
 
 
 METHODS["vault.configure"] = vault_configure

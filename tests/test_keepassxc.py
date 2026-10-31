@@ -298,7 +298,7 @@ def test_serve_takes_the_database_from_init_lua(serve, write_config, fakes, isol
     write_config(KP_NO_DB)                                              # roster.yml names no database
     s = serve()
     assert s.call("vault.status")["result"]["status"] == "not-logged-in"
-    assert s.call("vault.configure", {"kp": {"database": str(db)}})["result"] == {"configured": True, "locked": []}
+    assert s.call("vault.configure", {"kp": {"database": str(db)}})["result"] == {"configured": True, "locked": [], "refused": []}
     assert s.call("vault.status")["result"]["status"] == "locked"
     s.call("vault.unlock", {"password": MASTER})
     made = s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["result"]
@@ -318,10 +318,24 @@ def test_serve_takes_the_database_from_init_lua(serve, write_config, fakes, isol
         assert NEW_PW not in where and MASTER not in where
 
 
+@pytest.mark.parametrize("value", ["roster.kdbx", "", 7, "C:\\Users\\you\\roster.kdbx"])
+def test_serve_refuses_only_the_path_it_cant_use_and_takes_the_rest(serve, write_config, fakes, tmp_path, value):
+    """A path that isn't absolute or ~/... (relative to what, on which box?) is left out, as if init.lua didn't set
+    it, and named in `refused`; the other settings still apply."""
+    db = make_db(tmp_path / "mine.kdbx", [{"path": "esx ssh", "Password": "pw-esx"}])
+    write_config(KP_NO_DB)
+    s = serve()
+    r = s.call("vault.configure", {"save_to": "personal", "kp": {"database": str(db), "key_file": value}})["result"]
+    assert r["configured"] is True and r["locked"] == []
+    [refused] = r["refused"]
+    assert refused["setting"] == "kp.key_file" and "path" in refused["message"]
+    status = s.call("vault.status")["result"]
+    assert status["status"] == "locked"                                 # the database was taken
+    assert status["save_to"] == {"setting": "personal", "from": "init.lua"}
+    assert s.call("vault.configure", {"kp": {"database": str(db)}})["result"]["refused"] == []
+
+
 @pytest.mark.parametrize("params, field", [
-    ({"kp": {"database": "roster.kdbx"}}, "kp.database"),              # relative: relative to what, on which box?
-    ({"kp": {"database": ""}}, "kp.database"),
-    ({"kp": {"key_file": 7}}, "kp.key_file"),
     ({"kp": {"password": "x"}}, "kp.password"),                         # paths only: never a secret
     ({"kp": "~/roster.kdbx"}, "kp"),
     ({"bw": {}}, "bw"),

@@ -346,6 +346,15 @@ export interface VaultSettings {
   kp?: { database?: string; key_file?: string };
 }
 
+/** What `vault.configure` did. */
+export interface VaultConfigured {
+  configured: true;
+  locked: string[];
+  /** Settings whose value roster can't use (`kp.key_file`, `save_to`), and why: each is left out
+   * while the rest apply. An older roster leaves this out. */
+  refused?: { setting: string; message: string }[];
+}
+
 /** Where "Save to vault" puts a new Vault item (ticket 35): the personal vault (KeePassXC: the
  * top level), an organization's collection (Bitwarden; names or ids), or a group (KeePassXC). */
 export type SaveTo = "personal" | { organization: string; collection: string } | { group: string };
@@ -629,7 +638,7 @@ export interface Backend {
   lockVault(): Promise<{ locked: string[] }>;
   /** `vault.configure` (API 10): this Box's vault settings from init.lua, replacing the last ones.
    * `locked`: providers that were unlocked and aren't now (a KeePassXC database that changed). */
-  configureVault(settings: VaultSettings): Promise<{ configured: true; locked: string[] }>;
+  configureVault(settings: VaultSettings): Promise<VaultConfigured>;
   /** `vault.targets` (API 10): where "Save to vault" can put an item, and the default. Needs the
    * vault unlocked (14). */
   saveTargets(): Promise<SaveTargets>;

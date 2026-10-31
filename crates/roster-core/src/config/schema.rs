@@ -197,18 +197,45 @@ pub struct KeePassXc {
 }
 
 /// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
-/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to.
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to. roster
+/// serve runs on Linux (in WSL on Windows), so a Windows path (`C:\…`, `\\server\…`) is refused
+/// here, naming the path it most likely means there; roster serve would refuse it anyway, and
+/// with it the rest of init.lua's vault settings.
 fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let s = String::deserialize(d)?;
     let t = s.trim();
-    let b = t.as_bytes();
-    let drive = b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
-    if t.starts_with('/') || t.starts_with('~') || t.starts_with("\\\\") || drive {
+    if let Some(hint) = windows_path(t) {
+        return Err(de::Error::custom(format!(
+            "{s:?} is a Windows path, but roster runs in WSL (or on Linux): {hint}"
+        )));
+    }
+    if t.starts_with('/') || t.starts_with('~') {
         return Ok(Some(t.to_string()));
     }
     Err(de::Error::custom(format!(
         "{s:?} isn't an absolute path: give the path on the Box roster runs on, starting with / or ~"
     )))
+}
+
+/// For a Windows path, what to give instead: its path inside WSL when that's clear (a drive is
+/// usually mounted at /mnt/<drive>; a `\\wsl$\<distro>\` share is the distro's own `/`). None for
+/// anything else.
+fn windows_path(t: &str) -> Option<String> {
+    let b = t.as_bytes();
+    if b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') {
+        let rest = t[3..].replace('\\', "/");
+        let drive = (b[0] as char).to_ascii_lowercase();
+        return Some(format!(
+            "give its path there, usually /mnt/{drive}/{rest} (or copy the file into WSL)"
+        ));
+    }
+    let share = t.strip_prefix("\\\\")?; // `//x` is a POSIX path too: only `\\x` is a share
+    let parts: Vec<&str> = share.split(['\\', '/']).collect();
+    let host = parts.first().map(|h| h.to_ascii_lowercase()).unwrap_or_default();
+    if (host == "wsl$" || host == "wsl.localhost") && parts.len() > 2 {
+        return Some(format!("give its path inside WSL: /{}", parts[2..].join("/")));
+    }
+    Some("copy the file into WSL (or mount the share there) and give that path".into())
 }
 
 /// A place in a Lua file.
