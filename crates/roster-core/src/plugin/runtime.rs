@@ -25,6 +25,51 @@ pub(crate) const MAX_OPS: usize = 1000;
 const MAX_COPY: usize = 64 * 1024;
 /// The most Lua functions a Plugin may have handed over at once.
 const MAX_HANDLERS: usize = 10_000;
+/// The most timers a Plugin may have waiting at once.
+pub(crate) const MAX_TIMERS: usize = 100;
+/// The soonest a deferred function runs, and how often a repeating one may: a Plugin's timers
+/// share its one thread with everything the user does with it, so they can't take it over.
+pub(crate) const DEFER_MIN_MS: u64 = 50;
+pub(crate) const EVERY_MIN_MS: u64 = 1000;
+/// The longest a timer may wait (the most a browser's setTimeout takes).
+const TIMER_MAX_MS: f64 = 2_147_483_647.0;
+
+/// `pairs` for Plugins: number keys in order, then string keys in order, then the rest, so the
+/// same state makes the same ops in the same order (decision Q96). A table's `__pairs` still wins.
+const SORTED_PAIRS: &str = r#"
+local next, type, sort, getmetatable, rawget = next, type, table.sort, getmetatable, rawget
+local rank = { number = 1, string = 2, boolean = 3 }
+local function before(a, b)
+  local ta, tb = type(a), type(b)
+  if ta == tb then
+    if ta == "number" or ta == "string" then return a < b end
+    if ta == "boolean" then return (not a) and b end
+    return false
+  end
+  return (rank[ta] or 4) < (rank[tb] or 4)
+end
+pairs = function(t)
+  local mt = getmetatable(t)
+  if type(mt) == "table" and mt.__pairs then return mt.__pairs(t) end
+  if type(t) ~= "table" then error("bad argument #1 to 'pairs' (table expected, got " .. type(t) .. ")", 2) end
+  local keys, n = {}, 0
+  for k in next, t do
+    n = n + 1
+    keys[n] = k
+  end
+  sort(keys, before)
+  local i = 0
+  return function()
+    while i < n do
+      i = i + 1
+      local k = keys[i]
+      local v = rawget(t, k)
+      if v ~= nil then return k, v end
+    end
+    return nil
+  end, t, nil
+end
+"#;
 
 /// The events a Plugin can subscribe to, and the permissions that let it (any one of them; none
 /// listed means every Plugin may).
@@ -74,6 +119,8 @@ struct Shared {
     /// Whether the run is a call the user started (an action, a command, a finder item): only
     /// then may the Plugin put text on the clipboard.
     user_call: Cell<bool>,
+    /// The timers waiting, by their handler: whether each repeats.
+    timers: RefCell<HashMap<u64, bool>>,
 }
 
 #[derive(Default)]
@@ -115,10 +162,16 @@ impl Runtime {
             budget: Cell::new(Budget::default()),
             handlers: RefCell::default(),
             user_call: Cell::new(false),
+            timers: RefCell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
         lua.set_named_registry_value(LISTENERS, lua.create_table().map_err(fail)?)
+            .map_err(fail)?;
+        lua.load(SORTED_PAIRS)
+            .set_name("=pairs")
+            .set_mode(ChunkMode::Text)
+            .exec()
             .map_err(fail)?;
         let roster = api(&lua, &shared, version, config).map_err(fail)?;
         lua::set_api(&lua, roster).map_err(fail)?;
@@ -137,12 +190,22 @@ impl Runtime {
     }
 
     /// Calls a function the Plugin handed over, with `args`; its return value comes back as data.
+    /// A timer's function runs as the timer firing, not as something the user started; a
+    /// deferred one is gone once it has run.
     pub(crate) fn call(&self, handler: u64, args: &Json) -> Outcome {
         let shared = Rc::clone(&self.shared);
-        self.shared.user_call.set(true);
+        let timer = self.shared.timers.borrow().get(&handler).copied();
+        self.shared.user_call.set(timer.is_none());
         let outcome = self.run(self.budget, move |lua| {
-            let handlers: Table = lua.named_registry_value(HANDLERS)?;
-            let f: Option<Function> = handlers.raw_get(handler)?;
+            let f = match timer {
+                // Gone before it runs, so it can defer itself again.
+                Some(false) => Some(take_timer(lua, &shared, handler)?),
+                _ => None,
+            };
+            let f: Option<Function> = match f {
+                Some(f) => f,
+                None => lua.named_registry_value::<Table>(HANDLERS)?.raw_get(handler)?,
+            };
             let Some(f) = f else {
                 return Err(mlua::Error::runtime(format!(
                     "\0stale:handler {handler} is gone (the Plugin replaced it)"
@@ -288,6 +351,60 @@ fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua
 /// A Lua value as data for roster serve: no functions.
 fn plain(shared: &Shared, v: &Value) -> mlua::Result<Json> {
     lua::to_json(v, &shared.budget).map_err(|e| mlua::Error::runtime(e.message))
+}
+
+/// Takes timer `id` out (and its function, returned): it won't run again.
+fn take_timer(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<Option<Function>> {
+    shared.timers.borrow_mut().remove(&id);
+    let handlers: Table = lua.named_registry_value(HANDLERS)?;
+    let f: Option<Function> = handlers.raw_get(id)?;
+    let mut h = shared.handlers.borrow_mut();
+    if h.owners.remove(&format!("timer:{id}")).is_some() {
+        h.count -= 1;
+    }
+    handlers.raw_set(id, Value::Nil)?;
+    Ok(f)
+}
+
+/// Adds a timer that runs `f` after `ms` (again every `ms` when `every`); its id is its handler.
+fn add_timer(lua: &Lua, shared: &Shared, what: &str, ms: f64, f: Function, every: bool) -> mlua::Result<u64> {
+    if !ms.is_finite() || !(0.0..=TIMER_MAX_MS).contains(&ms) {
+        return Err(mlua::Error::runtime(format!(
+            "{what}: ms must be a number of milliseconds from 0 to {TIMER_MAX_MS}"
+        )));
+    }
+    let ms = ms.ceil() as u64;
+    if every && ms < EVERY_MIN_MS {
+        return Err(mlua::Error::runtime(format!(
+            "{what}: at least {EVERY_MIN_MS} ms between runs (use roster.defer for once, soon)"
+        )));
+    }
+    if shared.timers.borrow().len() >= MAX_TIMERS {
+        return Err(mlua::Error::runtime(format!(
+            "{what}: more than {MAX_TIMERS} timers waiting at once (roster.cancel the ones you don't need)"
+        )));
+    }
+    let ms = ms.max(DEFER_MIN_MS);
+    let id = {
+        let mut h = shared.handlers.borrow_mut();
+        if h.count >= MAX_HANDLERS {
+            return Err(mlua::Error::runtime(format!(
+                "{what}: more than {MAX_HANDLERS} functions handed to roster at once"
+            )));
+        }
+        h.next += 1;
+        h.count += 1;
+        let id = h.next;
+        h.owners.insert(format!("timer:{id}"), vec![id]);
+        id
+    };
+    lua.named_registry_value::<Table>(HANDLERS)?.raw_set(id, f)?;
+    shared.timers.borrow_mut().insert(id, every);
+    push(
+        shared,
+        json!({ "op": "timer", "id": id.to_string(), "ms": ms, "every": every, "run": { "handler": id } }),
+    )?;
+    Ok(id)
 }
 
 fn push(shared: &Shared, op: Json) -> mlua::Result<()> {
@@ -568,6 +685,39 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             push(s, json!({ "op": "notify", "text": text, "level": level }))
         }
     );
+
+    // Timers: the app keeps the clock and runs the function in the Plugin when it's time.
+    func!(roster, "defer", |lua, s, (ms, f): (f64, Function)| {
+        add_timer(lua, s, "roster.defer", ms, f, false)
+    });
+    func!(roster, "every", |lua, s, (ms, f): (f64, Function)| {
+        add_timer(lua, s, "roster.every", ms, f, true)
+    });
+    func!(roster, "cancel", |lua, s, id: Value| {
+        let id = match id {
+            Value::Integer(i) if i > 0 => i as u64,
+            _ => {
+                return Err(mlua::Error::runtime(
+                    "roster.cancel: a timer, as roster.defer or roster.every returned it",
+                ));
+            }
+        };
+        if !s.timers.borrow().contains_key(&id) {
+            return Ok(());
+        }
+        take_timer(lua, s, id)?;
+        push(s, json!({ "op": "remove", "kind": "timer", "id": id.to_string() }))
+    });
+
+    // Whether a permission was granted: one that can't be (`network`, a serve method that
+    // isn't allowed) is just false, so a Plugin can ask about what a newer roster has.
+    func!(roster, "has", |_lua, s, name: String| {
+        match Permission::parse(&name) {
+            Ok(p) => Ok(s.grants.contains(&p)),
+            Err(_) if name == "network" || name.starts_with("serve:") => Ok(false),
+            Err(e) => Err(mlua::Error::runtime(format!("roster.has: {e}"))),
+        }
+    });
 
     // Events: `roster.on("session_open", function(e) … end)`.
     func!(roster, "on", |lua, s, (event, f): (String, Function)| {
