@@ -54,9 +54,9 @@ function topoPlugin(): FakePlugin {
   };
 }
 
-async function ready(platform = memoryPlatform()) {
+async function ready(platform = memoryPlatform(), plugin: FakePlugin = topoPlugin()) {
   const user = userEvent.setup();
-  const backend = fakeBackend({ hosts: makeHosts(12), plugins: { [PATH]: topoPlugin() } });
+  const backend = fakeBackend({ hosts: makeHosts(12), plugins: { [PATH]: plugin } });
   const view = render(<App backend={backend} terminalView={StubTerminal} platform={platform} />);
   await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
   await screen.findByRole("main", { name: /workspace/i });
@@ -182,5 +182,28 @@ describe("a Plugin's graph", () => {
       expect(Object.keys(graphs[0]?.nodes ?? {}).sort()).toEqual(["appliance", "box", "esx-01", "esx-02", "web-1"]);
       expect(graphs[0]?.folds).toEqual({ web: true });
     });
+  });
+
+  it("an empty graph says so, and one node counts in the singular", async () => {
+    const tiny = (nodes: Record<string, unknown>[]): FakePlugin => ({
+      manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 3, permissions: [] },
+      load(roster) {
+        roster.views.set("topo", { title: "Topology", place: "full", graph: { nodes, clusters: [{ id: "lab" }] } });
+      },
+    });
+    const { user, view } = await ready(memoryPlatform(), tiny([]));
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    expect(screen.getByText("No nodes yet.")).toBeInTheDocument();
+    expect(foot()).toBe("0 nodes, 0 edges, 1 cluster");
+    await user.keyboard("jhkl/x{Enter}tt");
+    expect(screen.getByText("No edges yet.")).toBeInTheDocument();
+    view.unmount();
+    const again = await ready(memoryPlatform(), tiny([{ id: "a", cluster: "lab" }]));
+    await again.user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    expect(foot()).toBe("a, filled. Reaches 0 nodes; reached by 0");
+    await again.user.keyboard("o");
+    expect(foot()).toBe("lab: 1 node, collapsed. Reaches 0 nodes; reached by 0");
   });
 });

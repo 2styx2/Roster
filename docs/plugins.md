@@ -218,6 +218,44 @@ A **Host-details section** is the same text, facts and table in one Host's detai
 
 Nothing in a view moves: it opens from a key as often as a click, as every side panel does, and a row that changes is simply changed.
 
+### Graphs
+
+A view can hold a **graph** instead of a table: nodes, edges and clusters, as plain data, which the app lays out and draws as roster's own network map (Topology is the first). A **node** has an `id`, a `label`, a `shape` (`"dot"`, `"ring"`, `"dashed"`, `"hollow"`, `"square"`, as roster draws key, password, unreviewed, ended and this Box), a `state` (`"live"` in the accent, `"down"` crossed out), a `mark` (`"warn"`, `"error"`) and a short `note`, the `cluster` it's in, the `host` it is, a `kind` and a `detail` line. An **edge** goes `from` one node or cluster `to` another, one way (`dir = "one"`, an arrow) or `"both"`, with a `style` (`"solid"`, `"dashed"`, `"dotted"`), a `tone` (`"live"`, `"muted"`, `"warn"`, `"error"`) and `cut = true` to draw it broken. An edge to a **cluster** reaches every node in it, so one edge stands for a group's Links; a cluster with `mesh = true` has every node reaching every other without an edge per pair. As with a table, what a node does belongs to the graph: `open` for `Enter` and `actions` with a key each, and a function there gets the node (`e.node`, `e.host`, `e.view`).
+
+```lua
+roster.views.set("map", {
+  title = "Map",
+  place = "full",
+  graph = {
+    clusters = { { id = "lab", title = "lab", mesh = true }, { id = "web", title = "web" } },
+    nodes = {
+      { id = "box", label = "devbox", shape = "square" },
+      { id = "esx-02", cluster = "lab", host = "esx-02", detail = "10.0.0.5", state = "live" },
+      { id = "nas-01", cluster = "lab", host = "nas-01", shape = "ring", mark = "warn", note = "out of date" },
+      { id = "web-1", cluster = "web", host = "web-1", state = "down" },
+    },
+    edges = {
+      { from = "box", to = "lab" },
+      { from = "box", to = "web" },
+      { from = "lab", to = "web", dir = "both" },
+      { from = "nas-01", to = "web-1", style = "dashed", cut = true },
+    },
+    open = function(e) roster.notify("would open " .. e.host) end,
+    actions = {
+      { label = "Check", key = "c", run = function(e) check(e.host) end },
+    },
+  },
+})
+
+-- A Session connects: the node turns live, and its edge from this Box draws in.
+roster.views.update("map", {
+  nodes = { { id = "web-1", cluster = "web", host = "web-1", state = "live" } },
+  edges = { { id = "live:web-1", from = "box", to = "web-1", tone = "live" } },
+})
+```
+
+The user moves with `h` `j` `k` `l` (or the arrows) to the nearest node that way, searches with `/` (`n`/`N` go through the matches), collapses a cluster to its count with `o` (`O` for all), zooms with `+` `-` and `0`, and pans with `H` `J` `K` `L` or a drag. Selecting a node lights up what it can reach and what can reach it, however many hops away, and says how many. `t` turns the graph into a table of every node, then of every edge, so nothing is only in the drawing. Each node keeps its place between openings (the app saves positions and collapsed clusters in its State); a new node takes a free place in its cluster without moving the others, and the user can drag one somewhere else. Above 300 nodes, clusters start collapsed unless one says otherwise (`collapsed = false`). A graph holds up to 5,000 nodes, 10,000 edges and 500 clusters. `roster.views.update` adds or replaces `nodes`, `edges` and `clusters` by `id`, and takes away nodes and clusters in `remove` (a node's edges go with it) and edges in `remove_edges`. The only motion is an edge that turns live drawing in from its start, as a Session's does on connect, and not under reduced motion.
+
 ## Limits
 
 Your Plugin runs in its own Lua state, on its own thread, with the sandbox's libraries (no `io`, no `os.execute`, `require` from its own folder only) and:
