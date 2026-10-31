@@ -7,9 +7,12 @@
 #   app/scripts/perf.sh windows [--build]  the release build on Windows against a stand-in `roster serve`
 #                                          (app/scripts/perf/serve.py: 1,284 made-up Hosts, Sessions that print
 #                                          a busy log): every process it starts, idle and busy
+#   app/scripts/perf.sh serve              the real `roster serve` (this checkout) idle on the example
+#                                          Inventory: wake-ups a second, without and with inventory.watch
 #
 # Options (env): PERF_PORT (Vite, default 5181), PERF_CDP_PORT (WebView2 DevTools, default 9338),
-# PERF_SESSIONS (12), PERF_RATE (log lines a second per Session, 100), PERF_SECONDS (20), PERF_JSON=1.
+# PERF_SESSIONS (12), PERF_RATE (log lines a second per Session, 100), PERF_SECONDS (20), PERF_JSON=1,
+# PERF_PROFILE=1 (windows: also the webview main thread's top functions while busy).
 #
 # The Windows run never touches the real app or its data: its own build copy (%LOCALAPPDATA%\roster-app-perf,
 # or $ROSTER_APP_WIN_DIR), and under it its own Config (APPDATA), State (ROSTER_APP_STATE_DIR) and WebView2
@@ -50,10 +53,13 @@ case "$what" in
     trap '"$here/app-stop.sh" >/dev/null 2>&1 || true' EXIT
     wincmd "cd /d $copy\\src\\app\\scripts\\perf && node drive.mjs --exe $exe --scratch $copy\\run \
       --distro ${WSL_DISTRO_NAME:-} --port ${PERF_CDP_PORT:-9338} --sessions ${PERF_SESSIONS:-12} \
-      --seconds ${PERF_SECONDS:-20} ${json[*]}"
+      --seconds ${PERF_SECONDS:-20} ${json[*]} ${PERF_PROFILE:+--profile}"
+    ;;
+  serve)
+    python3 "$here/perf/serve_idle.py" "$(cd "$here/../.." && pwd)" "${PERF_SECONDS:-10}"
     ;;
   *)
-    sed -n '2,18p' "$0" >&2
+    sed -n '2,21p' "$0" >&2
     exit 2
     ;;
 esac

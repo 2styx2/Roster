@@ -4,7 +4,7 @@
 // started, prints the numbers, and kills what it started (only that: the process tree of the PID it got).
 //
 //   PERF_ROSTER="python3 /…/serve.py --rate 100" node drive.mjs --exe PATH --scratch DIR --distro NAME
-//                  [--port 9338] [--sessions 12] [--seconds 20] [--json]
+//                  [--port 9338] [--sessions 12] [--seconds 20] [--json] [--profile]
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +47,11 @@ function stop() {
   log(`stopped pid ${app.pid} and its children`);
 }
 process.on("exit", stop);
+// Whatever happens, the app doesn't outlive the run.
+setTimeout(() => {
+  log("gave up after 10 minutes");
+  process.exit(1);
+}, 10 * 60_000).unref();
 process.on("SIGINT", () => process.exit(130));
 
 // ---- the DevTools protocol, just enough of it
@@ -81,7 +86,11 @@ async function connect() {
 const send = (method, params = {}) =>
   new Promise((ok, fail) => {
     const id = nextId++;
-    pending.set(id, { ok, fail });
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      fail(new Error(`${method} didn't answer in 60 s`));
+    }, 60_000);
+    pending.set(id, { ok: (v) => (clearTimeout(timer), ok(v)), fail: (e) => (clearTimeout(timer), fail(e)) });
     ws.send(JSON.stringify({ id, method, params }));
   });
 const evaluate = async (expression) =>
@@ -109,27 +118,28 @@ while ($grew) { $grew = $false; foreach ($p in $all) { if ($tree -contains $p.Pa
 $filter = ($tree | ForEach-Object { "IDProcess=$_" }) -join " OR "
 $switches = @{}
 Get-CimInstance Win32_PerfRawData_PerfProc_Thread -Filter $filter | ForEach-Object { $switches[[int]$_.IDProcess] += [double]$_.ContextSwitchesPersec }
+$at = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
 $out = foreach ($id in $tree) { $p = Get-Process -Id $id -ErrorAction SilentlyContinue; if ($p) {
   $cmd = ($all | Where-Object ProcessId -eq $id).CommandLine
   $type = if ($cmd -match '--type=([a-z-]+)') { $Matches[1] } else { "" }
   [pscustomobject]@{ pid = $id; name = $p.ProcessName; type = $type; cpu = $p.TotalProcessorTime.TotalSeconds; ws = $p.WorkingSet64; priv = $p.PrivateMemorySize64; cs = $switches[[int]$id] } } }
-@($out) | ConvertTo-Json -Compress`;
-  const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", ps], { encoding: "utf8" });
-  const list = JSON.parse(out || "[]");
-  return Array.isArray(list) ? list : [list];
+[pscustomobject]@{ at = $at; procs = @($out) } | ConvertTo-Json -Compress -Depth 3`;
+  const out = JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-Command", ps], { encoding: "utf8" }));
+  return { at: out.at / 1000, procs: out.procs ?? [] };
 }
 // serve and the Sessions' shells (both perf/serve.py) in WSL: CPU in clock ticks (100 a second), RSS.
 function wslSample() {
-  const sh = 'for p in $(pgrep -f perf/serve.py); do [ -r /proc/$p/stat ] || continue; ' +
-    'echo "$p $(cut -d" " -f14,15 /proc/$p/stat) $(awk \'/VmRSS/ {print $2}\' /proc/$p/status) $(tr "\\0" " " < /proc/$p/cmdline)"; done';
-  const out = execFileSync("wsl.exe", ["-d", args.distro, "--exec", "sh", "-c", sh], { encoding: "utf8" });
-  return out
-    .split("\n")
-    .filter((l) => /python/.test(l.trim().split(/\s+/)[4] ?? "")) // not this sh, whose script names serve.py too
+  const sh = 'date +%s.%N; for p in $(pgrep -f perf/serve.py); do [ -r /proc/$p/stat ] || continue; ' +
+    'echo "$p $(cut -d" " -f14,15 /proc/$p/stat) $(awk \'/VmRSS/ {print $2}\' /proc/$p/status) $(cat /tmp/roster-perf/$p 2>/dev/null || echo 0) $(tr "\\0" " " < /proc/$p/cmdline)"; done';
+  const [at, ...rows] = execFileSync("wsl.exe", ["-d", args.distro, "--exec", "sh", "-c", sh], { encoding: "utf8" }).split("\n");
+  const procs = rows
+    .filter((l) => /python/.test(l.trim().split(/\s+/)[5] ?? "")) // not this sh, whose script names serve.py too
     .map((l) => {
-      const [pid, utime, stime, rss, ...rest] = l.trim().split(/\s+/);
-      return { pid: Number(pid), cpu: (Number(utime) + Number(stime)) / 100, rss: Number(rss) * 1024, kind: rest.join(" ").includes("--stream") ? "shell" : "serve" };
+      const [pid, utime, stime, rss, lines, ...rest] = l.trim().split(/\s+/);
+      const kind = rest.join(" ").includes("--stream") ? "shell" : "serve";
+      return { pid: Number(pid), cpu: (Number(utime) + Number(stime)) / 100, rss: Number(rss) * 1024, lines: Number(lines), kind };
     });
+  return { at: Number(at), procs };
 }
 const group = (p) =>
   p.name === "roster-app"
@@ -137,48 +147,77 @@ const group = (p) =>
     : p.name === "msedgewebview2"
       ? `WebView2 ${p.type || "browser"}`
       : `${p.name}.exe`;
+// What a phase costs: each sample is timed where it's taken (a sample takes seconds), so rates are
+// over the time between samples, not around them.
 async function measure(seconds, during) {
   const w0 = windowsSample();
   const l0 = wslSample();
   const t0 = Date.now();
-  const frames = during ? await during() : (await sleep(seconds * 1000), null);
+  if (during) await during();
+  else await sleep(seconds * 1000);
   const elapsed = (Date.now() - t0) / 1000;
   const w1 = windowsSample();
   const l1 = wslSample();
   const heap = await send("Performance.getMetrics").then((r) => Object.fromEntries(r.metrics.map((m) => [m.name, m.value])));
   const groups = {};
-  const add = (g, cpuS, ws, priv, cs, count = 1) => {
+  const add = (g, cpuS, span, ws, priv, cs) => {
     const x = (groups[g] ??= { procs: 0, cpuPct: 0, wsMB: 0, privMB: 0, wakeups: 0 });
-    x.procs += count;
-    x.cpuPct += (100 * cpuS) / elapsed;
+    x.procs += 1;
+    x.cpuPct += (100 * cpuS) / span;
     x.wsMB += ws / 2 ** 20;
     x.privMB += priv / 2 ** 20;
-    x.wakeups += cs / elapsed;
+    x.wakeups += cs / span;
   };
-  for (const p of w1) {
-    const before = w0.find((q) => q.pid === p.pid);
-    add(group(p), p.cpu - (before?.cpu ?? 0), p.ws, p.priv, Math.max(0, (p.cs ?? 0) - (before?.cs ?? 0)));
+  const wSpan = w1.at - w0.at;
+  for (const p of w1.procs) {
+    const before = w0.procs.find((q) => q.pid === p.pid);
+    add(group(p), p.cpu - (before?.cpu ?? 0), wSpan, p.ws, p.priv, Math.max(0, (p.cs ?? 0) - (before?.cs ?? 0)));
   }
-  for (const p of l1) {
-    const before = l0.find((q) => q.pid === p.pid);
-    add(p.kind === "serve" ? "serve (WSL)" : "shells (WSL)", p.cpu - (before?.cpu ?? 0), p.rss, p.rss, 0);
+  const lSpan = l1.at - l0.at;
+  let lines = 0;
+  for (const p of l1.procs) {
+    const before = l0.procs.find((q) => q.pid === p.pid);
+    if (before) lines += p.lines - before.lines;
+    add(p.kind === "serve" ? "serve (WSL)" : "shells (WSL)", p.cpu - (before?.cpu ?? 0), lSpan, p.rss, p.rss, 0);
   }
   const round = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 10) / 10]));
   return {
     seconds: Math.round(elapsed),
     groups: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, round(v)])),
+    linesPerS: Math.round(lines / lSpan),
     heapMB: Math.round((heap.JSHeapUsedSize / 2 ** 20) * 10) / 10,
     domNodes: heap.Nodes,
-    ...(frames ? { frames } : {}),
   };
 }
-// Frame intervals in the webview over `ms`: p50, p95, the longest, and how many took over 50 ms.
+
+// Frame intervals in the webview over `ms`, measured after a phase's CPU (asking for every frame
+// makes the webview draw at the display's rate, which would count in the CPU): p50, p95, the longest, and how many took over 50 ms.
 const frames = (ms) =>
   evaluate(`new Promise((done) => { const t = []; const end = performance.now() + ${ms};
     const f = (now) => { t.push(now); if (now < end) requestAnimationFrame(f); else {
       const d = t.slice(1).map((x, i) => x - t[i]).sort((a, b) => a - b); const q = (p) => d[Math.min(d.length - 1, Math.floor(p * d.length))] ?? 0;
       done({ p50: +q(0.5).toFixed(1), p95: +q(0.95).toFixed(1), max: +(d[d.length - 1] ?? 0).toFixed(1), over50: d.filter((x) => x > 50).length }); } };
-    requestAnimationFrame(f); })`);
+    requestAnimationFrame(f);
+    setTimeout(() => done({ p50: null, p95: null, max: null, over50: null, hidden: document.visibilityState }), ${ms} + 3000); })`);
+
+// Where the webview's main thread spends `ms` (--profile): the top functions by self time.
+async function profile(ms) {
+  await send("Profiler.enable");
+  await send("Profiler.setSamplingInterval", { interval: 500 });
+  await send("Profiler.start");
+  await sleep(ms);
+  const { profile: p } = await send("Profiler.stop");
+  await send("Profiler.disable");
+  const byId = new Map(p.nodes.map((n) => [n.id, n]));
+  const self = new Map();
+  p.samples.forEach((id, i) => {
+    const f = byId.get(id).callFrame;
+    const k = `${f.functionName || "(anonymous)"} ${f.url.split("/").pop()}:${f.lineNumber}`;
+    self.set(k, (self.get(k) ?? 0) + (p.timeDeltas[i] ?? 0));
+  });
+  const total = [...self.values()].reduce((a, b) => a + b, 0);
+  return [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k, v]) => `${((100 * v) / total).toFixed(1)}% ${k}`);
+}
 
 // The Hosts serve.py makes that open: reviewed Linux ones with a key login.
 function hostNames(n) {
@@ -199,7 +238,7 @@ async function main() {
     await sleep(500);
   }
   log("the app is up; settling");
-  await sleep(5000);
+  await sleep(15000); // the start's tail (fonts, first layout, lazy compiles) isn't idle
   const r = {};
   log(`idle, ${SECONDS} s`);
   r.idle = await measure(SECONDS);
@@ -216,17 +255,18 @@ async function main() {
   await sleep(5000);
   r.open = await evaluate(`document.querySelectorAll(".term-host").length`);
   log(`busy (${r.open} Sessions), ${SECONDS} s`);
-  r.busy = await measure(SECONDS, () => frames(SECONDS * 1000));
+  r.busy = await measure(SECONDS);
+  r.busy.frames = await frames(3000);
+  if (args.profile) r.profile = await profile(5000);
 
   log("typing in the Picker");
   await leader("f");
   await sleep(300);
   r.picker = await measure(0, async () => {
-    for (const c of "linux-0123") {
+    for (const c of "linux-0123-rack-04-west") {
       await char(c);
-      await sleep(150);
+      await sleep(400);
     }
-    return frames(1000);
   });
   await escape();
   await sleep(1000);
@@ -234,7 +274,8 @@ async function main() {
   log(`Focus mode, ${SECONDS / 2} s`);
   await leader("m");
   await sleep(2000);
-  r.focus = await measure(SECONDS / 2, () => frames((SECONDS / 2) * 1000));
+  r.focus = await measure(SECONDS / 2);
+  r.focus.frames = await frames(3000);
   await leader("m");
   await sleep(1000);
 
@@ -267,6 +308,7 @@ function print(r) {
     const total = Object.values(m.groups).reduce((a, x) => ({ cpu: a.cpu + x.cpuPct, priv: a.priv + x.privMB, wake: a.wake + x.wakeups }), { cpu: 0, priv: 0, wake: 0 });
     console.log(
       `${name}: total CPU ${total.cpu.toFixed(1)} % of a core, private ${Math.round(total.priv)} MB, ${Math.round(total.wake)} wake-ups/s; ` +
+        (m.linesPerS ? `${m.linesPerS} lines/s taken; ` : "") +
         `JS heap ${m.heapMB} MB, ${m.domNodes} DOM nodes` +
         (m.frames ? `; frames p50 ${m.frames.p50} p95 ${m.frames.p95} max ${m.frames.max} ms (${m.frames.over50} over 50 ms)` : ""),
     );
@@ -275,4 +317,5 @@ function print(r) {
     }
   }
   console.log(`terminals left after closing: ${r.left}`);
+  if (r.profile) console.log(`webview main thread, busy:\n  ${r.profile.join("\n  ")}`);
 }

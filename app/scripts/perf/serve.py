@@ -14,6 +14,9 @@ import sys
 import time
 
 
+PROGRESS = "/tmp/roster-perf"
+
+
 def stream(rate):
     """A busy log: RATE coloured lines a second (0: a quiet prompt), in bursts every 50 ms, as a build or a
     `journalctl -f` would print them."""
@@ -26,6 +29,10 @@ def stream(rate):
     n, tick = 0, 0.05
     per_tick = max(1, round(rate * tick))
     nxt = time.monotonic()
+    # How many lines the terminal has taken so far, once a second (perf.sh: does the app keep up?).
+    os.makedirs(PROGRESS, exist_ok=True)
+    progress = os.path.join(PROGRESS, str(os.getpid()))
+    ticks = 0
     while True:
         lines = []
         for _ in range(per_tick):
@@ -34,6 +41,10 @@ def stream(rate):
                          b"path=/api/v1/items/%d status=200 bytes=%d\r\n" % (n, n % 16, n, n % 97, n % 5000, n * 7 % 65536))
         out.write(b"".join(lines))
         out.flush()
+        ticks += 1
+        if ticks % 20 == 0:
+            with open(progress, "w") as f:
+                f.write(str(n))
         nxt += tick
         time.sleep(max(0.0, nxt - time.monotonic()))
 
@@ -43,10 +54,18 @@ def arg(name, default):
 
 
 if "--stream" in sys.argv:
+    import signal
+    for sig in (signal.SIGHUP, signal.SIGTERM):      # the Session closed: tidy up the progress file
+        signal.signal(sig, lambda *_: sys.exit(0))
     try:
         stream(arg("--stream", 100))
-    except (BrokenPipeError, KeyboardInterrupt):
+    except (KeyboardInterrupt, OSError):
         pass
+    finally:
+        try:
+            os.remove(os.path.join(PROGRESS, str(os.getpid())))
+        except OSError:
+            pass
     sys.exit(0)
 
 HOSTS = arg("--hosts", 1284)
