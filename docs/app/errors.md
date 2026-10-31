@@ -212,6 +212,21 @@ What a Plugin's buttons, questions and command lines can run into ([plugins.md](
 
 Every check is local: files, the `PATH`, each vault CLI's own status and the infra repo as this Box last fetched it. None logs in to a Host, scans one or fetches, so `:check` is safe to run any time, even where SSH is rate-limited. `:check HOST` is the one that connects. With a roster older than the app, the app's own sections still run and say roster's need a newer one.
 
+## A Plugin's network requests
+
+What a Plugin with a `network:SITE` permission gets back from `roster.http` (see [The network](../plugins.md#the-network)). A request that can't be sent is a Lua error at once, which the Plugin can catch with `pcall`; one that was sent and got no answer calls the Plugin's function with `nil` and the reason. A response with any status, a 404 or a 500 too, is an answer, not an error. The Plugin decides what to show you; these are the words it gets.
+
+| What the Plugin gets | When | Where it lives | Fix |
+|---|---|---|---|
+| "https://elsewhere.example isn't a site this Plugin may reach (it may reach api.example.com)" (at once) | The URL's scheme, name or port isn't one the Plugin was granted: `http` for an https site, another port, another name | The Plugin | The author lists the site in the manifest; you're asked again when the update comes. If you turned the site off in `:plugins`, turn it on |
+| "the Host header is roster's to set", "… isn't a method", "the body is over 262144 bytes", "4 requests are going already" (at once) | A header that steers the connection, an unknown method, a body over 256 KB, a fifth request while four are going | The Plugin | The author's to fix |
+| "redirected to https://elsewhere.example, which the Plugin may not reach" | The site sent the request on to a site the Plugin wasn't granted | The site | Nothing is sent there. The author lists that site too, if it's meant |
+| "api.example.com is at 10.0.0.5, an address on this computer or a private network: …" | The name resolves to an address inside: loopback, private, link-local, shared (CGNAT), multicast. Refused so a site can't be pointed inside your network | DNS | If it's meant (a service on your network), the manifest lists the address itself (`network:10.0.0.5`) |
+| "couldn't look up api.example.com: …" | DNS has no answer | Network | Check the name and this Box's DNS |
+| "couldn't connect to https://api.example.com: … Connection refused", "… certificate …" | Nothing listens there, or its certificate isn't one this Box's trust store accepts (expired, self-signed, another name). roster uses no proxy, so a network that only lets a proxy out fails here too | The site / network | Check the service; a self-signed certificate isn't accepted |
+| "no answer within 30 s" | The whole answer took longer than the request's `timeout` (at most 30 s; 10 s to connect) | The site / network | Retry later; the author can ask for less |
+| "the response is over 1048576 bytes" | The body is bigger than 1 MB | The site | The author asks for less (a page of results) |
+
 ## See also
 
 [The error catalog](errors) · [`roster check HOST`](../cli-reference.md#roster-check-host) · [The roster serve API](../serve-api.md)

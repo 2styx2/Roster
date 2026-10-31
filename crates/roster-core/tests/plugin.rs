@@ -97,7 +97,7 @@ fn a_manifest_cant_ask_for_a_secret_or_what_doesnt_exist() {
         ("serve:session.prepare", "never one that reaches a secret"),
         ("serve:changes.publish", "never one that reaches a secret"),
         ("serve:quick.save", "never one that reaches a secret"),
-        ("network", "isn't available yet"),
+        ("network", "names the site it may reach"),
         ("vault.read", "isn't a permission"),
     ] {
         let dir = plugin_dir("secret-manifest", &manifest("greedy", &[perm]), "");

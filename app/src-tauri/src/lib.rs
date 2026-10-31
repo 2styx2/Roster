@@ -949,6 +949,7 @@ pub fn run() {
         Arc::new(PluginServe(Arc::clone(&backend))),
         plugin::Limits::default(),
     ));
+    let setup_plugins = Arc::clone(&plugins);
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(backend)
@@ -957,6 +958,13 @@ pub fn run() {
         .manage(ConfigState(loader))
         .setup(move |app| {
             migrate_state(app.handle());
+            // What a Plugin did when one of its HTTP requests answered (the `network`
+            // permission): nobody asked, so it goes to the frontend as an event.
+            let handle = app.handle().clone();
+            setup_plugins.set_listener(Arc::new(move |reply: plugin::Reply| {
+                use tauri::Emitter;
+                let _ = handle.emit("plugin-reply", reply);
+            }));
             // Packages' clones go in the app's own data dir (next to the State), the lock next
             // to init.lua.
             let data = roster_core::env::state_dir().or_else(|| tauri::Manager::path(app).app_local_data_dir().ok());
