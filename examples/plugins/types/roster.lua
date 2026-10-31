@@ -239,6 +239,7 @@
 ---@field text? string A few lines above the rest, in the app's voice; a blank line starts a paragraph.
 ---@field facts? roster.Fact[] Label and value pairs, as a Host's details show them.
 ---@field table? roster.Table A table of rows.
+---@field graph? roster.Graph A graph of nodes and edges, in place of a table.
 
 --- Where a view goes
 ---@alias roster.ViewPlace "panel"|"full"
@@ -249,7 +250,11 @@
 ---@field text? string New text; `""` takes it away.
 ---@field facts? roster.Fact[] New facts, all of them.
 ---@field rows? roster.TableRow[] Rows to add or replace, by `id` (at most 2,000 at once).
----@field remove? string[] The ids of rows to take away.
+---@field remove? string[] The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).
+---@field nodes? roster.GraphNode[] A graph's nodes to add or replace, by `id`.
+---@field edges? roster.GraphEdge[] A graph's edges to add or replace, by `id`.
+---@field clusters? roster.GraphCluster[] A graph's clusters to add or replace, by `id`.
+---@field remove_edges? string[] The ids of a graph's edges to take away.
 ---@field columns? roster.Column[] New columns, all of them; the rows keep their cells.
 ---@field sort? string Sort by this column now (the user's sort gives way).
 ---@field desc? boolean With `sort`: highest first.
@@ -331,6 +336,81 @@
 ---@field url string Where it ended, after redirects.
 ---@field headers table<string, string> By lower-case name; a header sent twice has its values joined with `, `.
 ---@field body string The body, at most 1 MB, as bytes: not decompressed, not decoded.
+
+--- A graph: nodes, edges and clusters as plain data, and what a node can do
+---@class roster.Graph
+---@field nodes? roster.GraphNode[] Its nodes, in order: a cluster's first node is at its centre (at most 5,000).
+---@field edges? roster.GraphEdge[] Its edges (at most 10,000).
+---@field clusters? roster.GraphCluster[] Its clusters, in order (at most 500).
+---@field open? roster.NodeRun What `Enter` (or a double click) on a node runs. Without it, a node with a `host` opens that Host.
+---@field actions? roster.NodeAction[] What can be done to the selected node (at most 8).
+
+--- A node of a graph: plain data
+---@class roster.GraphNode
+---@field id string Unique among the graph's nodes and clusters (at most 100 characters): edges, updates and the selection follow it.
+---@field label? string Its name on the map; the id if left out.
+---@field kind? string What sort of thing it is (`"esxi"`): searched, and a column in the list.
+---@field shape? roster.NodeShape How it's drawn; `"dot"` if left out.
+---@field state? roster.NodeState Live (in the accent) or down.
+---@field mark? roster.NodeMark A small warn or error mark beside it.
+---@field note? string A few words (`"out of date"`), beside it when selected and in the list.
+---@field cluster? string The id of the cluster it's in.
+---@field host? string The Host it is: `Enter` opens it when the graph has no `open`, and actions get it as `e.host`.
+---@field detail? string A second line in the data font (an address), when selected and in the list.
+
+--- How a node is drawn
+---@alias roster.NodeShape "dot"|"ring"|"dashed"|"hollow"|"square"
+
+--- What a node is doing
+---@alias roster.NodeState "live"|"down"
+
+--- A node's mark
+---@alias roster.NodeMark "warn"|"error"
+
+--- An edge of a graph: plain data
+---@class roster.GraphEdge
+---@field id? string Unique among its edges; `"FROM>TO"` if left out.
+---@field from string The id of the node or cluster it starts at.
+---@field to string The id of the node or cluster it goes to.
+---@field dir? roster.EdgeDir `"one"` (the default) is one way, with an arrow at `to`; `"both"` is each way.
+---@field style? roster.EdgeStyle Its line; `"solid"` if left out.
+---@field tone? roster.EdgeTone Live (in the accent), muted, or marked warn or error.
+---@field cut? boolean `true` draws it broken in the middle by a cross: about to be cut.
+---@field label? string A few words about it, in the list.
+
+--- Which way an edge goes
+---@alias roster.EdgeDir "one"|"both"
+
+--- An edge's line
+---@alias roster.EdgeStyle "solid"|"dashed"|"dotted"
+
+--- How an edge is marked
+---@alias roster.EdgeTone "live"|"muted"|"warn"|"error"
+
+--- A cluster of a graph's nodes
+---@class roster.GraphCluster
+---@field id string Unique among the graph's nodes and clusters: nodes name it as their `cluster`.
+---@field title? string Its title; the id if left out.
+---@field mesh? boolean `true`: every node in it reaches every other, both ways, without an edge for each pair (the Mesh's `mesh: true`).
+---@field collapsed? boolean How it starts: collapsed (`true`) or open (`false`). Left out, it collapses when the graph has more than 300 nodes. The user's own choice is kept and wins.
+
+--- Something a graph's selected node can do
+---@class roster.NodeAction
+---@field label string What it does (`"Check"`), in the key hints.
+---@field key? string One character that runs it on the selected node, not one the graph uses itself.
+---@field icon? roster.RowIcon Its icon in the node list's buttons.
+---@field run roster.NodeRun What it runs.
+
+--- What a graph's node or action runs
+---@alias roster.NodeRun string|fun(e: roster.NodeEvent): any
+
+--- What a graph's function gets
+---@class roster.NodeEvent
+---@field node string The node's `id`.
+---@field host? string The node's `host`.
+---@field view string The view's id.
+---@field session? integer The Session on screen, as in a `HandlerContext`: only with `inventory.read` or `terminal.read`.
+---@field session_host? string The Host of the Session on screen, as in a `HandlerContext`.
 
 --- A Host, as roster serve's `hosts.list` and `host.get` give it
 ---@class roster.Host
@@ -769,16 +849,16 @@ function roster.float.open(float) end
 --- Permission: none. Since: api 2.
 function roster.float.close() end
 
---- Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again.
+--- Views: side panels and full views. A view is data the app draws in its own style: a title, text, facts and a table. `place` says where: `"panel"` beside the terminal (over it in Focus or a narrow window), or `"full"` over the whole window, as Topology is. `:view ID` opens one, and the `views` finder (`:finder views`) lists them all; bind a key to `view ID` with `roster.keymap.set`. `Esc` closes it and puts you back where you were. A table's rows are plain data, so `roster.views.update` changes some in place without sending the rest again. A view can hold a graph instead of a table: nodes, edges and clusters, also plain data, with a list of every node and edge one key away (`t`).
 roster.views = {}
 
 --- Adds a view, or replaces it.
 --- Permission: none. Since: api 3.
 ---@param id string The view's id: a name like `discover`. `:view ID` opens it.
----@param view roster.View Where it goes, its title, text, facts and table.
+---@param view roster.View Where it goes, its title, text, facts, and a table or a graph.
 function roster.views.set(id, view) end
 
---- Changes some of a view's rows in place, or its text or facts.
+--- Changes some of a view's rows or nodes in place, or its text or facts.
 --- Permission: none. Since: api 3.
 ---@param id string One of the Plugin's views.
 ---@param changes roster.ViewUpdate What changes: rows to add or replace, rows to take away, and the text or facts.

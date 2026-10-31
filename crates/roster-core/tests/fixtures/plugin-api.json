@@ -1055,6 +1055,9 @@
     "roster-CommandSpec": "plugin-api#commandspec",
     "roster-Confirm": "plugin-api#confirm",
     "roster-DetailsSection": "plugin-api#detailssection",
+    "roster-EdgeDir": "plugin-api#edgedir",
+    "roster-EdgeStyle": "plugin-api#edgestyle",
+    "roster-EdgeTone": "plugin-api#edgetone",
     "roster-EmptyEvent": "plugin-api#emptyevent",
     "roster-EventName": "plugin-api#eventname",
     "roster-Fact": "plugin-api#fact",
@@ -1062,6 +1065,10 @@
     "roster-FinderItem": "plugin-api#finderitem",
     "roster-Float": "plugin-api#float",
     "roster-FloatAction": "plugin-api#floataction",
+    "roster-Graph": "plugin-api#graph",
+    "roster-GraphCluster": "plugin-api#graphcluster",
+    "roster-GraphEdge": "plugin-api#graphedge",
+    "roster-GraphNode": "plugin-api#graphnode",
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
     "roster-HandlerContext": "plugin-api#handlercontext",
@@ -1086,6 +1093,12 @@
     "roster-LoginRef": "plugin-api#loginref",
     "roster-Manifest": "plugin-api#manifest",
     "roster-MoveResult": "plugin-api#moveresult",
+    "roster-NodeAction": "plugin-api#nodeaction",
+    "roster-NodeEvent": "plugin-api#nodeevent",
+    "roster-NodeMark": "plugin-api#nodemark",
+    "roster-NodeRun": "plugin-api#noderun",
+    "roster-NodeShape": "plugin-api#nodeshape",
+    "roster-NodeState": "plugin-api#nodestate",
     "roster-Os": "plugin-api#os",
     "roster-Permission": "plugin-api#permission",
     "roster-Plugin": "plugin-api#plugin",
@@ -1500,6 +1513,15 @@
       ],
       "open": false
     },
+    "EdgeDir": {
+      "alias": "\"one\"|\"both\""
+    },
+    "EdgeStyle": {
+      "alias": "\"solid\"|\"dashed\"|\"dotted\""
+    },
+    "EdgeTone": {
+      "alias": "\"live\"|\"muted\"|\"warn\"|\"error\""
+    },
     "EmptyEvent": {
       "fields": [],
       "open": false
@@ -1618,6 +1640,161 @@
           "name": "run",
           "required": true,
           "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "Graph": {
+      "fields": [
+        {
+          "name": "nodes",
+          "required": false,
+          "type": "GraphNode[]"
+        },
+        {
+          "name": "edges",
+          "required": false,
+          "type": "GraphEdge[]"
+        },
+        {
+          "name": "clusters",
+          "required": false,
+          "type": "GraphCluster[]"
+        },
+        {
+          "name": "open",
+          "required": false,
+          "type": "NodeRun"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "NodeAction[]"
+        }
+      ],
+      "open": false
+    },
+    "GraphCluster": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "mesh",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "collapsed",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "open": false
+    },
+    "GraphEdge": {
+      "fields": [
+        {
+          "name": "id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "from",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "to",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "dir",
+          "required": false,
+          "type": "EdgeDir"
+        },
+        {
+          "name": "style",
+          "required": false,
+          "type": "EdgeStyle"
+        },
+        {
+          "name": "tone",
+          "required": false,
+          "type": "EdgeTone"
+        },
+        {
+          "name": "cut",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "label",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "GraphNode": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "kind",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "shape",
+          "required": false,
+          "type": "NodeShape"
+        },
+        {
+          "name": "state",
+          "required": false,
+          "type": "NodeState"
+        },
+        {
+          "name": "mark",
+          "required": false,
+          "type": "NodeMark"
+        },
+        {
+          "name": "note",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "cluster",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "detail",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false
@@ -2215,6 +2392,73 @@
         }
       ],
       "open": false
+    },
+    "NodeAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "key",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "RowIcon"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "NodeRun"
+        }
+      ],
+      "open": false
+    },
+    "NodeEvent": {
+      "fields": [
+        {
+          "name": "node",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "view",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "session_host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "NodeMark": {
+      "alias": "\"warn\"|\"error\""
+    },
+    "NodeRun": {
+      "alias": "string|fun(e: NodeEvent): any"
+    },
+    "NodeShape": {
+      "alias": "\"dot\"|\"ring\"|\"dashed\"|\"hollow\"|\"square\""
+    },
+    "NodeState": {
+      "alias": "\"live\"|\"down\""
     },
     "Os": {
       "alias": "\"windows\"|\"linux\"|\"macos\""
@@ -2942,6 +3186,11 @@
           "name": "table",
           "required": false,
           "type": "Table"
+        },
+        {
+          "name": "graph",
+          "required": false,
+          "type": "Graph"
         }
       ],
       "open": false
@@ -2973,6 +3222,26 @@
         },
         {
           "name": "remove",
+          "required": false,
+          "type": "string[]"
+        },
+        {
+          "name": "nodes",
+          "required": false,
+          "type": "GraphNode[]"
+        },
+        {
+          "name": "edges",
+          "required": false,
+          "type": "GraphEdge[]"
+        },
+        {
+          "name": "clusters",
+          "required": false,
+          "type": "GraphCluster[]"
+        },
+        {
+          "name": "remove_edges",
           "required": false,
           "type": "string[]"
         },
