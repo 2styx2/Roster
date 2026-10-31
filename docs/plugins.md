@@ -125,7 +125,7 @@ packages = {
 },
 ```
 
-None is there yet; the Topology view, the Discover UI and the Mesh controls are the first planned.
+The first is [`mesh`](../plugins/mesh/README.md), the Mesh controls (`dir = "plugins/mesh"`): each Host's reach, plan and apply, Cut. It's also the worked example of a Plugin that runs something long in roster serve: every Mesh run is a job it starts with `background = true`, follows with a timer polling `mesh.job` for its progress, and stops with `mesh.stop`, because a call into serve may not wait more than a couple of seconds. The Topology view and the Discover UI are planned next.
 
 ## Permissions
 
@@ -139,7 +139,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 | `sessions.open` | `roster.sessions.open(host)`, as `:connect HOST`; `:open` and `:connect` in `roster.cmd` and a `run` line | Can open Sessions on your Hosts |
 | `terminal.read` | The `terminal_output` event: what your Sessions print | Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too |
 | `terminal.write` | `roster.terminal.send(session, text)` | Can type into your Sessions, as if you typed it |
-| `serve:METHOD` | `roster.serve.call(method, params)` for that method only: `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff`, and the `mesh.*` and `discover.*` methods | Any method that can change something (`mesh.apply`, `mesh.cut`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status` and `mesh.plan` |
+| `serve:METHOD` | `roster.serve.call(method, params)` for that method only: `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff`, and the `mesh.*` and `discover.*` methods | Any method that can change something (`mesh.apply`, `mesh.cut`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job` and `mesh.stop` |
 | `network:SITE` | `roster.http.request(request, done)` and `roster.http.get(url, done)`, to that site only | Always: anything the Plugin can read could leave this computer. Also said: plain `http://`, and an address on this computer or a private network |
 
 No permission reaches a secret, nor how one is fetched: a `cmd:COMMAND` or `env:VAR` Login reference reaches a Plugin as `cmd:` or `env:`, from `roster.inventory` and `roster.serve.call` alike (decision Q92), since a command line can carry a secret pasted into it. The vault, a session's password, askpass and the master password live only in `roster serve` and never pass through the app; the serve methods that touch them (`vault.*`, `session.*`, `quick.*`, `host.add`, `host.save_login`, `changes.publish`) can't be granted at all, and a manifest that asks for one doesn't install.

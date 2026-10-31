@@ -176,6 +176,7 @@ Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permiss
 | 84 | none (a Link's status) | A Link has `via: HOST`, but its source has no Link to that Host (`no-via`) | `roster.yml` | "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })" | Add the Link it names, or take `via:` off; the Link is left out until then |
 | 85 | none (a Link's status) | A hop doesn't answer: the source can't reach its `via` Host's port, or the `via` Host can't reach the peer's | Network | "jump-1 can't reach 10.0.9.9:22 (orion-3's hop to db-9)" | Check routing and firewalls between the two it names, then apply again |
 | 86 | none (a Host's status) | A source's `mesh_dir:` can't be used there: on ESXi not on a datastore, its parent missing, not writable, or it holds files that aren't roster's | `roster.yml` / Host | "mesh_dir /opt/mesh isn't on a datastore (/vmfs/volumes/...)" | Point `mesh_dir:` at a directory of the Mesh's own (on ESXi, on a datastore); the Host stays pending until then |
+| 93 | 111 | A Mesh plan, apply or cut while a Mesh job still runs (from the Mesh controls, say): two at once would fight over the Hosts | roster | "a Mesh apply is still running (job 4): wait for it, or stop it" | Wait for the job (its progress is in the status bar), or stop it with `:cancel mesh`; then run it again |
 
 ## Packages
 

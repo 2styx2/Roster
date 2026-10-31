@@ -462,7 +462,7 @@ export const SIGN_OUT_API_VERSION = 14;
 export const MESH_API_VERSION = 15;
 
 /** roster's code for the Mesh (ticket 39): `rotate` names a Host that isn't a Mesh source. */
-export const MeshError = { notASource: 110 } as const;
+export const MeshError = { notASource: 110, busy: 111 } as const;
 
 /** One Link of the Mesh: `from` reaches `to` (as `to`'s own user). `status` only in a plan or apply. */
 export interface MeshLink {

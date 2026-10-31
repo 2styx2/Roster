@@ -30,12 +30,17 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Plugin API 3 also gets what Folders needed, for any Plugin: `roster.echo` (the message line), `roster.cmdline` (the command line with one of its commands typed in), a command's `complete`, the Host and row under the Sidebar's cursor in a command, Sidebar rows that fold, draw as the Inventory's Hosts and take drag and drop, and a finder over a Plugin's own section.
 - Plugins can talk to web services: `network:api.example.com` in a manifest grants `roster.http.request` and `roster.http.get` for that site only (`*.example.com` for the names under a domain, `http://` and `:PORT` when written). The requests run in roster's core, don't block the Plugin, follow redirects only to its sites, and never reach this computer or a private network by name. The install prompt and `:packages update` show every site, flagged, and an update that adds one asks again. See [The network](plugins.md#the-network).
 
+- The Mesh controls, the first first-party Plugin (`plugins/mesh`): `:mesh` shows every Host in the Mesh with what it **can reach**, "Mesh out of date" in the status bar after a Publish, `:mesh plan` and an apply you confirm after looking at the plan, a Cut you confirm by typing the Host's name with a warning per Host that was down, Links through a jump Host and why a `no-via` one is left out, and a Mesh section in each Host's details. Install it with `{ "https://github.com/2styx2/roster", dir = "plugins/mesh" }` in `init.lua`'s `packages`. See [the Mesh controls](../plugins/mesh/README.md) and [The Mesh in the app](mesh.md#in-the-app).
 - Plugins can ask, show progress and act for you: `roster.confirm` asks a question the app draws (a stronger form, starting on Cancel and asking you to type a Host's name, for a Mesh Cut), `roster.progress` shows something long in the status bar with a stop button and `:cancel`, `roster.toolbar` adds a toolbar control, a Sidebar section can have buttons on its heading ("Dismiss all"), a floating window can have buttons and links, `roster.cmd(line)` runs a command line, and `roster.sessions.show(session, line)` goes to a Session by its id and finds the line in it. A table filters with `/`, an action can apply only to some rows, and `roster.views.update` can change its columns, sort and actions. See [Asking, progress, the toolbar and going places](plugins.md#asking-progress-the-toolbar-and-going-places).
 
 **CLI**
 
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
+
+**serve API (API 17)**
+
+- Mesh jobs: `background: true` on `mesh.plan`, `mesh.apply` and `mesh.cut` answers at once and runs the Mesh in the background; `mesh.job` says how far it has got and how it ended, and `mesh.stop` stops it before its next Host. `brief: true` on `mesh.status` and `mesh.job` keeps the answer small when a meshed group of hundreds of Hosts makes every pair a Link, and marks a `no-via` Link without connecting. Error code 111: a Mesh run while a job runs. See [The Mesh](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus).
 
 ### Changed
 
