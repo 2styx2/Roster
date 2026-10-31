@@ -257,7 +257,7 @@ export const builtinCommands: readonly CommandDef[] = [
     label: (h) =>
       h
         ? `Check ${h}`
-        : "Check this Box's health: roster.yml, ssh, the vault, askpass, init.lua, the font. With a Host: why a Session to it would fail",
+        : "Check this Box's health: roster.yml, ssh, the vault, askpass, init.lua, the font, Plugins' sections. With a Host (% for the one on screen): why a Session to it would fail",
     run: (ctx, h) => ctx.check(h ?? null),
   },
   {

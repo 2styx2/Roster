@@ -27,11 +27,13 @@ import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
+import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
 import { lineRefused } from "./cmd";
 import { CommittedLines, type ScreenSize } from "./committed";
 import {
   MAX_TABLE_ROWS,
   parseFinderItems,
+  parseHealthChecks,
   parseOp,
   type PluginConfirm,
   type PluginContent,
@@ -56,6 +58,9 @@ export interface PluginUi {
   /** Puts `text` on the clipboard (`roster.clipboard.copy`; the core allows it only in a call
    * the user started). Rejects when the clipboard can't be written. */
   copy(text: string): Promise<void>;
+  /** The Session on screen and its Host (`null` for a Quick Connect Session), or null with none:
+   * a handler's context has them for a Plugin granted inventory.read or terminal.read. */
+  onScreen?(): { session: number; host: string | null } | null;
   /** Closes view `id` if it's the one open (`roster.views.close`). */
   closeView?(id: string): void;
   /** Goes to Session `id` and, with `line`, finds that text up its scrollback
@@ -64,6 +69,9 @@ export interface PluginUi {
   /** Opens a float's link (http or https, checked) in the browser. */
   openUrl?(url: string): void;
 }
+
+/** What a Plugin's function is told about what ran it (api 3, `HandlerContext`). */
+export type HandlerContext = Record<string, string | number | null>;
 
 /** A Plugin as the State keeps it. */
 export interface Installed {
@@ -151,6 +159,7 @@ export interface PluginStore {
 type PluginBackend = Pick<
   Backend,
   | "pluginManifest"
+  | "pluginTypes"
   | "pluginLoad"
   | "pluginCall"
   | "pluginEvent"
@@ -529,6 +538,16 @@ export class PluginManager {
     return null;
   }
 
+  /** `:plugins types PATH` (ticket 74): writes the API's stubs into a Plugin's folder; says where. */
+  async writeTypes(path: string): Promise<string> {
+    try {
+      const file = await this.backend.pluginTypes(path);
+      return `Wrote ${file}: the Plugin API ${pluginApi.api_version}'s types, for lua-language-server`;
+    } catch (e) {
+      return `Couldn't write the types: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
   /** `:plugins remove NAME`: unloads it, takes its UI away and forgets it. A built-in one can only
    * have its permissions revoked. */
   async remove(name: string): Promise<string | null> {
@@ -560,6 +579,21 @@ export class PluginManager {
     this.problems.delete(name);
     this.uses.delete(name);
     this.packageConfig.delete(name);
+  }
+
+  /** Runs what a Plugin's row, action, finder item or segment handed over, telling it which one
+   * (`context`) and, when it may know, the Session on screen. */
+  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action"): Promise<unknown> {
+    return this.call(plugin, handler, { ...context, ...this.onScreen(plugin) }, what);
+  }
+
+  /** The Session on screen, for a Plugin that may know it (the permissions that let it hear
+   * `host_selected`): `{}` otherwise, or with none on screen. */
+  private onScreen(plugin: string): HandlerContext {
+    const granted = this.loaded.get(plugin)?.granted ?? [];
+    if (!granted.includes("inventory.read") && !granted.includes("terminal.read")) return {};
+    const on = this.ui.onScreen?.() ?? null;
+    return on ? { session: on.session, session_host: on.host } : {};
   }
 
   /** Runs what a Plugin's row, action, finder item or command handed over; `what` is how
@@ -748,9 +782,12 @@ export class PluginManager {
   }
 
   /** The command line that runs `run` for `plugin`. A Plugin's own line goes through
-   * `plugins run`, which checks it may (ticket 78): the label on a button says nothing about it. */
-  private line(plugin: string, run: Run): string {
-    return "command" in run ? `plugins run ${plugin} ${run.command}` : `plugins call ${plugin} ${run.handler}`;
+   * `plugins run`, which checks it may (ticket 78): the label on a button says nothing about it.
+   * A function hears `context`, what ran it (api 3), carried URI-encoded so spaces can't change it. */
+  private line(plugin: string, run: Run, context: HandlerContext = {}): string {
+    return "command" in run
+      ? `plugins run ${plugin} ${run.command}`
+      : `plugins call ${plugin} ${run.handler} ${encodeURIComponent(JSON.stringify(context))}`;
   }
 
   /** Runs `line` for `plugin` if it may (cmd.ts), else says why. */
@@ -762,10 +799,11 @@ export class PluginManager {
     this.ui.run(line.trim());
   }
 
-  /** Runs what `plugin` handed over: its function (with `args`), or its line. */
-  private runFor(plugin: string, run: Run, args: unknown = {}) {
+  /** Runs what `plugin` handed over: its function (with `context`, and the Session on screen
+   * when it may know it), or its line. */
+  private runFor(plugin: string, run: Run, context: HandlerContext = {}) {
     if ("command" in run) this.runLine(plugin, run.command);
-    else void this.call(plugin, run.handler, args);
+    else void this.callWith(plugin, run.handler, context);
   }
 
   /** The user's answer to the question up: `run` on yes, `cancel` on no (ticket 78). */
@@ -774,8 +812,8 @@ export class PluginManager {
     if (!c) return;
     this.confirm = null;
     this.changed();
-    if (yes) this.runFor(c.plugin, c.run);
-    else if (c.cancel) this.runFor(c.plugin, c.cancel);
+    if (yes) this.runFor(c.plugin, c.run, { confirm: "yes" });
+    else if (c.cancel) this.runFor(c.plugin, c.cancel, { confirm: "no" });
   }
 
   /** `:cancel [ID]`: stops a progress through its Plugin's `cancel`. Says what happened. */
@@ -787,7 +825,7 @@ export class PluginManager {
     if (p.stopping) return `${p.title}: stopping already`;
     this.progress.set(p.id, { ...p, stopping: true });
     this.changed();
-    this.runFor(p.plugin, p.cancel);
+    this.runFor(p.plugin, p.cancel, { progress: p.id });
     return `Stopping ${p.title}`;
   }
 
@@ -800,7 +838,7 @@ export class PluginManager {
   floatAction(index: number) {
     const f = this.float;
     const a = f?.actions[index];
-    if (f && a) this.runFor(f.plugin, a.run);
+    if (f && a) this.runFor(f.plugin, a.run, { action: index + 1 });
   }
 
   /** A float's link: the address was checked when it came (http or https). */
@@ -841,7 +879,7 @@ export class PluginManager {
           label: (a) => (a ? `${op.desc || op.name} ${a}` : op.desc || op.name),
           run: (_ctx, arg) => {
             const args = (arg ?? "").trim();
-            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [] });
+            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [] } as unknown as HandlerContext);
           },
         };
         return this.put(l, `command:${op.name}`, r.commands.register(def));
@@ -850,7 +888,7 @@ export class PluginManager {
         const context = KEY_CONTEXTS[op.context];
         if (!context) return refuse(`keys go after the Leader or in the Sidebar (leader, list, list_vim), not ${op.context}`);
         const id = bindingId(context, op.keys);
-        if (this.taken(r.keymap, id, plugin)) {
+        if (op.action !== false && this.taken(r.keymap, id, plugin)) {
           const by = r.keymap.get(id);
           const shown = op.context === "leader" ? `␣ ${op.keys}` : `${op.keys} (${op.context})`;
           const free = freeKeys(r.keymap.list(), context, op.keys, plugin);
@@ -866,7 +904,9 @@ export class PluginManager {
           .list()
           .find((b) => b.context === context && b.source !== plugin && b.action !== null && (op.keys.startsWith(`${b.keys} `) || b.keys.startsWith(`${op.keys} `)));
         if (clash) return refuse(`${op.keys} (${op.context}) would hide ${clash.keys}, bound by ${clash.source}`);
-        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action: op.action === false ? null : op.action }));
+        // `false` (keymap.del, api 3) takes the Plugin's own binding off; it never claims keys.
+        if (op.action === false) return this.drop(l, `key:${id}`);
+        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action: op.action }));
       }
       case "theme": {
         if (this.taken(r.themes, op.id, plugin)) return refuse(`there's a Theme named ${op.id} already`);
@@ -878,7 +918,7 @@ export class PluginManager {
       case "section": {
         if (this.taken(r.sidebar, op.id, plugin)) return refuse(`there's a Sidebar section named ${op.id} already`);
         const rows = op.rows.map((row) => this.row(plugin, op.id, row));
-        const actions = op.actions.map((a) => this.rowAction(plugin, a));
+        const actions = op.actions.map((a, i) => this.rowAction(plugin, a, { section: op.id, action: i + 1 }));
         const section = { id: op.id, title: op.title, count: rows.length, rows, ...(op.empty ? { empty: op.empty } : {}), ...(actions.length ? { actions } : {}) };
         return this.put(l, `section:${op.id}`, r.sidebar.register({ id: op.id, source: plugin, order: op.order, build: () => section }));
       }
@@ -892,7 +932,7 @@ export class PluginManager {
             source: plugin,
             text: op.text,
             ...(op.title ? { title: op.title } : {}),
-            ...(op.run ? { command: this.line(plugin, op.run) } : {}),
+            ...(op.run ? { command: this.line(plugin, op.run, { segment: op.id }) } : {}),
           }),
         );
       }
@@ -904,7 +944,7 @@ export class PluginManager {
           label: i.label,
           ...(i.detail ? { detail: i.detail } : {}),
           ...(i.path ? { path: i.path } : {}),
-          command: this.line(plugin, i.run),
+          command: this.line(plugin, i.run, { finder: op.id, item: i.id }),
         });
         const register = (items: FinderItem[] | null, open?: () => void) => {
           const def: FinderSourceDef = {
@@ -974,7 +1014,15 @@ export class PluginManager {
       case "health": {
         if (this.taken(r.health, op.id, plugin)) return refuse(`there's a :check section named ${op.id} already`);
         const checks = op.checks.map((c) => ({ section: op.id, ...c }));
-        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: () => checks }));
+        const check = op.check;
+        // With `check` (api 3, like vim.health), each `:check` calls the Plugin for its lines.
+        const run =
+          check === undefined
+            ? () => checks
+            : "command" in check
+              ? () => [{ section: op.id, level: "error" as const, message: "check must be a function" }]
+              : async () => this.healthCheck(plugin, op.id, check.handler);
+        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: run }));
       }
       case "badge": {
         const id = `${plugin}:${op.host}`;
@@ -996,7 +1044,7 @@ export class PluginManager {
         // One question at a time: a newer one replaces it (another Plugin's hears its cancel).
         const before = this.confirm;
         this.confirm = { ...op.confirm, plugin, id: ++this.confirmId };
-        if (before && before.plugin !== plugin && before.cancel) this.runFor(before.plugin, before.cancel);
+        if (before && before.plugin !== plugin && before.cancel) this.runFor(before.plugin, before.cancel, { confirm: "no" });
         return;
       }
       case "progress": {
@@ -1018,7 +1066,7 @@ export class PluginManager {
             label: () => c.label,
             ...(c.icon ? { icon: c.icon } : {}),
             ...(c.text || !c.icon ? { text: c.text ?? c.label } : {}),
-            command: this.line(plugin, c.run),
+            command: this.line(plugin, c.run, { toolbar: op.id }),
             side: "end",
             byDefault: true,
           }),
@@ -1094,6 +1142,19 @@ export class PluginManager {
     }
   }
 
+  /** Calls a `:check` section's `check` and gives its lines; what goes wrong is an ERROR line. */
+  private async healthCheck(plugin: string, id: string, handler: number) {
+    const error = (message: string) => [{ section: id, level: "error" as const, message, fix: `:plugins says how ${plugin} is doing; :plugins reload ${plugin} runs it again` }];
+    if (!this.loaded.has(plugin)) return error(`${plugin} isn't running`);
+    const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }).catch((e: unknown) => this.lost(plugin, e));
+    this.used(plugin, "ran its :check section");
+    this.apply(reply);
+    if (reply.error) return error(`check failed: ${describeError(reply.error)}`);
+    const parsed = parseHealthChecks(reply.result, `roster.health.set ${id}: check`);
+    if ("invalid" in parsed) return error(parsed.invalid);
+    return parsed.map((c) => ({ section: id, ...c }));
+  }
+
   private putView(l: Loaded, plugin: string, id: string, view: PluginView) {
     const content = this.content(plugin, { view: id }, view);
     this.put(l, `view:${id}`, this.registries.views.register({ id, source: plugin, title: view.title, place: view.place, content }));
@@ -1146,13 +1207,13 @@ export class PluginManager {
       ...(row.count !== undefined ? { count: row.count } : {}),
       ...(row.level !== undefined ? { level: row.level } : {}),
       ...(row.title ? { title: row.title } : {}),
-      command: row.run ? this.line(plugin, row.run) : row.host ? `open ${row.host}` : "",
-      actions: row.actions.map((a) => this.rowAction(plugin, a)),
+      command: row.run ? this.line(plugin, row.run, { section, row: row.id }) : row.host ? `open ${row.host}` : "",
+      actions: row.actions.map((a, i) => this.rowAction(plugin, a, { section, row: row.id, action: i + 1 })),
     };
   }
 
-  private rowAction(plugin: string, a: PluginRowAction) {
-    return { label: a.label, icon: a.icon, command: this.line(plugin, a.run) };
+  private rowAction(plugin: string, a: PluginRowAction, context: HandlerContext) {
+    return { label: a.label, icon: a.icon, command: this.line(plugin, a.run, context) };
   }
 
   private notify(plugin: string, level: Notice["level"], text: string) {

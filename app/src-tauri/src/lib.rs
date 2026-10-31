@@ -560,6 +560,18 @@ async fn plugin_manifest(
     .await
 }
 
+/// `:plugins types PATH` (ticket 74): writes the Plugin API's stubs for this app's version as
+/// `types/roster.lua` in the Plugin folder PATH; gives the file's path.
+#[tauri::command]
+async fn plugin_types(config: tauri::State<'_, ConfigState>, path: String) -> Result<String, String> {
+    let config = config.inner().clone();
+    blocking(move || {
+        let dir = plugin_dir(&config, &path)?;
+        plugin::api::write_stubs(&dir).map(|f| f.display().to_string())
+    })
+    .await
+}
+
 /// Loads (or reloads) a Plugin with the permissions the user granted.
 #[tauri::command]
 async fn plugin_load(
@@ -1027,6 +1039,7 @@ pub fn run() {
             config_import_preview,
             config_import_apply,
             plugin_manifest,
+            plugin_types,
             plugin_load,
             plugin_call,
             plugin_event,

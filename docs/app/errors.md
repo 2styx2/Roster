@@ -209,8 +209,9 @@ What a Plugin's buttons, questions and command lines can run into ([plugins.md](
 | roster, Inventory, ssh, Vault, askpass, Infra repo | What `roster check --box` checks: `roster.yml` loads (its path, or the error and its line), Hosts waiting for review, `ssh` and roster's ssh config, this Box's key and known hosts, each vault CLI installed and logged in, the askpass channel, Pending changes and other uncommitted files | `roster serve` (`box.check`) |
 | init.lua | It loads (its path, or the error and its line), and each warning | the app |
 | Terminal font | One of `terminal.font`'s families is installed | the app |
+| A Plugin's own, headed with its name | What the Plugin checks, each time `:check` runs (`roster.health.set`); one that fails, or doesn't answer within three seconds, is an `ERROR` line of its section | the Plugin, with its permissions ([Health sections](../plugins.md#health-sections)) |
 
-Every check is local: files, the `PATH`, each vault CLI's own status and the infra repo as this Box last fetched it. None logs in to a Host, scans one or fetches, so `:check` is safe to run any time, even where SSH is rate-limited. `:check HOST` is the one that connects. With a roster older than the app, the app's own sections still run and say roster's need a newer one.
+Every check is local: files, the `PATH`, each vault CLI's own status and the infra repo as this Box last fetched it. None logs in to a Host, scans one or fetches, so `:check` is safe to run any time, even where SSH is rate-limited. `:check HOST` is the one that connects, and `:check %` checks the Host of the Session on screen. With a roster older than the app, the app's own sections still run and say roster's need a newer one.
 
 ## A Plugin's network requests
 
