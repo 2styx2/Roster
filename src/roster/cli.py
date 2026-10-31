@@ -501,70 +501,82 @@ def main(argv=None):
         os._exit(0)
 
 
-def _main(argv=None):
+def build_parser():
+    """Every command and option. The man page (roster.manpage) is generated from this too."""
     p = argparse.ArgumentParser(prog="roster",
                                 description="Give this box (and Claude) access to the hosts in roster.yml.")
     p.add_argument("--version", action="version", version=f"roster {__version__}")
-    p.add_argument("-c", "--config", help="path to roster.yml (default: ./roster.yml, then ~/.config/roster/)")
+    p.add_argument("-c", "--config", metavar="PATH", help="path to roster.yml (default: ./roster.yml, then ~/.config/roster/)")
     sub = p.add_subparsers(dest="cmd", required=True)
+    only = {"metavar": "LIST", "help": "only these hosts, groups, types or products (comma-separated)"}
     sub.add_parser("init", help="write an example roster.yml")
     s = sub.add_parser("setup", help="one-time setup of this box")
-    s.add_argument("--only")
+    s.add_argument("--only", **only)
     s.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing remote")
     sub.add_parser("sync", help="rewrite ssh config and Claude files from roster.yml")
     s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step")
     s.add_argument("host", nargs="?", help="diagnose this one Host: inventory, ssh config, vault, DNS, port, "
                    "host key, login (one connection)")
-    s.add_argument("--only")
+    s.add_argument("--only", **only)
     s = sub.add_parser("hosts", help="list hosts")
-    s.add_argument("--only")
-    s.add_argument("--find", help="search name, title, description, type, product, group, ip")
+    s.add_argument("--only", **only)
+    s.add_argument("--find", metavar="TEXT", help="search name, title, description, type, product, group, ip")
     s.add_argument("--all", action="store_true", help="include unreviewed (scanned) hosts")
     s.add_argument("--long", action="store_true", help="full table: type, product, web URL, description")
     s = sub.add_parser("resources", help="list Wi-Fi networks, accounts and secrets that aren't hosts")
-    s.add_argument("--only", help="resource names, types or groups")
-    s.add_argument("--find", help="search every field")
+    s.add_argument("--only", metavar="LIST", help="resource names, types or groups")
+    s.add_argument("--find", metavar="TEXT", help="search every field")
     s = sub.add_parser("reveal", help="print a resource's secret (e.g. a Wi-Fi password) - for people, not Claude")
-    s.add_argument("name")
+    s.add_argument("name", help="the resource")
     s.add_argument("--wifi", action="store_true", help="print a WIFI:... string for a QR code instead")
     s = sub.add_parser("info", help="show everything about one host or resource")
-    s.add_argument("host", nargs="+")
+    s.add_argument("host", nargs="+", metavar="NAME", help="a host or resource; fuzzy words work")
     s = sub.add_parser("run", help="run a command on a host")
     s.add_argument("--sudo", action="store_true",
                    help="run it as root with sudo; roster gives sudo the login's password (never shown)")
-    s.add_argument("host")
-    s.add_argument("command", nargs=argparse.REMAINDER)
+    s.add_argument("host", help="the host to run it on")
+    s.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
     s = sub.add_parser("discover", help="scan networks (nmap if installed) and add what's found to roster.yml")
     s.add_argument("targets", nargs="+", metavar="CIDR", help="e.g. 10.0.1.0/24 (several allowed)")
     s.add_argument("--write", action="store_true", help="add new hosts to roster.yml (default: preview only)")
-    s.add_argument("--group", help="group name for new hosts (default: discovered-YYYYMMDD)")
+    s.add_argument("--group", metavar="NAME", help="group name for new hosts (default: discovered-YYYYMMDD)")
     s.add_argument("--ports", default=DEFAULT_SCAN_PORTS, help="TCP ports to scan (default: common server, "
                    "web, database, remote-admin and network-gear ports)")
-    s.add_argument("--top-ports", type=int, help="nmap only: scan nmap's N most common ports instead")
+    s.add_argument("--top-ports", type=int, metavar="N", help="nmap only: scan nmap's N most common ports instead")
     s.add_argument("--no-ping", action="store_true", help="nmap only: scan hosts that don't answer ping (slower)")
     s.add_argument("--os", action="store_true", help="nmap only: OS detection (needs sudo)")
     s.add_argument("--builtin", action="store_true", help="use the built-in scanner even if nmap is installed")
-    s.add_argument("--timeout", type=float, default=0.5, help="built-in scanner connect timeout (s)")
+    s.add_argument("--timeout", type=float, default=0.5, metavar="SECONDS",
+                   help="built-in scanner connect timeout (default: 0.5)")
     s.add_argument("--force", action="store_true", help="allow scanning more than 4096 addresses")
     s = sub.add_parser("bw", help="run the Bitwarden CLI with this box's vault session (bw-session file)")
-    s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS")
+    s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS", help="arguments for bw")
     sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
     s = sub.add_parser("auth-check", help="test each group's password source, print nothing secret")
-    s.add_argument("--only")
+    s.add_argument("--only", **only)
     s = sub.add_parser("web", help="HTTP request to a host's web service, logged in with its stored credentials")
     s.add_argument("request", nargs="+", metavar="HOST [SERVICE] METHOD PATH",
                    help="e.g. esxi GET /folder  or  orion3 https GET /api/status")
-    s.add_argument("-d", "--data", help="request body (@FILE reads a file)")
-    s.add_argument("-H", "--header", action="append", help="extra header 'Name: value' (repeatable)")
+    s.add_argument("-d", "--data", metavar="BODY", help="request body (@FILE reads a file)")
+    s.add_argument("-H", "--header", action="append", metavar="HEADER", help="extra header 'Name: value' (repeatable)")
     s.add_argument("-k", "--insecure", action="store_true", help="don't verify the TLS certificate")
-    s.add_argument("--timeout", type=float, default=30)
+    s.add_argument("--timeout", type=float, default=30, metavar="SECONDS",
+                   help="how long to wait for the answer (default: 30)")
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
-    s.add_argument("--only")
-    s.add_argument("-y", "--yes", action="store_true")
+    s.add_argument("--only", **only)
+    s.add_argument("-y", "--yes", action="store_true", help="don't ask first")
     sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see docs/serve-api.md)")
     s = sub.add_parser("askpass", help="SSH_ASKPASS helper for a `roster serve` password Session (ssh runs it)")
-    s.add_argument("prompt", nargs="?", default="")
-    args = p.parse_args(argv)
+    s.add_argument("prompt", nargs="?", default="", help="the prompt ssh shows")
+    s = sub.add_parser("man", help="show the roster(1) man page, or install it where `man roster` finds it")
+    s.add_argument("--install", action="store_true",
+                   help="copy it to PREFIX/share/man/man1/, next to PREFIX/bin/roster (~/.local for uv tool install)")
+    s.add_argument("--prefix", metavar="DIR", help="with --install: install into DIR/share/man/man1/ instead")
+    return p
+
+
+def _main(argv=None):
+    args = build_parser().parse_args(argv)
 
     if args.cmd == "askpass":
         from .askpass import main as askpass_main
@@ -572,6 +584,9 @@ def _main(argv=None):
 
     if args.cmd == "init":
         return cmd_init(args)
+    if args.cmd == "man":
+        from .manpage import cmd_man
+        return cmd_man(args)
     if args.cmd == "discover":
         return cmd_discover(args)
     if args.cmd == "bw":
