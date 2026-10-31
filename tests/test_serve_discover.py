@@ -179,7 +179,7 @@ def test_add_into_a_named_group_and_without_a_git_repo(serve, net, inventory):
     assert r["error"]["code"] == 100                                           # a group that's there is taken
     r = s.call("discover.add", {"scan": scan, "addresses": ["10.0.0.7"], "group": "found-today"})["result"]
     assert r["group"] == "found-today"
-    shutil.rmtree(inventory.parent / ".git")
+    (inventory.parent / ".git").rename(inventory.parent / "not-git")    # (git's read-only objects: no rmtree on Windows)
     assert s.call("discover.add", {"scan": scan, "addresses": ["10.0.0.9"]})["error"]["code"] == 70
 
 
