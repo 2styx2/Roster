@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import __version__
+from . import __version__, mesh
 from .claude import write_claude_files
 from .common import die, not_reviewed, say, ssh_config_file, tcp_ok
 from .config import access_label, find_config, load_config, matches, selected
@@ -93,6 +93,12 @@ def cmd_setup(cfg, args):
                     say(f"  FAIL  {h['name']}: {e}")
 
     write_claude_files(cfg)
+    if mesh.graph(cfg)["links"]:
+        if args.only:
+            say("mesh         not applied with --only (it covers the whole Mesh): run `roster mesh`")
+        else:
+            say("mesh         applying the Mesh for meshed groups and links (one Host at a time)...")
+            failed.update({n: f"mesh: {why}" for n, why in mesh_apply(cfg).items()})
     ready = len(key_hosts) - len(todo) + installed
     say()
     say(f"done         {ready} key hosts ready, {len(pw_hosts)} password-only hosts, {len(failed)} failed")
@@ -107,7 +113,112 @@ def cmd_sync(cfg, args):
     write_ssh_config(cfg)
     write_claude_files(cfg)
     say("note: new hosts still need `roster setup` (it only touches hosts that aren't ready)")
+    if mesh.status(cfg)["out_of_date"]:
+        say("mesh out of date: roster.yml changed the Mesh since its last apply here - run `roster mesh`")
     return 0
+
+
+# ---------------------------------------------------------------- the Mesh (ticket 39, decision Q63)
+
+LINK_WORDS = {"ok": "ok", "untested": "ok (port not tested: no nc or bash there)", "unreachable": "UNREACHABLE",
+              "no-host-key": "NO HOST KEY", "pending": "pending", "skipped": "skipped"}
+
+
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def show_mesh(r, drift=False):
+    """A plan or an apply as text: the links, what changes where, what's left out, what's unfinished."""
+    links = r["links"]
+    if not drift:
+        say(f"links        {plural(len(links), 'link')} "
+            f"({sum(x['kind'] == 'key' for x in links)} key, {sum(x['kind'] == 'password' for x in links)} password)")
+        width = max((len(x["from"]) + len(x["to"]) for x in links), default=0) + 4
+        for x in links:
+            word = LINK_WORDS[x["status"]]
+            why = f" - {x['why']}" if x.get("why") and x["status"] != "untested" else ""
+            note = " (ssh asks the person for the password)" if x["kind"] == "password" and x["status"] == "ok" else ""
+            say(f"  {x['from'] + ' -> ' + x['to']:<{width}} {x['kind']:<9}{word}{note}{why}")
+    else:
+        for x in links:
+            if x["status"] in ("unreachable", "no-host-key"):
+                say(f"  link {x['from']} -> {x['to']}: {x['why']}")
+    changed = [h for h in r["hosts"] if h["changes"]]
+    if changed:
+        say("mesh drift (on the Hosts, not what roster wrote):" if drift else
+            "changes" if r["applied"] else "would change")
+        for h in changed:
+            say(f"  {h['host']}: {', '.join(h['changes'])}")
+    if r["excluded"] and not drift:
+        say("left out: " + ", ".join(f"{n} ({why})" for n, why in r["excluded"].items()))
+    for w in r["warnings"]:
+        say(f"warning: {w}")
+    if r["pending"]:
+        say(f"pending on {plural(len(r['pending']), 'Host')} (finished by the next `roster mesh` once they answer):")
+        for n, why in r["pending"].items():
+            say(f"  {n}: {why}")
+    warn_cut(r.get("cut_pending") or {})
+
+
+def warn_cut(cut):
+    for host, peers in cut.items():
+        print(f"WARNING: CUT PENDING ON {plural(len(peers), 'HOST').upper()}: {', '.join(peers)} - {host}'s cut isn't "
+              "finished there; `roster mesh cut " + host + "` again, or `roster mesh`, once they answer",
+              file=sys.stderr, flush=True)
+        say(f"cut pending on {plural(len(peers), 'Host')} for {host}: {', '.join(peers)}")
+
+
+def mesh_apply(cfg):
+    r = mesh.run(cfg, apply=True, say=say)
+    show_mesh(r)
+    return r["pending"]
+
+
+def cmd_mesh(cfg, args):
+    from .errors import Problem
+    if args.action == "status":
+        st = mesh.status(cfg)
+        for n in st["members"]:
+            say(f"  {n:<16} can reach {plural(st['reach'].get(n, 0), 'Host')}")
+        if st["pending"]:
+            say(f"pending on {plural(len(st['pending']), 'Host')}: {', '.join(st['pending'])}")
+        warn_cut(st["cut_pending"])
+        say("mesh out of date: run `roster mesh`" if st["out_of_date"] else "mesh up to date")
+        return 0
+    if args.action == "cut":
+        if not args.target:
+            die("usage: roster mesh cut HOST")
+        if args.target not in cfg["hosts"]:
+            die(f"unknown host {args.target!r} (see `roster hosts`)")
+        if not args.yes:
+            ans = input(f"Cut {args.target} out of the Mesh now, on every Host at once? [y/N] ")
+            if ans.strip().lower() != "y":
+                return 1
+        r = mesh.cut(cfg, args.target, cfg["workers"])
+        change = mesh.write_cut(cfg, args.target)
+        say(f"cut {args.target}: confirmed on {', '.join(r['confirmed']) or 'no Host'}")
+        if change.get("written"):
+            say(f"roster.yml   mesh: false for {args.target}, a Pending change (publish it so the cut stays)")
+        say(f"note: {change['note']}") if change.get("note") else None
+        if change.get("error"):
+            say(f"warning: mesh: false not written: {change['error']} - {change['fix']}")
+        for n, why in r["pending"].items():
+            say(f"  not confirmed  {n}: {why}")
+        warn_cut({args.target: sorted(r["pending"])} if r["pending"] else {})
+        return 1 if r["pending"] or change.get("error") else 0
+    if args.target:
+        die(f"unexpected {args.target!r}: roster mesh [--dry-run] [--rotate HOST], or roster mesh cut HOST")
+    try:
+        r = mesh.run(cfg, apply=not args.dry_run, rotate=args.rotate or (), say=say)
+    except Problem as e:
+        die(e.message)
+    show_mesh(r)
+    if args.dry_run:
+        say("dry run: nothing was changed")
+    elif r["already"]:
+        say("already in the mesh: nothing to change")
+    return 1 if r["pending"] else 0
 
 
 def cmd_check(cfg, args):
@@ -129,6 +240,14 @@ def cmd_check(cfg, args):
             say(f"{h['name']:<{width}}  {line}")
     say(f"\n{len(hosts) - bad}/{len(hosts)} hosts fully reachable"
         + ("" if all(h["enroll"] for h in hosts) else "  (password-only hosts: ssh = port open)"))
+    drift = mesh.drift(cfg) if not args.only else None
+    if drift is not None:
+        say()
+        show_mesh(drift, drift=True)
+        bad += bool(drift["pending"] or any(h["changes"] for h in drift["hosts"])
+                    or any(x["status"] in ("unreachable", "no-host-key") for x in drift["links"]))
+        if drift["already"]:
+            say("mesh         every Host holds what roster wrote")
     return 1 if bad else 0
 
 
@@ -562,6 +681,13 @@ def build_parser():
     s.add_argument("-k", "--insecure", action="store_true", help="don't verify the TLS certificate")
     s.add_argument("--timeout", type=float, default=30, metavar="SECONDS",
                    help="how long to wait for the answer (default: 30)")
+    s = sub.add_parser("mesh", help="set up Host-to-Host access (mesh: and links: in roster.yml), one Host at a time")
+    s.add_argument("action", nargs="?", choices=["cut", "status"],
+                   help="cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)")
+    s.add_argument("target", nargs="?", metavar="HOST", help="with cut: the Host to cut out")
+    s.add_argument("--dry-run", action="store_true", help="show the plan; change nothing on any Host")
+    s.add_argument("--rotate", action="append", metavar="HOST", help="replace HOST's Mesh key (repeatable)")
+    s.add_argument("-y", "--yes", action="store_true", help="with cut: don't ask first")
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only", **only)
     s.add_argument("-y", "--yes", action="store_true", help="don't ask first")
@@ -606,4 +732,5 @@ def _main(argv=None):
     cfg = load_config(find_config(args.config))
     setup_providers(cfg)
     return {"setup": cmd_setup, "sync": cmd_sync, "check": cmd_check, "hosts": cmd_hosts, "info": cmd_info,
-            "run": cmd_run, "revoke": cmd_revoke, "resources": cmd_resources, "reveal": cmd_reveal, "auth-check": cmd_auth_check, "web": cmd_web}[args.cmd](cfg, args)
+            "run": cmd_run, "revoke": cmd_revoke, "resources": cmd_resources, "reveal": cmd_reveal, "auth-check": cmd_auth_check, "web": cmd_web,
+            "mesh": cmd_mesh}[args.cmd](cfg, args)

@@ -429,6 +429,33 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 | `66` | `quick.save`, `host.save_login`: the Session hasn't logged in with the typed password (yet, or the box refused it); nothing is saved |
 | `67` | `quick.save`, `host.save_login`: no typed password is held for that id: never asked for (`save`), already saved, or forgotten (`vault.forget_typed`, `vault.lock`, 10 minutes) |
 
+## The Mesh: `mesh.plan`, `mesh.apply`, `mesh.cut`, `mesh.status`
+
+Host-to-Host access set up from this Box (API 15; [The Mesh](mesh.md)). The app's controls for it are a first-party Plugin; these are the methods it calls. `mesh.plan` and `mesh.apply` connect to each Host they need one at a time (deadline 240 s; a Host they don't get to in time is pending), `mesh.cut` to every Host at once (60 s). `mesh.status` never connects. Every one reads `roster.yml` afresh, so a file that doesn't load is `1`.
+
+<!-- BEGIN generated:methods mesh.plan mesh.apply mesh.cut mesh.status -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `mesh.plan` | `{rotate?: [host]}` | a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere | `1`, `110` | 15 |
+| `mesh.apply` | `{rotate?: [host]}` | a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere | `1`, `110` | 15 |
+| `mesh.cut` | `{host}` | `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's off HOST, at once. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true, backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened) | `1`, `2` | 15 |
+| `mesh.status` | none | `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the Mesh since the last complete apply on this Box |  | 15 |
+
+<!-- END generated:methods -->
+
+A Mesh result is `{applied, links, hosts, excluded, reach, pending, already, warnings, cut_pending}`:
+
+- `links`: `[{from, to, kind, status, why?, skip?}]`. `kind` is `key` or `password` (the peer asks for a password). `status` is `ok`; `untested` (written, but the source has no `nc` or bash to test the port with); `unreachable` (the source can't reach the peer's ssh port: left out); `no-host-key` (this Box recorded no host key for the peer: left out); `pending` (the source didn't answer); `skipped` (`skip: "password-source"`: roster doesn't write on a password Host). `why` says it in words.
+- `hosts`: `[{host, status, changes, error?}]` for every Host visited. `status` is `same`, `would-change` (plan), `changed` (apply) or `pending` (with `error`). `changes` are short phrases: `make key`, `replace key`, `write ssh config`, `write known_hosts`, `write ROSTER.md`, `write Include in ~/.ssh/config`, `add key from orion-2`, `remove key from orion-2`, `replace key from orion-2`, `remove id_ed25519`, ....
+- `excluded`: `{host: why}` for Hosts kept out (`not reviewed (reviewed: false)`, `mesh: false`).
+- `reach`: `{source: how many Hosts it reaches}`, counting the Links that work.
+- `pending`: `{host: why}`, Hosts that didn't answer; `already`: nothing to change and nothing pending ("already in the mesh"); `warnings`: words to show (a `ROSTER.md` that isn't roster's, a Host that left `roster.yml`); `cut_pending`: `{host: [peers]}` from earlier cuts not yet finished.
+
+| Code | Meaning |
+|---|---|
+| `110` | `rotate` names a Host that isn't a Mesh source, so it has no Mesh key to replace. `data.hosts`. Nothing connected |
+
 ## See also
 
 [The roster command](cli-reference.md) · [Connection errors](app/errors.md) · [The app's architecture](app/architecture.md)

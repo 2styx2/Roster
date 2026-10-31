@@ -74,6 +74,9 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("quick.save", 90),
     ("host.save_login", 90),
     ("vault.login", 100),
+    ("mesh.plan", 300),
+    ("mesh.apply", 300),
+    ("mesh.cut", 120),
 ];
 
 /// How long the app waits for `method` (see [`CALL_SECS`]).

@@ -433,6 +433,66 @@ export interface VaultAccount {
 /** The first `api_version` with `vault.logout` and `vault.status`'s `account` (ticket 42). */
 export const SIGN_OUT_API_VERSION = 14;
 
+/** The first `api_version` with the Mesh's methods (ticket 39): `mesh.plan`, `mesh.apply`,
+ * `mesh.cut`, `mesh.status`, and a Host's `mesh`. The app's controls for them are T50's Plugin. */
+export const MESH_API_VERSION = 15;
+
+/** roster's code for the Mesh (ticket 39): `rotate` names a Host that isn't a Mesh source. */
+export const MeshError = { notASource: 110 } as const;
+
+/** One Link of the Mesh: `from` reaches `to` (as `to`'s own user). `status` only in a plan or apply. */
+export interface MeshLink {
+  from: string;
+  to: string;
+  /** `password`: the peer takes no key, so ssh asks the person. */
+  kind: "key" | "password";
+  status?: "ok" | "untested" | "unreachable" | "no-host-key" | "pending" | "skipped";
+  why?: string;
+  skip?: "password-source";
+}
+
+/** What `mesh.plan` or `mesh.apply` found or did on one Host. */
+export interface MeshHost {
+  host: string;
+  status: "same" | "would-change" | "changed" | "pending";
+  /** Short phrases: "make key", "add key from orion-2", "write ssh config", ... */
+  changes: string[];
+  error?: string;
+}
+
+/** `mesh.plan` (`applied: false`) and `mesh.apply`. */
+export interface MeshResult {
+  applied: boolean;
+  links: MeshLink[];
+  hosts: MeshHost[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  pending: Record<string, string>;
+  /** Nothing to change and nothing pending: "already in the mesh". */
+  already: boolean;
+  warnings: string[];
+  cut_pending: Record<string, string[]>;
+}
+
+/** `mesh.cut`: confirmed Hosts, the ones that didn't answer, and the `mesh: false` Pending change. */
+export interface MeshCut {
+  host: string;
+  confirmed: string[];
+  pending: Record<string, string>;
+  change: { written: boolean; backup?: string | null; note?: string; error?: string; fix?: string };
+}
+
+/** `mesh.status`: no connections. */
+export interface MeshStatus {
+  links: MeshLink[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  members: string[];
+  pending: Record<string, string>;
+  cut_pending: Record<string, string[]>;
+  out_of_date: boolean;
+}
+
 /** `vault.logout`: where the vault stands now (not-logged-in, with `sign_in`), and the account it
  * signed out of (null when the CLI didn't name one). */
 export type SignedOut = ProviderStatus & { signed_out: VaultAccount | null };
