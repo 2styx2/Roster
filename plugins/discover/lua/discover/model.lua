@@ -200,7 +200,7 @@ function M.details(f)
   else
     lines[#lines + 1] = "Adds as   " .. (f.name or "")
   end
-  lines[#lines + 1] = "Looks like " .. f.type .. " (a guess: fix it when you review it)"
+  lines[#lines + 1] = "Type      " .. f.type .. " (guessed: fix it when you review it)"
   if f.vendor ~= "" then lines[#lines + 1] = "Hardware  " .. f.vendor end
   if f.os ~= "" then lines[#lines + 1] = "OS        " .. f.os end
   if f.mac ~= "" then lines[#lines + 1] = "MAC       " .. f.mac end

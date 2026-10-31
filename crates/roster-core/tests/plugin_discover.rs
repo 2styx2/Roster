@@ -70,7 +70,8 @@ fn copy_dir(from: &Path, to: &Path) {
 
 /// What the stand-in roster serve found: three Hosts on 10.0.0.0/24, one already in the Inventory.
 fn found() -> Vec<Value> {
-    let port = |port: u64, name: &str, product: &str| json!({ "port": port, "name": name, "product": product, "title": "" });
+    let port =
+        |port: u64, name: &str, product: &str| json!({ "port": port, "name": name, "product": product, "title": "" });
     vec![
         json!({ "address": "10.0.0.5", "name": null, "type": "server", "hostname": "", "title": "", "web": "https://10.0.0.5",
                 "known": "esx-02", "added": null, "vendor": "", "os": "", "mac": "",
@@ -157,7 +158,9 @@ impl FakeServe {
                         json!({ "address": a, "name": f["name"] })
                     })
                     .collect();
-                Ok(json!({ "group": "discovered-20261031", "added": added, "backup": "/infra/.git/roster/roster.yml.bak" }))
+                Ok(
+                    json!({ "group": "discovered-20261031", "added": added, "backup": "/infra/.git/roster/roster.yml.bak" }),
+                )
             }
             other => Err(format!("unknown method '{other}' (code -32601)")),
         }
@@ -334,8 +337,16 @@ fn it_installs_from_its_folder_asks_for_the_discover_methods_and_flags_the_scan(
     let toolbar = op(&loaded.ops, "toolbar");
     assert_eq!(toolbar["spec"]["run"], "discover");
     let key = op(&loaded.ops, "key");
-    assert_eq!((key["keys"].as_str(), key["action"].as_str()), (Some("y d"), Some("discover")));
-    assert!(op(&loaded.ops, "help")["spec"]["markdown"].as_str().unwrap().contains("unreviewed"));
+    assert_eq!(
+        (key["keys"].as_str(), key["action"].as_str()),
+        (Some("y d"), Some("discover"))
+    );
+    assert!(
+        op(&loaded.ops, "help")["spec"]["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("unreviewed")
+    );
     // Loading asks roster serve nothing: no scan starts on its own.
     assert!(w.serve.calls().is_empty());
 }
@@ -349,7 +360,12 @@ fn it_asks_before_it_scans_and_nothing_starts_until_the_user_says_scan() {
     let confirm = &op(&asked.ops, "confirm")["spec"];
     assert_eq!(confirm["title"], "Scan 10.0.0.0/24?");
     assert_eq!(confirm["action"], "Scan");
-    assert!(confirm["text"].as_str().unwrap().contains("254 addresses on 47 TCP ports"));
+    assert!(
+        confirm["text"]
+            .as_str()
+            .unwrap()
+            .contains("254 addresses on 47 TCP ports")
+    );
     assert_eq!(confirm["danger"], false);
     // Cancel is simply never calling `run`: nothing more reached serve.
     assert_eq!(w.serve.methods(), ["discover.plan"]);
@@ -404,12 +420,7 @@ fn results_come_in_as_the_scan_finds_them_and_the_progress_ends_with_it() {
             .iter()
             .any(|o| o["op"] == "remove" && o["kind"] == "progress")
     );
-    assert!(
-        second
-            .ops
-            .iter()
-            .any(|o| o["op"] == "remove" && o["kind"] == "timer")
-    );
+    assert!(second.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
     assert_eq!(op(&second.ops, "notify")["text"], "Scan done: 3 Hosts answered, 2 new");
 }
 
@@ -468,7 +479,12 @@ fn without_its_permissions_it_loads_and_says_what_it_needs() {
     let loaded = w.load(&[]);
     assert!(text(&loaded.ops).contains("Allow them in :plugins"));
     let asked = w.command(&loaded, "10.0.0.0/24");
-    assert!(op(&asked.ops, "notify")["text"].as_str().unwrap().contains("serve:discover.plan"));
+    assert!(
+        op(&asked.ops, "notify")["text"]
+            .as_str()
+            .unwrap()
+            .contains("serve:discover.plan")
+    );
     assert!(w.serve.calls().is_empty());
 
     // Scanning without the right to add: the scan works, adding says what's missing.
@@ -481,12 +497,20 @@ fn without_its_permissions_it_loads_and_says_what_it_needs() {
         action(&loaded.ops, "Add the kept Hosts"),
         json!({ "row": "10.0.0.7", "view": NAME }),
     );
-    assert!(op(&r.ops, "notify")["text"].as_str().unwrap().contains("serve:discover.add"));
+    assert!(
+        op(&r.ops, "notify")["text"]
+            .as_str()
+            .unwrap()
+            .contains("serve:discover.add")
+    );
 }
 
 #[test]
 fn bad_settings_are_named_and_the_defaults_used() {
-    let w = World::new("settings", json!({ "leader": " x", "ranges": "10.0.0.0/24", "ports": "ssh" }));
+    let w = World::new(
+        "settings",
+        json!({ "leader": " x", "ranges": "10.0.0.0/24", "ports": "ssh" }),
+    );
     let loaded = w.load(ALL);
     let notices: Vec<&str> = loaded
         .ops
@@ -504,6 +528,20 @@ fn configured_ranges_are_what_discover_alone_offers_to_scan() {
     let loaded = w.load(ALL);
     let asked = w.command(&loaded, "");
     assert_eq!(op(&asked.ops, "confirm")["spec"]["title"], "Scan 10.0.0.0/24?");
+}
+
+#[test]
+fn check_says_whether_this_boxs_roster_can_scan_and_connects_nowhere() {
+    let w = World::new("health", json!({}));
+    let loaded = w.load(&ALL[..4]);
+    let check = handler(&op(&loaded.ops, "health")["spec"]["check"]);
+    let lines = w.call(check, json!({ "health": NAME })).result;
+    assert_eq!(lines[0]["level"], "ok");
+    assert_eq!(lines[0]["message"], "roster serve can scan, with nmap");
+    assert_eq!(lines[1]["level"], "warn");
+    assert!(lines[1]["message"].as_str().unwrap().contains("serve:discover.add"));
+    // discover.plan only: it says how many addresses, and scans nothing.
+    assert_eq!(w.serve.methods(), ["discover.plan"]);
 }
 
 /// The core keeps the scan and the add to calls the user started, whatever a Plugin tries.
@@ -541,13 +579,7 @@ roster.commands.add("go", { run = function() roster.serve.call("discover.start",
     let timer = handler(&op(&loaded.ops, "timer")["run"]);
     let fired = host.call("sneaky", timer, json!({}));
     assert_eq!(op(&fired.ops, "notify")["text"], "refused");
-    let go = handler(
-        &loaded
-            .ops
-            .iter()
-            .find(|o| o["op"] == "command")
-            .unwrap()["run"],
-    );
+    let go = handler(&loaded.ops.iter().find(|o| o["op"] == "command").unwrap()["run"]);
     ok(&host.call("sneaky", go, json!({ "args": "", "words": [] })));
     assert_eq!(serve.methods(), ["discover.status", "discover.start"]);
 }

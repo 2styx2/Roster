@@ -199,6 +199,21 @@ What a Plugin's buttons, questions and command lines can run into ([plugins.md](
 | 89 | none (a Plugin's notice) | `roster.sessions.show` names a Session that has ended (or never was) | The Plugin / the Session | "recent-alerts: there's no Session 3 now: it has ended" | Open the Host again; the line isn't there any more |
 | 90 | none (a Plugin's notice) | Two Plugins use one progress id | The Plugins | "discover: there's a progress named scan already, from mesh" | The second is ignored until the first is removed; tell an author |
 
+## Discover
+
+Scanning a network from the app with the first-party [discover](../../plugins/discover/README.md) Plugin, through `roster serve`'s `discover.*` ([serve-api.md](../serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd)). Each is a notice from the Plugin (`discover: …`) or a line of its view; nothing is written to `roster.yml` until an add succeeds.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 91 | -32602 | A range that isn't an IP address or network (`:discover esx-02`, `10.0.0.0/33`) | What you typed | "'esx-02' isn't an IP address or network (e.g. 10.0.0.0/24)" | Name a network or an address |
+| 92 | 121 | More than 65,536 addresses (over 4,096, the question asks you to type the range first) | What you typed | "that's 131,070 addresses; a scan visits at most 65,536" | Scan a smaller range, a /16 at most |
+| 93 | 120 | A scan is going already (one at a time, per `roster serve`) | This Box | "a scan of 10.0.0.0/24 is going already" | Wait for it, or `:discover stop` |
+| 94 | none (the scan's `error`) | nmap failed: not allowed, a bad option, killed | This Box | "The scan of 10.0.0.0/24 failed: nmap failed: …" | See nmap's words; `roster discover` in a terminal shows the same |
+| 95 | 122 | `roster serve` restarted during a scan (its scans don't outlive it) | This Box | "The scan of 10.0.0.0/24 failed: no scan 'scan-1' here" | Scan again |
+| 96 | 123 | An address can't be added: the scan didn't find it, or it's in the Inventory or added already | The Inventory | "Nothing was added: 10.0.0.5: in the Inventory already" | Keep only the new ones |
+| 97 | 70, 74, 100 | Adding: `roster.yml` isn't in a git repo, the result wouldn't load, or the `group` setting names a group that's there | `roster.yml` / init.lua | "Nothing was added: … isn't in a git repo, so it can't have Pending changes" | As for any Pending change; name a new group in the `group` setting |
+| 98 | -32601 | The Box's roster is older than serve API 17: it has no `discover.*` | This Box | "Not scanned: the roster on this Box is too old to scan from the app" | Update roster on the Box; `roster discover` works meanwhile |
+
 ## This Box's health
 
 `:check` with no Host checks this Box rather than a Host, like Neovim's `:checkhealth`, and shows the result as a help page, [`health`](health). It opens at once, says it's checking, then fills in. Each section is a heading and each check a line: `OK`, `WARNING` or `ERROR`, what it found, the fix, and a link to the topic that explains it (a row of this catalog, `E6`, or a command). The page's links, `/`, `g O` and `:helpgrep` work as on any help page, and running `:check` again replaces it.

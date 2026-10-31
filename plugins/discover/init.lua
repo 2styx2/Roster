@@ -69,11 +69,11 @@ local function words()
     return "Discover needs " .. model.list(gone) .. ". Allow them in :plugins to scan a network.", {}
   end
   if not scan then
-    local text = "Scan a network for Hosts: `:discover 10.0.0.0/24`. roster scans from this computer, "
+    local text = "Scan a network for Hosts: :discover 10.0.0.0/24. roster scans from this computer, "
       .. "and nothing is added until you pick what to keep."
     if #settings.ranges > 0 then
-      text = "Scan " .. model.list(settings.ranges) .. " for Hosts: `:discover` (or name another range: "
-        .. "`:discover 10.0.0.0/24`). roster scans from this computer, and nothing is added until you pick what to keep."
+      text = "Scan " .. model.list(settings.ranges) .. " for Hosts: :discover (or name another range: "
+        .. ":discover 10.0.0.0/24). roster scans from this computer, and nothing is added until you pick what to keep."
     end
     return text, {}
   end
@@ -89,10 +89,10 @@ local function words()
     text = "The scan of " .. where .. " failed: " .. (scan.error or "no reason given") .. "."
   else
     text = (scan.state == "stopped" and "Stopped the scan of " or "Scanned ") .. where .. ": "
-      .. model.plural(#order, "Host", "Hosts") .. " answered."
+      .. model.plural(scan.count, "Host", "Hosts") .. " answered."
   end
   if new > 0 then
-    text = text .. "\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in "
+    text = text .. "\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in "
       .. "unreviewed, as Pending changes you review in :changes and Publish."
   elseif added > 0 then
     text = text .. "\n\nThe ones you added are Pending changes: review them in :changes, then Publish."
@@ -221,7 +221,7 @@ local function progress()
   if scan.state == "running" or scan.state == "stopping" then
     roster.progress.set("scan", {
       title = "Scanning " .. model.list(scan.targets),
-      text = model.plural(#order, "Host", "Hosts") .. " found so far",
+      text = model.plural(scan.count, "Host", "Hosts") .. " found so far",
       done = scan.done,
       total = scan.total,
       cancel = stop,
@@ -263,7 +263,7 @@ poll = function()
       roster.notify("The scan of " .. model.list(scan.targets) .. " failed: " .. (scan.error or "no reason given"), "error")
     else
       local new = counts()
-      roster.notify((scan.state == "stopped" and "Stopped: " or "Scan done: ") .. model.plural(#order, "Host", "Hosts")
+      roster.notify((scan.state == "stopped" and "Stopped: " or "Scan done: ") .. model.plural(scan.count, "Host", "Hosts")
         .. " answered, " .. model.count(new) .. " new")
     end
   end
@@ -444,6 +444,36 @@ roster.help.set("discover", {
     "It needs `serve:discover.plan`, `.start`, `.status` and `.stop` to scan, and `serve:discover.add` to add. "
       .. "See `:help plugins`.",
   }, "\n"),
+})
+
+-- A section of `:check`: whether this Box's roster can scan, and with what. discover.plan connects
+-- nowhere, so :check stays safe to run anywhere.
+roster.health.set("discover", {
+  title = "Discover",
+  check = function()
+    local gone = missing()
+    if #gone > 0 then
+      return { { level = "warn", message = model.list(gone) .. " not granted: Discover can't scan",
+        fix = "Allow them in :plugins" } }
+    end
+    local ok, plan = pcall(call, "discover.plan", { targets = { "10.0.0.0/30" } })
+    if not ok and model.code(plan) == -32601 then
+      return { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 17)",
+        fix = "Update roster on this Box; `roster discover` in a terminal works meanwhile" } }
+    elseif not ok then
+      return { { level = "error", message = "roster serve didn't answer discover.plan: " .. model.message(plan) } }
+    end
+    local out = { { level = "ok", message = "roster serve can scan, with " .. plan.scanner } }
+    if plan.scanner ~= "nmap" then
+      out[1] = { level = "warn", message = "nmap isn't installed on this Box: scans use roster's own TCP connect "
+        .. "scan, with no service versions or web page titles", fix = "Install nmap on this Box (apt install nmap)" }
+    end
+    if not roster.has(ADDS) then
+      out[#out + 1] = { level = "warn", message = ADDS .. " isn't granted: scans can't add what they find",
+        fix = "Allow it in :plugins" }
+    end
+    return out
+  end,
 })
 
 view()

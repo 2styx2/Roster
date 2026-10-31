@@ -17,7 +17,7 @@ src/roster/
   sshops.py         keys, fingerprints, ssh config, key install/removal, password logins
   resources.py      Wi-Fi networks, accounts and secrets with no address: the field schema per type
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
-  discover.py       nmap / built-in scanning, type guessing, merging into roster.yml
+  discover.py       nmap / built-in scanning, type guessing, merging into roster.yml; Scan: serve's discover.* scan
   serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, the roster.yml watcher (inventory.changed);
                     each method's docstring is its row in docs/serve-api.md (scripts/gen-serve-api.py)
   edit.py           editing one Host in roster.yml as text, adding, removing, renaming or moving one, and groups (comments and other entries kept), checked before it's written

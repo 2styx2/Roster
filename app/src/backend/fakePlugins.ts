@@ -43,7 +43,13 @@ export interface FakeRoster {
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
   sessions: { show(session: number, line?: string): void; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
+  /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend. */
+  serve?: { call(method: string, params?: Spec): unknown };
 }
+
+/** How a fake Plugin's `roster.serve.call` reaches the fake Backend: the result, or a thrown
+ * BackendCallError (its code ends the Plugin's error, as the core's does). */
+export type FakeServe = (method: string, params: Spec) => unknown;
 
 export interface FakePlugin {
   manifest: Omit<PluginManifest, "permissions"> & { permissions: string[] };
@@ -284,6 +290,10 @@ export function fakePluginHost(
   hosts: () => Host[],
   /** Paths found elsewhere (a Package's `package:NAME`), with the settings they're handed. */
   extra: (path: string) => { plugin: FakePlugin; config: Record<string, unknown> } | undefined = () => undefined,
+  /** roster serve, for the Plugins granted a `serve:` method. */
+  serve: FakeServe = (method) => {
+    throw new BackendCallError(`unknown method '${method}'`, -32601);
+  },
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
   pluginTypes(path: string): Promise<string>;
@@ -432,6 +442,20 @@ export function fakePluginHost(
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
+    if ([...r.grants].some((g) => g.startsWith("serve:"))) {
+      m.serve = {
+        call: (method, params = {}) => {
+          if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
+          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(`roster.serve.call ${method}`);
+          try {
+            return serve(method, params);
+          } catch (e) {
+            if (e instanceof BackendCallError) throw new Error(`roster.serve.call ${method}: ${e.message} (code ${e.code})`, { cause: e });
+            throw e;
+          }
+        },
+      };
+    }
     return m;
   };
 

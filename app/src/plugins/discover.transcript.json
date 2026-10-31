@@ -263,6 +263,14 @@
         },
         {
           "id": "discover",
+          "op": "health",
+          "spec": {
+            "check": "fn",
+            "title": "Discover"
+          }
+        },
+        {
+          "id": "discover",
           "op": "view",
           "spec": {
             "facts": [],
@@ -347,7 +355,7 @@
               "rows": [],
               "sort": "address"
             },
-            "text": "Scan a network for Hosts: `:discover 10.0.0.0/24`. roster scans from this computer, and nothing is added until you pick what to keep.",
+            "text": "Scan a network for Hosts: :discover 10.0.0.0/24. roster scans from this computer, and nothing is added until you pick what to keep.",
             "title": "Discover"
           }
         }
@@ -497,7 +505,7 @@
                 "id": "10.0.0.7"
               }
             ],
-            "text": "Scanning 10.0.0.0/24 with nmap: 128 of 254 addresses. Hosts show here as they're found.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanning 10.0.0.0/24 with nmap: 128 of 254 addresses. Hosts show here as they're found.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -555,7 +563,7 @@
                 "id": "10.0.0.9"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -591,7 +599,7 @@
                 "value": "0"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -614,7 +622,7 @@
               "Address   10.0.0.7",
               "DNS name  appliance.lab",
               "Adds as   appliance",
-              "Looks like appliance (a guess: fix it when you review it)",
+              "Type      appliance (guessed: fix it when you review it)",
               "",
               "Open ports",
               "  443    https  lighttpd  \"Appliance login\""
@@ -672,7 +680,7 @@
                 "id": "10.0.0.9"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -721,7 +729,7 @@
                 "id": "10.0.0.7"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -770,7 +778,7 @@
                 "id": "10.0.0.7"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -819,7 +827,7 @@
                 "id": "10.0.0.7"
               }
             ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or `:discover keep all`), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
           },
           "id": "discover",
           "op": "view_update"
@@ -1008,6 +1016,14 @@
           "spec": {
             "markdown": "# Discover\n\nScans a network for Hosts, from this computer, the way `roster discover` does, and shows what answered: its address, the name it would get, what it looks like, its open ports and its web page's title. You keep the ones you want and add them: they go into the Inventory in a new group, **unreviewed**, as Pending changes you review in `:changes` and Publish. Nothing is added, and nothing connects to a Host, before you say so.\n\n- `:discover 10.0.0.0/24` scans a range (several: `:discover 10.0.0.0/24 10.0.1.0/28`). It asks first, with how many addresses and ports.\n- `:discover` opens the view; `␣ y d` and the toolbar's **Scan** do the same.\n- On a row: `m` keeps it, `u` doesn't, `A` adds the kept ones, `i` or Enter shows its details. `:discover keep all` and `:discover keep none` mark every new one.\n- `:discover stop` (or `:cancel scan`, or the stop button by the progress) stops the scan; what it found stays.\n\nThe scan runs in roster serve: nmap when it's installed (service versions and web page titles), else roster's own TCP connect scan. Up to 4,096 addresses as asked; more, up to a /16, only after you type the range. A Host already in the Inventory shows with its name, greyed out.\n\nIt needs `serve:discover.plan`, `.start`, `.status` and `.stop` to scan, and `serve:discover.add` to add. See `:help plugins`.",
             "summary": "Scan a network from the app and add what it finds",
+            "title": "Discover"
+          }
+        },
+        {
+          "id": "discover",
+          "op": "health",
+          "spec": {
+            "check": "fn",
             "title": "Discover"
           }
         },

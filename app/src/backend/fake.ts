@@ -65,6 +65,7 @@ import {
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
 import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
+import { discoverPlugin, fakeDiscoverServe, hugeNet, smallNet, type FakeNet } from "./fakeDiscover";
 import { recentAlerts } from "./fakeRecentAlerts";
 import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
@@ -177,6 +178,9 @@ export interface FakeScenario {
   logs?: Record<string, string[]>;
   /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
   plugins?: Record<string, FakePlugin>;
+  /** Ticket 44 (API 17): what a scan from roster serve finds (`discover.*`, for the discover Plugin).
+   * Without it, roster serve has no discover methods, as a roster older than API 17. */
+  discover?: FakeNet;
   /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
   packages?: FakePackages;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
@@ -536,6 +540,11 @@ export const fixtures: Record<string, FakeScenario> = {
   "worst-case": worstCase(),
   /** The example Plugin, recent-alerts, running with alerts to show (ticket 79). */
   "recent-alerts": recentAlertsCase(),
+  /** The first-party discover Plugin installed, granted, with a small network to scan (ticket 44):
+   * `:discover 10.0.0.0/24`, or the toolbar's Scan. */
+  discover: discoverCase(smallNet("host-03"), 64),
+  /** discover's worst case: a /16 where 12,000 answer (`:discover 10.0.0.0/16`), long names and titles. */
+  "discover-worst": discoverCase(hugeNet(), 22000),
   /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
    * Sessions (default 12) whose shells print `&rate=R` log lines a second (default 100). */
   perf: perfCase(),
@@ -580,6 +589,25 @@ function recentAlertsCase(): FakeScenario {
       state: { plugins: [{ path: "package:recent-alerts", name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }] },
       openAtStart: open,
     },
+  };
+}
+
+/** `?fixture=discover` (ticket 44): plugins/discover installed as a Package from roster's repo
+ * and granted, with roster serve answering discover.* from `found`, `step` addresses a poll. */
+function discoverCase(found: FakeNet["found"], step: number): FakeScenario {
+  const commit = fakeCommit(2);
+  const permissions = discoverPlugin().manifest.permissions;
+  return {
+    hosts: makeHosts(12),
+    apiVersion: 17,
+    vault: { status: "unsupported" },
+    discover: { found, step },
+    packages: {
+      named: [{ name: "discover", source: "https://github.com/2styx2/roster", config: { ranges: ["10.0.0.0/24"] }, versions: [{ commit, subject: "discover 1.0.0", plugin: discoverPlugin(), diff: "" }] }],
+      lock: { discover: commit },
+      clones: { discover: commit },
+    },
+    app: { state: { plugins: [{ path: "package:discover", name: "discover", granted: permissions, asked: permissions }] } },
   };
 }
 
@@ -1810,7 +1838,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
-    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin),
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, scenario.discover ? fakeDiscoverServe(scenario.discover) : undefined),
     ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,

@@ -1,6 +1,12 @@
 # First-party Plugins
 
-Plugins the roster project writes and looks after, for features only some people need: roster's core stays small (decision Q80), and these are optional. The first ones planned are the Topology view, the Discover UI and the Mesh controls. None is here yet.
+Plugins the roster project writes and looks after, for features only some people need: roster's core stays small (decision Q80), and these are optional.
+
+| Plugin | What it does | Install (`dir =`) |
+|---|---|---|
+| [discover](discover/README.md) | Scan a network from the app, review what answered, and add the Hosts you keep as Pending changes, unreviewed. The scan runs in `roster serve` (`discover.*`) | `plugins/discover` |
+
+The Topology view and the Mesh controls are planned.
 
 ## What first-party means
 
