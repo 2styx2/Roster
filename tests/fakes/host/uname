@@ -1,0 +1,3 @@
+#!/bin/sh
+# A stand-in Host's uname (tests/fakes/ssh, FAKE_HOSTS): VMkernel on an ESXi one.
+if [ -e "$FAKE_HOST_ROOT/esxi" ]; then echo VMkernel; else echo Linux; fi

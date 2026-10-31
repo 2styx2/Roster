@@ -17,6 +17,7 @@ roster bw ...
 roster providers
 roster auth\-check [\-\-only LIST]
 roster web [\-d BODY] [\-H HEADER] [\-k] [\-\-timeout SECONDS] HOST [SERVICE] METHOD PATH [HOST [SERVICE] METHOD PATH ...]
+roster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [{cut,status}] [HOST]
 roster revoke [\-\-only LIST] [\-y]
 roster serve
 roster askpass [prompt]
@@ -66,7 +67,7 @@ Rewrite the SSH config and Claude files after editing \fBroster.yml\fR
 .PP
 \fBroster check [\-\-box] [\-\-only LIST] [host]\fR
 .PP
-Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see \fBroster check HOST\fR). With \fB\-\-box\fR: this Box's health, without connecting anywhere (see \fBroster check \-\-box\fR)
+Reachability of SSH, web UIs and services, and the Mesh's drift (without \fB\-\-only\fR). With one HOST: why a Session to it would or wouldn't open, step by step (see \fBroster check HOST\fR). With \fB\-\-box\fR: this Box's health, without connecting anywhere (see \fBroster check \-\-box\fR)
 .TP
 \fBHOST\fR
 diagnose this one Host: inventory, ssh config, vault, DNS, port, host key, login (one connection)
@@ -213,6 +214,26 @@ don't verify the TLS certificate
 .TP
 \fB\-\-timeout SECONDS\fR
 how long to wait for the answer (default: 30)
+.SS mesh
+.PP
+\fBroster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [{cut,status}] [HOST]\fR
+.PP
+Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change. See The Mesh
+.TP
+\fBACTION\fR
+cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)
+.TP
+\fBHOST\fR
+with cut: the Host to cut out
+.TP
+\fB\-\-dry\-run\fR
+show the plan; change nothing on any Host
+.TP
+\fB\-\-rotate HOST\fR
+replace HOST's Mesh key (repeatable)
+.TP
+\fB\-y, \-\-yes\fR
+with cut: don't ask first
 .SS revoke
 .PP
 \fBroster revoke [\-\-only LIST] [\-y]\fR
@@ -271,6 +292,12 @@ The SSH config entries \fBroster setup\fR and \fBroster sync\fR write
 \fBROSTER.md\fR, \fBCLAUDE.md\fR, \fB\&.claude/settings.json\fR
 What Claude reads, written next to \fBroster.yml\fR by \fBsetup\fR and \fBsync\fR
 .TP
+\fB~/.config/roster/mesh.json\fR
+What \fBroster mesh\fR couldn't finish (pending Hosts, cuts pending) and when it last applied, on this box
+.TP
+\fB~/.ssh/roster\-mesh/\fR, \fB~/ROSTER.md\fR (on Hosts)
+A Mesh source's key, known hosts, ssh config and its peers for Claude, written by \fBroster mesh\fR (The Mesh)
+.TP
 \fB$XDG_RUNTIME_DIR/roster/\fR
 Short\-lived private state: kept web logins and the askpass socket
 .SH ENVIRONMENT
@@ -303,7 +330,7 @@ Wrong arguments
 \fB130\fR
 Interrupted with Ctrl+C
 .PP
-\fBroster run\fR exits with the remote command's status, and \fBroster bw\fR with \fBbw\fR\&'s.
+\fBroster run\fR exits with the remote command's status, and \fBroster bw\fR with \fBbw\fR\&'s. \fBroster mesh\fR and \fBroster mesh cut\fR exit 1 while a Host is pending.
 .SH EXAMPLES
 .PP
 .nf

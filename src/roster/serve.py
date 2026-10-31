@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 
-from . import __version__, askpass, changes, diagnose, edit, health, providers
+from . import __version__, askpass, changes, diagnose, edit, health, mesh, providers
 from .claude import write_claude_files
 from .common import deadline, not_reviewed, ssh_config_file
 from .config import find_config, load_config
@@ -41,6 +41,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NAME_TAKEN,
     NO_ASKPASS,
     NO_SIGN_IN,
+    NOT_A_SOURCE,
     NOT_CREATED_HERE,
     NOT_LOGGED_IN,
     NOT_REVIEWED,
@@ -1887,6 +1888,78 @@ def vault_login(state, params):
 METHODS["vault.login"] = vault_login
 
 
+# ---------------------------------------------------------------- the Mesh (ticket 39, decision Q63)
+# Host-to-Host access set up from this Box (mesh.py). The app's controls for it are a first-party Plugin (T50).
+
+def rotate_param(params):
+    v = params.get("rotate", [])
+    if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
+        raise RpcError(INVALID_PARAMS, "params.rotate must be a list of Host names")
+    return v
+
+
+def mesh_plan(state, params):
+    """The Mesh roster.yml asks for against what the Hosts hold now: read-only, one connection at a time.
+
+    Params: `{rotate?: [host]}`
+    Result: a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere
+    Errors: 1, 110
+    Since: API 15
+    """
+    return mesh.run(state.fresh(), rotate=rotate_param(params))
+
+
+def mesh_apply(state, params):
+    """Make the Mesh what roster.yml says, one connection at a time; Hosts that don't answer stay pending.
+
+    Params: `{rotate?: [host]}`
+    Result: a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere
+    Errors: 1, 110
+    Since: API 15
+    """
+    return mesh.run(state.fresh(), apply=True, rotate=rotate_param(params))
+
+
+def mesh_cut(state, params):
+    """Take a Host out of the Mesh now, on every Host at once (mesh.cut), then write mesh: false for it as a
+    Pending change (mesh.write_cut). `pending`: Hosts that didn't confirm, warned about until they're done.
+
+    Params: `{host}`
+    Result: `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's
+        off HOST, at once. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true,
+        backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when
+        it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened)
+    Errors: 1, 2
+    Since: API 15
+    """
+    name = text_param(params, "host")
+    cfg = state.fresh()
+    if name not in cfg["hosts"]:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    result = mesh.cut(cfg, name, cfg["workers"])
+    result["change"] = mesh.write_cut(cfg, name)
+    state.reload()
+    return result
+
+
+def mesh_status(state, params):
+    """No connections: who reaches whom, what's pending, and whether the Mesh is out of date on this Box.
+
+    Params: none
+    Result: `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks
+        for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the
+        Mesh since the last complete apply on this Box
+    Since: API 15
+    """
+    return mesh.status(state.inventory())
+
+
+METHODS["mesh.plan"] = mesh_plan
+METHODS["mesh.apply"] = mesh_apply
+METHODS["mesh.cut"] = mesh_cut
+METHODS["mesh.status"] = mesh_status
+
+
 # ---------------------------------------------------------------- the loop
 
 # Each long method's overall deadline (s). The app waits longer for each (app/src-tauri/src/lib.rs CALL_SECS),
@@ -1896,7 +1969,7 @@ METHODS["vault.login"] = vault_login
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
              "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
-             "host.save_login": 45, "box.check": 45}
+             "host.save_login": 45, "box.check": 45, "mesh.plan": 240, "mesh.apply": 240, "mesh.cut": 60}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 

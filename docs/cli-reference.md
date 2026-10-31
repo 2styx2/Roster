@@ -61,6 +61,9 @@ groups:
 | `ssh` | Optional `{ port, user, auth }` that override the defaults for SSH only |
 | `enroll` | `true` installs a key (default); `false` for gear that only takes passwords |
 | `reviewed` | `false` on scanned hosts; `setup` skips them until you flip it |
+| `mesh` | `true` lets a group's Hosts reach each other (the [Mesh](mesh.md)); `false` keeps a group or Host out of it and out of every Link. Cascades like the rest |
+
+Top-level `links:` add one-way Host-to-Host reach across groups: `- { from: HOST-OR-GROUP, to: HOST-OR-GROUP, both: true }` (`both` makes it two-way). See [The Mesh](mesh.md).
 
 ### One login per box, overrides per service
 
@@ -230,7 +233,7 @@ Let your security team know before scanning big ranges.
 | `discover CIDR…` | Scan networks; `--write` adds the results to `roster.yml` |
 | `setup` | One-time per box: key, fingerprints, key install, SSH config, Claude files (`--only`, `--dry-run`) |
 | `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
-| `check [HOST]` | Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see [`roster check HOST`](#roster-check-host)). With `--box`: this Box's health, without connecting anywhere (see [`roster check --box`](#roster-check---box)) |
+| `check [HOST]` | Reachability of SSH, web UIs and services, and the Mesh's drift (without `--only`). With one HOST: why a Session to it would or wouldn't open, step by step (see [`roster check HOST`](#roster-check-host)). With `--box`: this Box's health, without connecting anywhere (see [`roster check --box`](#roster-check---box)) |
 | `hosts [--find TEXT] [--all] [--long]` | The hosts and resources you can use: name, IP, user, logins (`ssh (key), web (admin), api`, `wifi`) and title. Unreviewed scanned hosts are hidden unless you pass `--all`, `--find` or `--only`. `--long` shows the full table (type, product, web URL, scan description) |
 | `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
 | `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
@@ -241,6 +244,7 @@ Let your security team know before scanning big ranges.
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
 | `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
+| `mesh [--dry-run] [--rotate HOST]` | Set up Host-to-Host access as `mesh:` and `links:` say, one Host at a time: a key made on each source, tagged entries on its peers. `--dry-run` shows the plan, `--rotate` replaces a Host's Mesh key. `mesh status` shows who reaches whom without connecting; `mesh cut HOST [-y]` takes a Host out everywhere at once and writes `mesh: false` for it as a Pending change. See [The Mesh](mesh.md) |
 | `serve` | The JSON-RPC API the desktop app talks to, on stdin/stdout (see [`roster serve` API](serve-api.md)) |
 | `askpass PROMPT` | The `SSH_ASKPASS` helper for a `serve` password Session. ssh runs it, not you |
 | `man [--install [--prefix DIR]]` | Show the `roster(1)` man page. `--install` copies it to `PREFIX/share/man/man1/roster.1`, next to `PREFIX/bin/roster` (`~/.local` after `uv tool install`), where `man roster` finds it; into a prefix you can't write to, it says so and exits 1 (pick `--prefix ~/.local`, or use sudo). `install.sh` does this for you |
@@ -315,6 +319,8 @@ Vault
 | `~/.ssh/roster_known_hosts` | Host keys recorded on first contact |
 | `~/.ssh/config.d/roster` | The SSH config entries `roster setup` and `roster sync` write |
 | `ROSTER.md`, `CLAUDE.md`, `.claude/settings.json` | What Claude reads, written next to `roster.yml` by `setup` and `sync` |
+| `~/.config/roster/mesh.json` | What `roster mesh` couldn't finish (pending Hosts, cuts pending) and when it last applied, on this box |
+| `~/.ssh/roster-mesh/`, `~/ROSTER.md` (on Hosts) | A Mesh source's key, known hosts, ssh config and its peers for Claude, written by `roster mesh` ([The Mesh](mesh.md)) |
 | `$XDG_RUNTIME_DIR/roster/` | Short-lived private state: kept web logins and the askpass socket |
 
 ## Environment
@@ -336,7 +342,7 @@ Vault
 | `2` | Wrong arguments |
 | `130` | Interrupted with Ctrl+C |
 
-`roster run` exits with the remote command's status, and `roster bw` with `bw`'s.
+`roster run` exits with the remote command's status, and `roster bw` with `bw`'s. `roster mesh` and `roster mesh cut` exit 1 while a Host is pending.
 
 ## Examples
 
