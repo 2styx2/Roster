@@ -157,3 +157,13 @@ describe("scrollbars on WebKitGTK (ticket 20)", () => {
     }
   });
 });
+
+describe("the Sidebar's row buttons (decision Q88)", () => {
+  it("show on the selected row, and no hover rule reveals them or hides a row's address", () => {
+    const all = rules(stylesCss);
+    const hover = all.filter(([sel]) => sel.includes(":hover") && /\.sb-(row|heading)/.test(sel));
+    for (const [sel] of hover) expect(sel, sel).not.toMatch(/\.sb-(action|detail|num|badge)/);
+    expect(all.some(([sel, body]) => sel.includes(".sb-row.selected .sb-action") && /display:\s*grid/.test(body))).toBe(true);
+    expect(all.some(([sel]) => /\.sb-row\.raised \.sb-action/.test(sel))).toBe(false);
+  });
+});

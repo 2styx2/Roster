@@ -95,6 +95,8 @@ export interface Config {
   leader: string;
   vim: boolean;
   idleLockMinutes: number;
+  /** `pull_fresh_minutes` (decision Q88). */
+  pullFreshMinutes: number;
   defaultMode: ViewMode;
   sessions: "sidebar" | "tabs";
   keys: ConfigKey[];

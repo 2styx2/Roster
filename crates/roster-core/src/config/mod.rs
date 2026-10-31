@@ -458,6 +458,12 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             format!("{} is out of range (1 to 1440)", c.idle_lock_minutes),
         ));
     }
+    if c.pull_fresh_minutes > 1440 {
+        return Err(at(
+            &["pull_fresh_minutes"],
+            format!("{} is out of range (0 to 1440)", c.pull_fresh_minutes),
+        ));
+    }
     for (path, v) in [
         (&["leader"][..], &c.leader),
         (&["theme"][..], &c.theme),

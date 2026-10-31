@@ -6,7 +6,8 @@
 // the Host's Login at it. The password isn't here: roster holds it from the connect card and saves
 // it only because that Session logged in with it.
 //
-// Like the add form, it pulls the infra repo first (unless Pending changes are already here). It
+// Like the add form, it opens at once and pulls the infra repo in the background when the last pull
+// is stale (decision Q88; not over Pending changes); saving waits for that pull. It
 // opens from a click or `:save`, keyboard first: Name has focus, Enter saves, Esc closes (the offer
 // stays). No motion of its own, like the other side panels.
 import { useEffect, useId, useRef, useState } from "react";
@@ -15,6 +16,8 @@ import { problemFromCallError, type ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
 import { ProblemBody, type ProblemActions } from "../errors/ErrorPanel";
 import { SaveToField, useSaveTo } from "../edit/SaveTo";
+import { useFormPull, type PullGate } from "../edit/pull";
+import { PullStatus } from "../edit/PullStatus";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
 import { suggestedName } from "./hostname";
@@ -23,9 +26,8 @@ import { formatQuickTarget, type QuickTarget } from "./target";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 type Phase =
-  | { at: "pulling" }
-  | { at: "pull-failed"; problem: Problem }
   | { at: "ready" }
+  | { at: "waiting" }
   | { at: "saving" }
   | { at: "failed"; problem: Problem };
 
@@ -44,7 +46,8 @@ export interface SavePanelProps {
   chooseTarget?: boolean;
   targetsVersion?: number;
   onSaved(result: QuickSave | SaveLogin): void;
-  onPulled(): void;
+  /** The pull before a write (decision Q88), shared with the other forms and `:pull`. */
+  pull: PullGate;
   onClose(): void;
 }
 
@@ -59,11 +62,11 @@ export function SavePanel({
   chooseTarget = false,
   targetsVersion = 0,
   onSaved,
-  onPulled,
+  pull,
   onClose,
 }: SavePanelProps) {
   const ids = useId();
-  const [phase, setPhase] = useState<Phase>(() => (pendingCount > 0 ? { at: "ready" } : { at: "pulling" }));
+  const [phase, setPhase] = useState<Phase>({ at: "ready" });
   // The name follows what the box's shell says until the user types one.
   const [typedName, setTypedName] = useState<string | null>(null);
   const quick = "quick" in what ? what.quick : null;
@@ -81,34 +84,17 @@ export function SavePanel({
   }, []);
 
   const label = quick ? formatQuickTarget(quick.to) : (fixed?.name ?? "");
-  const pulling = phase.at === "pulling";
+  /** A pull brought new commits while the form was open (decision Q88). */
+  const [pulledIn, setPulledIn] = useState(false);
+  const formPull = useFormPull(pull, pendingCount > 0, label, (outcome) => {
+    if (!outcome.fresh && outcome.result.updated) setPulledIn(true);
+  });
   useEffect(() => {
-    if (!pulling) return;
-    backend.pullInventory().then(
-      (pulled) => {
-        if (!live.current) return;
-        if (pulled.updated) onPulled();
-        setPhase({ at: "ready" });
-      },
-      (e: unknown) =>
-        live.current &&
-        setPhase({
-          at: "pull-failed",
-          problem: problemFromCallError(label, e),
-        }),
-    );
-    // Once per opening, like the add form's.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pulling]);
-
-  const open = phase.at !== "pulling" && phase.at !== "pull-failed";
-  useEffect(() => {
-    if (!open) return;
     (document.getElementById(`${ids}-name`) ?? document.getElementById(`${ids}-save`))?.focus();
-  }, [open, ids]);
+  }, [ids]);
 
-  const saveTo = useSaveTo(backend, chooseTarget && open, targetsVersion);
-  const busy = phase.at === "saving";
+  const saveTo = useSaveTo(backend, chooseTarget, targetsVersion);
+  const busy = phase.at === "waiting" || phase.at === "saving";
   const trimmed = name.trim();
   const taken = quick ? hosts.hosts.find((h) => h.name === trimmed) : undefined;
   const nameProblem = !trimmed
@@ -122,7 +108,7 @@ export function SavePanel({
   const item = `${trimmed || "<name>"} ssh`;
 
   const save = async () => {
-    if (!open || busy) return;
+    if (busy) return;
     setTried(true);
     if (nameProblem || groupProblem) {
       document.getElementById(`${ids}-${nameProblem ? "name" : "group"}`)?.focus();
@@ -132,6 +118,10 @@ export function SavePanel({
       setPickMissing(true);
       return;
     }
+    // The pull first (decision Q88). A failed one says why above, and nothing is saved.
+    setPhase({ at: "waiting" });
+    if ((await formPull.ready()) === null) return live.current && setPhase({ at: "ready" });
+    if (!live.current) return;
     setPhase({ at: "saving" });
     try {
       const where = saveTo.target ? { save_to: saveTo.target.save_to } : {};
@@ -178,115 +168,108 @@ export function SavePanel({
         <span className="mono">{label}</span> logged in with the password you typed. roster saves it as a Vault item, then{" "}
         {quick ? "adds the Host" : "points the Host's Login at it"}, as a Pending change.
       </p>
-      {phase.at === "pulling" && <p className="muted edit-status">Pulling the infra repo…</p>}
-      {phase.at === "pull-failed" && (
-        <div className="edit-problem" role="alert">
-          <p className="muted edit-status">Couldn't pull the infra repo, so nothing can be saved yet.</p>
-          <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
-          <div className="edit-actions">
-            <button type="button" onClick={() => setPhase({ at: "pulling" })}>
-              Try again
-            </button>
-          </div>
-        </div>
+      <PullStatus pull={formPull} rows={rows} actions={actions} />
+      {pulledIn && taken && (
+        <p className="edit-note" role="status">
+          The pull brought a Host named <span className="mono">{trimmed}</span>, so this one needs another name.
+        </p>
       )}
-      {open && (
-        <form
-          className="edit-form"
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save();
-          }}
-        >
-          <div className="edit-fields">
-            {!quick && (
-              <p className="edit-hint">
-                Vault item <span className="mono">{item}</span>
-              </p>
-            )}
-            {quick && (
-              <div className="edit-field">
-                <label htmlFor={`${ids}-name`}>Host name</label>
-                <input
-                  id={`${ids}-name`}
-                  className="mono"
-                  value={name}
-                  placeholder="e.g. nas-01"
-                  spellCheck={false}
-                  autoComplete="off"
-                  disabled={busy}
-                  aria-invalid={tried && nameProblem ? true : undefined}
-                  aria-describedby={`${ids}-name-hint`}
-                  onChange={(e) => {
-                    setTypedName(e.target.value);
-                    if (phase.at === "failed") setPhase({ at: "ready" });
-                  }}
-                />
-                <span id={`${ids}-name-hint`} className={tried && nameProblem ? "edit-field-problem" : "edit-hint"}>
-                  {tried && nameProblem ? (
-                    nameProblem
-                  ) : (
-                    <>
-                      Vault item <span className="mono">{item}</span>
-                    </>
-                  )}
-                </span>
-              </div>
-            )}
-            {quick && (
-              <div className="edit-field">
-                <label htmlFor={`${ids}-group`}>Group</label>
-                <input
-                  id={`${ids}-group`}
-                  className="mono"
-                  value={group}
-                  list={`${ids}-groups`}
-                  spellCheck={false}
-                  autoComplete="off"
-                  disabled={busy}
-                  aria-invalid={tried && groupProblem ? true : undefined}
-                  aria-describedby={tried && groupProblem ? `${ids}-group-problem` : undefined}
-                  onChange={(e) => {
-                    setGroup(e.target.value);
-                    if (phase.at === "failed") setPhase({ at: "ready" });
-                  }}
-                />
-                {tried && groupProblem && (
-                  <span id={`${ids}-group-problem`} className="edit-field-problem">
-                    {groupProblem}
-                  </span>
+      <form
+        className="edit-form"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <div className="edit-fields">
+          {!quick && (
+            <p className="edit-hint">
+              Vault item <span className="mono">{item}</span>
+            </p>
+          )}
+          {quick && (
+            <div className="edit-field">
+              <label htmlFor={`${ids}-name`}>Host name</label>
+              <input
+                id={`${ids}-name`}
+                className="mono"
+                value={name}
+                placeholder="e.g. nas-01"
+                spellCheck={false}
+                autoComplete="off"
+                disabled={busy}
+                aria-invalid={tried && nameProblem ? true : undefined}
+                aria-describedby={`${ids}-name-hint`}
+                onChange={(e) => {
+                  setTypedName(e.target.value);
+                  if (phase.at === "failed") setPhase({ at: "ready" });
+                }}
+              />
+              <span id={`${ids}-name-hint`} className={tried && nameProblem ? "edit-field-problem" : "edit-hint"}>
+                {tried && nameProblem ? (
+                  nameProblem
+                ) : (
+                  <>
+                    Vault item <span className="mono">{item}</span>
+                  </>
                 )}
-                <datalist id={`${ids}-groups`}>
-                  {Object.keys(hosts.groups).map((g) => (
-                    <option key={g} value={g} />
-                  ))}
-                </datalist>
-              </div>
-            )}
-            {chooseTarget && (
-              <SaveToField id={`${ids}-saveto`} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
-            )}
-          </div>
-          {phase.at === "saving" && <p className="muted edit-status">Saving {item} to the vault…</p>}
-          {phase.at === "failed" && (
-            <div className="edit-problem" role="alert">
-              <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
+              </span>
             </div>
           )}
-          <div className="edit-actions">
-            <button type="submit" className="primary" id={`${ids}-save`} disabled={busy}>
-              Save
-            </button>
-            <button type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <span className="edit-keys muted key-hint">
-              <Keys keys="Enter" /> save <Keys keys="Escape" /> close
-            </span>
+          {quick && (
+            <div className="edit-field">
+              <label htmlFor={`${ids}-group`}>Group</label>
+              <input
+                id={`${ids}-group`}
+                className="mono"
+                value={group}
+                list={`${ids}-groups`}
+                spellCheck={false}
+                autoComplete="off"
+                disabled={busy}
+                aria-invalid={tried && groupProblem ? true : undefined}
+                aria-describedby={tried && groupProblem ? `${ids}-group-problem` : undefined}
+                onChange={(e) => {
+                  setGroup(e.target.value);
+                  if (phase.at === "failed") setPhase({ at: "ready" });
+                }}
+              />
+              {tried && groupProblem && (
+                <span id={`${ids}-group-problem`} className="edit-field-problem">
+                  {groupProblem}
+                </span>
+              )}
+              <datalist id={`${ids}-groups`}>
+                {Object.keys(hosts.groups).map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+            </div>
+          )}
+          {chooseTarget && (
+            <SaveToField id={`${ids}-saveto`} choice={saveTo} pickMissing={pickMissing} onChoose={() => setPickMissing(false)} />
+          )}
+        </div>
+        {phase.at === "waiting" && <p className="muted edit-status">Waiting for the pull to finish…</p>}
+        {phase.at === "saving" && <p className="muted edit-status">Saving {item} to the vault…</p>}
+        {phase.at === "failed" && (
+          <div className="edit-problem" role="alert">
+            <ProblemBody problem={phase.problem} rows={rows} actions={actions} notInTab />
           </div>
-        </form>
-      )}
+        )}
+        <div className="edit-actions">
+          <button type="submit" className="primary" id={`${ids}-save`} disabled={busy}>
+            Save
+          </button>
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <span className="edit-keys muted key-hint">
+            <Keys keys="Enter" /> save <Keys keys="Escape" /> close
+          </span>
+        </div>
+      </form>
     </section>
   );
 }

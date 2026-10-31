@@ -112,6 +112,11 @@ export interface FakeScenario {
   apiVersion?: number;
   /** Ticket 10: `inventory.pull` refuses with this (62 diverged, 63 offline…). */
   pullRefusal?: Refusal;
+  /** Decision Q88: how long `inventory.pull` takes, in ms (else `delay`). */
+  pullDelay?: number;
+  /** Decision Q88: someone published meanwhile. The next pull brings `commits` commits that
+   * change these Hosts' fields, once. */
+  pullBrings?: { commits: number; changes: Record<string, HostChanges> };
   /** Per Host: what `host.verify_login` answers (default: every step ok). */
   verifyResults?: Record<string, HostCheck>;
   /** Ticket 36: Hosts whose host key roster hasn't recorded: `session.prepare` refuses with 44 until
@@ -803,6 +808,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let committed = scenario.hosts.hosts;
   let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
   const verified = new Set<string>();
+  /** `pullBrings` came in already. */
+  let pulledIn = false;
   const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
   let groups = scenario.hosts.groups;
   let committedGroups = groups;
@@ -1451,13 +1458,21 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       return passingCheck(h);
     },
     async pullInventory() {
-      await wait();
+      await new Promise((r) => setTimeout(r, scenario.pullDelay ?? scenario.delay ?? 0));
       if (scenario.pullRefusal) throw refuse(scenario.pullRefusal);
       if (pending().count > 0) {
         throw new BackendCallError("roster.yml has Pending changes, so roster won't pull over them", EditError.dirty, {
           files: ["roster.yml"],
           fix: "Publish or discard the Pending changes first",
         });
+      }
+      const brings = scenario.pullBrings;
+      if (brings && !pulledIn) {
+        pulledIn = true;
+        const change = (h: Host) => (brings.changes[h.name] ? withFields(h, brings.changes[h.name] ?? {}) : h);
+        committed = committed.map(change);
+        hosts = hosts.map(change);
+        return { updated: true, upstream: "origin/main", commits: brings.commits, ahead: 0 };
       }
       return { updated: false, upstream: "origin/main", commits: 0, ahead: 0 };
     },

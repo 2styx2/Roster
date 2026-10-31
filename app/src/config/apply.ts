@@ -102,6 +102,7 @@ export function deriveConfig(c: Config): Derived {
     sessions: c.sessions,
     statusBar: { visible: standard.statusbar.shown },
     idleLockMinutes: c.idleLockMinutes,
+    pullFreshMinutes: c.pullFreshMinutes,
     defaultMode: c.defaultMode,
     focus: { sessionbar: focus.sessionbar.shown ? focus.sessionbar.at : false },
   };
