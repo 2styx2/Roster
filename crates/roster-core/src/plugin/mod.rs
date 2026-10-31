@@ -59,12 +59,20 @@ pub struct Bundled {
     init: &'static str,
 }
 
-/// The built-in Plugins: the status bar's Host count, so far (decision Q82).
-pub const BUNDLED: &[Bundled] = &[Bundled {
-    name: "hosts",
-    manifest: include_str!("../../plugins/hosts/roster-plugin.lua"),
-    init: include_str!("../../plugins/hosts/init.lua"),
-}];
+/// The built-in Plugins: the status bar's Host count (decision Q82) and the Sidebar's Folders
+/// (decision Q93).
+pub const BUNDLED: &[Bundled] = &[
+    Bundled {
+        name: "hosts",
+        manifest: include_str!("../../plugins/hosts/roster-plugin.lua"),
+        init: include_str!("../../plugins/hosts/init.lua"),
+    },
+    Bundled {
+        name: "folders",
+        manifest: include_str!("../../plugins/folders/roster-plugin.lua"),
+        init: include_str!("../../plugins/folders/init.lua"),
+    },
+];
 
 /// The keys a manifest may have (api.rs's `Manifest` documents each).
 pub const MANIFEST_FIELDS: &[&str] = &["name", "version", "description", "author", "api", "permissions"];
