@@ -143,8 +143,9 @@ function cluster(v: unknown, i: number, what: string): GraphCluster {
 
 function filterOf(o: Obj, what: string): GraphFilter | undefined {
   if (!given(o, "filter")) return undefined;
-  const v = o.filter;
   const at = `${what} filter`;
+  // An empty Lua table can come as an empty list: it's an empty filter.
+  const v = Array.isArray(o.filter) && o.filter.length === 0 ? {} : o.filter;
   if (!isObj(v)) throw new GraphInvalid(`${at} must be a table`);
   const words = (key: "clusters" | "kinds" | "states") =>
     list(v, key, at, MAX_FILTER).map((x, i) => {

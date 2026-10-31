@@ -47,19 +47,24 @@ local function fetch_mesh()
   end
 end
 
+-- The Hosts and groups, read again only when the app says they changed (inventory_changed): at
+-- 2,000 Hosts each read is most of a call's time.
 local inventory_error -- why the Hosts couldn't be read, if they couldn't
-local function restructure()
-  local hosts, groups = {}, {}
-  inventory_error = nil
-  if reads then
-    local ok, h = pcall(roster.inventory.hosts)
-    local ok2, g = pcall(roster.inventory.groups)
-    if ok and ok2 then
-      hosts, groups = h, g
-    else
-      inventory_error = tostring(ok and g or h)
-    end
+local hosts, groups -- nil until read
+local function read_inventory()
+  hosts, groups, inventory_error = {}, {}, nil
+  if not reads then return end
+  local ok, h = pcall(roster.inventory.hosts)
+  local ok2, g = pcall(roster.inventory.groups)
+  if ok and ok2 then
+    hosts, groups = h, g
+  else
+    inventory_error = tostring(ok and g or h)
   end
+end
+
+local function restructure()
+  if not hosts then read_inventory() end
   s = build.structure(hosts, groups, mesh)
 end
 
@@ -83,7 +88,7 @@ local function details()
   local now = {}
   for _, name in ipairs(s.order) do
     local d = build.details(s, name)
-    if d then now[name] = build.sig(d) end
+    if d then now[name] = build.details_sig(d) end
   end
   for name, sig in pairs(now) do
     if detailed[name] ~= sig then queued[#queued + 1] = name end
@@ -99,7 +104,6 @@ end
 local check, cut
 
 -- Draws the view from the state above: the whole graph the first time, then only what changed.
-
 local function draw()
   local g = build.graph(s, live, down, ended)
   local text = build.text(s, { reads = reads, mesh = can_mesh, error = mesh_error, inventory_error = inventory_error })
@@ -122,10 +126,11 @@ local function draw()
         actions = actions,
       },
     })
-    sent = { nodes = {}, edges = {}, clusters = {} }
-    _, _, sent.nodes = build.diff(nil, g.nodes)
-    _, _, sent.edges = build.diff(nil, g.edges)
-    _, _, sent.clusters = build.diff(nil, g.clusters)
+    sent = {
+      nodes = select(3, build.diff(nil, g.nodes)),
+      edges = select(3, build.diff(nil, g.edges)),
+      clusters = select(3, build.diff(nil, g.clusters)),
+    }
     sent_text = text
   else
     local nodes, nodes_gone
@@ -251,6 +256,7 @@ end
 roster.commands.add("topology", {
   desc = "The Topology view: this Box, your Hosts by group and the Mesh; :topology GROUP shows one group",
   run = function(a)
+    if not sent then refresh() end
     local word = a.words[1]
     if word then
       local ids = build.group_clusters(s, word)
@@ -278,7 +284,7 @@ roster.help.set("topology", {
     "",
     "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.",
     "- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.",
-    "- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut pending or a failed Check. The text above the map says when the Mesh is out of date.",
+    "- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.",
     "- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.",
     "",
     "Select a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.",
@@ -341,10 +347,15 @@ if reads then
     end
     draw()
   end)
-  roster.on("inventory_changed", refresh)
+  roster.on("inventory_changed", function()
+    hosts = nil
+    refresh()
+  end)
 end
 -- The Mesh changes when someone applies or cuts it, here or on another Box: look again now and then.
 -- mesh.status never connects anywhere, so it's cheap.
 if can_mesh then roster.every(settings.refresh * 1000, refresh) end
 
-refresh()
+-- The first look is deferred: nothing calls roster serve while the Plugin loads, so a busy serve
+-- can't hold up the app's start.
+roster.defer(50, refresh)

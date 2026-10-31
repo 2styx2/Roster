@@ -109,7 +109,7 @@ fn inventory() -> Value {
             host("new-01", "new", "10.0.3.5", json!({ "reviewed": false })),
         ],
         "groups": {
-            "lab": { "title": "Lab", "description": "" },
+            "lab": { "title": "", "description": "" },
             "storage": { "title": "", "description": "" },
             "web": { "title": "", "description": "" },
             "new": { "title": "", "description": "" },
@@ -234,6 +234,18 @@ impl Serve for FakeServe {
     }
 }
 
+/// The app's limits. A test build is unoptimised, and its Lua runs about six times slower than the
+/// app's (2,000 Hosts: 60 ms in a release build, 350 ms in a test one), so it gets the time a
+/// release build would need, scaled.
+fn limits() -> Limits {
+    let l = Limits::default();
+    if cfg!(debug_assertions) {
+        Limits { call: l.call * 6, ..l }
+    } else {
+        l
+    }
+}
+
 fn perms(names: &[&str]) -> Vec<Permission> {
     names.iter().map(|n| Permission::parse(n).unwrap()).collect()
 }
@@ -270,7 +282,7 @@ impl World {
         packages.pin(&specs, NAME).unwrap();
         let (dir, _) = packages.loadable(&specs, NAME).unwrap();
         let serve = Arc::new(serve);
-        let host = PluginHost::new(serve.clone(), Limits::default());
+        let host = PluginHost::new(serve.clone(), limits());
         World { dir, host, serve }
     }
 
@@ -282,11 +294,25 @@ impl World {
         self.load_with(grants, json!({}))
     }
 
+    /// Loads it and, as the app's clock would 50 ms later, runs its deferred first look: one reply
+    /// with the ops of both.
     fn load_with(&self, grants: &[&str], config: Value) -> Reply {
-        let (_, reply) = self
+        let before = self.serve.calls.lock().unwrap().len();
+        let (_, mut reply) = self
             .host
             .load_with(&Source::Dir(self.dir.clone()), &perms(grants), &config)
             .unwrap();
+        ok(&reply);
+        let first = reply
+            .ops
+            .iter()
+            .find(|o| o["op"] == "timer" && o["every"] == false)
+            .map(|t| handler(&t["run"]))
+            .expect("a deferred first look");
+        assert!(find(&reply.ops, "view").is_empty() && self.serve.calls.lock().unwrap().len() == before, "it called serve while it loaded");
+        let later = self.host.call(NAME, first, json!({}));
+        ok(&later);
+        reply.ops.extend(later.ops);
         reply
     }
 
@@ -392,9 +418,10 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
         ]
     );
     assert_eq!(by_id(&g["clusters"], ":group:lab")["mesh"], true);
-    assert_eq!(by_id(&g["clusters"], ":group:lab")["title"], "Lab");
-    assert_eq!(by_id(&g["clusters"], ":group:lab/peers")["title"], "Lab · password peers");
-    assert_eq!(by_id(&g["clusters"], ":group:lab/out")["title"], "Lab · not in the Mesh");
+    // A group's title, or its name when it has none.
+    assert_eq!(by_id(&g["clusters"], ":group:lab")["title"], "lab");
+    assert_eq!(by_id(&g["clusters"], ":group:lab/peers")["title"], "lab · password peers");
+    assert_eq!(by_id(&g["clusters"], ":group:lab/out")["title"], "lab · not in the Mesh");
     assert_eq!(by_id(&g["clusters"], ":group:storage").get("mesh"), None);
 
     // Nodes: the Box, then the Hosts in roster.yml's order, with Q53's shapes.
@@ -457,8 +484,11 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
         appliance["spec"]["facts"][3]["value"],
         "2 Links from it: roster doesn't write on a password Host"
     );
-    // It refreshes the Mesh on a timer, and only reads.
-    assert_eq!(one(&reply.ops, "timer")["every"], true);
+    // It refreshes the Mesh on a slow timer, and only reads.
+    let timers = find(&reply.ops, "timer");
+    let every: Vec<&&Value> = timers.iter().filter(|t| t["every"] == true).collect();
+    assert_eq!(every.len(), 1);
+    assert_eq!(every[0]["ms"], 60_000);
     assert!(w.serve.called("mesh.cut").is_empty() && w.serve.called("host.check").is_empty());
 }
 
@@ -580,7 +610,7 @@ fn without_its_permissions_it_still_loads_draws_this_box_and_says_what_it_needs(
         .map(|a| a["label"].as_str().unwrap())
         .collect();
     assert_eq!(labels, ["Details"]);
-    assert!(find(&reply.ops, "timer").is_empty());
+    assert!(find(&reply.ops, "timer").iter().all(|t| t["every"] == false), "no refresh without the Mesh");
     assert!(w.serve.calls.lock().unwrap().is_empty(), "it called serve without a grant");
     // Its :check section says what's missing.
     let health = one(&reply.ops, "health");
@@ -686,7 +716,7 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
     // The reach sections go a few hundred a call, within the host's UI changes per call.
     assert!(find(&reply.ops, "details").len() <= 400);
     let more = find(&reply.ops, "timer").iter().filter(|t| t["every"] == false).count();
-    assert_eq!(more, 1, "the rest of the reach sections wait for a deferred call");
+    assert_eq!(more, 2, "the first look, then the rest of the reach sections in a deferred call");
     // A refresh with nothing changed sends nothing to the view.
     let timer = find(&reply.ops, "timer").into_iter().find(|t| t["every"] == true).unwrap();
     let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
@@ -722,7 +752,8 @@ fn normal(v: &Value) -> Value {
         Value::Object(m) if m.len() == 1 && m.contains_key("handler") => json!("fn"),
         Value::Object(m) if m.is_empty() => json!([]),
         Value::Object(m) => {
-            let timer = m.get("op") == Some(&json!("timer"));
+            let timer = m.get("op") == Some(&json!("timer"))
+                || (m.get("op") == Some(&json!("remove")) && m.get("kind") == Some(&json!("timer")));
             Value::Object(
                 m.iter()
                     .map(|(k, v)| (k.clone(), if timer && k == "id" { json!("N") } else { normal(v) }))

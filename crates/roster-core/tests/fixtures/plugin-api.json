@@ -38,6 +38,10 @@
       "permission": null
     },
     {
+      "name": "check",
+      "permission": "serve:host.check"
+    },
+    {
       "name": "open",
       "permission": "sessions.open"
     },

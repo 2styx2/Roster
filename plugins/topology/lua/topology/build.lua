@@ -486,19 +486,28 @@ end
 
 -- ------------------------------------------------------------------- changes
 
--- A table's fields in a fixed order, so two equal tables say the same (no functions in them).
+-- A node's, edge's or cluster's fields in a fixed order, so two equal ones say the same. Only the
+-- fields this Plugin sets: a sort per table would cost too much at 5,000 nodes.
+local FIELDS = { "id", "label", "title", "host", "cluster", "kind", "detail", "shape", "state", "mark", "note",
+  "from", "to", "dir", "style", "tone", "cut", "mesh" }
+local NFIELDS = #FIELDS
+
 ---@param t table
 function M.sig(t)
-  local keys = {}
-  for k in pairs(t) do keys[#keys + 1] = k end
-  table.sort(keys)
   local parts = {}
-  for _, k in ipairs(keys) do
-    local v = t[k]
-    if type(v) == "table" then v = M.sig(v) end
-    parts[#parts + 1] = k .. "=" .. tostring(v)
+  for i = 1, NFIELDS do
+    local v = t[FIELDS[i]]
+    parts[i] = v == nil and "" or tostring(v)
   end
-  return "{" .. table.concat(parts, "\1") .. "}"
+  return table.concat(parts, "\1")
+end
+
+-- A Host's reach section, as M.sig says a node.
+---@param d table M.details's
+function M.details_sig(d)
+  local parts = { d.title, d.text }
+  for _, f in ipairs(d.facts) do parts[#parts + 1] = f.label .. "=" .. f.value end
+  return table.concat(parts, "\1")
 end
 
 -- What changed from `before` (id -> sig, nil the first time) to `items`: the changed ones and the

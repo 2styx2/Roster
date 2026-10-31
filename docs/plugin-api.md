@@ -1946,6 +1946,7 @@ end)
 | `session` | Goes to the Nth Session (`roster.sessions.show` goes by id). | none |
 | `next` | Goes to the next Session. | none |
 | `prev` | Goes to the previous Session. | none |
+| `check` | Runs roster's diagnostics for a Host and shows them, as `:check HOST` does: `check esx-02`. It connects to the Host, as `host.check` does. | `serve:host.check` |
 | `open` | Opens a Host: its Session, or a new one. | `sessions.open` |
 | `connect` | Opens a Session on a Host. | `sessions.open` |
 
