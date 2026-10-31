@@ -1,6 +1,12 @@
 # First-party Plugins
 
-Plugins the roster project writes and looks after, for features only some people need: roster's core stays small (decision Q80), and these are optional. The first ones planned are the Topology view, the Discover UI and the Mesh controls. None is here yet.
+Plugins the roster project writes and looks after, for features only some people need: roster's core stays small (decision Q80), and these are optional. Here now:
+
+| Plugin | What it adds | Install (`dir =`) |
+|---|---|---|
+| [`mesh`](mesh/README.md) | The Mesh's controls: each Host's reach, "Mesh out of date", plan and apply, Cut, Links through a jump Host | `plugins/mesh` |
+
+The Topology view and the Discover UI are planned next.
 
 ## What first-party means
 

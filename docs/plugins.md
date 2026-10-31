@@ -123,7 +123,7 @@ packages = {
 },
 ```
 
-None is there yet; the Topology view, the Discover UI and the Mesh controls are the first planned.
+The first is [`mesh`](../plugins/mesh/README.md), the Mesh controls (`dir = "plugins/mesh"`): each Host's reach, plan and apply, Cut. It's also the worked example of a Plugin that runs something long in roster serve: every Mesh run is a job it starts with `background = true`, follows with a timer polling `mesh.job` for its progress, and stops with `mesh.stop`, because a call into serve may not wait more than a couple of seconds. The Topology view and the Discover UI are planned next.
 
 ## Permissions
 

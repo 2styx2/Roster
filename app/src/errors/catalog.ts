@@ -479,6 +479,14 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Rotate a Host that reaches peers; the Mesh's plan lists them.",
     actions: [],
   }),
+  // A Mesh job (API 17, ticket 50) still runs: docs/app/errors.md row 93.
+  row("mesh-busy", {
+    row: 93,
+    codes: [111],
+    where: ["roster"],
+    fix: () => "Wait for the Mesh job (its progress is in the status bar), or stop it with `:cancel mesh`; then run it again.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

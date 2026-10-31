@@ -762,8 +762,10 @@ fn a_thousand_hosts_get_their_details_in_batches_until_every_one_has_its_section
     while of(&run.ops, "details").len() < 1002 {
         run.tick();
     }
-    let hosts: std::collections::BTreeSet<&str> =
-        of(&run.ops, "details").iter().map(|d| d["host"].as_str().unwrap()).collect();
+    let hosts: std::collections::BTreeSet<&str> = of(&run.ops, "details")
+        .iter()
+        .map(|d| d["host"].as_str().unwrap())
+        .collect();
     assert_eq!(hosts.len(), 1002);
 }
 
