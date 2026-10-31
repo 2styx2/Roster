@@ -20,6 +20,10 @@ export interface DataTableProps {
   /** Takes focus when it first draws (a view's table). */
   autoFocus?: boolean;
   leader: string;
+  /** The row selected when it first draws (a graph's list starts on the graph's node). */
+  selectedId?: string;
+  /** Told the selected row as it changes. */
+  onSelect?(row: TableRow): void;
 }
 
 /** Rows drawn beyond the screen each way, so a quick scroll doesn't show blanks. */
@@ -37,7 +41,7 @@ function cellText(row: TableRow, c: TableColumn): string {
 
 const ariaSort = (c: TableColumn, sort: Sort | null) => (sort?.by !== c.id ? "none" : sort.desc ? "descending" : "ascending");
 
-export function DataTable({ model, label, autoFocus = false, leader }: DataTableProps) {
+export function DataTable({ model, label, autoFocus = false, leader, selectedId, onSelect }: DataTableProps) {
   const base = useId();
   const grid = useRef<HTMLDivElement>(null);
   const [sort, setSort] = useState<Sort | null>(model.sort);
@@ -50,10 +54,16 @@ export function DataTable({ model, label, autoFocus = false, leader }: DataTable
   const rows = useMemo(() => sortRows(model.rows, model.columns, sort), [model.rows, model.columns, sort]);
   // The selected row's id, and where it was: the selection follows its row across updates and
   // sorts, and a row taken away hands it to the one that took its place.
-  const [selected, setSelected] = useState<{ id: string; at: number } | null>(null);
+  const [selected, setSelected] = useState<{ id: string; at: number } | null>(() => (selectedId === undefined ? null : { id: selectedId, at: 0 }));
   let index = selected === null ? -1 : rows.findIndex((r) => r.id === selected.id);
   if (index < 0 && rows.length > 0) index = Math.min(selected?.at ?? 0, rows.length - 1);
   const current = rows[index];
+  const told = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!current || told.current === current.id) return;
+    told.current = current.id;
+    onSelect?.(current);
+  }, [current, onSelect]);
 
   const [view, setView] = useState({ scrollTop: 0, height: 0 });
   const [rowH, setRowH] = useState(ROW_GUESS);
@@ -75,6 +85,14 @@ export function DataTable({ model, label, autoFocus = false, leader }: DataTable
   useEffect(() => {
     if (autoFocus) grid.current?.focus();
   }, [autoFocus]);
+  // A row selected from the start is scrolled to, once.
+  const scrolled = useRef(false);
+  useLayoutEffect(() => {
+    if (scrolled.current || selectedId === undefined || index <= 0) return;
+    scrolled.current = true;
+    const el = grid.current;
+    if (el) el.scrollTop = Math.max(0, index * rowH - el.clientHeight / 2);
+  }, [selectedId, index, rowH]);
 
   const head = rowH;
   const { start, end } = windowOf({ count: rows.length, rowHeight: rowH, scrollTop: view.scrollTop, height: Math.max(0, view.height - head), overscan: OVERSCAN });

@@ -1,7 +1,8 @@
 // A graph's layout in the State (ticket 77): where each node and cluster was placed, and which
 // clusters the user collapsed or opened, per view, so the graph opens the same way next time. The
 // State is untrusted (another app version may have written it): what can't be read is ignored.
-import type { SavedLayout } from "./layout";
+import { layoutGraph, type Layout, type SavedLayout } from "./layout";
+import type { GraphData } from "./model";
 
 /** The State's key: a list of graphs, the most recently saved first. */
 export const GRAPHS_KEY = "graphs";
@@ -58,4 +59,58 @@ export class GraphMemory {
     const g: Stored = { key, nodes: memo.layout?.nodes ?? {}, clusters: memo.layout?.clusters ?? {}, folds: memo.folds };
     this.store.set(GRAPHS_KEY, [g, ...this.all().filter((x) => x.key !== key)].slice(0, KEPT_GRAPHS));
   }
+}
+
+/** One open graph's places: it lays the graph out keeping what was placed before, takes a node the
+ * user moved, and writes the State only when something new was placed or moved (`persist`, after
+ * a render; never during one). */
+export class GraphPlaces {
+  private saved: SavedLayout | undefined;
+  private folds: Record<string, boolean>;
+  private dirty = false;
+
+  constructor(
+    private readonly memory: GraphMemory | undefined,
+    private readonly key: string,
+  ) {
+    const memo = memory?.load(key) ?? { folds: {} };
+    this.saved = memo.layout;
+    this.folds = memo.folds;
+  }
+
+  layout(g: GraphData): Layout {
+    const l = layoutGraph(g, this.saved);
+    if (!this.saved || placedMore(this.saved, l.saved)) this.dirty = true;
+    this.saved = l.saved;
+    return l;
+  }
+
+  /** Puts node `id` at (x, y), kept from now on. */
+  move(id: string, x: number, y: number) {
+    if (!this.saved) return;
+    this.saved = { ...this.saved, nodes: { ...this.saved.nodes, [id]: [Math.round(x), Math.round(y)] } };
+    this.dirty = true;
+  }
+
+  userFolds(): Record<string, boolean> {
+    return this.folds;
+  }
+
+  fold(id: string, collapsed: boolean) {
+    this.folds = { ...this.folds, [id]: collapsed };
+    this.dirty = true;
+  }
+
+  persist() {
+    if (!this.dirty || !this.memory) return;
+    this.dirty = false;
+    this.memory.save(this.key, { ...(this.saved ? { layout: this.saved } : {}), folds: this.folds });
+  }
+}
+
+/** Whether `after` placed something `before` didn't have. */
+function placedMore(before: SavedLayout, after: SavedLayout): boolean {
+  for (const k of Object.keys(after.nodes)) if (!(k in before.nodes)) return true;
+  for (const k of Object.keys(after.clusters)) if (!(k in before.clusters)) return true;
+  return false;
 }

@@ -1,0 +1,439 @@
+// Drawing a graph's scene on a canvas (ticket 77). One canvas, not an SVG element per node: 2,000
+// nodes and 10,000 edges are a few batched paths a frame, and a pan or zoom is one redraw. It draws
+// only when something changed (no loop at rest), only what's on screen, and labels only where they
+// don't overlap (the selected node's and its reach's first), so a big graph stays readable.
+//
+// Colours are the Theme's tokens, read from CSS: the accent only on what's live (taste.md), the
+// second tone only on shapes (this Box's square, an unreviewed node's dashed ring), warn and error
+// for marks, and greys for the rest.
+import type { Highlight, Scene, SceneEdge, SceneNode } from "./scene";
+
+export interface Camera {
+  /** The world point at the canvas's centre, and the zoom (screen pixels per world unit). */
+  x: number;
+  y: number;
+  k: number;
+}
+
+export interface Palette {
+  bg: string;
+  text: string;
+  muted: string;
+  faint: string;
+  line: string;
+  lineStrong: string;
+  accent: string;
+  tone: string;
+  warn: string;
+  error: string;
+  raised: string;
+  mono: string;
+  ui: string;
+  size: number;
+}
+
+/** The Theme's tokens as `el` sees them. */
+export function readPalette(el: Element): Palette {
+  const cs = getComputedStyle(el);
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+  const size = parseFloat(v("--text-xs", "13px")) || 13;
+  return {
+    bg: v("--bg", "#0f1011"),
+    text: v("--text", "#e8e8ea"),
+    muted: v("--muted", "#9a9ba0"),
+    faint: v("--faint", "#55565b"),
+    line: v("--line", "#26272b"),
+    lineStrong: v("--line-strong", "#3a3b40"),
+    accent: v("--accent", "#ff9a70"),
+    tone: v("--tone", "#82ccd5"),
+    warn: v("--warn", "#e9c944"),
+    error: v("--error", "#e25a98"),
+    raised: v("--raised", "#1d1e21"),
+    mono: v("--font-mono", "monospace"),
+    ui: v("--font-ui", "sans-serif"),
+    size,
+  };
+}
+
+export interface Frame {
+  scene: Scene;
+  camera: Camera;
+  width: number;
+  height: number;
+  palette: Palette;
+  selected: string | null;
+  /** The selected node's reach, lit up; the rest dims. */
+  highlight: Highlight | null;
+  /** While searching: the nodes that match (the rest dims). */
+  matches: ReadonlySet<string> | null;
+  /** Edges being drawn in (index → 0..1). */
+  drawing: ReadonlyMap<number, number>;
+}
+
+/** How big a node is on screen at zoom `k`. */
+export const nodeRadius = (k: number) => Math.max(2.5, Math.min(6, 5 * Math.sqrt(k)));
+/** A collapsed cluster's node. */
+export const STAND_IN_RADIUS = 12;
+
+export const toScreen = (c: Camera, w: number, h: number, x: number, y: number) => ({ x: (x - c.x) * c.k + w / 2, y: (y - c.y) * c.k + h / 2 });
+export const toWorld = (c: Camera, w: number, h: number, sx: number, sy: number) => ({ x: (sx - w / 2) / c.k + c.x, y: (sy - h / 2) / c.k + c.y });
+
+interface End {
+  x: number;
+  y: number;
+  /** How far short of the point the line stops (a node's radius). */
+  inset: number;
+}
+
+const DASHES: Record<SceneEdge["style"], number[]> = { solid: [], dashed: [5, 4], dotted: [1.5, 3] };
+
+export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
+  const { scene, camera: cam, width: w, height: h, palette: p } = f;
+  ctx.save();
+  ctx.fillStyle = p.bg;
+  ctx.fillRect(0, 0, w, h);
+  const r = nodeRadius(cam.k);
+  const lit = f.highlight;
+  const litEdges = new Set(lit?.edges ?? []);
+  const dimmed = (id: string) => (lit !== null && !lit.nodes.has(id)) || (f.matches !== null && !f.matches.has(id));
+  const margin = 40;
+  const onScreen = (x: number, y: number, pad = 0) => x > -margin - pad && y > -margin - pad && x < w + margin + pad && y < h + margin + pad;
+  const font = (px: number, weight = 500) => `${weight} ${px}px ${p.mono}`;
+
+  // Open clusters: a hairline circle, firmer when meshed, its title above.
+  const clusterAt = new Map<string, { x: number; y: number; r: number }>();
+  for (const c of scene.clusters) {
+    if (c.collapsed) continue;
+    const s = toScreen(cam, w, h, c.x, c.y);
+    const cr = c.r * cam.k;
+    clusterAt.set(c.id, { x: s.x, y: s.y, r: cr });
+    if (!onScreen(s.x, s.y, cr)) continue;
+    const quiet = lit !== null && !scene.nodes.some((n) => n.node?.cluster === c.id && lit.nodes.has(n.id));
+    ctx.globalAlpha = quiet ? 0.4 : 1;
+    ctx.strokeStyle = c.mesh ? p.lineStrong : p.line;
+    ctx.lineWidth = c.mesh ? 1.5 : 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, cr, 0, Math.PI * 2);
+    ctx.stroke();
+    if (cr > 18) {
+      ctx.fillStyle = p.muted;
+      ctx.font = font(p.size);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(clip(ctx, c.mesh ? `${c.title} · mesh` : c.title, Math.max(80, cr * 2)), s.x, s.y - cr - 4);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  const nodeAt = new Map<string, { x: number; y: number; n: SceneNode }>();
+  for (const n of scene.nodes) {
+    const s = toScreen(cam, w, h, n.x, n.y);
+    nodeAt.set(n.id, { ...s, n });
+  }
+  const end = (id: string, isCluster: boolean | undefined, toward: { x: number; y: number } | null): End | null => {
+    if (isCluster) {
+      const c = clusterAt.get(id);
+      if (!c) return null;
+      if (!toward) return { x: c.x, y: c.y, inset: 0 };
+      const d = Math.hypot(toward.x - c.x, toward.y - c.y) || 1;
+      return { x: c.x + ((toward.x - c.x) / d) * c.r, y: c.y + ((toward.y - c.y) / d) * c.r, inset: 0 };
+    }
+    const at = nodeAt.get(id);
+    if (!at) return null;
+    return { x: at.x, y: at.y, inset: (at.n.count !== undefined ? STAND_IN_RADIUS : r) + 2 };
+  };
+
+  // Edges, batched by look: the quiet ones first, the lit ones over them.
+  type Seg = { a: End; b: End; e: SceneEdge; i: number };
+  const batches = new Map<string, { color: string; width: number; dash: number[]; alpha: number; segs: Seg[] }>();
+  const arrows: { seg: Seg; color: string; alpha: number }[] = [];
+  const cuts: Seg[] = [];
+  const counts: Seg[] = [];
+  scene.edges.forEach((e, i) => {
+    const ca = e.fromCluster ? null : nodeAt.get(e.from);
+    const cb = e.toCluster ? null : nodeAt.get(e.to);
+    const a0 = end(e.from, e.fromCluster, cb ?? null);
+    const b0 = end(e.to, e.toCluster, ca ?? null);
+    if (!a0 || !b0) return;
+    const a = e.fromCluster ? end(e.from, true, b0) : a0;
+    const b = e.toCluster ? end(e.to, true, a0) : b0;
+    if (!a || !b) return;
+    // Off screen: both ends past the same side.
+    if ((a.x < -margin && b.x < -margin) || (a.y < -margin && b.y < -margin) || (a.x > w + margin && b.x > w + margin) || (a.y > h + margin && b.y > h + margin)) return;
+    const on = litEdges.has(i);
+    const quiet = (lit !== null && !on) || (f.matches !== null && !(f.matches.has(e.from) || f.matches.has(e.to)));
+    const color = e.tone === "live" ? p.accent : e.tone === "warn" ? p.warn : e.tone === "error" ? p.error : on ? p.text : e.tone === "muted" ? p.faint : p.lineStrong;
+    const width = on || e.tone === "live" ? 1.5 : 1;
+    const alpha = quiet ? 0.18 : e.tone === "muted" ? 0.6 : 1;
+    const key = `${color}|${width}|${e.style}|${alpha}|${on ? 1 : 0}`;
+    const seg = { a, b, e, i };
+    let batch = batches.get(key);
+    if (!batch) batches.set(key, (batch = { color, width, dash: DASHES[e.style], alpha, segs: [] }));
+    batch.segs.push(seg);
+    if (on || cam.k >= 0.45) arrows.push({ seg, color, alpha });
+    if (e.cut) cuts.push(seg);
+    if (e.count > 1 && (on || cam.k >= 0.7)) counts.push(seg);
+  });
+  const ordered = [...batches.values()].sort((x, y) => x.alpha - y.alpha || x.width - y.width);
+  for (const b of ordered) {
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = b.width;
+    ctx.globalAlpha = b.alpha;
+    ctx.setLineDash(b.dash);
+    ctx.beginPath();
+    for (const s of b.segs) {
+      const [x1, y1, x2, y2] = trimmed(s.a, s.b);
+      const t = f.drawing.get(s.i);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(t === undefined ? x2 : x1 + (x2 - x1) * t, t === undefined ? y2 : y1 + (y2 - y1) * t);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  for (const { seg, color, alpha } of arrows) {
+    if (f.drawing.has(seg.i) && (f.drawing.get(seg.i) ?? 1) < 1) continue;
+    const [x1, y1, x2, y2] = trimmed(seg.a, seg.b);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    arrowHead(ctx, x1, y1, x2, y2);
+    if (seg.e.dir === "both") arrowHead(ctx, x2, y2, x1, y1);
+  }
+  // A cut pending: the edge broken in the middle by a small cross in the error colour.
+  for (const s of cuts) {
+    const [x1, y1, x2, y2] = trimmed(s.a, s.b);
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = p.bg;
+    ctx.beginPath();
+    ctx.arc(mx, my, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = p.error;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mx - 3, my - 3);
+    ctx.lineTo(mx + 3, my + 3);
+    ctx.moveTo(mx + 3, my - 3);
+    ctx.lineTo(mx - 3, my + 3);
+    ctx.stroke();
+  }
+  ctx.font = font(p.size);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const s of counts) {
+    const [x1, y1, x2, y2] = trimmed(s.a, s.b);
+    const label = `×${s.e.count}`;
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const tw = ctx.measureText(label).width + 6;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = p.bg;
+    ctx.fillRect(mx - tw / 2, my - p.size * 0.6, tw, p.size * 1.2);
+    ctx.fillStyle = p.muted;
+    ctx.fillText(label, mx, my);
+  }
+
+  // Nodes: the shape says what it is (Q53), the accent that it's live, a slash that it's down.
+  for (const { x, y, n } of nodeAt.values()) {
+    if (!onScreen(x, y)) continue;
+    ctx.globalAlpha = dimmed(n.id) ? 0.25 : 1;
+    if (n.count !== undefined) standIn(ctx, x, y, n, p, font);
+    else shape(ctx, x, y, r, n, p);
+  }
+  ctx.globalAlpha = 1;
+  const sel = f.selected ? nodeAt.get(f.selected) : undefined;
+  if (sel) {
+    const rr = (sel.n.count !== undefined ? STAND_IN_RADIUS : r) + 4;
+    ctx.strokeStyle = p.text;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(sel.x, sel.y, rr, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Labels where there's room: the selected node's, then its reach's and the matches, then live
+  // nodes, then the rest, each skipped if it would cover one already drawn.
+  const taken = new Boxes();
+  const order = [...nodeAt.values()].filter((a) => a.n.count === undefined && onScreen(a.x, a.y, 0));
+  const rank = (a: { n: SceneNode }) =>
+    a.n.id === f.selected ? 0 : lit?.nodes.has(a.n.id) || f.matches?.has(a.n.id) ? 1 : a.n.node?.state === "live" ? 2 : dimmed(a.n.id) ? 4 : 3;
+  order.sort((a, b) => rank(a) - rank(b));
+  ctx.font = font(p.size);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  const lh = p.size * 1.3;
+  let drawn = 0;
+  for (const a of order) {
+    if (drawn > 600) break;
+    const isSel = a.n.id === f.selected;
+    const text = clip(ctx, a.n.label, isSel ? 360 : 180);
+    const tw = ctx.measureText(text).width;
+    const bx = a.x + r + 5;
+    const by = a.y - lh / 2;
+    const extra = isSel ? [a.n.node?.detail, a.n.node?.note].filter(Boolean).join(" · ") : "";
+    const bh = extra ? lh * 2 : lh;
+    if (!isSel && taken.hits(bx - 2, by, tw + 4, bh)) continue;
+    taken.add(bx - 2, by, tw + 4, bh);
+    ctx.globalAlpha = dimmed(a.n.id) ? 0.35 : 1;
+    ctx.fillStyle = isSel || lit?.nodes.has(a.n.id) ? p.text : p.muted;
+    ctx.fillText(text, bx, a.y);
+    if (extra) {
+      ctx.fillStyle = p.muted;
+      ctx.fillText(clip(ctx, extra, 360), bx, a.y + lh);
+    }
+    drawn++;
+  }
+  ctx.restore();
+}
+
+/** A line's ends, each pulled in by its node's radius. */
+function trimmed(a: End, b: End): [number, number, number, number] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d;
+  const uy = dy / d;
+  const ia = Math.min(a.inset, d / 2);
+  const ib = Math.min(b.inset, d / 2);
+  return [a.x + ux * ia, a.y + uy * ia, b.x - ux * ib, b.y - uy * ib];
+}
+
+function arrowHead(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) {
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  const s = 6;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - s * Math.cos(a - 0.45), y2 - s * Math.sin(a - 0.45));
+  ctx.lineTo(x2 - s * Math.cos(a + 0.45), y2 - s * Math.sin(a + 0.45));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function shape(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, n: SceneNode, p: Palette) {
+  const g = n.node;
+  if (!g) return;
+  const live = g.state === "live";
+  const down = g.state === "down";
+  const ink = live ? p.accent : down ? p.faint : p.muted;
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1.5;
+  switch (g.shape) {
+    case "square": {
+      const s = r * 1.6;
+      ctx.fillStyle = down ? p.faint : p.tone;
+      ctx.fillRect(x - s / 2, y - s / 2, s, s);
+      if (live) {
+        ctx.strokeStyle = p.accent;
+        ctx.strokeRect(x - s / 2 - 2.5, y - s / 2 - 2.5, s + 5, s + 5);
+      }
+      break;
+    }
+    case "dot":
+      ctx.fillStyle = ink;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case "ring":
+    case "hollow":
+    case "dashed":
+      ctx.fillStyle = p.bg;
+      ctx.strokeStyle = g.shape === "dashed" ? (live ? p.accent : p.tone) : g.shape === "hollow" && !live ? p.faint : ink;
+      ctx.lineWidth = g.shape === "hollow" ? 1 : 1.5;
+      if (g.shape === "dashed") ctx.setLineDash([2.2, 2.2]);
+      ctx.beginPath();
+      ctx.arc(x, y, r - 0.75, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      break;
+  }
+  if (down) {
+    // Down: crossed by a slash, so it isn't colour alone that says so.
+    ctx.strokeStyle = p.muted;
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(x - r - 2, y + r + 2);
+    ctx.lineTo(x + r + 2, y - r - 2);
+    ctx.stroke();
+  }
+  if (g.mark) {
+    ctx.fillStyle = g.mark === "warn" ? p.warn : p.error;
+    ctx.beginPath();
+    ctx.arc(x + r + 1, y - r - 1, 2.75, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function standIn(ctx: CanvasRenderingContext2D, x: number, y: number, n: SceneNode, p: Palette, font: (px: number, w?: number) => string) {
+  ctx.fillStyle = p.raised;
+  ctx.strokeStyle = p.lineStrong;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(x, y, STAND_IN_RADIUS, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = p.text;
+  ctx.font = font(p.size - 2 < 11 ? 11 : p.size - 2);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const count = n.count ?? 0;
+  ctx.fillText(count > 999 ? `${Math.floor(count / 1000)}k` : String(count), x, y + 0.5);
+  ctx.fillStyle = p.muted;
+  ctx.font = font(p.size);
+  ctx.textBaseline = "top";
+  ctx.fillText(clip(ctx, n.label, 160), x, y + STAND_IN_RADIUS + 4);
+}
+
+/** `text` cut to `max` pixels with an ellipsis, never inside a character. */
+function clip(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+  if (ctx.measureText(text).width <= max) return text;
+  const chars = Array.from(text);
+  let lo = 0;
+  let hi = chars.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(`${chars.slice(0, mid).join("")}…`).width <= max) lo = mid;
+    else hi = mid - 1;
+  }
+  return `${chars.slice(0, lo).join("")}…`;
+}
+
+/** The app's strong ease-out, `cubic-bezier(0.23, 1, 0.32, 1)` (`--ease-out`), at `t` in 0..1. */
+export function easeOut(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  const [x1, y1, x2, y2] = [0.23, 1, 0.32, 1];
+  const bez = (u: number, a: number, b: number) => 3 * a * u * (1 - u) ** 2 + 3 * b * u * u * (1 - u) + u ** 3;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (bez(mid, x1, x2) < t) lo = mid;
+    else hi = mid;
+  }
+  return bez((lo + hi) / 2, y1, y2);
+}
+
+/** Screen boxes already taken by labels, in cells of 64 px. */
+class Boxes {
+  private readonly cells = new Map<number, [number, number, number, number][]>();
+  private keys(x: number, y: number, w: number, h: number): number[] {
+    const out: number[] = [];
+    for (let i = Math.floor(x / 64); i <= Math.floor((x + w) / 64); i++) for (let j = Math.floor(y / 64); j <= Math.floor((y + h) / 64); j++) out.push(i * 100_003 + j);
+    return out;
+  }
+  hits(x: number, y: number, w: number, h: number): boolean {
+    for (const k of this.keys(x, y, w, h)) for (const [bx, by, bw, bh] of this.cells.get(k) ?? []) if (x < bx + bw && bx < x + w && y < by + bh && by < y + h) return true;
+    return false;
+  }
+  add(x: number, y: number, w: number, h: number) {
+    for (const k of this.keys(x, y, w, h)) {
+      const list = this.cells.get(k);
+      if (list) list.push([x, y, w, h]);
+      else this.cells.set(k, [[x, y, w, h]]);
+    }
+  }
+}
