@@ -1215,6 +1215,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         let t = lua.create_table()?;
         func!(t, "call", |lua, s, (method, params): (String, Option<Value>)| {
             need(s, &Permission::Serve(method.clone()), "roster.serve.call")?;
+            if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
+                user_only(s, &format!("roster.serve.call {method}"))?;
+            }
             let params = match params {
                 Some(v) => plain(s, "roster.serve.call", &v)?,
                 None => json!({}),

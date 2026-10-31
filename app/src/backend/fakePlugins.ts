@@ -56,9 +56,13 @@ export interface FakeRoster {
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
   sessions: { show(session: number, line?: string): void; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
-  /** roster serve's methods the Plugin was granted (`serve:METHOD`), answered by the fake's `serve`. */
-  serve?: { call(method: string, params?: Record<string, unknown>): unknown };
+  /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend. */
+  serve?: { call(method: string, params?: Spec): unknown };
 }
+
+/** How a fake Plugin's `roster.serve.call` reaches the fake Backend: the result, or a thrown
+ * BackendCallError (its code ends the Plugin's error, as the core's does). */
+export type FakeServe = (method: string, params: Spec) => unknown;
 
 export interface FakePlugin {
   manifest: Omit<PluginManifest, "permissions"> & { permissions: string[] };
@@ -80,6 +84,9 @@ const SUMMARIES: Record<string, string> = {
   "terminal.read": "Read what your Sessions print",
   "terminal.write": "Type into your Sessions",
 };
+
+/** The serve methods whose summary and risk say more than "Call roster's …" (permission.rs). */
+const SERVE: Record<string, { summary: string; risk: string | null } | undefined> = PERMISSIONS.serve;
 
 const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   lock: [],
@@ -251,9 +258,10 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
       }
       return {
       name,
-      summary: SUMMARIES[name] ?? `Call roster's ${name.replace(/^serve:/, "")}`,
+      summary: SUMMARIES[name] ?? SERVE[name]?.summary ?? `Call roster's ${name.replace(/^serve:/, "")}`,
       risk:
         RISKS[name] ??
+        SERVE[name]?.risk ??
         (name.startsWith("serve:") && !PERMISSIONS.serve_reads.includes(name.slice(6))
           ? `Can run roster's ${name.slice(6)}, which can change things on your Hosts or in the Inventory.`
           : null),
@@ -305,10 +313,9 @@ export function fakePluginHost(
   hosts: () => Host[],
   /** Paths found elsewhere (a Package's `package:NAME`), with the settings they're handed. */
   extra: (path: string) => { plugin: FakePlugin; config: Record<string, unknown> } | undefined = () => undefined,
-  /** roster serve for `roster.serve.call`: the method's result, or an Error whose message is serve's
-   * (`unknown method 'x' (code -32601)`), as the core hands it on. */
-  serve: (method: string, params: Record<string, unknown>) => unknown = (method) => {
-    throw new Error(`unknown method '${method}' (code -32601)`);
+  /** roster serve, for the Plugins granted a `serve:` method. */
+  serve: FakeServe = (method) => {
+    throw new BackendCallError(`unknown method '${method}'`, -32601);
   },
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
@@ -507,10 +514,12 @@ export function fakePluginHost(
       m.serve = {
         call: (method, params = {}) => {
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
+          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(`roster.serve.call ${method}`);
           try {
             return serve(method, params);
           } catch (e) {
-            throw new Error(`roster.serve.call ${method}: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+            const text = e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e);
+            throw new Error(`roster.serve.call ${method}: ${text}`, { cause: e });
           }
         },
       };
