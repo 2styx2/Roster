@@ -114,7 +114,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## The Live Inventory
 
-Removing, renaming and moving Hosts and groups in the Sidebar (decision Q45) goes through roster's `host.remove`, `host.rename`, `host.move` and `group.new|rename|delete`, each a Pending change. A bad name is row 44 (code 80), an unknown Host code 2, a result that wouldn't load row 42 (74). An outside edit of `roster.yml` that doesn't load is row 1: the last good Inventory stays on screen, and the message names the line (`roster.yml:12 has an error (…): the last good Inventory is still in use`); it recovers once the file loads. `folders.yml` does the same with the last good Folders.
+Removing, renaming and moving Hosts and groups in the Sidebar (decision Q45) goes through roster's `host.remove`, `host.rename`, `host.move` and `group.new|rename|delete`, each a Pending change. A bad name is row 44 (code 80), an unknown Host code 2, a result that wouldn't load row 42 (74). An outside edit of `roster.yml` that doesn't load is row 1: the last good Inventory stays on screen, and the message names the line (`roster.yml:12 has an error (…): the last good Inventory is still in use`); it recovers once the file loads. A `folders.yml` that doesn't parse moves nothing into the Folders Plugin (row 106).
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
@@ -223,6 +223,19 @@ Scanning a network from the app with the first-party [discover](../../plugins/di
 | 99 | 123 | An address can't be added: the scan didn't find it, or it's in the Inventory or added already | The Inventory | "Nothing was added: 10.0.0.5: in the Inventory already" | Keep only the new ones |
 | 100 | 70, 74, 100 | Adding: `roster.yml` isn't in a git repo, the result wouldn't load, or the `group` setting names a group that's there | `roster.yml` / init.lua | "Nothing was added: … isn't in a git repo, so it can't have Pending changes" | As for any Pending change; name a new group in the `group` setting |
 | 101 | -32601 | The Box's roster is older than serve API 18: it has no `discover.*` | This Box | "Not scanned: the roster on this Box is too old to scan from the app" | Update roster on the Box; `roster discover` works meanwhile |
+
+## A Plugin's files
+
+A Plugin's code and data stay inside its own folders ([plugins.md](../plugins.md#a-plugins-own-files)). Loading refuses code that leads out; `roster.storage` raises a Lua error the Plugin can catch with `pcall`, and nothing is read or written.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 102 | none (the Plugin doesn't load) | `roster-plugin.lua`, `init.lua` or a module it `require`s is a symlink (or a junction, or in a folder that is one) whose real path is outside the Plugin's folder: a local Plugin or a Package | The Plugin's folder | "recent-alerts: init.lua: init.lua leads outside the Plugin's folder (through a symlink or ..): roster won't read it"; for a module, "require \"x.util\": lua/x/util.lua leads outside the Plugin's folder" | Copy the file into the folder instead of linking it; a link that stays inside is fine |
+| 103 | none (a Lua error) | `roster.storage` was given a path or a name it won't take: `a/b`, `../x`, `C:\x`, a name starting with `.`, a device name such as `con`, over 100 characters | The Plugin | "roster.storage.write: \"../x\" isn't a file name: letters, digits, - _ and . only, not starting with . (no folders, no paths)" | The author uses a plain file name |
+| 104 | none (a Lua error) | A file in the Plugin's data folder, or the folder itself, is a link (a symlink or a junction someone made there): it's never followed | The data folder (`plugin-data/NAME`) | "roster.storage.read: notes.txt is a link: roster won't follow it"; "the Plugin's data folder is a link (…): roster won't follow it" | Remove the link; `:plugins remove` removes only the link, never what it leads to |
+| 105 | none (a Lua error) | A write would make a file over 1 MB, the folder over 10 MB, or a 1,001st file | The Plugin | "roster.storage.write: big.json would be 1126400 bytes: a file holds at most 1 MB (1048576 bytes)"; "the Plugin's data folder holds at most 10 MB …" | The author keeps less (the old file is as it was); `:plugins remove` and installing again start it empty |
+| 106 | none (Folders' section and `:check`) | `folders.yml` doesn't parse, so its Folders couldn't move into the Folders Plugin: nothing moves, and Folders can't be changed until it's fixed, so nothing is written over them | `folders.yml` | "Folders can't be read: folders.yml:3 has an error (…): fix it and they move in at the next start"; "Folders can't be changed until they can be read: …" | Fix the line and restart the app (or `:plugins reload folders`) |
+| 107 | none (`:plugins types`) | The Plugin folder's `types` folder, or `types/roster.lua`, is a link: the stubs aren't written through it | The Plugin's folder | "…/types is a link: roster won't write through it" | Remove the link, or point lua-language-server at a copy |
 
 ## This Box's health
 

@@ -29,6 +29,12 @@ export interface PluginRow {
   title?: string;
   run?: Run;
   actions: PluginRowAction[];
+  /** api 3 (ticket 61): a glyph, folding, drawn as an Inventory Host, and drag and drop. */
+  icon?: "folder" | "group";
+  fold?: boolean;
+  kind?: "host";
+  drop?: Run;
+  dragOut?: Run;
 }
 
 export interface PluginFinderItem {
@@ -185,13 +191,14 @@ export interface PluginDetails extends PluginContent {
 }
 
 export type PluginOp =
-  | { op: "command"; name: string; desc: string; run: Run }
+  /** `complete` (api 3): a function the app calls with what's typed after the name. */
+  | { op: "command"; name: string; desc: string; run: Run; complete?: { handler: number } }
   | { op: "key"; context: string; keys: string; action: string | false }
   | { op: "theme"; id: string; theme: ThemeDef }
-  | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[]; actions: PluginRowAction[] }
+  | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[]; actions: PluginRowAction[]; count?: number; drop?: Run }
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
   /** `items` is a handler when the Plugin hands a function (ticket 79): run as the finder opens. */
-  | { op: "finder"; id: string; title: string; items: PluginFinderItem[] | { handler: number } }
+  | { op: "finder"; id: string; title: string; items: PluginFinderItem[] | { handler: number } | { section: string } }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
   | { op: "health"; id: string; title: string; checks: PluginHealthCheck[]; check?: Run }
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
@@ -210,6 +217,9 @@ export type PluginOp =
   | { op: "progress"; id: string; progress: PluginProgress }
   | { op: "toolbar"; id: string; control: PluginToolbarControl }
   | { op: "cmd"; line: string }
+  /** api 3 (ticket 61): a line on the message line, and the command line opened with text. */
+  | { op: "echo"; text: string }
+  | { op: "cmdline"; text: string }
   | { op: "session_show"; session: number; line: string | null }
   /** A timer (ticket 79): run `run` after `ms`, again every `ms` when `every`. */
   | { op: "timer"; id: string; ms: number; every: boolean; run: { handler: number } }
@@ -335,7 +345,30 @@ function row(v: unknown, i: number, what: string): PluginRow {
     title: optStr(v, "title", at),
     run: optRun(v, at).run,
     actions,
+    icon: rowGlyph(v, at),
+    fold: optBool(v, "fold", at),
+    kind: v.kind === undefined || v.kind === null ? undefined : v.kind === "host" ? "host" : bad(`${at}: kind must be "host"`),
+    drop: optRun({ run: v.drop }, `${at} drop`).run,
+    dragOut: optRun({ run: v.drag_out }, `${at} drag_out`).run,
   });
+}
+
+function bad(message: string): never {
+  throw new Invalid(message);
+}
+
+function optBool(o: Obj, key: string, what: string): boolean | undefined {
+  const v = o[key];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "boolean") throw new Invalid(`${what}: ${key} must be true or false`);
+  return v;
+}
+
+function rowGlyph(o: Obj, what: string): "folder" | "group" | undefined {
+  const v = o.icon;
+  if (v === undefined || v === null) return undefined;
+  if (v === "folder" || v === "group") return v;
+  throw new Invalid(`${what}: icon must be "folder" or "group"`);
 }
 
 function healthChecks(v: unknown, what: string): PluginHealthCheck[] {
@@ -522,8 +555,19 @@ function parse(raw: unknown): PluginOp {
   const spec = isObj(raw.spec) ? raw.spec : {};
   const id = typeof raw.id === "string" ? raw.id : "";
   switch (raw.op) {
-    case "command":
-      return { op: "command", name: str(raw, "name", "roster.commands.add", 64), desc: str(raw, "desc", "roster.commands.add"), run: run(raw.run, "roster.commands.add") };
+    case "command": {
+      const c = raw.complete;
+      if (c !== undefined && c !== null && !(isObj(c) && typeof c.handler === "number" && Number.isInteger(c.handler))) {
+        throw new Invalid("roster.commands.add: complete must be a function");
+      }
+      return defined<Extract<PluginOp, { op: "command" }>>({
+        op: "command",
+        name: str(raw, "name", "roster.commands.add", 64),
+        desc: str(raw, "desc", "roster.commands.add"),
+        run: run(raw.run, "roster.commands.add"),
+        complete: isObj(c) ? { handler: c.handler as number } : undefined,
+      });
+    }
     case "key": {
       const action = raw.action === false ? false : str(raw, "action", "roster.keymap.set");
       return { op: "key", context: str(raw, "context", "roster.keymap.set", 40), keys: str(raw, "keys", "roster.keymap.set", 60), action };
@@ -541,6 +585,8 @@ function parse(raw: unknown): PluginOp {
         empty: optStr(spec, "empty", what),
         rows: list(spec, "rows", what).map((r, i) => row(r, i, what)),
         actions: headActions(spec, what),
+        count: num(spec, "count", what),
+        drop: optRun({ run: spec.drop }, `${what} drop`).run,
       });
     }
     case "status": {
@@ -556,11 +602,17 @@ function parse(raw: unknown): PluginOp {
     case "finder": {
       const what = `roster.finders.set ${id}`;
       const items = spec.items;
+      const section = optStr(spec, "section", what, 64);
       return {
         op: "finder",
         id,
         title: optStr(spec, "title", what) ?? id,
-        items: isObj(items) && typeof items.handler === "number" && Number.isInteger(items.handler) ? { handler: items.handler } : finderItems(spec, what),
+        items:
+          section !== undefined
+            ? { section }
+            : isObj(items) && typeof items.handler === "number" && Number.isInteger(items.handler)
+              ? { handler: items.handler }
+              : finderItems(spec, what),
       };
     }
     case "timer": {
@@ -762,6 +814,10 @@ function parse(raw: unknown): PluginOp {
     }
     case "cmd":
       return { op: "cmd", line: str(raw, "line", "roster.cmd", MAX_TEXT) };
+    case "echo":
+      return { op: "echo", text: str(raw, "text", "roster.echo") };
+    case "cmdline":
+      return { op: "cmdline", text: str(raw, "text", "roster.cmdline", MAX_TEXT) };
     case "session_show": {
       const session = num(raw, "session", "roster.sessions.show");
       if (session === undefined || !Number.isInteger(session)) throw new Invalid("roster.sessions.show: which Session?");

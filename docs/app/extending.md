@@ -16,7 +16,7 @@ Two lines never move, whatever the Config: secrets never reach the app's UI, the
 | Status bar segments | Backend, Box, Hosts (the built-in `hosts` Plugin), path, Pending changes, hints, mode, and Plugins' | `modes.<mode>.statusbar` picks and orders them | [Your init.lua](config.md#layout) |
 | Toolbar controls | Sidebar, Find, Quick Connect, Add Host, Changes, Publish, and five more you can turn on | `modes.<mode>.toolbar` picks and orders them | [Your init.lua](config.md#layout) |
 | Finders | Fuzzy lists over Sessions, Hosts, the tree, Themes, help topics | Binds keys to `finder SOURCE` | [Finders](finders) |
-| Folders | Your own grouping of Hosts | `folders` (read-only in the app); the app's own go in `folders.yml` | [Your init.lua](config.md#folders) |
+| Folders | Your own grouping of Hosts | `folders` (read-only in the app); the app's own are kept by the built-in Folders Plugin ([plugins.md](../plugins.md#a-plugins-own-files)) | [Your init.lua](config.md#folders) |
 | Errors | Every way a Session can fail, with where it lives and the fix | Read-only for now | [Connection errors](errors) |
 | Help pages | These pages | Read-only for now | [roster help](index) |
 | Health sections | What `:check` with no Host checks: the app and `roster serve`, roster's own sections, `init.lua`, the terminal font, and Plugins' | A Plugin adds a section whose checks run on each `:check` (`roster.health.set`), like Neovim's `vim.health` | [Health](health), [Health sections](../plugins.md#health-sections) |

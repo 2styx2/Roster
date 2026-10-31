@@ -420,12 +420,14 @@ impl Packages {
                 url_of(&spec.source).unwrap_or_default()
             ));
         }
-        let real = |p: &Path| p.canonicalize().map_err(|e| format!("{}: {e}", p.display()));
-        let (top, inside) = (real(clone)?, real(&path)?);
-        if !inside.starts_with(&top) || inside.starts_with(top.join(".git")) {
-            return Err(format!(
-                "dir = {sub:?} leads outside the Package's clone (through a symlink): roster won't load it"
-            ));
+        // The Plugin host's rule for every file of a Plugin (crate::plugin::folder::inside),
+        // and not into git's own folder either.
+        let escape =
+            || format!("dir = {sub:?} leads outside the Package's clone (through a symlink): roster won't load it");
+        let top = clone.canonicalize().map_err(|e| format!("{}: {e}", clone.display()))?;
+        let inside = crate::plugin::folder::inside(clone, Path::new(&sub)).map_err(|_| escape())?;
+        if inside.starts_with(top.join(".git")) {
+            return Err(escape());
         }
         Ok(inside)
     }

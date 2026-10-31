@@ -17,10 +17,11 @@
 //   declining keeps the old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginManifest, PluginReply } from "../backend/types";
+import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginManifest, PluginReply } from "../backend/types";
 import { themeOf } from "../config/apply";
-import type { CommandDef } from "../commands/table";
-import type { FinderItem, FinderSourceDef } from "../finder/sources";
+import type { CommandContext, CommandDef } from "../commands/table";
+import { sectionFinder, type FinderItem, type FinderSourceDef } from "../finder/sources";
+import { hostRow } from "../sidebar/sections";
 import { parseMarkdown } from "../help/markdown";
 import { pluginTutorial } from "../tutor/plugin";
 import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
@@ -70,6 +71,13 @@ export interface PluginUi {
   showSession?(id: number, line: string | null): boolean;
   /** Opens a float's link (http or https, checked) in the browser. */
   openUrl?(url: string): void;
+  /** Says a line on the message line (`roster.echo`, api 3). */
+  say?(text: string): void;
+  /** Opens the command line with `text` typed in (`roster.cmdline`, api 3). */
+  openCommandLine?(text: string): void;
+  /** The settings a built-in Plugin gets as `roster.plugin.config` (Folders: init.lua's Folders,
+   * and folders.yml's to move in once, ticket 61), read at each load. */
+  builtinSettings?(name: string): Promise<Record<string, unknown> | null>;
 }
 
 /** What a Plugin's function is told about what ran it (api 3, `HandlerContext`). */
@@ -87,7 +95,7 @@ export interface Installed {
 }
 
 /** The built-in features written as Plugins: always installed, granted what they ask until revoked. */
-export const BUILTIN_PLUGINS = ["builtin:hosts"] as const;
+export const BUILTIN_PLUGINS = ["builtin:hosts", "builtin:folders"] as const;
 
 export const STATE_KEY = "plugins";
 
@@ -166,6 +174,7 @@ type PluginBackend = Pick<
   | "pluginCall"
   | "pluginEvent"
   | "pluginUnload"
+  | "pluginForget"
   | "packagesSync"
   | "packagesPin"
   | "packagesDiscard"
@@ -256,6 +265,11 @@ export class PluginManager {
   private readonly screens = new Map<number, { host: string | null; lines: CommittedLines; done: Promise<void> }>();
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
+  /** What each built-in Plugin was last loaded with, so a change reloads it (`reloadBuiltin`). */
+  private readonly builtinConfig = new Map<string, string>();
+  /** A Plugin command's last completions (api 3), by plugin and command: what Tab shows while the
+   * next answer comes. */
+  private readonly completions = new Map<string, { arg: string; list: string[] }>();
 
   constructor(
     private readonly backend: PluginBackend,
@@ -445,7 +459,10 @@ export class PluginManager {
         return `Couldn't clean the Packages: ${e instanceof Error ? e.message : String(e)}`;
       }
       const paths = new Set(gone.map((n) => `${PACKAGE_PREFIX}${n}`));
-      for (const entry of this.installed().filter((e) => paths.has(e.path))) await this.forget(entry.name);
+      for (const entry of this.installed().filter((e) => paths.has(e.path))) {
+        await this.forget(entry.name);
+        await this.backend.pluginForget(entry.name).catch(() => false);
+      }
       this.saveInstalled(this.installed().filter((e) => !paths.has(e.path)));
       this.changed();
       return gone.length === 0 ? "Nothing to clean: init.lua names every Package" : `Removed ${gone.join(", ")}`;
@@ -568,6 +585,8 @@ export class PluginManager {
       this.packages = this.packages.map((p) => (p.name === pkg ? { ...p, commit: null, locked: null, pinned: false } : p));
     }
     await this.forget(name);
+    // Its data folder goes with it (decision Q93): a Plugin installed again starts empty.
+    await this.backend.pluginForget(name).catch(() => false);
     this.saveInstalled(this.installed().filter((e) => e.name !== name));
     this.changed();
     const stillNamed = pkg !== null && this.packages.some((p) => p.name === pkg);
@@ -687,6 +706,16 @@ export class PluginManager {
     this.changed();
   }
 
+  /** Loads built-in Plugin `name` again if its settings changed (init.lua's Folders did). */
+  async reloadBuiltin(name: string): Promise<void> {
+    if (!this.started || !this.loaded.has(name)) return;
+    const path = `builtin:${name}`;
+    const settings = (await this.ui.builtinSettings?.(name).catch(() => null)) ?? null;
+    if (this.builtinConfig.get(name) === JSON.stringify(settings)) return;
+    const entry = this.installed().find((e) => e.path === path);
+    await this.loadPath(path, entry ? entry.granted : null, name);
+  }
+
   /** Every loaded or known Plugin's name (`:plugins remove` completes them). */
   names(): string[] {
     return this.snap.plugins.map((p) => p.name);
@@ -698,7 +727,10 @@ export class PluginManager {
     let result;
     try {
       // A built-in Plugin is granted everything it asks for until a permission is revoked.
-      result = await this.backend.pluginLoad(path, granted ?? ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"]);
+      const builtin = path.startsWith("builtin:") ? path.slice("builtin:".length) : null;
+      const settings = builtin === null ? null : ((await this.ui.builtinSettings?.(builtin).catch(() => null)) ?? null);
+      if (builtin !== null) this.builtinConfig.set(builtin, JSON.stringify(settings));
+      result = await this.backend.pluginLoad(path, granted ?? ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"], settings);
     } catch (e) {
       await this.unload(name);
       this.problems.set(name, e instanceof Error ? e.message : String(e));
@@ -879,10 +911,11 @@ export class PluginManager {
           arg: "text",
           optionalArg: true,
           label: (a) => (a ? `${op.desc || op.name} ${a}` : op.desc || op.name),
-          run: (_ctx, arg) => {
+          run: (ctx, arg) => {
             const args = (arg ?? "").trim();
-            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [] } as unknown as HandlerContext);
+            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext);
           },
+          ...(op.complete ? { complete: this.completer(plugin, op.name, op.complete.handler) } : {}),
         };
         return this.put(l, `command:${op.name}`, r.commands.register(def));
       }
@@ -919,10 +952,21 @@ export class PluginManager {
       }
       case "section": {
         if (this.taken(r.sidebar, op.id, plugin)) return refuse(`there's a Sidebar section named ${op.id} already`);
-        const rows = op.rows.map((row) => this.row(plugin, op.id, row));
         const actions = op.actions.map((a, i) => this.rowAction(plugin, a, { section: op.id, action: i + 1 }));
-        const section = { id: op.id, title: op.title, count: rows.length, rows, ...(op.empty ? { empty: op.empty } : {}), ...(actions.length ? { actions } : {}) };
-        return this.put(l, `section:${op.id}`, r.sidebar.register({ id: op.id, source: plugin, order: op.order, build: () => section }));
+        const drop = op.drop;
+        const build = ({ hostByName }: { hostByName: ReadonlyMap<string, Host> }) => {
+          const rows = op.rows.map((row) => this.row(plugin, op.id, row, hostByName));
+          return {
+            id: op.id,
+            title: op.title,
+            count: op.count ?? rows.length,
+            rows,
+            ...(op.empty ? { empty: op.empty } : {}),
+            ...(actions.length ? { actions } : {}),
+            ...(drop ? { drop: (host: string) => this.line(plugin, drop, { section: op.id, dropped: host }) } : {}),
+          };
+        };
+        return this.put(l, `section:${op.id}`, r.sidebar.register({ id: op.id, source: plugin, order: op.order, build }));
       }
       case "status": {
         if (this.taken(r.status, op.id, plugin)) return refuse(`there's a status segment named ${op.id} already`);
@@ -962,6 +1006,13 @@ export class PluginManager {
           this.put(l, key, dispose);
           return dispose;
         };
+        if ("section" in op.items) {
+          // One of its own sections' rows (api 3), as roster's own `inventory` finder lists its.
+          const own = op.items.section;
+          const finder = sectionFinder(own, op.title, op.title, plugin);
+          const def: FinderSourceDef = { ...finder, items: (ctx) => (r.sidebar.get(own)?.source === plugin ? finder.items(ctx) : []) };
+          return this.put(l, key, r.finders.register(def));
+        }
         if (!("handler" in op.items)) return void register(op.items.map(item));
         // Its items come from a function: run each time the finder opens (ticket 79).
         const handler = op.items.handler;
@@ -1076,6 +1127,14 @@ export class PluginManager {
       }
       case "cmd":
         return this.runLine(plugin, op.line);
+      case "echo":
+        return this.ui.say ? this.ui.say(op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
+      case "cmdline": {
+        // Its own commands only (the core checks too): never a line for roster's or another's.
+        const word = op.text.trim().split(/\s+/)[0] ?? "";
+        if (r.commands.get(word)?.source !== plugin) return refuse(`roster.cmdline: ${word} isn't one of its commands`);
+        return this.ui.openCommandLine?.(op.text);
+      }
       case "session_show":
         if (this.ui.showSession && !this.ui.showSession(op.session, op.line)) return refuse(`there's no Session ${op.session} now: it has ended`);
         return;
@@ -1229,9 +1288,28 @@ export class PluginManager {
     };
   }
 
-  private row(plugin: string, section: string, row: PluginRow): SidebarRow {
+  private row(plugin: string, section: string, row: PluginRow, hostByName: ReadonlyMap<string, Host>): SidebarRow {
+    const id = `${section}:${row.id}`;
+    const context = { section, row: row.id };
+    const own = row.actions.map((a, i) => this.rowAction(plugin, a, { ...context, action: i + 1 }));
+    const extra = {
+      ...(row.drop ? { drop: (host: string) => this.line(plugin, row.drop as Run, { ...context, dropped: host }) } : {}),
+      ...(row.dragOut ? { dragOut: this.line(plugin, row.dragOut, context) } : {}),
+      ...(row.host ? { drag: row.host } : {}),
+      ...(row.icon ? { icon: row.icon } : {}),
+    };
+    // Drawn as the Inventory draws the Host (api 3), with the row's own buttons after.
+    const host = row.kind === "host" && row.host ? hostByName.get(row.host) : undefined;
+    if (host) {
+      const base = hostRow(host, id, row.level ?? 0);
+      return { ...base, ...extra, ...(row.run ? { command: this.line(plugin, row.run, context) } : {}), actions: [...(base.actions ?? []), ...own] };
+    }
+    const dot = row.kind === "host" && row.host ? { dot: "off" as const } : {};
     return {
-      id: `${section}:${row.id}`,
+      ...dot,
+      ...extra,
+      ...(row.fold ? { foldable: true } : {}),
+      id,
       label: row.label,
       ...(row.detail ? { detail: row.detail } : {}),
       ...(row.note ? { note: row.note } : {}),
@@ -1240,8 +1318,50 @@ export class PluginManager {
       ...(row.count !== undefined ? { count: row.count } : {}),
       ...(row.level !== undefined ? { level: row.level } : {}),
       ...(row.title ? { title: row.title } : {}),
-      command: row.run ? this.line(plugin, row.run, { section, row: row.id }) : row.host ? `open ${row.host}` : "",
-      actions: row.actions.map((a, i) => this.rowAction(plugin, a, { section, row: row.id, action: i + 1 })),
+      command: row.run ? this.line(plugin, row.run, context) : row.fold ? `togglefold ${id}` : row.host ? `open ${row.host}` : "",
+      actions: own,
+    };
+  }
+
+  /** What a Plugin's command hears of the Sidebar (api 3): the Host under the cursor (else on
+   * screen) with inventory.read, and the row when it's on one of the Plugin's own sections. */
+  private cursor(plugin: string, ctx: CommandContext): HandlerContext {
+    const granted = this.loaded.get(plugin)?.granted ?? [];
+    const out: HandlerContext = {};
+    if (granted.includes("inventory.read")) {
+      const host = typeof ctx.selectedHost === "function" ? ctx.selectedHost() : null;
+      if (host) out.host = host;
+    }
+    const row = typeof ctx.cursorRow === "function" ? ctx.cursorRow() : null;
+    for (const s of this.registries.sidebar.list()) {
+      if (s.source !== plugin || !row) continue;
+      if (row.id === `section:${s.id}`) out.section = s.id;
+      else if (row.id.startsWith(`${s.id}:`)) {
+        out.section = s.id;
+        out.row = row.id.slice(s.id.length + 1);
+      }
+    }
+    return out;
+  }
+
+  /** A Plugin command's `complete` (api 3): the app's completion is synchronous, so it answers
+   * with the last list the Plugin gave (kept to what still matches) and asks again; the answer
+   * redraws the command line. */
+  private completer(plugin: string, command: string, handler: number) {
+    const key = `${plugin}\0${command}`;
+    return (arg: string): string[] => {
+      const last = this.completions.get(key);
+      if (!last || last.arg !== arg) {
+        void this.call(plugin, handler, arg, null).then((result) => {
+          const list = Array.isArray(result) ? result.filter((x): x is string => typeof x === "string").slice(0, 200) : [];
+          const before = this.completions.get(key);
+          this.completions.set(key, { arg, list });
+          if (JSON.stringify(before) !== JSON.stringify({ arg, list })) this.changed();
+        });
+        // Until it answers: the last list, kept to what still starts with what's typed.
+        return (last?.list ?? []).filter((c) => c.toLowerCase().startsWith(arg.toLowerCase()));
+      }
+      return last.list;
     };
   }
 
