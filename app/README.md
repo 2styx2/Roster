@@ -20,7 +20,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/themes.md](../docs/app/themes.md) | The bundled Themes and their tokens |
 | [docs/app/roadmap.md](../docs/app/roadmap.md) | The iterations and what "done" means for each |
 | [docs/app/performance.md](../docs/app/performance.md) | What the app costs (CPU, memory, wake-ups, frames), the budgets, and `app/scripts/perf.sh` to measure them |
-| [docs/app/dev/](../docs/app/dev/) | Researched, tested notes: Windows build loop from WSL, PTY and wsl.exe, xterm.js setup, test layout, vault sign-in |
+| [docs/app/dev/](../docs/app/dev/) | Researched, tested notes: Windows build loop from WSL, Linux and WSLg (linux.md), PTY and wsl.exe, xterm.js setup, test layout, vault sign-in |
 | [docs/app/errors.md](../docs/app/errors.md) | Every way a connection can fail, with its message and fix |
 | [docs/app/design/taste.md](../docs/app/design/taste.md) | roster's own design identity: what makes it look and feel like ours |
 | [docs/app/decisions.md](../docs/app/decisions.md) | Every design question we asked and the answer |
@@ -72,7 +72,7 @@ app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
 app/src/picker/       the Picker: match.ts (fuzzy ranking), Picker.tsx (a user@address query offers Quick Connect first;
-                      a row's ⓘ or Ctrl+I shows its Host details)
+                      a row's ⓘ or Ctrl+I shows its Host details), timing.ts (its open time, for `:info`, Q86)
 app/src/details/      Host details (ticket 18, decision Q71): details.ts (roster info's fields and services as rows, which
                       URLs may open, what `:open ARG` means), HostDetails.tsx (the side panel opposite the Sidebar)
 app/src/quick/        Quick Connect (ticket 14): target.ts (user@address[:port], parsed as roster's quick.prepare checks it);
@@ -84,6 +84,7 @@ app/src/state/        appState.ts: the State's shape (recent Hosts), parsed leni
 app/src/session/      Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
                       (terminal panes + the basic tab strip for `sessions = "tabs"`)
 app/src/terminal/     TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
+                      renderer.ts (WebGL, or DOM when its context can't start or is lost; what `:info` says, ticket 20),
                       options.ts (font, colour overrides, standard ANSI palette as data), fonts.ts (which installed font is
                       in use, cells rounded as Windows Terminal does, ticket 33), keymap.ts (ticket 08's keys),
                       keys.ts (Leader filter), StubTerminal (tests)
@@ -134,7 +135,10 @@ docs/app/design/      taste.md, the interface review, Theme screenshots (themes/
 app/src/App.tsx       connect → error screen, Lock gate, Standard layout; routes keys through mode.ts to commands
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)
 app/scripts/perf.sh   measuring (docs/app/performance.md): `browser`, `windows [--build]`, `serve`;
-                      perf/serve.py is a stand-in `roster serve` (made-up Hosts, Sessions that print a busy log)
+                      perf/serve.py is a stand-in `roster serve` (made-up Hosts, Sessions that print a busy log;
+                      `--latency DIR`: a `latency` Host whose Session, perf/latency.py, measures the terminal path)
+app/scripts/linux-run.sh  the Linux build (ticket 20, docs/app/dev/linux.md): `build`, `fetch` (CI's), `run` and
+                      `measure` with its own HOME and XDG dirs (opens a window), `report`
 app/src/terminal/hold.ts  a hidden terminal holds its Session's output until it's shown (questions go through)
 ```
 
