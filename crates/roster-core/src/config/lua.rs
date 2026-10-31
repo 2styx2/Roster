@@ -583,15 +583,17 @@ const TOO_BIG: &str =
 /// empty table is an empty object (the schema takes it as an empty list where it wants one).
 /// A table used in several places is copied for each; the run's [`Budget`] bounds the total.
 pub(crate) fn to_json(v: &Value, budget: &Cell<Budget>) -> Result<Json, ConvertError> {
-    convert(v, &mut Vec::new(), &mut Vec::new(), budget, &mut None)
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget, &mut None, false)
 }
 
 /// What a Lua function in the data becomes: Plugins (ticket 23) keep it and send its handle.
 pub(crate) type OnFunction<'a> = Option<&'a mut dyn FnMut(&mlua::Function) -> Result<Json, String>>;
 
-/// [`to_json`], with `functions` deciding what a Lua function becomes.
+/// [`to_json`], with `functions` deciding what a Lua function becomes, for text to show: a string
+/// value that isn't UTF-8 (a line cut in the middle of a character) gets U+FFFD where it breaks
+/// instead of failing the whole conversion (decision Q87). A key that isn't UTF-8 is still refused.
 pub(crate) fn to_json_with(v: &Value, budget: &Cell<Budget>, functions: &mut OnFunction) -> Result<Json, ConvertError> {
-    convert(v, &mut Vec::new(), &mut Vec::new(), budget, functions)
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget, functions, true)
 }
 
 fn convert(
@@ -600,6 +602,7 @@ fn convert(
     within: &mut Vec<*const std::ffi::c_void>,
     budget: &Cell<Budget>,
     functions: &mut OnFunction,
+    lossy: bool,
 ) -> Result<Json, ConvertError> {
     let fail = |path: &[String], message: String| ConvertError {
         path: path.to_vec(),
@@ -636,6 +639,7 @@ fn convert(
                     .ok_or_else(|| fail(path, format!("{n} isn't a usable number")))?
             }
         }
+        Value::String(s) if lossy => Json::String(s.to_string_lossy()),
         Value::String(s) => Json::String(
             s.to_str()
                 .map_err(|_| fail(path, "a string that isn't UTF-8".into()))?
@@ -662,7 +666,7 @@ fn convert(
                             .to_string();
                         spend(path, key.len())?;
                         path.push(key.clone());
-                        let j = convert(&val, path, within, budget, functions)?;
+                        let j = convert(&val, path, within, budget, functions, lossy)?;
                         path.pop();
                         obj.insert(key, j);
                     }
@@ -686,7 +690,7 @@ fn convert(
                 for i in 1..=len {
                     path.push(i.to_string());
                     let val: Value = t.raw_get(i).map_err(|e| fail(path, e.to_string()))?;
-                    out.push(convert(&val, path, within, budget, functions)?);
+                    out.push(convert(&val, path, within, budget, functions, lossy)?);
                     path.pop();
                 }
                 within.pop();
