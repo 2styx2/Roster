@@ -1,6 +1,7 @@
 // Host details (ticket 18): what `roster info HOST` says, as rows, and which web services open.
 import { describe, expect, it } from "vitest";
 import type { Host, HostList, Service } from "../backend/types";
+import urlCases from "../../../crates/roster-core/tests/fixtures/web-urls.json";
 import { hostFacts, resolveOpen, serviceRows, webServices, webUrl } from "./details";
 
 const svc = (over: Partial<Service> = {}): Service => ({
@@ -101,6 +102,14 @@ describe("webUrl", () => {
   it("never opens a URL that carries a user or password", () => {
     expect(webUrl("https://admin:hunter2@10.0.0.5")).toBeNull();
     expect(webUrl("https://admin@10.0.0.5")).toBeNull();
+  });
+
+  // The core's browser.rs checked_url runs the same table: a link the panel offers always opens.
+  it.each(urlCases.open)("agrees with the core: opens %j", (url) => {
+    expect(webUrl(url)).toBe(url);
+  });
+  it.each([...urlCases.refuse, ...urlCases.login])("agrees with the core: refuses %j", (url) => {
+    expect(webUrl(url)).toBeNull();
   });
 });
 
