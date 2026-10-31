@@ -34,6 +34,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **App**
 
 - The finders say how many results a query left, and "No matches", to a screen reader once you stop typing; help's search count is announced as it changes; the outline's section sits at the right, as in `:helpgrep`.
+- Linux: when WebGL can't start or loses its context, the terminal draws with the DOM renderer instead, and `:info` names the renderer in use and how fast the Picker opened. The Enter that finishes an input-method word (IBus, Fcitx) no longer also opens a Host. See [Linux and WSLg](app/dev/linux.md).
 
 ## v0.1.0
 
