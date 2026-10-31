@@ -35,6 +35,7 @@ Everything about roster, the CLI and the app, in one place. The pages marked **:
 | Page | What it's for | :help |
 |---|---|---|
 | [app/extending.md](app/extending.md) | How far roster bends: the registries `init.lua` and Plugins add to | `extending` |
+| [plugins.md](plugins.md) | Writing a Plugin: installing and trusting one, permissions, the `roster` Lua module, events, limits | `plugins` |
 | [adr/0006-lua-plugins-and-packages.md](adr/0006-lua-plugins-and-packages.md) | Plugins and Packages, as decided | |
 
 ## Working on roster

@@ -20,4 +20,4 @@ The roster app can be extended the way Neovim is. A **Plugin** is Lua code, load
 ## Consequences
 
 - Every feature built from now on registers through a registry (commands, keymap, themes, Sidebar sections, finder sources, status segments, events) rather than being wired in directly. Tickets 07, 17, 21 and 22 follow this.
-- The plugin API is versioned like `roster serve`'s, and it's documented in `docs/plugins.md` once ticket 23 lands.
+- The plugin API is versioned like `roster serve`'s (`roster.api_version`), and it's documented in [docs/plugins.md](../plugins.md). Permissions (decision Q81) and how ticket 23 built it (Q82) refine this ADR.
