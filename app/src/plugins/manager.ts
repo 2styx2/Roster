@@ -10,8 +10,14 @@
 //   the Sessions' output for the Plugins granted terminal.read;
 // - errors: a toast naming the Plugin, file and line, and its UI taken away once it's disabled.
 //
-// `:plugins` (the command and panel) and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, PluginErrorInfo, PluginEventName, PluginManifest, PluginReply } from "../backend/types";
+// - Packages (ticket 24): Plugins from git repos that init.lua names. The core clones and pins them
+//   (`packagesSync`); each one is the Plugin `package:NAME` and goes through the same install
+//   prompt, showing its git URL as the unverified source. Cancel removes the clone. `:packages
+//   update` shows each new commit with its diff and any new permission before applying it, and
+//   declining keeps the old version.
+//
+// `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
+import type { Backend, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginManifest, PluginReply } from "../backend/types";
 import { themeOf } from "../config/apply";
 import type { CommandDef } from "../commands/table";
 import type { FinderItem } from "../finder/sources";
@@ -73,6 +79,9 @@ export interface Prompt {
   manifest: PluginManifest;
   /** The permissions being asked about (all of them at install; the new ones on update). */
   asking: readonly string[];
+  /** A Package's prompt: its git URL (the unverified source), and for an update the new commit
+   * with its diff. Declining a Package's update keeps the version it has. */
+  package?: { name: string; url: string; commit: string | null; update?: PackageUpdate };
 }
 
 /** A Plugin's message for the toast: its error, or what it asked to say. */
@@ -85,6 +94,8 @@ export interface Notice {
 
 export interface Snapshot {
   plugins: readonly PluginStatus[];
+  /** The Packages init.lua names, as the core last described them (`:packages`). */
+  packages: readonly PackageStatus[];
   prompts: readonly Prompt[];
   notices: readonly Notice[];
   float: (PluginFloat & { plugin: string }) | null;
@@ -96,7 +107,26 @@ export interface PluginStore {
   set(key: string, value: unknown): void;
 }
 
-type PluginBackend = Pick<Backend, "pluginManifest" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginUnload">;
+type PluginBackend = Pick<
+  Backend,
+  | "pluginManifest"
+  | "pluginLoad"
+  | "pluginCall"
+  | "pluginEvent"
+  | "pluginUnload"
+  | "packagesSync"
+  | "packagesPin"
+  | "packagesDiscard"
+  | "packagesRemove"
+  | "packagesCheck"
+  | "packagesApply"
+  | "packagesClean"
+>;
+
+/** A Package's Plugin path, and back. */
+export const PACKAGE_PREFIX = "package:";
+const packageName = (path: string) => (path.startsWith(PACKAGE_PREFIX) ? path.slice(PACKAGE_PREFIX.length) : null);
+
 
 /** Contexts a Plugin may bind keys in: after the Leader and in the Sidebar, never the terminal. */
 const KEY_CONTEXTS: Record<string, KeymapContext> = { leader: "leader", list: "list", list_vim: "listVim" };
@@ -147,7 +177,15 @@ export class PluginManager {
   private notices: Notice[] = [];
   private float: Snapshot["float"] = null;
   private noticeId = 0;
-  private snap: Snapshot = { plugins: [], prompts: [], notices: [], float: null };
+  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null };
+  private packages: PackageStatus[] = [];
+  /** Packages whose install the user cancelled this run: not asked again until the next start. */
+  private readonly declined = new Set<string>();
+  /** The settings each loaded Package got, so a changed init.lua reloads it. */
+  private readonly packageConfig = new Map<string, string>();
+  private starting: Promise<void> | null = null;
+  /** Package work runs one at a time (a sync, an update, a clean). */
+  private packageWork: Promise<unknown> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
   private readonly pendingOutput = new Map<number, { host: string; text: string; decoder: TextDecoder }>();
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
@@ -178,7 +216,12 @@ export class PluginManager {
 
   /** Loads the built-in Plugins and every installed one. One that asks for a permission the user
    * hasn't been asked about waits for the update prompt. */
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    this.starting ??= this.startNow();
+    return this.starting;
+  }
+
+  private async startNow(): Promise<void> {
     if (this.started) return;
     this.started = true;
     const list = this.installed();
@@ -187,7 +230,8 @@ export class PluginManager {
       const entry = list.find((e) => e.path === path);
       await this.loadPath(path, entry ? entry.granted : null, name);
     }
-    for (const entry of list.filter((e) => !e.path.startsWith("builtin:"))) {
+    // Packages load in syncPackages, once the core has their clones.
+    for (const entry of list.filter((e) => !e.path.startsWith("builtin:") && packageName(e.path) === null)) {
       try {
         const { manifest } = await this.backend.pluginManifest(entry.path);
         const asking = manifest.permissions.map((p) => p.name).filter((p) => !entry.asked.includes(p));
@@ -206,8 +250,132 @@ export class PluginManager {
     }
   }
 
+  // ---------------------------------------------------------------- Packages
+
+  private serially<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.packageWork.then(work, work);
+    this.packageWork = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Brings the Packages in line with init.lua (at start, and whenever its `packages` change):
+   * the core clones what's new and checks out what roster.lock pins; a Package not installed
+   * yet gets the install prompt, an installed one loads (again, if its settings changed), and
+   * one init.lua no longer names stops. */
+  syncPackages(): Promise<void> {
+    return this.serially(async () => {
+      await this.start();
+      let statuses: PackageStatus[];
+      try {
+        statuses = await this.backend.packagesSync();
+      } catch (e) {
+        this.notify("packages", "error", `Packages: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      this.packages = statuses;
+      const named = new Set(statuses.map((p) => `${PACKAGE_PREFIX}${p.name}`));
+      for (const entry of this.installed().filter((e) => packageName(e.path) !== null && !named.has(e.path))) {
+        if (this.loaded.has(entry.name)) await this.unload(entry.name);
+        this.problems.set(entry.name, "init.lua no longer names it: :packages clean removes it");
+      }
+      for (const p of statuses) {
+        if (p.error) continue;
+        await this.syncPackage(p);
+      }
+      this.changed();
+    });
+  }
+
+  private async syncPackage(p: PackageStatus) {
+    const path = `${PACKAGE_PREFIX}${p.name}`;
+    const entry = this.installed().find((e) => e.path === path);
+    if (!p.pinned || !entry) {
+      if (this.declined.has(p.name)) {
+        await this.backend.packagesDiscard(p.name).catch(() => undefined);
+        return;
+      }
+      if (this.prompts.some((x) => x.path === path)) return;
+      try {
+        const { manifest } = await this.backend.pluginManifest(path);
+        const other = this.installed().find((e) => e.name === manifest.name && e.path !== path);
+        if (other) {
+          this.notify(manifest.name, "error", `The Package ${p.name} is the Plugin ${manifest.name}, which is installed already, from ${other.path}`);
+          return;
+        }
+        this.prompts = [
+          ...this.prompts,
+          { kind: "install", path, manifest, asking: manifest.permissions.map((x) => x.name), package: { name: p.name, url: p.url, commit: p.commit } },
+        ];
+      } catch (e) {
+        this.notify(p.name, "error", `${p.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      return;
+    }
+    const config = JSON.stringify(p.config);
+    if (this.loaded.has(entry.name) && this.packageConfig.get(entry.name) === config) return;
+    if (this.waiting.has(entry.name)) return;
+    this.packageConfig.set(entry.name, config);
+    await this.loadPath(path, entry.granted, entry.name);
+  }
+
+  /** `:packages update`: fetches every Package and asks about each new commit, showing its diff
+   * and any permission it newly asks for. Says what it found. */
+  checkPackages(): Promise<string> {
+    return this.serially(async () => {
+      await this.start();
+      let checked;
+      try {
+        checked = await this.backend.packagesCheck();
+      } catch (e) {
+        return `Couldn't check the Packages: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      const updates: string[] = [];
+      const failed: string[] = [];
+      for (const c of checked) {
+        if (c.error) failed.push(`${c.name}: ${c.error}`);
+        const u = c.update;
+        if (!u) continue;
+        const status = this.packages.find((p) => p.name === c.name);
+        const path = `${PACKAGE_PREFIX}${c.name}`;
+        const entry = this.installed().find((e) => e.path === path);
+        if (!u.manifest) {
+          failed.push(`${c.name}: its new version can't be used: ${u.manifestError ?? "no manifest"}`);
+          continue;
+        }
+        if (!entry) continue;
+        const asking = u.manifest.permissions.map((x) => x.name).filter((x) => !entry.asked.includes(x));
+        this.prompts = [
+          ...this.prompts.filter((x) => x.path !== path),
+          { kind: "update", path, manifest: u.manifest, asking, package: { name: c.name, url: status?.url ?? "", commit: u.to, update: u } },
+        ];
+        updates.push(c.name);
+      }
+      this.changed();
+      const found = updates.length === 0 ? "All Packages are up to date" : `${updates.length === 1 ? "An update" : `${updates.length} updates`}: ${updates.join(", ")}`;
+      return failed.length ? `${found}. ${failed.join("; ")}` : found;
+    });
+  }
+
+  /** `:packages clean`: removes the Packages init.lua no longer names, and what they added. */
+  cleanPackages(): Promise<string> {
+    return this.serially(async () => {
+      let gone: string[];
+      try {
+        gone = await this.backend.packagesClean();
+      } catch (e) {
+        return `Couldn't clean the Packages: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      const paths = new Set(gone.map((n) => `${PACKAGE_PREFIX}${n}`));
+      for (const entry of this.installed().filter((e) => paths.has(e.path))) await this.forget(entry.name);
+      this.saveInstalled(this.installed().filter((e) => !paths.has(e.path)));
+      this.changed();
+      return gone.length === 0 ? "Nothing to clean: init.lua names every Package" : `Removed ${gone.join(", ")}`;
+    });
+  }
+
   /** `:plugins install PATH`: reads the manifest and asks (the install prompt). Nothing runs yet. */
   async install(path: string): Promise<string | null> {
+    if (packageName(path) !== null) return "A Package installs from init.lua's packages: :help packages";
     try {
       const { manifest, dir } = await this.backend.pluginManifest(path);
       const already = this.installed().find((e) => e.name === manifest.name);
@@ -231,6 +399,33 @@ export class PluginManager {
     const name = prompt.manifest.name;
     this.waiting.delete(name);
     this.changed();
+    const pkg = prompt.package;
+    if (pkg && prompt.kind === "install") {
+      if (!allow) {
+        this.declined.add(pkg.name);
+        await this.backend.packagesDiscard(pkg.name).catch(() => undefined);
+        return;
+      }
+      try {
+        const pinned = await this.backend.packagesPin(pkg.name);
+        this.packages = this.packages.map((p) => (p.name === pkg.name ? pinned : p));
+      } catch (e) {
+        this.notify(name, "error", `${pkg.name}: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      this.packageConfig.set(name, JSON.stringify(this.packages.find((p) => p.name === pkg.name)?.config ?? {}));
+    }
+    if (pkg?.update) {
+      // Declining a Package's update keeps the version it has: nothing changes.
+      if (!allow) return;
+      try {
+        const moved = await this.backend.packagesApply(pkg.name, pkg.update.to);
+        this.packages = this.packages.map((p) => (p.name === pkg.name ? moved : p));
+      } catch (e) {
+        this.notify(name, "error", `${pkg.name}: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
     if (prompt.kind === "install" && !allow) return;
     const list = this.installed();
     const old = list.find((e) => e.name === name);
@@ -272,13 +467,31 @@ export class PluginManager {
     const status = this.snap.plugins.find((p) => p.name === name);
     if (!status) return `No Plugin named ${name}`;
     if (status.builtin) return `${name} is built into roster: revoke its permissions in :plugins instead`;
+    const pkg = packageName(status.path);
+    if (pkg !== null) {
+      // A Package goes altogether: its clone and its line in roster.lock too.
+      try {
+        await this.backend.packagesRemove(pkg);
+      } catch (e) {
+        return `Couldn't remove ${pkg}: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      this.declined.add(pkg);
+      this.packages = this.packages.map((p) => (p.name === pkg ? { ...p, commit: null, locked: null, pinned: false } : p));
+    }
+    await this.forget(name);
+    this.saveInstalled(this.installed().filter((e) => e.name !== name));
+    this.changed();
+    const stillNamed = pkg !== null && this.packages.some((p) => p.name === pkg);
+    return stillNamed ? `Removed ${name}. init.lua still names it: take it out, or it asks again at the next start` : null;
+  }
+
+  /** Unloads a Plugin and forgets what the manager knew of it (not its State entry). */
+  private async forget(name: string) {
     await this.unload(name);
     this.known.delete(name);
     this.problems.delete(name);
     this.uses.delete(name);
-    this.saveInstalled(this.installed().filter((e) => e.name !== name));
-    this.changed();
-    return null;
+    this.packageConfig.delete(name);
   }
 
   /** Runs what a Plugin's row, action, finder item or command handed over. */
@@ -597,7 +810,7 @@ export class PluginManager {
         uses: this.uses.get(name) ?? [],
       };
     });
-    this.snap = { plugins, prompts: this.prompts, notices: this.notices, float: this.float };
+    this.snap = { plugins, packages: this.packages, prompts: this.prompts, notices: this.notices, float: this.float };
     for (const l of this.listeners) l();
   }
 }

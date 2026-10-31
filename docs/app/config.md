@@ -174,6 +174,22 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 | `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. A Windows path (`C:\Users\…`, `\\server\…`) is an error that names the WSL path it most likely means (`/mnt/c/Users/…`; a `\\wsl$\<distro>\…` share is that distro's own `/…`). Changing it on `:source` locks the app, since the master password was for the old database |
 | `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box, as `database` (never a Windows path). Wins over `providers: kp: key_file:` |
 
+### Packages
+
+```lua
+packages = {
+  { "someone/recent-alerts", tag = "v1.2.0", config = { patterns = { "ERROR", "panic" } } },
+  "someone/pinned",
+  { "https://git.example.com/team/roster-extras.git", branch = "main" },
+},
+```
+
+Plugins fetched from git repos, the way lazy.nvim fetches Neovim's ([plugins.md](../plugins.md#packages)). The app clones each one into its own data folder, asks before it runs one (the same prompt as `:plugins install`, with the repo shown as an unverified source), and pins the commit in `roster.lock`, next to `init.lua`, so the lock can go into your dotfiles with it. Nothing is fetched that isn't named here. Changing the list, or a Package's `config`, takes effect on `:source`.
+
+| Option | Default | |
+|---|---|---|
+| `packages` | `{}` | Each one `{ SOURCE, tag = …, config = { … } }`, or just `SOURCE`. SOURCE is `"owner/repo"` (on GitHub) or a git URL: `https://…`, `ssh://…`, `git@host:path`, `file://…`, or a full path to a repo on this machine (plain `http://` and `git://` are refused: anyone on the way could change them). At most one of `tag`, `branch` or `commit`; none means the repo's default branch. `name = "…"` names it (its folder and its line in `roster.lock`) when the repo's name won't do. `config` is a table of settings the Package reads as `roster.plugin.config`; it can't be a function, since a Package runs in a Lua state of its own (decision Q83) |
+
 ### Other
 
 | Option | Default | |

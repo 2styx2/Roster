@@ -56,6 +56,11 @@ pub struct Config {
     pub auto_reload: bool,
     /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
     pub vault: Vault,
+    /// Packages: Plugins from git repos, pinned in `roster.lock` (ticket 24, decision Q83). In
+    /// Lua, `{ "owner/repo", tag = "v1.0.0", config = { … } }` or a plain `"owner/repo"`; the
+    /// first item becomes `source` (config/lua.rs).
+    #[serde(deserialize_with = "list")]
+    pub packages: Vec<PackageSpec>,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -118,6 +123,7 @@ impl Default for Config {
             editor: Editor::Os,
             auto_reload: false,
             vault: Vault::default(),
+            packages: Vec::new(),
             lines: BTreeMap::new(),
             set: Vec::new(),
             deprecated: Vec::new(),
@@ -1106,6 +1112,29 @@ pub struct FolderDef {
     pub name: String,
     #[serde(default, deserialize_with = "list")]
     pub hosts: Vec<String>,
+}
+
+/// A Package named in `init.lua` (ticket 24): where its git repo is, which version, and the
+/// settings it's handed. At most one of `tag`, `branch` and `commit`; none means the repo's
+/// default branch. Checked by [`crate::package::check_spec`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageSpec {
+    /// `"owner/repo"` (on GitHub) or a full git URL (`https://…`, `ssh://…`, `git@host:path`,
+    /// `file://…` or a full path to a repo on this machine).
+    pub source: String,
+    /// The Package's name (its folder and its key in `roster.lock`); the repo's name by default.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// Settings handed to the Package as `roster.plugin.config` (a table; never a function).
+    #[serde(default)]
+    pub config: serde_json::Map<String, serde_json::Value>,
 }
 
 /// `roster_command = "uv run --project ~/work/roster roster"` (split on spaces) or a list.

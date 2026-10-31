@@ -93,9 +93,9 @@ import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
-import { pluginsCommand } from "./plugins/command";
+import { packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
-import { PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
+import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
@@ -477,6 +477,10 @@ function Workspace({
       }),
     );
   }, [registries, tutor]);
+  // Packages (ticket 24): `:packages`, and a sync whenever init.lua's `packages` change.
+  const [packagesOpen, setPackagesOpen] = useState(false);
+  const openPackages = useRef(() => {});
+  useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
   useEffect(() => {
     tabs.setOutputTap((id, host, data) => plugins.output(id, host, data));
     return () => tabs.setOutputTap(null);
@@ -570,6 +574,10 @@ function Workspace({
   useEffect(() => {
     if (backendReady) void plugins.start();
   }, [backendReady, plugins]);
+  const packagesKey = JSON.stringify(config?.packages ?? []);
+  useEffect(() => {
+    if (backendReady) void plugins.syncPackages();
+  }, [backendReady, plugins, packagesKey]);
   useEffect(() => {
     void plugins.event(vault.locked ? "lock" : "unlock");
   }, [vault.locked, plugins]);
@@ -1220,6 +1228,7 @@ function Workspace({
       if (pluginSnap.float) return plugins.closeFloat();
       if (helpAt.at) return helpView.close();
       if (pluginsOpen) return closePlugins();
+      if (packagesOpen) return closePackages();
       if (keysOpen) return closeKeys();
       if (signingOut) return closeSignOut();
       if (confirming) return closeConfirm();
@@ -1500,6 +1509,14 @@ function Workspace({
   };
   const closePlugins = () => {
     setPluginsOpen(false);
+    restoreFocus();
+  };
+  openPackages.current = () => {
+    rememberFocus();
+    setPackagesOpen(true);
+  };
+  const closePackages = () => {
+    setPackagesOpen(false);
     restoreFocus();
   };
 
@@ -2077,7 +2094,7 @@ function Workspace({
         )}
         {pluginSnap.prompts[0] && (
           <PluginPrompt
-            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}`}
+            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}:${pluginSnap.prompts[0].package?.commit ?? ""}`}
             prompt={pluginSnap.prompts[0]}
             onAnswer={(allow) => {
               const prompt = pluginSnap.prompts[0];
@@ -2087,6 +2104,7 @@ function Workspace({
           />
         )}
         {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
+        {packagesOpen && <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />}
         {pluginSnap.float && (
           <PluginFloatPanel
             key={pluginSnap.float.plugin}

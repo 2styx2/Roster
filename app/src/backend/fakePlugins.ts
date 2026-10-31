@@ -11,7 +11,7 @@ type Spec = Record<string, unknown>;
 /** The `roster` module a fake Plugin's `load` gets. */
 export interface FakeRoster {
   api_version: number;
-  plugin: { name: string; version: string; permissions: string[] };
+  plugin: { name: string; version: string; permissions: string[]; config: Record<string, unknown> };
   commands: { add(name: string, spec: Spec): void; remove(name: string): void };
   keymap: { set(context: string, keys: string, action: string | false): void };
   themes: { define(id: string, theme: Spec): void };
@@ -61,7 +61,7 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   terminal_output: ["terminal.read"],
 };
 
-function described(m: FakePlugin["manifest"]): PluginManifest {
+export function described(m: FakePlugin["manifest"]): PluginManifest {
   return {
     ...m,
     permissions: m.permissions.map((name) => ({
@@ -103,6 +103,8 @@ interface Running {
 export function fakePluginHost(
   plugins: Record<string, FakePlugin>,
   hosts: () => Host[],
+  /** Paths found elsewhere (a Package's `package:NAME`), with the settings they're handed. */
+  extra: (path: string) => { plugin: FakePlugin; config: Record<string, unknown> } | undefined = () => undefined,
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
   pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
@@ -115,8 +117,11 @@ export function fakePluginHost(
   let next = 0;
   let ops: unknown[] = [];
 
+  const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
-    const p = all[path];
+    const found = extra(path);
+    const p = found?.plugin ?? all[path];
+    if (found) configs.set(path, found.config);
     if (!p) throw new BackendCallError(`${path} has no roster-plugin.lua: is it a roster Plugin?`);
     return p;
   };
@@ -132,7 +137,7 @@ export function fakePluginHost(
     return v;
   };
 
-  const module = (r: Running): FakeRoster => {
+  const module = (r: Running, config: Record<string, unknown> = {}): FakeRoster => {
     const push = (op: Record<string, unknown>) => ops.push(data(r, op));
     const piece = (kind: string) => ({
       set: (id: string, spec: Spec) => push({ op: kind, id, spec }),
@@ -140,7 +145,7 @@ export function fakePluginHost(
     });
     const m: FakeRoster = {
       api_version: 2,
-      plugin: { name: r.manifest.name, version: r.manifest.version, permissions: [...r.grants] },
+      plugin: { name: r.manifest.name, version: r.manifest.version, permissions: [...r.grants], config },
       commands: {
         add: (name, spec) => push({ op: "command", name, desc: spec.desc ?? "", run: spec.run }),
         remove: (name) => push({ op: "remove", kind: "command", id: name }),
@@ -198,7 +203,7 @@ export function fakePluginHost(
         disabled: null,
       };
       running.set(manifest.name, r);
-      const reply = run(manifest.name, r, () => p.load(module(r)), true);
+      const reply = run(manifest.name, r, () => p.load(module(r, configs.get(path))), true);
       return { manifest, dir: path, reply };
     },
     async pluginCall(plugin, handler, args) {
