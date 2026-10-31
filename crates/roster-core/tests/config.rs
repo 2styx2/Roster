@@ -1251,12 +1251,16 @@ fn a_windows_path_for_the_keepassxc_database_is_refused_with_its_wsl_path() {
 /// the same path with another backend is still refused.
 #[test]
 fn a_windows_path_is_taken_with_the_local_backend() {
-    let lua = "return {\n  backend = \"local\",\n  vault = { kp = { database = [[C:\\Users\\you\\roster.kdbx]] } },\n}\n";
+    let lua =
+        "return {\n  backend = \"local\",\n  vault = { kp = { database = [[C:\\Users\\you\\roster.kdbx]] } },\n}\n";
     let c = config::load(&with_init("vault-local", lua)).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(c.vault.kp.database.as_deref(), Some(r"C:\Users\you\roster.kdbx"));
     let wsl = lua.replace("\"local\"", "\"wsl\"");
     let e = config::load(&with_init("vault-wsl", &wsl)).unwrap_err();
-    assert!(e.message.contains("vault.kp.database") && e.message.contains("backend = \"local\""), "{e}");
+    assert!(
+        e.message.contains("vault.kp.database") && e.message.contains("backend = \"local\""),
+        "{e}"
+    );
     assert_eq!(e.line, Some(3), "{e}");
 }
 

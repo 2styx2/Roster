@@ -374,8 +374,9 @@ def box_check(state, params):
         except SystemExit as e:
             error = die_message(e)
     with state.lock:
-        channel = (True, "the askpass channel is open") if state.askpass else \
-            (False, "this roster serve has no askpass channel, so password Sessions can't log in")
+        channel = (True, "the askpass channel is open") if state.askpass and not state.askpass.problem else \
+            (False, state.askpass.problem if state.askpass else
+             "this roster serve has no askpass channel, so password Sessions can't log in")
         checks = health.check_box(state.path, state.cfg, error, channel, API_VERSION)
     return {"checks": checks, "ok": not any(c["level"] == "error" for c in checks), **versions()}
 

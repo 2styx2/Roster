@@ -140,6 +140,7 @@ def test_regenerate_check_passes_on_the_committed_page():
 
 
 @pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can write anywhere")
+@posix_shell
 def test_man_install_into_a_prefix_it_cant_write_says_what_to_do(tmp_path, capsys):
     prefix = tmp_path / "root-owned"
     prefix.mkdir()
@@ -166,6 +167,7 @@ def run_install_sh(tmp_path, *args, path=None, answers=None):
     return r.stdout
 
 
+@posix_shell
 def test_install_sh_installs_the_page_when_it_keeps_the_installed_roster(tmp_path):
     bindir = tmp_path / "opt" / "bin"
     bindir.mkdir(parents=True)
@@ -176,6 +178,7 @@ def test_install_sh_installs_the_page_when_it_keeps_the_installed_roster(tmp_pat
     assert f"{tmp_path / 'opt'}/share/man/man1/roster.1" in out
 
 
+@posix_shell
 def test_install_sh_asks_to_add_the_prefix_to_path_only_when_it_isnt(tmp_path):
     prefix = tmp_path / "opt"
     missing = run_install_sh(tmp_path, "--prefix", str(prefix))

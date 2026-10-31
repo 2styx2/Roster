@@ -18,7 +18,7 @@ import os
 import re
 import subprocess
 
-from .common import time_left, user_config_dir
+from .common import program_argv, time_left, user_config_dir
 from .sshops import hk_name, recorded_host_keys
 
 TAG = "roster-mesh"
@@ -311,7 +311,8 @@ def on_host(h, script, timeout=STEP_TIMEOUT):
     """Run SCRIPT on H over the Box's ssh (its key, roster's ssh config). Returns (report lines, None) or
     (None, why it didn't finish)."""
     try:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}", h["name"], "sh -s"],
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
+                                         h["name"], "sh -s"]),
                            input=script, capture_output=True, text=True, timeout=time_left(timeout))
     except subprocess.TimeoutExpired:
         return None, "didn't answer in time"

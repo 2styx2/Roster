@@ -51,5 +51,5 @@ def test_no_section_for_the_version_fails(tmp_path, capsys):
 
 
 def test_every_release_in_the_real_news_has_its_section():
-    news = (ROOT / "docs" / "news.md").read_text()
+    news = (ROOT / "docs" / "news.md").read_text(encoding="utf-8")
     assert news_section.section(news, "0.1.0") is not None
