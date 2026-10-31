@@ -155,7 +155,9 @@ language, and the docs lint fails one that doesn't.
   keywords and commands bold and comments the lightest grey, so a greyscale printer keeps them apart
   (`PRINT_SYNTAX`, `app/src/docs-site/site.tsx`).
 
-The contrast test checks all of it (below).
+The contrast test checks all of it (below). Screenshots, made with Playwright against the built site
+and the Vite dev server's fixtures: [the site, dark](design/docs-site/site-dark.png), [light](design/docs-site/site-light.png),
+and `:help` in [Roster dark](design/docs-site/help-roster-dark.png) and [Roster light](design/docs-site/help-roster-light.png).
 
 ## The contrast test
 
