@@ -120,6 +120,10 @@ _Avoid_: group (that's the Inventory's own grouping, shared by the team), favori
 A named set of colour tokens. The Config can pick one, change any token, or define a new one.
 _Avoid_: skin, colour scheme
 
+**View**:
+A panel a Plugin adds (`roster.views`), opened with `:view ID`: a side panel beside the terminal, or a full view over the whole window. It holds text, facts and a table whose rows are plain data. Not a View mode.
+_Avoid_: page, screen, window
+
 **View mode**:
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
@@ -141,7 +145,7 @@ What `:tutor` runs: lessons with steps that tick themselves from what the app do
 _Avoid_: walkthrough, tour, onboarding
 
 **Plugin**:
-A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
+A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, views, Host-details sections, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
 
 **Permission**:

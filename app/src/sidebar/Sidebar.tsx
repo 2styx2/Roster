@@ -221,7 +221,7 @@ function Actions({ actions, run, leader = "" }: { actions: readonly RowAction[];
         run(a.command);
       }}
     >
-      <Icon name={a.icon} />
+      <RowActionGlyph name={a.icon} />
     </button>
   ));
 }
@@ -241,7 +241,8 @@ const ICONS: Record<RowAction["icon"], string> = {
   copy: "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7",
 };
 
-const Icon = ({ name }: { name: RowAction["icon"] }) => (
+/** A row action's icon (a Sidebar row's, a table's action). */
+export const RowActionGlyph = ({ name }: { name: RowAction["icon"] }) => (
   <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
     <path d={ICONS[name]} />
   </svg>

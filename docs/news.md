@@ -4,6 +4,14 @@ What changed in each Release of roster, the CLI and the app together, newest fir
 
 Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
+## Unreleased
+
+### New
+
+**App**
+
+- Plugin views and tables: a Plugin can add a side panel or a full view (`roster.views`), opened with `:view ID`, a key it binds, the `views` finder or its own command, with Esc taking you back. Its table sorts, moves with vim keys, runs actions on the selected row with a key or a button, takes rows changed in place as a scan finds them, and stays smooth at thousands of rows. A Plugin can also add a section to a Host's details (`roster.details`). See [Views, tables and Host-details sections](plugins.md#views-tables-and-host-details-sections).
+
 ## v0.2.0
 
 ### New
