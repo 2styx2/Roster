@@ -478,7 +478,7 @@ class Scan(threading.Thread):
             self.state = "failed" if self.error else "stopped" if self.halt.is_set() else "done"
 
     def nmap(self, batch):
-        cmd = ["nmap", "-oX", "-", "-T4", "--open", "-sV", "--version-light", "--script", "http-title",
+        cmd = [shutil.which("nmap") or "nmap", "-oX", "-", "-T4", "--open", "-sV", "--version-light", "--script", "http-title",
                "-p", self.ports, *batch]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if self.halt.is_set():

@@ -6,9 +6,11 @@ answers from the stand-in Hosts under FAKE_HOSTS."""
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 import yaml
+from conftest import WINDOWS
 
 from roster import discover
 
@@ -29,7 +31,8 @@ def git(cwd, *args):
 @pytest.fixture
 def net(fakes, isolated, monkeypatch):
     """Stand-in Hosts on 10.0.0.0/24, and the stand-in nmap (never the real one) to find them."""
-    assert shutil.which("nmap").startswith(str(fakes)), "the tests must never run the real nmap"
+    found = shutil.which("nmap")                # Windows: the conftest's NAME.cmd shim, in a folder named fakes
+    assert found and Path(found).parent.name == "fakes", "the tests must never run the real nmap"
     root = isolated["home"].parent / "hosts"
 
     def add(name, address, ports, hostname="", title=""):
@@ -109,6 +112,9 @@ def test_a_scan_runs_in_the_background_and_its_results_come_in_as_they_are_found
     assert [f["address"] for f in again["found"]] == ["10.0.0.9"] and again["count"] == 3
 
 
+# Killing the stand-in's NAME.cmd shim on Windows leaves its Python running with the pipes open; roster serve runs
+# on Linux (WSL on Windows), where nmap is one process.
+@pytest.mark.skipif(WINDOWS, reason="stop kills nmap's process; the Windows shim is two")
 def test_only_one_scan_at_a_time_and_stop_ends_it(serve, net, inventory, monkeypatch):
     monkeypatch.setenv("FAKE_NMAP_DELAY", "30")
     s = serve("-c", str(inventory))
