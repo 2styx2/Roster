@@ -449,7 +449,11 @@ function Workspace({
   // and their UI goes into the registries with their name as its source.
   const runRef = useRef<(line: string) => void>(() => {});
   const [plugins] = useState(
-    () => new PluginManager(backend, registries, store, { run: (line) => runRef.current(line), send: (id, text) => tabs.write(id, text) }),
+    () => new PluginManager(backend, registries, store, {
+        run: (line) => runRef.current(line),
+        send: (id, text) => tabs.write(id, text),
+        copy: (text) => void platform.clipboard.writeText(text).catch(() => undefined),
+      }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
@@ -956,7 +960,11 @@ function Workspace({
   );
 
   useEffect(() => {
-    if (conn.state === "ready" && !vault.locked) mainRef.current?.focus();
+    if (conn.state !== "ready" || vault.locked) return;
+    // A Plugin's prompt that came up behind the lock screen (a Package init.lua names, at start)
+    // keeps the keys, so Enter and Esc answer it (ticket 56).
+    const prompt = document.querySelector<HTMLElement>(".plugin-prompt .edit-actions button");
+    (prompt ?? mainRef.current)?.focus();
   }, [conn.state, vault.locked]);
 
   // With the last Session closed, the keys need somewhere to go.

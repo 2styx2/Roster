@@ -631,3 +631,50 @@ fn a_serve_method_that_acts_on_hosts_is_flagged_and_one_that_reads_isnt() {
     assert!(Permission::parse("serve:mesh.cut").unwrap().risk().is_some());
     assert!(Permission::parse("serve:mesh.status").unwrap().risk().is_none());
 }
+
+/// Ticket 56: a Plugin may put text on the clipboard only while the user runs one of its actions,
+/// commands or finder items, never on its own (at load, on an event).
+#[test]
+fn the_clipboard_is_written_only_in_a_call_the_user_started() {
+    let dir = plugin_dir(
+        "clipboard",
+        &manifest("copier", &[]),
+        r#"
+        local roster = require("roster")
+        local at_load = pcall(roster.clipboard.copy, "at load")
+        roster.status.set("load", { text = tostring(at_load) })
+        roster.on("lock", function() roster.clipboard.copy("on an event") end)
+        roster.commands.add("copy", { run = function(a) roster.clipboard.copy(a.args) end })
+        "#,
+    );
+    let (host, _) = host();
+    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    assert_eq!(reply.ops[0]["spec"]["text"], "false");
+    let replies = host.event(Event {
+        name: "lock".into(),
+        payload: json!({}),
+    });
+    assert!(
+        replies[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("only while the user runs one of your actions")
+    );
+    let copy = reply.ops.iter().find(|o| o["op"] == "command").unwrap();
+    let r = host.call(
+        "copier",
+        handler(copy, "run"),
+        json!({ "args": "10.0.0.5", "words": ["10.0.0.5"] }),
+    );
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.ops, [json!({ "op": "copy", "text": "10.0.0.5" })]);
+    // And only then: the next event can't.
+    let replies = host.event(Event {
+        name: "lock".into(),
+        payload: json!({}),
+    });
+    assert!(replies[0].error.is_some());
+}
