@@ -142,6 +142,15 @@ impl Clock {
         *self.timed_out.borrow_mut() = None;
     }
 
+    /// Raises running out of time again, once it has: for what can catch an error besides
+    /// `pcall` (a Plugin's `coroutine.resume`).
+    pub(crate) fn still_in_time(&self) -> mlua::Result<()> {
+        match &*self.timed_out.borrow() {
+            Some(message) => Err(mlua::Error::runtime(message.clone())),
+            None => Ok(()),
+        }
+    }
+
     /// Gives back time the run spent waiting outside Lua (a call to roster serve).
     pub(crate) fn extend(&self, by: Duration) {
         self.deadline.set(self.deadline.get() + by);
@@ -165,7 +174,8 @@ pub(crate) fn sandboxed(memory: usize, root: Option<&Path>, label: String) -> ml
     // Running out of time is final: once the deadline has passed, every hook call errors again,
     // and `pcall` / `xpcall` (sandbox) re-raise it, so no Lua code can catch it and carry on.
     let hook_clock = Rc::clone(&clock);
-    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
+    // A global hook: a coroutine a Plugin creates inherits it (Lua 5.4 copies it to new threads).
+    lua.set_global_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
         if Instant::now() < hook_clock.deadline.get() {
             return Ok(VmState::Continue);
         }
@@ -243,10 +253,7 @@ fn sandbox(lua: &Lua, dir: Option<&Path>, clock: Rc<Clock>, label: String) -> ml
     .set_name("=sandbox")
     .exec()?;
     // `pcall` and `xpcall` can't swallow running out of time: once it has, they raise it again.
-    let still_in_time = lua.create_function(move |_, ()| match &*clock.timed_out.borrow() {
-        Some(message) => Err(mlua::Error::runtime(message.clone())),
-        None => Ok(()),
-    })?;
+    let still_in_time = lua.create_function(move |_, ()| clock.still_in_time())?;
     // An error raised by a `roster.*` function reaches `pcall` as its message, a string, like
     // any Lua error.
     let plain = lua.create_function(|lua, e: Value| match e {

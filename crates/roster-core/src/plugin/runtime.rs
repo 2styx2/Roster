@@ -120,6 +120,7 @@ impl Runtime {
             .map_err(fail)?;
         lua.set_named_registry_value(LISTENERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
+        coroutines(&lua, &shared.clock).map_err(fail)?;
         let roster = api(&lua, &shared, version, config).map_err(fail)?;
         lua::set_api(&lua, roster).map_err(fail)?;
         Ok(Runtime { lua, shared, budget })
@@ -149,7 +150,13 @@ impl Runtime {
                 )));
             };
             let value: Value = f.call(to_lua(lua, args)?)?;
-            data(lua, &shared, &value, &format!("call:{handler}"))
+            data(
+                lua,
+                &shared,
+                "the value it returned",
+                &value,
+                &format!("call:{handler}"),
+            )
         });
         self.shared.user_call.set(false);
         outcome
@@ -220,6 +227,24 @@ impl Runtime {
     }
 }
 
+/// `coroutine` (api 3), which Neovim authors expect: within the same memory limit and time budget.
+/// The instruction hook follows a coroutine (Lua 5.4 threads inherit it), and `resume` and
+/// `close`, which catch errors as `pcall` does, can't swallow running out of time either.
+fn coroutines(lua: &Lua, clock: &Rc<Clock>) -> mlua::Result<()> {
+    lua.load_std_libs(mlua::StdLib::COROUTINE)?;
+    let clock = Rc::clone(clock);
+    let still_in_time = lua.create_function(move |_, ()| clock.still_in_time())?;
+    lua.load(
+        r##"local still_in_time = ...
+        local resume, close = coroutine.resume, coroutine.close
+        local function after(...) still_in_time() return ... end
+        coroutine.resume = function(...) return after(resume(...)) end
+        coroutine.close = function(...) return after(close(...)) end"##,
+    )
+    .set_name("=sandbox")
+    .call::<()>(still_in_time)
+}
+
 fn plugin_error(plugin: &str, e: &mlua::Error) -> PluginError {
     if matches!(root_cause(e), mlua::Error::MemoryError(_)) {
         return PluginError::new(plugin, None, None, "used too much memory".into());
@@ -237,8 +262,9 @@ fn root_cause(e: &mlua::Error) -> &mlua::Error {
 }
 
 /// A Lua value as UI data: functions become `{ "handler": N }`, owned by `owner` (handing over
-/// data for the same owner again drops its earlier functions).
-fn data(lua: &Lua, shared: &Shared, value: &Value, owner: &str) -> mlua::Result<Json> {
+/// data for the same owner again drops its earlier functions). Errors start with `what`, the
+/// function it was handed to.
+fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> mlua::Result<Json> {
     let handlers: Table = lua.named_registry_value(HANDLERS)?;
     let old = shared.handlers.borrow_mut().owners.remove(owner).unwrap_or_default();
     for id in &old {
@@ -260,19 +286,29 @@ fn data(lua: &Lua, shared: &Shared, value: &Value, owner: &str) -> mlua::Result<
     };
     let out = lua::to_json_with(value, &shared.budget, &mut Some(&mut keep));
     shared.handlers.borrow_mut().owners.insert(owner.to_string(), ids);
-    out.map_err(|e| {
-        let at = if e.path.is_empty() {
-            String::new()
-        } else {
-            format!("{}: ", e.path.join("."))
-        };
-        mlua::Error::runtime(format!("{at}{}", e.message))
-    })
+    out.map_err(|e| convert_error(what, &e))
 }
 
 /// A Lua value as data for roster serve: no functions.
-fn plain(shared: &Shared, v: &Value) -> mlua::Result<Json> {
-    lua::to_json(v, &shared.budget).map_err(|e| mlua::Error::runtime(e.message))
+fn plain(shared: &Shared, what: &str, v: &Value) -> mlua::Result<Json> {
+    lua::to_json(v, &shared.budget).map_err(|e| convert_error(what, &e))
+}
+
+/// `roster.sidebar.set: rows.3.label: a thread can't be a Plugin value`.
+fn convert_error(what: &str, e: &lua::ConvertError) -> mlua::Error {
+    let at = if e.path.is_empty() {
+        String::new()
+    } else {
+        format!("{}: ", e.path.join("."))
+    };
+    let message = e
+        .message
+        .replace(
+            "a Lua function can't be a Config value (functions come with Plugins)",
+            "a Lua function can't go to roster serve",
+        )
+        .replace("can't be a Config value", "can't be a Plugin value");
+    mlua::Error::runtime(format!("{what}: {at}{message}"))
 }
 
 fn push(shared: &Shared, op: Json) -> mlua::Result<()> {
@@ -311,9 +347,47 @@ fn need(shared: &Shared, p: &Permission, what: &str) -> mlua::Result<()> {
 
 /// Calls roster serve, giving the time spent waiting back to the Plugin's run.
 fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> mlua::Result<Value> {
+    answer(lua, what, ask_serve(shared, method, params))
+}
+
+/// roster serve's answer, before it's Lua.
+fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String> {
     let started = Instant::now();
     let result = shared.serve.call(method, params);
     shared.clock.extend(started.elapsed());
+    result.map(|mut v| {
+        redact(&mut v);
+        v
+    })
+}
+
+/// The Login references that say how a secret is fetched, `cmd:COMMAND` and `env:VAR`, cut to
+/// their kind (`cmd:`, `env:`) wherever an `auth` holds one (decision Q92): a command line can
+/// carry a secret pasted into it, and a Plugin never needs either to do its work.
+fn redact(v: &mut Json) {
+    match v {
+        Json::Object(map) => {
+            for (key, item) in map.iter_mut() {
+                if key == "auth"
+                    && let Json::String(text) = item
+                {
+                    for kind in ["cmd:", "env:"] {
+                        if text.len() >= kind.len() && text[..kind.len()].eq_ignore_ascii_case(kind) {
+                            *text = kind.to_string();
+                        }
+                    }
+                } else {
+                    redact(item);
+                }
+            }
+        }
+        Json::Array(items) => items.iter_mut().for_each(redact),
+        _ => {}
+    }
+}
+
+/// roster serve's answer as Lua, or an error naming `what` called it.
+fn answer(lua: &Lua, what: &str, result: Result<Json, String>) -> mlua::Result<Value> {
     match result {
         Ok(v) => to_lua(lua, &v),
         Err(message) => Err(mlua::Error::runtime(format!("{what}: {message}"))),
@@ -359,7 +433,13 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     let commands = lua.create_table()?;
     func!(commands, "add", |lua, s, (name, spec): (String, Table)| {
         check_id("roster.commands.add", &name)?;
-        let spec = data(lua, s, &Value::Table(spec), &format!("command:{name}"))?;
+        let spec = data(
+            lua,
+            s,
+            "roster.commands.add",
+            &Value::Table(spec),
+            &format!("command:{name}"),
+        )?;
         let desc = spec.get("desc").and_then(Json::as_str).unwrap_or("").to_string();
         let Some(run) = spec.get("run").filter(|r| r.is_string() || r.get("handler").is_some()) else {
             return Err(mlua::Error::runtime(
@@ -369,6 +449,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "command", "name": name, "desc": desc, "run": run }))
     });
     func!(commands, "remove", |_lua, s, name: String| {
+        check_id("roster.commands.remove", &name)?;
         push(s, json!({ "op": "remove", "kind": "command", "id": name }))
     });
     roster.raw_set("commands", commands)?;
@@ -394,17 +475,28 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             )
         }
     );
+    // Takes the Plugin's own binding off (api 3); `set(…, false)` did the same before it.
+    func!(keymap, "del", |_lua, s, (context, keys): (String, String)| {
+        push(
+            s,
+            json!({ "op": "key", "context": context, "keys": keys, "action": false }),
+        )
+    });
     roster.raw_set("keymap", keymap)?;
 
     // Themes, checked as init.lua's `themes` are.
     let themes = lua.create_table()?;
     func!(themes, "define", |lua, s, (id, theme): (String, Table)| {
         check_id("roster.themes.define", &id)?;
-        let value = data(lua, s, &Value::Table(theme), "theme")?;
+        let value = data(lua, s, "roster.themes.define", &Value::Table(theme), "theme")?;
         let def: ThemeDef = serde_json::from_value(value)
             .map_err(|e| mlua::Error::runtime(format!("roster.themes.define {id:?}: {e}")))?;
         let def = serde_json::to_value(def).map_err(mlua::Error::external)?;
         push(s, json!({ "op": "theme", "id": id, "theme": def }))
+    });
+    func!(themes, "remove", |_lua, s, id: String| {
+        check_id("roster.themes.remove", &id)?;
+        push(s, json!({ "op": "remove", "kind": "theme", "id": id }))
     });
     roster.raw_set("themes", themes)?;
 
@@ -422,14 +514,16 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         let what = format!("roster.{module}.set");
         func!(t, "set", |lua, s, (id, spec): (String, Table)| {
             check_id(&what, &id)?;
-            let spec = data(lua, s, &Value::Table(spec), &format!("{kind}:{id}"))?;
+            let spec = data(lua, s, &what, &Value::Table(spec), &format!("{kind}:{id}"))?;
             let mut op = Map::new();
             op.insert("op".into(), kind.into());
             op.insert("id".into(), id.into());
             op.insert("spec".into(), spec);
             push(s, Json::Object(op))
         });
+        let removing = format!("roster.{module}.remove");
         func!(t, "remove", |_lua, s, id: String| {
+            check_id(&removing, &id)?;
             push(s, json!({ "op": "remove", "kind": kind, "id": id }))
         });
         roster.raw_set(module, t)?;
@@ -450,7 +544,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     // A floating window over the terminal: a title and lines of text; `close` hides it.
     let float = lua.create_table()?;
     func!(float, "open", |lua, s, spec: Table| {
-        let spec = data(lua, s, &Value::Table(spec), "float")?;
+        let spec = data(lua, s, "roster.float.open", &Value::Table(spec), "float")?;
         push(s, json!({ "op": "float", "spec": spec }))
     });
     func!(float, "close", |_lua, s, (): ()| {
@@ -520,9 +614,24 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                 };
                 list.raw_get::<Value>("hosts")
             });
+            func!(inventory, "groups", |lua, s, (): ()| {
+                need(s, &Permission::InventoryRead, "roster.inventory.groups")?;
+                let list: Table = match serve(lua, s, "roster.inventory.groups", "hosts.list", json!({}))? {
+                    Value::Table(t) => t,
+                    _ => return Err(mlua::Error::runtime("roster.inventory.groups: roster sent no list")),
+                };
+                match list.raw_get::<Value>("groups")? {
+                    Value::Nil => Ok(Value::Table(lua.create_table()?)),
+                    groups => Ok(groups),
+                }
+            });
+            // An unknown name is `nil` (api 3): serve's code 2 for host.get.
             func!(inventory, "host", |lua, s, name: String| {
                 need(s, &Permission::InventoryRead, "roster.inventory.host")?;
-                serve(lua, s, "roster.inventory.host", "host.get", json!({ "name": name }))
+                match ask_serve(s, "host.get", json!({ "name": name })) {
+                    Err(message) if message.ends_with("(code 2)") => Ok(Value::Nil),
+                    result => answer(lua, "roster.inventory.host", result),
+                }
             });
         }
         if g.contains(&Permission::InventoryWrite) {
@@ -532,7 +641,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                     need(s, &Permission::InventoryWrite, &what)?;
                     let mut p = Map::new();
                     for (key, v) in params.iter().zip(args.iter()) {
-                        p.insert((*key).into(), plain(s, v)?);
+                        p.insert((*key).into(), plain(s, &what, v)?);
                     }
                     serve(lua, s, &what, method, Json::Object(p))
                 });
@@ -561,7 +670,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         func!(t, "call", |lua, s, (method, params): (String, Option<Value>)| {
             need(s, &Permission::Serve(method.clone()), "roster.serve.call")?;
             let params = match params {
-                Some(v) => plain(s, &v)?,
+                Some(v) => plain(s, "roster.serve.call", &v)?,
                 None => json!({}),
             };
             serve(lua, s, &format!("roster.serve.call {method}"), &method, params)

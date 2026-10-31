@@ -1,5 +1,5 @@
 {
-  "api_version": 2,
+  "api_version": 3,
   "events": [
     {
       "name": "lock",
@@ -144,6 +144,24 @@
     {
       "params": [
         {
+          "name": "context",
+          "optional": false,
+          "type": "KeyContext"
+        },
+        {
+          "name": "keys",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.keymap.del",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "id",
           "optional": false,
           "type": "string"
@@ -158,6 +176,19 @@
       "permission": null,
       "returns": "",
       "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.themes.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
     },
     {
       "params": [
@@ -413,8 +444,15 @@
       ],
       "path": "roster.inventory.host",
       "permission": "inventory.read",
-      "returns": "Host",
+      "returns": "Host?",
       "since": 2
+    },
+    {
+      "params": [],
+      "path": "roster.inventory.groups",
+      "permission": "inventory.read",
+      "returns": "table<string, Group>",
+      "since": 3
     },
     {
       "params": [
@@ -551,6 +589,7 @@
     "roster-Float": "plugin-api#float",
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
+    "roster-HandlerContext": "plugin-api#handlercontext",
     "roster-HealthCheck": "plugin-api#healthcheck",
     "roster-HealthSection": "plugin-api#healthsection",
     "roster-HelpPage": "plugin-api#helppage",
@@ -613,6 +652,7 @@
     "roster.help.remove()": "plugin-api#rosterhelpremovetopic",
     "roster.help.set()": "plugin-api#rosterhelpsettopic-page",
     "roster.inventory": "plugin-api#rosterinventory",
+    "roster.inventory.groups()": "plugin-api#rosterinventorygroups",
     "roster.inventory.host()": "plugin-api#rosterinventoryhostname",
     "roster.inventory.hosts()": "plugin-api#rosterinventoryhosts",
     "roster.inventory.move()": "plugin-api#rosterinventorymovehost-group",
@@ -620,6 +660,7 @@
     "roster.inventory.review()": "plugin-api#rosterinventoryreviewhost-reviewed",
     "roster.inventory.update()": "plugin-api#rosterinventoryupdatehost-changes",
     "roster.keymap": "plugin-api#rosterkeymap",
+    "roster.keymap.del()": "plugin-api#rosterkeymapdelcontext-keys",
     "roster.keymap.set()": "plugin-api#rosterkeymapsetcontext-keys-action",
     "roster.notify()": "plugin-api#rosternotifytext-level",
     "roster.on()": "plugin-api#rosteronevent-listener",
@@ -639,6 +680,7 @@
     "roster.terminal.send()": "plugin-api#rosterterminalsendsession-text",
     "roster.themes": "plugin-api#rosterthemes",
     "roster.themes.define()": "plugin-api#rosterthemesdefineid-theme",
+    "roster.themes.remove()": "plugin-api#rosterthemesremoveid",
     "roster.tutor": "plugin-api#rostertutor",
     "roster.tutor.remove()": "plugin-api#rostertutorremoveid",
     "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial"
@@ -780,6 +822,16 @@
           "name": "words",
           "required": true,
           "type": "string[]"
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false
@@ -896,6 +948,56 @@
       ],
       "open": false
     },
+    "HandlerContext": {
+      "fields": [
+        {
+          "name": "section",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "row",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "finder",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "item",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "segment",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "health",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
     "HealthCheck": {
       "fields": [
         {
@@ -927,6 +1029,11 @@
           "name": "checks",
           "required": false,
           "type": "HealthCheck[]"
+        },
+        {
+          "name": "check",
+          "required": false,
+          "type": "fun(ctx: HandlerContext): HealthCheck[]"
         }
       ],
       "open": false
@@ -1470,7 +1577,7 @@
       "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\""
     },
     "Run": {
-      "alias": "string|fun(args: table): any"
+      "alias": "string|fun(ctx: HandlerContext): any"
     },
     "Section": {
       "fields": [
