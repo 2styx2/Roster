@@ -25,6 +25,8 @@ export interface HelpSnapshot {
   canForward: boolean;
   /** Counts opens, so opening the same topic again scrolls to it again. */
   seq: number;
+  /** How it got to `at` (`:tutor` waits for a Ctrl+O back, ticket 55). */
+  moved?: "open" | "back" | "forward";
 }
 
 const place = (t: Topic | HelpPlace, search?: string): HelpPlace => ({
@@ -60,7 +62,7 @@ export class HelpView {
   open(to: Topic | HelpPlace, search?: string) {
     if (this.snap.at) this.back.push(this.snap.at);
     this.forward = [];
-    this.set(place(to, search));
+    this.set(place(to, search), "open");
   }
 
   /** Opens the topic `query` names; false when there's none. `TOPIC /TEXT` also searches the
@@ -78,14 +80,14 @@ export class HelpView {
     const to = this.back.pop();
     if (!to || !this.snap.at) return;
     this.forward.push(this.snap.at);
-    this.set(to);
+    this.set(to, "back");
   }
 
   goForward() {
     const to = this.forward.pop();
     if (!to || !this.snap.at) return;
     this.back.push(this.snap.at);
-    this.set(to);
+    this.set(to, "forward");
   }
 
   close() {
@@ -96,8 +98,8 @@ export class HelpView {
     this.changed();
   }
 
-  private set(at: HelpPlace) {
-    this.snap = { at, canBack: this.back.length > 0, canForward: this.forward.length > 0, seq: this.snap.seq + 1 };
+  private set(at: HelpPlace, moved: "open" | "back" | "forward") {
+    this.snap = { at, canBack: this.back.length > 0, canForward: this.forward.length > 0, seq: this.snap.seq + 1, moved };
     this.changed();
   }
 

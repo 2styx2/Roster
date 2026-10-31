@@ -25,6 +25,8 @@ export interface HelpPanelProps {
   onFind(): void;
   /** Opens the outline of the page shown (`g O`). */
   onOutline(): void;
+  /** The page's search changed (`:tutor` waits for some, ticket 55). */
+  onSearch?(page: string, query: string): void;
 }
 
 /** What inline rendering needs: the search, the Leader, and which code is a topic. The docs
@@ -53,7 +55,7 @@ const Env = createContext<RenderEnv>({ query: "", leader: "", tags: new Set(), h
 
 const LINE = 40;
 
-export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline }: HelpPanelProps) {
+export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline, onSearch }: HelpPanelProps) {
   const at = snapshot.at;
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -173,6 +175,11 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
       e.stopPropagation();
     }
   }
+
+  const searchedPage = at?.page;
+  useEffect(() => {
+    if (searchedPage && query) onSearch?.(searchedPage, query);
+  }, [searchedPage, query, onSearch]);
 
   // Focus on the search field as it appears.
   useEffect(() => {
@@ -332,6 +339,22 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
             </tbody>
           </table>
         </div>
+      );
+    case "step":
+      // A node, as the Sidebar's are: a ring while it's to do, filled with a ✓ once the app saw
+      // it done. The change is the one motion help has (taste: motion that confirms).
+      return (
+        <p className="help-step" data-done={b.done ? "" : undefined}>
+          <span className="help-step-node" aria-hidden="true">
+            <svg viewBox="0 0 12 12" focusable="false">
+              <path d="M3.2 6.3 5.1 8.1 8.8 4.2" />
+            </svg>
+          </span>
+          <span className="visually-hidden">{b.done ? "Done: " : "To do: "}</span>
+          <span className="help-step-text">
+            <Inlines items={b.text} />
+          </span>
+        </p>
       );
     case "defs":
       return (

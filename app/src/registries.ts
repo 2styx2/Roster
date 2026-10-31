@@ -14,6 +14,7 @@ import { builtinToolbarRegistry, type ToolbarRegistry } from "./chrome/toolbar";
 import type { ThemeRegistry } from "./theme/theme";
 import { builtinThemeRegistry } from "./theme/themes";
 import { Registry } from "./registry";
+import { builtinTutorRegistry, syncTutorPages, type TutorRegistry } from "./tutor/tutor";
 import type { BadgeEntry, BadgeRegistry, StatusRegistry, StatusSegmentDef } from "./view/status";
 
 export interface Registries {
@@ -41,6 +42,8 @@ export interface Registries {
   badges: BadgeRegistry;
   /** `:check`'s sections with no Host (ticket 49): roster's, the app's, and what Plugins add. */
   health: HealthRegistry;
+  /** `:tutor`'s tutorials (ticket 55): roster's own, and what Plugins add. Each is a help page. */
+  tutorials: TutorRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -49,6 +52,10 @@ export function builtinRegistries(): Registries {
   commands.register(finderCommand(finders));
   const reloaders = reloaderRegistry();
   for (const c of sourceCommands(reloaders)) commands.register(c);
+  const help = builtinHelpRegistry();
+  const tutorials = builtinTutorRegistry();
+  // Each tutorial is a help page, for as long as the registries live.
+  syncTutorPages(tutorials, help);
   return {
     commands,
     keymap: builtinKeymap(),
@@ -59,9 +66,10 @@ export function builtinRegistries(): Registries {
     folders: folderRegistry(),
     reloaders,
     toolbar: builtinToolbarRegistry(),
-    help: builtinHelpRegistry(),
+    help,
     status: new Registry<StatusSegmentDef>(),
     badges: new Registry<BadgeEntry>(),
     health: builtinHealthRegistry(),
+    tutorials,
   };
 }

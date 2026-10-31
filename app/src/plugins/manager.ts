@@ -22,6 +22,8 @@ import { themeOf } from "../config/apply";
 import type { CommandDef } from "../commands/table";
 import type { FinderItem } from "../finder/sources";
 import { parseMarkdown } from "../help/markdown";
+import { pluginTutorial } from "../tutor/plugin";
+import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
@@ -736,6 +738,12 @@ export class PluginManager {
           `help:${op.id}`,
           r.help.register({ id: op.id, source: plugin, title: op.title, summary: op.summary, order: 1000, body: () => blocks }),
         );
+      }
+      case "tutor": {
+        const page = tutorPage(op.id);
+        if (op.id === DEFAULT_TUTORIAL || this.taken(r.tutorials, op.id, plugin)) return refuse(`there's a tutorial named ${op.id} already`);
+        if (this.taken(r.help, page, plugin)) return refuse(`there's a help page named ${page} already`);
+        return this.put(l, `tutor:${op.id}`, r.tutorials.register(pluginTutorial(plugin, op)));
       }
       case "health": {
         if (this.taken(r.health, op.id, plugin)) return refuse(`there's a :check section named ${op.id} already`);

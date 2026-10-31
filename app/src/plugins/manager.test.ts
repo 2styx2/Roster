@@ -197,3 +197,35 @@ describe(":check sections", () => {
     expect(section?.checks({} as never)).toEqual([{ section: "doctor", level: "warn", message: "no alerts yet", fix: "open a Session" }]);
   });
 });
+
+describe("tutorials", () => {
+  const coach: FakePlugin = {
+    manifest: { name: "coach", version: "1", description: "", author: null, api: 2, permissions: [] },
+    load(roster) {
+      roster.tutor.set("coach", {
+        title: "Coach",
+        intro: "Learn the **coach** way.",
+        lessons: [{ title: "Find one", text: "The Picker.", steps: [{ id: "find", text: "Open the Picker", on: { event: "command", id: "find" } }] }],
+      });
+    },
+  };
+
+  it("a Plugin adds one: its page is `tutor-NAME`, and its steps tick from app events", async () => {
+    const { manager, registries } = setup({ "/p/coach": coach }, { [STATE_KEY]: [{ path: "/p/coach", name: "coach", granted: [], asked: [] }] });
+    await manager.start();
+    const def = registries.tutorials.get("coach");
+    expect(def?.source).toBe("coach");
+    expect(registries.help.get("tutor-coach")?.source).toBe("coach");
+    const step = def?.lessons[0]?.steps[0];
+    expect(step?.on).toEqual([{ event: "command", id: "find" }]);
+    await manager.remove("coach");
+    expect(registries.tutorials.get("coach")).toBeUndefined();
+    expect(registries.help.get("tutor-coach")).toBeUndefined();
+  });
+
+  it("refuses steps that wait for an event the app doesn't send", () => {
+    const op = { op: "tutor", id: "x", spec: { lessons: [{ title: "a", steps: [{ id: "s", text: "t", on: { event: "keypress" } }] }] } };
+    expect(parseOp(op)).toMatchObject({ invalid: expect.stringContaining("event must be one of command, session_open") as unknown });
+    expect(parseOp({ op: "tutor", id: "x", spec: { lessons: [] } })).toEqual({ invalid: "roster.tutor.set x: lessons must have at least one lesson" });
+  });
+});

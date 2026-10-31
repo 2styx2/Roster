@@ -44,7 +44,7 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | | Dev build | Release build |
 |---|---|---|
 | Command | `app/scripts/app-dev.sh` (`--ci` the first time) | `app/scripts/app-build.sh --run` (`--installer` for the setup .exe/.msi) |
-| For | working on the app: hot reload, devtools, the worst-case/fixture toggle (only with `?fixture=` or `VITE_ROSTER_APP_FIXTURES=1`) | using it day to day: optimised, no dev code, no fixtures, no fake backend |
+| For | working on the app: hot reload, devtools, the worst-case/fixture toggle (only with `?fixture=` or `VITE_ROSTER_APP_FIXTURES=1`) | using it day to day: optimised, no dev code, no fixtures; the fake Backend only as `:tutor`'s demo Inventory, loaded when a tutorial starts |
 | Windows copy | `%LOCALAPPDATA%\roster-app-dev` | `%LOCALAPPDATA%\roster-app-release` |
 | Stop | `app/scripts/app-stop.sh` | `app/scripts/app-stop.sh --release` (or just close the window) |
 
@@ -134,6 +134,11 @@ app/src/help/         `:help` (ticket 37, docs/app/help.md): pages.ts (the help 
                       → blocks, doc.ts), options.ts (config.md's option tables + each value and where it came from),
                       command.ts (`:help`, the `help` finder, HelpView, `:lookup`), lookup.ts (which topic the lookup
                       keys open: the command typed, the selected result or row, a binding's option, ticket 52), HelpPanel.tsx
+app/src/tutor/        `:tutor` (ticket 55, decision Q76): tutor.ts (the tutorial registry, steps as matches on app events,
+                      the progress in the State, each tutorial as a help page, roster's own), demo.ts (the demo
+                      Inventory: the fake Backend's made-up Hosts, a Platform with a State in memory), command.ts,
+                      plugin.ts (`roster.tutor.set`'s tutorial), DemoBanner.tsx; App.tsx keeps your workspace mounted
+                      and hidden behind the demo's
 app/src/news/         news.ts: what's new after an upgrade, said once in the status line (`newsSeen` in the State, ticket 47)
 app/src/ui/Announce.tsx
                       a live region that speaks a count once it settles (finders, the Picker, help's search; ticket 54)

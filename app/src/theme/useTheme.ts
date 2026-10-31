@@ -44,7 +44,9 @@ export function applyTheme(
   root.dataset.appearance = theme.appearance;
 }
 
-export function useTheme(registry: ThemeRegistry, appearance: AppearanceOptions): Theme {
+/** `active` false (a workspace hidden behind `:tutor`'s demo) leaves the document to another one;
+ * true again puts this Theme back. */
+export function useTheme(registry: ThemeRegistry, appearance: AppearanceOptions, active = true): Theme {
   const themes = useSyncExternalStore(registry.subscribe, registry.list);
   const dark = useSyncExternalStore(subscribeScheme, prefersDark);
   // `themes` changes when a Theme is registered, so a re-registered id is picked up.
@@ -52,9 +54,8 @@ export function useTheme(registry: ThemeRegistry, appearance: AppearanceOptions)
   const theme = resolveTheme(registry, appearance, dark, rosterDark);
   const { ui, mono, size } = appearance.fonts;
   const { colors } = appearance;
-  useLayoutEffect(
-    () => applyTheme(document.documentElement, theme, { ui, mono, size }, colors),
-    [theme, ui, mono, size, colors],
-  );
+  useLayoutEffect(() => {
+    if (active) applyTheme(document.documentElement, theme, { ui, mono, size }, colors);
+  }, [theme, ui, mono, size, colors, active]);
   return theme;
 }

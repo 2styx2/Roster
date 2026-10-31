@@ -65,3 +65,30 @@
 /* Search matches; the current one in the accent, as it's where you are. */
 .help-doc mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 2px; }
 .help-doc mark.current { background: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 0 0 1px var(--text); }
+
+/* `:tutor`'s steps (ticket 55): a node, a ring while it's to do; once the app sees it done the ring
+   fills (in the text colour: a done step isn't live, so no accent) with a ✓ cut out of it, and the
+   step's words step back to muted. The only motion in help, and it confirms something you did
+   elsewhere: the disc grows from 0.6 and fades in, the ✓ and the words fade. A transition, so a
+   tick that comes and goes (reset) retargets. Reduced motion drops the growth (--dur-move is 0)
+   and keeps the fades. A page that opens on a done step shows it done, with no motion. */
+.help-step { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; }
+.help-step-node {
+  position: relative; flex: none; width: 14px; height: 14px; top: 2px;
+  border: 1.5px solid var(--muted); border-radius: 50%;
+}
+.help-step-node::before {
+  content: ""; position: absolute; inset: -1.5px; border-radius: 50%; background: var(--text);
+  opacity: 0; transform: scale(0.6);
+  transition: opacity var(--dur-fade) var(--ease-out), transform var(--dur-move) var(--ease-out);
+}
+.help-step-node svg {
+  position: absolute; inset: -1.5px; width: 14px; height: 14px;
+  fill: none; stroke: var(--bg); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  opacity: 0; transition: opacity var(--dur-fade) var(--ease-out);
+}
+.help-step-text { transition: color var(--dur-fade) ease; }
+.help-step[data-done] .help-step-node::before { opacity: 1; transform: scale(1); }
+.help-step[data-done] .help-step-node svg { opacity: 1; }
+.help-step[data-done] .help-step-text { color: var(--muted); }
+.help-step[data-done] .help-step-text code { color: var(--text); }

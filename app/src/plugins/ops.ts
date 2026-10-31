@@ -4,6 +4,7 @@
 // text is cut to what the UI can show. A Lua function arrives as `{ handler: N }`.
 import type { ThemeDef } from "../config/types";
 import type { RowAction } from "../sidebar/Sidebar";
+import { TUTOR_EVENTS, type StepMatch } from "../tutor/tutor";
 
 /** What choosing something runs: a function the Plugin handed over, or a command line. */
 export type Run = { handler: number } | { command: string };
@@ -43,6 +44,20 @@ export interface PluginHealthCheck {
   fix?: string;
 }
 
+/** A Plugin's tutorial (`roster.tutor.set`, ticket 55): Markdown text, and steps that wait for
+ * app events (tutor.ts StepMatch). */
+export interface PluginTutorStep {
+  id: string;
+  text: string;
+  on: StepMatch[];
+}
+
+export interface PluginTutorLesson {
+  title: string;
+  text: string;
+  steps: PluginTutorStep[];
+}
+
 export interface PluginFloat {
   title: string;
   lines: string[];
@@ -57,6 +72,7 @@ export type PluginOp =
   | { op: "finder"; id: string; title: string; items: PluginFinderItem[] }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
   | { op: "health"; id: string; title: string; checks: PluginHealthCheck[] }
+  | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
   | { op: "badge"; host: string; text: string | null }
   | { op: "float"; spec: PluginFloat | null }
   | { op: "notify"; text: string; level: "info" | "warn" | "error" }
@@ -65,7 +81,7 @@ export type PluginOp =
   | { op: "copy"; text: string }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "section", "status", "finder", "help", "health"] as const;
+export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
@@ -230,6 +246,46 @@ function parse(raw: unknown): PluginOp {
           if (!level) throw new Invalid(`${at}: level must be "ok", "warn" or "error"`);
           return defined<PluginHealthCheck>({ level, message: str(c, "message", at), fix: optStr(c, "fix", at) });
         }),
+      };
+    }
+    case "tutor": {
+      const what = `roster.tutor.set ${id}`;
+      const title = optStr(spec, "title", what) ?? id;
+      const ids = new Set<string>();
+      const lessons = list(spec, "lessons", what).map((l, i): PluginTutorLesson => {
+        const at = `${what} lesson ${i + 1}`;
+        if (!isObj(l)) throw new Invalid(`${at}: must be a table`);
+        return {
+          title: str(l, "title", at, 100),
+          text: optStr(l, "text", at, MAX_HELP) ?? "",
+          steps: list(l, "steps", at).map((st, j): PluginTutorStep => {
+            const where = `${at} step ${j + 1}`;
+            if (!isObj(st)) throw new Invalid(`${where}: must be a table`);
+            const stepId = str(st, "id", where, 100);
+            if (ids.has(stepId)) throw new Invalid(`${where}: id ${stepId} is used twice`);
+            ids.add(stepId);
+            const raw = Array.isArray(st.on) ? st.on : [st.on];
+            if (raw.length === 0) throw new Invalid(`${where}: on must name an event`);
+            const on = raw.map((m): StepMatch => {
+              if (!isObj(m)) throw new Invalid(`${where}: on must be a table, { event = "…" }, or a list of them`);
+              const event = str(m, "event", where, 40);
+              if (!(TUTOR_EVENTS as readonly string[]).includes(event)) throw new Invalid(`${where}: event must be one of ${TUTOR_EVENTS.join(", ")}`);
+              const fields = Object.fromEntries(Object.keys(m).filter((k) => k !== "event").map((k) => [k.slice(0, 40), str(m, k, where, 200)]));
+              return { ...fields, event };
+            });
+            return { id: stepId, text: str(st, "text", where), on };
+          }),
+        };
+      });
+      if (lessons.length === 0) throw new Invalid(`${what}: lessons must have at least one lesson`);
+      return {
+        op: "tutor",
+        id,
+        title,
+        summary: optStr(spec, "summary", what) ?? title,
+        intro: optStr(spec, "intro", what, MAX_HELP) ?? "",
+        lessons,
+        outro: optStr(spec, "outro", what, MAX_HELP) ?? "",
       };
     }
     case "badge":
