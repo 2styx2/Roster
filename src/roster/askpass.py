@@ -26,6 +26,7 @@ never load roster.yml.
 import os
 import re
 import secrets
+import select
 import shlex
 import socket
 import struct
@@ -179,11 +180,13 @@ class Typed:
 class Channel:
     """serve's end. lookup(login) -> password, raising with a message safe to show when it can't;
     it runs on the channel's threads, so it must be thread-safe (providers.get_secret is). tick(), if given, runs on
-    the accept loop every 0.2 s while it's idle (serve forgets what it holds past its time there); it must be quick and
-    never raise."""
+    the accept loop when it wakes without a connection (serve forgets what it holds past its time there) and returns
+    the seconds until it's due again, or None; nudge() wakes the loop to ask it again. It must be quick and never
+    raise."""
 
     def __init__(self, lookup, log=None, tick=None):
         self.lookup, self.log, self.tick = lookup, log or (lambda msg: None), tick
+        self.tick_due = None                 # time.monotonic() when tick() wants to run again (None: not until nudged)
         self.ttl = ttl()
         self.tokens = {}                     # token -> (login, label, expires at: time.monotonic())
         self.labels = {}                     # token -> (label, until): names a spent token's prompt reports
@@ -204,7 +207,10 @@ class Channel:
             os.umask(old)
         os.chmod(self.socket_path, 0o600)
         self.server.listen(8)
-        self.server.settimeout(0.2)          # so close() can stop the accept loop
+        # The accept loop sleeps until a connection, the next token's expiry, or a nudge (a new token, close()):
+        # no polling, so an idle serve never wakes up for it.
+        self.wake_r, self.wake_w = os.pipe()
+        self.server.setblocking(False)       # select said ready, but a client may be gone by accept()
         write_helper(self.helper)
         write_helper(self.login_helper, login=True)
         self.thread = threading.Thread(target=self._accept_loop, name="askpass", daemon=True)
@@ -221,7 +227,37 @@ class Channel:
             self.tokens[token] = (login, label, now + self.ttl)
             self.labels = {t: v for t, v in self.labels.items() if v[1] > now}
             self.labels[token] = (label, now + 2 * self.ttl)
+        self._nudge()                        # the accept loop may be sleeping with no expiry to wake for
         return token
+
+    def _nudge(self):
+        try:
+            os.write(self.wake_w, b"x")
+        except OSError:
+            pass
+
+    def nudge(self):
+        """Something tick() looks after has changed (serve holds a new password): wake the accept loop to ask it."""
+        self._nudge()
+
+    def _next_expiry(self):
+        """Seconds until something expires or tick() is due again (None: nothing to wake for)."""
+        with self.lock:
+            ends = [v[2] for v in self.tokens.values()] + [v[1] for v in self.labels.values()]
+            ends += [v[2] for v in self.handed.values()]
+        if self.tick_due is not None:
+            ends.append(self.tick_due)
+        return None if not ends else max(0.0, min(ends) - time.monotonic())
+
+    def _run_tick(self):
+        if self.tick is None:
+            return
+        try:
+            wait = self.tick()
+        except Exception as e:              # never let it stop the channel
+            self.log(f"askpass: tick failed: {type(e).__name__}")
+            wait = None
+        self.tick_due = None if wait is None else time.monotonic() + max(0.0, wait)
 
     def _prune(self):
         """Drop what has expired: unused tokens, their labels, and typed passwords handed to ssh whose login report
@@ -285,14 +321,15 @@ class Channel:
     def _accept_loop(self):
         while not self.stopping.is_set():
             try:
+                ready, _, _ = select.select([self.server, self.wake_r], [], [], self._next_expiry())
+                if self.wake_r in ready:
+                    os.read(self.wake_r, 64)
+                if self.server not in ready:
+                    self._prune()           # an unused token (a typed password above all) goes once it expires
+                    self._run_tick()
+                    continue
                 conn, _ = self.server.accept()
-            except TimeoutError:
-                self._prune()               # an unused token (a typed password above all) goes once it expires
-                if self.tick is not None:
-                    try:
-                        self.tick()
-                    except Exception as e:  # never let it stop the channel
-                        self.log(f"askpass: tick failed: {type(e).__name__}")
+            except BlockingIOError:
                 continue
             except OSError:
                 return
@@ -347,8 +384,11 @@ class Channel:
 
     def close(self):
         self.stopping.set()
+        self._nudge()
         self.thread.join(timeout=2)
         self.server.close()
+        for fd in (self.wake_r, self.wake_w):
+            os.close(fd)
         self.forget()
         for f in (self.socket_path, self.helper, self.login_helper, self.known_hosts):
             try:
