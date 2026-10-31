@@ -2286,6 +2286,16 @@
           "name": "view",
           "required": true,
           "type": "string"
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "session_host",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false

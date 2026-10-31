@@ -2687,7 +2687,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "NodeRun",
         summary: "What a graph's node or action runs",
-        doc: "A function gets a [NodeEvent](#nodeevent). A command line runs as typed after `:`.",
+        doc: "A function gets a [NodeEvent](#nodeevent): which node, its Host, and the Session on screen. A command line runs as typed after `:`, as the Plugin's (`:plugins run`).",
         alias: "string|fun(e: NodeEvent): any",
         fields: &[],
         open: false,
@@ -2701,6 +2701,16 @@ pub const TYPES: &[Type] = &[
             f("node", "string", "The node's `id`."),
             o("host", "string", "The node's `host`."),
             f("view", "string", "The view's id."),
+            o(
+                "session",
+                "integer",
+                "The Session on screen, as in a [`HandlerContext`](#handlercontext): only with `inventory.read` or `terminal.read`.",
+            ),
+            o(
+                "session_host",
+                "string",
+                "The Host of the Session on screen, as in a [`HandlerContext`](#handlercontext).",
+            ),
         ],
         open: false,
     },

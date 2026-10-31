@@ -393,6 +393,8 @@
 ---@field node string The node's `id`.
 ---@field host? string The node's `host`.
 ---@field view string The view's id.
+---@field session? integer The Session on screen, as in a `HandlerContext`: only with `inventory.read` or `terminal.read`.
+---@field session_host? string The Host of the Session on screen, as in a `HandlerContext`.
 
 --- A Host, as roster serve's `hosts.list` and `host.get` give it
 ---@class roster.Host

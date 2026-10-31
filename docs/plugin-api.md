@@ -2623,7 +2623,7 @@ Something a graph's selected node can do.
 
 What a graph's node or action runs.
 
-A function gets a [NodeEvent](#nodeevent). A command line runs as typed after `:`.
+A function gets a [NodeEvent](#nodeevent): which node, its Host, and the Session on screen. A command line runs as typed after `:`, as the Plugin's (`:plugins run`).
 
 One of: `string \| fun(e: `[`NodeEvent`](#nodeevent)`): any`
 
@@ -2636,6 +2636,8 @@ What a graph's function gets.
 | `node` | `string` | yes | The node's `id`. |
 | `host` | `string` | no | The node's `host`. |
 | `view` | `string` | yes | The view's id. |
+| `session` | `integer` | no | The Session on screen, as in a [`HandlerContext`](#handlercontext): only with `inventory.read` or `terminal.read`. |
+| `session_host` | `string` | no | The Host of the Session on screen, as in a [`HandlerContext`](#handlercontext). |
 
 ### `Host`
 

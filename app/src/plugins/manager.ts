@@ -1213,10 +1213,9 @@ export class PluginManager {
   /** A view's graph, with what its `open` and actions run. A function gets the node:
    * `{ node, host, view }`. */
   private graph(plugin: string, view: string, g: PluginGraph): GraphModel {
-    const go = (run: Run) => (node: GraphNode) => {
-      if ("command" in run) return this.ui.run(run.command);
-      void this.call(plugin, run.handler, { node: node.id, ...(node.host ? { host: node.host } : {}), view });
-    };
+    // As a table's: a function gets the node with the handler context (the Session on screen when
+    // it may know); a command line goes through `:plugins run`.
+    const go = (run: Run) => (node: GraphNode) => this.runFor(plugin, run, { node: node.id, ...(node.host ? { host: node.host } : {}), view });
     // Without its own `open`, a node with a Host opens that Host, as a table row does.
     const openHost = (node: GraphNode) => {
       if (node.host) this.ui.run(`open ${node.host}`);

@@ -184,20 +184,22 @@ export function stepFrom(s: Scene, id: string, dir: Direction): string | null {
 /** Reading order: top to bottom, then left to right. */
 const reading = (a: SceneNode, b: SceneNode) => a.y - b.y || a.x - b.x;
 
-/** The drawn nodes matching `query` (name, id, kind, note, detail or cluster, any case), in
- * reading order; a match inside a collapsed cluster finds the cluster. */
+/** The drawn nodes that say every word of `query` (in their name, id, kind, note, detail or
+ * cluster, any case), as a table's `/` filter keeps rows; in reading order. A match inside a
+ * collapsed cluster finds the cluster. */
 export function matchesOf(g: GraphData, s: Scene, query: string): string[] {
-  const q = query.trim().toLocaleLowerCase();
-  if (!q) return [];
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const says = (text: string) => words.every((w) => text.includes(w));
   const titles = new Map(g.clusters.map((c) => [c.id, c.title]));
   const hit = new Set<string>();
   for (const n of g.nodes) {
     const where = s.shownAs.get(n.id);
     if (where === undefined || hit.has(where)) continue;
     const text = [n.label, n.id, n.kind, n.note, n.detail, n.cluster !== undefined ? titles.get(n.cluster) : undefined].filter(Boolean).join("\u0000").toLocaleLowerCase();
-    if (text.includes(q)) hit.add(where);
+    if (says(text)) hit.add(where);
   }
-  for (const n of s.nodes) if (n.count !== undefined && n.label.toLocaleLowerCase().includes(q)) hit.add(n.id);
+  for (const n of s.nodes) if (n.count !== undefined && says(n.label.toLocaleLowerCase())) hit.add(n.id);
   return s.nodes
     .filter((n) => hit.has(n.id))
     .sort(reading)

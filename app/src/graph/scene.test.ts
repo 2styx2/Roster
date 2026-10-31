@@ -86,6 +86,9 @@ describe("search", () => {
     expect(matchesOf(g, scene(), "web").sort()).toEqual(["y1", "y2"]);
     expect(matchesOf(g, scene(["lab"]), "esxi")).toEqual(["lab"]);
     expect(matchesOf(g, scene(), "")).toEqual([]);
+    // Every word, anywhere, as a table's filter: the cluster's title and the note.
+    expect(matchesOf(g, scene(), "lab  date")).toEqual(["x2"]);
+    expect(matchesOf(g, scene(), "web date")).toEqual([]);
   });
 });
 

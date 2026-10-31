@@ -520,7 +520,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
               spellCheck={false}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                // As a table's filter: Enter (or ↓) goes to the next match and back to the graph.
+                if (e.key === "Enter" || e.key === "ArrowDown") {
                   e.preventDefault();
                   e.stopPropagation();
                   if (matches[0] !== undefined) select(matches.find((m) => m !== selected && matches.indexOf(m) > matches.indexOf(selected ?? "")) ?? matches[0]);
