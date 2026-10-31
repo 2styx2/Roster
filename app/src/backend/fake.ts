@@ -64,7 +64,8 @@ import {
   type SignedOut,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
-import { fakePackageHost, type FakePackages } from "./fakePackages";
+import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
+import { recentAlerts } from "./fakeRecentAlerts";
 import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
@@ -172,6 +173,8 @@ export interface FakeScenario {
   /** Each Session repaints its screen when resized, as ConPTY does on Windows (ticket 73): home,
    * its last rows again, each cleared to its end. */
   repaints?: boolean;
+  /** What each Host's Session prints right after it logs in, line by line, by Host name. */
+  logs?: Record<string, string[]>;
   /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
   plugins?: Record<string, FakePlugin>;
   /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
@@ -531,6 +534,8 @@ export const fixtures: Record<string, FakeScenario> = {
     },
   }),
   "worst-case": worstCase(),
+  /** The example Plugin, recent-alerts, running with alerts to show (ticket 79). */
+  "recent-alerts": recentAlertsCase(),
   /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
    * Sessions (default 12) whose shells print `&rate=R` log lines a second (default 100). */
   perf: perfCase(),
@@ -550,6 +555,33 @@ export const fixtures: Record<string, FakeScenario> = {
     startProblem: problem("no-wsl", "No WSL distro was found.", "Install WSL and a Linux distro with roster in it."),
   },
 };
+
+/** `?fixture=recent-alerts` (ticket 79): the example Plugin installed as a Package, granted
+ * terminal.read, with two Sessions open whose logs have alerts in them, so its section, badges,
+ * status segment, finder and float can be looked at (and tested) in a plain browser. */
+function recentAlertsCase(): FakeScenario {
+  const hosts = makeHosts(12);
+  const open = hosts.hosts.filter((h) => h.reviewed && authOf(h) === "key").slice(0, 2).map((h) => h.name);
+  const [a = "", b = ""] = open;
+  const commit = fakeCommit(1);
+  return {
+    hosts,
+    vault: { status: "unsupported" },
+    logs: {
+      [a]: ["mounting /data", "ERROR: disk full on /data", "retrying in 5 s", "panic: runtime error: index out of range"],
+      [b]: ["backup started", "ERROR: connection refused (backup target)"],
+    },
+    packages: {
+      named: [{ name: "recent-alerts", source: "https://git.example.com/someone/recent-alerts.git", config: { leader: "w a" }, versions: [{ commit, subject: "v1.0.0", plugin: recentAlerts(), diff: "" }] }],
+      lock: { "recent-alerts": commit },
+      clones: { "recent-alerts": commit },
+    },
+    app: {
+      state: { plugins: [{ path: "package:recent-alerts", name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }] },
+      openAtStart: open,
+    },
+  };
+}
 
 /** The worst case (ticket 27): every long, short, odd, missing and huge value at once. */
 function worstCase(): FakeScenario {
@@ -625,7 +657,7 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
-  extra: { onLogin?: () => void; title?: string; stream?: number | undefined; printers?: Printers; repaints?: boolean | undefined } = {},
+  extra: { onLogin?: () => void; title?: string; stream?: number | undefined; printers?: Printers; repaints?: boolean | undefined; log?: readonly string[] | undefined } = {},
 ): SessionHandle {
   // What it printed, without escapes, for a ConPTY-style repaint.
   let screen = "";
@@ -669,7 +701,7 @@ function fakeSession(
     extra.onLogin?.();
     // A shell that names its box in the window title, as most Linux prompts do (OSC 0).
     if (extra.title) out(encode(`\x1b]0;${extra.title}\x07`));
-    out(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    out(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${(extra.log ?? []).map((l) => `${l}\r\n`).join("")}${prompt}`));
     atPrompt = true;
     if (resized && !ended) sayResized(resized);
     if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => out(encode(text)));
@@ -1319,7 +1351,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream, printers, repaints: scenario.repaints });
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream, printers, repaints: scenario.repaints, log: scenario.logs?.[host] });
     },
     async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));

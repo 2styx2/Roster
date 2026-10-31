@@ -84,6 +84,13 @@ const date = (at: number) => {
   const d = new Date(at * 1000);
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${clock(at)}`;
 };
+/** match ago(): "just now", "4 min ago", then the time (HH:MM). */
+const ago = (at: number) => {
+  const s = Math.floor(Date.now() / 1000) - at;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  return clock(at).slice(0, 5);
+};
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const list = (p: string[]) => (p.length === 1 ? (p[0] ?? "") : `${p.slice(0, -1).join(", ")} or ${p[p.length - 1] ?? ""}`);
 
@@ -123,7 +130,9 @@ export function recentAlerts(options: RecentAlertsOptions = {}): FakePlugin {
 function load(roster: FakeRoster, options: RecentAlertsOptions) {
   const [s, problems] = settings(roster.plugin.config);
   for (const p of problems) roster.notify(`${p}; using the default`, "warn");
-  const reads = roster.plugin.permissions.includes("terminal.read");
+  const reads = roster.has("terminal.read");
+  /** While there are alerts, the timer that draws them again so "2 min ago" stays true. */
+  let ticking: number | null = null;
 
   let alerts: Alert[] = [];
   let nextId = 0;
@@ -150,7 +159,7 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
         id: String(a.id),
         label: a.text,
         detail: where(a),
-        note: clock(a.at),
+        note: ago(a.at),
         title: `${where(a)} at ${clock(a.at)}: ${a.text}`,
         ...(a.host ? { host: a.host } : {}),
         actions: [
@@ -187,6 +196,11 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
       roster.badges.set(host, n ? String(n) : null);
     }
     badged = perHost;
+    if (alerts.length > 0 && ticking === null) ticking = roster.every(30000, show);
+    else if (alerts.length === 0 && ticking !== null) {
+      roster.cancel(ticking);
+      ticking = null;
+    }
   };
 
   roster.commands.add("alerts", {

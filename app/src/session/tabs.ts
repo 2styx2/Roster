@@ -94,10 +94,9 @@ const LATE_LIMIT = 4 * 1024;
 type Sink = (data: Uint8Array) => void;
 
 /** What a tab's terminal is wired to; the same object for the tab's whole life. */
-/** Where Plugins hear the Sessions (setOutputTap): their output, and each resize sent to one. */
+/** Where Plugins hear the Sessions (setOutputTap): their output, with the size its PTY has. */
 export interface OutputTap {
-  output(id: number, host: string | null, data: Uint8Array): void;
-  resized(id: number): void;
+  output(id: number, host: string | null, data: Uint8Array, size: TermSize): void;
 }
 
 export interface TerminalWiring {
@@ -439,7 +438,7 @@ export class Tabs {
           this.scanForName(entry, text);
           this.output(entry, data);
           // A Quick Connect Session isn't on a Host of the Inventory: no Host to name.
-          this.outputTap?.output(id, entry.tab.quick ? null : entry.tab.host, data);
+          this.outputTap?.output(id, entry.tab.quick ? null : entry.tab.host, data, entry.sentSize);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
         },
@@ -724,7 +723,6 @@ export class Tabs {
     const { size, sentSize, session } = entry;
     if (!session || (size.cols === sentSize.cols && size.rows === sentSize.rows)) return;
     entry.sentSize = { ...size };
-    this.outputTap?.resized(entry.tab.id);
     void session.resize(size).catch(() => {});
   }
 }

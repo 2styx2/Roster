@@ -29,6 +29,11 @@ export interface FakeRoster {
   clipboard: { copy(text: string): void };
   notify(text: string, level?: "info" | "warn" | "error"): void;
   on(event: PluginEventName, f: Fn): void;
+  /** Timers (ticket 79): the app keeps the clock and calls back, as the core does. */
+  defer(ms: number, f: () => void): number;
+  every(ms: number, f: () => void): number;
+  cancel(timer: number): void;
+  has(permission: string): boolean;
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined };
   sessions?: { open(host: string): void };
   terminal?: { send(session: number, text: string): void };
@@ -255,6 +260,8 @@ interface Running {
   manifest: PluginManifest;
   grants: Set<string>;
   handlers: Map<number, Fn>;
+  /** The timers waiting, by handler: whether each repeats. */
+  timers: Map<number, boolean>;
   listeners: Map<string, Fn[]>;
   errors: number;
   disabled: string | null;
@@ -352,11 +359,36 @@ export function fakePluginHost(
         if (needs.length && !needs.some((p) => r.grants.has(p))) throw new Error(`roster.on: the ${event} event needs the ${needs.join(" or ")} permission`);
         r.listeners.set(event, [...(r.listeners.get(event) ?? []), f]);
       },
+      defer: (ms, f) => timer(r, "roster.defer", ms, f, false),
+      every: (ms, f) => timer(r, "roster.every", ms, f, true),
+      cancel: (id) => {
+        if (!r.timers.delete(id)) return;
+        r.handlers.delete(id);
+        ops.push({ op: "remove", kind: "timer", id: String(id) });
+      },
+      has: (p) => {
+        if (permissionProblem(p) === null) return r.grants.has(p);
+        if (p === "network") return [...r.grants].some((g) => g.startsWith("network:"));
+        if (p.startsWith("serve:") || p.startsWith("network:")) return false;
+        throw new Error(`roster.has: ${JSON.stringify(p)} isn't a permission`);
+      },
     };
     if (r.grants.has("inventory.read")) m.inventory = { hosts: () => hosts(), host: (name) => hosts().find((h) => h.name === name) };
     if (r.grants.has("sessions.open")) m.sessions = { open: (host) => push({ op: "open", host }) };
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
     return m;
+  };
+
+  /** As runtime.rs's add_timer: the same floors, ceiling and op. */
+  const timer = (r: Running, what: string, ms: number, f: () => void, every: boolean): number => {
+    if (!Number.isFinite(ms) || ms < 0 || ms > 2_147_483_647) throw new Error(`${what}: ms must be a number of milliseconds from 0 to 2147483647`);
+    if (every && ms < 1000) throw new Error(`${what}: at least 1000 ms between runs (use roster.defer for once, soon)`);
+    if (r.timers.size >= 100) throw new Error(`${what}: more than 100 timers waiting at once (roster.cancel the ones you don't need)`);
+    const id = ++next;
+    r.handlers.set(id, () => f());
+    r.timers.set(id, every);
+    ops.push({ op: "timer", id: String(id), ms: Math.max(50, Math.ceil(ms)), every, run: { handler: id } });
+    return id;
   };
 
   /** Runs `body` as a call into the Plugin: its ops, or its error (and a strike). */
@@ -384,6 +416,7 @@ export function fakePluginHost(
         manifest,
         grants: new Set(p.manifest.permissions.filter((x) => grants.includes(x))),
         handlers: new Map(),
+        timers: new Map(),
         listeners: new Map(),
         errors: 0,
         disabled: null,
@@ -400,7 +433,13 @@ export function fakePluginHost(
       }
       const f = r.handlers.get(handler);
       if (!f) return { plugin, result: null, ops: [], error: { plugin, file: null, line: null, message: "that action is gone: the Plugin replaced it" }, disabled: null };
-      userCall = true;
+      // A timer firing isn't something the user started; a deferred one is gone once it runs.
+      const timer = r.timers.get(handler);
+      if (timer === false) {
+        r.timers.delete(handler);
+        r.handlers.delete(handler);
+      }
+      userCall = timer === undefined;
       try {
         return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
       } finally {

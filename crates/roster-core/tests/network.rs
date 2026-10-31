@@ -226,6 +226,28 @@ fn without_a_network_grant_there_is_no_roster_http() {
 }
 
 #[test]
+fn roster_has_answers_for_a_site_and_for_any_site() {
+    let init = r#"
+      for _, p in ipairs({ "network", "network:api.example.com", "network:other.example.com", "network:bad site" }) do
+        roster.notify(p .. "=" .. tostring(roster.has(p)))
+      end
+    "#;
+    let (_h, reply, _) = load("has", &["network:api.example.com"], json!({}), init);
+    let texts: Vec<&str> = reply.ops.iter().map(|o| o["text"].as_str().unwrap()).collect();
+    assert_eq!(
+        texts,
+        [
+            "network=true",
+            "network:api.example.com=true",
+            "network:other.example.com=false",
+            "network:bad site=false"
+        ]
+    );
+    let (_h, reply, _) = load("has-none", &[], json!({}), init);
+    assert_eq!(reply.ops[0]["text"], "network=false");
+}
+
+#[test]
 fn a_bare_network_permission_names_no_site_and_doesnt_install() {
     let dir = plugin_dir("bare", &["network"], "");
     let e = read_manifest(&dir).unwrap_err();
