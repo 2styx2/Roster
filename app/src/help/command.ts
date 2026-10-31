@@ -159,10 +159,12 @@ export function helpgrepCommand(): CommandDef {
 }
 
 /** Up to `width` characters of `text` around its first match of `term`. */
-function snippet(text: string, term: string, width = 110): string {
+function snippet(text: string, term: string, width = 80): string {
   if (text.length <= width) return text;
   const at = Math.max(0, text.toLowerCase().indexOf(term.toLowerCase()));
-  const from = Math.max(0, Math.min(at - 30, text.length - width));
+  let from = Math.max(0, Math.min(at - 30, text.length - width));
+  // Start at a word, not in one.
+  if (from > 0) from = text.indexOf(" ", from) + 1 || from;
   return `${from > 0 ? "…" : ""}${text.slice(from, from + width).trim()}${from + width < text.length ? "…" : ""}`;
 }
 
@@ -176,7 +178,10 @@ export function helpgrepFinder(view: HelpView): FinderSourceDef {
     if (!ctx || terms.length === 0) return [];
     const out: FinderItem[] = [];
     const seen = new Set<string>();
+    const headings = new Set<string>();
     pageTexts(ctx).forEach((hit, k) => {
+      // The index and `all` only repeat other pages' titles and summaries.
+      if (hit.page === "index" || hit.page === "all") return;
       const lower = hit.text.toLowerCase();
       if (!terms.every((t) => lower.includes(t))) return;
       const label = snippet(hit.text, terms[0] as string);
@@ -184,8 +189,10 @@ export function helpgrepFinder(view: HelpView): FinderSourceDef {
       if (seen.has(key)) return;
       seen.add(key);
       out.push({ id: `${k}`, label, path: hit.where, command: `help ${hit.tag} /${query.trim().split(/\s+/)[0]}` });
+      if (hit.heading) headings.add(`${k}`);
     });
-    return out;
+    // A heading that has the words comes first: it's what the text is about.
+    return [...out.filter((i) => headings.has(i.id)), ...out.filter((i) => !headings.has(i.id))];
   };
   return {
     id: "helpgrep",

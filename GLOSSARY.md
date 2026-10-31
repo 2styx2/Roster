@@ -116,6 +116,10 @@ _Avoid_: skin, colour scheme
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
 
+**Help topic**:
+A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:connect`, `E13`), a guide's heading (`config#the-sandbox`) or another name for one (`roster.yml`). The topic finder (`␣ ?`) lists them all, and `:help all` lists them A to Z.
+_Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
+
 **Plugin**:
 Lua code that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks). It never sees secrets.
 _Avoid_: extension, addon, mod

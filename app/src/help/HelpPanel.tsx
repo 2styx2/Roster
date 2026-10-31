@@ -349,8 +349,8 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     case "text":
       return <Highlighted text={item.text} />;
     case "code": {
-      // `␣ K` in a guide is a key sequence: keycaps, like everywhere else.
-      if (/^␣( \S+)+$/.test(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
+      // `␣ K`, `Ctrl+o` or `Esc` in a guide is a key: keycaps, like everywhere else.
+      if (isKeys(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
       // A code span naming a topic links to it: `:connect`, `terminal.size`, `init.lua`.
       const tag = codeTopic(item.text, env.tags);
       const el = (
@@ -383,6 +383,13 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     }
   }
 }
+
+/** Keymap notation: `␣`, `␣ K`, `Ctrl+o`, `Ctrl+Shift+c`, `Esc`, `Tab`, `F11`, `g O`. */
+const isKeys = (code: string): boolean =>
+  /^␣( \S+)*$/.test(code) ||
+  /^(?:(?:Ctrl|Alt|Shift|Meta|Cmd)\+)+\S+$/.test(code) ||
+  /^(?:Esc|Tab|Enter|Shift\+Tab|F\d{1,2})$/.test(code) ||
+  /^g [gO]$/.test(code);
 
 function NoLinks({ children }: { children: ReactNode }) {
   const env = useContext(Env);

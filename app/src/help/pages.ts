@@ -177,6 +177,8 @@ export interface TextHit {
   /** Where it is, for the finder: "Your init.lua › The sandbox". */
   where: string;
   text: string;
+  /** A heading's own text: `:helpgrep` lists these first. */
+  heading?: boolean;
 }
 
 export function pageTexts(ctx: HelpContext): TextHit[] {
@@ -184,9 +186,9 @@ export function pageTexts(ctx: HelpContext): TextHit[] {
   for (const pg of ctx.pages) {
     let tag = pg.id;
     let where = pg.title;
-    const push = (text: string, at = tag, place = where) => {
+    const push = (text: string, at = tag, place = where, heading = false) => {
       const t = text.replace(/\s+/g, " ").trim();
-      if (t) out.push({ page: pg.id, tag: at, where: place, text: t });
+      if (t) out.push({ page: pg.id, tag: at, where: place, text: t, ...(heading ? { heading } : {}) });
     };
     for (const b of pg.body(ctx)) {
       switch (b.t) {
@@ -195,7 +197,7 @@ export function pageTexts(ctx: HelpContext): TextHit[] {
             tag = headingTag(pg.id, b.anchor);
             where = `${pg.title} › ${plain(b.text)}`;
           }
-          push(plain(b.text));
+          push(plain(b.text), tag, where, true);
           break;
         case "p":
         case "quote":
@@ -479,7 +481,7 @@ function indexPage(ctx: HelpContext): Block[] {
               items: pages.map((pg) => ({
                 term: [link(pg.id, [code(pg.id)])],
                 meta: pg.source === BUILTIN ? [] : [sourceText(pg.source)],
-                body: [link(pg.id, pg.title), text(`: ${pg.summary}`)],
+                body: [text(pg.summary)],
               })),
             },
           ]
@@ -555,7 +557,8 @@ function quickrefPage(ctx: HelpContext): Block[] {
         const bound = keysForCommandLine(ctx.keymap, line);
         const shown = bound.length > 3 ? [keys(bound[0] as string), text("…"), keys(bound[bound.length - 1] as string)] : bound.map(keys);
         const arg = line === id ? argOf(c) : "";
-        return [[shown, [link(`:${id}`, [code(`:${line}${arg}`)])], [text(describeLine(ctx.commands, line).label)]]];
+        const label = line === id ? c.label() : describeLine(ctx.commands, line).label;
+        return [[shown, [link(`:${id}`, [code(`:${line}${arg}`)])], [text(label)]]];
       });
       return rows.length
         ? [h(2, area, `quickref#${area.toLowerCase().replace(/\s+/g, "-")}`), { t: "table", head: [[text("Keys")], [text("Command")], [text("What it does")]], rows }]
