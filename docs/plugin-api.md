@@ -6,6 +6,16 @@ Every function, value, event and data type of the `roster` Lua module a Plugin g
 
 Types are written as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations write them: `string?` may be `nil`, `Host[]` is a list of Hosts, `table<string, Group>` a table of Groups by name, `"info"|"warn"` one of those strings. The same declarations are [`roster.lua`](../examples/plugins/types/roster.lua), for [your editor](#editor-support).
 
+## The Lua
+
+roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT as Neovim does; [why](adr/0006-lua-plugins-and-packages.md#why-lua-54-not-luajit). Coming from Neovim:
+
+- Integers are real 64-bit integers (`3 // 2` is `1`, `math.type(1)` is `"integer"`), and the bitwise operators are native (`a & b`, `a | b`, `~a`, `a << 2`): there's no `bit` library.
+- `goto`, `<const>` and `<close>` locals work; there's no `jit` and no FFI.
+- The API is `roster.*`, never `vim.*`: there's no `vim.api`, `vim.fn`, `vim.loop` or `vim.schedule`.
+- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. No `io`, no `os.execute`, no `debug`, no `coroutine`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
+- It runs on a thread of its own with a memory limit and a time budget per call: see [Limits](plugins.md#limits).
+
 ## Index
 
 | Function | What it does | Permission |

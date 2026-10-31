@@ -531,12 +531,15 @@ function Workspace({
     }
     seenTabs.current = now;
   }, [sessions.tabs, plugins, tutorEvent]);
-  const onScreenHost = sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
+  const onScreenTab = sessions.tabs.find((t) => t.id === sessions.active);
+  const onScreenHost = onScreenTab?.host ?? null;
+  // A Quick Connect Session isn't on a Host: Plugins hear `host_selected` only for a Host's.
+  const onScreenQuick = Boolean(onScreenTab?.quick);
   useEffect(() => {
     if (!onScreenHost) return;
-    void plugins.event("host_selected", { host: onScreenHost });
+    if (!onScreenQuick) void plugins.event("host_selected", { host: onScreenHost });
     tutorEvent("host_selected", { host: onScreenHost });
-  }, [onScreenHost, plugins, tutorEvent]);
+  }, [onScreenHost, onScreenQuick, plugins, tutorEvent]);
   const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
   /** The safe choice of this workspace's Plugin prompt, while one is up. */

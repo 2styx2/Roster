@@ -270,7 +270,11 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.notify",
         params: &[
-            p("text", "string", "What to say. It's shown after the Plugin's name (`pinned: …`)."),
+            p(
+                "text",
+                "string",
+                "What to say. It's shown after the Plugin's name (`pinned: …`).",
+            ),
             opt("level", "Level", "`\"info\"` (the default), `\"warn\"` or `\"error\"`."),
         ],
         summary: "Shows a notice, naming the Plugin",
@@ -288,15 +292,29 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.on",
         params: &[
-            p("event", "EventName", "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`."),
-            p("listener", "fun(e: table)", "Runs with the event's payload (see [Events](#events)) each time it happens. Its return value is ignored."),
+            p(
+                "event",
+                "EventName",
+                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`.",
+            ),
+            p(
+                "listener",
+                "fun(e: table)",
+                "Runs with the event's payload (see [Events](#events)) each time it happens. Its return value is ignored.",
+            ),
         ],
         summary: "Runs a function on an event",
         doc: "Several listeners for one event run in the order they were added. There's no way to stop listening short of `:plugins reload`.",
         returns: ("", ""),
         errors: &[
-            ("roster.on: there's no event \"NAME\" (there's lock, unlock, …)", "`event` isn't one of them"),
-            ("roster.on: the EVENT event needs the P permission", "the Plugin may not hear it (\"needs the inventory.read or terminal.read permission\")"),
+            (
+                "roster.on: there's no event \"NAME\" (there's lock, unlock, …)",
+                "`event` isn't one of them",
+            ),
+            (
+                "roster.on: the EVENT event needs the P permission",
+                "the Plugin may not hear it (\"needs the inventory.read or terminal.read permission\")",
+            ),
         ],
         refused: &[],
         needs: Needs::Nothing,
@@ -306,17 +324,29 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.commands.add",
         params: &[
-            p("name", "string", "The command: `:name ARGS`. Lower case letters, digits, `-`, `_` and `.`, at most 64."),
+            p(
+                "name",
+                "string",
+                "The command: `:name ARGS`. Lower case letters, digits, `-`, `_` and `.`, at most 64.",
+            ),
             p("spec", "CommandSpec", "Its description and what it runs."),
         ],
         summary: "Adds a `:` command",
         doc: "Adding it again replaces it (and the function it ran).",
         returns: ("", ""),
         errors: &[
-            ("roster.commands.add: \"NAME\" isn't a name like \"recent-alerts\" (…)", "a bad `name`"),
-            ("roster.commands.add: `run` must be a function or a command line", "`spec.run` is missing or something else"),
+            (
+                "roster.commands.add: \"NAME\" isn't a name like \"recent-alerts\" (…)",
+                "a bad `name`",
+            ),
+            (
+                "roster.commands.add: `run` must be a function or a command line",
+                "`spec.run` is missing or something else",
+            ),
         ],
-        refused: &["`:NAME` is taken by roster, `init.lua` or another Plugin (`pinned: :pin is taken (other)`), or it's `:plugins`"],
+        refused: &[
+            "`:NAME` is taken by roster, `init.lua` or another Plugin (`pinned: :pin is taken (other)`), or it's `:plugins`",
+        ],
         needs: Needs::Nothing,
         since: 2,
         example: "roster.commands.add(\"alerts\", {\n  desc = \"Recent alerts\",\n  run = function(a)\n    if a.words[1] == \"clear\" then clear() end\n  end,\n})\nroster.commands.add(\"pins\", { desc = \"Pinned Hosts\", run = \"finder pinned\" })",
@@ -336,9 +366,17 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.keymap.set",
         params: &[
-            p("context", "KeyContext", "`\"leader\"` (a key after the Leader), `\"list\"` or `\"list_vim\"` (the Sidebar, and its vim keys)."),
+            p(
+                "context",
+                "KeyContext",
+                "`\"leader\"` (a key after the Leader), `\"list\"` or `\"list_vim\"` (the Sidebar, and its vim keys).",
+            ),
             p("keys", "string", "The keys, space-separated: `\"w w\"`."),
-            p("action", "string|false", "A command line: one of the Plugin's commands or the app's (`\"finder alerts\"`). `false` claims the keys with no action."),
+            p(
+                "action",
+                "string|false",
+                "A command line: one of the Plugin's commands or the app's (`\"finder alerts\"`). `false` claims the keys with no action.",
+            ),
         ],
         summary: "Binds keys to a command line",
         doc: "Never in the terminal. A function isn't an action: add a command and bind its name.",
@@ -367,7 +405,10 @@ pub const FUNCTIONS: &[Function] = &[
         returns: ("", ""),
         errors: &[
             ("roster.themes.define: \"ID\" isn't a name like …", "a bad `id`"),
-            ("roster.themes.define \"ID\": …", "the Theme isn't one `init.lua` would take: an unknown field or token, a colour that isn't one"),
+            (
+                "roster.themes.define \"ID\": …",
+                "the Theme isn't one `init.lua` would take: an unknown field or token, a colour that isn't one",
+            ),
         ],
         refused: &["a Theme with that id exists already"],
         needs: Needs::Nothing,
@@ -408,7 +449,11 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.status.set",
         params: &[
             p("id", "string", "The segment's id."),
-            p("segment", "StatusSegment", "Its text, tooltip and what clicking it runs."),
+            p(
+                "segment",
+                "StatusSegment",
+                "Its text, tooltip and what clicking it runs.",
+            ),
         ],
         summary: "Adds a status bar segment, or replaces it",
         doc: "It comes after the app's own segments; a layout can place it (`modes.standard.statusbar`).",
@@ -521,7 +566,11 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.tutor.set",
         params: &[
-            p("id", "string", "The tutorial's id: `:tutor ID` runs it, `:help tutor-ID` is its page."),
+            p(
+                "id",
+                "string",
+                "The tutorial's id: `:tutor ID` runs it, `:help tutor-ID` is its page.",
+            ),
             p("tutorial", "Tutorial", "Its text and lessons."),
         ],
         summary: "Adds a tutorial, or replaces it",
@@ -552,7 +601,11 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.badges.set",
         params: &[
             p("host", "string", "The Host's name in the Inventory."),
-            opt("text", "string", "The badge (`\"2 alerts\"`, at most 40 characters); `nil` takes it off."),
+            opt(
+                "text",
+                "string",
+                "The badge (`\"2 alerts\"`, at most 40 characters); `nil` takes it off.",
+            ),
         ],
         summary: "Puts a badge on a Host's Inventory row, or takes it off",
         doc: "One badge per Host per Plugin; setting it again replaces it. A name that isn't a Host shows nowhere.",
@@ -594,8 +647,14 @@ pub const FUNCTIONS: &[Function] = &[
         doc: "Only while the user runs one of the Plugin's actions, commands or finder items, so a Plugin can't change what you copied behind your back. If the clipboard can't be written, the app says so, and the notices the call gave after the copy aren't shown.",
         returns: ("", ""),
         errors: &[
-            ("roster.clipboard.copy: only while the user runs one of your actions, commands or finder items", "at load or in an event listener"),
-            ("roster.clipboard.copy: the text is over 65536 bytes", "the text is longer"),
+            (
+                "roster.clipboard.copy: only while the user runs one of your actions, commands or finder items",
+                "at load or in an event listener",
+            ),
+            (
+                "roster.clipboard.copy: the text is over 65536 bytes",
+                "the text is longer",
+            ),
         ],
         refused: &[],
         needs: Needs::Nothing,
@@ -607,8 +666,14 @@ pub const FUNCTIONS: &[Function] = &[
         params: &[],
         summary: "Every Host, in `roster.yml` order",
         doc: "From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups aren't in it: `roster.serve.call(\"hosts.list\")` (with `serve:hosts.list`) has them.",
-        returns: ("Host[]", "The Hosts, each with its Login references (a vault item's name, never a password)."),
-        errors: &[("roster.inventory.hosts: MESSAGE (code N)", "roster serve failed (see [Errors](#errors))")],
+        returns: (
+            "Host[]",
+            "The Hosts, each with its Login references (a vault item's name, never a password).",
+        ),
+        errors: &[(
+            "roster.inventory.hosts: MESSAGE (code N)",
+            "roster serve failed (see [Errors](#errors))",
+        )],
         refused: &[],
         needs: Needs::Permission("inventory.read"),
         since: 2,
@@ -621,8 +686,14 @@ pub const FUNCTIONS: &[Function] = &[
         doc: "From serve's [`host.get`](serve-api.md). An unknown name is an error, not `nil`: wrap the call in `pcall` when the name came from the user.",
         returns: ("Host", "The Host."),
         errors: &[
-            ("roster.inventory.host: unknown host 'NAME' (code 2)", "no Host has that name"),
-            ("roster.inventory.host: MESSAGE (code N)", "roster serve failed otherwise"),
+            (
+                "roster.inventory.host: unknown host 'NAME' (code 2)",
+                "no Host has that name",
+            ),
+            (
+                "roster.inventory.host: MESSAGE (code N)",
+                "roster serve failed otherwise",
+            ),
         ],
         refused: &[],
         needs: Needs::Permission("inventory.read"),
@@ -639,10 +710,22 @@ pub const FUNCTIONS: &[Function] = &[
         doc: "serve's [`host.update`](serve-api.md#editing-pending-changes): `roster.yml` is edited as text (comments and every other entry stay) and the change waits for you to review and Publish it. A change to `ip`, `user`, `port` or `auth` needs a test login of exactly those values first (`host.verify_login`), which a Plugin can't make: from a Plugin those fail with code 75. Only `title`, `description` and `type` go through.",
         returns: ("UpdateResult", "What was written."),
         errors: &[
-            ("roster.inventory.update: params.changes: … (code -32602)", "a field that can't be edited here, or a value of the wrong kind"),
-            ("roster.inventory.update: unknown host 'NAME' (code 2)", "no Host has that name"),
-            ("roster.inventory.update: … (code 75)", "a change to `ip`, `user`, `port` or `auth`"),
-            ("roster.inventory.update: … (code 70 or 74)", "no git repo for Pending changes, or the edit wouldn't load as asked (nothing written)"),
+            (
+                "roster.inventory.update: params.changes: … (code -32602)",
+                "a field that can't be edited here, or a value of the wrong kind",
+            ),
+            (
+                "roster.inventory.update: unknown host 'NAME' (code 2)",
+                "no Host has that name",
+            ),
+            (
+                "roster.inventory.update: … (code 75)",
+                "a change to `ip`, `user`, `port` or `auth`",
+            ),
+            (
+                "roster.inventory.update: … (code 70 or 74)",
+                "no git repo for Pending changes, or the edit wouldn't load as asked (nothing written)",
+            ),
         ],
         refused: &[],
         needs: Needs::Permission("inventory.write"),
@@ -660,8 +743,14 @@ pub const FUNCTIONS: &[Function] = &[
         returns: ("RenameResult", "What was written."),
         errors: &[
             ("roster.inventory.rename: … (code 2)", "no Host has that name"),
-            ("roster.inventory.rename: … (code 80 or 100)", "`to` isn't a valid name, or a Host or group has it"),
-            ("roster.inventory.rename: … (code 1, 70 or 74)", "`roster.yml` doesn't load now, no git repo, or the edit wouldn't load as asked"),
+            (
+                "roster.inventory.rename: … (code 80 or 100)",
+                "`to` isn't a valid name, or a Host or group has it",
+            ),
+            (
+                "roster.inventory.rename: … (code 1, 70 or 74)",
+                "`roster.yml` doesn't load now, no git repo, or the edit wouldn't load as asked",
+            ),
         ],
         refused: &[],
         needs: Needs::Permission("inventory.write"),
@@ -676,12 +765,21 @@ pub const FUNCTIONS: &[Function] = &[
         ],
         summary: "Moves a Host to another group, as a Pending change",
         doc: "serve's [`host.move`](serve-api.md#the-live-inventory-hosts-and-groups-and-outside-edits): what it inherited from its old group and wouldn't from the new one is written on the Host, so it stays the same Host.",
-        returns: ("MoveResult", "What was written, and which fields were pinned on the Host."),
+        returns: (
+            "MoveResult",
+            "What was written, and which fields were pinned on the Host.",
+        ),
         errors: &[
             ("roster.inventory.move: … (code 2)", "no Host has that name"),
             ("roster.inventory.move: … (code 101)", "no such group"),
-            ("roster.inventory.move: … (code 103)", "it would still come out different in the new group"),
-            ("roster.inventory.move: … (code 1, 70 or 74)", "`roster.yml` doesn't load now, no git repo, or the edit wouldn't load as asked"),
+            (
+                "roster.inventory.move: … (code 103)",
+                "it would still come out different in the new group",
+            ),
+            (
+                "roster.inventory.move: … (code 1, 70 or 74)",
+                "`roster.yml` doesn't load now, no git repo, or the edit wouldn't load as asked",
+            ),
         ],
         refused: &[],
         needs: Needs::Permission("inventory.write"),
@@ -692,15 +790,25 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.review",
         params: &[
             p("host", "string", "The Host's exact name."),
-            opt("reviewed", "boolean", "`true` (the default) marks it reviewed; `false` un-reviews it."),
+            opt(
+                "reviewed",
+                "boolean",
+                "`true` (the default) marks it reviewed; `false` un-reviews it.",
+            ),
         ],
         summary: "Marks a Host reviewed (or not), as a Pending change",
         doc: "serve's [`host.review`](serve-api.md#adding-a-host-hostadd).",
         returns: ("ReviewResult", "What was written."),
         errors: &[
             ("roster.inventory.review: … (code 2)", "no Host has that name"),
-            ("roster.inventory.review: params.reviewed must be true or false (code -32602)", "`reviewed` isn't a boolean"),
-            ("roster.inventory.review: … (code 70 or 74)", "no git repo, or the edit wouldn't load as asked"),
+            (
+                "roster.inventory.review: params.reviewed must be true or false (code -32602)",
+                "`reviewed` isn't a boolean",
+            ),
+            (
+                "roster.inventory.review: … (code 70 or 74)",
+                "no git repo, or the edit wouldn't load as asked",
+            ),
         ],
         refused: &[],
         needs: Needs::Permission("inventory.write"),
@@ -723,7 +831,11 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.terminal.send",
         params: &[
             p("session", "integer", "The Session's id, from an event (`e.session`)."),
-            p("text", "string", "What to type, as if the user typed it: `\"uptime\\n\"` runs `uptime`."),
+            p(
+                "text",
+                "string",
+                "What to type, as if the user typed it: `\"uptime\\n\"` runs `uptime`.",
+            ),
         ],
         summary: "Types into an open Session",
         doc: "A Session that has ended, or an id that's no Session's, takes nothing.",
@@ -737,15 +849,29 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.serve.call",
         params: &[
-            p("method", "string", "A roster serve method the Plugin was granted, by name (`serve:inventory.info` grants `inventory.info`)."),
-            opt("params", "table", "The method's params; `{}` if left out. Data only: no functions."),
+            p(
+                "method",
+                "string",
+                "A roster serve method the Plugin was granted, by name (`serve:inventory.info` grants `inventory.info`).",
+            ),
+            opt(
+                "params",
+                "table",
+                "The method's params; `{}` if left out. Data only: no functions.",
+            ),
         ],
         summary: "Calls a roster serve method the Plugin was granted",
         doc: "A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. What each returns is under [roster serve's results](#roster-serves-results).",
         returns: ("any", "The method's result, as Lua tables (JSON `null` is `nil`)."),
         errors: &[
-            ("roster.serve.call: not granted (serve:METHOD)", "the Plugin wasn't granted that method"),
-            ("roster.serve.call METHOD: MESSAGE (code N)", "the method failed (its codes are in [serve-api.md](serve-api.md))"),
+            (
+                "roster.serve.call: not granted (serve:METHOD)",
+                "the Plugin wasn't granted that method",
+            ),
+            (
+                "roster.serve.call METHOD: MESSAGE (code N)",
+                "the method failed (its codes are in [serve-api.md](serve-api.md))",
+            ),
         ],
         refused: &[],
         needs: Needs::AnyServe,
@@ -843,12 +969,28 @@ pub const TYPES: &[Type] = &[
         doc: "The file returns this table. It's read before any of the Plugin's code runs, for the install prompt, in the sandbox with no `roster` module and no `require`. Any other key is an error (`foo: not a manifest field`).",
         alias: "",
         fields: &[
-            f("name", "string", "How it's known everywhere: lower case letters, digits and `-`, starting with a letter, at most 40. Not `builtin`, `init`, `roster` or a built-in Plugin's name."),
+            f(
+                "name",
+                "string",
+                "How it's known everywhere: lower case letters, digits and `-`, starting with a letter, at most 40. Not `builtin`, `init`, `roster` or a built-in Plugin's name.",
+            ),
             f("version", "string", "Its version, shown in `:plugins` (`\"1.0.0\"`)."),
-            o("description", "string", "One line on what it does, for the install prompt."),
+            o(
+                "description",
+                "string",
+                "One line on what it does, for the install prompt.",
+            ),
             o("author", "string", "Who wrote it, for the install prompt (unverified)."),
-            f("api", "integer", "The `roster.api_version` it's written for; above the app's, it doesn't install."),
-            o("permissions", "Permission[]", "What it asks for. Each is shown in the install prompt, the risky ones flagged."),
+            f(
+                "api",
+                "integer",
+                "The `roster.api_version` it's written for; above the app's, it doesn't install.",
+            ),
+            o(
+                "permissions",
+                "Permission[]",
+                "What it asks for. Each is shown in the install prompt, the risky ones flagged.",
+            ),
         ],
         open: false,
     },
@@ -868,8 +1010,16 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("name", "string", "Its name, from the manifest."),
             f("version", "string", "Its version, from the manifest."),
-            f("permissions", "Permission[]", "What it runs with: what it asked for and was granted, sorted (`serve:` ones by method)."),
-            f("config", "table", "Its settings from `init.lua` when it's a Package (`{ \"owner/repo\", config = { … } }`); else `{}`. Anyone can write anything there: check it."),
+            f(
+                "permissions",
+                "Permission[]",
+                "What it runs with: what it asked for and was granted, sorted (`serve:` ones by method).",
+            ),
+            f(
+                "config",
+                "table",
+                "Its settings from `init.lua` when it's a Package (`{ \"owner/repo\", config = { … } }`); else `{}`. Anyone can write anything there: check it.",
+            ),
         ],
         open: false,
     },
@@ -904,8 +1054,16 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            o("desc", "string", "Its description, for `:help commands` and completion. The name if left out."),
-            f("run", "string|fun(args: CommandArgs): any", "A function, called with what followed the command, or a command line to run instead."),
+            o(
+                "desc",
+                "string",
+                "Its description, for `:help commands` and completion. The name if left out.",
+            ),
+            f(
+                "run",
+                "string|fun(args: CommandArgs): any",
+                "A function, called with what followed the command, or a command line to run instead.",
+            ),
         ],
         open: false,
     },
@@ -915,7 +1073,11 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("args", "string", "Everything after the command's name, trimmed (`\"\"` for none)."),
+            f(
+                "args",
+                "string",
+                "Everything after the command's name, trimmed (`\"\"` for none).",
+            ),
             f("words", "string[]", "`args` split at spaces (`{}` for none)."),
         ],
         open: false,
@@ -935,11 +1097,31 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("label", "string", "Shown in the app; the id if left out."),
-            o("appearance", "\"dark\"|\"light\"", "Which OS appearance it suits; the base's if left out."),
-            o("base", "string", "The Theme it starts from (a bundled one's id); Roster dark or Roster light by `appearance` if left out."),
-            o("colors", "table<string, string>", "UI tokens it changes (`accent`, `bg`, …), as CSS colours."),
-            o("terminal", "table<string, string>", "Terminal colours it changes (`background`, `foreground`, `cursor`, …)."),
-            o("ansi", "table<string, string>|false", "The 16 ANSI colours (`red`, `bright_red`, …); `false` keeps the standard palette. The base's if left out."),
+            o(
+                "appearance",
+                "\"dark\"|\"light\"",
+                "Which OS appearance it suits; the base's if left out.",
+            ),
+            o(
+                "base",
+                "string",
+                "The Theme it starts from (a bundled one's id); Roster dark or Roster light by `appearance` if left out.",
+            ),
+            o(
+                "colors",
+                "table<string, string>",
+                "UI tokens it changes (`accent`, `bg`, …), as CSS colours.",
+            ),
+            o(
+                "terminal",
+                "table<string, string>",
+                "Terminal colours it changes (`background`, `foreground`, `cursor`, …).",
+            ),
+            o(
+                "ansi",
+                "table<string, string>|false",
+                "The 16 ANSI colours (`red`, `bright_red`, …); `false` keeps the standard palette. The base's if left out.",
+            ),
         ],
         open: false,
     },
@@ -950,7 +1132,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its heading; the id if left out."),
-            o("order", "number", "Where it goes: Sessions is 100, the Inventory 300. 400 if left out."),
+            o(
+                "order",
+                "number",
+                "Where it goes: Sessions is 100, the Inventory 300. 400 if left out.",
+            ),
             o("empty", "string", "What it says with no rows."),
             o("rows", "Row[]", "Its rows, at most 2,000."),
         ],
@@ -962,16 +1148,28 @@ pub const TYPES: &[Type] = &[
         doc: "Text is cut to 500 characters.",
         alias: "",
         fields: &[
-            o("id", "string", "Unique in the section (at most 100 characters); its place in the list if left out. Keeps the selection on it across `set`s."),
+            o(
+                "id",
+                "string",
+                "Unique in the section (at most 100 characters); its place in the list if left out. Keeps the selection on it across `set`s.",
+            ),
             f("label", "string", "Its text."),
             o("detail", "string", "A second, quieter text after the label."),
             o("note", "string", "A short note on the right."),
-            o("host", "string", "Makes it the Host's row: Enter opens that Host (unless `run` says otherwise) and it lights up while the Host's Session is on screen. Never set it to a Quick Connect Session's `nil` host."),
+            o(
+                "host",
+                "string",
+                "Makes it the Host's row: Enter opens that Host (unless `run` says otherwise) and it lights up while the Host's Session is on screen. Never set it to a Quick Connect Session's `nil` host.",
+            ),
             o("badge", "string", "A badge (at most 40 characters)."),
             o("count", "number", "A count on the right."),
             o("level", "number", "How far it's indented, 0 to 8."),
             o("title", "string", "Its tooltip."),
-            o("run", "Run", "What Enter runs. With `host` and no `run`, it opens the Host; with neither, nothing."),
+            o(
+                "run",
+                "Run",
+                "What Enter runs. With `host` and no `run`, it opens the Host; with neither, nothing.",
+            ),
             o("actions", "RowAction[]", "Buttons on the row."),
         ],
         open: false,
@@ -982,7 +1180,11 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("label", "string", "What it does, for its tooltip and screen readers (`\"Unpin esx-02\"`)."),
+            f(
+                "label",
+                "string",
+                "What it does, for its tooltip and screen readers (`\"Unpin esx-02\"`).",
+            ),
             o("icon", "RowIcon", "Its icon; `info` if left out."),
             f("run", "Run", "What pressing it runs."),
         ],
@@ -1025,7 +1227,11 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            o("id", "string", "Unique in the finder; its place in the list if left out."),
+            o(
+                "id",
+                "string",
+                "Unique in the finder; its place in the list if left out.",
+            ),
             f("label", "string", "What's matched and shown."),
             o("detail", "string", "Shown after the label, and matched too."),
             o("path", "string", "Where it is, shown quieter (`lab › esx-02`)."),
@@ -1040,8 +1246,16 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its title; the topic if left out."),
-            o("summary", "string", "One line for the index and the topic finder; the title if left out."),
-            f("markdown", "string", "The page, as Markdown (at most 200,000 characters): headings, paragraphs, lists, tables, code, links."),
+            o(
+                "summary",
+                "string",
+                "One line for the index and the topic finder; the title if left out.",
+            ),
+            f(
+                "markdown",
+                "string",
+                "The page, as Markdown (at most 200,000 characters): headings, paragraphs, lists, tables, code, links.",
+            ),
         ],
         open: false,
     },
@@ -1075,7 +1289,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its title; the id if left out."),
-            o("summary", "string", "One line for `:tutor` and the help index; the title if left out."),
+            o(
+                "summary",
+                "string",
+                "One line for `:tutor` and the help index; the title if left out.",
+            ),
             o("intro", "string", "Markdown before the first lesson."),
             f("lessons", "Lesson[]", "At least one."),
             o("outro", "string", "Markdown after the last lesson."),
@@ -1100,9 +1318,17 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("id", "string", "Unique in the tutorial: what the State keeps once it's done."),
+            f(
+                "id",
+                "string",
+                "Unique in the tutorial: what the State keeps once it's done.",
+            ),
             f("text", "string", "What to do (Markdown)."),
-            f("on", "StepMatch|StepMatch[]", "The event that ticks it, or a list of them (any one does)."),
+            f(
+                "on",
+                "StepMatch|StepMatch[]",
+                "The event that ticks it, or a list of them (any one does).",
+            ),
         ],
         open: false,
     },
@@ -1113,7 +1339,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             f("event", "TutorEvent", "The event's name."),
-            o("[string]", "string", "Any other key is a field the event must have, equal ignoring case; `\"*\"` means it's there, `\"\"` that it isn't."),
+            o(
+                "[string]",
+                "string",
+                "Any other key is a field the event must have, equal ignoring case; `\"*\"` means it's there, `\"\"` that it isn't.",
+            ),
         ],
         open: false,
     },
@@ -1132,7 +1362,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its title."),
-            o("lines", "string[]", "Its text, a line each (at most 2,000, each cut to 500 characters)."),
+            o(
+                "lines",
+                "string[]",
+                "Its text, a line each (at most 2,000, each cut to 500 characters).",
+            ),
         ],
         open: false,
     },
@@ -1148,18 +1382,46 @@ pub const TYPES: &[Type] = &[
             f("ip", "string", "Its address (an IP or a DNS name)."),
             f("ssh", "SshLogin", "How roster logs in to it over ssh."),
             f("login", "Login", "The default Login for its services."),
-            f("services", "table<string, Service>", "Its services by name (`web`, `postgres`). `{}` when there are none."),
-            f("problems", "ServiceProblem[]", "Service entries roster left out because it can't use them. `{}` when there are none."),
-            o("web", "string", "Its web UI's URL: the `web` service's, else the first service given a URL."),
-            f("enroll", "boolean", "Whether `roster setup` puts this Box's key on it (`false`: password Sessions)."),
-            f("reviewed", "boolean", "`false` for a Host `discover` added and no one has reviewed: it can't be opened until it is."),
-            o("mesh", "boolean", "`mesh:` as roster.yml sets it; `nil` if nothing does."),
+            f(
+                "services",
+                "table<string, Service>",
+                "Its services by name (`web`, `postgres`). `{}` when there are none.",
+            ),
+            f(
+                "problems",
+                "ServiceProblem[]",
+                "Service entries roster left out because it can't use them. `{}` when there are none.",
+            ),
+            o(
+                "web",
+                "string",
+                "Its web UI's URL: the `web` service's, else the first service given a URL.",
+            ),
+            f(
+                "enroll",
+                "boolean",
+                "Whether `roster setup` puts this Box's key on it (`false`: password Sessions).",
+            ),
+            f(
+                "reviewed",
+                "boolean",
+                "`false` for a Host `discover` added and no one has reviewed: it can't be opened until it is.",
+            ),
+            o(
+                "mesh",
+                "boolean",
+                "`mesh:` as roster.yml sets it; `nil` if nothing does.",
+            ),
             f("title", "string", "One line; `\"\"` if unset."),
             f("description", "string", "One line; `\"\"` if unset."),
             f("type", "string", "What it is (`esxi`, `linux`); `\"\"` if unset."),
             f("product", "string", "Its product; `\"\"` if unset."),
             f("mac", "string", "Its MAC address; `\"\"` if unset."),
-            f("notes", "string", "The older name for `description`, as roster.yml has it."),
+            f(
+                "notes",
+                "string",
+                "The older name for `description`, as roster.yml has it.",
+            ),
             f("user", "string", "The same as `ssh.user` (kept for older code)."),
             f("port", "integer", "The same as `ssh.port`."),
             f("auth", "LoginRef", "The same as `ssh.auth`."),
@@ -1209,8 +1471,16 @@ pub const TYPES: &[Type] = &[
             o("user", "string", "Its user: its own, else the Host's `login.user`."),
             o("auth", "LoginRef", "Its Login: its own, else the Host's `login.auth`."),
             f("verify", "boolean", "Whether its TLS certificate is checked."),
-            f("login", "string", "How `roster web` signs in: `basic`, `bearer`, `vsphere`, `unifi`, `openvpnas`, `hub` or `none`."),
-            f("override", "boolean", "`true` when it has a Login of its own; `false` when it uses the Host's."),
+            f(
+                "login",
+                "string",
+                "How `roster web` signs in: `basic`, `bearer`, `vsphere`, `unifi`, `openvpnas`, `hub` or `none`.",
+            ),
+            f(
+                "override",
+                "boolean",
+                "`true` when it has a Login of its own; `false` when it uses the Host's.",
+            ),
         ],
         open: false,
     },
@@ -1246,8 +1516,16 @@ pub const TYPES: &[Type] = &[
             o("title", "string", "One line."),
             o("description", "string", "One line."),
             o("type", "string", "One line."),
-            o("ip", "string", "No spaces, not empty. Needs a test login first: refused from a Plugin (code 75)."),
-            o("user", "string", "No spaces, not empty. Refused from a Plugin (code 75)."),
+            o(
+                "ip",
+                "string",
+                "No spaces, not empty. Needs a test login first: refused from a Plugin (code 75).",
+            ),
+            o(
+                "user",
+                "string",
+                "No spaces, not empty. Refused from a Plugin (code 75).",
+            ),
             o("port", "integer", "1 to 65535. Refused from a Plugin (code 75)."),
             o("auth", "LoginRef", "Refused from a Plugin (code 75)."),
         ],
@@ -1259,10 +1537,22 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("changed", "boolean", "`false` when the Host already had those values (nothing written)."),
+            f(
+                "changed",
+                "boolean",
+                "`false` when the Host already had those values (nothing written).",
+            ),
             f("host", "Host", "The Host as it loads now."),
-            o("backup", "string", "Where `roster.yml` as it was is kept; `nil` when nothing changed."),
-            o("warnings", "string[]", "What failed after the write; `nil` when nothing changed."),
+            o(
+                "backup",
+                "string",
+                "Where `roster.yml` as it was is kept; `nil` when nothing changed.",
+            ),
+            o(
+                "warnings",
+                "string[]",
+                "What failed after the write; `nil` when nothing changed.",
+            ),
         ],
         open: false,
     },
@@ -1274,7 +1564,11 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("changed", "boolean", "`false` when `to` is its name already."),
             f("host", "Host", "The Host as it loads now."),
-            o("backup", "string", "Where `roster.yml` as it was is kept; `nil` when nothing changed."),
+            o(
+                "backup",
+                "string",
+                "Where `roster.yml` as it was is kept; `nil` when nothing changed.",
+            ),
         ],
         open: false,
     },
@@ -1286,8 +1580,16 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("changed", "boolean", "`false` when it's in that group already."),
             f("host", "Host", "The Host as it loads now."),
-            f("pinned", "string[]", "The fields written on the Host so it stays the same Host."),
-            o("backup", "string", "Where `roster.yml` as it was is kept; `nil` when nothing changed."),
+            f(
+                "pinned",
+                "string[]",
+                "The fields written on the Host so it stays the same Host.",
+            ),
+            o(
+                "backup",
+                "string",
+                "Where `roster.yml` as it was is kept; `nil` when nothing changed.",
+            ),
         ],
         open: false,
     },
@@ -1299,7 +1601,11 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("changed", "boolean", "`false` when it already was."),
             f("host", "Host", "The Host as it loads now."),
-            o("backup", "string", "Where `roster.yml` as it was is kept; `nil` when nothing changed."),
+            o(
+                "backup",
+                "string",
+                "Where `roster.yml` as it was is kept; `nil` when nothing changed.",
+            ),
         ],
         open: false,
     },
@@ -1315,7 +1621,11 @@ pub const TYPES: &[Type] = &[
             f("host_count", "integer", "How many Hosts."),
             f("providers", "string[]", "The password providers roster has."),
             f("roster_version", "string", "roster's version."),
-            f("api_version", "integer", "roster serve's API version (not `roster.api_version`)."),
+            f(
+                "api_version",
+                "integer",
+                "roster serve's API version (not `roster.api_version`).",
+            ),
         ],
         open: false,
     },
@@ -1327,7 +1637,11 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("hosts", "Host[]", "Every Host, in `roster.yml` order."),
             f("groups", "table<string, Group>", "Every group, by name."),
-            o("error", "InventoryError", "Why `roster.yml` as it is now doesn't load, while these are the last good Hosts; `nil` when it loads."),
+            o(
+                "error",
+                "InventoryError",
+                "Why `roster.yml` as it is now doesn't load, while these are the last good Hosts; `nil` when it loads.",
+            ),
         ],
         open: false,
     },
@@ -1352,7 +1666,11 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("host", "string", "The Host."),
             f("ok", "boolean", "Whether every step passed."),
-            f("steps", "CheckStep[]", "Every step, in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`."),
+            f(
+                "steps",
+                "CheckStep[]",
+                "Every step, in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`.",
+            ),
         ],
         open: false,
     },
@@ -1363,7 +1681,11 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             f("step", "string", "Its name."),
-            f("status", "\"ok\"|\"fail\"|\"skipped\"", "How it went; every step after a `fail` is `skipped`."),
+            f(
+                "status",
+                "\"ok\"|\"fail\"|\"skipped\"",
+                "How it went; every step after a `fail` is `skipped`.",
+            ),
             f("message", "string", "What happened."),
             o("code", "integer", "A failed step's error code (serve-api.md's tables)."),
             o("fix", "string", "What to do, in a sentence."),
@@ -1380,12 +1702,24 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("path", "string", "`roster.yml`'s path."),
             f("repo", "string", "The infra repo's top folder."),
-            f("diff", "string", "git's diff of `roster.yml` against the last commit; `\"\"` for none."),
+            f(
+                "diff",
+                "string",
+                "git's diff of `roster.yml` against the last commit; `\"\"` for none.",
+            ),
             f("hosts", "HostChange[]", "The Hosts it changes."),
             f("groups", "GroupChange[]", "The groups it changes."),
-            f("count", "integer", "How many Hosts change (1 for a change that touches none, 0 for no change)."),
+            f(
+                "count",
+                "integer",
+                "How many Hosts change (1 for a change that touches none, 0 for no change).",
+            ),
             f("message", "string", "The commit message Publish would write."),
-            o("last_commit", "LastCommit", "The branch's last commit; `nil` in a repo with none."),
+            o(
+                "last_commit",
+                "LastCommit",
+                "The branch's last commit; `nil` in a repo with none.",
+            ),
         ],
         open: false,
     },
@@ -1420,8 +1754,16 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("commit", "string", "Its hash."),
             f("subject", "string", "Its subject line."),
-            o("upstream", "string", "The branch's upstream (`origin/main`); `nil` without one."),
-            f("pushed", "boolean", "Whether the upstream has it, as this Box last fetched."),
+            o(
+                "upstream",
+                "string",
+                "The branch's upstream (`origin/main`); `nil` without one.",
+            ),
+            f(
+                "pushed",
+                "boolean",
+                "Whether the upstream has it, as this Box last fetched.",
+            ),
         ],
         open: false,
     },
@@ -1447,11 +1789,7 @@ pub const TYPES: &[Type] = &[
         summary: "`host_selected`'s payload",
         doc: "",
         alias: "",
-        fields: &[f(
-            "host",
-            "string",
-            "The Host whose Session is on screen now.",
-        )],
+        fields: &[f("host", "string", "The Host whose Session is on screen now.")],
         open: false,
     },
     Type {
@@ -1460,8 +1798,16 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("session", "integer", "The Session's id: `roster.terminal.send` takes it."),
-            o("host", "string", "The Host's name; `nil` for a Quick Connect Session (`:quick`), which isn't on a Host: don't badge it or make a row go to it."),
+            f(
+                "session",
+                "integer",
+                "The Session's id: `roster.terminal.send` takes it.",
+            ),
+            o(
+                "host",
+                "string",
+                "The Host's name; `nil` for a Quick Connect Session (`:quick`), which isn't on a Host: don't badge it or make a row go to it.",
+            ),
         ],
         open: false,
     },
@@ -1472,8 +1818,16 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),
-            o("host", "string", "The Host's name; `nil` for a Quick Connect Session, and for a tab closed while it ran."),
-            o("code", "integer", "ssh's exit code; `nil` when it failed to start or its tab was closed."),
+            o(
+                "host",
+                "string",
+                "The Host's name; `nil` for a Quick Connect Session, and for a tab closed while it ran.",
+            ),
+            o(
+                "code",
+                "integer",
+                "ssh's exit code; `nil` when it failed to start or its tab was closed.",
+            ),
         ],
         open: false,
     },
@@ -1485,11 +1839,24 @@ pub const TYPES: &[Type] = &[
         fields: &[
             f("session", "integer", "The Session's id."),
             o("host", "string", "The Host's name; `nil` for a Quick Connect Session."),
-            f("text", "string", "What it printed since the last one, as text without colours or escape sequences (at most the last 16 KB). A line can be split across two batches."),
+            f(
+                "text",
+                "string",
+                "What it printed since the last one, as text without colours or escape sequences (at most the last 16 KB). A line can be split across two batches.",
+            ),
         ],
         open: false,
     },
 ];
+
+/// Which Lua, for authors coming from Neovim.
+const LUA_DOC: &str = "roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT as Neovim does; [why](adr/0006-lua-plugins-and-packages.md#why-lua-54-not-luajit). Coming from Neovim:
+
+- Integers are real 64-bit integers (`3 // 2` is `1`, `math.type(1)` is `\"integer\"`), and the bitwise operators are native (`a & b`, `a | b`, `~a`, `a << 2`): there's no `bit` library.
+- `goto`, `<const>` and `<close>` locals work; there's no `jit` and no FFI.
+- The API is `roster.*`, never `vim.*`: there's no `vim.api`, `vim.fn`, `vim.loop` or `vim.schedule`.
+- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. No `io`, no `os.execute`, no `debug`, no `coroutine`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
+- It runs on a thread of its own with a memory limit and a time budget per call: see [Limits](plugins.md#limits).";
 
 /// The errors any function can raise, and what a call that fails does.
 const ERRORS_DOC: &str = "A function that fails raises a Lua error: `pcall` catches it, with the message as a string. The message starts with the function (`roster.inventory.host: unknown host 'web-9' (code 2)`); a roster serve error ends with its code, from [serve-api.md's tables](serve-api.md). An error you don't catch stops the call: a notice names the Plugin, file and line (`pinned: init.lua:12: …`), the UI changes that call made are dropped, and the third such error after loading stops the Plugin.
@@ -1507,10 +1874,7 @@ Any function can also raise:
 
 pub fn module_of(path: &str) -> &'static str {
     let parent = path.rsplit_once('.').map_or("roster", |(m, _)| m);
-    MODULES
-        .iter()
-        .find(|m| m.name == parent)
-        .map_or("roster", |m| m.name)
+    MODULES.iter().find(|m| m.name == parent).map_or("roster", |m| m.name)
 }
 
 fn type_named(name: &str) -> Option<&'static Type> {
@@ -1626,6 +1990,9 @@ pub fn markdown() -> String {
     ));
     s.push_str("Types are written as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations write them: `string?` may be `nil`, `Host[]` is a list of Hosts, `table<string, Group>` a table of Groups by name, `\"info\"|\"warn\"` one of those strings. The same declarations are [`roster.lua`](../examples/plugins/types/roster.lua), for [your editor](#editor-support).\n\n");
 
+    s.push_str("## The Lua\n\n");
+    s.push_str(LUA_DOC);
+    s.push_str("\n\n");
     s.push_str("## Index\n\n| Function | What it does | Permission |\n|---|---|---|\n");
     for v in VALUES {
         s.push_str(&format!(
@@ -1825,7 +2192,9 @@ fn plain(text: &str) -> String {
     let mut rest = text;
     while let Some(open) = rest.find('[') {
         let Some(mid) = rest[open..].find("](") else { break };
-        let Some(close) = rest[open + mid..].find(')') else { break };
+        let Some(close) = rest[open + mid..].find(')') else {
+            break;
+        };
         out.push_str(&rest[..open]);
         out.push_str(&rest[open + 1..open + mid]);
         rest = &rest[open + mid + close + 1..];
@@ -1877,13 +2246,26 @@ pub fn stubs() -> String {
         }
         for func in functions_of(m.name) {
             s.push_str(&comment_lines(&plain(&format!("{}.", func.summary))));
-            s.push_str(&format!("--- Permission: {}. Since: api {}.\n", func.needs.text().replace('`', ""), func.since));
+            s.push_str(&format!(
+                "--- Permission: {}. Since: api {}.\n",
+                func.needs.text().replace('`', ""),
+                func.since
+            ));
             for p in func.params {
                 let q = if p.optional { "?" } else { "" };
-                s.push_str(&format!("---@param {}{q} {} {}\n", p.name, lua_type(p.ty), plain(p.doc)));
+                s.push_str(&format!(
+                    "---@param {}{q} {} {}\n",
+                    p.name,
+                    lua_type(p.ty),
+                    plain(p.doc)
+                ));
             }
             if !func.returns.0.is_empty() {
-                s.push_str(&format!("---@return {} # {}\n", lua_type(func.returns.0), plain(func.returns.1)));
+                s.push_str(&format!(
+                    "---@return {} # {}\n",
+                    lua_type(func.returns.0),
+                    plain(func.returns.1)
+                ));
             }
             if func.path == "roster.on" {
                 // Each event's own payload type, for completion inside the listener.
@@ -1909,16 +2291,28 @@ pub fn stubs() -> String {
 pub fn json() -> Json {
     let mut tags = serde_json::Map::new();
     for v in VALUES {
-        tags.insert(v.path.into(), json!(format!("plugin-api#{}", slug(&format!("`{}`", v.path)))));
+        tags.insert(
+            v.path.into(),
+            json!(format!("plugin-api#{}", slug(&format!("`{}`", v.path)))),
+        );
     }
     for func in FUNCTIONS {
-        tags.insert(format!("{}()", func.path), json!(format!("plugin-api#{}", func_anchor(func))));
+        tags.insert(
+            format!("{}()", func.path),
+            json!(format!("plugin-api#{}", func_anchor(func))),
+        );
     }
     for t in TYPES {
-        tags.insert(format!("roster-{}", t.name), json!(format!("plugin-api#{}", slug(&format!("`{}`", t.name)))));
+        tags.insert(
+            format!("roster-{}", t.name),
+            json!(format!("plugin-api#{}", slug(&format!("`{}`", t.name)))),
+        );
     }
     for m in MODULES.iter().filter(|m| m.name != "roster") {
-        tags.insert(m.name.into(), json!(format!("plugin-api#{}", slug(&format!("`{}`", m.name)))));
+        tags.insert(
+            m.name.into(),
+            json!(format!("plugin-api#{}", slug(&format!("`{}`", m.name)))),
+        );
     }
     let functions: Vec<Json> = FUNCTIONS
         .iter()
@@ -2033,7 +2427,12 @@ mod tests {
 
     #[test]
     fn the_manifest_fields_are_the_ones_it_reads() {
-        let ours: Vec<&str> = type_named("Manifest").unwrap().fields.iter().map(|fl| fl.name).collect();
+        let ours: Vec<&str> = type_named("Manifest")
+            .unwrap()
+            .fields
+            .iter()
+            .map(|fl| fl.name)
+            .collect();
         assert_eq!(ours, super::super::MANIFEST_FIELDS);
     }
 

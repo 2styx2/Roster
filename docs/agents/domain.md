@@ -10,6 +10,15 @@ How the engineering skills should consume this repo's domain documentation when 
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
+## Building a Plugin
+
+Before writing or changing a Plugin (the first-party ones of iteration 8 too), read these two; together they're the whole API, generated from the core so they can't be stale:
+
+- **`docs/plugin-api.md`**: every `roster.*` function (parameters, returns, errors, permission, example), every type with all its fields, every event and what each `roster.serve.call` returns.
+- **`examples/plugins/types/roster.lua`**: the same as LuaCATS stubs. Annotate the Plugin with them and run `lua-language-server --check` on its folder, as CI does for `examples/plugins/`.
+
+Then `docs/plugins.md` for the narrative (manifest, permissions, limits) and `examples/plugins/recent-alerts` as the worked example. A Plugin needing something the API lacks is a change to `crates/roster-core/src/plugin/api.rs` and the runtime together (CONTRIBUTING.md, "Docs").
+
 ## File structure
 
 ```

@@ -8,7 +8,8 @@ import { defaultOptions, keymapOf } from "../keymap";
 import { builtinRegistries } from "../registries";
 import { HelpView, registerHelp } from "./command";
 import { blockLinks, slug } from "./doc";
-import { linkKind, pageBody, topicIndex, type HelpContext, helpContext } from "./pages";
+import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
+import { findTopic, linkKind, pageBody, topicIndex, type HelpContext, helpContext } from "./pages";
 
 /** The files a guide may link to, from the repo's root, and the Markdown among them. */
 const UP = "../../../";
@@ -64,6 +65,15 @@ describe("the docs lint", () => {
       }
     }
     expect(broken).toEqual([]);
+  });
+
+  it("every Plugin API function, value and type is a topic of its own (ticket 70)", () => {
+    const open = (tag: string) => findTopic(ctx, tag);
+    expect(open("roster.inventory.host()")).toMatchObject({ page: "plugin-api", anchor: "plugin-api#rosterinventoryhostname" });
+    expect(open("roster-Host")).toMatchObject({ page: "plugin-api", anchor: "plugin-api#host" });
+    expect(open("roster.plugin")).toMatchObject({ page: "plugin-api", anchor: "plugin-api#rosterplugin" });
+    expect(open("roster.lua")).toMatchObject({ page: "plugin-types" });
+    for (const tag of Object.keys(pluginApi.tags)) expect(tags.has(tag), tag).toBe(true);
   });
 
   it("every page has a title and a one-line summary for the index", () => {

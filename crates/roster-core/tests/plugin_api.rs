@@ -37,13 +37,15 @@ end
 for k in pairs(roster.plugin) do plugin[#plugin + 1] = k end
 table.sort(found)
 table.sort(plugin)
+local lua = table.concat({ _VERSION, tostring(3 // 2), math.type(1), tostring(5 & 3), type(coroutine), type(io),
+  type(debug), type(package), type(bit), type(jit), type(os.execute), type(vim) }, " ")
 local ok, err = pcall(roster.notify, "x", "loud")
 local errors = (ok and "no error" or type(err)) .. " " .. tostring(err)
 if roster.inventory and roster.inventory.host then
   local ok2, err2 = pcall(roster.inventory.host, "web-9")
   errors = errors .. "\n" .. tostring(ok2) .. " " .. tostring(err2)
 end
-roster.help.set("walk", { markdown = table.concat(found, "\n") .. "\n--\n" .. table.concat(plugin, "\n") .. "\n--\n" .. errors })
+roster.help.set("walk", { markdown = table.concat(found, "\n") .. "\n--\n" .. table.concat(plugin, "\n") .. "\n--\n" .. errors .. "\n--\n" .. lua })
 "#;
 
 fn plugin_dir(test: &str, permissions: &[&str]) -> PathBuf {
@@ -63,8 +65,9 @@ fn plugin_dir(test: &str, permissions: &[&str]) -> PathBuf {
     dir
 }
 
-/// What the runtime gives a Plugin granted `permissions`: (module entries, plugin keys, errors).
-fn walk(test: &str, permissions: &[&str]) -> (BTreeSet<String>, Vec<String>, String) {
+/// What the runtime gives a Plugin granted `permissions`: (module entries, plugin keys, errors,
+/// the Lua it runs).
+fn walk(test: &str, permissions: &[&str]) -> (BTreeSet<String>, Vec<String>, String, String) {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
     let (_, reply) = host.load(&Source::Dir(plugin_dir(test, permissions)), &grants).unwrap();
@@ -73,7 +76,8 @@ fn walk(test: &str, permissions: &[&str]) -> (BTreeSet<String>, Vec<String>, Str
     let mut parts = text.split("\n--\n");
     let found = parts.next().unwrap().lines().map(String::from).collect();
     let plugin = parts.next().unwrap().lines().map(String::from).collect();
-    (found, plugin, parts.next().unwrap().to_string())
+    let errors = parts.next().unwrap().to_string();
+    (found, plugin, errors, parts.next().unwrap().to_string())
 }
 
 /// What api.rs says a Plugin granted `permissions` has.
@@ -113,7 +117,7 @@ fn the_runtime_exposes_exactly_what_the_api_declares_for_every_grant() {
         ],
     ];
     for (i, set) in sets.iter().enumerate() {
-        let (found, _, _) = walk(&format!("grants{i}"), set);
+        let (found, _, _, _) = walk(&format!("grants{i}"), set);
         let want = declared(set);
         let extra: Vec<_> = found.difference(&want).collect();
         let missing: Vec<_> = want.difference(&found).collect();
@@ -127,7 +131,9 @@ fn the_runtime_exposes_exactly_what_the_api_declares_for_every_grant() {
 
 #[test]
 fn roster_plugin_has_the_plugin_types_fields_and_errors_reach_pcall_as_strings() {
-    let (_, plugin, errors) = walk("plugin", &["inventory.read"]);
+    let (_, plugin, errors, lua) = walk("plugin", &["inventory.read"]);
+    // The reference's "The Lua": 5.4, integers, native bitwise operators, and the sandbox.
+    assert_eq!(lua, "Lua 5.4 1 integer 1 nil nil nil nil nil nil nil nil");
     let ty = api::TYPES.iter().find(|t| t.name == "Plugin").unwrap();
     let mut want: Vec<String> = ty.fields.iter().map(|f| f.name.to_string()).collect();
     want.sort();
@@ -178,5 +184,8 @@ fn the_pinned_example_answers_an_unknown_host_with_a_notice() {
         json!({ "args": "web-9", "words": ["web-9"] }),
     );
     assert!(r.error.is_none(), "{:?}", r.error);
-    assert_eq!(r.ops, [json!({ "op": "notify", "text": "pin: which Host? :pin HOST", "level": "warn" })]);
+    assert_eq!(
+        r.ops,
+        [json!({ "op": "notify", "text": "pin: which Host? :pin HOST", "level": "warn" })]
+    );
 }
