@@ -661,3 +661,14 @@ def test_the_message_names_every_host_and_group_that_changed(owner, box):
     assert r["message"].split("\n") == [
         "roster: change 4 Hosts and 1 group", "", "- add group rack-b", "- change esx (title, description)",
         "- add sw-core-01", "- add sw-core-02", "- remove other"]
+
+
+def test_a_mesh_change_names_its_host_in_the_diff_and_the_message(write_config):
+    """mesh.cut writes `mesh: false` for the Host as a Pending change: Publish's list and message name it."""
+    from roster import changes
+    old = "groups:\n  lab:\n    user: u\n    mesh: true\n    hosts:\n      h1: 10.0.0.1\n      h2: 10.0.0.2\n"
+    path = write_config(old)
+    new = old.replace("h1: 10.0.0.1", "h1: { ip: 10.0.0.1, mesh: false }")
+    hosts = changes.host_changes(path, old, new)
+    assert hosts == [{"host": "h1", "change": "changed", "fields": ["mesh"]}]
+    assert "h1" in changes.commit_message(hosts, [])

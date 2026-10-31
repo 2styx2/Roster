@@ -158,8 +158,10 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline,
     else if (k === "/") {
       setSearching(true);
       setHit(0);
-      requestAnimationFrame(() => searchRef.current?.select());
+      // At once, never a frame later (a key typed in that frame would be replaced). A field already there holds
+      // the last search: select it so typing replaces it. A new one is empty, and the effect below focuses it.
       searchRef.current?.focus();
+      searchRef.current?.select();
     } else if (k === "n" && query) step(1);
     else if (k === "N" && query) step(-1);
     else if (k === "?") onFind();

@@ -29,6 +29,8 @@ links:
 
 A Link that names something that isn't a Host or a group, links a name to itself, or has a key other than `from`, `to` and `both` stops `roster.yml` from loading, with the entry's number in the message. A name that is both a Host's and a group's is refused too.
 
+Editing `roster.yml` from roster keeps `links:` in step: renaming a Host or a group (`host.rename`, `group.rename` in the app) renames it in `links:` too, and removing a Host or deleting a group takes out the `links:` entries that name it, line and all (the next `roster mesh` removes what they gave). An entry in a one-line list (`links: [{ from: a, to: b }]`) can't be taken out that way: the edit is refused and says so, and you take it out by hand.
+
 **Password peers.** A Host with `enroll: false` (switches, appliances) stays in the Mesh as a password peer: its peers get an ssh config entry for it, and ssh asks the person for the password. roster never copies a password to a Host, and the `ROSTER.md` there tells Claude to ask the user to log in. A password Host can't reach others: roster only logs in to it with a password, so it never writes files on it (`roster mesh` lists those Links as `skipped`).
 
 ## roster mesh
@@ -61,13 +63,13 @@ On a peer it adds one line per source to `authorized_keys`:
 from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster-mesh:orion-2
 ```
 
-`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
+`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. Every file roster changes on a Host (`authorized_keys`, `~/.ssh/config`, `~/.claude/CLAUDE.md` and its own) is written to a new file beside it and moved into place, keeping the old one's mode, owner and SELinux label (`chcon --reference`, then `restorecon` where it exists), so a run cut short (a timeout, a dropped connection) leaves each file as it was or as it should be, never half written. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
 
 **Idempotent.** The Mesh comes from `roster.yml` only, so applying it again, from this Box or any other, changes nothing and says `already in the mesh`.
 
 **Links across networks are tested, not assumed.** A peer whose port the source can't reach is reported (`orion-3 can't reach 10.0.9.9:22`) and left out of that source's files and of the peer's `authorized_keys`. A peer whose host key this Box hasn't recorded is left out too (`roster setup --only PEER` records it). If the source has neither `nc` nor bash, the Link is written and shown as not tested. A source behind NAT reaches its peers from another address than the one in `roster.yml`; `from=` refuses it there, so keep such Links out until a `via:` hop exists. `from=` also holds the address as `roster.yml` writes it: a DNS name matches only where sshd has `UseDNS yes`, so give meshed Hosts their addresses.
 
-**Down Hosts.** A Host that doesn't answer is *pending*: everything else is applied, its Sources' keys stay on their peers as they were, and the next `roster mesh` finishes it. `roster mesh` and `roster mesh status` list what's pending until then.
+**Down Hosts.** A Host that doesn't answer is *pending*: everything else is applied, its Sources' keys stay on their peers as they were, and the next `roster mesh` finishes it. `roster mesh` and `roster mesh status` list what's pending until then. From the app, an apply or a cut that runs out of time (serve's deadline for it) stops there rather than outlast the app's wait: the Hosts it didn't get to are pending, `out of time`, and the next run finishes them.
 
 **Removing.** Taking a Host out of `roster.yml`, a Link, or `mesh: true` removes exactly its tagged entries on the next apply, and a Host that is no longer a source loses its Mesh files (the key, known hosts, config, the two `Include` lines, `ROSTER.md` and the import line). A Host taken out of `roster.yml` altogether can't be reached any more, so its own Mesh files stay there; `roster mesh` says so.
 

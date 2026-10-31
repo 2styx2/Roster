@@ -159,11 +159,11 @@ def test_run_sudo_key_host(capsys, write_config, monkeypatch):
 
     def fake_run(argv, input=None, **kw):
         seen.update(argv=argv, input=input)
-        return subprocess.CompletedProcess(argv, 0, "root\n", "")
+        return subprocess.CompletedProcess(argv, 0, b"root\n", b"")
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
     assert main(["run", "--sudo", "key-host", "--", "whoami"]) == 0
     assert Path(seen["argv"][0]).stem == "ssh"          # found on PATH: C:\\Windows\\...\\ssh.exe on Windows
-    assert seen["argv"][1:4] == ["-o", "BatchMode=yes", "key-host"] and seen["input"] == "s3cret\n"
+    assert seen["argv"][1:4] == ["-o", "BatchMode=yes", "key-host"] and seen["input"] == b"s3cret\n"
     assert "sudo -S" in seen["argv"][4] and capsys.readouterr().out == "root\n"
 
 

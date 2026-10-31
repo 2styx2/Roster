@@ -119,22 +119,29 @@ class Conn:
         if self.timeout is None:
             return call()
         thread = OpenThread(THREAD_TERMINATE, False, GetCurrentThreadId())
-        fired = threading.Event()
+        lock, state = threading.Lock(), {"in_flight": True, "fired": False}
 
         def cancel():
-            fired.set()
-            CancelSynchronousIo(thread)
+            # Only while CALL is still running: the timer can fire as it returns, and CancelSynchronousIo would then
+            # cancel this thread's next I/O instead
+            with lock:
+                if state["in_flight"]:
+                    state["fired"] = True
+                    CancelSynchronousIo(thread)
 
         timer = threading.Timer(self.timeout, cancel)
         timer.start()
         try:
             return call()
         except OSError as e:
-            if fired.is_set() and getattr(e, "winerror", None) == ERROR_OPERATION_ABORTED:
+            if state["fired"] and getattr(e, "winerror", None) == ERROR_OPERATION_ABORTED:
                 raise TimeoutError("timed out") from None
             raise
         finally:
+            with lock:
+                state["in_flight"] = False
             timer.cancel()
+            timer.join()                    # cancel() is done with the thread's handle before it's closed
             CloseHandle(thread)
 
     def recv(self, size):

@@ -118,6 +118,16 @@ describe(":help", () => {
     expect(helpOrNull()).toBeNull();
   });
 
+  it("/ again selects the last search, so what you type replaces it, from the first key on", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:help config{Enter}`);
+    await user.keyboard("/require{Escape}");
+    const search = within(help()).getByRole("searchbox", { name: /search this page/i });
+    expect(search).toHaveValue("require");
+    await user.keyboard("/theme");
+    expect(search).toHaveValue("theme");
+  });
+
   it("keeps its key tables when the key hints are hidden", async () => {
     const user = await ready({ config: configWith({ ui: { hints: false } }) });
     await user.keyboard(`${LEADER}:help keys{Enter}`);

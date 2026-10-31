@@ -42,6 +42,10 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - The finders say how many results a query left, and "No matches", to a screen reader once you stop typing; help's search count is announced as it changes; the outline's section sits at the right, as in `:helpgrep`.
 
+**CLI**
+
+- `roster setup` and `roster revoke` rewrite a Host's `authorized_keys` as a new file moved into place, keeping its mode: a run cut short (a timeout, a dropped connection) leaves the old file whole, where before it could leave it empty and lock everyone out.
+
 ## v0.1.0
 
 The first Release, after iteration 4: the CLI and the app, built and tested together.

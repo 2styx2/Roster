@@ -126,8 +126,6 @@ describe(":tutor", () => {
     await screen.findByRole("complementary", { name: "Help" });
     await user.keyboard(`${LEADER}:help options{Enter}`);
     await user.keyboard("/");
-    // The field selects what's in it a frame later (HelpPanel): type after that.
-    await new Promise((r) => requestAnimationFrame(r));
     await user.keyboard("terminal.size");
     await user.keyboard("{Escape}");
     await user.keyboard("{Control>}o{/Control}");

@@ -374,10 +374,7 @@ def box_check(state, params):
         except SystemExit as e:
             error = die_message(e)
     with state.lock:
-        channel = (True, "the askpass channel is open") if state.askpass and not state.askpass.problem else \
-            (False, state.askpass.problem if state.askpass else
-             "this roster serve has no askpass channel, so password Sessions can't log in")
-        checks = health.check_box(state.path, state.cfg, error, channel, API_VERSION)
+        checks = health.check_box(state.path, state.cfg, error, health.askpass_state(state.askpass), API_VERSION)
     return {"checks": checks, "ok": not any(c["level"] == "error" for c in checks), **versions()}
 
 
@@ -1233,8 +1230,8 @@ def host_remove(state, params):
     item, if any, stays where it is.
 
     Params: `{host}`
-    Result: `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches
-        the vault**: its vault item, if any, stays
+    Result: `{removed, group, backup}`: the Host's entry taken out, and every `links:` entry that names it.
+        Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays
     Errors: 1, 2, 70, 74
     Since: API 8
     """
@@ -1249,8 +1246,8 @@ def host_rename(state, params):
     """Rename a Host (its key in roster.yml, nothing else), as a Pending change. Its vault item keeps its name.
 
     Params: `{host, to}`
-    Result: `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is
-        taken
+    Result: `{changed, host, backup}`: only its key changes, and its name in `links:`. Its vault item keeps its
+        name. `100` if `to` is taken
     Errors: 1, 2, 70, 74, 80, 100
     Since: API 8
     """
@@ -1269,9 +1266,10 @@ def host_move(state, params):
 
     Params: `{host, group}`
     Result: `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`,
-        re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …)
-        and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same
-        Host. `101` no such group, `103` if it would still come out different
+        re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `mesh`,
+        `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays
+        the same Host; a Host with no `mesh:` anywhere takes the new group's. `101` no such group, `103` if it
+        would still come out different
     Errors: 1, 2, 70, 74, 101, 103
     Since: API 8
     """
@@ -1306,7 +1304,8 @@ def group_rename(state, params):
     """Rename a group (its key in roster.yml); its Hosts go with it. A Pending change.
 
     Params: `{group, to}`
-    Result: `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken
+    Result: `{changed, group, backup}`: only its key changes, and its name in `links:`; its Hosts follow. `100`
+        if taken
     Errors: 1, 70, 74, 80, 100, 101
     Since: API 8
     """
@@ -1324,7 +1323,8 @@ def group_delete(state, params):
     to first (as host.move moves them). A Pending change.
 
     Params: `{group, to?}`
-    Result: `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused
+    Result: `{deleted, moved, to, backup}`: the group's entry taken out, and every `links:` entry that names
+        it. A group that still has Hosts is refused
         (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them)
     Errors: 1, 70, 74, 101-103
     Since: API 8
