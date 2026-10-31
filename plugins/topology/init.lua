@@ -19,12 +19,12 @@ local reads = roster.has("inventory.read")
 local can_mesh = roster.has("serve:mesh.status")
 local can_check = roster.has("serve:host.check")
 local can_cut = roster.has("serve:mesh.cut")
+local can_job = roster.has("serve:mesh.job")
 
 local VIEW = "topology"
 local live = {} -- Host -> { [session] = true }
 local down = {} -- Host -> why it's down (its Session failed to connect, or a Check)
 local ended = {} -- Host -> true: its last Session ended
-local checked = {} -- Host -> { mark, note }: a Check that failed past the network
 local mesh, mesh_error -- mesh.status's last answer, or why there's none
 local s -- build.structure's
 local sent -- what the view has: id -> sig, per nodes, edges and clusters (nil before it's set)
@@ -95,19 +95,20 @@ local function details()
   if not flushing then flush() end
 end
 
+-- What a node does, below: the graph's actions call them.
+local check, cut
+
 -- Draws the view from the state above: the whole graph the first time, then only what changed.
-local function check(e) end -- below
-local function cut(e) end -- below
 
 local function draw()
-  local g = build.graph(s, live, down, ended, checked)
+  local g = build.graph(s, live, down, ended)
   local text = build.text(s, { reads = reads, mesh = can_mesh, error = mesh_error, inventory_error = inventory_error })
   if not sent then
     local actions = {
       { label = "Details", key = "i", icon = "info", run = function(e) if e.host then roster.cmd("info " .. e.host) end end },
     }
     if can_check then actions[#actions + 1] = { label = "Check", key = "c", icon = "review", run = function(e) check(e) end } end
-    if can_cut then actions[#actions + 1] = { label = "Cut", key = "x", icon = "close", run = function(e) cut(e) end } end
+    if can_cut and can_job then actions[#actions + 1] = { label = "Cut", key = "x", icon = "close", run = function(e) cut(e) end } end
     roster.views.set(VIEW, {
       title = "Topology",
       place = "full",
@@ -163,28 +164,49 @@ end
 
 function check(e)
   if not e.host then return roster.notify("That's this Box: pick a Host to check.") end
-  local ok, r = pcall(roster.serve.call, "host.check", { name = e.host })
-  if not ok then return roster.notify(e.host .. ": the check didn't run: " .. tostring(r), "warn") end
-  if r.ok then
-    down[e.host], checked[e.host] = nil, nil
-    roster.notify(e.host .. ": every check passed.")
+  -- The app's own :check HOST: its diagnostics panel shows each step. (It takes seconds; a
+  -- Plugin's call may take two at most, so the app runs it, not this Plugin.)
+  roster.cmd("check " .. e.host)
+end
+
+-- A cut runs as a job of roster serve's (serve API 17), so it doesn't hold this Plugin's call while
+-- every Host answers; a timer asks how it's going once a second, and stops when it's over.
+local cutting -- { job, host, timer }
+
+local function cut_done(host, r)
+  local waiting = 0
+  for _ in pairs(r.pending or {}) do waiting = waiting + 1 end
+  if waiting > 0 then
+    roster.notify("Cut " .. host .. ": cut pending on " .. build.plural(waiting, "Host") .. " that didn't answer.", "warn")
   else
-    local failed
-    for _, step in ipairs(r.steps or {}) do
-      if step.status == "fail" then
-        failed = step
-        break
-      end
-    end
-    failed = failed or { step = "check", message = "failed" }
-    if failed.step == "dns" or failed.step == "tcp" then
-      down[e.host], checked[e.host] = "unreachable", nil
-    else
-      down[e.host], checked[e.host] = nil, { mark = "error", note = failed.step .. " failed" }
-    end
-    roster.notify(e.host .. ": " .. tostring(failed.message), "warn")
+    roster.notify("Cut " .. host .. " from " .. build.plural(#(r.confirmed or {}), "Host") .. ".")
   end
-  draw()
+end
+
+local function cut_over()
+  if cutting and cutting.timer then roster.cancel(cutting.timer) end
+  cutting = nil
+  roster.progress.remove("topology-cut")
+  refresh()
+end
+
+local function cut_poll()
+  if not cutting then return end
+  local ok, j = pcall(roster.serve.call, "mesh.job", { job = cutting.job })
+  if not ok or j == nil then
+    roster.notify("Cut " .. cutting.host .. ": roster serve lost track of it; :topology shows where the Mesh is now.", "warn")
+    return cut_over()
+  end
+  if j.state == "running" then
+    roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = j.done or 0, total = j.total or 0 })
+    return
+  end
+  if j.state == "done" then
+    cut_done(cutting.host, j.result or {})
+  else
+    roster.notify("Cut " .. cutting.host .. ": " .. tostring(j.error and j.error.message or "it failed"), "error")
+  end
+  cut_over()
 end
 
 function cut(e)
@@ -207,19 +229,19 @@ function cut(e)
     danger = true,
     typed = h,
     run = function()
-      local ok, r = pcall(roster.serve.call, "mesh.cut", { host = h })
+      if cutting then return roster.notify("A cut of " .. cutting.host .. " is still going: wait for it to finish.", "warn") end
+      local ok, r = pcall(roster.serve.call, "mesh.cut", { host = h, background = true })
       if not ok then
         roster.notify("Cut " .. h .. ": " .. tostring(r), "error")
-      else
-        local waiting = 0
-        for _ in pairs(r.pending or {}) do waiting = waiting + 1 end
-        if waiting > 0 then
-          roster.notify("Cut " .. h .. ": cut pending on " .. build.plural(waiting, "Host") .. " that didn't answer.", "warn")
-        else
-          roster.notify("Cut " .. h .. " from " .. build.plural(#(r.confirmed or {}), "Host") .. ".")
-        end
+      elseif type(r) == "table" and r.job then
+        cutting = { job = r.job, host = h }
+        roster.progress.set("topology-cut", { title = "Cutting " .. h .. " from the Mesh", done = 0, total = r.total or 0 })
+        cutting.timer = roster.every(1000, cut_poll)
+      elseif type(r) == "table" then
+        -- A roster serve before jobs (API 17) answers when it's over.
+        cut_done(h, r)
+        refresh()
       end
-      refresh()
     end,
   })
 end
@@ -263,7 +285,7 @@ roster.help.set("topology", {
     "",
     "Keys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).",
     "",
-    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, and **serve:host.check** and **serve:mesh.cut** for Check and Cut. Without one it says so above the map.",
+    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
   }, "\n"),
 })
 
@@ -278,7 +300,7 @@ roster.health.set("topology", {
       out[#out + 1] = { level = "warn", message = "serve:mesh.status isn't granted, so the map has no Mesh", fix = "allow it in :plugins" }
       return out
     end
-    local ok, r = pcall(roster.serve.call, "mesh.status")
+    local ok, r = pcall(roster.serve.call, "mesh.status", { grouped = true })
     if not ok or type(r) ~= "table" then
       out[#out + 1] = {
         level = "warn",
@@ -288,7 +310,7 @@ roster.health.set("topology", {
     else
       out[#out + 1] = {
         level = "ok",
-        message = "Mesh status available: " .. build.plural(#(r.links or {}), "Link") .. ", " .. build.plural(#(r.members or {}), "Host") .. " roster visits",
+        message = "Mesh status available: " .. build.plural(#(r.members or {}), "Host") .. " roster visits",
       }
       if r.out_of_date then
         out[#out + 1] = { level = "warn", message = "The Mesh is out of date", fix = "apply it: roster mesh" }

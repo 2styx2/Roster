@@ -22,7 +22,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const NAME: &str = "topology";
-const ALL: &[&str] = &["inventory.read", "serve:mesh.status", "serve:host.check", "serve:mesh.cut"];
+const ALL: &[&str] = &[
+    "inventory.read",
+    "serve:mesh.status",
+    "serve:host.check",
+    "serve:mesh.cut",
+    "serve:mesh.job",
+];
 
 fn plugins_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins")
@@ -154,7 +160,7 @@ fn mesh_status() -> Value {
     })
 }
 
-/// `mesh.status { grouped = true }` (serve API 18) for the same network: lab's Mesh once, and the
+/// `mesh.status { grouped = true }` (serve API 19) for the same network: lab's Mesh once, and the
 /// Links it doesn't cover.
 fn mesh_grouped() -> Value {
     let mut m = mesh_status();
@@ -174,18 +180,6 @@ fn mesh_grouped() -> Value {
     m
 }
 
-fn host_check(name: &str) -> Value {
-    if name == "nas-01" {
-        json!({ "host": name, "ok": false, "steps": [
-            { "step": "dns", "status": "ok", "message": "10.0.1.5" },
-            { "step": "tcp", "status": "fail", "message": "10.0.1.5:22 didn't answer within 5 s", "code": 41 },
-            { "step": "host-key", "status": "skipped", "message": "" },
-        ] })
-    } else {
-        json!({ "host": name, "ok": true, "steps": [{ "step": "tcp", "status": "ok", "message": "open" }] })
-    }
-}
-
 fn mesh_cut(name: &str) -> Value {
     json!({ "host": name, "confirmed": ["esx-02", "nas-01"], "pending": { "nas-02": "timed out" }, "change": { "written": true, "backup": "x" } })
 }
@@ -195,7 +189,7 @@ struct FakeServe {
     calls: Mutex<Vec<(String, Value)>>,
     hosts: Value,
     mesh: Mutex<Value>,
-    /// What `mesh.status { grouped = true }` answers; Null: a serve before API 18, which ignores it.
+    /// What `mesh.status { grouped = true }` answers; Null: a serve before API 19, which ignores it.
     grouped: Value,
 }
 
@@ -230,8 +224,11 @@ impl Serve for FakeServe {
             "hosts.list" => Ok(self.hosts.clone()),
             "mesh.status" if params["grouped"] == true && !self.grouped.is_null() => Ok(self.grouped.clone()),
             "mesh.status" => Ok(self.mesh.lock().unwrap().clone()),
-            "host.check" => Ok(host_check(params["name"].as_str().unwrap_or(""))),
+            "mesh.cut" if params["background"] == true => {
+                Ok(json!({ "job": 7, "action": "cut", "total": 3, "host": params["host"] }))
+            }
             "mesh.cut" => Ok(mesh_cut(params["host"].as_str().unwrap_or(""))),
+            "mesh.job" => Ok(json!({ "job": 7, "action": "cut", "host": "esx-01", "state": "done", "done": 3, "total": 3, "at": null, "stopped": false, "result": mesh_cut("esx-01") })),
             _ => Err(format!("unknown method {method}")),
         }
     }
@@ -495,20 +492,22 @@ fn a_session_turns_its_node_live_with_its_edge_from_this_box_and_a_failed_one_is
 }
 
 #[test]
-fn check_from_a_node_runs_host_check_and_marks_an_unreachable_host_down() {
+fn check_from_a_node_runs_the_apps_check_of_that_host() {
     let w = World::new("check");
     let reply = w.load(ALL);
     let check = action(view(&reply), "Check");
     let r = w.host.call(NAME, check, on("nas-01"));
     ok(&r);
-    assert_eq!(w.serve.called("host.check"), [json!({ "name": "nas-01" })]);
-    assert_eq!(one(&r.ops, "notify")["text"], "nas-01: 10.0.1.5:22 didn't answer within 5 s");
-    let node = &one(&r.ops, "view_update")["changes"]["nodes"][0];
-    assert_eq!((node["state"].clone(), node["note"].clone()), (json!("down"), json!("unreachable")));
+    // The app's own :check HOST shows each step; it takes seconds, longer than a Plugin's call may.
+    assert_eq!(one(&r.ops, "cmd")["line"], "check nas-01");
+    assert!(w.serve.called("host.check").is_empty());
     // This Box isn't a Host.
     let r = w.host.call(NAME, check, json!({ "view": "topology", "node": ":box" }));
     assert_eq!(one(&r.ops, "notify")["text"], "That's this Box: pick a Host to check.");
-    assert_eq!(w.serve.called("host.check").len(), 1);
+    // Without serve:host.check there's no Check, and :check isn't a command it may run.
+    let reply = w.load(&["inventory.read"]);
+    let labels: Vec<&str> = view(&reply)["graph"]["actions"].as_array().unwrap().iter().map(|a| a["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, ["Details"]);
 }
 
 #[test]
@@ -525,8 +524,17 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     assert!(w.serve.called("mesh.cut").is_empty(), "asking cuts nothing");
     let r = w.host.call(NAME, handler(&q["run"]), json!({ "confirm": "yes" }));
     ok(&r);
-    assert_eq!(w.serve.called("mesh.cut"), [json!({ "host": "esx-01" })]);
+    // It runs as roster serve's job, and a timer asks how it's going.
+    assert_eq!(w.serve.called("mesh.cut"), [json!({ "host": "esx-01", "background": true })]);
+    assert_eq!(one(&r.ops, "progress")["spec"]["title"], "Cutting esx-01 from the Mesh");
+    let timer = one(&r.ops, "timer");
+    assert_eq!(timer["every"], true);
+    let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
+    ok(&r);
+    assert_eq!(w.serve.called("mesh.job"), [json!({ "job": 7 })]);
     assert_eq!(one(&r.ops, "notify")["text"], "Cut esx-01: cut pending on 1 Host that didn't answer.");
+    assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "progress"));
+    assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
     // A Host that isn't in the Mesh has nothing to cut, and isn't asked about.
     let r = w.host.call(NAME, cut, on("new-01"));
     assert!(find(&r.ops, "confirm").is_empty());
@@ -591,7 +599,7 @@ fn its_check_section_says_whether_mesh_status_is_available() {
     assert_eq!(
         r.result,
         json!([
-            { "level": "ok", "message": "Mesh status available: 15 Links, 7 Hosts roster visits" },
+            { "level": "ok", "message": "Mesh status available: 7 Hosts roster visits" },
             { "level": "warn", "message": "The Mesh is out of date", "fix": "apply it: roster mesh" },
         ])
     );
@@ -639,8 +647,8 @@ fn what_it_wasnt_granted_isnt_in_its_sandbox() {
 
 #[test]
 fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_meshed_clusters() {
-    // With mesh.status grouped (serve API 18) it's 2,000 names; the 98,000 Links one by one, from a
-    // serve before 18, are more than a quarter of a second of Lua could take in.
+    // With mesh.status grouped (serve API 19) it's 2,000 names; the 98,000 Links one by one, from a
+    // serve before 19, are more than a quarter of a second of Lua could take in.
     let groups = 40;
     let per = 50;
     let mut hosts = Vec::new();
@@ -695,9 +703,9 @@ fn steps() -> Value {
         { "do": "event", "name": "session_open", "payload": { "session": 2, "host": "web-1" } },
         { "do": "event", "name": "session_exit", "payload": { "session": 2, "host": "web-1", "code": 255 } },
         { "do": "action", "label": "Check", "node": "nas-01" },
-        { "do": "action", "label": "Check", "node": "web-1" },
         { "do": "action", "label": "Cut", "node": "esx-01" },
         { "do": "confirm" },
+        { "do": "cut-timer" },
         { "do": "action", "label": "Details", "node": "esx-01" },
         { "do": "command", "name": "topology", "args": "lab" },
         { "do": "command", "name": "topology", "args": "" },
@@ -734,6 +742,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
     let mut confirm: Option<u64> = None;
     let mut health: Option<u64> = None;
     let mut timer: Option<u64> = None;
+    let mut cut_timer: Option<u64> = None;
     let mut out = Vec::new();
     for step in steps().as_array().unwrap() {
         let replies: Vec<Reply> = match step["do"].as_str().unwrap() {
@@ -758,6 +767,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                 vec![w.host.call(NAME, commands[step["name"].as_str().unwrap()], json!({ "args": args, "words": words }))]
             }
             "health" => vec![w.host.call(NAME, health.expect("a :check section"), json!({}))],
+            "cut-timer" => vec![w.host.call(NAME, cut_timer.take().expect("a cut's timer"), json!({}))],
             "timer" => vec![w.host.call(NAME, timer.expect("a timer"), json!({}))],
             other => panic!("no step {other}"),
         };
@@ -774,7 +784,8 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                     }
                     "confirm" => confirm = Some(handler(&op["spec"]["run"])),
                     "health" => health = Some(handler(&op["spec"]["check"])),
-                    "timer" if op["every"] == true => timer = Some(handler(&op["run"])),
+                    "timer" if op["every"] == true && timer.is_none() => timer = Some(handler(&op["run"])),
+                    "timer" if op["every"] == true => cut_timer = Some(handler(&op["run"])),
                     _ => {}
                 }
                 ops.push(normal(op));
@@ -792,8 +803,8 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
         "serve": {
             "hosts.list": inventory(),
             "mesh.status": mesh_grouped(),
-            "host.check": { "nas-01": host_check("nas-01"), "web-1": host_check("web-1") },
-            "mesh.cut": { "esx-01": mesh_cut("esx-01") },
+            "mesh.cut": { "job": 7, "action": "cut", "total": 3, "host": "esx-01" },
+            "mesh.job": { "job": 7, "action": "cut", "host": "esx-01", "state": "done", "done": 3, "total": 3, "at": null, "stopped": false, "result": mesh_cut("esx-01") },
         },
         "steps": out,
     }))

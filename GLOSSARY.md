@@ -64,6 +64,10 @@ _Avoid_: password host (that's how the Box logs in to it), appliance
 Taking one Host out of the Mesh at once, on every Host in parallel (`roster mesh cut HOST`), without waiting for a Publish; it leaves `mesh: false` for that Host as a Pending change.
 _Avoid_: revoke (that removes the Box's own key), ban
 
+**Mesh job**:
+A plan, apply or cut that roster serve runs in the background (`background: true`), so the app or a Plugin follows it (`mesh.job`) and can stop it (`mesh.stop`) instead of waiting minutes for an answer. One at a time.
+_Avoid_: task, background run
+
 ## The app
 
 The desktop app's own words, on top of the ones above (which mean the same thing in the app).

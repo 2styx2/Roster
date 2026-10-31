@@ -11,6 +11,7 @@
 #                                 DIR/NAME/esxi     it's ESXi: `uname -s` says VMkernel, and ESXi's own paths
 #                                                   (/etc/ssh/keys-USER, /vmfs/volumes) are DIR/NAME/etc/..., DIR/NAME/vmfs/...
 #                                 DIR/NAME/blocked  ip:port lines this Host can't reach (its `nc -z` fails)
+#                                 DIR/NAME/slow     seconds each connection to it takes before it runs anything
 #                               Each run appends "start NAME" and "end NAME" to DIR/connections.
 import os, subprocess, sys, time
 args = sys.argv[1:]
@@ -46,6 +47,9 @@ if hosts:
             print(f"ssh: connect to host {dest} port 22: Connection timed out", file=sys.stderr)
             sys.exit(255)
         open(log, "a").write(f"start {dest}\n")
+        slow = os.path.join(root, "slow")
+        if os.path.exists(slow):
+            time.sleep(float(open(slow).read() or 1))
         line = " ".join(command) or "sh"
         stdin = sys.stdin.read() if line == "sh -s" else None
         esxi = os.path.exists(os.path.join(root, "esxi"))

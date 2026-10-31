@@ -94,7 +94,7 @@ function M.structure(hosts, groups, mesh)
   end
 
   -- Meshed groups, when roster serve gives them grouped (`mesh.status { grouped = true }`, serve
-  -- API 18): every Host in one that takes a key reaches every other in it; a password Host reaches
+  -- API 19): every Host in one that takes a key reaches every other in it; a password Host reaches
   -- no one (roster doesn't write on it).
   local meshed = {} -- { group, keys = {names}, peers = {names} }
   local mesh_of = {} -- name -> its meshed group's entry
@@ -356,8 +356,7 @@ end
 ---@param live table<string, table> Host -> its live Sessions
 ---@param down table<string, string> Host -> why it's down
 ---@param ended table<string, boolean> Hosts whose Session ended
----@param checked table<string, table> Host -> { mark, note } from a Check
-function M.graph(s, live, down, ended, checked)
+function M.graph(s, live, down, ended)
   local mesh = s.mesh or {}
   local cut_pending = mesh.cut_pending or {}
   local pending = mesh.pending or {}
@@ -385,8 +384,6 @@ function M.graph(s, live, down, ended, checked)
       mark, note = "error", "cut pending on " .. plural(#cut_pending[name], "Host")
     elseif down[name] and not is_live then
       note = down[name]
-    elseif checked[name] then
-      mark, note = checked[name].mark, checked[name].note
     elseif pending[name] then
       mark, note = "warn", "Mesh pending"
     elseif s.nohop[name] then

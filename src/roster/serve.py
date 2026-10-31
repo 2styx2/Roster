@@ -38,6 +38,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     INVENTORY_ERROR,
     ITEM_EXISTS,
     LOGIN_NOT_SEEN,
+    MESH_BUSY,
     NAME_TAKEN,
     NO_ASKPASS,
     NO_SIGN_IN,
@@ -69,7 +70,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 18            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 19            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -98,6 +99,7 @@ class State:
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
+        self.mesh_job = None                # the latest Mesh job (mesh.* with background: true): MeshJob
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         self.held = {}                      # typed passwords held for "Save to vault", by id: Held (T15, T16)
         # state.held is also changed on the askpass channel's threads (a login report), so it has a lock of its own:
@@ -1906,73 +1908,224 @@ def rotate_param(params):
     return v
 
 
+def background_param(params):
+    v = params.get("background", False)
+    if not isinstance(v, bool):
+        raise RpcError(INVALID_PARAMS, "params.background must be true or false")
+    return v
+
+
+def brief_param(params):
+    v = params.get("brief", False)
+    if not isinstance(v, bool):
+        raise RpcError(INVALID_PARAMS, "params.brief must be true or false")
+    return v
+
+
+class MeshJob:
+    """A Mesh run in a thread of its own (API 17), so serve answers other requests meanwhile and the Mesh controls
+    Plugin can show how far it has got (mesh.job) and stop it (mesh.stop). One at a time; serve keeps the latest."""
+
+    def __init__(self, number, action, host=None):
+        self.number, self.action, self.host = number, action, host
+        self.done, self.total, self.at = 0, 0, None
+        self.result, self.error = None, None
+        self.stop = threading.Event()
+        self.thread = None
+        self.lock = threading.Lock()
+
+    def running(self):
+        return self.thread is not None and self.thread.is_alive()
+
+    def progress(self, done, total, host):
+        with self.lock:
+            self.done, self.total, self.at = done, total, host
+
+    def view(self, brief=False):
+        with self.lock:
+            out = {"job": self.number, "action": self.action, "state": "running", "done": self.done,
+                   "total": self.total, "at": self.at, "stopped": self.stop.is_set()}
+            if self.host is not None:
+                out["host"] = self.host
+            if self.result is not None:
+                out.update(state="done", result=mesh.brief(self.result) if brief and "links" in self.result
+                           else self.result)
+            elif self.error is not None:
+                out.update(state="failed", error=self.error)
+            return out
+
+
+def mesh_idle(state):
+    """Problem 111 while a Mesh job runs: two runs at once would fight over the Hosts and mesh.json."""
+    job = state.mesh_job
+    if job is not None and job.running():
+        raise RpcError(MESH_BUSY, f"a Mesh {job.action} is still running (job {job.number}): wait for it, or stop it",
+                       {"job": job.number, "action": job.action})
+
+
+def start_mesh_job(state, action, total, work, host=None):
+    """Runs WORK(job) in a thread and answers at once: `{job, action, total, host?}`."""
+    number = state.mesh_job.number + 1 if state.mesh_job else 1
+    job = MeshJob(number, action, host)
+    job.total = total
+
+    def main():
+        try:
+            result = work(job)
+        except Problem as e:
+            job.error = {"code": e.code, "message": e.message, **({"data": e.data} if e.data is not None else {})}
+        except SystemExit as e:
+            job.error = {"code": ROSTER_ERROR, "message": die_message(e)}
+        except Exception as e:
+            print(f"serve: mesh.{action} job failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            job.error = {"code": INTERNAL_ERROR, "message": f"{type(e).__name__}: {e}"}
+        else:
+            with job.lock:
+                job.done, job.at = job.total, None
+                job.result = result
+    job.thread = threading.Thread(target=main, name=f"mesh-{action}-{number}", daemon=True)
+    state.mesh_job = job
+    job.thread.start()
+    return {"job": number, "action": action, "total": total, **({"host": host} if host else {})}
+
+
+def mesh_run(state, params, apply):
+    """mesh.plan and mesh.apply: at once, or (background: true) as a job."""
+    rotate, background = rotate_param(params), background_param(params)
+    mesh_idle(state)
+    cfg = state.fresh()
+    if not background:
+        return mesh.run(cfg, apply=apply, rotate=rotate)
+    g = mesh.graph(cfg)
+    mesh.check_rotate(g, rotate)                # refused at once, as without background
+    return start_mesh_job(state, "apply" if apply else "plan", mesh.steps_of(cfg), lambda job: mesh.run(
+        cfg, apply=apply, rotate=rotate, progress=job.progress, stopped=job.stop.is_set))
+
+
 def mesh_plan(state, params):
     """The Mesh roster.yml asks for against what the Hosts hold now: read-only, one connection at a time.
 
-    Params: `{rotate?: [host]}`
-    Result: a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere
-    Errors: 1, 110
+    Params: `{rotate?: [host], background?: bool}` (`background` since API 17)
+    Result: a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere. With
+        `background: true`, `{job, action, total}` at once, and the result comes in `mesh.job`
+    Errors: 1, 110, 111
     Since: API 15
     """
-    return mesh.run(state.fresh(), rotate=rotate_param(params))
+    return mesh_run(state, params, apply=False)
 
 
 def mesh_apply(state, params):
     """Make the Mesh what roster.yml says, one connection at a time; Hosts that don't answer stay pending.
 
-    Params: `{rotate?: [host]}`
-    Result: a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere
-    Errors: 1, 110
+    Params: `{rotate?: [host], background?: bool}` (`background` since API 17)
+    Result: a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere. With
+        `background: true`, `{job, action, total}` at once, and the result comes in `mesh.job`
+    Errors: 1, 110, 111
     Since: API 15
     """
-    return mesh.run(state.fresh(), apply=True, rotate=rotate_param(params))
+    return mesh_run(state, params, apply=True)
 
 
 def mesh_cut(state, params):
     """Take a Host out of the Mesh now, on every Host at once (mesh.cut), then write mesh: false for it as a
     Pending change (mesh.write_cut). `pending`: Hosts that didn't confirm, warned about until they're done.
 
-    Params: `{host}`
+    Params: `{host, background?: bool}` (`background` since API 17)
     Result: `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's
         off HOST, at once. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true,
         backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when
-        it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened)
-    Errors: 1, 2
+        it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened).
+        With `background: true`, `{job, action, total, host}` at once, and the result comes in `mesh.job`
+    Errors: 1, 2, 111
     Since: API 15
     """
     name = text_param(params, "host")
+    background = background_param(params)
+    mesh_idle(state)
     cfg = state.fresh()
     if name not in cfg["hosts"]:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
-    result = mesh.cut(cfg, name, cfg["workers"])
-    result["change"] = mesh.write_cut(cfg, name)
-    state.reload()
-    return result
+    if not background:
+        result = mesh.cut(cfg, name, cfg["workers"])
+        result["change"] = mesh.write_cut(cfg, name)
+        state.reload()
+        return result
+
+    def work(job):
+        result = mesh.cut(cfg, name, cfg["workers"], progress=job.progress, stopped=job.stop.is_set)
+        with state.lock:                        # roster.yml is written between requests, never during one
+            result["change"] = mesh.write_cut(state.fresh(), name)
+            state.reload()
+        return result
+    return start_mesh_job(state, "cut", len(mesh.cut_hosts(cfg, name)), work, host=name)
+
+
+def mesh_job(state, params):
+    """How the latest Mesh job is getting on: polled by the Mesh controls Plugin, never connects.
+
+    Params: `{job?, brief?: bool}`
+    Result: `{job, action, host?, state, done, total, at, stopped, result?, error?}`, or `null` when there's no job
+        (or `job` isn't the latest). `state` is `running`, `done` (with `result`, as the method itself returns it;
+        `brief` makes a plan's or apply's as small as `mesh.status`'s brief) or
+        `failed` (with `error`: `{code, message, data?}`, as an error response's). `done` of `total` Hosts so far;
+        `at` the Host it's on. `stopped`: `mesh.stop` asked it to stop; the Hosts it hadn't got to are pending
+    Since: API 17
+    """
+    job = state.mesh_job
+    want = params.get("job")
+    if job is None or (want is not None and want != job.number):
+        return None
+    return job.view(brief=brief_param(params))
+
+
+def mesh_stop(state, params):
+    """Stop a Mesh job before its next Host: the Hosts not yet visited are pending, and the next run finishes them.
+
+    Params: `{job}`
+    Result: `{job, stopping}`: `stopping: false` when that job isn't running (over already, or not the latest)
+    Since: API 17
+    """
+    want = params.get("job")
+    if not isinstance(want, int) or isinstance(want, bool):
+        raise RpcError(INVALID_PARAMS, "params.job must be a job's number (mesh.job)")
+    job = state.mesh_job
+    stopping = job is not None and job.number == want and job.running()
+    if stopping:
+        job.stop.set()
+    return {"job": want, "stopping": stopping}
 
 
 def mesh_status(state, params):
     """No connections: who reaches whom, what's pending, and whether the Mesh is out of date on this Box.
 
-    Params: `{grouped?: bool}` (API 18)
+    Params: `{brief?: bool, grouped?: bool}` (`brief` since API 17, `grouped` since API 19)
     Result: `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks
         for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the
-        Mesh since the last complete apply on this Box. With `grouped` (API 18, for a map such as the Topology
-        Plugin's), also `meshed: {group: [host]}`, each meshed group's Hosts that reach each other both ways (two or
-        more, in `roster.yml` order), and `links` leaves out the pairs those cover: 2,000 meshed Hosts are 2,000
-        names, not 98,000 Links
+        Mesh since the last complete apply on this Box. `brief: true` keeps it small when every pair of hundreds of
+        Hosts is a Link: `links` only those worth a look (with a `via`, `no-via` marked), at most 1000
+        (`links_more` counts the rest), and `link_count`, `link_statuses` and `reached` for the rest. `grouped: true`
+        (for a map, such as the Topology Plugin's, that draws who reaches whom) keeps every Link but says each
+        meshed group once: `meshed: {group: [host]}`, the Hosts of each meshed group that reach each other both
+        ways (two or more, in `roster.yml` order), and `links` without the pairs those cover, so 2,000 meshed
+        Hosts are 2,000 names, not 98,000 Links. Not with `brief`
     Errors: -32602
     Since: API 15
     """
-    grouped = (params or {}).get("grouped", False)
+    grouped = (params or {}).get("grouped", False) if isinstance(params, dict) else False
     if not isinstance(grouped, bool):
         raise RpcError(INVALID_PARAMS, "params.grouped must be true or false")
-    return mesh.status(state.inventory(), grouped=grouped)
+    if grouped and brief_param(params):
+        raise RpcError(INVALID_PARAMS, "params.grouped and params.brief don't go together")
+    out = mesh.status(state.inventory(), grouped=grouped)
+    return mesh.brief(out) if brief_param(params) else out
 
 
 METHODS["mesh.plan"] = mesh_plan
 METHODS["mesh.apply"] = mesh_apply
 METHODS["mesh.cut"] = mesh_cut
 METHODS["mesh.status"] = mesh_status
+METHODS["mesh.job"] = mesh_job
+METHODS["mesh.stop"] = mesh_stop
 
 
 # ---------------------------------------------------------------- the loop

@@ -178,6 +178,11 @@ pub const COMMANDS: &[CommandRule] = &[
         doc: "Goes to the previous Session.",
     },
     CommandRule {
+        name: "check",
+        needs: Needs::Permission("serve:host.check"),
+        doc: "Runs roster's diagnostics for a Host and shows them, as `:check HOST` does: `check esx-02`. It connects to the Host, as `host.check` does.",
+    },
+    CommandRule {
         name: "open",
         needs: Needs::Permission("sessions.open"),
         doc: "Opens a Host: its Session, or a new one.",

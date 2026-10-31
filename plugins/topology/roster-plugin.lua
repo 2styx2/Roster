@@ -11,7 +11,8 @@ return {
   permissions = {
     "inventory.read", -- the Hosts and groups, and which Sessions are live
     "serve:mesh.status", -- who reaches whom in the Mesh (it never connects anywhere)
-    "serve:host.check", -- Check from a node: roster's diagnostics for that Host
+    "serve:host.check", -- Check from a node: the app's :check HOST, roster's diagnostics for it
     "serve:mesh.cut", -- Cut from a node, after a question you answer by typing the Host's name
+    "serve:mesh.job", -- how that cut is going, while roster serve runs it
   },
 }

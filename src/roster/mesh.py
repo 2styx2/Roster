@@ -29,6 +29,7 @@ CONNECT_TIMEOUT = 10
 STEP_TIMEOUT = 120          # s: one Host's script, at most
 CUT_TIMEOUT = 30            # s: one Host's part of a cut
 OUT_OF_TIME = "out of time: not visited (the next roster mesh finishes it)"   # past serve's deadline
+STOPPED = "stopped: not visited (the next roster mesh finishes it)"            # mesh.stop, before it got there
 
 
 # ---------------------------------------------------------------- who reaches whom (no connections)
@@ -453,30 +454,65 @@ def key_line(src, pub, via=None):
 
 # ---------------------------------------------------------------- plan and apply
 
-def run(cfg, apply=False, rotate=(), say=None):
-    """The Mesh as roster.yml asks for it, against what the Hosts hold now, one connection at a time.
-    Plan (apply=False) changes nothing anywhere; apply makes it so and remembers what it couldn't finish.
-    ROTATE: sources whose key is replaced. Returns the result serve and the CLI show (docs/serve-api.md, mesh.plan)."""
-    say = say or (lambda msg: None)
-    hosts, mode = with_mesh_dirs(cfg), "apply" if apply else "check"
-    g = graph(cfg)
-    st = load_state()
+def check_rotate(g, rotate):
+    """Problem 110 when ROTATE names a Host that isn't a Mesh source of graph G."""
     unknown = [r for r in rotate if r not in g["sources"]]
     if unknown:
         from .errors import NOT_A_SOURCE, Problem
         raise Problem(NOT_A_SOURCE, f"{', '.join(unknown)} isn't a Mesh source, so it has no Mesh key to replace",
                       {"hosts": unknown}, fix="rotate a Host that reaches peers (roster mesh --dry-run lists them)")
+
+
+def not_now(stopped):
+    """Why a step that hasn't started won't: serve's deadline passed, or the run was stopped (None: go on)."""
+    return OUT_OF_TIME if past_deadline() else STOPPED if stopped() else None
+
+
+def visits_of(cfg, hosts):
+    """What a run visits: (graph, mesh.json, Hosts visited only to take away what's no longer asked for, the Links,
+    {jump Host: {peer: Host}} for the hops, jump Hosts that aren't sources, every Host of phase 2)."""
+    g = graph(cfg)
+    st = load_state()
     # Hosts roster wrote on before and still knows how to reach: visited too, so what's no longer asked for goes
     ex = sorted(n for n in set(st["members"]) | set(st["pending"]) if n not in g["visit"] and n in hosts
                 and hosts[n]["enroll"] and hosts[n]["reviewed"])
-    gone = sorted(n for n in set(st["members"]) if n not in hosts)
     links = [dict(x) for x in g["links"]]
-    out = {"host": {}, "probe": {}, "hop": {}}
     live = {(x["from"], x["to"]) for x in links if "skip" not in x}
     hops = {}                                   # jump Host: the peers it's tested against (a hop to them)
     for x in links:
         if x.get("via") and "skip" not in x and (x["from"], x["via"]) in live:
             hops.setdefault(x["via"], {})[x["to"]] = hosts[x["to"]]
+    hop_only = [n for n in sorted(set(hops) - set(g["sources"])) if hosts[n]["enroll"]]
+    visits = sorted(set(g["visit"]) | set(ex))
+    return g, st, ex, links, hops, hop_only, visits
+
+
+def steps_of(cfg):
+    """How many Host steps a plan or apply of CFG takes (the `total` its progress counts to)."""
+    g, _, _, _, _, hop_only, visits = visits_of(cfg, with_mesh_dirs(cfg))
+    return len(g["sources"]) + len(hop_only) + len(visits)
+
+
+def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
+    """The Mesh as roster.yml asks for it, against what the Hosts hold now, one connection at a time.
+    Plan (apply=False) changes nothing anywhere; apply makes it so and remembers what it couldn't finish.
+    ROTATE: sources whose key is replaced. PROGRESS(done, total, host) is told before each Host's step and once at
+    the end; STOPPED() true leaves the Hosts not yet visited pending, as serve's deadline does.
+    Returns the result serve and the CLI show (docs/serve-api.md, mesh.plan)."""
+    say = say or (lambda msg: None)
+    progress = progress or (lambda done, total, host: None)
+    stopped = stopped or (lambda: False)
+    hosts, mode = with_mesh_dirs(cfg), "apply" if apply else "check"
+    g, st, ex, links, hops, hop_only, visits = visits_of(cfg, hosts)
+    check_rotate(g, rotate)
+    gone = sorted(n for n in set(st["members"]) if n not in hosts)
+    out = {"host": {}, "probe": {}, "hop": {}}
+    live = {(x["from"], x["to"]) for x in links if "skip" not in x}
+    steps = {"done": 0, "total": len(g["sources"]) + len(hop_only) + len(visits)}
+
+    def step(name):
+        progress(steps["done"], steps["total"], name)
+        steps["done"] += 1
 
     def finish(name, changes, error=None):
         out["host"][name] = {"host": name, "changes": changes,
@@ -488,8 +524,9 @@ def run(cfg, apply=False, rotate=(), say=None):
     for name in g["sources"]:
         peers = [hosts[x["to"]] for x in links if x["from"] == name and "skip" not in x]
         peers += [p for n, p in sorted(hops.get(name, {}).items()) if p not in peers]
-        if past_deadline():
-            out["probe"][name] = {"error": OUT_OF_TIME}
+        step(name)
+        if why := not_now(stopped):
+            out["probe"][name] = {"error": why}
             continue
         say(f"  probe  {name}")
         lines, err = on_host(hosts[name], probe_script(hosts[name], peers, mode, name in rotate))
@@ -506,11 +543,10 @@ def run(cfg, apply=False, rotate=(), say=None):
                 "by hand")
 
     # jump Hosts that aren't sources: whether they reach the peers they're a hop to
-    for name in sorted(set(hops) - set(g["sources"])):
-        if not hosts[name]["enroll"]:
-            continue                            # a password Host: the Box can't run anything there, so untested
-        if past_deadline():
-            out["hop"][name] = {"error": OUT_OF_TIME}
+    for name in hop_only:                       # a password Host isn't one: the Box can't run anything there
+        step(name)
+        if why := not_now(stopped):
+            out["hop"][name] = {"error": why}
             continue
         say(f"  probe  {name} (a hop)")
         lines, err = on_host(hosts[name], hop_script(list(hops[name].values())))
@@ -556,15 +592,16 @@ def run(cfg, apply=False, rotate=(), say=None):
     written = [x for x in links if x["status"] in ("ok", "untested")]
 
     # phase 2: every Host roster visits, as a source and as a peer
-    for name in sorted(set(g["visit"]) | set(ex)):
+    for name in visits:
         h = hosts[name]
         p = out["probe"].get(name)
+        step(name)
         bad = (p or {}).get("error") or out["hop"].get(name, {}).get("error")
         if bad:
             finish(name, [], bad)
             continue
-        if past_deadline():
-            finish(name, [], OUT_OF_TIME)
+        if why := not_now(stopped):
+            finish(name, [], why)
             continue
         files = None
         if name in g["sources"]:
@@ -606,6 +643,7 @@ def run(cfg, apply=False, rotate=(), say=None):
             out.setdefault("warnings", []).append(
                 f"{name}: {path} isn't roster's, so roster left it alone (move it away and apply again)")
 
+    progress(steps["total"], steps["total"], None)
     result = summary(cfg, g, links, out, apply, gone)
     if apply:
         record(cfg, g, st, result, ex)
@@ -651,6 +689,45 @@ def record(cfg, g, st, result, ex):
 
 # ---------------------------------------------------------------- status and drift
 
+BRIEF_LINKS = 1000          # Links a brief answer lists at most
+BRIEF_CHANGES = 10          # changes per Host a brief answer lists at most
+WORKING = (None, "ok", "untested")      # a Link that works (None: mesh.status's, not tested yet)
+
+
+def no_via(links):
+    """Marks the Links whose source has no Link to their `via` Host as `no-via`: that needs no connection."""
+    live = {(x["from"], x["to"]) for x in links if "skip" not in x}
+    for x in links:
+        via = x.get("via")
+        if via and "status" not in x and "skip" not in x and (x["from"], via) not in live:
+            x["status"] = "no-via"
+            x["why"] = f"{x['from']} has no Link to {via}, its hop to {x['to']} (add {{ from: {x['from']}, to: {via} }})"
+    return links
+
+
+def brief(r):
+    """A mesh.status or Mesh result (brief: true, API 17) small enough for a Mesh of hundreds of Hosts, where every
+    pair is a Link: `links` keeps only those worth a look (a hop, or a status other than working or skipped), at most
+    BRIEF_LINKS (`links_more` counts the rest); `link_count`, `link_statuses` ({status: n}) and `reached` ({host: how
+    many Hosts reach it}) say the rest, and each Host's `changes` are cut to BRIEF_CHANGES (`more` counts the rest)."""
+    links = no_via([dict(x) for x in r["links"]])
+    keep = [x for x in links if x.get("via") or x.get("status") not in (*WORKING, "skipped")]
+    works = [x for x in links if "skip" not in x and x.get("status") in WORKING]
+    out = {**r, "links": keep[:BRIEF_LINKS], "links_more": max(0, len(keep) - BRIEF_LINKS), "link_count": len(links)}
+    out["link_statuses"], out["reached"], out["reach"] = {}, {}, {s: 0 for s in r.get("reach", {})}
+    for x in links:
+        k = x.get("status") or ("skipped" if "skip" in x else "asked")
+        out["link_statuses"][k] = out["link_statuses"].get(k, 0) + 1
+    for x in works:
+        out["reached"][x["to"]] = out["reached"].get(x["to"], 0) + 1
+        out["reach"][x["from"]] = out["reach"].get(x["from"], 0) + 1
+    if "hosts" in r:
+        out["hosts"] = [{**h, "changes": h["changes"][:BRIEF_CHANGES],
+                         **({"more": len(h["changes"]) - BRIEF_CHANGES} if len(h["changes"]) > BRIEF_CHANGES else {})}
+                        for h in r["hosts"]]
+    return out
+
+
 def status(cfg, grouped=False):
     """No connections: who reaches whom as roster.yml says, what's unfinished, and whether roster.yml changed the
     Mesh since the last complete apply on this Box. grouped: each meshed group once, as meshed: {group: [hosts]},
@@ -680,33 +757,44 @@ def drift(cfg):
 
 # ---------------------------------------------------------------- cut
 
-def cut(cfg, name, workers=16):
-    """HOST out of the Mesh now, in parallel: its key off every peer, every peer's key off HOST, HOST's own Mesh
-    files gone. The Box's own key (roster-managed) is never touched. Returns {host, confirmed, pending: {host: why}}."""
+def cut_hosts(cfg, name):
+    """The Hosts a cut of NAME visits: its peers, then NAME itself (when roster can log in to it)."""
     hosts = with_mesh_dirs(cfg)
     h = hosts[name]
     g = graph(cfg)
     st = load_state()
     peers = sorted(n for n in (set(g["visit"]) | set(st["members"]) | set(st["cut"].get(name, [])))
                    if n in hosts and n != name and hosts[n]["enroll"] and hosts[n]["reviewed"])
-    todo = [(n, False) for n in peers] + ([(name, True)] if h["enroll"] and h["reviewed"] else [])
+    return [(n, False) for n in peers] + ([(name, True)] if h["enroll"] and h["reviewed"] else [])
+
+
+def cut(cfg, name, workers=16, progress=None, stopped=None):
+    """HOST out of the Mesh now, in parallel: its key off every peer, every peer's key off HOST, HOST's own Mesh
+    files gone. The Box's own key (roster-managed) is never touched. Returns {host, confirmed, pending: {host: why}}.
+    PROGRESS(done, total, host) is told as each Host answers; STOPPED() true leaves the Hosts not started pending."""
+    progress = progress or (lambda done, total, host: None)
+    stopped = stopped or (lambda: False)
+    hosts = with_mesh_dirs(cfg)
+    todo = cut_hosts(cfg, name)
     at = current_deadline()                     # serve's, for the worker threads too
 
     def one(item):
         n, own = item
         with deadline_at(at):
-            if past_deadline():
-                return n, OUT_OF_TIME
+            if why := not_now(stopped):
+                return n, why
             _, err = on_host(hosts[n], cut_script(hosts[n], name, own), timeout=CUT_TIMEOUT)
         return n, err
 
     confirmed, pending = [], {}
+    progress(0, len(todo), None)
     with cf.ThreadPoolExecutor(max(1, min(workers, len(todo)))) as ex:
-        for n, err in ex.map(one, todo):
+        for i, (n, err) in enumerate(ex.map(one, todo), 1):
             if err:
                 pending[n] = err
             else:
                 confirmed.append(n)
+            progress(i, len(todo), n)
     st = load_state()
     if pending:
         st["cut"][name] = sorted(pending)
