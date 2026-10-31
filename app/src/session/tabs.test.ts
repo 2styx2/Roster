@@ -904,4 +904,20 @@ describe("a held password, around the Session's life (iteration-4 review)", () =
     print(bytes.slice(split));
     expect(save()?.hostname).toBe("nas-01");
   });
+
+  it("reads the box's name from a prompt printed before serve said it logged in", async () => {
+    const { login, print, save } = await quickSaving("root");
+    print("\x1b]0;root@nas-01: ~\x07[root@nas-01 ~]# ");
+    expect(save()?.hostname).toBeNull();
+    login("h1");
+    expect(save()).toMatchObject({ loggedIn: true, hostname: "nas-01" });
+  });
+
+  it("keeps only a bounded tail of that output", async () => {
+    const { login, print, save } = await quickSaving("root");
+    print("[root@old-name ~]# ");
+    print("x".repeat(8 * 1024));
+    login("h1");
+    expect(save()?.hostname).toBeNull();
+  });
 });

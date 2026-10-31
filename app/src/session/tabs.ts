@@ -132,7 +132,7 @@ interface Entry {
   /** Keys typed before the Session finished opening. On Windows this includes xterm's answer
    * to ConPTY's cursor-position request, which ConPTY waits for before starting anything. */
   pending: string[];
-  /** The output since the login, while a save is offered: where the box's name is read from. */
+  /** The attempt's last output while a save may be offered: where the box's name is read from. */
   saveScan: string;
 }
 
@@ -170,6 +170,8 @@ export class Tabs {
       return;
     }
     entry.tab = { ...entry.tab, save: { ...entry.tab.save, loggedIn: true } };
+    // The shell's first prompt (and title) usually arrived before serve said so.
+    this.scanForName(entry, "");
     this.changed();
   }
 
@@ -203,11 +205,14 @@ export class Tabs {
     this.changed();
   }
 
-  /** Reads the box's name from what its shell printed since the login. */
+  /** Keeps the attempt's recent output, while a save may still be offered, and reads the box's name
+   * from it once the Session has logged in. serve's `session.logged_in` usually lands after the
+   * shell's first prompt, so the output before it is kept too (only the last SAVE_SCAN_LIMIT). */
   private scanForName(entry: Entry, text: string) {
     const save = entry.tab.save;
-    if (!save?.loggedIn || save.saved !== null) return;
-    entry.saveScan = (entry.saveScan + text).slice(-SAVE_SCAN_LIMIT);
+    if (save ? save.saved !== null : entry.session !== null) return;
+    if (text) entry.saveScan = (entry.saveScan + text).slice(-SAVE_SCAN_LIMIT);
+    if (!save?.loggedIn) return;
     const user = entry.tab.quick?.to.user;
     const name = user ? hostnameIn(entry.saveScan, user) : null;
     if (name && name !== save.hostname) entry.tab = { ...entry.tab, save: { ...save, hostname: name } };
@@ -410,12 +415,13 @@ export class Tabs {
     entry.windowFrom = this.now();
     entry.late = "";
     entry.decoder = new TextDecoder();
+    entry.saveScan = "";
     open(entry.size, {
         output: (data) => {
           if (!current()) return;
           const before = entry.tab;
           const text = this.keepTail(entry, data);
-          if (entry.tab.save) this.scanForName(entry, text);
+          this.scanForName(entry, text);
           this.output(entry, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
@@ -456,6 +462,8 @@ export class Tabs {
           const save: SaveOffer | null =
             held === undefined ? null : { held, loggedIn: this.loggedInEarly.delete(held), hostname: null, saved: null };
           entry.tab = { ...entry.tab, auth: session.auth, quick, save };
+          if (save) this.scanForName(entry, "");
+          else entry.saveScan = "";
           this.setStatus(entry, { state: "open" });
           this.sendSize(entry);
         },
