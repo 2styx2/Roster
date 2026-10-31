@@ -433,12 +433,16 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 
 Host-to-Host access set up from this Box (API 15; [The Mesh](mesh.md)). The app's controls for it are a first-party Plugin; these are the methods it calls. `mesh.plan` and `mesh.apply` connect to each Host they need one at a time (deadline 240 s; a Host they don't get to in time is pending), `mesh.cut` to every Host at once (60 s). `mesh.status` never connects. Every one reads `roster.yml` afresh, so a file that doesn't load is `1`.
 
-| Method | Params | Result |
-|---|---|---|
-| `mesh.plan` | `{rotate?: [host]}` | A Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere |
-| `mesh.apply` | `{rotate?: [host]}` | A Mesh result with `applied: true` |
-| `mesh.cut` | `{host}` | `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's off HOST, at once; `confirmed` are the Hosts that said so, `pending` the ones that didn't (warned about until finished). `change` is the `mesh: false` written for HOST as a Pending change: `{written: true, backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when it already was, or `{written: false, error, fix}` when it couldn't be written (the cut itself still happened). `2` unknown Host |
-| `mesh.status` | none | `{links, excluded, reach, members, pending, cut_pending, out_of_date}`, without connecting: the Links as `roster.yml` asks for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the Mesh since the last complete apply on this Box |
+<!-- BEGIN generated:methods mesh.plan mesh.apply mesh.cut mesh.status -->
+
+| Method | Params | Result | Errors | Since API |
+|---|---|---|---|---|
+| `mesh.plan` | `{rotate?: [host]}` | a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere | `1`, `110` | 15 |
+| `mesh.apply` | `{rotate?: [host]}` | a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere | `1`, `110` | 15 |
+| `mesh.cut` | `{host}` | `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's off HOST, at once. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true, backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened) | `1`, `2` | 15 |
+| `mesh.status` | none | `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the Mesh since the last complete apply on this Box |  | 15 |
+
+<!-- END generated:methods -->
 
 A Mesh result is `{applied, links, hosts, excluded, reach, pending, already, warnings, cut_pending}`:
 
