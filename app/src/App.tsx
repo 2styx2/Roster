@@ -2332,6 +2332,12 @@ function Workspace({
         {message}
       </div>
       {pieces("bottom")}
+      {/* Progress needs a place without the status bar (Focus hides it, ticket 85): a corner. */}
+      {pluginSnap.progress.length > 0 && !(["top", "bottom"] as const).some((at) => placed(layout, at).includes("statusbar")) && (
+        <div className="corner-progress" role="group" aria-label="What Plugins are doing">
+          <PluginProgressItems progress={pluginSnap.progress} onCancel={(id) => setMessage(plugins.cancelProgress(id))} />
+        </div>
+      )}
       {hint && modeKeys.length > 0 && (
         <div className="mode-hint key-hint" role="status" aria-label={`How to leave ${viewMode === "focus" ? "Focus" : "this mode"}`}>
           {/* Two ways out, not one sequence: "␣ m or F11", never "␣ m F11". */}

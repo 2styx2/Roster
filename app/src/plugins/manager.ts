@@ -942,7 +942,9 @@ export class PluginManager {
         if (clash) return refuse(`${op.keys} (${op.context}) would hide ${clash.keys}, bound by ${clash.source}`);
         // `false` (keymap.del, api 3) takes the Plugin's own binding off; it never claims keys.
         if (op.action === false) return this.drop(l, `key:${id}`);
-        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action: op.action }));
+        // Its line goes through `plugins run`, as a button's does (ticket 88, Q98): `:keys` shows that.
+        const action = this.line(plugin, { command: op.action });
+        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action }));
       }
       case "theme": {
         if (this.taken(r.themes, op.id, plugin)) return refuse(`there's a Theme named ${op.id} already`);

@@ -25,6 +25,13 @@ impl Serve for FakeServe {
                 "groups": { "lab": { "title": "The lab", "description": "" } }
             })),
             "host.get" if params["name"] == "esx-02" => Ok(esx),
+            "changes.diff" => Ok(json!({ "diff": DIFF, "count": 1 })),
+            "host.check" => Ok(json!({ "host": "esx-02", "ok": false, "steps": [
+                { "step": "provider", "status": "ok", "message": "cmd: is ready" },
+                { "step": "vault-item", "status": "fail",
+                  "message": "cmd:pass show lab/esx-02 --hunter2 failed: exit 1",
+                  "details": { "auth": "env:ESX_PASSWORD", "tried": ["CMD:pass --hunter2", "bw:esx-02 web"] } }
+            ] })),
             "host.get" => Err(format!(
                 "unknown host '{}' (code 2)",
                 params["name"].as_str().unwrap_or("")
@@ -33,6 +40,10 @@ impl Serve for FakeServe {
         }
     }
 }
+
+/// `roster.yml`'s Pending changes as git shows them: a `cmd:` and an `env:` reference, each
+/// quoted and not, in a block and a flow mapping.
+const DIFF: &str = "--- a/roster.yml\n+++ b/roster.yml\n@@ -3,2 +3,4 @@\n   esx-02:\n-    auth: \"cmd:pass show lab/esx-02 --hunter2\"\n+    auth: cmd:pass show lab/esx-03 --hunter3  # rotated\n+    login: { user: admin, auth: env:ESX_PASSWORD }\n+    ssh: { auth: 'env:SSH_PW' }\n";
 
 fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("roster-core-plugin-v3-{}-{test}", std::process::id()));
@@ -276,4 +287,28 @@ fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
         r#"roster.status.set("has", { text = tostring(roster.has("inventory.read")) .. " " .. tostring(roster.has("terminal.read")) })"#,
     );
     assert_eq!(said(&ops, "has"), "true false");
+}
+
+/// Raw text a Plugin gets from serve (`changes.diff`'s `diff`, `host.check`'s step messages) has
+/// its `cmd:` and `env:` references cut too, wherever they are in it (ticket 86, decision Q92):
+/// a `cmd:` one to the end of its line, an `env:` one its variable's name. The rest stays.
+#[test]
+fn cmd_and_env_references_in_raw_text_reach_a_plugin_cut() {
+    let (_, ops, error) = load(
+        "redact-text",
+        &["serve:changes.diff", "serve:host.check"],
+        r#"
+        local d = roster.serve.call("changes.diff").diff
+        local c = roster.serve.call("host.check", { host = "esx-02" }).steps
+        roster.status.set("diff", { text = d })
+        roster.status.set("check", { text = table.concat({ c[1].message, c[2].message, c[2].details.auth,
+          c[2].details.tried[1], c[2].details.tried[2] }, "|") })
+        "#,
+    );
+    assert_eq!(error, None);
+    assert_eq!(
+        said(&ops, "diff"),
+        "--- a/roster.yml\n+++ b/roster.yml\n@@ -3,2 +3,4 @@\n   esx-02:\n-    auth: \"cmd:\"\n+    auth: cmd:\n+    login: { user: admin, auth: env: }\n+    ssh: { auth: 'env:' }\n"
+    );
+    assert_eq!(said(&ops, "check"), "cmd: is ready|cmd:|env:|cmd:|bw:esx-02 web");
 }

@@ -565,7 +565,7 @@
 ---@class roster.ChangesDiff
 ---@field path string `roster.yml`'s path.
 ---@field repo string The infra repo's top folder.
----@field diff string git's diff of `roster.yml` against the last commit; `""` for none.
+---@field diff string git's diff of `roster.yml` against the last commit; `""` for none. A `cmd:` reference in it reaches a Plugin cut to `cmd:` (the rest of its line), an `env:` one to `env:`.
 ---@field hosts roster.HostChange[] The Hosts it changes.
 ---@field groups roster.GroupChange[] The groups it changes.
 ---@field count integer How many Hosts change (1 for a change that touches none, 0 for no change).
@@ -708,7 +708,7 @@ roster.keymap = {}
 --- Permission: none. Since: api 2.
 ---@param context roster.KeyContext `"leader"` (a key after the Leader), `"list"` or `"list_vim"` (the Sidebar, and its vim keys).
 ---@param keys string The keys, space-separated: `"w w"`.
----@param action string|false A command line: one of the Plugin's commands or the app's (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as `roster.keymap.del` does.
+---@param action string|false A command line: one of the Plugin's commands or one of the app's that `roster.cmd` may run (`"finder alerts"`). `false` is deprecated: it takes the Plugin's binding off, as `roster.keymap.del` does.
 function roster.keymap.set(context, keys, action) end
 
 --- Takes one of the Plugin's key bindings off.
