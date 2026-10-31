@@ -32,7 +32,7 @@ from .errors import (
 GIT_TIMEOUT = 60            # s: a fetch over a slow link; nothing here waits on a person
 PUSH_TIMEOUT = 60           # s: the push; past it roster checks whether the push got there anyway
 CHECK_TIMEOUT = 15          # s: that check (a fetch), even past serve's deadline
-HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mac", "web",
+HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mesh", "mac", "web",
              "services")
 
 
