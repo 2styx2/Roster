@@ -27,6 +27,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.plugin`](#rosterplugin) | The Plugin itself: its name, version, what it was granted and its settings | none |
 | [`roster.notify(text, level)`](#rosternotifytext-level) | Shows a notice, naming the Plugin | none |
 | [`roster.on(event, listener)`](#rosteronevent-listener) | Runs a function on an event | none |
+| [`roster.confirm(question)`](#rosterconfirmquestion) | Asks the user to confirm, then runs a function | none |
+| [`roster.cmd(line)`](#rostercmdline) | Runs a command line | none |
 | [`roster.has(permission)`](#rosterhaspermission) | Whether the Plugin was granted a permission | none |
 | [`roster.defer(ms, fn)`](#rosterdeferms-fn) | Runs a function once, later | none |
 | [`roster.every(ms, fn)`](#rostereveryms-fn) | Runs a function again and again, until it's cancelled | none |
@@ -47,6 +49,10 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.health.remove(id)`](#rosterhealthremoveid) | Removes a `:check` section | none |
 | [`roster.tutor.set(id, tutorial)`](#rostertutorsetid-tutorial) | Adds a tutorial, or replaces it | none |
 | [`roster.tutor.remove(id)`](#rostertutorremoveid) | Removes a tutorial | none |
+| [`roster.toolbar.set(id, control)`](#rostertoolbarsetid-control) | Adds a control to the toolbar, or replaces it | none |
+| [`roster.toolbar.remove(id)`](#rostertoolbarremoveid) | Removes a toolbar control | none |
+| [`roster.progress.set(id, progress)`](#rosterprogresssetid-progress) | Shows or updates the progress of something long | none |
+| [`roster.progress.remove(id)`](#rosterprogressremoveid) | Takes a progress away: it's over | none |
 | [`roster.badges.set(host, text)`](#rosterbadgessethost-text) | Puts a badge on a Host's Inventory row, or takes it off | none |
 | [`roster.float.open(float)`](#rosterfloatopenfloat) | Opens a floating window over the terminal, or replaces the Plugin's | none |
 | [`roster.float.close()`](#rosterfloatclose) | Closes the Plugin's floating window | none |
@@ -64,6 +70,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.inventory.rename(host, to)`](#rosterinventoryrenamehost-to) | Renames a Host, as a Pending change | `inventory.write` |
 | [`roster.inventory.move(host, group)`](#rosterinventorymovehost-group) | Moves a Host to another group, as a Pending change | `inventory.write` |
 | [`roster.inventory.review(host, reviewed)`](#rosterinventoryreviewhost-reviewed) | Marks a Host reviewed (or not), as a Pending change | `inventory.write` |
+| [`roster.sessions.show(session, line)`](#rostersessionsshowsession-line) | Goes to a Session, and to a line in its scrollback | none |
 | [`roster.sessions.open(host)`](#rostersessionsopenhost) | Opens a Session on a Host, as `:connect HOST` | `sessions.open` |
 | [`roster.terminal.send(session, text)`](#rosterterminalsendsession-text) | Types into an open Session | `terminal.write` |
 | [`roster.serve.call(method, params)`](#rosterservecallmethod-params) | Calls a roster serve method the Plugin was granted | `serve:<method>` (that method) |
@@ -99,6 +106,12 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`StepMatch`](#stepmatch) | An event a step waits for |
 | [`TutorEvent`](#tutorevent) | The events a tutorial's step can wait for |
 | [`Float`](#float) | A floating window (`roster.float.open`) |
+| [`FloatAction`](#floataction) | A button in a floating window |
+| [`Link`](#link) | A web page a floating window links to |
+| [`Confirm`](#confirm) | A question the user answers (`roster.confirm`) |
+| [`Progress`](#progress) | How far something long has got (`roster.progress.set`) |
+| [`ToolbarControl`](#toolbarcontrol) | A control in the toolbar (`roster.toolbar.set`) |
+| [`ToolbarIcon`](#toolbaricon) | A toolbar control's icon |
 | [`View`](#view) | A side panel or a full view (`roster.views.set`) |
 | [`ViewPlace`](#viewplace) | Where a view goes |
 | [`ViewUpdate`](#viewupdate) | What `roster.views.update` changes |
@@ -258,6 +271,75 @@ Nothing.
 roster.on("session_open", function(e)
   if e.host then roster.badges.set(e.host, "open") end
 end)
+```
+
+### `roster.confirm(question)`
+
+Asks the user to confirm, then runs a function. The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc` or Cancel, or another Plugin's question taking its place). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.
+
+**Parameters**
+
+- `question` ([`Confirm`](#confirm)): What to ask, the button that confirms, and what runs when the user does.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.confirm: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
+- `roster.confirm: `run` must be a function: what happens when the user confirms`: `run` is missing or a command line.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a field of the wrong kind (`roster.confirm: action must be text`): nothing is asked.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+actions = { { label = "Cut", key = "x", run = function(e)
+  roster.confirm({
+    title = "Cut " .. e.host .. " from the Mesh?",
+    text = "Its key is taken off every Host it can reach.",
+    action = "Cut",
+    danger = true,
+    typed = e.host,
+    run = function() roster.serve.call("mesh.cut", { host = e.host }) end,
+  })
+end } }
+```
+
+### `roster.cmd(line)`
+
+Runs a command line. It runs after the call returns, as if the user typed it. Only while the user runs one of your actions, commands or finder items, and only your own commands and the few of roster's in [Command lines a Plugin may run](#command-lines-a-plugin-may-run), each with the permission it needs there: never `:plugins`, `:packages`, `:publish` or anything else that changes what's installed, granted or written.
+
+**Parameters**
+
+- `line` (`string`): A command line, as typed after `:` (`"finder alerts"`).
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.cmd: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
+- `roster.cmd: which command? …`: an empty line.
+- `roster.cmd: :NAME isn't one a Plugin may run (its own commands, and …)`: a command not in the list, or another Plugin's.
+- `roster.cmd: :NAME needs the P permission`: `:open` or `:connect` without `sessions.open`.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.commands.add("alerts", { run = function(a)
+  if a.words[1] == nil then roster.cmd("finder alerts") end
+end })
 ```
 
 ### `roster.has(permission)`
@@ -886,6 +968,129 @@ Only [those of every function](#errors).
 roster.tutor.remove("pinned")
 ```
 
+## `roster.toolbar`
+
+Controls in the toolbar. A control in the title bar's toolbar (decision Q65), after roster's own by the window's buttons. It's shown unless `init.lua` picks the controls itself with `modes.<mode>.toolbar`: then it shows where that list names its id. It never takes focus from the terminal.
+
+### `roster.toolbar.set(id, control)`
+
+Adds a control to the toolbar, or replaces it.
+
+**Parameters**
+
+- `id` (`string`): The control's id: a name like `scan`, which `modes.<mode>.toolbar` can list.
+- `control` ([`ToolbarControl`](#toolbarcontrol)): Its label, icon or word, and what it runs.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.toolbar.set: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a control with that id from elsewhere (roster's own: `find`, `add`, …).
+- a field of the wrong kind.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.toolbar.set("scan", { label = "Scan a network", text = "Scan", icon = "map", run = "discover" })
+```
+
+### `roster.toolbar.remove(id)`
+
+Removes a toolbar control.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's controls.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.toolbar.remove("scan")
+```
+
+## `roster.progress`
+
+Progress of something long. What the Plugin is doing that takes a while (a scan, a long roster serve call), shown in the status bar: how far it has got, or only that it's going, and a way to stop it. `:cancel ID` (or the button) calls its `cancel` function. Setting it any time is fine, from an event too: it changes nothing but itself.
+
+### `roster.progress.set(id, progress)`
+
+Shows or updates the progress of something long. With `done` and `total` it shows how far it has got; without, only that it's going. Set it again as it moves on, and `roster.progress.remove` it when it's over. With `cancel`, the user can stop it: the app calls the function once and shows "Stopping…" until you set or remove it again.
+
+**Parameters**
+
+- `id` (`string`): A name like `scan`: `:cancel scan` cancels it.
+- `progress` ([`Progress`](#progress)): What's going on, how far it has got, and how to stop it.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.progress.set: "ID" isn't a name like …`: a bad `id`.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- a progress with that id from another Plugin.
+- a field of the wrong kind.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.progress.set("scan", {
+  title = "Scanning 10.0.0.0/24",
+  done = 40, total = 256,
+  cancel = function() roster.serve.call("discover.stop") end,
+})
+```
+
+### `roster.progress.remove(id)`
+
+Takes a progress away: it's over. Say how it ended with `roster.notify` or in your view.
+
+**Parameters**
+
+- `id` (`string`): One of the Plugin's progresses.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.progress.remove("scan")
+roster.notify("Scan done: 12 Hosts found")
+```
+
 ## `roster.badges`
 
 Badges on Host rows.
@@ -922,7 +1127,7 @@ A floating window over the terminal.
 
 ### `roster.float.open(float)`
 
-Opens a floating window over the terminal, or replaces the Plugin's. It lies over the terminal, on the side away from the Sidebar, so it never resizes a Session. `Esc` closes it. It has no actions.
+Opens a floating window over the terminal, or replaces the Plugin's. It lies over the terminal, on the side away from the Sidebar, so it never resizes a Session. `Esc` closes it. Its actions are buttons at its foot (with a key each, once it has focus), and its links open in the browser, the address shown with them.
 
 **Parameters**
 
@@ -1405,7 +1610,34 @@ roster.inventory.review("esx-02")
 
 ## `roster.sessions`
 
-Opening Sessions. `nil` unless the Plugin was granted `sessions.open`.
+Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.
+
+### `roster.sessions.show(session, line)`
+
+Goes to a Session, and to a line in its scrollback. It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `Enter` and `Shift+Enter` go on up and down from there and `Esc` closes it; a line no longer in the scrollback shows "no matches" there. A Session that has ended is said in a notice. Only while the user runs one of your actions, commands or finder items.
+
+**Parameters**
+
+- `session` (`integer`): The Session's id, from an event (`e.session`).
+- `line` (`string?`, optional): Text of a line it printed: the app searches its scrollback from the bottom for the latest line with it, and shows it highlighted.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.sessions.show: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+-- An alert's row goes to the line in the Session that printed it.
+open = function(e) roster.sessions.show(alerts[e.row].session, alerts[e.row].text) end
+```
 
 ### `roster.sessions.open(host)`
 
@@ -1583,6 +1815,24 @@ end)
 | `inventory_changed` | The app got a new Host list (an edit, a pull, a Publish, an outside edit of `roster.yml`). | [`EmptyEvent`](#emptyevent) | `inventory.read` |
 | `terminal_output` | A Session printed something: a few times a second, in batches. | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal.read` |
 
+## Command lines a Plugin may run
+
+`roster.cmd(line)`, and a `run` that's a command line (a row's, a button's, a finder item's, a toolbar control's), run the Plugin's own commands and only these of roster's, each with what it needs. Anything else is refused: `roster.cmd` raises an error, and a button that would run it says why in a notice instead.
+
+| Command | What it does | Needs |
+|---|---|---|
+| `finder` | Opens a finder: `finder alerts`. | none |
+| `view` | Opens a view: `view discover`. | none |
+| `help` | Opens a help page: `help recent-alerts`. | none |
+| `find` | Opens the Picker. | none |
+| `info` | Shows a Host's details: `info esx-02`. | none |
+| `changes` | Shows the Pending changes (Publishing them stays the user's). | none |
+| `session` | Goes to the Nth Session (`roster.sessions.show` goes by id). | none |
+| `next` | Goes to the next Session. | none |
+| `prev` | Goes to the previous Session. | none |
+| `open` | Opens a Host: its Session, or a new one. | `sessions.open` |
+| `connect` | Opens a Session on a Host. | `sessions.open` |
+
 ## roster serve's results
 
 What `roster.serve.call(method)` returns, for the methods a Plugin may be granted. JSON `null` is `nil`.
@@ -1707,6 +1957,7 @@ A Sidebar section (`roster.sidebar.set`).
 | `order` | `number` | no | Where it goes: Sessions is 100, the Inventory 300. 400 if left out. |
 | `empty` | `string` | no | What it says with no rows. |
 | `rows` | [`Row`](#row)`[]` | no | Its rows, at most 2,000. |
+| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading (`"Dismiss all"`), at most 4: shown while the heading is selected. |
 
 ### `Row`
 
@@ -1868,6 +2119,77 @@ A floating window (`roster.float.open`).
 |---|---|---|---|
 | `title` | `string` | no | Its title. |
 | `lines` | `string[]` | no | Its text, a line each (at most 2,000, each cut to 500 characters). |
+| `actions` | [`FloatAction`](#floataction)`[]` | no | Buttons at its foot (at most 4). |
+| `links` | [`Link`](#link)`[]` | no | Web pages to open in the browser (at most 4). |
+
+### `FloatAction`
+
+A button in a floating window.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it does (`"Go to the line"`). |
+| `key` | `string` | no | One character that runs it while the window has focus (not `q`, which closes it). |
+| `run` | [`Run`](#run) | yes | What pressing it runs. |
+
+### `Link`
+
+A web page a floating window links to.
+
+The app shows the address's host next to the label, so the user sees where it goes before they click.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | Its text (`"Runbook"`). |
+| `url` | `string` | yes | An `https://` or `http://` address; anything else is refused. |
+
+### `Confirm`
+
+A question the user answers (`roster.confirm`).
+
+The app draws it with your Plugin's name on it. Text is cut to 500 characters, except `text` (4,000).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | `string` | yes | The question (`"Cut esx-02 from the Mesh?"`). |
+| `text` | `string` | no | What will happen, in the app's voice; a blank line starts a paragraph. |
+| `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs: exactly what will be done to what. |
+| `action` | `string` | no | The confirming button's word (`"Cut"`); `"Confirm"` if left out. |
+| `danger` | `boolean` | no | The stronger form, for what can't easily be undone: the button in the danger colour, the keys starting on Cancel. |
+| `typed` | `string` | no | With `danger`: a word the user types before the button works (a Host's name), at most 100 characters. |
+| `run` | `fun(e: table): any` | yes | Called when the user confirms. |
+| `cancel` | `fun(e: table): any` | no | Called when they don't (`Esc` or Cancel), or another Plugin's question takes its place. |
+
+### `Progress`
+
+How far something long has got (`roster.progress.set`).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `title` | `string` | yes | What's going on (`"Scanning 10.0.0.0/24"`), at most 80 characters. |
+| `text` | `string` | no | More, for its tooltip (`"12 Hosts found"`). |
+| `done` | `number` | no | How much is done, with `total`. |
+| `total` | `number` | no | How much there is; with `done`, shown as a share. Without both, it only shows it's going. |
+| `cancel` | [`Run`](#run) | no | What stopping it runs: the button and `:cancel ID` call it once. |
+
+### `ToolbarControl`
+
+A control in the toolbar (`roster.toolbar.set`).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it does, for its tooltip and screen readers (`"Scan a network"`), at most 80 characters. |
+| `text` | `string` | no | A word shown beside the icon (at most 20 characters); without an icon, the label is shown. |
+| `icon` | [`ToolbarIcon`](#toolbaricon) | no | Its icon. |
+| `run` | [`Run`](#run) | yes | What pressing it runs. |
+
+### `ToolbarIcon`
+
+A toolbar control's icon.
+
+`map` is three nodes joined: a network, Topology.
+
+One of: `"find" \| "add" \| "details" \| "help" \| "map"`
 
 ### `View`
 
@@ -1893,7 +2215,7 @@ One of: `"panel" \| "full"`
 
 What `roster.views.update` changes.
 
-Plain data. A field left out stays as it is.
+Plain data, but for `actions`. A field left out stays as it is.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -1902,6 +2224,10 @@ Plain data. A field left out stays as it is.
 | `facts` | [`Fact`](#fact)`[]` | no | New facts, all of them. |
 | `rows` | [`TableRow`](#tablerow)`[]` | no | Rows to add or replace, by `id` (at most 2,000 at once). |
 | `remove` | `string[]` | no | The ids of rows to take away. |
+| `columns` | [`Column`](#column)`[]` | no | New columns, all of them; the rows keep their cells. |
+| `sort` | `string` | no | Sort by this column now (the user's sort gives way). |
+| `desc` | `boolean` | no | With `sort`: highest first. |
+| `actions` | [`TableAction`](#tableaction)`[]` | no | New actions, all of them: their functions replace the old ones' (`open` stays). |
 
 ### `DetailsSection`
 
@@ -1931,7 +2257,7 @@ A label and its value.
 
 A table: columns, rows as plain data, and what a row can do.
 
-The app sorts it, keeps the selected row across changes and draws only the rows on screen, so it stays smooth at thousands of rows. Keys, once it has focus: `j`/`k` or the arrows move, `g g`/`G` go to the first and last row, `Ctrl+D`/`Ctrl+U` half a page, `s` sorts by the next column and `S` reverses it, `Enter` runs `open`, an action's `key` runs it. A click selects a row, a double click opens it, and a click on a heading sorts by it. The selected row shows its actions as buttons.
+The app sorts it, keeps the selected row across changes and draws only the rows on screen, so it stays smooth at thousands of rows. Keys, once it has focus: `j`/`k` or the arrows move, `g g`/`G` go to the first and last row, `Ctrl+D`/`Ctrl+U` half a page, `s` sorts by the next column and `S` reverses it, `/` filters the rows by what they say (`Esc` clears it), `Enter` runs `open`, an action's `key` runs it. A click selects a row, a double click opens it, and a click on a heading sorts by it. The selected row shows its actions as buttons.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -1988,6 +2314,7 @@ Something a table's selected row can do.
 | `label` | `string` | yes | What it does (`"Keep"`), on its button and in the key hints. |
 | `key` | `string` | no | One character that runs it on the selected row, not one the table uses itself. |
 | `icon` | [`RowIcon`](#rowicon) | no | Its button's icon; the label alone if left out. |
+| `when` | `table<string, string\|number\|(string\|number)[]>` | no | Only on the rows whose cells match: `{ state = "up" }`, or a list of values (`{ state = { "up", "slow" } }`). A cell needn't be a column, so a row can carry what decides it without showing it. |
 | `run` | [`TableRun`](#tablerun) | yes | What it runs. |
 
 ### `TableRun`

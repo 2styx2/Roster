@@ -25,6 +25,8 @@ export interface TableActionDef {
   label: string;
   key?: string;
   icon?: RowAction["icon"];
+  /** Only on rows whose cells match: each key one of its values (table.ts actionApplies). */
+  when?: Readonly<Record<string, readonly (string | number)[]>>;
   run(row: TableRow): void;
 }
 

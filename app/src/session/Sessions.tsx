@@ -448,6 +448,8 @@ export interface SessionPanesProps {
   canSave?: boolean;
   /** The keys that open the save form (`:save`), if the keymap has them. */
   saveKeys?: string | null;
+  /** A line to find in one Session's scrollback (`roster.sessions.show`, ticket 78). */
+  reveal?: { session: number; text: string; nonce: number } | null;
 }
 
 export function SessionPanes({
@@ -463,6 +465,7 @@ export function SessionPanes({
   addressOf,
   canSave = false,
   saveKeys = null,
+  reveal = null,
 }: SessionPanesProps) {
   const actions: ProblemActions = { run, copy };
   return (
@@ -478,7 +481,15 @@ export function SessionPanes({
                 <ErrorPanel title="Couldn't open a Session" problem={s.problem} rows={errorRows} actions={actions} />
               </div>
             ) : (
-              wiring && <TerminalView active={active} leader={leader} {...wiring} env={terminalEnv} />
+              wiring && (
+                <TerminalView
+                  active={active}
+                  leader={leader}
+                  {...wiring}
+                  env={terminalEnv}
+                  reveal={reveal?.session === tab.id ? { text: reveal.text, nonce: reveal.nonce } : null}
+                />
+              )
             )}
             {s.state !== "failed" && s.state !== "ended" && (
               <ConnectCard

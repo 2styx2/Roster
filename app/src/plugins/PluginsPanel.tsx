@@ -8,7 +8,7 @@ import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
 import type { PackageStatus, PackageUpdate } from "../backend/types";
 import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
-import { PACKAGE_PREFIX, type Notice, type PluginStatus, type Prompt, type Snapshot } from "./manager";
+import { PACKAGE_PREFIX, type Notice, type PendingConfirm, type PluginStatus, type Prompt, type RunningProgress, type Snapshot } from "./manager";
 
 /** Install or update: who it's from, every permission with the risky ones flagged and explained.
  * A Package's shows its git URL as the source, and its update the new commit and its diff. */
@@ -252,10 +252,24 @@ export function PluginsPanel({
   );
 }
 
-/** A Plugin's floating window over the terminal: a title and lines of text. Esc closes it. */
-export function PluginFloatPanel({ float, onClose }: { float: NonNullable<Snapshot["float"]>; onClose(): void }) {
+/** A Plugin's floating window over the terminal: a title, lines of text, and its buttons and links
+ * at the foot (ticket 78). Esc (or `q`) closes it; an action's key runs it while it has focus. A
+ * link shows its host, so where it goes is seen before the click. */
+export function PluginFloatPanel({
+  float,
+  onClose,
+  onAction,
+  onLink,
+}: {
+  float: NonNullable<Snapshot["float"]>;
+  onClose(): void;
+  onAction?(index: number): void;
+  onLink?(index: number): void;
+}) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => panel.current?.focus(), []);
+  const actions = float.actions;
+  const links = float.links;
   return (
     <aside
       ref={panel}
@@ -268,7 +282,16 @@ export function PluginFloatPanel({ float, onClose }: { float: NonNullable<Snapsh
           e.preventDefault();
           return;
         }
-        if (e.key !== "Escape") return;
+        const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+        if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
+          const i = actions.findIndex((a) => a.key === e.key);
+          if (i >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            return onAction?.(i);
+          }
+        }
+        if (e.key !== "Escape" && !(e.key === "q" && !typing)) return;
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -281,8 +304,182 @@ export function PluginFloatPanel({ float, onClose }: { float: NonNullable<Snapsh
         </button>
       </header>
       <pre className="plugin-float-lines">{float.lines.join("\n")}</pre>
+      {(actions.length > 0 || links.length > 0) && (
+        <div className="plugin-float-foot">
+          {actions.map((a, i) => (
+            <button key={`a${i}`} type="button" className="plugin-float-action" onClick={() => onAction?.(i)} title={a.key ? `${a.label} (${a.key})` : a.label}>
+              {a.label}
+              {a.key && <Keys keys={a.key} />}
+            </button>
+          ))}
+          {links.map((l, i) => (
+            <a
+              key={`l${i}`}
+              className="plugin-float-link"
+              href={l.url}
+              title={l.url}
+              onClick={(e) => {
+                e.preventDefault();
+                onLink?.(i);
+              }}
+            >
+              {l.label} <span className="mono muted">{hostOf(l.url)}</span>
+              <span className="visually-hidden"> (opens in the browser)</span>
+            </a>
+          ))}
+        </div>
+      )}
       <p className="panel-foot muted">From {float.plugin}</p>
     </aside>
+  );
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
+/** A Plugin's question (`roster.confirm`, ticket 78), drawn by the app with the Plugin's name on
+ * it; only the user answers it. The stronger form (`danger`) puts the keys on Cancel, so a stray
+ * Enter declines, and with `typed` the button works only once that word is typed. A held-down
+ * Enter answers nothing. It opens from the user's own key or click, so, like the other side
+ * panels, it doesn't animate. */
+export function PluginConfirmPanel({ confirm, onAnswer }: { confirm: PendingConfirm; onAnswer(yes: boolean): void }) {
+  const yes = useRef<HTMLButtonElement>(null);
+  const no = useRef<HTMLButtonElement>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const [typed, setTyped] = useState("");
+  const ready = confirm.typed === undefined || typed === confirm.typed;
+  useEffect(() => {
+    if (confirm.typed !== undefined) field.current?.focus();
+    else if (confirm.danger) no.current?.focus();
+    else yes.current?.focus();
+  }, [confirm.typed, confirm.danger]);
+  const paragraphs = confirm.text ? confirm.text.split(/\n\s*\n/).filter((p) => p.trim() !== "") : [];
+  return (
+    <section
+      tabIndex={-1}
+      className="side-panel confirm-panel plugin-confirm"
+      role="alertdialog"
+      aria-label={`${confirm.title} (from ${confirm.plugin})`}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && e.repeat) {
+          e.preventDefault();
+          return;
+        }
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onAnswer(false);
+      }}
+    >
+      <header>
+        <h2>{confirm.title}</h2>
+        <button type="button" className="icon-button close" aria-label="Cancel" onClick={() => onAnswer(false)}>
+          <CloseGlyph />
+        </button>
+      </header>
+      <div className="changes-confirm">
+        {paragraphs.map((p, i) => (
+          <p key={i} className="view-text">
+            {p}
+          </p>
+        ))}
+        {confirm.facts.length > 0 && (
+          <dl className="details-facts view-facts">
+            {confirm.facts.map((f, i) => (
+              <div key={`${f.label}:${i}`} className="details-fact">
+                <dt>{f.label}</dt>
+                <dd className={f.data ? "mono" : undefined} dir="auto">
+                  {f.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {confirm.typed !== undefined && (
+          <label className="plugin-confirm-typed">
+            <span>
+              Type <code>{confirm.typed}</code> to {confirm.action.toLowerCase()}
+            </span>
+            <input
+              ref={field}
+              className="mono"
+              spellCheck={false}
+              autoComplete="off"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.repeat) return;
+                e.preventDefault();
+                if (ready) onAnswer(true);
+              }}
+            />
+          </label>
+        )}
+        <div className="edit-actions">
+          <button ref={yes} type="button" className={confirm.danger ? "danger" : "primary"} disabled={!ready} onClick={() => onAnswer(true)}>
+            {confirm.action}
+          </button>
+          <button ref={no} type="button" onClick={() => onAnswer(false)}>
+            Cancel
+          </button>
+          <span className="edit-keys muted key-hint">
+            {confirm.danger && confirm.typed === undefined ? (
+              <>
+                <Keys keys="Shift+Tab" /> then <Keys keys="Enter" /> {confirm.action.toLowerCase()}
+              </>
+            ) : (
+              <>
+                <Keys keys="Enter" /> {confirm.action.toLowerCase()}
+              </>
+            )}{" "}
+            <Keys keys="Escape" /> cancel
+          </span>
+        </div>
+      </div>
+      <p className="panel-foot muted">Asked by {confirm.plugin}</p>
+    </section>
+  );
+}
+
+/** What Plugins are doing that takes a while (`roster.progress`, ticket 78), in the status bar: the
+ * title, a hairline track (filled as far as it's done, or an edge that travels along it while it
+ * only knows it's going), the share, and a button that stops it (`:cancel ID`). */
+export function PluginProgressItems({ progress, onCancel }: { progress: readonly RunningProgress[]; onCancel(id: string): void }) {
+  return (
+    <>
+      {progress.map((p) => {
+        const known = p.done !== undefined && p.total !== undefined;
+        const share = known ? Math.round(((p.done as number) / (p.total as number)) * 100) : null;
+        const title = `${p.title}${p.text ? `: ${p.text}` : ""} (from ${p.plugin})`;
+        return (
+          <span key={p.id} className="statusbar-progress" title={title}>
+            <span className="statusbar-progress-title statusbar-cut">{p.stopping ? `${p.title}: stopping…` : p.title}</span>
+            <span
+              className={`progress-track${known ? "" : " going"}`}
+              role="progressbar"
+              aria-label={p.title}
+              aria-valuemin={known ? 0 : undefined}
+              aria-valuemax={known ? 100 : undefined}
+              aria-valuenow={share ?? undefined}
+              aria-valuetext={p.stopping ? "stopping" : (share !== null ? `${share}%` : "going")}
+            >
+              <span className="progress-fill" style={known ? { transform: `scaleX(${(p.done as number) / (p.total as number)})` } : undefined} />
+            </span>
+            {share !== null && <span className="statusbar-progress-share">{share}%</span>}
+            {p.cancel && !p.stopping && (
+              <button type="button" className="statusbar-progress-stop" aria-label={`Stop ${p.title}`} title={`Stop (:cancel ${p.id})`} onMouseDown={(e) => e.preventDefault()} onClick={() => onCancel(p.id)}>
+                <CloseGlyph />
+              </button>
+            )}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

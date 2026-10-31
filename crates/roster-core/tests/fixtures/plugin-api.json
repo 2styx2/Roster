@@ -1,5 +1,51 @@
 {
   "api_version": 2,
+  "commands": [
+    {
+      "name": "finder",
+      "permission": null
+    },
+    {
+      "name": "view",
+      "permission": null
+    },
+    {
+      "name": "help",
+      "permission": null
+    },
+    {
+      "name": "find",
+      "permission": null
+    },
+    {
+      "name": "info",
+      "permission": null
+    },
+    {
+      "name": "changes",
+      "permission": null
+    },
+    {
+      "name": "session",
+      "permission": null
+    },
+    {
+      "name": "next",
+      "permission": null
+    },
+    {
+      "name": "prev",
+      "permission": null
+    },
+    {
+      "name": "open",
+      "permission": "sessions.open"
+    },
+    {
+      "name": "connect",
+      "permission": "sessions.open"
+    }
+  ],
   "events": [
     {
       "name": "lock",
@@ -86,6 +132,32 @@
       "permission": null,
       "returns": "",
       "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "question",
+          "optional": false,
+          "type": "Confirm"
+        }
+      ],
+      "path": "roster.confirm",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "line",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.cmd",
+      "permission": null,
+      "returns": "",
+      "since": 3
     },
     {
       "params": [
@@ -410,6 +482,68 @@
     {
       "params": [
         {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "control",
+          "optional": false,
+          "type": "ToolbarControl"
+        }
+      ],
+      "path": "roster.toolbar.set",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.toolbar.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "progress",
+          "optional": false,
+          "type": "Progress"
+        }
+      ],
+      "path": "roster.progress.set",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.progress.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "host",
           "optional": false,
           "type": "string"
@@ -664,6 +798,24 @@
     {
       "params": [
         {
+          "name": "session",
+          "optional": false,
+          "type": "integer"
+        },
+        {
+          "name": "line",
+          "optional": true,
+          "type": "string"
+        }
+      ],
+      "path": "roster.sessions.show",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "host",
           "optional": false,
           "type": "string"
@@ -755,6 +907,7 @@
     "roster-ColumnKind": "plugin-api#columnkind",
     "roster-CommandArgs": "plugin-api#commandargs",
     "roster-CommandSpec": "plugin-api#commandspec",
+    "roster-Confirm": "plugin-api#confirm",
     "roster-DetailsSection": "plugin-api#detailssection",
     "roster-EmptyEvent": "plugin-api#emptyevent",
     "roster-EventName": "plugin-api#eventname",
@@ -762,6 +915,7 @@
     "roster-Finder": "plugin-api#finder",
     "roster-FinderItem": "plugin-api#finderitem",
     "roster-Float": "plugin-api#float",
+    "roster-FloatAction": "plugin-api#floataction",
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
     "roster-HealthCheck": "plugin-api#healthcheck",
@@ -780,6 +934,7 @@
     "roster-LastCommit": "plugin-api#lastcommit",
     "roster-Lesson": "plugin-api#lesson",
     "roster-Level": "plugin-api#level",
+    "roster-Link": "plugin-api#link",
     "roster-Login": "plugin-api#login",
     "roster-LoginRef": "plugin-api#loginref",
     "roster-Manifest": "plugin-api#manifest",
@@ -787,6 +942,7 @@
     "roster-Os": "plugin-api#os",
     "roster-Permission": "plugin-api#permission",
     "roster-Plugin": "plugin-api#plugin",
+    "roster-Progress": "plugin-api#progress",
     "roster-RenameResult": "plugin-api#renameresult",
     "roster-ReviewResult": "plugin-api#reviewresult",
     "roster-Row": "plugin-api#row",
@@ -811,6 +967,8 @@
     "roster-TerminalOutputEvent": "plugin-api#terminaloutputevent",
     "roster-Theme": "plugin-api#theme",
     "roster-Timer": "plugin-api#timer",
+    "roster-ToolbarControl": "plugin-api#toolbarcontrol",
+    "roster-ToolbarIcon": "plugin-api#toolbaricon",
     "roster-TutorEvent": "plugin-api#tutorevent",
     "roster-Tutorial": "plugin-api#tutorial",
     "roster-UpdateResult": "plugin-api#updateresult",
@@ -823,9 +981,11 @@
     "roster.cancel()": "plugin-api#rostercanceltimer",
     "roster.clipboard": "plugin-api#rosterclipboard",
     "roster.clipboard.copy()": "plugin-api#rosterclipboardcopytext",
+    "roster.cmd()": "plugin-api#rostercmdline",
     "roster.commands": "plugin-api#rostercommands",
     "roster.commands.add()": "plugin-api#rostercommandsaddname-spec",
     "roster.commands.remove()": "plugin-api#rostercommandsremovename",
+    "roster.confirm()": "plugin-api#rosterconfirmquestion",
     "roster.defer()": "plugin-api#rosterdeferms-fn",
     "roster.details": "plugin-api#rosterdetails",
     "roster.details.remove()": "plugin-api#rosterdetailsremoveid",
@@ -860,10 +1020,14 @@
     "roster.on()": "plugin-api#rosteronevent-listener",
     "roster.os": "plugin-api#rosteros",
     "roster.plugin": "plugin-api#rosterplugin",
+    "roster.progress": "plugin-api#rosterprogress",
+    "roster.progress.remove()": "plugin-api#rosterprogressremoveid",
+    "roster.progress.set()": "plugin-api#rosterprogresssetid-progress",
     "roster.serve": "plugin-api#rosterserve",
     "roster.serve.call()": "plugin-api#rosterservecallmethod-params",
     "roster.sessions": "plugin-api#rostersessions",
     "roster.sessions.open()": "plugin-api#rostersessionsopenhost",
+    "roster.sessions.show()": "plugin-api#rostersessionsshowsession-line",
     "roster.sidebar": "plugin-api#rostersidebar",
     "roster.sidebar.remove()": "plugin-api#rostersidebarremoveid",
     "roster.sidebar.set()": "plugin-api#rostersidebarsetid-section",
@@ -874,6 +1038,9 @@
     "roster.terminal.send()": "plugin-api#rosterterminalsendsession-text",
     "roster.themes": "plugin-api#rosterthemes",
     "roster.themes.define()": "plugin-api#rosterthemesdefineid-theme",
+    "roster.toolbar": "plugin-api#rostertoolbar",
+    "roster.toolbar.remove()": "plugin-api#rostertoolbarremoveid",
+    "roster.toolbar.set()": "plugin-api#rostertoolbarsetid-control",
     "roster.tutor": "plugin-api#rostertutor",
     "roster.tutor.remove()": "plugin-api#rostertutorremoveid",
     "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial",
@@ -1068,6 +1235,51 @@
       ],
       "open": false
     },
+    "Confirm": {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facts",
+          "required": false,
+          "type": "Fact[]"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "danger",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "typed",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "fun(e: table): any"
+        },
+        {
+          "name": "cancel",
+          "required": false,
+          "type": "fun(e: table): any"
+        }
+      ],
+      "open": false
+    },
     "DetailsSection": {
       "fields": [
         {
@@ -1181,6 +1393,36 @@
           "name": "lines",
           "required": false,
           "type": "string[]"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "FloatAction[]"
+        },
+        {
+          "name": "links",
+          "required": false,
+          "type": "Link[]"
+        }
+      ],
+      "open": false
+    },
+    "FloatAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "key",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "Run"
         }
       ],
       "open": false
@@ -1611,6 +1853,21 @@
     "Level": {
       "alias": "\"info\"|\"warn\"|\"error\""
     },
+    "Link": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "url",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
     "Login": {
       "fields": [
         {
@@ -1716,6 +1973,36 @@
           "name": "config",
           "required": true,
           "type": "table"
+        }
+      ],
+      "open": false
+    },
+    "Progress": {
+      "fields": [
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "done",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "total",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "cancel",
+          "required": false,
+          "type": "Run"
         }
       ],
       "open": false
@@ -1870,6 +2157,11 @@
           "name": "rows",
           "required": false,
           "type": "Row[]"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "RowAction[]"
         }
       ],
       "open": false
@@ -2107,6 +2399,11 @@
           "type": "RowIcon"
         },
         {
+          "name": "when",
+          "required": false,
+          "type": "table<string, string|number|(string|number)[]>"
+        },
+        {
           "name": "run",
           "required": true,
           "type": "TableRun"
@@ -2225,6 +2522,34 @@
     "Timer": {
       "alias": "integer"
     },
+    "ToolbarControl": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "ToolbarIcon"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "ToolbarIcon": {
+      "alias": "\"find\"|\"add\"|\"details\"|\"help\"|\"map\""
+    },
     "TutorEvent": {
       "alias": "\"command\"|\"session_open\"|\"session_exit\"|\"host_selected\"|\"help_open\"|\"help_back\"|\"help_forward\"|\"help_search\""
     },
@@ -2342,6 +2667,26 @@
           "name": "remove",
           "required": false,
           "type": "string[]"
+        },
+        {
+          "name": "columns",
+          "required": false,
+          "type": "Column[]"
+        },
+        {
+          "name": "sort",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "desc",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "TableAction[]"
         }
       ],
       "open": false
