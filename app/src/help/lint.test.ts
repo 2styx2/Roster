@@ -1,0 +1,92 @@
+// The docs lint (ticket 43), like Neovim's `make lintdoc`: every link in every help page goes
+// somewhere, and no two topics share a name. A typo in `[x](keyboard.md#tow-modes)` fails here
+// instead of shipping as plain text. tests/test_docs.py checks the Markdown in docs/ the same way
+// for what GitHub shows.
+import { describe, expect, it } from "vitest";
+import { defaultConfig } from "../config/fixture";
+import { defaultOptions, keymapOf } from "../keymap";
+import { builtinRegistries } from "../registries";
+import { HelpView, registerHelp } from "./command";
+import { slug, type Block, type Inline } from "./doc";
+import { linkKind, pageBody, topicIndex, type HelpContext, helpContext } from "./pages";
+
+/** The files a guide may link to, from the repo's root, and the Markdown among them. */
+const UP = "../../../";
+const FILES = new Set([
+  ...Object.keys(import.meta.glob(["../../../docs/**/*", "../../../examples/**/*", "../../../*.md"])).map((k) => k.slice(UP.length)),
+  // app/ itself comes back as ../../, not ../../../app/.
+  ...Object.keys(import.meta.glob("../../*.md")).map((k) => `app/${k.slice("../../".length)}`),
+]);
+const MARKDOWN = import.meta.glob<string>(["../../../docs/**/*.md"], { query: "?raw", import: "default", eager: true });
+const exists = (path: string) => FILES.has(path) || [...FILES].some((f) => f.startsWith(`${path}/`));
+
+function ctxOf(): HelpContext {
+  const r = builtinRegistries();
+  registerHelp(r, new HelpView());
+  return helpContext(r, {
+    keymap: keymapOf(r.keymap.list()),
+    options: defaultOptions,
+    config: defaultConfig,
+    configPath: null,
+    state: {},
+    activeTheme: "roster-dark",
+  });
+}
+
+function links(blocks: Block[]): string[] {
+  const out: string[] = [];
+  const walk = (inlines: readonly Inline[]) => {
+    for (const i of inlines) {
+      if (i.t === "link") out.push(i.href);
+      if (i.t === "link" || i.t === "strong" || i.t === "em") walk(i.children);
+    }
+  };
+  for (const b of blocks) {
+    if (b.t === "h" || b.t === "p" || b.t === "quote") walk(b.text);
+    else if (b.t === "list") b.items.forEach(walk);
+    else if (b.t === "table") [b.head, ...b.rows].forEach((row) => row.forEach(walk));
+    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body].forEach(walk));
+  }
+  return out;
+}
+
+/** The anchors GitHub makes for a Markdown file's headings. */
+function anchorsOf(path: string): Set<string> {
+  const text = (MARKDOWN[UP + path] ?? "").replace(/```[\s\S]*?```/g, "");
+  return new Set([...text.matchAll(/^#{1,6}\s+(.*?)\s*#*$/gm)].map((m) => slug(m[1] as string)));
+}
+
+describe("the docs lint", () => {
+  const ctx = ctxOf();
+  const { topics, clashes } = topicIndex(ctx);
+  const tags = new Set(topics.map((t) => t.tag));
+
+  it("no two topics share a name, and every alias goes to one", () => {
+    expect(clashes.map((t) => `${t.tag} (on ${t.page}): ${t.label}`)).toEqual([]);
+  });
+
+  it("every link in every page goes to a topic, or to a file (and heading) that exists", () => {
+    const broken: string[] = [];
+    for (const pg of ctx.pages) {
+      for (const href of links(pageBody(ctx, pg.id))) {
+        const kind = linkKind(href);
+        if (kind === "web") continue;
+        if (kind === "topic") {
+          if (!tags.has(href)) broken.push(`${pg.id}: ${href} isn't a topic`);
+          continue;
+        }
+        const [file = "", anchor] = href.slice("file:".length).split("#", 2);
+        if (!exists(file)) broken.push(`${pg.id}: ${file} isn't in the repo`);
+        else if (anchor && file.endsWith(".md") && !anchorsOf(file).has(anchor)) broken.push(`${pg.id}: ${file} has no heading #${anchor}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("every page has a title and a one-line summary for the index", () => {
+    for (const pg of ctx.pages) {
+      expect(pg.title, pg.id).not.toBe("");
+      expect(pg.summary, pg.id).not.toBe("");
+    }
+  });
+});

@@ -65,8 +65,9 @@ export interface CommandContext {
   viewMode(): ViewMode;
   /** Switches to `mode`, or to the other one. */
   setViewMode(mode: ViewMode | null): void;
-  /** Opens the Finder over a finder source (`sessions`, `hosts`, `tree`…). */
-  openFinder(source: string): void;
+  /** Opens the Finder over a finder source (`sessions`, `hosts`, `tree`…), with `query` typed in
+   * already when there's one (`:helpgrep TEXT`). */
+  openFinder(source: string, query?: string): void;
   /** Says the Backend, the Box and the Inventory's path, whole (the status bar cuts them). */
   showInfo(): void;
   /** Host details (ticket 18): shows the Host's panel; null shows or hides it for the selected

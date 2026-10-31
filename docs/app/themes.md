@@ -3,7 +3,7 @@
 A Theme (GLOSSARY) is a named set of colour tokens: 22 UI tokens, the terminal's own colours and,
 optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
 `app/src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
-picks, changes or defines one. Decisions Q37, Q51, Q57 (which replaced Q29's jade and Q50's values) and Q69.
+picks, changes or defines one.
 
 ## Choosing one: `:theme`
 
@@ -78,7 +78,7 @@ Search matches `blue0`, the active one `orange`, as the Neovim theme does.
 | Tokyo Night | `hover` | `#1f2335` | storm's `bg_dark`: night has no step between `bg` and `bg_highlight` |
 | all four | `backdrop`, `shadow` | translucent black (Catppuccin: `crust`) | overlays, not colours |
 
-### Roster dark and light (decision Q57)
+### Roster dark and light
 
 **Apricot flare** on **Ink** and **Paper**, with **Sea glass** as the second tone:
 
@@ -168,3 +168,7 @@ fixture data: in `app/`, `npm run dev -- --port 5179`, open
 | Nord | ![](design/themes/nord-standard.png) | ![](design/themes/nord-picker.png) |
 | Catppuccin Mocha | ![](design/themes/catppuccin-mocha-standard.png) | ![](design/themes/catppuccin-mocha-picker.png) |
 | Tokyo Night | ![](design/themes/tokyo-night-standard.png) | ![](design/themes/tokyo-night-picker.png) |
+
+## See also
+
+[Your init.lua](config.md#themes-and-colours) · [Themes in effect](themes) · [Recipes](recipes.md)

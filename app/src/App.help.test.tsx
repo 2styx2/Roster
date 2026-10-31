@@ -131,4 +131,60 @@ describe(":help", () => {
     await user.keyboard(`${LEADER}K`);
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
   });
+
+  it("the index says where to start, and the try-it link teaches the way back", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:help index{Enter}`);
+    await user.click(within(help()).getByRole("link", { name: "links" }));
+    expect(target()).toHaveTextContent("Links");
+    await user.keyboard("{Control>}o{/Control}");
+    expect(heading()).toHaveTextContent("roster help");
+    await user.click(within(help()).getAllByRole("link", { name: "Getting started" })[0] as HTMLElement);
+    expect(heading()).toHaveTextContent("Getting started with roster");
+    // The page is a named region, so a screen reader says where it is.
+    expect(within(help()).getByRole("region", { name: "Getting started with roster" })).toBeInTheDocument();
+  });
+
+  it("Ctrl+] follows the link you're on, as in Neovim", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:help index{Enter}`);
+    within(help()).getByRole("link", { name: "options" }).focus();
+    await user.keyboard("{Control>}]{/Control}");
+    expect(heading()).toHaveTextContent("Options");
+  });
+
+  it("g O lists the page's headings; Enter goes to one", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:help config{Enter}`);
+    await user.keyboard("gO");
+    const outline = await screen.findByRole("dialog", { name: /outline/i });
+    await user.keyboard("sandbox");
+    expect(within(outline).getAllByRole("option")[0]).toHaveTextContent("The sandbox");
+    await user.keyboard("{Enter}");
+    expect(heading()).toHaveTextContent("The Config");
+    expect(target()).toHaveTextContent("The sandbox");
+  });
+
+  it(":helpgrep searches every page's text; Enter opens it there with the word found", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:helpgrep{Enter}`);
+    expect(await screen.findByText("Type words to search every help page.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.keyboard(`${LEADER}:helpgrep bytecode{Enter}`);
+    const grep = await screen.findByRole("dialog", { name: /search every help page/i });
+    const first = within(grep).getAllByRole("option")[0] as HTMLElement;
+    expect(first).toHaveTextContent(/bytecode/);
+    expect(first).toHaveTextContent(/The sandbox/);
+    await user.keyboard("{Enter}");
+    expect(heading()).toHaveTextContent("The Config");
+    expect(within(help()).getByRole("searchbox", { name: /search this page/i })).toHaveValue("bytecode");
+    expect(help().querySelector("mark.current")).toHaveTextContent(/bytecode/i);
+  });
+
+  it("opens the CLI's docs too: :help roster.yml", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:help roster.yml{Enter}`);
+    expect(heading()).toHaveTextContent("roster CLI reference");
+    expect(target()).toHaveTextContent("roster.yml");
+  });
 });

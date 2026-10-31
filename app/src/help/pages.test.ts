@@ -116,7 +116,69 @@ describe("the guides from docs/app", () => {
     expect(body).toContain("The sandbox");
     // config.md links to themes.md: in help, that's the themes guide.
     expect(body).toContain('"href":"themes-guide"');
-    // A link to a file that isn't a guide is just its text.
-    expect(body).not.toContain("terminal-vs-wt/README.md");
+    // A link to a file that isn't a guide keeps where it goes, from the repo's root.
+    expect(body).toContain('"href":"file:docs/app/design/terminal-vs-wt/README.md"');
+  });
+
+  it("bundle the CLI's docs too, so :help roster.yml and :help roster check find them", () => {
+    const ctx = ctxOf();
+    for (const id of ["cli", "new-box", "adding-hosts", "serve-api", "start", "recipes", "extending"]) {
+      expect(findTopic(ctx, id), id).toMatchObject({ page: id });
+    }
+    expect(findTopic(ctx, "roster.yml")).toMatchObject({ page: "cli", anchor: "cli#rosteryml" });
+    expect(findTopic(ctx, "roster check")).toMatchObject({ page: "cli", anchor: "cli#roster-check-host" });
+    // config.md's link to serve-api.md (../serve-api.md#…) is a help link now.
+    expect(JSON.stringify(pageBody(ctx, "config"))).toContain('"href":"serve-api#this-boxs-settings-vaultconfigure"');
+  });
+
+  it("leave out notes for the people building roster: tickets, decisions, ADRs, issues", () => {
+    const ctx = ctxOf();
+    const leftovers: string[] = [];
+    const devNote = /\b(tickets? \d+|decisions? Q\d+|Q\d{2}\b|ADR \d{4}|issue #\d+)/i;
+    for (const pg of ctx.pages) {
+      const blocks = pageBody(ctx, pg.id).filter((b) => b.t !== "pre");
+      const said = blocks.map((b) => plain(b.t === "h" || b.t === "p" || b.t === "quote" ? b.text : b.t === "list" ? b.items.flat() : b.t === "table" ? b.rows.flat(2) : b.t === "defs" ? b.items.flatMap((d) => [...d.term, ...d.body]) : []));
+      leftovers.push(...said.filter((line) => devNote.test(line)).map((line) => `${pg.id}: ${line.match(devNote)?.[0]} in "${line.slice(0, 120)}"`));
+    }
+    expect(leftovers).toEqual([]);
+  });
+});
+
+describe("finding your way, as in Neovim's help.txt", () => {
+  it("the index starts with where to start and a link to try, then groups the pages", () => {
+    const ctx = ctxOf();
+    const index = pageBody(ctx, "index");
+    const first = JSON.stringify(index[1]);
+    expect(first).toContain('"href":"start"');
+    expect(first).toContain('"href":"help#links"');
+    expect(findTopic(ctx, "help#links")).toMatchObject({ page: "help" });
+    const groups = index.filter((b) => b.t === "h" && b.level === 2).map((b) => (b.t === "h" ? plain(b.text) : ""));
+    expect(groups.slice(0, 4)).toEqual(["Getting started", "Make it yours", "Reference", "Extending"]);
+  });
+
+  it("a Plugin's page is listed under its source", () => {
+    const r = builtinRegistries();
+    r.help.register({ id: "ping", source: "ping-plugin", title: "Ping", summary: "Ping a Host", order: 500, body: () => [] });
+    const groups = pageBody(ctxOf(r), "index").filter((b) => b.t === "h").map((b) => (b.t === "h" ? plain(b.text) : ""));
+    expect(groups).toContain("From ping-plugin");
+  });
+
+  it("quickref: the common commands with the keys they have now", () => {
+    const r = builtinRegistries();
+    registerBindings(r.keymap, { leader: { F: "find" } }, CONFIG);
+    const rows = pageBody(ctxOf(r), "quickref").flatMap((b) => (b.t === "table" ? b.rows : []));
+    const find = rows.find((row) => plain(row[1] ?? []) === ":find");
+    expect(find?.[0]).toEqual(expect.arrayContaining([{ t: "keys", keys: "␣ f" }, { t: "keys", keys: "␣ F" }]));
+    expect(plain(find?.[2] ?? [])).toBe("Find a Host");
+  });
+
+  it("all: every command, option and error, each a link", () => {
+    const ctx = ctxOf();
+    const body = JSON.stringify(pageBody(ctx, "all"));
+    for (const tag of [":connect", ":find", "terminal.size", "leader", "'keys'", "E13", "start", "quickref"]) {
+      expect(body, tag).toContain(`"href":"${tag}"`);
+    }
+    // And every key, from the keymap in effect.
+    expect(body).toContain('"keys":"␣ f"');
   });
 });

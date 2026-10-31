@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMarkdown } from "./markdown";
+import { parseMarkdown, withoutDevNotes } from "./markdown";
 
 describe("parseMarkdown (the guides' Markdown, as help blocks)", () => {
   it("reads headings, paragraphs and inline code, bold and links", () => {
@@ -72,5 +72,19 @@ describe("parseMarkdown (the guides' Markdown, as help blocks)", () => {
       { t: "table", head: [[{ t: "text", text: "A" }]], rows: [[[{ t: "text", text: "1" }]]] },
       { t: "p", text: [{ t: "text", text: "after" }] },
     ]);
+  });
+});
+
+describe("withoutDevNotes (help leaves out what's only for the people building roster)", () => {
+  it("drops a parenthetical that only names tickets, decisions, ADRs or issues", () => {
+    expect(withoutDevNotes("Reloads it (decision Q58). Saving (ticket 32) doesn't.")).toBe("Reloads it. Saving doesn't.");
+    expect(withoutDevNotes("Layout (decisions Q36, Q39) and keys (ADR 0006; issue #54).")).toBe("Layout and keys.");
+    expect(withoutDevNotes("It asks (rows 60-63, ticket 36).")).toBe("It asks (rows 60-63).");
+    expect(withoutDevNotes("Bigger (was 14; decision Q61).")).toBe("Bigger (was 14).");
+  });
+
+  it("keeps other parentheses, code, headings and fenced code as they are", () => {
+    const keep = "## Layout (ticket 9)\n\nFonts (Inter and Iosevka) and `f(ticket 3)`.\n\n```\nx (ticket 4)\n```\n";
+    expect(withoutDevNotes(keep)).toBe(keep);
   });
 });

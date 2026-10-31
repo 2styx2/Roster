@@ -135,3 +135,7 @@ roster revoke              # removes this box's key from every host
 ```
 
 Then delete `~/.ssh/roster_ed25519*`, `~/.ssh/config.d/roster` and `~/.config/roster/bw-session`.
+
+## See also
+
+[Add your Hosts](adding-hosts.md) · [The roster command](cli-reference.md) · [Getting started with the app](app/start.md)

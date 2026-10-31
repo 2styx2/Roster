@@ -42,6 +42,10 @@ export interface FinderSourceDef extends Entry {
   title: string;
   /** Before the query, as in the prototype ("Sessions ›"). */
   prompt: string;
+  /** Its items are prose (help's outline, `:helpgrep`): they read in Inter, not Iosevka. */
+  prose?: boolean;
+  /** What an empty list says before anything's typed (default "Nothing here yet."). */
+  empty?: string;
   items(ctx: FinderContext): FinderItem[];
   /** The matches for `query`, best first; by default searchItems over `items`. */
   search?(ctx: FinderContext, query: string): FinderItem[];

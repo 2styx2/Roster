@@ -352,3 +352,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 - **Passwords exist only in memory,** for one run.
 - **Scanned hosts are never touched until you mark them reviewed.**
 - **At larger scale,** consider an SSH certificate authority, so new boxes only need their key signed instead of installed everywhere.
+
+## See also
+
+[Set up a Box](new-box.md) · [Add your Hosts](adding-hosts.md) · [The roster serve API](serve-api.md) · [All the docs](README.md)

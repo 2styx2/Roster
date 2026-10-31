@@ -125,7 +125,7 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | "quick" | { cmdline: string } | { finder: string } | null;
+type Overlay = "picker" | "quick" | { cmdline: string } | { finder: string; query?: string } | null;
 
 /** How long the hint on entering a mode stays. */
 const HINT_MS = 2000;
@@ -1139,10 +1139,10 @@ export function App({
         (e: unknown) => setMessage(`Can't open init.lua: ${failed(e)}`),
       );
     },
-    openFinder: (source) => {
+    openFinder: (source, query) => {
       if (!registries.finders.get(source)) return setMessage(`No finder named ${source}`);
       if (overlay === null) rememberFocus();
-      setOverlay({ finder: source });
+      setOverlay(query ? { finder: source, query } : { finder: source });
     },
   };
 
@@ -1770,7 +1770,7 @@ export function App({
           <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
         )}
         {helpAt.at && (
-          <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} />
+          <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} onOutline={() => run("finder outline")} />
         )}
       </div>
       {overlay !== null && typeof overlay === "object" && "cmdline" in overlay && (
@@ -1825,6 +1825,7 @@ export function App({
         <Finder
           key={finderSource.id}
           source={finderSource}
+          {...(typeof overlay === "object" && overlay && "finder" in overlay && overlay.query ? { initialQuery: overlay.query } : {})}
           ctx={finderCtx}
           keymap={keymap}
           vim={options.vim}

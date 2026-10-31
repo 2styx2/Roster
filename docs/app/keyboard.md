@@ -13,7 +13,7 @@ Every action is a command in one command table (`app/src/commands/table.ts`), na
 
 After the Leader you're in App mode until Esc, or until a command that isn't list movement runs: `␣ ]` switches and hands the keys straight back to the new Session's terminal, while `␣ j` / `␣ k` move the Sidebar's cursor and stay in App mode until Enter (switch) or Esc. An unbound key in App mode is swallowed, never sent to the shell. The Picker, the command line and the bindings filter take their own keys.
 
-## Default bindings (ticket 07)
+## Default bindings
 
 | Keys | Command | Action |
 |---|---|---|
@@ -52,7 +52,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | — | `info HOST` | Host details (ticket 18, decision Q71): a side panel opposite the Sidebar with what `roster info HOST` shows (address, type, product, description, services, the Vault item each Login uses by name, enrolled and reviewed). Tab completes Host names. Also the ⓘ on every Host row in the tree, the ⓘ on a Picker row, and Ctrl+I in the Picker. In Focus it floats over the terminal, like the Sidebar. Esc (App mode) closes it with the other side panels |
 | `<leader> i` | `details` | Show or hide Host details for the selected Host (the Sidebar's cursor, else the Session on screen); also the Host details toggle by the window's buttons (toolbar id `details`), pressed while they show |
 | `<leader> S` | `source [PATH]` (`so`) | Reload the Config now, Neovim-style: `init.lua` and its modules; with PATH, only the file that owns it. Saving doesn't reload unless `auto_reload = true` (decision Q58) |
-| — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is (ticket 32, [config.md](config.md)) |
+| — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is ([config.md](config.md)) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |
@@ -65,7 +65,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
 | In the Picker: Ctrl+I | `picker.info` | The selected Host's details (closes the Picker) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
-| Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table; see "Copy and paste" below) |
+| Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (the keymap's `terminal` table; see "Copy and paste" below) |
 
 ## Copy and paste
 
@@ -83,7 +83,7 @@ Ctrl+V is the shell's (`quoted-insert`, Vim's block selection). To paste with it
 
 In every text field (the lock screen, the command line, the Picker and finders, the bindings filter, the add and edit forms) the usual editing keys belong to the field: Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+Insert / Shift+Insert, Ctrl+A, Ctrl+Z / Ctrl+Shift+Z. The keymap never takes them there, and right-click shows the WebView's own Cut / Copy / Paste menu. The release build reads and writes the clipboard through Tauri's clipboard plugin (`clipboard-manager:allow-read-text` and `allow-write-text` in `app/src-tauri/capabilities/default.json`), since WebView2 won't let the page read it.
 
-## Completion in the command line (ticket 34)
+## Completion in the command line
 
 The command line completes like bash or zsh, and like Neovim's wildmenu. The candidates for what's typed show in a list above the line: command names (with what each does and its key), then each command's arguments: Hosts (`connect`, `open`, `edit`, `check`, `review`), Folders (`folder add HOST `), Themes, finder sources, view modes, `:config`'s and `:vault`'s subcommands, `:source`'s files, the Sidebar's rows for `fold` (`group:subnet-42`, `folder:Lab`, `section:sessions`) and the open Sessions' numbers for `session` and `close`. They come from each command's `complete` hook and the registries, so a command from the Config or a Plugin completes the same way.
 
@@ -99,9 +99,9 @@ Typing anything also accepts the candidate. A click on one accepts it too.
 
 With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
 
-## View modes (ticket 22)
+## View modes
 
-Standard and Focus (decision Q36) differ only in their layout (decision Q39, `app/src/view/layout.ts`); every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
+Standard and Focus (decision Q36) differ only in their layout; every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
 
 | Keys | In Standard | In Focus |
 |---|---|---|
@@ -113,3 +113,7 @@ Standard and Focus (decision Q36) differ only in their layout (decision Q39, `ap
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.
+
+## See also
+
+[Quick reference](quickref) · [Key bindings](keys) · [Recipes](recipes.md) · [Your init.lua](config.md)
