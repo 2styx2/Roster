@@ -213,7 +213,7 @@ export function pageTexts(ctx: HelpContext): TextHit[] {
           b.rows.forEach((row, r) => push(row.map(plain).join(" · "), b.anchors?.[r] ?? tag));
           break;
         case "defs":
-          for (const d of b.items) push(`${plain(d.term)} ${plain(d.meta)} ${plain(d.body)}`, d.anchor ?? tag);
+          for (const d of b.items) push(`${plain(d.term)} ${plain(d.meta)} ${plain(d.body)} ${plain(d.more ?? [])}`, d.anchor ?? tag);
           break;
       }
     }
@@ -268,6 +268,7 @@ function commandsPage(ctx: HelpContext): Block[] {
           term: [code(`:${c.id}${argOf(c)}`)],
           meta: [...keysFor(ctx.keymap, c.id).map(keys), ...(c.source === BUILTIN ? [] : [sourceText(c.source)])],
           body: [text(c.label())],
+          ...(c.doc ? { more: inline(withoutDevNotes(c.doc)) } : {}),
         })),
       },
     ]),

@@ -134,3 +134,48 @@ def test_install_sh_puts_the_page_in_the_prefix_it_installs_roster_into(tmp_path
 def test_regenerate_check_passes_on_the_committed_page():
     r = subprocess.run([sys.executable, "-m", "roster.manpage", "--check"], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can write anywhere")
+def test_man_install_into_a_prefix_it_cant_write_says_what_to_do(tmp_path, capsys):
+    prefix = tmp_path / "root-owned"
+    prefix.mkdir()
+    prefix.chmod(0o555)
+    try:
+        assert main(["man", "--install", "--prefix", str(prefix)]) != 0
+    finally:
+        prefix.chmod(0o755)
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert str(prefix / "share" / "man" / "man1") in err
+    assert "--prefix ~/.local" in err and "sudo" in err
+
+
+def run_install_sh(tmp_path, *args, path=None, answers=None):
+    """install.sh --dry-run with a made-up HOME (never the real one). ANSWERS: lines typed at its questions (the
+    run has no terminal, so it reads them from stdin); without, --yes takes every default."""
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    env = {**os.environ, "HOME": str(home), "NO_COLOR": "1", "PATH": path or os.environ["PATH"]}
+    flags = ["--dry-run", *([] if answers is not None else ["--yes"]), *args]
+    r = subprocess.run(["bash", str(INSTALL_SH), *flags], env=env, capture_output=True, text=True, cwd=tmp_path,
+                       input=answers or "", timeout=120, start_new_session=True)     # no controlling terminal
+    return r.stdout
+
+
+def test_install_sh_installs_the_page_when_it_keeps_the_installed_roster(tmp_path):
+    bindir = tmp_path / "opt" / "bin"
+    bindir.mkdir(parents=True)
+    (bindir / "roster").write_text("#!/bin/sh\necho roster 0.1.0\n")
+    (bindir / "roster").chmod(0o755)
+    out = run_install_sh(tmp_path, "--prefix", str(tmp_path / "opt"), answers="n\n" * 40)
+    assert "kept the installed roster" in out
+    assert f"{tmp_path / 'opt'}/share/man/man1/roster.1" in out
+
+
+def test_install_sh_asks_to_add_the_prefix_to_path_only_when_it_isnt(tmp_path):
+    prefix = tmp_path / "opt"
+    missing = run_install_sh(tmp_path, "--prefix", str(prefix))
+    assert f"add {prefix}/bin to PATH yourself" in missing
+    there = run_install_sh(tmp_path, "--prefix", str(prefix), path=f"{prefix / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    assert "to PATH" not in there
