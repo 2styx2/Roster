@@ -228,7 +228,9 @@ impl Serve for FakeServe {
                 Ok(json!({ "job": 7, "action": "cut", "total": 3, "host": params["host"] }))
             }
             "mesh.cut" => Ok(mesh_cut(params["host"].as_str().unwrap_or(""))),
-            "mesh.job" => Ok(json!({ "job": 7, "action": "cut", "host": "esx-01", "state": "done", "done": 3, "total": 3, "at": null, "stopped": false, "result": mesh_cut("esx-01") })),
+            "mesh.job" => Ok(
+                json!({ "job": 7, "action": "cut", "host": "esx-01", "state": "done", "done": 3, "total": 3, "at": null, "stopped": false, "result": mesh_cut("esx-01") }),
+            ),
             _ => Err(format!("unknown method {method}")),
         }
     }
@@ -309,7 +311,10 @@ impl World {
             .find(|o| o["op"] == "timer" && o["every"] == false)
             .map(|t| handler(&t["run"]))
             .expect("a deferred first look");
-        assert!(find(&reply.ops, "view").is_empty() && self.serve.calls.lock().unwrap().len() == before, "it called serve while it loaded");
+        assert!(
+            find(&reply.ops, "view").is_empty() && self.serve.calls.lock().unwrap().len() == before,
+            "it called serve while it loaded"
+        );
         let later = self.host.call(NAME, first, json!({}));
         ok(&later);
         reply.ops.extend(later.ops);
@@ -420,15 +425,32 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
     assert_eq!(by_id(&g["clusters"], ":group:lab")["mesh"], true);
     // A group's title, or its name when it has none.
     assert_eq!(by_id(&g["clusters"], ":group:lab")["title"], "lab");
-    assert_eq!(by_id(&g["clusters"], ":group:lab/peers")["title"], "lab · password peers");
-    assert_eq!(by_id(&g["clusters"], ":group:lab/out")["title"], "lab · not in the Mesh");
+    assert_eq!(
+        by_id(&g["clusters"], ":group:lab/peers")["title"],
+        "lab · password peers"
+    );
+    assert_eq!(
+        by_id(&g["clusters"], ":group:lab/out")["title"],
+        "lab · not in the Mesh"
+    );
     assert_eq!(by_id(&g["clusters"], ":group:storage").get("mesh"), None);
 
     // Nodes: the Box, then the Hosts in roster.yml's order, with Q53's shapes.
     let nodes = &g["nodes"];
     assert_eq!(
         ids(nodes),
-        [":box", "esx-01", "esx-02", "appliance", "lab-old", "nas-01", "nas-02", "web-1", "jump-1", "new-01"]
+        [
+            ":box",
+            "esx-01",
+            "esx-02",
+            "appliance",
+            "lab-old",
+            "nas-01",
+            "nas-02",
+            "web-1",
+            "jump-1",
+            "new-01"
+        ]
     );
     assert_eq!(by_id(nodes, ":box")["shape"], "square");
     assert_eq!(by_id(nodes, "esx-01")["shape"], "dot");
@@ -444,7 +466,10 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
     assert_eq!(by_id(nodes, "nas-02")["mark"], "warn");
     assert_eq!(by_id(nodes, "nas-02")["note"], "Mesh pending");
     assert_eq!(by_id(nodes, "esx-01")["note"], "no Link to its hop jump-1");
-    assert!(nodes.as_array().unwrap().iter().all(|n| n.get("state").is_none()), "nothing's live yet");
+    assert!(
+        nodes.as_array().unwrap().iter().all(|n| n.get("state").is_none()),
+        "nothing's live yet"
+    );
 
     // Edges: one per cluster from this Box; lab's whole Mesh is its cluster; lab to storage and lab
     // to its password peers are one edge each; the two-way Link is one edge; the hops say so.
@@ -456,9 +481,15 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
     assert_eq!(by("mesh:nas-01>web-1")["dir"], "both");
     assert_eq!(by("mesh:nas-02>web-1")["label"], "via jump-1");
     assert_eq!(by("mesh:esx-01>web-1")["tone"], "error");
-    assert_eq!(by("mesh:esx-01>web-1")["label"], "via jump-1, but esx-01 has no Link to it");
+    assert_eq!(
+        by("mesh:esx-01>web-1")["label"],
+        "via jump-1, but esx-01 has no Link to it"
+    );
     let cut = by("cut:lab-old>esx-01");
-    assert_eq!((cut["cut"].clone(), cut["dir"].clone(), cut["style"].clone()), (json!(true), json!("both"), json!("dotted")));
+    assert_eq!(
+        (cut["cut"].clone(), cut["dir"].clone(), cut["style"].clone()),
+        (json!(true), json!("both"), json!("dotted"))
+    );
     // 6 from the Box, 6 for the Mesh's 13 Links, and the cut.
     assert_eq!(edges.as_array().unwrap().len(), 6 + 6 + 1, "{edges:#}");
 
@@ -478,7 +509,10 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
     assert_eq!(hosts.len(), 8, "{hosts:?}");
     assert!(!hosts.contains(&"new-01"));
     let esx = details.iter().find(|d| d["host"] == "esx-01").unwrap();
-    assert_eq!(esx["spec"]["facts"][1], json!({ "label": "Reaches", "value": "5 Hosts directly" }));
+    assert_eq!(
+        esx["spec"]["facts"][1],
+        json!({ "label": "Reaches", "value": "5 Hosts directly" })
+    );
     let appliance = details.iter().find(|d| d["host"] == "appliance").unwrap();
     assert_eq!(
         appliance["spec"]["facts"][3]["value"],
@@ -517,7 +551,10 @@ fn a_session_turns_its_node_live_with_its_edge_from_this_box_and_a_failed_one_is
     let r = w.event("session_exit", json!({ "session": 3, "host": "web-1", "code": 255 }));
     let u = one(&r[0].ops, "view_update");
     let node = &u["changes"]["nodes"][0];
-    assert_eq!((node["state"].clone(), node["shape"].clone(), node["note"].clone()), (json!("down"), json!("hollow"), json!("ssh failed")));
+    assert_eq!(
+        (node["state"].clone(), node["shape"].clone(), node["note"].clone()),
+        (json!("down"), json!("hollow"), json!("ssh failed"))
+    );
     assert_eq!(u["changes"]["remove_edges"], json!(["live:web-1"]));
 }
 
@@ -536,7 +573,12 @@ fn check_from_a_node_runs_the_apps_check_of_that_host() {
     assert_eq!(one(&r.ops, "notify")["text"], "That's this Box: pick a Host to check.");
     // Without serve:host.check there's no Check, and :check isn't a command it may run.
     let reply = w.load(&["inventory.read"]);
-    let labels: Vec<&str> = view(&reply)["graph"]["actions"].as_array().unwrap().iter().map(|a| a["label"].as_str().unwrap()).collect();
+    let labels: Vec<&str> = view(&reply)["graph"]["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["label"].as_str().unwrap())
+        .collect();
     assert_eq!(labels, ["Details"]);
 }
 
@@ -549,26 +591,38 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     ok(&r);
     let q = &one(&r.ops, "confirm")["spec"];
     assert_eq!(q["title"], "Cut esx-01 from the Mesh?");
-    assert_eq!((q["danger"].clone(), q["typed"].clone(), q["action"].clone()), (json!(true), json!("esx-01"), json!("Cut")));
+    assert_eq!(
+        (q["danger"].clone(), q["typed"].clone(), q["action"].clone()),
+        (json!(true), json!("esx-01"), json!("Cut"))
+    );
     assert_eq!(q["facts"][0]["value"], "5 Hosts directly");
     assert!(w.serve.called("mesh.cut").is_empty(), "asking cuts nothing");
     let r = w.host.call(NAME, handler(&q["run"]), json!({ "confirm": "yes" }));
     ok(&r);
     // It runs as roster serve's job, and a timer asks how it's going.
-    assert_eq!(w.serve.called("mesh.cut"), [json!({ "host": "esx-01", "background": true })]);
+    assert_eq!(
+        w.serve.called("mesh.cut"),
+        [json!({ "host": "esx-01", "background": true })]
+    );
     assert_eq!(one(&r.ops, "progress")["spec"]["title"], "Cutting esx-01 from the Mesh");
     let timer = one(&r.ops, "timer");
     assert_eq!(timer["every"], true);
     let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
     ok(&r);
     assert_eq!(w.serve.called("mesh.job"), [json!({ "job": 7 })]);
-    assert_eq!(one(&r.ops, "notify")["text"], "Cut esx-01: cut pending on 1 Host that didn't answer.");
+    assert_eq!(
+        one(&r.ops, "notify")["text"],
+        "Cut esx-01: cut pending on 1 Host that didn't answer."
+    );
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "progress"));
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
     // A Host that isn't in the Mesh has nothing to cut, and isn't asked about.
     let r = w.host.call(NAME, cut, on("new-01"));
     assert!(find(&r.ops, "confirm").is_empty());
-    assert_eq!(one(&r.ops, "notify")["text"], "new-01 isn't in the Mesh: there's nothing to cut.");
+    assert_eq!(
+        one(&r.ops, "notify")["text"],
+        "new-01 isn't in the Mesh: there's nothing to cut."
+    );
 }
 
 #[test]
@@ -610,13 +664,22 @@ fn without_its_permissions_it_still_loads_draws_this_box_and_says_what_it_needs(
         .map(|a| a["label"].as_str().unwrap())
         .collect();
     assert_eq!(labels, ["Details"]);
-    assert!(find(&reply.ops, "timer").iter().all(|t| t["every"] == false), "no refresh without the Mesh");
-    assert!(w.serve.calls.lock().unwrap().is_empty(), "it called serve without a grant");
+    assert!(
+        find(&reply.ops, "timer").iter().all(|t| t["every"] == false),
+        "no refresh without the Mesh"
+    );
+    assert!(
+        w.serve.calls.lock().unwrap().is_empty(),
+        "it called serve without a grant"
+    );
     // Its :check section says what's missing.
     let health = one(&reply.ops, "health");
     let r = w.host.call(NAME, handler(&health["spec"]["check"]), json!({}));
     assert_eq!(r.result[0]["level"], "warn");
-    assert_eq!(r.result[1]["message"], "serve:mesh.status isn't granted, so the map has no Mesh");
+    assert_eq!(
+        r.result[1]["message"],
+        "serve:mesh.status isn't granted, so the map has no Mesh"
+    );
 }
 
 #[test]
@@ -638,9 +701,16 @@ fn its_check_section_says_whether_mesh_status_is_available() {
     *old.serve.mesh.lock().unwrap() = Value::Null;
     let reply = old.load(ALL);
     ok(&reply);
-    let r = old.host.call(NAME, handler(&one(&reply.ops, "health")["spec"]["check"]), json!({}));
+    let r = old
+        .host
+        .call(NAME, handler(&one(&reply.ops, "health")["spec"]["check"]), json!({}));
     assert_eq!(r.result[0]["level"], "warn");
-    assert!(r.result[0]["message"].as_str().unwrap().starts_with("Mesh status isn't available"));
+    assert!(
+        r.result[0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Mesh status isn't available")
+    );
 }
 
 #[test]
@@ -687,9 +757,17 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
     let mut meshed = Map::new();
     for g in 0..groups {
         groups_map.insert(format!("subnet-{g}"), json!({ "title": "", "description": "" }));
-        meshed.insert(format!("subnet-{g}"), json!((0..per).map(|i| format!("h-{g}-{i:02}")).collect::<Vec<_>>()));
+        meshed.insert(
+            format!("subnet-{g}"),
+            json!((0..per).map(|i| format!("h-{g}-{i:02}")).collect::<Vec<_>>()),
+        );
         for i in 0..per {
-            hosts.push(host(&format!("h-{g}-{i:02}"), &format!("subnet-{g}"), &format!("10.{g}.0.{}", i + 1), json!({ "mesh": true })));
+            hosts.push(host(
+                &format!("h-{g}-{i:02}"),
+                &format!("subnet-{g}"),
+                &format!("10.{g}.0.{}", i + 1),
+                json!({ "mesh": true }),
+            ));
         }
         for a in 0..per {
             for b in 0..per {
@@ -704,21 +782,34 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
     let mut grouped = mesh.clone();
     grouped["links"] = json!([]);
     grouped["meshed"] = Value::Object(meshed);
-    let w = World::with("big", FakeServe::new(json!({ "hosts": hosts, "groups": groups_map, "error": null }), mesh).grouped(grouped));
+    let w = World::with(
+        "big",
+        FakeServe::new(json!({ "hosts": hosts, "groups": groups_map, "error": null }), mesh).grouped(grouped),
+    );
     let t = Instant::now();
     let reply = w.load(ALL);
     ok(&reply);
     eprintln!("2,000 Hosts, 98,000 Links: loaded in {:?}", t.elapsed());
     let g = &view(&reply)["graph"];
     assert_eq!(g["nodes"].as_array().unwrap().len(), 2001);
-    assert_eq!(g["edges"].as_array().unwrap().len(), 40, "only this Box's: each group's Mesh is its cluster");
+    assert_eq!(
+        g["edges"].as_array().unwrap().len(),
+        40,
+        "only this Box's: each group's Mesh is its cluster"
+    );
     assert!(g["clusters"].as_array().unwrap().iter().all(|c| c["mesh"] == true));
     // The reach sections go a few hundred a call, within the host's UI changes per call.
     assert!(find(&reply.ops, "details").len() <= 400);
     let more = find(&reply.ops, "timer").iter().filter(|t| t["every"] == false).count();
-    assert_eq!(more, 2, "the first look, then the rest of the reach sections in a deferred call");
+    assert_eq!(
+        more, 2,
+        "the first look, then the rest of the reach sections in a deferred call"
+    );
     // A refresh with nothing changed sends nothing to the view.
-    let timer = find(&reply.ops, "timer").into_iter().find(|t| t["every"] == true).unwrap();
+    let timer = find(&reply.ops, "timer")
+        .into_iter()
+        .find(|t| t["every"] == true)
+        .unwrap();
     let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
     ok(&r);
     assert!(find(&r.ops, "view_update").is_empty());
@@ -789,13 +880,23 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
             "event" => w.event(step["name"].as_str().unwrap(), step["payload"].clone()),
             "action" => {
                 let node = step["node"].as_str().unwrap();
-                vec![w.host.call(NAME, action(&view_spec, step["label"].as_str().unwrap()), on(node))]
+                vec![
+                    w.host
+                        .call(NAME, action(&view_spec, step["label"].as_str().unwrap()), on(node)),
+                ]
             }
-            "confirm" => vec![w.host.call(NAME, confirm.take().expect("a question"), json!({ "confirm": "yes" }))],
+            "confirm" => vec![
+                w.host
+                    .call(NAME, confirm.take().expect("a question"), json!({ "confirm": "yes" })),
+            ],
             "command" => {
                 let args = step["args"].as_str().unwrap();
                 let words: Vec<&str> = args.split_whitespace().collect();
-                vec![w.host.call(NAME, commands[step["name"].as_str().unwrap()], json!({ "args": args, "words": words }))]
+                vec![w.host.call(
+                    NAME,
+                    commands[step["name"].as_str().unwrap()],
+                    json!({ "args": args, "words": words }),
+                )]
             }
             "health" => vec![w.host.call(NAME, health.expect("a :check section"), json!({}))],
             "cut-timer" => vec![w.host.call(NAME, cut_timer.take().expect("a cut's timer"), json!({}))],

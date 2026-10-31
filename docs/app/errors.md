@@ -206,7 +206,7 @@ What a Plugin's graph in a view can run into ([plugins.md](../plugins.md#graphs)
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
-| 91 | none (a Plugin's notice) | `roster.views.set` with a graph that can't be drawn: a field of the wrong kind, a node or cluster id used twice, an edge id used twice, an action key the graph uses itself, more than 5,000 nodes, 10,000 edges or 500 clusters, or a table and a graph in one view | The Plugin | "topology: roster.views.set map graph action 1: the graph uses h itself (h j k l …)" | The whole view is dropped. The Plugin's to fix; tell its author |
+| 91 | none (a Plugin's notice) | `roster.views.set` with a graph that can't be drawn: a field of the wrong kind (a `reach` other than `"all"` or `"direct"`, a `filter` state other than live, down, warn or error), a node or cluster id used twice, an edge id used twice, an action key the graph uses itself, more than 5,000 nodes, 10,000 edges or 500 clusters, or a table and a graph in one view | The Plugin | "topology: roster.views.set map graph action 1: the graph uses h itself (h j k l …)" | The whole view is dropped. The Plugin's to fix; tell its author |
 | 92 | none (a Plugin's notice) | `roster.views.update` with nodes or edges for a view that has no graph, or that would leave it over the limits | The Plugin | "topology: roster.views.update map: more than 5,000 nodes" | Nothing changed; the graph stays as it was. The Plugin's to fix |
 
 ## This Box's health

@@ -533,10 +533,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   ].filter((c) => c.options.length > 0 || (filter[c.key as keyof GraphFilter]?.length ?? 0) > 0) as typeof choices;
   const choose = (key: keyof GraphFilter, value: string) => {
     if (value === SEVERAL) return;
-    const next: GraphFilter = { ...filter };
-    if (value === "") delete next[key];
-    else (next as Record<string, string[]>)[key] = [value];
-    setFilter(next);
+    const rest = Object.fromEntries(Object.entries(filter).filter(([k]) => k !== key)) as GraphFilter;
+    setFilter(value === "" ? rest : { ...rest, [key]: [value] });
   };
   const showing = hiding ? `Showing ${formatCount(shown.nodes.length)} of ${countOf(data.nodes.length, "node")}` : "";
   const helpId = `${base}-help`;

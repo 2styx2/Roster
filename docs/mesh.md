@@ -138,6 +138,17 @@ packages = {
 
 Then `:mesh` shows every Host in the Mesh with what it can reach, the status bar says **Mesh out of date** after a Publish that changed it, `:mesh plan` shows what an apply would change and `a` applies it after a question, and `:mesh cut HOST` cuts a Host once you've typed its name, with a warning for each Host that was down. Each Host's details (`:info HOST`) get a Mesh section with its reach. It runs everything through `roster serve` as background jobs (API 17), one connection at a time as `roster mesh` does, and asks before anything that changes a Host. `:help mesh-controls` once it's installed.
 
+### Seeing the Mesh in Topology
+
+To see who reaches whom as a map, add the Topology Plugin, [`plugins/topology`](../plugins/topology/README.md), the same way (`dir = "plugins/topology"`). `:topology` (`␣ T`) draws this Box, every Host by group and the Mesh:
+
+- **A meshed group** is a cluster drawn as a mesh: its Hosts reach each other both ways. Its password peers (`enroll: false`) are a cluster of their own, "lab · password peers", with a dashed edge to them: they're reached, and reach no one, since roster doesn't write on a password Host. Its Hosts that aren't in the Mesh (unreviewed, `mesh: false`) are a third, "lab · not in the Mesh", with no Mesh edge at all.
+- **Links** are edges: solid for a key, dashed for a password peer, an arrow one way. One edge stands for every Link from a group to a group (`{ from: lab, to: storage }`), or from a Host to a whole group. A Link with `via:` is labelled `via jump-1`, in the error colour when its source has no Link to the jump Host (`no-via`).
+- **Out of date, pending and cut pending** are said above the map and marked on the Hosts: warn on a Host that didn't answer the last apply, error on a Host whose cut isn't finished, with a dotted, broken edge to each peer that may still hold its key.
+- **The risk**: select a Host and the map lights up every Host it can reach, every hop away, and says how many: what its key reaches, and what those Hosts' own keys reach in turn, which is what someone who got onto it could reach. Its details (`:info HOST`) give the direct counts, the ones `roster mesh` reports ("Reaches 5 Hosts directly").
+
+`x` on a Host cuts it, after you type its name, as `:mesh cut HOST` does. It asks `roster serve` for the Mesh with `mesh.status`'s `grouped` (API 19), which says a meshed group once instead of every pair in it, so 2,000 meshed Hosts stay quick to draw.
+
 ## Where it's kept on this Box
 
 `~/.config/roster/mesh.json` remembers what an apply or a cut couldn't finish (pending Hosts, cuts pending), the Hosts it wrote on, and what `roster.yml` looked like at the last complete apply (for `mesh out of date`). It's only bookkeeping: delete it and the next `roster mesh` still makes the Mesh what `roster.yml` says.
