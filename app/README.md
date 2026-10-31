@@ -52,7 +52,7 @@ Both use the installed `roster` (needs `roster serve`, API 3+; asking about a ne
 
 Paths below are from the repo root.
 
-```
+```text
 Cargo.toml            workspace (repo root); default member is roster-core, so `cargo test` in WSL never builds Tauri
 crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
                       start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:

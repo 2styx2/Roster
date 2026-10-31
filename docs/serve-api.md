@@ -101,7 +101,7 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 - When ssh prompts, it runs `roster askpass PROMPT`. The helper answers only these prompts, compared whole and ignoring case and extra spaces: `user@host's password:`, `Password:`, `(user@host) Password:` and `Password for user@host:`. Every other prompt is refused: host-key `yes/no`, key passphrases, verification codes, and `New password:` / `(current) UNIX password:` from an expired-password change. The helper reports the prompt's text (never an answer) to `serve`, which logs it, doesn't spend the token, and gives back the reason. For an allowed prompt, the helper sends the token and prints the password to ssh. Whenever the helper doesn't print a password, it writes one line to the terminal (ssh's stderr) and exits 1, so ssh fails; with `NumberOfPasswordPrompts=1` ssh then stops with its own `Permission denied`. The line is what the app's classifier reads:
 
-  ```
+  ```text
   roster askpass: [CODE] REASON
   ```
 

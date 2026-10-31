@@ -57,6 +57,9 @@ return {
   --   accent, accent_text, accent_ink, tone, bg, chrome, sidebar, panel, raised, raised_line,
   --   hover, line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop,
   --   shadow
+  -- and code's colours in help and the docs website:
+  --   syntax_keyword, syntax_string, syntax_number, syntax_comment, syntax_function,
+  --   syntax_punctuation, syntax_key, syntax_command
   -- e.g. colors = { accent = "#e0803a" }
   colors = {},
 

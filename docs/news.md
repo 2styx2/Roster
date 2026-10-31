@@ -42,6 +42,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - The finders say how many results a query left, and "No matches", to a screen reader once you stop typing; help's search count is announced as it changes; the outline's section sits at the right, as in `:helpgrep`.
 - Linux: when WebGL can't start or loses its context, the terminal draws with the DOM renderer instead, and `:info` names the renderer in use and how fast the Picker opened. The Enter that finishes an input-method word (IBus, Fcitx) no longer also opens a Host. See [Linux and WSLg](app/dev/linux.md).
+- Code in `:help`, on the docs website and in its PDF is coloured: Lua, shell, YAML, JSON and TOML, each from your Theme's new syntax colours (`syntax_keyword`, `syntax_string`, … in `colors` or a Theme of your own; a Theme that leaves them out gets its base's). A `:command` in a sentence reads as one, and a shell line like `roster sync --dry-run` is coloured as in a block. Headings, code and tables on the help pages were retuned for reading, and the PDF prints code in a palette that holds in greyscale. See [Code's colours](app/themes.md#codes-colours).
 
 **CLI**
 

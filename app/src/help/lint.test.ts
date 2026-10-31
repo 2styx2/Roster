@@ -66,6 +66,24 @@ describe("the docs lint", () => {
     expect(broken).toEqual([]);
   });
 
+  // Ticket 71: a block's language is what colours it (highlight.ts), so every fenced block in
+  // docs/ names one: `lua`, `sh`, `yaml`, `json`, `toml`, … or `text` for output and trees.
+  it("every fenced code block in docs/ names its language (or `text`)", () => {
+    const untagged: string[] = [];
+    for (const [key, source] of Object.entries(MARKDOWN)) {
+      let open: string | null = null;
+      source.split("\n").forEach((line, n) => {
+        const fence = /^\s*(`{3,}|~{3,})\s*(\S*)/.exec(line);
+        if (!fence) return;
+        if (open === null) {
+          open = fence[1] as string;
+          if (!fence[2]) untagged.push(`${key.slice(UP.length)}:${n + 1}`);
+        } else if ((fence[1] as string).startsWith(open) && !fence[2]) open = null;
+      });
+    }
+    expect(untagged).toEqual([]);
+  });
+
   it("every page has a title and a one-line summary for the index", () => {
     for (const pg of ctx.pages) {
       expect(pg.title, pg.id).not.toBe("");

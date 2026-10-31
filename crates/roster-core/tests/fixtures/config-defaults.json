@@ -166,7 +166,15 @@
     "danger",
     "danger_text",
     "backdrop",
-    "shadow"
+    "shadow",
+    "syntax_keyword",
+    "syntax_string",
+    "syntax_number",
+    "syntax_comment",
+    "syntax_function",
+    "syntax_punctuation",
+    "syntax_key",
+    "syntax_command"
   ],
   "themeTerminal": [
     "background",

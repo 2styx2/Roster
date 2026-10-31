@@ -2,26 +2,49 @@
    on the docs website and its PDF (src/docs-site, ticket 46), so the three can't look different.
    Only tokens and the type scale from styles.css's :root; the panel around it stays in styles.css. */
 
-/* The page: Inter for prose, Iosevka for anything you could type. */
+/* The page: Inter for prose, Iosevka for anything you could type. Headings step down from the
+   page's own size (em), so each level stays above the body in the panel (14 px) and on the website
+   (16 px); prose keeps a reading measure while tables and code use the page's width (ticket 71). */
 .help-doc { padding: 14px 18px 28px; max-width: 72ch; line-height: 1.55; color: var(--text); }
-.help-doc h1 { margin: 0 0 8px; font-size: var(--text-lg); font-weight: 600; line-height: 1.3; }
-.help-doc h2 {
-  margin: 22px 0 8px; padding-top: 12px; border-top: 1px solid var(--line);
-  font-size: var(--text-md); font-weight: 600; line-height: 1.3;
-}
-.help-doc h3, .help-doc h4 { margin: 18px 0 6px; font-size: var(--text-sm); font-weight: 600; }
-.help-doc p, .help-doc ul, .help-doc ol, .help-doc blockquote { margin: 0 0 10px; }
+.help-doc h1, .help-doc h2, .help-doc h3, .help-doc h4 { font-weight: 600; line-height: 1.25; text-wrap: balance; }
+.help-doc h1 { margin: 0 0 10px; font-size: 1.45em; letter-spacing: -0.01em; }
+.help-doc h2 { margin: 24px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 1.2em; }
+.help-doc h3 { margin: 20px 0 6px; font-size: 1.05em; }
+.help-doc h4 { margin: 16px 0 4px; font-size: 1em; color: var(--muted); }
+.help-doc p, .help-doc ul, .help-doc ol, .help-doc blockquote { margin: 0 0 10px; max-width: 62ch; text-wrap: pretty; }
 .help-doc ul, .help-doc ol { padding-left: 20px; }
 .help-doc li + li { margin-top: 3px; }
+.help-doc li::marker { color: var(--muted); }
 .help-doc blockquote { padding-left: 10px; border-left: 2px solid var(--line-strong); color: var(--muted); }
+/* Inter ships 400, 500 and 600 here: bold is 600, never a synthesized 700. */
+.help-doc strong { font-weight: 600; }
 .help-doc code { font-family: var(--font-mono); font-size: 0.93em; overflow-wrap: anywhere; }
+/* Code in running prose sits on a quiet chip, so a value reads as one thing in a sentence. */
+.help-doc :is(p, li, blockquote, dd) > code,
+.help-doc :is(p, li, blockquote, dd) > :is(.help-link, .help-file) > code {
+  padding: 0.05em 0.3em; border-radius: var(--radius-sm); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line);
+}
 .help-doc pre {
-  margin: 0 0 12px; padding: 8px 10px; overflow: auto; background: var(--panel);
-  border: 1px solid var(--line); border-radius: var(--radius); font: var(--text-xs)/1.5 var(--font-mono);
+  margin: 0 0 14px; padding: 10px 12px; overflow: auto; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius); font: var(--text-xs)/1.6 var(--font-mono); tab-size: 2;
 }
 .help-doc pre code { font-size: inherit; overflow-wrap: normal; }
+
+/* Code's colours (ticket 71, decision Q90): the Theme's syntax tokens, never the accent, which
+   means live (taste.md). A command is the one weight change, so it holds in greyscale too. */
+.hl-keyword { color: var(--syntax-keyword); }
+.hl-string { color: var(--syntax-string); }
+.hl-number { color: var(--syntax-number); }
+.hl-comment { color: var(--syntax-comment); }
+.hl-function { color: var(--syntax-function); }
+.hl-punctuation { color: var(--syntax-punctuation); }
+.hl-key { color: var(--syntax-key); }
+.hl-command, .help-doc code.help-cmd { color: var(--syntax-command); font-weight: 500; }
 /* Links read as text with a quiet underline: they're many, and the accent is for what's live. */
-.help-link { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+.help-link {
+  color: inherit; text-decoration: underline; text-decoration-color: var(--muted);
+  text-decoration-thickness: from-font; text-underline-offset: 3px;
+}
 .help-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .help-link:hover { text-decoration-color: currentColor; }
@@ -29,7 +52,7 @@
 .help-doc .keys { vertical-align: baseline; }
 
 .help-table { margin: 0 0 12px; overflow-x: auto; }
-.help-table table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); line-height: 1.45; }
+.help-table table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); line-height: 1.45; font-variant-numeric: tabular-nums; }
 .help-table th {
   text-align: left; padding: 4px 8px 4px 0; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line-strong);
 }
@@ -46,7 +69,7 @@
   font-size: var(--text-xs); color: var(--muted);
 }
 .help-meta code { color: var(--text); }
-.help-def dd { margin: 2px 0 0; color: var(--muted); }
+.help-def dd { margin: 2px 0 0; color: var(--muted); max-width: 62ch; text-wrap: pretty; }
 .help-def dd code { color: var(--text); }
 /* `:help health`: one line per check, Neovim's `- OK message` laid out as two columns: the level
    word, then what was found and the fix. OK stays quiet; only a warning or an error takes a colour. */

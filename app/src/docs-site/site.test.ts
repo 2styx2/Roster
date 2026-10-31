@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { link, p, h } from "../help/doc";
 import { topics } from "../help/pages";
 import { BUILTIN } from "../registry";
-import { buildSite, siteContext, type SiteOptions } from "./site";
+import { contrast } from "../theme/contrast";
+import { buildSite, PRINT_SYNTAX, siteContext, type SiteOptions } from "./site";
 
 const OPTS: SiteOptions = { sha: "0123456789abcdef0123456789abcdef01234567", repo: "example/roster", version: "9.8.7", fileExists: () => true };
 
@@ -95,6 +96,14 @@ describe("the docs website", () => {
     expect(css).toContain('font-family: "Iosevka"');
   });
 
+  it("colours code from the Theme's syntax tokens, dark and light (ticket 71)", () => {
+    const css = file(site.files, "site.css");
+    expect(css).toContain("--syntax-keyword: #c3a6f6;");
+    expect(css).toContain("--syntax-keyword: #6b3fb8;");
+    expect(css).toContain(".hl-keyword { color: var(--syntax-keyword); }");
+    expect(file(site.files, "config.html")).toMatch(/<pre data-lang="lua"><code>.*<span class="hl-key">/s);
+  });
+
   it("never repeats an id on a page", () => {
     for (const f of site.files.filter((x) => x.path.endsWith(".html"))) {
       const ids = idsOf(f.body);
@@ -123,6 +132,17 @@ describe("the print version (the PDF)", () => {
     expect(html).toMatch(/data-page="Your init.lua"/);
     const ids = idsOf(html);
     expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+  });
+
+  it("prints code in a palette that holds on paper and in greyscale (ticket 71)", () => {
+    for (const [token, colour] of Object.entries(PRINT_SYNTAX)) {
+      expect(contrast(colour, "#ffffff"), token).toBeGreaterThanOrEqual(7);
+      expect(html).toContain(`--${token}: ${colour};`);
+    }
+    // In greyscale, comments are the light ones and keywords and commands the heavy ones.
+    expect(contrast(PRINT_SYNTAX["syntax-comment"], "#ffffff")).toBeLessThan(contrast(PRINT_SYNTAX["syntax-string"], "#ffffff"));
+    expect(html).toMatch(/\.hl-keyword, \.hl-command \{ font-weight: 600; \}/);
+    expect(html).toContain('<pre data-lang="lua">');
   });
 
   it("names its version and commit", () => {
