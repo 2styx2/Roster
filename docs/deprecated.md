@@ -4,6 +4,14 @@ Old names that still work, and what replaces each one, newest Release first. Use
 
 An old name stays for at least one minor Release after the one that deprecates it: deprecated in 0.1, it works through 0.2 at least. When `init.lua` sets a deprecated option, roster still applies it under its new name and warns, naming the replacement and the row here.
 
+## Deprecated in 0.3
+
+### Plugin API
+
+| Old | New | Notes |
+|---|---|---|
+| `roster.keymap.set(context, keys, false)` | `roster.keymap.del(context, keys)` | Since `roster.api_version` 3 it takes the Plugin's own binding off, as `del` does; in 2 it claimed the keys with no action |
+
 ## Deprecated in 0.1
 
 ### CLI

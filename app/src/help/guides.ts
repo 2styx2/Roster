@@ -221,7 +221,7 @@ export const guides: readonly Guide[] = [
     part: "Extending",
     order: 83,
     aliases: { "roster.lua": "plugin-types", luals: "plugin-types", "lua-language-server": "plugin-types" },
-    markdown: `# roster.lua: the Plugin API's types\n\nThe whole [Plugin API](../../../docs/plugin-api.md) as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations. Save it as \`types/roster.lua\` next to your Plugin's \`init.lua\` and point lua-language-server at it: [Editor support](../../../docs/plugin-api.md#editor-support). It's the copy this app was built with, so it matches this app's API.\n\n\`\`\`lua\n${pluginStubs}\n\`\`\`\n`,
+    markdown: `# roster.lua: the Plugin API's types\n\nThe whole [Plugin API](../../../docs/plugin-api.md) as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations. \`:plugins types PATH\` writes it as \`types/roster.lua\` in your Plugin's folder (or save it there yourself); point lua-language-server at it: [Editor support](../../../docs/plugin-api.md#editor-support). It's the copy this app was built with, so it matches this app's API.\n\n\`\`\`lua\n${pluginStubs}\n\`\`\`\n`,
   },
   {
     id: "news",

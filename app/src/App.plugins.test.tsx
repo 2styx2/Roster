@@ -2,7 +2,7 @@
 // installed Plugin's section, status segment, command, key, finder and help page look like the
 // app's own, `:plugins` revokes at once, and a broken Plugin is named in a toast.
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, makeHosts } from "./backend/fake";
@@ -142,5 +142,31 @@ describe("the Host count", () => {
     await backend.watchInventory(true);
     backend.outsideEdit(makeHosts(13));
     expect(await screen.findByText("13 Hosts")).toBeInTheDocument();
+  });
+});
+
+// Ticket 74: a tab closed while its Session ran still names its Host in session_exit.
+describe("session_exit", () => {
+  it("names the Host of a tab closed while its Session ran", async () => {
+    const heard: unknown[] = [];
+    const watcher: FakePlugin = {
+      manifest: { name: "watcher", version: "1.0.0", description: "", author: null, api: 3, permissions: ["inventory.read"] },
+      load(roster) {
+        roster.on("session_open", (e) => void heard.push({ open: e.host }));
+        roster.on("session_exit", (e) => void heard.push({ host: e.host, code: e.code }));
+      },
+    };
+    const user = userEvent.setup();
+    const backend = fakeBackend({ hosts: makeHosts(12), plugins: { "~/plugins/watcher": watcher } });
+    render(<App backend={backend} terminalView={StubTerminal} platform={memoryPlatform()} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await install(user, "~/plugins/watcher");
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Install" }));
+    const host = makeHosts(12).hosts[0]!.name;
+    await user.keyboard(`${LEADER}:connect ${host}{Enter}`);
+    await waitFor(() => expect(heard).toEqual([{ open: host }]));
+    await user.keyboard(`${LEADER}:close{Enter}`);
+    await waitFor(() => expect(heard).toEqual([{ open: host }, { host, code: null }]));
   });
 });

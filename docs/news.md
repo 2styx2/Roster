@@ -6,10 +6,20 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 ## Unreleased
 
+### Breaking
+
+**App**
+
+- Plugin API 3 (`roster.api_version` 3): `roster.inventory.host(name)` gives `nil` for a name that isn't a Host, where it raised an error (code 2), so a Plugin that wrapped it in `pcall` checks for `nil` now. A `cmd:` or `env:` Login reference reaches a Plugin cut to its kind (`cmd:`, `env:`): it says how a secret is fetched, and a Plugin never needs it. See [`roster.inventory.host()`](plugin-api.md#rosterinventoryhostname) and [`LoginRef`](plugin-api.md#loginref).
+
 ### New
 
 **App**
 
+- Plugins can add a section to `:check` that runs each time, like Neovim's `vim.health`: `roster.health.set(id, { check = function() … end })`. Its OK, WARNING and ERROR lines show under the Plugin's name on [Health](health); one that fails or doesn't answer in time is an ERROR line of its own. See [Health sections](plugins.md#health-sections).
+- `:check %` checks the Host of the Session on screen, as Vim's `%` is the current file. See [Health](health).
+- Plugin API 3: `roster.inventory.groups()`, `roster.keymap.del`, `roster.themes.remove` and `coroutine`. A row's, a button's, a finder item's or a status segment's function is told which one ran it and, with `inventory.read` or `terminal.read`, the Session on screen ([`HandlerContext`](plugin-api.md#handlercontext)).
+- `:plugins types PATH` writes the Plugin API's types for this app (`types/roster.lua`) into a Plugin's folder, for lua-language-server. See [Types in your editor](plugins.md#types-in-your-editor).
 - Plugins get timers: `roster.defer(ms, fn)` runs a function once, later, and `roster.every(ms, fn)` again and again until `roster.cancel(timer)`, on the Plugin's own thread; they end with the Plugin. recent-alerts uses one so its rows say "4 min ago" and stay true. See [Timers](plugin-api.md#rosterdeferms-fn).
 - `roster.has(permission)` tells a Plugin whether it was granted a permission, before it listens for an event that needs one. A finder's `items` can be a function, run each time the finder opens.
 - `?fixture=recent-alerts` in a plain browser (`npm run dev`) shows the example Plugin running with alerts, for checking Plugin UI headless.
@@ -28,6 +38,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **App**
 
+- A Plugin's error about data that can't be handed over names the function and where in the table (`roster.sidebar.set: rows.3.label: a thread can't be a Plugin value`), and every `remove` checks its id as `set` does. `session_exit` names the Host of a tab closed while its Session ran.
 - A command line a Plugin hands over (a row's, a button's, a finder item's, a status segment's) runs only if it's one of that Plugin's own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run): a button can no longer run `:plugins grant …` whatever its label says. `roster.sessions` is there for every Plugin now (for `show`); `roster.sessions.open` still needs `sessions.open`.
 
 - `terminal_output` sends the lines a Session's terminal commits, read from a terminal of its own, instead of the raw output with a one-second repaint filter: a progress bar arrives as it ended, a wrapped line comes whole, the screen ConPTY prints again after a resize is never output, and what full-screen programs (`vim`, `top`) draw isn't sent. See [Events](plugin-api.md#events).
@@ -39,6 +50,12 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
 - Publish's generated commit message names the `links:` that changed (`roster: add link orion-2 -> storage`), as it does Hosts and groups, rather than "roster: edit roster.yml".
+
+### Deprecated
+
+**App**
+
+- `roster.keymap.set(context, keys, false)`: use `roster.keymap.del(context, keys)`. It takes the Plugin's own binding off now, rather than claiming the keys with no action. See [Deprecated names](deprecated.md).
 
 ## v0.2.0
 
