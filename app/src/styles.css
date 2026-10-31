@@ -1331,6 +1331,16 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 .graph-search { width: min(28ch, 100%); height: calc(var(--ui-size) * 1.6); padding: 0 8px; font-size: var(--text-xs); font-family: var(--font-mono); }
 .graph-found { font-size: var(--text-xs); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* The filter (`f`): one select per dimension. A chosen one is in the text colour, never the accent
+   (the accent means live). Long cluster titles are cut, so the bar stays one line at 2,000 Hosts. */
+.graph-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.graph-select {
+  max-width: 22ch; height: calc(var(--ui-size) * 1.6); padding: 0 6px; font-size: var(--text-xs);
+  background: var(--bg); color: var(--muted); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  text-overflow: ellipsis;
+}
+.graph-select[data-on] { color: var(--text); background: var(--raised); }
+.graph-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .graph-zoom { display: inline-flex; gap: 2px; align-items: center; }
 .graph-zoom .icon-button { font-family: var(--font-mono); font-size: var(--text-md); }
 .graph-fit { height: 24px; padding: 0 8px; font-size: var(--text-xs); background: transparent; border-color: transparent; color: var(--muted); }

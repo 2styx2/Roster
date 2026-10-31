@@ -141,6 +141,9 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`EdgeStyle`](#edgestyle) | An edge's line |
 | [`EdgeTone`](#edgetone) | How an edge is marked |
 | [`GraphCluster`](#graphcluster) | A cluster of a graph's nodes |
+| [`GraphReach`](#graphreach) | How far a graph's reach goes |
+| [`GraphFilter`](#graphfilter) | What a graph shows: the rest is hidden |
+| [`FilterState`](#filterstate) | A state a graph's filter keeps |
 | [`NodeAction`](#nodeaction) | Something a graph's selected node can do |
 | [`NodeRun`](#noderun) | What a graph's node or action runs |
 | [`NodeEvent`](#nodeevent) | What a graph's function gets |
@@ -1279,7 +1282,7 @@ Nothing.
 - a view with that id from elsewhere.
 - a field of the wrong kind (`roster.views.set discover table row 2: id must be text`): the whole view is dropped.
 - an action key the table uses itself (`j`, `k`, `g`, `G`, `s`, `S`, `/`, `?`, `q`) or one used twice.
-- a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view.
+- a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `f` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view.
 
 **Permission:** none · **Since:** api 3
 
@@ -2366,6 +2369,7 @@ Plain data, but for `actions`. A field left out stays as it is.
 | `edges` | [`GraphEdge`](#graphedge)`[]` | no | A graph's edges to add or replace, by `id`. |
 | `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | A graph's clusters to add or replace, by `id`. |
 | `remove_edges` | `string[]` | no | The ids of a graph's edges to take away. |
+| `filter` | [`GraphFilter`](#graphfilter) | no | A graph's new filter, in place of the one it has and the user's (`{}` shows everything). |
 | `columns` | [`Column`](#column)`[]` | no | New columns, all of them; the rows keep their cells. |
 | `sort` | `string` | no | Sort by this column now (the user's sort gives way). |
 | `desc` | `boolean` | no | With `sort`: highest first. |
@@ -2507,13 +2511,15 @@ What a site answered.
 
 A graph: nodes, edges and clusters as plain data, and what a node can do.
 
-The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, however many hops away, with the counts. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.
+The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, `f` goes to the filter (a cluster, kind or state to show, hiding the rest; `Esc` clears a search, then the filter, then closes the view), and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, with the counts: however many hops away, or only one with `reach = "direct"`. Hiding nodes doesn't change what they reach: the counts are the whole graph's. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `nodes` | [`GraphNode`](#graphnode)`[]` | no | Its nodes, in order: a cluster's first node is at its centre (at most 5,000). |
 | `edges` | [`GraphEdge`](#graphedge)`[]` | no | Its edges (at most 10,000). |
 | `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | Its clusters, in order (at most 500). |
+| `reach` | [`GraphReach`](#graphreach) | no | How far a node's reach goes, for the counts and what selecting it lights up: `"all"` (the default) every hop, `"direct"` one. |
+| `filter` | [`GraphFilter`](#graphfilter) | no | What it shows to begin with; the rest is hidden until the user changes it (`f`). |
 | `open` | [`NodeRun`](#noderun) | no | What `Enter` (or a double click) on a node runs. Without it, a node with a `host` opens that Host. |
 | `actions` | [`NodeAction`](#nodeaction)`[]` | no | What can be done to the selected node (at most 8). |
 
@@ -2607,6 +2613,34 @@ Drawn as a circle around its nodes with its title above, or collapsed to one nod
 | `title` | `string` | no | Its title; the id if left out. |
 | `mesh` | `boolean` | no | `true`: every node in it reaches every other, both ways, without an edge for each pair (the Mesh's `mesh: true`). |
 | `collapsed` | `boolean` | no | How it starts: collapsed (`true`) or open (`false`). Left out, it collapses when the graph has more than 300 nodes. The user's own choice is kept and wins. |
+
+### `GraphReach`
+
+How far a graph's reach goes.
+
+`"all"`: however many hops away, as a key on a Host reaches what that Host's own keys reach. `"direct"`: one hop, a node's own edges, its cluster's and its cluster's mesh.
+
+One of: `"all" \| "direct"`
+
+### `GraphFilter`
+
+What a graph shows: the rest is hidden.
+
+A node shows when it's in one of the `clusters`, of one of the `kinds` and in one of the `states`, for each that's given; leave one out (or empty) for all. Edges with a hidden end and clusters with no node left are hidden too. The user picks one cluster, kind or state at a time in the graph's filter (`f`); a filter that names several shows as "N clusters" there.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `clusters` | `string[]` | no | Cluster ids: only their nodes show (at most 500). |
+| `kinds` | `string[]` | no | Kinds (a node's `kind`): only nodes of these show (at most 500). |
+| `states` | [`FilterState`](#filterstate)`[]` | no | A node's `state` or `mark`: only nodes live, down, or marked warn or error show. |
+
+### `FilterState`
+
+A state a graph's filter keeps.
+
+A node's `state` (`"live"`, `"down"`) or `mark` (`"warn"`, `"error"`).
+
+One of: `"live" \| "down" \| "warn" \| "error"`
 
 ### `NodeAction`
 

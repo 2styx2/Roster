@@ -75,4 +75,28 @@ describe("a view's graph, checked", () => {
   it("an update without graph fields has no graph part", () => {
     expect(parseOp({ op: "view_update", id: "topo", changes: { text: "hi" } })).not.toHaveProperty("update.graph");
   });
+
+  it("takes how far reach goes and a filter that hides", () => {
+    const op = view({ nodes: [{ id: "a" }], reach: "direct", filter: { clusters: ["lab"], kinds: {}, states: ["live", "warn"] } });
+    expect(op).toMatchObject({ view: { graph: { reach: "direct", filter: { clusters: ["lab"], states: ["live", "warn"] } } } });
+    expect(view({ nodes: [{ id: "a" }] })).not.toHaveProperty("view.graph.reach");
+  });
+
+  it.each([
+    [{ reach: "far" }, 'reach must be "all", "direct"'],
+    [{ filter: { states: ["asleep"] } }, "filter states 1 must be"],
+    [{ filter: { kinds: [3] } }, "filter kinds 1 must be text"],
+    [{ filter: "lab" }, "filter must be a table"],
+  ])("refuses %j", (graph, message) => {
+    expect((view(graph) as { invalid: string }).invalid).toContain(message);
+  });
+
+  it("an update can change the filter, and an empty one shows everything again", () => {
+    expect(parseOp({ op: "view_update", id: "topo", changes: { filter: { clusters: ["web"] } } })).toMatchObject({ update: { graph: { filter: { clusters: ["web"] } } } });
+    expect(parseOp({ op: "view_update", id: "topo", changes: { filter: {} } })).toMatchObject({ update: { graph: { filter: {} } } });
+  });
+
+  it("the graph keeps f for its filter", () => {
+    expect((view({ actions: [{ label: "Find", key: "f", run: "x" }] }) as { invalid: string }).invalid).toContain("the graph uses f itself");
+  });
 });

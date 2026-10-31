@@ -2,7 +2,7 @@
 // node each, with its edges joined; and what the keys do with it: move to the nearest node one
 // way, search, and light up a selected node's reach. Pure, so it's tested without a canvas.
 import type { Circle, Layout } from "./layout";
-import { reachOf, type EdgeDir, type EdgeStyle, type EdgeTone, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type Mark } from "./model";
+import { reachOf, type Reach, type EdgeDir, type EdgeStyle, type EdgeTone, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type Mark } from "./model";
 
 /** A node as drawn: a node, or a collapsed cluster standing for its nodes. */
 export interface SceneNode {
@@ -218,10 +218,10 @@ export interface Highlight {
 
 /** What selecting `id` lights up. A collapsed cluster stands for its nodes: what they reach
  * outside it, and what reaches them. */
-export function highlightOf(s: Scene, ix: GraphIndex, id: string): Highlight {
+export function highlightOf(s: Scene, ix: GraphIndex, id: string, hops: Reach = "all"): Highlight {
   const own = ix.nodes.has(id) ? [id] : (ix.members.get(id) ?? []);
   if (own.length === 0) return { nodes: new Set(s.byId.has(id) ? [id] : []), edges: [], out: 0, in: 0 };
-  const r = reachOf(ix, id);
+  const r = reachOf(ix, id, hops);
   const fwd = new Set([...r.out, ...own]);
   const back = new Set([...r.in, ...own]);
   const nodes = new Set<string>();

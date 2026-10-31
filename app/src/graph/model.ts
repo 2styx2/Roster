@@ -57,6 +57,19 @@ export interface GraphCluster {
   collapsed?: boolean;
 }
 
+/** How far "reaches" goes: every hop (`all`, a key on a Host reaches what that Host's keys reach)
+ * or only one (`direct`). */
+export type Reach = "all" | "direct";
+
+/** What a filter keeps: a node in any of the `clusters`, of any of the `kinds` and in any of the
+ * `states` (a node's state or mark), every dimension that's given at once. The rest is hidden. */
+export interface GraphFilter {
+  clusters?: readonly string[];
+  kinds?: readonly string[];
+  states?: readonly FilterState[];
+}
+export type FilterState = NodeState | Mark;
+
 export interface GraphData {
   nodes: readonly GraphNode[];
   edges: readonly GraphEdge[];
@@ -147,7 +160,30 @@ export function graphIndex(g: GraphData): GraphIndex {
   return { nodes, members, meshed, next, prev };
 }
 
-function walk(ix: GraphIndex, starts: readonly string[], links: ReadonlyMap<string, readonly string[]>): Set<string> {
+/** Whether `f` hides anything. */
+export const filtering = (f: GraphFilter | undefined): f is GraphFilter => !!f && !!(f.clusters?.length || f.kinds?.length || f.states?.length);
+
+/** `g` with only the nodes `f` keeps, the edges between what's left, and the clusters that still
+ * have a node. `g` itself when `f` hides nothing. */
+export function filterGraph(g: GraphData, f: GraphFilter): GraphData {
+  if (!filtering(f)) return g;
+  const clusters = f.clusters?.length ? new Set(f.clusters) : null;
+  const kinds = f.kinds?.length ? new Set(f.kinds) : null;
+  const states = f.states?.length ? new Set<string>(f.states) : null;
+  const nodes = g.nodes.filter(
+    (n) =>
+      (!clusters || (n.cluster !== undefined && clusters.has(n.cluster))) &&
+      (!kinds || (n.kind !== undefined && kinds.has(n.kind))) &&
+      (!states || (n.state !== undefined && states.has(n.state)) || (n.mark !== undefined && states.has(n.mark))),
+  );
+  const kept = new Set(nodes.map((n) => n.id));
+  const held = new Set(nodes.flatMap((n) => (n.cluster === undefined ? [] : [n.cluster])));
+  const shown = g.clusters.filter((c) => held.has(c.id));
+  const ends = new Set([...kept, ...shown.map((c) => c.id)]);
+  return { nodes, edges: g.edges.filter((e) => ends.has(e.from) && ends.has(e.to)), clusters: shown };
+}
+
+function walk(ix: GraphIndex, starts: readonly string[], links: ReadonlyMap<string, readonly string[]>, hops: Reach = "all"): Set<string> {
   const seen = new Set<string>(starts);
   const opened = new Set<string>();
   const queue = [...starts];
@@ -164,8 +200,11 @@ function walk(ix: GraphIndex, starts: readonly string[], links: ReadonlyMap<stri
     opened.add(id);
     for (const m of ix.members.get(id) ?? []) reach(m);
   };
+  // One hop: only the starts are walked from.
+  const from = hops === "direct" ? new Set(starts) : null;
   while (queue.length) {
     const id = queue.pop() as string;
+    if (from && !from.has(id)) continue;
     const cluster = ix.nodes.get(id)?.cluster;
     for (const t of links.get(id) ?? []) reach(t);
     if (cluster !== undefined && ix.members.has(cluster)) {
@@ -179,17 +218,25 @@ function walk(ix: GraphIndex, starts: readonly string[], links: ReadonlyMap<stri
 
 /** The nodes `id` can reach, however many hops away, and those that can reach it. For a cluster,
  * what its nodes reach (and what reaches them) outside it. */
-export function reachOf(ix: GraphIndex, id: string): { out: Set<string>; in: Set<string> } {
+export function reachOf(ix: GraphIndex, id: string, hops: Reach = "all"): { out: Set<string>; in: Set<string> } {
   const starts = ix.nodes.has(id) ? [id] : (ix.members.get(id) ?? []);
   if (starts.length === 0) return { out: new Set(), in: new Set() };
-  return { out: walk(ix, starts, ix.next), in: walk(ix, starts, ix.prev) };
+  return { out: walk(ix, starts, ix.next, hops), in: walk(ix, starts, ix.prev, hops) };
 }
 
 /** How many nodes each node reaches and is reached by, for every node at once: the graph's
  * strongly connected parts (Tarjan), then each part's reach as a bitset, sinks first. Linear in
  * the graph plus nodes × parts / 32, where a walk per node would be nodes × graph. */
-export function reachCounts(ix: GraphIndex): Map<string, { out: number; in: number }> {
+export function reachCounts(ix: GraphIndex, hops: Reach = "all"): Map<string, { out: number; in: number }> {
   const ids = [...ix.nodes.keys()];
+  // One hop is each node's neighbours: no walk to share between them.
+  if (hops === "direct")
+    return new Map(
+      ids.map((id) => {
+        const r = reachOf(ix, id, "direct");
+        return [id, { out: r.out.size, in: r.in.size }];
+      }),
+    );
   const n = ids.length;
   const at = new Map(ids.map((id, i) => [id, i]));
   // Each cluster is up to three extra vertices: edges into it, edges out of it, and its mesh.

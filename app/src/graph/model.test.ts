@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { graphIndex, mergeGraph, reachCounts, reachOf, type GraphData, type GraphEdge, type GraphNode } from "./model";
+import { filterGraph, graphIndex, mergeGraph, reachCounts, reachOf, type GraphData, type GraphEdge, type GraphNode } from "./model";
 
 const node = (id: string, cluster?: string): GraphNode => ({ id, label: id, shape: "dot", ...(cluster ? { cluster } : {}) });
 const edge = (from: string, to: string, dir: "one" | "both" = "one"): GraphEdge => ({ id: `${from}>${to}`, from, to, dir, style: "solid" });
@@ -105,5 +105,77 @@ describe("every node's reach counts at once", () => {
     const t = performance.now();
     reachCounts(graphIndex({ nodes, edges, clusters }));
     expect(performance.now() - t).toBeLessThan(500);
+  });
+});
+
+describe("direct reach (reach = \"direct\")", () => {
+  const g: GraphData = {
+    nodes: [node("box"), node("x1", "lab"), node("x2", "lab"), node("y1", "web"), node("y2", "web"), node("z")],
+    edges: [edge("box", "lab"), edge("x1", "y1"), edge("y1", "z"), edge("web", "z")],
+    clusters: [
+      { id: "lab", title: "lab", mesh: true },
+      { id: "web", title: "web" },
+    ],
+  };
+  const ix = graphIndex(g);
+
+  it("is one hop: a node's own edges, its cluster's edges and its mesh, and the same backwards", () => {
+    expect(sorted(reachOf(ix, "x2", "direct").out)).toEqual(["x1"]);
+    expect(sorted(reachOf(ix, "x1", "direct").out)).toEqual(["x2", "y1"]);
+    expect(sorted(reachOf(ix, "x1", "all").out)).toEqual(["x2", "y1", "z"]);
+    expect(sorted(reachOf(ix, "z", "direct").in)).toEqual(["y1", "y2"]);
+    expect(sorted(reachOf(ix, "box", "direct").out)).toEqual(["x1", "x2"]);
+  });
+
+  it("a collapsed cluster's direct reach is what its nodes reach in one hop, outside it", () => {
+    expect(sorted(reachOf(ix, "web", "direct").out)).toEqual(["z"]);
+    expect(sorted(reachOf(ix, "lab", "direct").in)).toEqual(["box"]);
+  });
+
+  it("every node's counts agree with one hop from each", () => {
+    const all = reachCounts(ix, "direct");
+    for (const n of g.nodes) {
+      const r = reachOf(ix, n.id, "direct");
+      expect(all.get(n.id), n.id).toEqual({ out: r.out.size, in: r.in.size });
+    }
+  });
+});
+
+describe("a filter that hides", () => {
+  const g: GraphData = {
+    nodes: [
+      node("box"),
+      { ...node("x1", "lab"), kind: "esxi", state: "live" },
+      { ...node("x2", "lab"), kind: "linux", mark: "warn" },
+      { ...node("y1", "web"), kind: "esxi", state: "down" },
+      { ...node("y2", "web"), kind: "linux", mark: "error" },
+    ],
+    edges: [edge("box", "lab"), edge("box", "web"), edge("x1", "y1"), edge("x2", "x1")],
+    clusters: [
+      { id: "lab", title: "lab" },
+      { id: "web", title: "web" },
+    ],
+  };
+  const ids = (f: Parameters<typeof filterGraph>[1]) => filterGraph(g, f).nodes.map((n) => n.id);
+
+  it("keeps the nodes in any of the clusters, kinds or states it names, every dimension at once", () => {
+    expect(ids({ clusters: ["lab"] })).toEqual(["x1", "x2"]);
+    expect(ids({ kinds: ["esxi"] })).toEqual(["x1", "y1"]);
+    expect(ids({ states: ["live", "error"] })).toEqual(["x1", "y2"]);
+    expect(ids({ kinds: ["esxi"], clusters: ["web"] })).toEqual(["y1"]);
+    expect(ids({ states: ["warn"] })).toEqual(["x2"]);
+  });
+
+  it("an empty filter hides nothing", () => {
+    expect(filterGraph(g, {})).toBe(g);
+  });
+
+  it("takes away edges with a hidden end, and clusters with no node left", () => {
+    const f = filterGraph(g, { kinds: ["linux"] });
+    expect(f.edges).toEqual([]);
+    expect(f.clusters.map((c) => c.id)).toEqual(["lab", "web"]);
+    const lab = filterGraph(g, { clusters: ["lab"] });
+    expect(lab.edges.map((e) => e.id)).toEqual(["x2>x1"]);
+    expect(lab.clusters.map((c) => c.id)).toEqual(["lab"]);
   });
 });

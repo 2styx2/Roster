@@ -4,8 +4,8 @@
 // Keyboard first: h j k l (or the arrows) go to the nearest node that way, / searches and n N go
 // through the matches, Enter opens a node (or opens and closes a collapsed cluster), o collapses
 // or opens the selected node's cluster and O all of them, + - zoom and 0 fits it all, H J K L pan,
-// t switches to the nodes' list and the edges' list, and an action's key runs it on the selected
-// node. Selecting a node lights up what it reaches and what reaches it, with the counts. The mouse
+// t switches to the nodes' list and the edges' list, f goes to the filter (a cluster, kind or state
+// to show, hiding the rest), and an action's key runs it on the selected node. Selecting a node lights up what it reaches and what reaches it, with the counts. The mouse
 // works too: a click selects, a double click opens, a drag on a node moves it (kept in the State),
 // a drag elsewhere pans, the wheel zooms.
 //
@@ -23,7 +23,7 @@ import type { GraphModel } from "../view/views";
 import { drawFrame, easeOut, nodeRadius, readPalette, STAND_IN_RADIUS, toScreen, toWorld, type Camera } from "./draw";
 import { edgeTable, nodeTable, SHAPE_WORDS, stateWords } from "./lists";
 import { GraphPlaces, type GraphMemory } from "./memory";
-import { graphIndex } from "./model";
+import { filterGraph, filtering, graphIndex, type FilterState, type GraphFilter } from "./model";
 import { buildScene, foldsFor, highlightOf, matchesOf, stepFrom, type Direction, type Highlight, type Scene } from "./scene";
 
 export interface GraphViewProps {
@@ -46,6 +46,12 @@ const MIN_ZOOM = 0.04;
 const MAX_ZOOM = 4;
 /** At most this many edges turning live at once are drawn in; more just appear. */
 const MAX_DRAWN_IN = 12;
+
+/** The filter's states in words. */
+const STATE_WORDS: Record<FilterState, string> = { live: "live", down: "down", warn: "warning", error: "error" };
+const ALL_STATES: readonly FilterState[] = ["live", "down", "warn", "error"];
+/** A filter dimension the Plugin gave several values: the select's own option for it. */
+const SEVERAL = "\u0000several";
 
 const clampZoom = (k: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
 
@@ -178,8 +184,21 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useMemo(() => places.layout(data), [places, data, moved]);
   const collapsed = useMemo(() => foldsFor(data, folds), [data, folds]);
-  const scene = useMemo(() => buildScene(data, layout, collapsed), [data, layout, collapsed]);
+  // The filter: the Plugin's, until the user changes it; a new one from the Plugin replaces theirs.
+  const given = JSON.stringify(model.filter ?? {});
+  const [filter, setFilter] = useState<GraphFilter>(model.filter ?? {});
+  const [filterFrom, setFilterFrom] = useState(given);
+  if (filterFrom !== given) {
+    setFilterFrom(given);
+    setFilter(model.filter ?? {});
+  }
+  const hiding = filtering(filter);
+  // What's shown is laid out with the whole graph, so nothing moves when the filter changes; reach
+  // is counted on the whole graph too: hiding a node doesn't change what it reaches.
+  const shown = useMemo(() => filterGraph(data, filter), [data, filter]);
+  const scene = useMemo(() => buildScene(shown, layout, collapsed), [shown, layout, collapsed]);
   const ix = useMemo(() => graphIndex(data), [data]);
+  const hops = model.reach ?? "all";
   useEffect(() => places.persist(), [places, layout, folds]);
 
   const [mode, setMode] = useState<Mode>("graph");
@@ -193,15 +212,16 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     }
     return scene.nodes[0]?.id ?? null;
   }, [chosen, scene]);
-  const highlight = useMemo(() => (selected === null ? null : highlightOf(scene, ix, selected)), [scene, ix, selected]);
+  const highlight = useMemo(() => (selected === null ? null : highlightOf(scene, ix, selected, hops)), [scene, ix, selected, hops]);
 
   const [query, setQuery] = useState("");
-  const matches = useMemo(() => matchesOf(data, scene, query), [data, scene, query]);
+  const matches = useMemo(() => matchesOf(shown, scene, query), [shown, scene, query]);
   const matchSet = useMemo(() => (query.trim() ? new Set(matches) : null), [matches, query]);
 
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const firstFilter = useRef<HTMLSelectElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [painter] = useState(() => new Painter());
 
@@ -378,11 +398,13 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
         return toggleAll;
       case "t":
         return () => setMode("nodes");
+      case "f":
+        return () => firstFilter.current?.focus();
       case "Enter":
         return e.repeat ? () => {} : open;
       case "Escape":
-        // Esc clears a search first; then it's the view's (it closes).
-        return query ? () => setQuery("") : null;
+        // Esc clears a search first, then the filter; then it's the view's (it closes).
+        return query ? () => setQuery("") : hiding ? () => setFilter({}) : null;
     }
     const action = model.actions.find((a) => a.key === k);
     if (!action || !currentNode) return null;
@@ -469,8 +491,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   }, [mode, redraw, painter]);
 
   // The lists, built only when shown (each node's reach counts are a walk of the graph).
-  const nodesModel = useMemo(() => (mode === "nodes" ? nodeTable(model, ix) : null), [mode, model, ix]);
-  const edgesModel = useMemo(() => (mode === "edges" ? edgeTable(data, ix, goTo) : null), [mode, data, ix]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nodesModel = useMemo(() => (mode === "nodes" ? nodeTable(model, ix, shown.nodes) : null), [mode, model, ix, shown]);
+  const edgesModel = useMemo(() => (mode === "edges" ? edgeTable(shown, ix, goTo) : null), [mode, shown, ix]); // eslint-disable-line react-hooks/exhaustive-deps
   const onListSelect = useCallback((row: TableRow) => setChosen(row.id), []);
 
   const listKeys = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -484,7 +506,11 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // What the selected node is, in words: shown under the graph and said to a screen reader.
   const about = (() => {
     if (!current) return "";
-    const reach = highlight ? `. Reaches ${countOf(highlight.out, "node")}; reached by ${formatCount(highlight.in)}` : "";
+    const reach = !highlight
+      ? ""
+      : hops === "direct"
+        ? `. Reaches ${countOf(highlight.out, "node")} directly; reached directly by ${formatCount(highlight.in)}`
+        : `. Reaches ${countOf(highlight.out, "node")}; reached by ${formatCount(highlight.in)}`;
     if (current.count !== undefined) {
       const inside = [current.live ? `${formatCount(current.live)} live` : "", current.mark === "error" ? "an error" : current.mark === "warn" ? "a warning" : ""].filter(Boolean);
       return `${current.label}: ${countOf(current.count, "node")}${inside.length ? ` (${inside.join(", ")})` : ""}, collapsed${reach}`;
@@ -496,6 +522,23 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   })();
   const searchSays = query.trim() ? (matches.length ? `${countOf(matches.length, "match", "matches")} for ${query.trim()}` : `Nothing matches ${query.trim()}`) : "";
   const keyed = model.actions.filter((a) => a.key);
+
+  // The filter's choices: the clusters, the kinds and the states the graph has.
+  const kinds = useMemo(() => [...new Set(data.nodes.flatMap((n) => (n.kind ? [n.kind] : [])))].sort(), [data]);
+  const states = useMemo(() => ALL_STATES.filter((st) => data.nodes.some((n) => n.state === st || n.mark === st)), [data]);
+  const choices: { key: "clusters" | "kinds" | "states"; label: string; every: string; options: { value: string; label: string }[] }[] = [
+    { key: "clusters", label: "cluster", every: "Every cluster", options: data.clusters.map((c) => ({ value: c.id, label: c.title })) },
+    { key: "kinds", label: "kind", every: "Every kind", options: kinds.map((k) => ({ value: k, label: k })) },
+    { key: "states", label: "state", every: "Every state", options: states.map((st) => ({ value: st, label: STATE_WORDS[st] })) },
+  ].filter((c) => c.options.length > 0 || (filter[c.key as keyof GraphFilter]?.length ?? 0) > 0) as typeof choices;
+  const choose = (key: keyof GraphFilter, value: string) => {
+    if (value === SEVERAL) return;
+    const next: GraphFilter = { ...filter };
+    if (value === "") delete next[key];
+    else (next as Record<string, string[]>)[key] = [value];
+    setFilter(next);
+  };
+  const showing = hiding ? `Showing ${formatCount(shown.nodes.length)} of ${countOf(data.nodes.length, "node")}` : "";
   const helpId = `${base}-help`;
 
   return (
@@ -508,6 +551,41 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
             </button>
           ))}
         </div>
+        {choices.length > 0 && (
+          <div className="graph-filter" role="group" aria-label="Filter">
+            {choices.map((c, i) => {
+              const now = filter[c.key] ?? [];
+              const value = now.length === 0 ? "" : now.length === 1 ? (now[0] as string) : SEVERAL;
+              return (
+                <select
+                  key={c.key}
+                  ref={i === 0 ? firstFilter : undefined}
+                  className="graph-select"
+                  aria-label={`Show the ${c.label}`}
+                  value={value}
+                  data-on={value !== "" || undefined}
+                  onChange={(e) => choose(c.key, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (mode === "graph") box.current?.focus();
+                  }}
+                >
+                  <option value="">{c.every}</option>
+                  {value === SEVERAL && <option value={SEVERAL}>{`${now.length} ${c.label === "kind" ? "kinds" : `${c.label}s`}`}</option>}
+                  {c.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                  {now.length === 1 && !c.options.some((o) => o.value === now[0]) && <option value={now[0]}>{now[0]}</option>}
+                </select>
+              );
+            })}
+            {showing && <span className="graph-found muted">{showing}</span>}
+          </div>
+        )}
         {mode === "graph" && (
           <>
             <input
@@ -562,9 +640,9 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
           onKeyDown={onKeyDown}
         >
           <canvas ref={canvas} aria-hidden="true" style={{ width: size.w, height: size.h }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDoubleClick={open} />
-          {data.nodes.length === 0 && <p className="graph-empty muted">No nodes yet.</p>}
+          {data.nodes.length === 0 ? <p className="graph-empty muted">No nodes yet.</p> : shown.nodes.length === 0 && <p className="graph-empty muted">Nothing here shows with this filter. Esc shows everything.</p>}
           <p id={helpId} className="visually-hidden">
-            h, j, k and l or the arrow keys move between nodes; slash searches; Enter opens; t lists every node and edge.
+            h, j, k and l or the arrow keys move between nodes; slash searches; f filters; Enter opens; t lists every node and edge.
           </p>
         </div>
       ) : (
@@ -597,6 +675,11 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
               <span>
                 <Keys keys="/" leader={leader} /> search
               </span>
+              {choices.length > 0 && (
+                <span>
+                  <Keys keys="f" leader={leader} /> filter
+                </span>
+              )}
               {data.clusters.length > 0 && (
                 <span>
                   <Keys keys="o" leader={leader} /> collapse

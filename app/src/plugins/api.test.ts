@@ -142,6 +142,8 @@ describe("the Plugin API reference and ops.ts agree", () => {
             typed("GraphNode", { id: "esx-02", label: "esx-02", kind: "esxi", shape: "ring", state: "live", mark: "warn", note: "out of date", cluster: "lab", host: "esx-02", detail: "10.0.0.5" }),
           ],
           edges: [typed("GraphEdge", { id: "e", from: "esx-02", to: "lab", dir: "both", style: "dashed", tone: "warn", cut: true, label: "Link" })],
+          reach: "direct",
+          filter: typed("GraphFilter", { clusters: ["lab"], kinds: ["esxi"], states: ["live"] }),
           open: { handler: 1 },
           actions: [typed("NodeAction", { label: "Check", key: "c", icon: "info", run: { handler: 2 } })],
         }),
@@ -150,7 +152,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
     {
       op: "view_update",
       id: "g",
-      changes: typed("ViewUpdate", { nodes: [{ id: "a" }], edges: [{ from: "a", to: "b" }], clusters: [{ id: "c" }], remove_edges: ["a>b"] }),
+      changes: typed("ViewUpdate", { nodes: [{ id: "a" }], edges: [{ from: "a", to: "b" }], clusters: [{ id: "c" }], remove_edges: ["a>b"], filter: {} }),
     },
     {
       op: "details",
@@ -164,7 +166,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
     for (const op of ops) expect(parseOp(op)).not.toHaveProperty("invalid");
   });
 
-  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction", "FloatAction", "Link", "Confirm", "Progress", "ToolbarControl", "Graph", "GraphNode", "GraphEdge", "GraphCluster", "NodeAction"])(
+  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction", "FloatAction", "Link", "Confirm", "Progress", "ToolbarControl", "Graph", "GraphNode", "GraphEdge", "GraphCluster", "GraphFilter", "NodeAction"])(
     "%s: ops.ts reads exactly the fields the reference lists",
     (type) => {
       for (const op of ops) parseOp(op);

@@ -239,6 +239,7 @@
 ---@field edges? roster.GraphEdge[] A graph's edges to add or replace, by `id`.
 ---@field clusters? roster.GraphCluster[] A graph's clusters to add or replace, by `id`.
 ---@field remove_edges? string[] The ids of a graph's edges to take away.
+---@field filter? roster.GraphFilter A graph's new filter, in place of the one it has and the user's (`{}` shows everything).
 ---@field columns? roster.Column[] New columns, all of them; the rows keep their cells.
 ---@field sort? string Sort by this column now (the user's sort gives way).
 ---@field desc? boolean With `sort`: highest first.
@@ -326,6 +327,8 @@
 ---@field nodes? roster.GraphNode[] Its nodes, in order: a cluster's first node is at its centre (at most 5,000).
 ---@field edges? roster.GraphEdge[] Its edges (at most 10,000).
 ---@field clusters? roster.GraphCluster[] Its clusters, in order (at most 500).
+---@field reach? roster.GraphReach How far a node's reach goes, for the counts and what selecting it lights up: `"all"` (the default) every hop, `"direct"` one.
+---@field filter? roster.GraphFilter What it shows to begin with; the rest is hidden until the user changes it (`f`).
 ---@field open? roster.NodeRun What `Enter` (or a double click) on a node runs. Without it, a node with a `host` opens that Host.
 ---@field actions? roster.NodeAction[] What can be done to the selected node (at most 8).
 
@@ -377,6 +380,18 @@
 ---@field title? string Its title; the id if left out.
 ---@field mesh? boolean `true`: every node in it reaches every other, both ways, without an edge for each pair (the Mesh's `mesh: true`).
 ---@field collapsed? boolean How it starts: collapsed (`true`) or open (`false`). Left out, it collapses when the graph has more than 300 nodes. The user's own choice is kept and wins.
+
+--- How far a graph's reach goes
+---@alias roster.GraphReach "all"|"direct"
+
+--- What a graph shows: the rest is hidden
+---@class roster.GraphFilter
+---@field clusters? string[] Cluster ids: only their nodes show (at most 500).
+---@field kinds? string[] Kinds (a node's `kind`): only nodes of these show (at most 500).
+---@field states? roster.FilterState[] A node's `state` or `mark`: only nodes live, down, or marked warn or error show.
+
+--- A state a graph's filter keeps
+---@alias roster.FilterState "live"|"down"|"warn"|"error"
 
 --- Something a graph's selected node can do
 ---@class roster.NodeAction

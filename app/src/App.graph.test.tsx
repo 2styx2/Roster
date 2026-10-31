@@ -17,7 +17,7 @@ const LEADER = "{Control>} {/Control}";
 const PATH = "~/plugins/topo";
 
 /** A Topology-like Plugin: this Box, two clusters (one meshed), a Link and a password peer. */
-function topoPlugin(): FakePlugin {
+function topoPlugin(extra: Record<string, unknown> = {}): FakePlugin {
   return {
     manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 2, permissions: [] },
     load(roster) {
@@ -42,6 +42,7 @@ function topoPlugin(): FakePlugin {
             { from: "esx-01", to: "web-1", style: "solid" },
             { from: "esx-02", to: "appliance", style: "dashed", cut: true },
           ],
+          ...extra,
           open: (e: Record<string, unknown>) => roster.notify(`opened ${String(e.node)} on ${String(e.host)}`),
           actions: [
             { label: "Check", key: "c", run: (e: Record<string, unknown>) => roster.notify(`checked ${String(e.node)}`) },
@@ -205,5 +206,47 @@ describe("a Plugin's graph", () => {
     expect(foot()).toBe("a, filled. Reaches 0 nodes; reached by 0");
     await again.user.keyboard("o");
     expect(foot()).toBe("lab: 1 node, collapsed. Reaches 0 nodes; reached by 0");
+  });
+
+  it("f goes to the filter; a cluster, kind or state chosen there hides the rest, and Esc clears it", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    await user.keyboard("f");
+    const cluster = screen.getByRole("combobox", { name: "Show the cluster" });
+    expect(cluster).toHaveFocus();
+    await user.selectOptions(cluster, "web");
+    expect(screen.getByText("Showing 2 of 5 nodes")).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Show the state" }), "down");
+    expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(graph()).toHaveFocus();
+    expect(foot()).toMatch(/^appliance/);
+    // The list shows what the graph shows.
+    await user.keyboard("t");
+    expect(within(screen.getByRole("grid", { name: "Topology: nodes" })).getAllByRole("row")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Graph" }));
+    expect(graph()).toHaveFocus();
+    // Esc clears the filter before it closes the view.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText(/^Showing/)).toBeNull();
+    expect(screen.getByRole("region", { name: "Topology (from topo)" })).toBeInTheDocument();
+  });
+
+  it("a Plugin's filter shows only what it names, and the kinds and states are choices too", async () => {
+    const { user } = await ready(memoryPlatform(), topoPlugin({ filter: { kinds: ["esxi"] } }));
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
+    expect(foot()).toMatch(/^esx-01/);
+    expect(screen.getByRole("combobox", { name: "Show the kind" })).toHaveValue("esxi");
+  });
+
+  it("reach = \"direct\" counts one hop", async () => {
+    const { user } = await ready(memoryPlatform(), topoPlugin({ reach: "direct" }));
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    await user.keyboard("/esx-02{Enter}");
+    expect(foot()).toBe("esx-02, ring, warning, out of date. Reaches 2 nodes directly; reached directly by 2");
   });
 });
