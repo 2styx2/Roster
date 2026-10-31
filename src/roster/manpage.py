@@ -35,8 +35,15 @@ def install_prefix():
 def cmd_man(args):
     if args.install:
         dest = Path(args.prefix or install_prefix()).expanduser() / "share" / "man" / "man1" / "roster.1"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(PAGE, dest)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(PAGE, dest)
+        except PermissionError:
+            print(f"roster: can't write to {dest.parent}: permission denied.\n"
+                  "  Install it where you can write, next to a bin directory on your PATH:"
+                  "  roster man --install --prefix ~/.local\n"
+                  "  or run it with sudo to install it there.", file=sys.stderr)
+            return 1
         print(f"installed {dest}")
         print("try: man roster")
         return 0
