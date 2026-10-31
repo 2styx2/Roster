@@ -4,7 +4,8 @@
 #   App  (app/, crates/roster-core, app/src-tauri): tsc + ESLint + Vitest; rustfmt, clippy and
 #        cargo test on Linux (with the WebKitGTK/D-Bus dev packages, so clippy covers the Tauri
 #        crate too); release builds of the Windows and Linux apps; lua-language-server over the
-#        example Plugins, against the Plugin API's generated stubs.
+#        example and first-party Plugins, against the Plugin API's generated stubs. The first-party
+#        Plugins' own tests (plugins/README.md) run in cargo test and npm run check.
 name: CI
 
 on:
@@ -153,6 +154,8 @@ jobs:
           echo "$LUALS_SHA256  $RUNNER_TEMP/luals.tar.gz" | sha256sum --check
           tar xzf "$RUNNER_TEMP/luals.tar.gz" -C "$RUNNER_TEMP/luals"
       - run: '"$RUNNER_TEMP/luals/bin/lua-language-server" --check examples/plugins --checklevel=Hint'
+      # The first-party Plugins (plugins/, decision Q94), against the same stubs (plugins/.luarc.json).
+      - run: '"$RUNNER_TEMP/luals/bin/lua-language-server" --check plugins --checklevel=Hint'
 
   app-rust:
     name: App Rust (fmt, clippy, cargo test)

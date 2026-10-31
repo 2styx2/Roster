@@ -13,6 +13,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Plugins get timers: `roster.defer(ms, fn)` runs a function once, later, and `roster.every(ms, fn)` again and again until `roster.cancel(timer)`, on the Plugin's own thread; they end with the Plugin. recent-alerts uses one so its rows say "4 min ago" and stay true. See [Timers](plugin-api.md#rosterdeferms-fn).
 - `roster.has(permission)` tells a Plugin whether it was granted a permission, before it listens for an event that needs one. A finder's `items` can be a function, run each time the finder opens.
 - `?fixture=recent-alerts` in a plain browser (`npm run dev`) shows the example Plugin running with alerts, for checking Plugin UI headless.
+- Packages from a folder of a repo: `dir = "plugins/NAME"` in a Package's line in `init.lua` loads the Plugin from that folder, so one repo can hold several Plugins. The install and update prompts show the folder, `roster.lock` keeps it, and `:packages update` shows only what changed in it. A folder outside the repo (`..`, a full path, a symlink that leads out) is refused. roster's own optional Plugins will live this way, in its repo's `plugins/` folder, none bundled in the app. See [Packages](plugins.md#packages) and [First-party Plugins](plugins.md#first-party-plugins).
 
 ### Changed
 

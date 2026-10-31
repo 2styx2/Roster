@@ -181,6 +181,7 @@ packages = {
   { "someone/recent-alerts", tag = "v1.2.0", config = { patterns = { "ERROR", "panic" } } },
   "someone/pinned",
   { "https://git.example.com/team/roster-extras.git", branch = "main" },
+  { "https://git.example.com/team/roster-extras.git", dir = "plugins/alerts" },
 },
 ```
 
@@ -188,7 +189,7 @@ Plugins fetched from git repos, the way lazy.nvim fetches Neovim's ([plugins.md]
 
 | Option | Default | |
 |---|---|---|
-| `packages` | `{}` | Each one `{ SOURCE, tag = …, config = { … } }`, or just `SOURCE`. SOURCE is `"owner/repo"` (on GitHub) or a git URL: `https://…`, `ssh://…`, `git@host:path`, `file://…`, or a full path to a repo on this machine (plain `http://` and `git://` are refused: anyone on the way could change them). At most one of `tag`, `branch` or `commit`; none means the repo's default branch. `name = "…"` names it (its folder and its line in `roster.lock`) when the repo's name won't do. `config` is a table of settings the Package reads as `roster.plugin.config`; it can't be a function, since a Package runs in a Lua state of its own (decision Q83) |
+| `packages` | `{}` | Each one `{ SOURCE, tag = …, config = { … } }`, or just `SOURCE`. SOURCE is `"owner/repo"` (on GitHub) or a git URL: `https://…`, `ssh://…`, `git@host:path`, `file://…`, or a full path to a repo on this machine (plain `http://` and `git://` are refused: anyone on the way could change them). At most one of `tag`, `branch` or `commit`; none means the repo's default branch. `name = "…"` names it (its folder and its line in `roster.lock`) when the repo's name won't do. `dir = "plugins/NAME"` loads the Plugin from that folder of the repo instead of its top, and names the Package after the folder; it must be inside the repo (relative, `/` between folders, no `..`, no `.git`, no symlink that leads out), and two Packages from one repo each get a clone of their own (decision Q94). [First-party Plugins](../plugins.md#first-party-plugins) install this way. `config` is a table of settings the Package reads as `roster.plugin.config`; it can't be a function, since a Package runs in a Lua state of its own (decision Q83) |
 
 ### Other
 
