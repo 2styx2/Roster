@@ -18,7 +18,7 @@ const SHAPES = ["dot", "dot", "dot", "ring", "dashed", "hollow"] as const;
 
 export function demoMapPlugin(count = 640, groups = 16, worst = false): FakePlugin {
   return {
-    manifest: { name: "demo-map", version: "1.0.0", description: "A made-up network map, to look at graphs", author: "roster", api: 3, permissions: [] },
+    manifest: { name: "demo-map", version: "1.0.0", description: "A made-up network map, to look at graphs", author: "roster", api: 2, permissions: [] },
     load(roster) {
       const clusters = Array.from({ length: groups }, (_, g) => ({
         id: `subnet-${g + 1}`,

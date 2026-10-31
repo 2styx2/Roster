@@ -1722,11 +1722,7 @@ pub const TYPES: &[Type] = &[
                 "Label and value pairs, as a Host's details show them.",
             ),
             o("table", "Table", "A table of rows."),
-            o(
-                "graph",
-                "Graph",
-                "A graph of nodes and edges, in place of a table.",
-            ),
+            o("graph", "Graph", "A graph of nodes and edges, in place of a table."),
         ],
         open: false,
     },
@@ -1757,26 +1753,14 @@ pub const TYPES: &[Type] = &[
                 "string[]",
                 "The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).",
             ),
-            o(
-                "nodes",
-                "GraphNode[]",
-                "A graph's nodes to add or replace, by `id`.",
-            ),
-            o(
-                "edges",
-                "GraphEdge[]",
-                "A graph's edges to add or replace, by `id`.",
-            ),
+            o("nodes", "GraphNode[]", "A graph's nodes to add or replace, by `id`."),
+            o("edges", "GraphEdge[]", "A graph's edges to add or replace, by `id`."),
             o(
                 "clusters",
                 "GraphCluster[]",
                 "A graph's clusters to add or replace, by `id`.",
             ),
-            o(
-                "remove_edges",
-                "string[]",
-                "The ids of a graph's edges to take away.",
-            ),
+            o("remove_edges", "string[]", "The ids of a graph's edges to take away."),
         ],
         open: false,
     },
@@ -2021,16 +2005,8 @@ pub const TYPES: &[Type] = &[
                 "GraphNode[]",
                 "Its nodes, in order: a cluster's first node is at its centre (at most 5,000).",
             ),
-            o(
-                "edges",
-                "GraphEdge[]",
-                "Its edges (at most 10,000).",
-            ),
-            o(
-                "clusters",
-                "GraphCluster[]",
-                "Its clusters, in order (at most 500).",
-            ),
+            o("edges", "GraphEdge[]", "Its edges (at most 10,000)."),
+            o("clusters", "GraphCluster[]", "Its clusters, in order (at most 500)."),
             o(
                 "open",
                 "NodeRun",
@@ -2063,11 +2039,7 @@ pub const TYPES: &[Type] = &[
             ),
             o("shape", "NodeShape", "How it's drawn; `\"dot\"` if left out."),
             o("state", "NodeState", "Live (in the accent) or down."),
-            o(
-                "mark",
-                "NodeMark",
-                "A small warn or error mark beside it.",
-            ),
+            o("mark", "NodeMark", "A small warn or error mark beside it."),
             o(
                 "note",
                 "string",
@@ -2117,11 +2089,7 @@ pub const TYPES: &[Type] = &[
         doc: "An end is a node or a cluster: an edge to a cluster reaches every node in it, and one from a cluster is every node's in it, so one edge can stand for a group's Links. Edges to the same collapsed cluster are drawn as one, with their count.",
         alias: "",
         fields: &[
-            o(
-                "id",
-                "string",
-                "Unique among its edges; `\"FROM>TO\"` if left out.",
-            ),
+            o("id", "string", "Unique among its edges; `\"FROM>TO\"` if left out."),
             f("from", "string", "The id of the node or cluster it starts at."),
             f("to", "string", "The id of the node or cluster it goes to."),
             o(

@@ -19,7 +19,7 @@ const PATH = "~/plugins/topo";
 /** A Topology-like Plugin: this Box, two clusters (one meshed), a Link and a password peer. */
 function topoPlugin(): FakePlugin {
   return {
-    manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 3, permissions: [] },
+    manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 2, permissions: [] },
     load(roster) {
       roster.views.set("topo", {
         title: "Topology",
@@ -186,7 +186,7 @@ describe("a Plugin's graph", () => {
 
   it("an empty graph says so, and one node counts in the singular", async () => {
     const tiny = (nodes: Record<string, unknown>[]): FakePlugin => ({
-      manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 3, permissions: [] },
+      manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 2, permissions: [] },
       load(roster) {
         roster.views.set("topo", { title: "Topology", place: "full", graph: { nodes, clusters: [{ id: "lab" }] } });
       },
