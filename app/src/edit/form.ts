@@ -79,3 +79,23 @@ export function touchesLogin(h: Host, draft: Draft): boolean {
   const original = draftOf(h);
   return LOGIN_FIELDS.some((k) => draft[k].trim() !== original[k]);
 }
+
+/** After a pull changed the Host under an open form (decision Q88): the fields you hadn't touched
+ * take the pulled values, the ones you had keep yours. `theirs`: fields the pull changed and the
+ * form now shows; `both`: fields it changed that you had changed too (yours kept). */
+export function rebaseDraft(before: Host, after: Host, draft: Draft): { draft: Draft; theirs: FieldName[]; both: FieldName[] } {
+  const was = draftOf(before);
+  const now = draftOf(after);
+  const next = { ...draft };
+  const theirs: FieldName[] = [];
+  const both: FieldName[] = [];
+  for (const { name } of FIELDS) {
+    if (was[name] === now[name]) continue;
+    const mine = draft[name].trim();
+    if (mine === was[name]) {
+      next[name] = now[name];
+      theirs.push(name);
+    } else if (mine !== now[name]) both.push(name);
+  }
+  return { draft: next, theirs, both };
+}

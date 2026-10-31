@@ -1,4 +1,4 @@
-// Ticket 10 through the App with the fake Backend: `:edit` pulls first and opens the form, a text
+// Ticket 10 through the App with the fake Backend: `:edit` opens the form (its pull: App.pull.test.tsx), a text
 // edit saves as a Pending change, an address/user/Login edit tests the login first (decision Q43),
 // the status bar counts the Pending changes, and `:changes` shows the diff and discards it.
 import { describe, expect, it } from "vitest";
@@ -101,18 +101,6 @@ describe("the edit form", () => {
     expect(port).toHaveAttribute("aria-invalid", "true");
     expect(within(panel).getByText("A number from 1 to 65535")).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Test login and save" })).toBeDisabled();
-  });
-
-  it("keeps the form shut and says why when the pull can't happen", async () => {
-    const { user } = await ready(fixtures["edit-diverged"] as FakeScenario);
-    await user.keyboard(`${LEADER}:edit ${HOST}{Enter}`);
-    const panel = await form();
-    const alert = await within(panel).findByRole("alert");
-    expect(alert).toHaveTextContent(/diverged/);
-    expect(alert).toHaveTextContent("the infra repo");
-    expect(alert).toHaveTextContent(/pull --rebase/);
-    expect(within(panel).queryByLabelText("Title")).toBeNull();
-    expect(within(panel).getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
   it("doesn't pull over Pending changes already here", async () => {

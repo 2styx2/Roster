@@ -5,6 +5,11 @@
 // command table, so nothing here is a Sidebar-only action (decision Q36). The mouse works on every
 // row without taking focus from the terminal.
 //
+// A row's buttons (rename, ⓘ, remove…) show on the selected row only, never on hover (decision Q88,
+// owner): the row last left-clicked, or in App mode the cursor row. Hovering highlights a row and
+// nothing more, so its address stays in view, and touch and pen work the same as a mouse. They
+// appear without motion: j/k move them as often as a click does (taste.md: motion confirms).
+//
 // For assistive tech (ticket 29 M4) the rows are an ARIA tree: the scroller is the tree, each
 // section a group, each row a treeitem with its level, and the App-mode cursor is the tree's
 // aria-activedescendant while App takes focus there. Each row's name says its state in words
@@ -27,7 +32,7 @@ export interface RowAction {
   label: string;
   icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview" | "info" | "copy";
   command: CommandLine;
-  /** Always shown, not only on hover or on the raised row (the Inventory's "Add a Host"). */
+  /** Always shown, not only on the selected row (the Inventory's "Add a Host"). */
   pinned?: boolean;
   /** The tooltip, when it should say more than the label (why it can't act). */
   title?: string;
@@ -51,7 +56,7 @@ export interface SidebarRow {
   detail?: string;
   /** Right-aligned: how many Hosts a Folder or group holds. Formatted, and never cut off. */
   count?: number;
-  /** A small badge ("unreviewed"). It gives way to the name: shown on hover, raised or under the
+  /** A small badge ("unreviewed"). It gives way to the name: shown raised, selected or under the
    * cursor, and always in the tooltip. */
   badge?: string;
   /** A glyph before the label: a Folder, an Inventory group. */
@@ -83,7 +88,7 @@ export interface SidebarRow {
   data?: Readonly<Record<string, string>>;
   /** What Enter or a click runs. */
   command: CommandLine;
-  /** Buttons shown on hover and when raised. */
+  /** Buttons shown on the selected row (decision Q88). */
   actions?: readonly RowAction[];
   /** Dragging the row carries this (a Host name). */
   drag?: string;
@@ -114,6 +119,11 @@ export interface SidebarProps {
   side: "left" | "right";
   /** The cursor row, shown in App mode; null hides it. */
   cursor: string | null;
+  /** The selected row (or heading), whose buttons show: the one last clicked, or the cursor in
+   * App mode (decision Q88). */
+  selected?: string | null;
+  /** A row or heading was left-clicked: it's the selected one now. */
+  onSelect?(id: string): void;
   /** The Leader as written in the keymap, for the hints. */
   leaderHint: string;
   /** The keys that open the Picker ("␣ f"), if the keymap has them. */
@@ -253,8 +263,24 @@ const RowIcon = ({ name }: { name: NonNullable<SidebarRow["icon"]> }) => (
 );
 
 
-const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cursor: boolean; run: Run; drag: Drag }) {
-  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${row.actions ? " has-actions" : ""}${row.pending ? " pending" : ""}${row.link ? ` link-${row.link}` : ""}`;
+type Select = (id: string) => void;
+
+const Row = memo(function Row({
+  row,
+  cursor,
+  selected,
+  run,
+  select,
+  drag,
+}: {
+  row: SidebarRow;
+  cursor: boolean;
+  selected: boolean;
+  run: Run;
+  select: Select;
+  drag: Drag;
+}) {
+  const cls = `sb-row${row.raised ? " raised" : ""}${row.raised && row.live ? " live" : ""}${row.also ? " also" : ""}${cursor ? " cursor" : ""}${selected ? " selected" : ""}${row.actions ? " has-actions" : ""}${row.pending ? " pending" : ""}${row.link ? ` link-${row.link}` : ""}`;
   const cut = row.tail !== undefined && row.label.endsWith(row.tail);
   return (
     <li
@@ -281,6 +307,7 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
         title={row.title}
         onMouseDown={(e) => drag.press(row, e)}
         onClick={() => {
+          select(row.id);
           run(row.command);
           drag.refocus();
         }}
@@ -315,14 +342,19 @@ const Row = memo(function Row({ row, cursor, run, drag }: { row: SidebarRow; cur
 const Section = memo(function Section({
   section,
   cursor,
+  selected,
   run,
+  select,
   drag,
   leader,
 }: {
   section: SidebarSection;
   /** The cursor if it's in this section, else null (so the other sections don't re-render). */
   cursor: string | null;
+  /** The selected row if it's in this section, else null. */
+  selected: string | null;
   run: Run;
+  select: Select;
   drag: Drag;
   leader: string;
 }) {
@@ -337,7 +369,7 @@ const Section = memo(function Section({
       onDragOver={section.drop ? (e) => drag.over(e, section.drop) : undefined}
       onDrop={section.drop ? (e) => drag.drop(e, section.drop) : undefined}
     >
-      <div className={`sb-heading${cursor === id ? " cursor" : ""}`} data-row={id} role="none">
+      <div className={`sb-heading${cursor === id ? " cursor" : ""}${selected === id ? " selected" : ""}`} data-row={id} role="none">
         <div
           role="treeitem"
           id={rowDomId(id)}
@@ -348,7 +380,10 @@ const Section = memo(function Section({
           aria-selected={cursor === id ? true : undefined}
           aria-describedby={emptyShown ? `${rowDomId(id)}-empty` : undefined}
           onMouseDown={keepFocus}
-          onClick={() => run(`togglefold ${id}`)}
+          onClick={() => {
+            select(id);
+            run(`togglefold ${id}`);
+          }}
         >
           <Chevron folded={folded} />
           <h2>{section.title}</h2>
@@ -364,7 +399,7 @@ const Section = memo(function Section({
       {!folded && (
         <ul className="sb-rows" role="none">
           {section.rows.map((row) => (
-            <Row key={row.id} row={row} cursor={row.id === cursor} run={run} drag={drag} />
+            <Row key={row.id} row={row} cursor={row.id === cursor} selected={row.id === selected} run={run} select={select} drag={drag} />
           ))}
         </ul>
       )}
@@ -386,13 +421,28 @@ function Details({ row }: { row: SidebarRow }) {
   );
 }
 
-export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f", run, treeRef, onTreeFocus, onTreeBlur }: SidebarProps) {
-  // A stable `run` for the memoized rows; it always calls the latest one.
+export function Sidebar({
+  sections,
+  side,
+  cursor,
+  selected = null,
+  onSelect,
+  leaderHint,
+  findKeys = "␣ f",
+  run,
+  treeRef,
+  onTreeFocus,
+  onTreeBlur,
+}: SidebarProps) {
+  // A stable `run` and `select` for the memoized rows; they always call the latest one.
   const runRef = useRef(run);
+  const selectRef = useRef(onSelect);
   useLayoutEffect(() => {
     runRef.current = run;
+    selectRef.current = onSelect;
   });
   const stableRun = useCallback((line: CommandLine) => runRef.current(line), []);
+  const stableSelect = useCallback((id: string) => selectRef.current?.(id), []);
 
   // Keep the cursor row in view as j/k walk a long tree.
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -497,7 +547,9 @@ export function Sidebar({ sections, side, cursor, leaderHint, findKeys = "␣ f"
             key={section.id}
             section={section}
             cursor={cursor !== null && cursorIn(section, cursor) ? cursor : null}
+            selected={selected !== null && cursorIn(section, selected) ? selected : null}
             run={stableRun}
+            select={stableSelect}
             drag={drag}
             leader={leaderHint}
           />

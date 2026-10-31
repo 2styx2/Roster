@@ -199,6 +199,9 @@ return {
 
   -- Other ----------------------------------------------------------------------------------------
   idle_lock_minutes = 15, -- lock after this many minutes without input (1 to 1440)
+  -- A form that writes roster.yml (:edit, :host add, Save to vault) opens at once and pulls the
+  -- infra repo in the background when the last pull is older than this; 0 pulls every time.
+  pull_fresh_minutes = 5,
 
   -- What :config opens this file with: "os" (the app Windows or your desktop opens .lua files
   -- with; Notepad if there's none), or "wsl" ($EDITOR inside the Backend's WSL distro, vi if
