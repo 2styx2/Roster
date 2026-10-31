@@ -2860,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "roster-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "roster-core",
  "serde",
@@ -2874,7 +2874,7 @@ dependencies = [
 
 [[package]]
 name = "roster-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "mlua",
