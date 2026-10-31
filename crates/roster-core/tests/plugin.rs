@@ -678,3 +678,49 @@ fn the_clipboard_is_written_only_in_a_call_the_user_started() {
     });
     assert!(replies[0].error.is_some());
 }
+
+/// Decision Q87: text a Plugin hands the UI that isn't UTF-8 (a line cut in the middle of a
+/// character, say) is shown with U+FFFD where it breaks, not refused: refusing it failed every
+/// redraw, and three of those disabled the Plugin. Names (ids, table keys) are still refused.
+#[test]
+fn text_that_isnt_utf8_is_shown_with_a_replacement_character_not_an_error() {
+    let dir = plugin_dir(
+        "utf8",
+        &manifest("cutter", &[]),
+        r#"
+        local roster = require("roster")
+        local bad = "\xa9 ERROR here"
+        roster.on("lock", function()
+          roster.sidebar.set("cut", { title = "Cut", rows = { { id = "1", label = bad } } })
+          roster.status.set("cut", { text = bad })
+          roster.badges.set("esx-02", bad)
+          roster.notify(bad, "warn")
+          roster.float.open({ title = "Cut", lines = { bad } })
+        end)
+        roster.commands.add("copy", { run = function() roster.clipboard.copy(bad) end })
+        "#,
+    );
+    let (host, _) = host();
+    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let shown = "\u{fffd} ERROR here";
+    for _ in 0..4 {
+        let replies = host.event(Event {
+            name: "lock".into(),
+            payload: json!({}),
+        });
+        assert_eq!(replies.len(), 1);
+        let r = &replies[0];
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert!(r.disabled.is_none());
+        assert_eq!(r.ops[0]["spec"]["rows"][0]["label"], shown);
+        assert_eq!(r.ops[1]["spec"]["text"], shown);
+        assert_eq!(r.ops[2]["text"], shown);
+        assert_eq!(r.ops[3]["text"], shown);
+        assert_eq!(r.ops[4]["spec"]["lines"][0], shown);
+    }
+    let copy = reply.ops.iter().find(|o| o["op"] == "command").unwrap();
+    let r = host.call("cutter", handler(copy, "run"), json!({ "args": "", "words": [] }));
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.ops, [json!({ "op": "copy", "text": shown })]);
+}

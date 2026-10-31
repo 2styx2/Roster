@@ -35,8 +35,9 @@ export interface PluginUi {
   run(line: string): void;
   /** Types `text` into Session `id` (terminal.write). */
   send(id: number, text: string): void;
-  /** Puts `text` on the clipboard (`roster.clipboard.copy`, only in a call the user started). */
-  copy(text: string): void;
+  /** Puts `text` on the clipboard (`roster.clipboard.copy`; the core allows it only in a call
+   * the user started). Rejects when the clipboard can't be written. */
+  copy(text: string): Promise<void>;
 }
 
 /** A Plugin as the State keeps it. */
@@ -189,7 +190,7 @@ export class PluginManager {
   /** Package work runs one at a time (a sync, an update, a clean). */
   private packageWork: Promise<unknown> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
-  private readonly pendingOutput = new Map<number, { host: string; text: string; decoder: TextDecoder }>();
+  private readonly pendingOutput = new Map<number, { host: string | null; text: string; decoder: TextDecoder }>();
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
 
@@ -501,7 +502,7 @@ export class PluginManager {
     if (!this.loaded.has(plugin)) return undefined;
     this.used(plugin, "ran an action");
     const reply = await this.backend.pluginCall(plugin, handler, args).catch((e: unknown) => this.lost(plugin, e));
-    this.apply(reply, true);
+    this.apply(reply);
     return reply.result;
   }
 
@@ -522,7 +523,7 @@ export class PluginManager {
 
   /** A Session's output (tabs' tap): batched, decoded and stripped of escape sequences, then
    * sent as `terminal_output` to the Plugins granted terminal.read. */
-  output(session: number, host: string, data: Uint8Array) {
+  output(session: number, host: string | null, data: Uint8Array) {
     if (!this.readsTerminal()) return;
     let p = this.pendingOutput.get(session);
     if (!p) {
@@ -605,17 +606,31 @@ export class PluginManager {
     };
   }
 
-  /** Applies a reply: its ops, then its error and whether it's now disabled. `userCall`: the
-   * reply to a call the user started (an action, a command), the only one that may copy. */
-  private apply(reply: PluginReply, userCall = false) {
+  /** Applies a reply: its ops, then its error and whether it's now disabled. The core is the one
+   * judge of what a Plugin may do: a `copy` op is in a reply only to a call the user started.
+   * Notices after a copy wait for it: if it fails, they're dropped ("Copied" would be a lie) and
+   * the failure is said instead (decision Q87). */
+  private apply(reply: PluginReply) {
     const name = reply.plugin;
     const l = this.loaded.get(name);
     if (l) {
+      let copying: Promise<boolean> | null = null;
       for (const raw of reply.ops) {
         const op = parseOp(raw);
         if ("invalid" in op) this.notify(name, "warn", `${name}: ${op.invalid}`);
-        else if (op.op === "copy" && !userCall) this.notify(name, "warn", `${name}: it may copy only when you run one of its actions`);
-        else this.applyOp(l, name, op);
+        else if (op.op === "copy") {
+          const before: Promise<boolean> = copying ?? Promise.resolve(true);
+          const done = this.ui.copy(op.text).then(
+            () => true,
+            (e: unknown) => {
+              this.notify(name, "error", `${name}: couldn't copy to the clipboard: ${e instanceof Error ? e.message : String(e)}`);
+              return false;
+            },
+          );
+          copying = Promise.all([before, done]).then(([a, b]) => a && b);
+        } else if (op.op === "notify" && copying) {
+          void copying.then((ok) => ok && this.notify(name, op.level, `${name}: ${op.text}`));
+        } else this.applyOp(l, name, op);
       }
     }
     if (reply.error) this.notify(name, "error", describeError(reply.error) + (reply.disabled ? ". It's disabled." : ""));
@@ -765,7 +780,7 @@ export class PluginManager {
       case "send":
         return this.ui.send(op.session, op.text);
       case "copy":
-        return this.ui.copy(op.text);
+        return void this.ui.copy(op.text).catch(() => undefined);
       case "remove":
         return this.drop(l, `${op.kind}:${op.id}`);
     }

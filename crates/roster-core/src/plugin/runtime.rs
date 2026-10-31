@@ -437,9 +437,14 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
 
     // A badge on a Host's rows ("2 alerts"); nil takes it off.
     let badges = lua.create_table()?;
-    func!(badges, "set", |_lua, s, (host, text): (String, Option<String>)| {
-        push(s, json!({ "op": "badge", "host": host, "text": text }))
-    });
+    func!(
+        badges,
+        "set",
+        |_lua, s, (host, text): (String, Option<mlua::LuaString>)| {
+            let text = text.map(|t| t.to_string_lossy());
+            push(s, json!({ "op": "badge", "host": host, "text": text }))
+        }
+    );
     roster.raw_set("badges", badges)?;
 
     // A floating window over the terminal: a title and lines of text; `close` hides it.
@@ -456,7 +461,8 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     // The clipboard: only while the user runs one of the Plugin's actions, commands or finder
     // items, never on its own (at load, on an event), so it can't swap what you copied.
     let clipboard = lua.create_table()?;
-    func!(clipboard, "copy", |_lua, s, text: String| {
+    func!(clipboard, "copy", |_lua, s, text: mlua::LuaString| {
+        let text = text.to_string_lossy();
         if !s.user_call.get() {
             return Err(mlua::Error::runtime(
                 "roster.clipboard.copy: only while the user runs one of your actions, commands or finder items",
@@ -471,15 +477,20 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     });
     roster.raw_set("clipboard", clipboard)?;
 
-    func!(roster, "notify", |_lua, s, (text, level): (String, Option<String>)| {
-        let level = level.unwrap_or_else(|| "info".into());
-        if !matches!(level.as_str(), "info" | "warn" | "error") {
-            return Err(mlua::Error::runtime(
-                "roster.notify: the level is \"info\", \"warn\" or \"error\"",
-            ));
+    func!(
+        roster,
+        "notify",
+        |_lua, s, (text, level): (mlua::LuaString, Option<String>)| {
+            let text = text.to_string_lossy();
+            let level = level.unwrap_or_else(|| "info".into());
+            if !matches!(level.as_str(), "info" | "warn" | "error") {
+                return Err(mlua::Error::runtime(
+                    "roster.notify: the level is \"info\", \"warn\" or \"error\"",
+                ));
+            }
+            push(s, json!({ "op": "notify", "text": text, "level": level }))
         }
-        push(s, json!({ "op": "notify", "text": text, "level": level }))
-    });
+    );
 
     // Events: `roster.on("session_open", function(e) … end)`.
     func!(roster, "on", |lua, s, (event, f): (String, Function)| {

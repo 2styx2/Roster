@@ -700,6 +700,18 @@ describe("Quick Connect (ticket 14)", () => {
     expect(JSON.stringify(tabs.snapshot())).not.toContain(PASSWORD);
   });
 
+  it("its output reaches the Plugins' tap with no Host: it isn't one in the Inventory", async () => {
+    const { tabs } = quick();
+    const hostsSeen = new Set<string | null>();
+    tabs.setOutputTap((_id, host) => void hostsSeen.add(host));
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, PASSWORD);
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    await vi.waitFor(() => expect(hostsSeen.size).toBeGreaterThan(0));
+    expect([...hostsSeen]).toEqual([null]);
+  });
+
   it("logs in with this Box's keys when the password is left empty", async () => {
     const { backend, tabs } = quick();
     const id = tabs.openQuick(to);

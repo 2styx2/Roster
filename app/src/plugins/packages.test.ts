@@ -34,7 +34,7 @@ function setup(packages: FakePackages, state: Record<string, unknown> = {}) {
   const backend = fakeBackend({ hosts: makeHosts(2), packages });
   const registries = builtinRegistries();
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
-  const manager = new PluginManager(backend, registries, store, { run: () => undefined, send: () => undefined, copy: () => undefined });
+  const manager = new PluginManager(backend, registries, store, { run: () => undefined, send: () => undefined, copy: async () => undefined });
   return { manager, registries, state, packages };
 }
 

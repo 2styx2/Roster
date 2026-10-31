@@ -336,7 +336,7 @@ fn lines_that_match_become_alerts_with_their_host_badge_count_and_a_notice() {
             .starts_with("esx-02 · ")
     );
 
-    // A line split across two batches is matched once it's whole; several at once, one notice.
+    // A line split across two batches is matched once it's whole.
     assert!(w.output(2, "appliance", "kernel panic - not syncing\nER").len() == 1);
     let replies = w.output(2, "appliance", "ROR again\nfine\nERROR twice\n");
     let ops = &replies[0].ops;
@@ -357,12 +357,126 @@ fn lines_that_match_become_alerts_with_their_host_badge_count_and_a_notice() {
             &json!({ "op": "badge", "host": "esx-02", "text": "1 alert" })
         ]
     );
-    assert_eq!(
-        one(ops, "notify")["text"],
-        "2 new alerts, the last on appliance: ERROR twice"
-    );
+    // appliance had its notice a moment ago (kernel panic): these wait for its next one.
+    assert!(find(ops, "notify").is_empty());
     // Output with nothing that matches changes nothing.
     assert!(w.output(1, "esx-02", "all good\n").is_empty());
+    // Several at once from a Host, one notice.
+    let replies = w.output(3, "esx-03", "ERROR a\nERROR b\n");
+    assert_eq!(
+        one(&replies[0].ops, "notify")["text"],
+        "2 new alerts on esx-03, the last: ERROR b"
+    );
+}
+
+#[test]
+fn a_long_unfinished_line_cut_in_the_middle_of_a_character_still_shows_and_never_disables_it() {
+    let w = World::new("utf8");
+    ok(&w.install(&["terminal.read"]));
+    // A line with no end yet, over 2000 bytes: what's kept is its last 2000, which would start
+    // 287 bytes before the end of the "é"s, inside one.
+    let long = format!("x{} ERROR here {}", "é".repeat(1500), "y".repeat(1701));
+    for _ in 0..4 {
+        for r in w.output(1, "esx-02", &long) {
+            ok(&r);
+        }
+        let replies = w.output(1, "esx-02", "\n");
+        assert_eq!(replies.len(), 1);
+        ok(&replies[0]);
+        assert!(replies[0].disabled.is_none());
+        let label = rows(one(&replies[0].ops, "section"))[0].clone();
+        assert!(label.starts_with('é'), "cut on a character: {label:?}");
+        assert!(label.contains(" ERROR here "), "{label:?}");
+        assert!(!label.contains('\u{fffd}'), "{label:?}");
+    }
+}
+
+#[test]
+fn a_long_line_matches_past_what_a_row_shows() {
+    let w = World::new("long");
+    ok(&w.install(&["terminal.read"]));
+    let replies = w.output(1, "esx-02", &format!("{} ERROR at the end\n", "y".repeat(400)));
+    assert_eq!(replies.len(), 1, "matched");
+    let label = rows(one(&replies[0].ops, "section"))[0].clone();
+    assert_eq!(label.chars().count(), 300, "cut to show: {label:?}");
+    assert!(label.ends_with('…'));
+}
+
+#[test]
+fn a_hosts_notices_come_at_most_once_per_quiet_spell_and_then_count_what_was_held() {
+    let mut w = World::new("quiet");
+    w.specs[0].config.insert("quiet".into(), json!(1));
+    ok(&w.install(&["terminal.read"]));
+    let notices = |replies: &[Reply]| -> Vec<String> {
+        replies
+            .iter()
+            .flat_map(|r| find(&r.ops, "notify"))
+            .map(|n| n["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(notices(&w.output(1, "esx-02", "ERROR one\n")), ["esx-02: ERROR one"]);
+    // `tail -f` on a noisy log: the section keeps up, the notices don't pile up.
+    let replies = w.output(1, "esx-02", "ERROR two\nERROR three\n");
+    assert!(notices(&replies).is_empty());
+    assert_eq!(rows(one(&replies[0].ops, "section")).len(), 3);
+    // Another Host has its own spell.
+    assert_eq!(notices(&w.output(2, "appliance", "panic\n")), ["appliance: panic"]);
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert_eq!(
+        notices(&w.output(1, "esx-02", "ERROR four\n")),
+        ["3 new alerts on esx-02, the last: ERROR four"]
+    );
+}
+
+#[test]
+fn what_you_type_echoed_after_a_shell_prompt_isnt_an_alert() {
+    let w = World::new("echo");
+    ok(&w.install(&["terminal.read"]));
+    for typed in [
+        "esx-02$ grep ERROR /var/log/syslog",
+        "root@esx-02:~# grep ERROR /var/log/syslog",
+        "[admin@appliance logs]$ grep -c panic kern.log",
+        "$ grep ERROR app.log",
+        "PS C:\\logs> Select-String ERROR app.log",
+    ] {
+        assert!(w.output(1, "esx-02", &format!("{typed}\n")).is_empty(), "{typed:?}");
+    }
+    // What the command prints is still watched.
+    let replies = w.output(1, "esx-02", "Oct 31 10:00:00 esx-02 app: ERROR: disk full\n");
+    assert_eq!(
+        rows(one(&replies[0].ops, "section")),
+        ["Oct 31 10:00:00 esx-02 app: ERROR: disk full"]
+    );
+}
+
+#[test]
+fn a_quick_connect_session_has_no_host_so_its_alerts_have_no_badge_and_no_goto() {
+    let w = World::new("quick");
+    ok(&w.install(&["terminal.read"]));
+    let replies = w.host.event(Event {
+        name: "terminal_output".into(),
+        payload: json!({ "session": 7, "host": null, "text": "ERROR on a box\n" }),
+    });
+    ok(&replies[0]);
+    let ops = &replies[0].ops;
+    let row = &one(ops, "section")["spec"]["rows"][0];
+    assert_eq!(row["detail"], "Quick Connect");
+    assert!(row.get("host").is_none(), "no Host to go to: {row}");
+    assert!(find(ops, "badge").is_empty());
+    assert_eq!(one(ops, "notify")["text"], "Quick Connect: ERROR on a box");
+    let section = one(ops, "section").clone();
+    let r = w
+        .host
+        .call(NAME, action(&section, "Details of ERROR on a box"), json!({}));
+    ok(&r);
+    assert_eq!(
+        one(&r.ops, "float")["spec"]["title"],
+        "Alert in a Quick Connect Session"
+    );
+    assert_eq!(
+        one(&r.ops, "float")["spec"]["lines"][0],
+        "Host     none (Quick Connect)"
+    );
 }
 
 #[test]
@@ -435,7 +549,10 @@ fn its_actions_show_the_details_copy_the_line_and_dismiss_it_and_alerts_clear_di
 #[test]
 fn bad_settings_are_named_in_a_notice_and_the_defaults_used() {
     let mut w = World::new("settings");
-    w.specs[0].config = json!({ "patterns": "ERROR", "max": 0 }).as_object().unwrap().clone();
+    w.specs[0].config = json!({ "patterns": "ERROR", "max": 0, "notify": "yes", "quiet": -1 })
+        .as_object()
+        .unwrap()
+        .clone();
     let reply = w.install(&["terminal.read"]);
     ok(&reply);
     let notices: Vec<&str> = find(&reply.ops, "notify")
@@ -446,7 +563,9 @@ fn bad_settings_are_named_in_a_notice_and_the_defaults_used() {
         notices,
         [
             "config.patterns must be a list of text, such as { \"ERROR\", \"panic\" }; using the default",
-            "config.max must be a whole number from 1 to 1000; using the default"
+            "config.max must be a whole number from 1 to 1000; using the default",
+            "config.notify must be true or false; using the default",
+            "config.quiet must be a whole number of seconds from 0 to 3600; using the default"
         ]
     );
     assert_eq!(one(&reply.ops, "key")["keys"], "w w");
@@ -715,6 +834,9 @@ fn steps() -> Value {
         { "do": "event", "name": "terminal_output", "payload": { "session": 2, "host": "appliance", "text": "kernel panic - not syncing\nER" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 2, "host": "appliance", "text": "ROR again\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "all good\n" } },
+        { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "esx-02$ grep ERROR /var/log/syslog\n" } },
+        { "do": "event", "name": "terminal_output", "payload": { "session": 3, "host": null, "text": "ERROR on a box\n" } },
+        { "do": "action", "label": "Details of ERROR on a box" },
         { "do": "action", "label": "Details of ERROR: disk /dev/sda1 full" },
         { "do": "action", "label": "Copy ERROR again" },
         { "do": "action", "label": "Dismiss kernel panic - not syncing" },

@@ -78,12 +78,48 @@ describe("installing recent-alerts from its git URL", () => {
     expect(p).toHaveTextContent(`Unverified: from ${URL} at 1111111`);
     expect(within(p).getByText("terminal.read")).toBeInTheDocument();
     expect(p).toHaveTextContent("A password you type at a prompt that echoes it would be visible too");
-    expect(within(p).getByRole("button", { name: "Install" })).toHaveFocus();
+    // The safe choice has the keys: Install is a deliberate move (decision Q87).
+    expect(within(p).getAllByRole("button", { name: "Cancel" }).at(-1)).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.queryByText("Recent alerts")).toBeNull();
     expect(pk.lock).toEqual({});
     expect(pk.clones).toEqual({});
+  });
+});
+
+describe("a stray Enter", () => {
+  it("right after unlocking (the prompt came up behind the lock screen) doesn't install it", async () => {
+    const { user, pk } = await ready();
+    await prompt();
+    await user.keyboard("{Enter}");
+    expect(pk.lock).toEqual({});
+    expect(screen.queryByText("Recent alerts")).toBeNull();
+  });
+
+
+  it("isn't where the keys go once :tutor's demo is in front: the demo's workspace has them", async () => {
+    const { user } = await ready();
+    await prompt();
+    // Nothing may try to focus the hidden, inert workspace's prompt from the demo's.
+    const real = HTMLElement.prototype.focus;
+    const intoHidden: string[] = [];
+    const focused: HTMLElement[] = [];
+    const spy = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+      focused.push(this);
+      if (this.closest(".app-slot[hidden]")) intoHidden.push(this.outerHTML.slice(0, 80));
+      real.call(this, options);
+    });
+    try {
+      await user.keyboard(`${LEADER}:tutor{Enter}`);
+      await screen.findByRole("region", { name: "Demo Inventory" });
+      await screen.findByRole("main", { name: /workspace/i });
+      await screen.findByRole("complementary", { name: "Help" });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(intoHidden).toEqual([]);
+    expect(focused.some((e) => e.matches("main.workspace") && !e.closest(".app-slot[hidden]"))).toBe(true);
   });
 });
 
@@ -100,6 +136,19 @@ describe("allowed", () => {
     // The badge sits on the Host's Inventory row.
     expect(screen.getAllByText("1 alert").length).toBeGreaterThan(0);
     expect(await screen.findByRole("alert", { name: "From recent-alerts" })).toHaveTextContent(`recent-alerts: ${HOST}: ERROR: disk /dev/sda1 full`);
+  });
+
+  it("your own command, echoed after the shell's prompt, isn't an alert; what it prints is", async () => {
+    const r = await installed();
+    await connect(r);
+    const pane = screen.getByRole("group", { name: `Session ${HOST}` });
+    await r.user.click(within(pane).getByLabelText("terminal input"));
+    await r.user.keyboard("grep ERROR /var/log/syslog{Enter}");
+    await within(pane).findByText(/grep ERROR \/var\/log\/syslog/);
+    r.backend.print(HOST, "ERROR: from the log\r\n");
+    expect(await within(section()).findByText("ERROR: from the log")).toBeInTheDocument();
+    expect(within(section()).queryByText(/grep ERROR/)).toBeNull();
+    expect(screen.getByText("⚠ 1")).toBeInTheDocument();
   });
 
   it("its row's buttons show the details in a float (Esc closes it), copy the line and dismiss it", async () => {

@@ -3,6 +3,7 @@
 // with only the functions its grants give (as the core's), and functions it hands over come back
 // as `{ handler: N }`. Errors name the Plugin and `init.lua`, a load error or a third error
 // disables it, as in the core. The built-in `hosts` Plugin is here as the core's Lua is.
+import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { BackendCallError, type Host, type PluginEventName, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
@@ -62,13 +63,34 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   terminal_output: ["terminal.read"],
 };
 
-/** What the core refuses in a manifest (permission.rs): `network` (not yet) and any serve method
- * that isn't on the list, every secret one above all. */
+const isName = (s: string) => /^[a-z0-9_.]*$/.test(s);
+
+/** Whether a Plugin may ever call `method`, as permission.rs's serve_method_allowed. */
+function serveMethodAllowed(method: string): boolean {
+  return (
+    PERMISSIONS.serve_methods.includes(method) ||
+    PERMISSIONS.serve_prefixes.some((p) => method.length > p.length && method.startsWith(p) && isName(method.slice(p.length)))
+  );
+}
+
+/** Why the core refuses `p` in a manifest (permission.rs's Permission::parse), or null. */
+function permissionProblem(p: string): string | null {
+  if (PERMISSIONS.permissions.includes(p)) return null;
+  if (p === "network") return `"network" isn't available yet: this roster has no network functions for Plugins`;
+  if (p.startsWith("serve:")) {
+    const method = p.slice(6);
+    if (serveMethodAllowed(method)) return null;
+    return `"serve:${method}" can't be granted: a Plugin may call only ${PERMISSIONS.serve_methods.join(", ")} and the mesh.* and discover.* methods, never one that reaches a secret`;
+  }
+  return `${JSON.stringify(p)} isn't a permission (there's inventory.read, inventory.write, sessions.open, terminal.read, terminal.write and serve:<method>)`;
+}
+
+/** What the core refuses in a manifest: the first permission it can't grant. From the table the
+ * core is tested on too (crates/roster-core/tests/fixtures/plugin-permissions.json). */
 export function manifestProblem(m: FakePlugin["manifest"]): string | null {
   for (const p of m.permissions) {
-    if (p === "network") return `roster-plugin.lua: permissions: "network" isn't available yet: this roster has no network functions for Plugins`;
-    if (p.startsWith("serve:") && /^(vault|session|quick|changes\.publish|host\.add|host\.save_login)/.test(p.slice(6)))
-      return `roster-plugin.lua: permissions: "${p}" can't be granted: a Plugin may call only inventory.info, hosts.list, host.get, host.check, changes.diff and the mesh.* and discover.* methods, never one that reaches a secret`;
+    const problem = permissionProblem(p);
+    if (problem) return `roster-plugin.lua: permissions: ${problem}`;
   }
   return null;
 }
@@ -83,7 +105,7 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
       summary: SUMMARIES[name] ?? `Call roster's ${name.replace(/^serve:/, "")}`,
       risk:
         RISKS[name] ??
-        (name.startsWith("serve:") && !["serve:inventory.info", "serve:hosts.list", "serve:host.get", "serve:changes.diff", "serve:mesh.status", "serve:mesh.plan"].includes(name)
+        (name.startsWith("serve:") && !PERMISSIONS.serve_reads.includes(name.slice(6))
           ? `Can run roster's ${name.slice(6)}, which can change things on your Hosts or in the Inventory.`
           : null),
     })),

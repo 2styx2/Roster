@@ -150,7 +150,7 @@ export class Tabs {
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
   /** Sees every Session's output as it arrives (Plugins with terminal.read, ticket 23). */
-  private outputTap: ((id: number, host: string, data: Uint8Array) => void) | null = null;
+  private outputTap: ((id: number, host: string | null, data: Uint8Array) => void) | null = null;
   private asksAboutKeys = true;
   private readonly now: () => number;
 
@@ -228,7 +228,7 @@ export class Tabs {
 
   /** Hands every Session's output to `tap` too (null stops it): what Plugins with terminal.read
    * get. Only output: what's typed into a Session never goes there. */
-  setOutputTap(tap: ((id: number, host: string, data: Uint8Array) => void) | null) {
+  setOutputTap(tap: ((id: number, host: string | null, data: Uint8Array) => void) | null) {
     this.outputTap = tap;
   }
 
@@ -431,7 +431,8 @@ export class Tabs {
           const text = this.keepTail(entry, data);
           this.scanForName(entry, text);
           this.output(entry, data);
-          this.outputTap?.(id, entry.tab.host, data);
+          // A Quick Connect Session isn't on a Host of the Inventory: no Host to name.
+          this.outputTap?.(id, entry.tab.quick ? null : entry.tab.host, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
         },

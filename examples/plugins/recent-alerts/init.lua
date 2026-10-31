@@ -24,12 +24,14 @@ local function granted(permission)
 end
 local reads = granted("terminal.read")
 
-local alerts = {} -- oldest first: { id, host, session, text, pattern, at, before }
+local alerts = {} -- oldest first: { id, host, session, text, pattern, at, before } (host nil: Quick Connect)
 local next_id = 0
 local carry = {} -- per Session: the end of its output that isn't a whole line yet
 local context = {} -- per Session: its last few lines, shown above an alert in its details
 local badged = {} -- the Hosts that have a badge now
+local told = {} -- per Host (or Quick Connect): when its last notice was, and the alerts since
 local CONTEXT = 3
+local QUICK = "Quick Connect"
 
 local function clock(at) return os.date("%H:%M:%S", at) end
 
@@ -42,9 +44,12 @@ end
 
 local show -- below: draws everything from `alerts`
 
+-- Where an alert came from, as its row says it: the Host, or Quick Connect (no Host to name).
+local function where(a) return a.host or QUICK end
+
 local function details(a)
   local lines = {
-    "Host     " .. a.host,
+    "Host     " .. (a.host or "none (" .. QUICK .. ")"),
     "Session  " .. a.session,
     "At       " .. os.date("%Y-%m-%d %H:%M:%S", a.at),
     "Matched  " .. a.pattern,
@@ -52,7 +57,8 @@ local function details(a)
   }
   for _, l in ipairs(a.before) do lines[#lines + 1] = "  " .. l end
   lines[#lines + 1] = "› " .. a.text
-  roster.float.open({ title = "Alert on " .. a.host, lines = lines })
+  local title = a.host and ("Alert on " .. a.host) or "Alert in a Quick Connect Session"
+  roster.float.open({ title = title, lines = lines })
 end
 
 local function dismiss(id)
@@ -75,20 +81,21 @@ show = function()
   -- Newest first.
   for i = #alerts, 1, -1 do
     local a = alerts[i]
-    per_host[a.host] = (per_host[a.host] or 0) + 1
+    -- A Quick Connect Session has no Host: no badge, and nothing for Enter to go to.
+    if a.host then per_host[a.host] = (per_host[a.host] or 0) + 1 end
     rows[#rows + 1] = {
       id = tostring(a.id),
       label = a.text,
-      detail = a.host,
+      detail = where(a),
       note = clock(a.at),
-      title = a.host .. " at " .. clock(a.at) .. ": " .. a.text,
+      title = where(a) .. " at " .. clock(a.at) .. ": " .. a.text,
       -- With `host`, Enter goes to that Host's Session, and the row lights up while it's on screen.
       host = a.host,
       actions = {
         { label = "Details of " .. a.text, icon = "info", run = function() details(a) end },
         { label = "Copy " .. a.text, icon = "copy", run = function()
           roster.clipboard.copy(a.text)
-          roster.notify("Copied the line from " .. a.host)
+          roster.notify("Copied the line from " .. where(a))
         end },
         { label = "Dismiss " .. a.text, icon = "close", run = function() dismiss(a.id) end },
       },
@@ -96,7 +103,7 @@ show = function()
     items[#items + 1] = {
       id = tostring(a.id),
       label = a.text,
-      detail = a.host .. " · " .. clock(a.at),
+      detail = where(a) .. " · " .. clock(a.at),
       run = function() details(a) end,
     }
   end
@@ -142,7 +149,7 @@ roster.commands.add("alerts", {
       local lines = {}
       for i = #alerts, 1, -1 do
         local x = alerts[i]
-        lines[#lines + 1] = clock(x.at) .. "  " .. x.host .. "  " .. x.text
+        lines[#lines + 1] = clock(x.at) .. "  " .. where(x) .. "  " .. x.text
       end
       roster.float.open({ title = "Recent alerts", lines = lines })
     else
@@ -171,16 +178,41 @@ roster.help.set("recent-alerts", {
   }, "\n"),
 })
 
+-- A notice for `fresh` alerts from one Session, at most once per `quiet` seconds for each Host:
+-- `tail -f` on a noisy log keeps the section up to date without a pile of notices. The alerts
+-- held back are counted in the next one.
+local function tell(fresh)
+  local last = fresh[#fresh]
+  local key = where(last)
+  local t = told[key] or { at = nil, held = 0 }
+  told[key] = t
+  local now = os.time()
+  if t.at and now - t.at < settings.quiet then
+    t.held = t.held + #fresh
+    return
+  end
+  local n = t.held + #fresh
+  t.at, t.held = now, 0
+  if n == 1 then
+    roster.notify(key .. ": " .. last.text, "warn")
+  else
+    roster.notify(n .. " new alerts on " .. key .. ", the last: " .. last.text, "warn")
+  end
+end
+
 if reads then
   roster.on("terminal_output", function(e)
-    local host = e.host or "?"
+    -- nil for a Quick Connect Session: it isn't a Host of the Inventory.
+    local host = e.host
     local lines
     lines, carry[e.session] = match.lines(carry[e.session], e.text)
     local seen = context[e.session] or {}
     local fresh = {}
     for _, raw in ipairs(lines) do
-      local line = match.tidy(raw)
-      local pattern = line ~= "" and match.first(line, settings.patterns)
+      local whole = raw:gsub("^%s+", ""):gsub("%s+$", "")
+      -- Matched on the whole line, shown cut; your own command echoed after a prompt isn't one.
+      local pattern = whole ~= "" and not match.prompt(whole) and match.first(whole, settings.patterns)
+      local line = match.tidy(whole)
       if pattern then
         next_id = next_id + 1
         local before = {}
@@ -198,14 +230,7 @@ if reads then
     if #fresh == 0 then return end
     while #alerts > settings.max do table.remove(alerts, 1) end
     show()
-    if settings.notify then
-      local last = fresh[#fresh]
-      if #fresh == 1 then
-        roster.notify(last.host .. ": " .. last.text, "warn")
-      else
-        roster.notify(#fresh .. " new alerts, the last on " .. last.host .. ": " .. last.text, "warn")
-      end
-    end
+    if settings.notify then tell(fresh) end
   end)
 
   -- A Session that ended takes its unfinished line and context with it (its alerts stay).

@@ -129,3 +129,48 @@ impl Serialize for Permission {
         s.collect_str(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The table the fake Backend reads and is tested on too (app/src/backend/fakePlugins.ts).
+    fn table() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../tests/fixtures/plugin-permissions.json")).unwrap()
+    }
+
+    fn list(t: &serde_json::Value, key: &str) -> Vec<String> {
+        serde_json::from_value(t[key].clone()).unwrap()
+    }
+
+    #[test]
+    fn the_tables_are_the_shared_ones() {
+        let t = table();
+        assert_eq!(list(&t, "serve_methods"), SERVE_METHODS);
+        assert_eq!(list(&t, "serve_prefixes"), SERVE_PREFIXES);
+        assert_eq!(list(&t, "serve_reads"), READS);
+        let names: Vec<String> = [
+            Permission::InventoryRead,
+            Permission::InventoryWrite,
+            Permission::SessionsOpen,
+            Permission::TerminalRead,
+            Permission::TerminalWrite,
+        ]
+        .iter()
+        .map(Permission::to_string)
+        .collect();
+        assert_eq!(list(&t, "permissions"), names);
+    }
+
+    #[test]
+    fn agrees_with_the_fake_backend() {
+        let t = table();
+        for p in list(&t, "grant") {
+            let parsed = Permission::parse(&p).unwrap_or_else(|e| panic!("{p:?} should be granted: {e}"));
+            assert_eq!(parsed.to_string(), p);
+        }
+        for p in list(&t, "refuse") {
+            assert!(Permission::parse(&p).is_err(), "{p:?} should be refused");
+        }
+    }
+}

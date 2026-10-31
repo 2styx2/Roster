@@ -596,10 +596,10 @@ function streamLog(rate: number, write: (text: string) => void): ReturnType<type
   }, 50);
 }
 
-/** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
 /** The logged-in fake Sessions a test can make print (`FakeBackend.print`). */
 type Printers = Set<{ host: string; say(text: string): void }>;
 
+/** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
 function fakeSession(
   id: number,
   host: string,
@@ -612,7 +612,17 @@ function fakeSession(
   let line = "";
   let ended = false;
   let streaming: ReturnType<typeof setInterval> | undefined;
-  const printer = { host, say: (text: string) => events.output(encode(text)) };
+  // Whether the cursor sits right after the prompt: what the box prints then (a log, `wall`)
+  // starts on a line of its own, and the prompt comes back after it, as in a real shell.
+  let atPrompt = false;
+  const printer = {
+    host,
+    say: (text: string) => {
+      events.output(encode(atPrompt ? `\r\n${text}` : text));
+      atPrompt = text.endsWith("\n");
+      if (atPrompt) events.output(encode(prompt));
+    },
+  };
   const end = (code: number | null, closed: boolean) => {
     if (ended) return;
     ended = true;
@@ -631,6 +641,7 @@ function fakeSession(
     // A shell that names its box in the window title, as most Linux prompts do (OSC 0).
     if (extra.title) events.output(encode(`\x1b]0;${extra.title}\x07`));
     events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    atPrompt = true;
     if (resized && !ended) sayResized(resized);
     if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => events.output(encode(text)));
     if (!ended) extra.printers?.add(printer);
@@ -646,8 +657,10 @@ function fakeSession(
           if (line.trim() === "exit") return end(0, false);
           line = "";
           events.output(encode(prompt));
+          atPrompt = true;
         } else {
           line += ch;
+          atPrompt = false;
           events.output(encode(ch === "\x1b" ? "^[" : ch));
         }
       }
