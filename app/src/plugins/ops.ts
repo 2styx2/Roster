@@ -71,7 +71,7 @@ export type PluginOp =
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
   | { op: "finder"; id: string; title: string; items: PluginFinderItem[] }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
-  | { op: "health"; id: string; title: string; checks: PluginHealthCheck[] }
+  | { op: "health"; id: string; title: string; checks: PluginHealthCheck[]; check?: Run }
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
   | { op: "badge"; host: string; text: string | null }
   | { op: "float"; spec: PluginFloat | null }
@@ -81,7 +81,7 @@ export type PluginOp =
   | { op: "copy"; text: string }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor"] as const;
+export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
@@ -164,6 +164,26 @@ function row(v: unknown, i: number, what: string): PluginRow {
   });
 }
 
+function healthChecks(v: unknown, what: string): PluginHealthCheck[] {
+  return list({ checks: v }, "checks", what).map((c, i): PluginHealthCheck => {
+    const at = `${what} check ${i + 1}`;
+    if (!isObj(c)) throw new Invalid(`${at}: must be a table`);
+    const level = HEALTH_LEVELS.find((l) => l === c.level);
+    if (!level) throw new Invalid(`${at}: level must be "ok", "warn" or "error"`);
+    return defined<PluginHealthCheck>({ level, message: str(c, "message", at), fix: optStr(c, "fix", at) });
+  });
+}
+
+/** What a `:check` section's `check` returned (`HealthCheck[]`), checked; or why it can't be used. */
+export function parseHealthChecks(v: unknown, what: string): PluginHealthCheck[] | { invalid: string } {
+  try {
+    return healthChecks(v, what);
+  } catch (e) {
+    if (e instanceof Invalid) return { invalid: e.message };
+    throw e;
+  }
+}
+
 /** The op, checked; or why it can't be used. */
 export function parseOp(raw: unknown): PluginOp | { invalid: string } {
   try {
@@ -235,18 +255,13 @@ function parse(raw: unknown): PluginOp {
     }
     case "health": {
       const what = `roster.health.set ${id}`;
-      return {
+      return defined<Extract<PluginOp, { op: "health" }>>({
         op: "health",
         id,
         title: optStr(spec, "title", what) ?? id,
-        checks: list(spec, "checks", what).map((c, i): PluginHealthCheck => {
-          const at = `${what} check ${i + 1}`;
-          if (!isObj(c)) throw new Invalid(`${at}: must be a table`);
-          const level = HEALTH_LEVELS.find((l) => l === c.level);
-          if (!level) throw new Invalid(`${at}: level must be "ok", "warn" or "error"`);
-          return defined<PluginHealthCheck>({ level, message: str(c, "message", at), fix: optStr(c, "fix", at) });
-        }),
-      };
+        checks: healthChecks(spec.checks, what),
+        check: spec.check === undefined || spec.check === null ? undefined : run(spec.check, `${what}: check`),
+      });
     }
     case "tutor": {
       const what = `roster.tutor.set ${id}`;

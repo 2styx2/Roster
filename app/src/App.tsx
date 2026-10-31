@@ -458,11 +458,14 @@ function Workspace({
   // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
   // and their UI goes into the registries with their name as its source.
   const runRef = useRef<(line: string) => void>(() => {});
+  // The Session on screen, for a Plugin handler's context (api 3): read when a handler runs.
+  const onScreenRef = useRef<{ session: number; host: string | null } | null>(null);
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
         send: (id, text) => tabs.write(id, text),
         copy: (text) => platform.clipboard.writeText(text),
+        onScreen: () => onScreenRef.current,
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
@@ -508,31 +511,34 @@ function Workspace({
     if (link?.demo) link.progress.feed(link.demo.tutorial, { name, data });
   }, []);
   // Sessions opening and ending, and the Session on screen, as Plugin events.
-  const seenTabs = useRef(new Map<number, "live" | "ended">());
+  // Each tab's state and Host (a Quick Connect Session's is null), so a tab closed while it ran
+  // still names its Host in `session_exit`.
+  const seenTabs = useRef(new Map<number, { state: "live" | "ended"; host: string | null }>());
   useEffect(() => {
     const before = seenTabs.current;
-    const now = new Map<number, "live" | "ended">();
+    const now = new Map<number, { state: "live" | "ended"; host: string | null }>();
     for (const t of sessions.tabs) {
       const ended = t.status.state === "ended" || t.status.state === "failed";
-      now.set(t.id, ended ? "ended" : "live");
-      if (!ended && before.get(t.id) !== "live") {
+      now.set(t.id, { state: ended ? "ended" : "live", host: t.quick ? null : t.host });
+      if (!ended && before.get(t.id)?.state !== "live") {
         // A Quick Connect Session's `host` is nil to a Plugin: it isn't a Host of the Inventory.
         void plugins.event("session_open", { session: t.id, host: t.quick ? null : t.host });
         tutorEvent("session_open", { host: t.host });
       }
-      if (ended && before.get(t.id) === "live") {
+      if (ended && before.get(t.id)?.state === "live") {
         const code = t.status.state === "ended" ? t.status.exit.code : null;
         void plugins.event("session_exit", { session: t.id, host: t.quick ? null : t.host, code });
         tutorEvent("session_exit", { host: t.host, code });
       }
     }
     for (const [id, was] of before) {
-      if (!now.has(id) && was === "live") void plugins.event("session_exit", { session: id, host: null, code: null });
+      if (!now.has(id) && was.state === "live") void plugins.event("session_exit", { session: id, host: was.host, code: null });
     }
     seenTabs.current = now;
   }, [sessions.tabs, plugins, tutorEvent]);
   const onScreenTab = sessions.tabs.find((t) => t.id === sessions.active);
   const onScreenHost = onScreenTab?.host ?? null;
+  onScreenRef.current = onScreenTab ? { session: onScreenTab.id, host: onScreenTab.quick ? null : onScreenTab.host } : null;
   // A Quick Connect Session isn't on a Host: Plugins hear `host_selected` only for a Host's.
   const onScreenQuick = Boolean(onScreenTab?.quick);
   useEffect(() => {
@@ -1166,7 +1172,7 @@ function Workspace({
     helpView.open({ page: "health" });
     const info = conn.state === "ready" ? conn.info : null;
     const api = info?.inventory.api_version ?? 0;
-    const finish = (box: HealthContext["box"], boxProblem: string | null) => {
+    const finish = async (box: HealthContext["box"], boxProblem: string | null) => {
       if (run !== healthRun.current) return;
       const hctx: HealthContext = {
         box,
@@ -1175,9 +1181,11 @@ function Workspace({
         config: { path: report?.path ?? null, error: report?.error ?? null, warnings },
         font: { families: terminalOptions.fonts, inUse: fontFound(terminalOptions.fonts, platform.fontInstalled ?? (() => null)) },
       };
-      setHealth({ state: "done", at: new Date(), sections: runHealth(registries.health.list(), hctx) });
+      // A Plugin's section may answer later (ticket 60): the page says it's checking until then.
+      const sections = await runHealth(registries.health.list(), hctx);
+      if (run === healthRun.current) setHealth({ state: "done", at: new Date(), sections });
     };
-    if (!info || api < BOX_CHECK_API_VERSION) return finish(null, null);
+    if (!info || api < BOX_CHECK_API_VERSION) return void finish(null, null);
     backend.checkBox().then(
       (box) => finish(box, null),
       (e: unknown) => finish(null, e instanceof Error ? e.message : String(e)),
@@ -1225,7 +1233,12 @@ function Workspace({
     },
     check: (name) => {
       if (name === null) return checkBox();
-      const host = name;
+      // `:check %` (ticket 60): the Host of the Session on screen, as Vim's `%` is the current file.
+      const current = onScreenTab && !onScreenTab.quick ? onScreenTab.host : null;
+      if (name === "%" && current === null) {
+        return setMessage(onScreenTab ? ":check % needs a Host's Session: a Quick Connect Session isn't on one" : ":check % needs a Session on screen");
+      }
+      const host = name === "%" ? (current ?? "") : name;
       if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
       const api = conn.state === "ready" ? conn.info.inventory.api_version : 0;
       if (api < CHECK_API_VERSION) {

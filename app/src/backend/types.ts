@@ -867,6 +867,9 @@ export interface Backend {
   /** Plugins (ticket 23, docs/plugins.md): the manifest of the Plugin folder at `path` (`~/…`,
    * absolute, or under the config folder), for the permission prompt. Runs none of its code. */
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
+  /** `:plugins types PATH` (ticket 74): writes the Plugin API's stubs for this app's version as
+   * `types/roster.lua` in the Plugin folder at `path`; resolves to the file's path. */
+  pluginTypes(path: string): Promise<string>;
   /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
    * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
   pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;

@@ -27,7 +27,8 @@ import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
-import { parseOp, type PluginFloat, type PluginOp, type PluginRow, type Run } from "./ops";
+import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
+import { parseHealthChecks, parseOp, type PluginFloat, type PluginOp, type PluginRow, type Run } from "./ops";
 
 /** What the manager asks of the app. */
 export interface PluginUi {
@@ -38,7 +39,13 @@ export interface PluginUi {
   /** Puts `text` on the clipboard (`roster.clipboard.copy`; the core allows it only in a call
    * the user started). Rejects when the clipboard can't be written. */
   copy(text: string): Promise<void>;
+  /** The Session on screen and its Host (`null` for a Quick Connect Session), or null with none:
+   * a handler's context has them for a Plugin granted inventory.read or terminal.read. */
+  onScreen?(): { session: number; host: string | null } | null;
 }
+
+/** What a Plugin's function is told about what ran it (api 3, `HandlerContext`). */
+export type HandlerContext = Record<string, string | number | null>;
 
 /** A Plugin as the State keeps it. */
 export interface Installed {
@@ -113,6 +120,7 @@ export interface PluginStore {
 type PluginBackend = Pick<
   Backend,
   | "pluginManifest"
+  | "pluginTypes"
   | "pluginLoad"
   | "pluginCall"
   | "pluginEvent"
@@ -523,6 +531,16 @@ export class PluginManager {
     return null;
   }
 
+  /** `:plugins types PATH` (ticket 74): writes the API's stubs into a Plugin's folder; says where. */
+  async writeTypes(path: string): Promise<string> {
+    try {
+      const file = await this.backend.pluginTypes(path);
+      return `Wrote ${file}: the Plugin API ${pluginApi.api_version}'s types, for lua-language-server`;
+    } catch (e) {
+      return `Couldn't write the types: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
   /** `:plugins remove NAME`: unloads it, takes its UI away and forgets it. A built-in one can only
    * have its permissions revoked. */
   async remove(name: string): Promise<string | null> {
@@ -556,10 +574,25 @@ export class PluginManager {
     this.packageConfig.delete(name);
   }
 
+  /** Runs what a Plugin's row, action, finder item or segment handed over, telling it which one
+   * (`context`) and, when it may know, the Session on screen. */
+  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action"): Promise<unknown> {
+    return this.call(plugin, handler, { ...context, ...this.onScreen(plugin) }, what);
+  }
+
+  /** The Session on screen, for a Plugin that may know it (the permissions that let it hear
+   * `host_selected`): `{}` otherwise, or with none on screen. */
+  private onScreen(plugin: string): HandlerContext {
+    const granted = this.loaded.get(plugin)?.granted ?? [];
+    if (!granted.includes("inventory.read") && !granted.includes("terminal.read")) return {};
+    const on = this.ui.onScreen?.() ?? null;
+    return on ? { session: on.session, host: on.host } : {};
+  }
+
   /** Runs what a Plugin's row, action, finder item or command handed over. */
-  async call(plugin: string, handler: number, args: unknown = {}): Promise<unknown> {
+  async call(plugin: string, handler: number, args: unknown = {}, what = "ran an action"): Promise<unknown> {
     if (!this.loaded.has(plugin)) return undefined;
-    this.used(plugin, "ran an action");
+    this.used(plugin, what);
     const reply = await this.backend.pluginCall(plugin, handler, args).catch((e: unknown) => this.lost(plugin, e));
     this.apply(reply);
     return reply.result;
@@ -732,9 +765,9 @@ export class PluginManager {
     this.changed();
   }
 
-  /** The command line that runs `run` for `plugin`. */
-  private line(plugin: string, run: Run): string {
-    return "command" in run ? run.command : `plugins call ${plugin} ${run.handler}`;
+  /** The command line that runs `run` for `plugin`; a function hears `context` (what ran it). */
+  private line(plugin: string, run: Run, context: HandlerContext): string {
+    return "command" in run ? run.command : `plugins call ${plugin} ${run.handler} ${encodeURIComponent(JSON.stringify(context))}`;
   }
 
   private put(l: Loaded, key: string, dispose: () => void) {
@@ -770,7 +803,7 @@ export class PluginManager {
           run: (_ctx, arg) => {
             const args = (arg ?? "").trim();
             if ("command" in run) this.ui.run(run.command);
-            else void this.call(plugin, run.handler, { args, words: args ? args.split(/\s+/) : [] });
+            else void this.callWith(plugin, run.handler, { args, words: args ? args.split(/\s+/) : [] } as unknown as HandlerContext);
           },
         };
         return this.put(l, `command:${op.name}`, r.commands.register(def));
@@ -779,13 +812,15 @@ export class PluginManager {
         const context = KEY_CONTEXTS[op.context];
         if (!context) return refuse(`keys go after the Leader or in the Sidebar (leader, list, list_vim), not ${op.context}`);
         const id = bindingId(context, op.keys);
-        if (this.taken(r.keymap, id, plugin)) return refuse(`${op.keys} (${op.context}) is bound already, by ${r.keymap.get(id)?.source ?? "roster"}`);
+        if (op.action !== false && this.taken(r.keymap, id, plugin)) return refuse(`${op.keys} (${op.context}) is bound already, by ${r.keymap.get(id)?.source ?? "roster"}`);
         // Nor may it start with a bound key, or be the start of one: either would hide the other.
         const clash = r.keymap
           .list()
           .find((b) => b.context === context && b.source !== plugin && b.action !== null && (op.keys.startsWith(`${b.keys} `) || b.keys.startsWith(`${op.keys} `)));
         if (clash) return refuse(`${op.keys} (${op.context}) would hide ${clash.keys}, bound by ${clash.source}`);
-        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action: op.action === false ? null : op.action }));
+        // `false` (keymap.del, api 3) takes the Plugin's own binding off; it never claims keys.
+        if (op.action === false) return this.drop(l, `key:${id}`);
+        return this.put(l, `key:${id}`, r.keymap.register({ id, source: plugin, context, keys: op.keys, action: op.action }));
       }
       case "theme": {
         if (this.taken(r.themes, op.id, plugin)) return refuse(`there's a Theme named ${op.id} already`);
@@ -810,7 +845,7 @@ export class PluginManager {
             source: plugin,
             text: op.text,
             ...(op.title ? { title: op.title } : {}),
-            ...(op.run ? { command: this.line(plugin, op.run) } : {}),
+            ...(op.run ? { command: this.line(plugin, op.run, { segment: op.id }) } : {}),
           }),
         );
       }
@@ -822,7 +857,7 @@ export class PluginManager {
             label: i.label,
             ...(i.detail ? { detail: i.detail } : {}),
             ...(i.path ? { path: i.path } : {}),
-            command: this.line(plugin, i.run),
+            command: this.line(plugin, i.run, { finder: op.id, item: i.id }),
           }),
         );
         return this.put(
@@ -849,7 +884,15 @@ export class PluginManager {
       case "health": {
         if (this.taken(r.health, op.id, plugin)) return refuse(`there's a :check section named ${op.id} already`);
         const checks = op.checks.map((c) => ({ section: op.id, ...c }));
-        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: () => checks }));
+        const check = op.check;
+        // With `check` (api 3, like vim.health), each `:check` calls the Plugin for its lines.
+        const run =
+          check === undefined
+            ? () => checks
+            : "command" in check
+              ? () => [{ section: op.id, level: "error" as const, message: "check must be a function" }]
+              : async () => this.healthCheck(plugin, op.id, check.handler);
+        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: run }));
       }
       case "badge": {
         const id = `${plugin}:${op.host}`;
@@ -872,6 +915,19 @@ export class PluginManager {
     }
   }
 
+  /** Calls a `:check` section's `check` and gives its lines; what goes wrong is an ERROR line. */
+  private async healthCheck(plugin: string, id: string, handler: number) {
+    const error = (message: string) => [{ section: id, level: "error" as const, message }];
+    if (!this.loaded.has(plugin)) return error(`${plugin} isn't running`);
+    const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }).catch((e: unknown) => this.lost(plugin, e));
+    this.used(plugin, "ran its :check section");
+    this.apply(reply);
+    if (reply.error) return error(`check failed: ${describeError(reply.error)}`);
+    const parsed = parseHealthChecks(reply.result, `roster.health.set ${id}: check`);
+    if ("invalid" in parsed) return error(parsed.invalid);
+    return parsed.map((c) => ({ section: id, ...c }));
+  }
+
   private row(plugin: string, section: string, row: PluginRow): SidebarRow {
     return {
       id: `${section}:${row.id}`,
@@ -883,8 +939,8 @@ export class PluginManager {
       ...(row.count !== undefined ? { count: row.count } : {}),
       ...(row.level !== undefined ? { level: row.level } : {}),
       ...(row.title ? { title: row.title } : {}),
-      command: row.run ? this.line(plugin, row.run) : row.host ? `open ${row.host}` : "",
-      actions: row.actions.map((a) => ({ label: a.label, icon: a.icon, command: this.line(plugin, a.run) })),
+      command: row.run ? this.line(plugin, row.run, { section, row: row.id }) : row.host ? `open ${row.host}` : "",
+      actions: row.actions.map((a, i) => ({ label: a.label, icon: a.icon, command: this.line(plugin, a.run, { section, row: row.id, action: i + 1 }) })),
     };
   }
 

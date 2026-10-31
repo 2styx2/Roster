@@ -215,3 +215,28 @@ fn coroutines_work_and_cant_outrun_the_budget() {
     let error = error.expect("it ran out of time");
     assert!(error.contains("an endless loop?"), "{error}");
 }
+
+/// `:plugins types PATH`: the stubs for this app's API, as `types/roster.lua` in a Plugin's folder.
+#[test]
+fn the_stubs_are_written_into_a_plugins_folder() {
+    let dir = plugin_dir("types", &[], "");
+    let written = roster_core::plugin::api::write_stubs(&dir).unwrap();
+    assert_eq!(written, dir.join("types").join("roster.lua"));
+    assert_eq!(
+        std::fs::read_to_string(&written).unwrap(),
+        roster_core::plugin::api::stubs()
+    );
+    // Again, over the old copy.
+    std::fs::write(&written, "old").unwrap();
+    roster_core::plugin::api::write_stubs(&dir).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&written).unwrap(),
+        roster_core::plugin::api::stubs()
+    );
+    let missing = dir.join("nope");
+    assert!(
+        roster_core::plugin::api::write_stubs(&missing)
+            .unwrap_err()
+            .contains("isn't a folder")
+    );
+}

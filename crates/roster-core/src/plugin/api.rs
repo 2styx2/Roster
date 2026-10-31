@@ -2406,6 +2406,19 @@ pub fn stubs() -> String {
 // ---------------------------------------------------------------- the data
 
 /// crates/roster-core/tests/fixtures/plugin-api.json: the API as data, and the help topics.
+/// `:plugins types PATH` (ticket 74): writes [`stubs`] for this app's API as `types/roster.lua` in
+/// the Plugin folder `dir`, over an older copy, and gives where. `dir` must exist.
+pub fn write_stubs(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    if !dir.is_dir() {
+        return Err(format!("{} isn't a folder", dir.display()));
+    }
+    let types = dir.join("types");
+    std::fs::create_dir_all(&types).map_err(|e| format!("{}: {e}", types.display()))?;
+    let file = types.join("roster.lua");
+    std::fs::write(&file, stubs()).map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(file)
+}
+
 pub fn json() -> Json {
     let mut tags = serde_json::Map::new();
     for v in VALUES {

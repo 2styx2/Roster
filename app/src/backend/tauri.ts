@@ -206,6 +206,7 @@ export function tauriBackend(): Backend {
     forgetTyped: (held) => call<{ forgotten: boolean }>("save_call", { method: "vault.forget_typed", params: { held } }),
     // Plugins (ticket 23): they run in the core; only data comes back.
     pluginManifest: (path) => call("plugin_manifest", { path }),
+    pluginTypes: (path) => call<string>("plugin_types", { path }),
     pluginLoad: (path, grants) => call("plugin_load", { path, grants }),
     pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),

@@ -14,8 +14,8 @@ export interface FakeRoster {
   api_version: number;
   plugin: { name: string; version: string; permissions: string[]; config: Record<string, unknown> };
   commands: { add(name: string, spec: Spec): void; remove(name: string): void };
-  keymap: { set(context: string, keys: string, action: string | false): void };
-  themes: { define(id: string, theme: Spec): void };
+  keymap: { set(context: string, keys: string, action: string | false): void; del(context: string, keys: string): void };
+  themes: { define(id: string, theme: Spec): void; remove(id: string): void };
   sidebar: { set(id: string, spec: Spec): void; remove(id: string): void };
   status: { set(id: string, spec: Spec): void; remove(id: string): void };
   finders: { set(id: string, spec: Spec): void; remove(id: string): void };
@@ -27,7 +27,7 @@ export interface FakeRoster {
   clipboard: { copy(text: string): void };
   notify(text: string, level?: "info" | "warn" | "error"): void;
   on(event: PluginEventName, f: Fn): void;
-  inventory?: { hosts(): Host[]; host(name: string): Host | undefined };
+  inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
   sessions?: { open(host: string): void };
   terminal?: { send(session: number, text: string): void };
 }
@@ -143,6 +143,7 @@ export function fakePluginHost(
   extra: (path: string) => { plugin: FakePlugin; config: Record<string, unknown> } | undefined = () => undefined,
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
+  pluginTypes(path: string): Promise<string>;
   pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
@@ -182,14 +183,17 @@ export function fakePluginHost(
       remove: (id: string) => push({ op: "remove", kind, id }),
     });
     const m: FakeRoster = {
-      api_version: 2,
+      api_version: 3,
       plugin: { name: r.manifest.name, version: r.manifest.version, permissions: [...r.grants], config },
       commands: {
         add: (name, spec) => push({ op: "command", name, desc: spec.desc ?? "", run: spec.run }),
         remove: (name) => push({ op: "remove", kind: "command", id: name }),
       },
-      keymap: { set: (context, keys, action) => push({ op: "key", context, keys, action }) },
-      themes: { define: (id, theme) => push({ op: "theme", id, theme }) },
+      keymap: {
+        set: (context, keys, action) => push({ op: "key", context, keys, action }),
+        del: (context, keys) => push({ op: "key", context, keys, action: false }),
+      },
+      themes: { define: (id, theme) => push({ op: "theme", id, theme }), remove: (id) => push({ op: "remove", kind: "theme", id }) },
       sidebar: piece("section"),
       status: piece("status"),
       finders: piece("finder"),
@@ -211,7 +215,13 @@ export function fakePluginHost(
         r.listeners.set(event, [...(r.listeners.get(event) ?? []), f]);
       },
     };
-    if (r.grants.has("inventory.read")) m.inventory = { hosts: () => hosts(), host: (name) => hosts().find((h) => h.name === name) };
+    if (r.grants.has("inventory.read")) {
+      m.inventory = {
+        hosts: () => hosts(),
+        host: (name) => hosts().find((h) => h.name === name),
+        groups: () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }])),
+      };
+    }
     if (r.grants.has("sessions.open")) m.sessions = { open: (host) => push({ op: "open", host }) };
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
     return m;
@@ -232,6 +242,11 @@ export function fakePluginHost(
   };
 
   return {
+    async pluginTypes(path) {
+      // No disk here: the stubs would go to the folder's types/roster.lua.
+      if (!path.trim()) throw new BackendCallError("which folder? :plugins types PATH");
+      return `${path.replace(/[\\/]+$/, "")}/types/roster.lua`;
+    },
     async pluginManifest(path) {
       return { manifest: described(find(path).manifest), dir: path };
     },
