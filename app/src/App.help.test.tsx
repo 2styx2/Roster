@@ -141,6 +141,8 @@ describe(":help", () => {
     expect(heading()).toHaveTextContent("roster help");
     await user.click(within(help()).getAllByRole("link", { name: "Getting started" })[0] as HTMLElement);
     expect(heading()).toHaveTextContent("Getting started with roster");
+    // The page is a named region, so a screen reader says where it is.
+    expect(within(help()).getByRole("region", { name: "Getting started with roster" })).toBeInTheDocument();
   });
 
   it("Ctrl+] follows the link you're on, as in Neovim", async () => {
@@ -165,6 +167,9 @@ describe(":help", () => {
 
   it(":helpgrep searches every page's text; Enter opens it there with the word found", async () => {
     const user = await ready();
+    await user.keyboard(`${LEADER}:helpgrep{Enter}`);
+    expect(await screen.findByText("Type words to search every help page.")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}:helpgrep bytecode{Enter}`);
     const grep = await screen.findByRole("dialog", { name: /search every help page/i });
     const first = within(grep).getAllByRole("option")[0] as HTMLElement;

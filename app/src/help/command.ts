@@ -199,6 +199,8 @@ export function helpgrepFinder(view: HelpView): FinderSourceDef {
     source: BUILTIN,
     title: "Search every help page",
     prompt: "Help text",
+    prose: true,
+    empty: "Type words to search every help page.",
     items: () => [],
     search: (_ctx, query) => search(query),
   };
@@ -211,6 +213,7 @@ export function outlineFinder(view: HelpView): FinderSourceDef {
     source: BUILTIN,
     title: "This help page's outline",
     prompt: "Outline",
+    prose: true,
     items: (): FinderItem[] => {
       const ctx = view.context();
       const at = view.snapshot().at;

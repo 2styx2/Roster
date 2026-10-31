@@ -103,7 +103,7 @@ export function Finder({ source, ctx, keymap, vim, initialQuery = "", onChoose, 
 
   return (
     <div className="picker-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="picker finder" role="dialog" aria-label={source.title}>
+      <div className={`picker finder${source.prose ? " prose" : ""}`} role="dialog" aria-label={source.title}>
         <div className="finder-query">
           <span className="finder-prompt">{source.prompt} ›</span>
           <input
@@ -168,7 +168,7 @@ export function Finder({ source, ctx, keymap, vim, initialQuery = "", onChoose, 
             </li>
           ))}
         </ul>
-        {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
+        {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : (source.empty ?? "Nothing here yet.")}</p>}
         <div className="picker-footer">
           <span role="status" title={notice || source.note?.(shown[current]) || undefined}>
             {notice || source.note?.(shown[current])}

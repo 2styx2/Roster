@@ -170,7 +170,7 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
   return (
     <aside className="help-panel" aria-label="Help" onKeyDown={onKeyDown}>
       <header>
-        <p className="help-where">
+        <p className="help-where" title={`:help ${at.anchor ?? at.page}`}>
           <span className="help-prompt">:help</span> {at.anchor ?? at.page}
         </p>
         <span className="help-nav">
@@ -209,7 +209,7 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
           </span>
         </div>
       ) : null}
-      <div className="help-scroll" ref={scrollRef} tabIndex={0} aria-label={page?.title ?? at.page}>
+      <div className="help-scroll" ref={scrollRef} tabIndex={0} role="region" aria-label={page?.title ?? at.page}>
         <Env value={env}>
           <article className="help-doc">
             {page ? blocks.map((b, i) => <BlockView key={i} block={b} target={at.anchor} />) : <p>No help page named {at.page}.</p>}
@@ -217,7 +217,7 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
         </Env>
       </div>
       <p className="panel-foot key-hint">
-        <Keys keys="/" /> search <Keys keys="Tab" /> links <Keys keys="Ctrl+o" /> back <Keys keys="?" /> topics <Keys keys="Esc" /> close
+        <Keys keys="/" /> search <Keys keys="Tab" /> links <Keys keys="Ctrl+o" /> back <Keys keys="g O" /> outline <Keys keys="?" /> topics <Keys keys="Esc" /> close
       </p>
     </aside>
   );
@@ -229,7 +229,14 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
       const Tag = `h${b.level}` as const;
       return (
         <Tag data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
-          <Inlines items={b.text} />
+          {/* A page's title names the page: nothing in it links back to it. */}
+          {b.level === 1 ? (
+            <NoLinks>
+              <Inlines items={b.text} />
+            </NoLinks>
+          ) : (
+            <Inlines items={b.text} />
+          )}
         </Tag>
       );
     }
@@ -285,7 +292,7 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
                   <tr key={r} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
                     {row.map((c, i) => (
                       <td key={i}>
-                        <Inlines items={c} spaced />
+                        <Inlines items={c} spaced="parts" />
                       </td>
                     ))}
                   </tr>
@@ -318,7 +325,7 @@ function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
         </span>
         {d.meta.length > 0 && (
           <span className="help-meta">
-            <Inlines items={d.meta} spaced />
+            <Inlines items={d.meta} spaced="all" />
           </span>
         )}
       </dt>
@@ -329,13 +336,15 @@ function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
   );
 }
 
-/** Inline content; `spaced` puts a gap between parts (a cell's keycaps, a def's meta). */
-function Inlines({ items, spaced = false }: { items: readonly Inline[]; spaced?: boolean }) {
+/** Inline content. `spaced="all"` puts a gap between every part (a def's meta: separate facts);
+ * `"parts"` only between keycaps and code side by side (a cell's `␣ f` `␣ F`), so words next to
+ * them keep their own spacing. */
+function Inlines({ items, spaced }: { items: readonly Inline[]; spaced?: "all" | "parts" }) {
   return (
     <>
       {items.map((it, i) => (
         <Fragment key={i}>
-          {spaced && i > 0 ? " " : null}
+          {i > 0 && (spaced === "all" || (spaced === "parts" && it.t !== "text" && items[i - 1]?.t !== "text")) ? " " : null}
           <InlineView item={it} />
         </Fragment>
       ))}

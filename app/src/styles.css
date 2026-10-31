@@ -1033,6 +1033,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 /* The session bar's `*` and `-`: kept in view when the name is cut. */
 .finder-mark { flex: none; color: var(--accent-ink); }
 .finder-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--muted); }
+/* Sources whose items are prose (help's outline and :helpgrep) read in Inter, as prose does. */
+.finder.prose .finder-name { font-family: var(--font-ui); }
 .finder-detail { margin-left: auto; flex: none; font-size: var(--text-sm); color: var(--muted); }
 .finder-legend { font-family: var(--font-mono); white-space: nowrap; }
 
@@ -1098,10 +1100,11 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   width: clamp(var(--keys-width), 40vw, 600px); flex: none; display: flex; flex-direction: column; min-height: 0;
   background: var(--sidebar); border-left: 1px solid var(--line); font-size: var(--text-sm);
 }
-.help-panel header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--line); }
+/* The topic you're on keeps room: the buttons go to a second line before it's cut. */
+.help-panel header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--line); }
 /* Where you are, as you'd type it: data, so Iosevka. */
 .help-where {
-  margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin: 0; flex: 1 1 14ch; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font: var(--text-xs)/20px var(--font-mono); color: var(--muted);
 }
 .help-prompt { color: var(--text); }
@@ -1113,7 +1116,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .help-search input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; font-size: var(--text-sm); }
 .help-count { font: var(--text-xs)/1 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .help-scroll { flex: 1; overflow: auto; outline: none; }
-.help-scroll:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.help-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
 /* The page: Inter for prose, Iosevka for anything you could type. */
 .help-doc { padding: 14px 18px 28px; max-width: 72ch; line-height: 1.55; color: var(--text); }
@@ -1134,7 +1137,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 .help-doc pre code { font-size: inherit; overflow-wrap: normal; }
 /* Links read as text with a quiet underline: they're many, and the accent is for what's live. */
-.help-link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.help-link { color: inherit; text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
 .help-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .help-link:hover { text-decoration-color: currentColor; }
@@ -1147,7 +1150,6 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   text-align: left; padding: 4px 8px 4px 0; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line-strong);
 }
 .help-table td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); vertical-align: top; }
-.help-table .keys { flex-wrap: wrap; }
 
 /* Entries (an option, a command, an error): the name, what it is now on the right, then what it does. */
 .help-defs { margin: 0 0 12px; }
@@ -1163,12 +1165,12 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .help-def dd { margin: 2px 0 0; color: var(--muted); }
 .help-def dd code { color: var(--text); }
 /* The entry `:help TOPIC` landed on: raised, as the App-mode cursor is. */
-.help-target { background: var(--raised); }
+.help-target { background: var(--raised); box-shadow: inset 2px 0 0 var(--muted); }
 .help-doc h2.help-target, .help-doc h3.help-target { border-radius: var(--radius-sm); }
 
 /* Search matches; the current one in the accent, as it's where you are. */
 .help-doc mark { background: color-mix(in srgb, var(--warn) 30%, transparent); color: inherit; border-radius: 2px; }
-.help-doc mark.current { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.help-doc mark.current { background: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 0 0 1px var(--text); }
 
 .screen[data-view="focus"] .help-panel {
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
