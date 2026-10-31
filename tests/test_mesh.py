@@ -486,6 +486,36 @@ def test_cut_keeps_the_peers_that_confirmed_it_in_the_meshs_bookkeeping(net):
     assert net.file("orion-2", "home/.claude/CLAUDE.md") == "# my notes\n"
 
 
+# ---------------------------------------------------------------- serve's deadline
+
+def test_apply_stops_at_the_deadline_and_leaves_the_rest_pending_without_connecting(net, monkeypatch):
+    from roster import common
+    real = mesh.on_host
+
+    def first_one_uses_up_the_time(h, script, timeout=mesh.STEP_TIMEOUT):
+        out = real(h, script, timeout)
+        common._deadline.at = 0.0                    # the deadline passed during this Host's step
+        return out
+    monkeypatch.setattr(mesh, "on_host", first_one_uses_up_the_time)
+    with common.deadline(240):
+        r = mesh.run(net.cfg(), apply=True)
+    assert [x for x in net.connections() if x.startswith("start")] == ["start db-9"]
+    visit = mesh.graph(net.cfg())["visit"]
+    assert set(r["pending"]) == set(visit)
+    assert all("out of time" in why for why in r["pending"].values())
+    assert mesh.load_state()["pending"] == r["pending"]               # and the next roster mesh finishes them
+
+
+def test_cut_stops_at_the_deadline_too(net):
+    from roster import common
+    mesh.run(net.cfg(), apply=True)
+    before = len(net.connections())
+    with common.deadline(0):
+        r = mesh.cut(net.cfg(), "orion-2")
+    assert len(net.connections()) == before and r["confirmed"] == []
+    assert "orion-2" in r["pending"] and all("out of time" in why for why in r["pending"].values())
+
+
 # ---------------------------------------------------------------- setup and serve
 
 def test_setup_applies_the_mesh_for_meshed_groups(net, capsys, monkeypatch):

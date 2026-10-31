@@ -146,15 +146,32 @@ def tcp_ok(host, port, timeout=3):
 _deadline = threading.local()
 
 
-@contextmanager
 def deadline(seconds):
     """Hold the steps run inside to SECONDS in all (None: no deadline)."""
+    return deadline_at(None if seconds is None else time.monotonic() + seconds)
+
+
+@contextmanager
+def deadline_at(at):
+    """Hold the steps run inside to the deadline AT (time.monotonic(); None: none): a worker thread takes its
+    request's with deadline_at(current_deadline())."""
     before = getattr(_deadline, "at", None)
-    _deadline.at = None if seconds is None else time.monotonic() + seconds
+    _deadline.at = at
     try:
         yield
     finally:
         _deadline.at = before
+
+
+def current_deadline():
+    return getattr(_deadline, "at", None)
+
+
+def past_deadline():
+    """This thread's deadline has passed: a step that hasn't started shouldn't (time_left's floor is for the few
+    that must run anyway)."""
+    at = current_deadline()
+    return at is not None and time.monotonic() >= at
 
 
 def time_left(timeout, floor=1):

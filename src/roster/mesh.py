@@ -18,7 +18,7 @@ import os
 import re
 import subprocess
 
-from .common import program_argv, time_left, user_config_dir
+from .common import current_deadline, deadline_at, past_deadline, program_argv, time_left, user_config_dir
 from .sshops import hk_name, recorded_host_keys
 
 TAG = "roster-mesh"
@@ -28,6 +28,7 @@ MARK = "# roster-mesh: the Mesh's ssh config (roster mesh adds and removes these
 CONNECT_TIMEOUT = 10
 STEP_TIMEOUT = 120          # s: one Host's script, at most
 CUT_TIMEOUT = 30            # s: one Host's part of a cut
+OUT_OF_TIME = "out of time: not visited (the next roster mesh finishes it)"   # past serve's deadline
 
 
 # ---------------------------------------------------------------- who reaches whom (no connections)
@@ -415,6 +416,9 @@ def run(cfg, apply=False, rotate=(), say=None):
     # phase 1: each source's key, and whether it reaches its peers
     for name in g["sources"]:
         peers = [hosts[x["to"]] for x in links if x["from"] == name and "skip" not in x]
+        if past_deadline():
+            out["probe"][name] = {"error": OUT_OF_TIME}
+            continue
         say(f"  probe  {name}")
         lines, err = on_host(hosts[name], probe_script(hosts[name], peers, mode, name in rotate))
         if err:
@@ -450,6 +454,9 @@ def run(cfg, apply=False, rotate=(), say=None):
         p = out["probe"].get(name)
         if p is not None and "error" in p:
             finish(name, [], p["error"])
+            continue
+        if past_deadline():
+            finish(name, [], OUT_OF_TIME)
             continue
         files = None
         if name in g["sources"]:
@@ -563,10 +570,14 @@ def cut(cfg, name, workers=16):
     peers = sorted(n for n in (set(g["visit"]) | set(st["members"]) | set(st["cut"].get(name, [])))
                    if n in hosts and n != name and hosts[n]["enroll"] and hosts[n]["reviewed"])
     todo = [(n, False) for n in peers] + ([(name, True)] if h["enroll"] and h["reviewed"] else [])
+    at = current_deadline()                     # serve's, for the worker threads too
 
     def one(item):
         n, own = item
-        _, err = on_host(hosts[n], cut_script(hosts[n], name, own), timeout=CUT_TIMEOUT)
+        with deadline_at(at):
+            if past_deadline():
+                return n, OUT_OF_TIME
+            _, err = on_host(hosts[n], cut_script(hosts[n], name, own), timeout=CUT_TIMEOUT)
         return n, err
 
     confirmed, pending = [], {}
