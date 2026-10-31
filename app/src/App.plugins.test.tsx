@@ -131,3 +131,16 @@ describe(":plugins", () => {
     expect(screen.queryByText("ERROR disk full")).toBeNull();
   });
 });
+
+describe("the Host count", () => {
+  it("is the built-in hosts Plugin, and follows the Inventory", async () => {
+    const user = userEvent.setup();
+    const backend = fakeBackend({ hosts: makeHosts(12), apiVersion: 8 });
+    render(<App backend={backend} terminalView={StubTerminal} platform={memoryPlatform()} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    expect(await screen.findByText("12 Hosts")).toHaveAttribute("title", "From hosts");
+    await backend.watchInventory(true);
+    backend.outsideEdit(makeHosts(13));
+    expect(await screen.findByText("13 Hosts")).toBeInTheDocument();
+  });
+});

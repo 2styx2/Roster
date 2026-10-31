@@ -15,6 +15,7 @@ import themes from "../../../docs/app/themes.md?raw";
 import addingHosts from "../../../docs/adding-hosts.md?raw";
 import cli from "../../../docs/cli-reference.md?raw";
 import newBox from "../../../docs/new-box.md?raw";
+import plugins from "../../../docs/plugins.md?raw";
 import serveApi from "../../../docs/serve-api.md?raw";
 
 /** Where a page sits on the index, in this order (Neovim's help.txt groups its files the same way). */
@@ -153,11 +154,26 @@ export const guides: readonly Guide[] = [
     id: "extending",
     path: "docs/app/extending.md",
     title: "How far roster bends",
-    summary: "The registries init.lua and Plugins add to, and what Plugins and Packages will do",
+    summary: "The registries init.lua and Plugins add to",
     part: "Extending",
     order: 80,
-    aliases: { plugins: "extending#plugins-and-packages-not-yet", registries: "extending#the-registries" },
+    aliases: { registries: "extending#the-registries" },
     markdown: extending,
+  },
+  {
+    id: "plugins",
+    path: "docs/plugins.md",
+    title: "Writing a Plugin",
+    summary: "Plugins: installing and trusting one, permissions, the roster Lua module, events, limits",
+    part: "Extending",
+    order: 81,
+    aliases: {
+      "plugin-api": "plugins#the-roster-module",
+      permissions: "plugins#permissions",
+      "plugin-events": "plugins#events",
+      ":plugins": "plugins#installing-and-trusting",
+    },
+    markdown: plugins,
   },
 ];
 

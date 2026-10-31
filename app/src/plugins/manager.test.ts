@@ -174,7 +174,7 @@ describe("ops from a Plugin are checked", () => {
     });
     expect(parseOp({ op: "html", id: "x" })).toEqual({ invalid: "there's no op html" });
     const long = parseOp({ op: "notify", text: "x".repeat(10_000), level: "info" });
-    expect("text" in long && long.text.length).toBe(500);
+    expect("text" in long ? long.text?.length : 0).toBe(500);
   });
 
   it("strips escape sequences from terminal output", () => {

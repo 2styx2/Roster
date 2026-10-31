@@ -453,6 +453,13 @@ export function App({
   }, [vaultUnlocked, tabs]);
 
   const hosts = conn.state === "ready" ? conn.hosts : null;
+  // Each new Host list the app gets is an `inventory_changed` for the Plugins (the Host count).
+  const firstHosts = useRef<typeof hosts>(null);
+  useEffect(() => {
+    if (!hosts) return;
+    if (firstHosts.current === null) firstHosts.current = hosts;
+    else void plugins.event("inventory_changed");
+  }, [hosts, plugins]);
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
   const groupNames = useMemo(() => {
     const names = Object.keys(hosts?.groups ?? {});

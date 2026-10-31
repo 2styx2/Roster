@@ -66,6 +66,16 @@ Its `vault` table reaches `roster serve` through `vault.configure` (tickets 35, 
 
 It can't redirect a secret either. `roster_command` names the program that gets the master password, two-step codes and the API key's secret on its stdin, so init.lua may only name roster itself: `roster`, a path ending in `/roster`, or `uv run [--project <dir> | --directory <dir> | --frozen | --locked | --offline | --no-sync | -q] roster` (no `--with`, no other program). Anything else is a Config error, and starting the backend refuses it too. A wrapper needs the `ROSTER_APP_ROSTER` env var, which only the user sets, outside the Config. `:info` shows the command in use. The Lua sandbox has no `io`, so a Config can't write a program of its own to point at.
 
+## Plugins
+
+A Plugin is third-party Lua (decision Q81, [plugins.md](../plugins.md)). It runs in roster-core, in the same sandbox as `init.lua`, on a thread of its own with a memory limit and a time budget per call, and the core gives it only the functions for the permissions the user granted: without `terminal.read` there's no `terminal_output` event, without `inventory.read` no `roster.inventory`. Every function checks its grant again when it's called.
+
+- **No secret ever reaches one.** The core holds none; a Plugin reaches roster only through `roster serve`'s methods its permissions name, from an allow-list that leaves out everything touching a password, a vault session or askpass (`vault.*`, `session.*`, `quick.*`, `host.add`, `host.save_login`, `changes.publish`). A manifest that asks for one doesn't install. A test walks every function of the module with every permission granted and checks that roster serve only ever hears allowed methods.
+- **What it can read.** `terminal.read` gets what Sessions print, never what's typed into them. A password typed at a prompt that echoes it would be in that output, and the install prompt says so. askpass and the vault's passwords never go through a terminal.
+- **It can't Publish.** `inventory.write` gives `host.update`, `host.rename`, `host.move` and `host.review`, which only make Pending changes.
+- **It draws nothing itself.** It hands over data (rows, text, items) that the frontend checks and draws with roster's own components: no HTML, no script, no iframe. It can't bind a key in the terminal, take a key or command that's bound already, or hide one with a longer sequence.
+- **Asked, and revocable.** It installs only after a prompt that lists every permission with the risky ones explained; an update that wants a new one asks again; `:plugins` revokes at once. What was granted is kept in the State, which neither `init.lua` nor a Plugin can write.
+
 ## Writes
 
 - "Save to vault" saves only after the login succeeds (the add form's test login, or the Session's own login with that password), and refuses to create a duplicate Vault item name.

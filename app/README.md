@@ -67,7 +67,7 @@ app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts
                       config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
                       changes_publish, host_scan_key, host_add, host_review, save_call (quick.save, host.save_login, vault.forget_typed),
                       config_import_preview, config_import_apply (ticket 33), open_url (a web service in the
-                      default browser, ticket 18)
+                      default browser, ticket 18), plugin_manifest/load/call/event/unload (ticket 23)
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
@@ -104,6 +104,17 @@ crates/roster-core/src/config/
 app/src/config/       the Config in the frontend (ImportPanel.tsx: `:config import-terminal`'s diff): types.ts (the core's object), apply.ts (→ options, and keys,
                       Themes, Folders through the registries as "init.lua"), ConfigToast.tsx (errors, warnings)
 examples/init.lua     every option with its default, commented (a Rust test loads it)
+crates/roster-core/src/plugin/
+                      Plugins (ticket 23, docs/plugins.md): mod.rs (PluginHost: one thread and Lua state per Plugin,
+                      load/call/event, time budget, strikes, the manifest), runtime.rs (the `roster` module a
+                      Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list)
+crates/roster-core/plugins/hosts/
+                      the status bar's Host count, a built-in Plugin on the public API (`builtin:hosts`)
+app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in the State, prompts, ops → registries,
+                      events, the Sessions' output for terminal.read), ops.ts (checks every op), command.ts
+                      (`:plugins`), PluginsPanel.tsx (the prompt, `:plugins`, a float, notices)
+app/src/view/status.ts  the status segment and Host-badge registries Plugins add to
+examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
 app/src/registry.ts   Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0006; registries.ts = the app's set
 app/src/commands/     table.ts: the ONE command table (`:` names; keys, the command line and buttons all run these)
 app/src/keymap.ts     keys → command lines, as a registry of bindings; Options (Leader, vim, layout, idle lock)

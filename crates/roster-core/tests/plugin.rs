@@ -590,3 +590,31 @@ fn a_folder_plugin_cant_take_a_built_in_or_reserved_name() {
     let dir = plugin_dir("builtin-name", &manifest("builtin", &[]), "");
     assert!(read_manifest(&dir).unwrap_err().message.contains("kept for roster"));
 }
+
+/// examples/plugins/pinned, the example docs/plugins.md walks through, loads and works.
+#[test]
+fn the_example_plugin_loads_and_pins_a_host() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/pinned");
+    let (host, _) = host();
+    let (m, reply) = host.load(&Source::Dir(dir), &perms(&["inventory.read"])).unwrap();
+    assert_eq!(m.name, "pinned");
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let pin = reply.ops.iter().find(|o| o["op"] == "command").unwrap();
+    let r = host.call(
+        "pinned",
+        handler(pin, "run"),
+        json!({ "args": "esx-02", "words": ["esx-02"] }),
+    );
+    assert!(r.error.is_none(), "{:?}", r.error);
+    let section = r.ops.iter().find(|o| o["op"] == "section").unwrap();
+    assert_eq!(section["spec"]["rows"][0]["detail"], "10.0.0.5");
+    let status = r.ops.iter().find(|o| o["op"] == "status").unwrap();
+    assert_eq!(status["spec"]["text"], "1 pinned");
+}
+
+#[test]
+fn the_host_can_be_shared_across_the_shells_threads() {
+    fn shared<T: Send + Sync>() {}
+    shared::<PluginHost>();
+    shared::<roster_core::plugin::Reply>();
+}
