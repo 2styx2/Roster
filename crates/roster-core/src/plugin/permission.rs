@@ -3,6 +3,7 @@
 //! None of them reaches a secret: vault passwords, askpass and the master password live only in
 //! `roster serve`, and the serve methods that touch them can't be granted at all.
 
+use super::network::Site;
 use serde::{Serialize, Serializer};
 use std::fmt;
 
@@ -21,6 +22,8 @@ pub enum Permission {
     TerminalWrite,
     /// One `roster serve` method by name, from [`SERVE_METHODS`] or under [`SERVE_PREFIXES`].
     Serve(String),
+    /// HTTP requests to one site (`network:api.example.com`), through `roster.http` (network.rs).
+    Network(Site),
 }
 
 /// The serve methods a Plugin may be granted by name: none of them touches a secret.
@@ -61,8 +64,11 @@ impl Permission {
             "terminal.read" => Permission::TerminalRead,
             "terminal.write" => Permission::TerminalWrite,
             "network" => {
-                return Err("\"network\" isn't available yet: this roster has no network functions for Plugins".into());
+                return Err(
+                    "\"network\" names the site it may reach: \"network:api.example.com\", one for each site".into(),
+                );
             }
+            _ if text.starts_with("network:") => Permission::Network(Site::parse(&text["network:".len()..])?),
             _ => match text.strip_prefix("serve:") {
                 Some(method) if serve_method_allowed(method) => Permission::Serve(method.to_string()),
                 Some(method) => {
@@ -73,7 +79,7 @@ impl Permission {
                 }
                 None => {
                     return Err(format!(
-                        "{text:?} isn't a permission (there's inventory.read, inventory.write, sessions.open, terminal.read, terminal.write and serve:<method>)"
+                        "{text:?} isn't a permission (there's inventory.read, inventory.write, sessions.open, terminal.read, terminal.write, serve:<method> and network:<site>)"
                     ));
                 }
             },
@@ -91,6 +97,7 @@ impl Permission {
             Permission::TerminalWrite => {
                 "Can type into your open Sessions, as if you typed it: it can run commands on your servers.".into()
             }
+            Permission::Network(site) => site.risk(),
             Permission::Serve(m) if !READS.contains(&m.as_str()) => {
                 format!("Can run roster's {m}, which can change things on your Hosts or in the Inventory.")
             }
@@ -107,6 +114,7 @@ impl Permission {
             Permission::TerminalRead => "Read what your Sessions print".into(),
             Permission::TerminalWrite => "Type into your Sessions".into(),
             Permission::Serve(m) => format!("Call roster's {m}"),
+            Permission::Network(site) => format!("Send and fetch over the network: {}", site.shown()),
         }
     }
 }
@@ -120,6 +128,7 @@ impl fmt::Display for Permission {
             Permission::TerminalRead => f.write_str("terminal.read"),
             Permission::TerminalWrite => f.write_str("terminal.write"),
             Permission::Serve(m) => write!(f, "serve:{m}"),
+            Permission::Network(site) => write!(f, "network:{site}"),
         }
     }
 }
@@ -160,6 +169,16 @@ mod tests {
         .map(Permission::to_string)
         .collect();
         assert_eq!(list(&t, "permissions"), names);
+    }
+
+    #[test]
+    fn a_network_site_is_summed_up_and_flagged_as_the_fake_backend_says() {
+        let t = table();
+        for (p, want) in t["network"].as_object().unwrap() {
+            let parsed = Permission::parse(p).unwrap();
+            assert_eq!(parsed.summary(), want["summary"].as_str().unwrap(), "{p}");
+            assert_eq!(parsed.risk().as_deref(), want["risk"].as_str(), "{p}");
+        }
     }
 
     #[test]

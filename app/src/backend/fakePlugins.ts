@@ -80,16 +80,132 @@ function serveMethodAllowed(method: string): boolean {
   );
 }
 
+// ------------------------------------------------------------------ network:<site> (Q97)
+// As roster-core's plugin/network.rs Site::parse, on the same table of cases.
+
+const isLabel = (l: string) => /^[a-z0-9-]{1,63}$/.test(l) && !l.startsWith("-") && !l.endsWith("-");
+const isDomain = (s: string) => {
+  const labels = s.split(".");
+  return s.length <= 253 && labels.length >= 2 && labels.every(isLabel) && !/^[0-9]+$/.test(labels.at(-1) ?? "");
+};
+const isIpv4 = (s: string) => /^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$/.test(s) && s.split(".").every((n) => Number(n) <= 255);
+
+/** An IPv6 address's eight groups, or null. */
+function ipv6Groups(s: string): number[] | null {
+  if (!/^[0-9a-f:]+$/.test(s)) return null;
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const part = (h: string) => (h === "" ? [] : h.split(":"));
+  const head = part(halves[0] ?? "");
+  const tail = halves.length === 2 ? part(halves[1] ?? "") : [];
+  if ([...head, ...tail].some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null;
+  return [...head, ...Array<string>(missing).fill("0"), ...tail].map((g) => parseInt(g, 16));
+}
+
+/** RFC 5952's form, as Rust writes an Ipv6Addr. */
+function ipv6Text(g: number[]): string {
+  let best = -1;
+  let len = 0;
+  for (let i = 0; i < 8; ) {
+    if (g[i] !== 0) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < 8 && g[j] === 0) j++;
+    if (j - i > len && j - i > 1) [best, len] = [i, j - i];
+    i = j;
+  }
+  const hex = (xs: number[]) => xs.map((x) => x.toString(16)).join(":");
+  return best < 0 ? hex(g) : `${hex(g.slice(0, best))}::${hex(g.slice(best + len))}`;
+}
+
+function v4Public(s: string): boolean {
+  const [a = 0, b = 0, c = 0] = s.split(".").map(Number);
+  return !(
+    a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 192 && b === 88 && c === 99) ||
+    (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) || a >= 224
+  );
+}
+
+interface Site {
+  http: boolean;
+  shown: string;
+  /** An address that isn't public (the core's is_public; IPv6 simplified to global unicast). */
+  inside: boolean;
+}
+
+const SITE_HELP =
+  "a site is a domain such as api.example.com, *.example.com for the names under it, or an address such as 10.0.0.5; http:// before it allows plain http, :PORT after it another port";
+
+/** A `network:` site, or why the core refuses it. */
+function parseSite(text: string): Site | string {
+  const bad = (why: string) => `"network:${text}": ${why} (${SITE_HELP})`;
+  let rest = text;
+  const http = text.startsWith("http://");
+  if (http) rest = text.slice(7);
+  else if (text.includes("://")) return bad("only http:// may come before a site; https is the default");
+  if (rest === "") return bad("which site?");
+  if (/[A-Z]/.test(rest)) return bad("write it in lower case");
+  if (/[/?#@ ]/.test(rest)) return bad("only a site, with no path, user or spaces");
+  let host: string;
+  let port: string | null = null;
+  let inside = false;
+  let shown = text;
+  if (rest.startsWith("[")) {
+    const close = rest.indexOf("]");
+    if (close < 0) return bad("an IPv6 address goes in [ ]");
+    const addr = rest.slice(1, close);
+    const tail = rest.slice(close + 1);
+    if (tail !== "" && !tail.startsWith(":")) return bad("only :PORT may follow ]");
+    if (tail !== "") port = tail.slice(1);
+    const g = ipv6Groups(addr);
+    if (!g) return bad("that isn't an IPv6 address");
+    if (ipv6Text(g) !== addr) return bad(`write the address as [${ipv6Text(g)}]`);
+    const [g0 = 0, g1 = 0] = g;
+    inside = (g0 & 0xe000) !== 0x2000 || (g0 === 0x2001 && (g1 === 0x0db8 || g1 < 0x0200));
+  } else {
+    const colon = rest.indexOf(":");
+    host = colon < 0 ? rest : rest.slice(0, colon);
+    if (colon >= 0) port = rest.slice(colon + 1);
+    if (isIpv4(host)) inside = !v4Public(host);
+    else if (host.startsWith("*.")) {
+      if (!isDomain(host.slice(2))) return bad("*. goes before a domain of two names or more, such as *.example.com");
+      shown = `any site under ${host.slice(2)}${http ? " over plain http" : ""}${port !== null ? ` on port ${port}` : ""}`;
+    } else if (host.includes("*")) return bad("a wildcard is only *. at the start");
+    else if (!isDomain(host)) {
+      return bad(/^[0-9.]+$/.test(host) ? "that isn't an IPv4 address" : "that isn't a domain with a dot in it, such as api.example.com");
+    }
+  }
+  if (port !== null && !(/^[1-9][0-9]{0,4}$/.test(port) && Number(port) <= 65535)) return bad("the port is a number from 1 to 65535");
+  return { http, shown, inside };
+}
+
+function networkRisk(site: Site): string {
+  let text = `Can send data to ${site.shown} and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer.`;
+  if (site.http) text += " Plain http: anyone on the way can read and change it.";
+  if (site.inside) text += " That address is on this computer or a private network.";
+  return text;
+}
+
 /** Why the core refuses `p` in a manifest (permission.rs's Permission::parse), or null. */
 function permissionProblem(p: string): string | null {
   if (PERMISSIONS.permissions.includes(p)) return null;
-  if (p === "network") return `"network" isn't available yet: this roster has no network functions for Plugins`;
+  if (p === "network") return `"network" names the site it may reach: "network:api.example.com", one for each site`;
+  if (p.startsWith("network:")) {
+    const site = parseSite(p.slice(8));
+    return typeof site === "string" ? site : null;
+  }
   if (p.startsWith("serve:")) {
     const method = p.slice(6);
     if (serveMethodAllowed(method)) return null;
     return `"serve:${method}" can't be granted: a Plugin may call only ${PERMISSIONS.serve_methods.join(", ")} and the mesh.* and discover.* methods, never one that reaches a secret`;
   }
-  return `${JSON.stringify(p)} isn't a permission (there's inventory.read, inventory.write, sessions.open, terminal.read, terminal.write and serve:<method>)`;
+  return `${JSON.stringify(p)} isn't a permission (there's inventory.read, inventory.write, sessions.open, terminal.read, terminal.write, serve:<method> and network:<site>)`;
 }
 
 /** What the core refuses in a manifest: the first permission it can't grant. From the table the
@@ -107,7 +223,12 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
   if (problem) throw new BackendCallError(`${m.name}: ${problem}`);
   return {
     ...m,
-    permissions: m.permissions.map((name) => ({
+    permissions: m.permissions.map((name) => {
+      const site = name.startsWith("network:") ? parseSite(name.slice(8)) : null;
+      if (site && typeof site !== "string") {
+        return { name, summary: `Send and fetch over the network: ${site.shown}`, risk: networkRisk(site) };
+      }
+      return {
       name,
       summary: SUMMARIES[name] ?? `Call roster's ${name.replace(/^serve:/, "")}`,
       risk:
@@ -115,7 +236,8 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
         (name.startsWith("serve:") && !PERMISSIONS.serve_reads.includes(name.slice(6))
           ? `Can run roster's ${name.slice(6)}, which can change things on your Hosts or in the Inventory.`
           : null),
-    })),
+      };
+    }),
   };
 }
 
@@ -156,6 +278,9 @@ export function fakePluginHost(
   pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   pluginUnload(plugin: string): Promise<boolean>;
+  onPluginReply(onReply: (reply: PluginReply) => void): () => void;
+  /** As the core does when a request answers: hands `reply` to whoever listens. */
+  pluginReplied(reply: PluginReply): void;
 } {
   const all: Record<string, FakePlugin> = { "builtin:hosts": fakeHostsPlugin, ...plugins };
   const running = new Map<string, Running>();
@@ -163,6 +288,7 @@ export function fakePluginHost(
   let ops: unknown[] = [];
   /** Whether the run is a call the user started: only then may a Plugin copy. */
   let userCall = false;
+  const replyWatchers = new Set<(reply: PluginReply) => void>();
 
   const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
@@ -242,7 +368,8 @@ export function fakePluginHost(
       },
       has: (p) => {
         if (permissionProblem(p) === null) return r.grants.has(p);
-        if (p === "network" || p.startsWith("serve:")) return false;
+        if (p === "network") return [...r.grants].some((g) => g.startsWith("network:"));
+        if (p.startsWith("serve:") || p.startsWith("network:")) return false;
         throw new Error(`roster.has: ${JSON.stringify(p)} isn't a permission`);
       },
     };
@@ -332,6 +459,13 @@ export function fakePluginHost(
     },
     async pluginUnload(plugin) {
       return running.delete(plugin);
+    },
+    onPluginReply(onReply) {
+      replyWatchers.add(onReply);
+      return () => replyWatchers.delete(onReply);
+    },
+    pluginReplied(reply) {
+      for (const w of replyWatchers) w(reply);
     },
   };
 }

@@ -83,12 +83,14 @@ fn walk(test: &str, permissions: &[&str]) -> (BTreeSet<String>, Vec<String>, Str
 /// What api.rs says a Plugin granted `permissions` has.
 fn declared(permissions: &[&str]) -> BTreeSet<String> {
     let serve = permissions.iter().any(|p| p.starts_with("serve:"));
+    let network = permissions.iter().any(|p| p.starts_with("network:"));
     let mut out: BTreeSet<String> = api::VALUES.iter().map(|v| v.path.to_string()).collect();
     for f in api::FUNCTIONS {
         let has = match f.needs {
             Needs::Nothing => true,
             Needs::Permission(p) => permissions.contains(&p),
             Needs::AnyServe => serve,
+            Needs::AnyNetwork => network,
         };
         if has {
             out.insert(format!("{}()", f.path));
@@ -107,6 +109,7 @@ fn the_runtime_exposes_exactly_what_the_api_declares_for_every_grant() {
         &["terminal.read"],
         &["terminal.write"],
         &["serve:inventory.info"],
+        &["network:api.example.com"],
         &[
             "inventory.read",
             "inventory.write",
@@ -114,6 +117,7 @@ fn the_runtime_exposes_exactly_what_the_api_declares_for_every_grant() {
             "terminal.read",
             "terminal.write",
             "serve:hosts.list",
+            "network:*.example.com",
         ],
     ];
     for (i, set) in sets.iter().enumerate() {

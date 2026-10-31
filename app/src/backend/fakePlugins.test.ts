@@ -28,4 +28,13 @@ describe("a fake Plugin's manifest", () => {
     const flagged = described(manifest(methods)).permissions.filter((p) => p.risk).map((p) => p.name.slice(6));
     expect(flagged).toEqual(methods.map((m) => m.slice(6)).filter((m) => !table.serve_reads.includes(m)));
   });
+
+  it.each(Object.entries(table.network))("sums up and flags %j as the core does", (p, want) => {
+    expect(described(manifest([p])).permissions[0]).toEqual({ name: p, ...want });
+  });
+
+  it("flags every network site", () => {
+    const sites = table.grant.filter((p) => p.startsWith("network:"));
+    expect(described(manifest(sites)).permissions.every((p) => p.risk?.startsWith("Can send data to "))).toBe(true);
+  });
 });

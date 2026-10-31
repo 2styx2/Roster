@@ -709,6 +709,42 @@
       "permission": "serve:*",
       "returns": "any",
       "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "request",
+          "optional": false,
+          "type": "HttpRequest"
+        },
+        {
+          "name": "done",
+          "optional": false,
+          "type": "fun(response: HttpResponse?, err: string?)"
+        }
+      ],
+      "path": "roster.http.request",
+      "permission": "network:*",
+      "returns": "",
+      "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "url",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "done",
+          "optional": false,
+          "type": "fun(response: HttpResponse?, err: string?)"
+        }
+      ],
+      "path": "roster.http.get",
+      "permission": "network:*",
+      "returns": "",
+      "since": 2
     }
   ],
   "tags": {
@@ -736,6 +772,8 @@
     "roster-HostCheck": "plugin-api#hostcheck",
     "roster-HostList": "plugin-api#hostlist",
     "roster-HostSelectedEvent": "plugin-api#hostselectedevent",
+    "roster-HttpRequest": "plugin-api#httprequest",
+    "roster-HttpResponse": "plugin-api#httpresponse",
     "roster-InventoryError": "plugin-api#inventoryerror",
     "roster-InventoryInfo": "plugin-api#inventoryinfo",
     "roster-KeyContext": "plugin-api#keycontext",
@@ -806,6 +844,9 @@
     "roster.help": "plugin-api#rosterhelp",
     "roster.help.remove()": "plugin-api#rosterhelpremovetopic",
     "roster.help.set()": "plugin-api#rosterhelpsettopic-page",
+    "roster.http": "plugin-api#rosterhttp",
+    "roster.http.get()": "plugin-api#rosterhttpgeturl-done",
+    "roster.http.request()": "plugin-api#rosterhttprequestrequest-done",
     "roster.inventory": "plugin-api#rosterinventory",
     "roster.inventory.host()": "plugin-api#rosterinventoryhostname",
     "roster.inventory.hosts()": "plugin-api#rosterinventoryhosts",
@@ -1398,6 +1439,61 @@
       "fields": [
         {
           "name": "host",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "HttpRequest": {
+      "fields": [
+        {
+          "name": "url",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "method",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "headers",
+          "required": false,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "body",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "timeout",
+          "required": false,
+          "type": "number"
+        }
+      ],
+      "open": false
+    },
+    "HttpResponse": {
+      "fields": [
+        {
+          "name": "status",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "url",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "headers",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "body",
           "required": true,
           "type": "string"
         }

@@ -23,6 +23,7 @@
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod api;
+pub mod network;
 pub mod permission;
 mod runtime;
 
@@ -33,6 +34,7 @@ use serde::Serialize;
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -222,7 +224,14 @@ enum Job {
     Load(String),
     Call(u64, Json),
     Event(Event),
+    /// A `roster.http` request's answer, for the function waiting for it.
+    Answer(u64, network::Answer),
 }
+
+/// Gets the replies nobody asked for: what a Plugin did when a request answered (the Tauri
+/// shell sends them to the frontend as the `plugin-reply` event).
+pub type Listener = Arc<dyn Fn(Reply) + Send + Sync>;
+type Slots = Mutex<BTreeMap<String, Slot>>;
 
 type Answer = (Outcome, Vec<String>);
 /// Where a Plugin's thread takes its work from.
@@ -236,13 +245,17 @@ struct Slot {
     listens: Vec<String>,
     errors: u32,
     disabled: Option<String>,
+    /// Which load this is: an answer to a request made before a reload is dropped.
+    generation: u64,
 }
 
 /// Every loaded Plugin. Cheap to share: calls into different Plugins run at the same time.
 pub struct PluginHost {
     serve: Arc<dyn Serve>,
     limits: Limits,
-    slots: Mutex<BTreeMap<String, Slot>>,
+    slots: Arc<Slots>,
+    listener: Arc<Mutex<Option<Listener>>>,
+    generation: AtomicU64,
 }
 
 impl PluginHost {
@@ -250,8 +263,15 @@ impl PluginHost {
         PluginHost {
             serve,
             limits,
-            slots: Mutex::default(),
+            slots: Arc::default(),
+            listener: Arc::default(),
+            generation: AtomicU64::new(0),
         }
+    }
+
+    /// Where the replies nobody asked for go ([`Listener`]). Without one they're dropped.
+    pub fn set_listener(&self, listener: Listener) {
+        *self.listener.lock().expect("plugin listener") = Some(listener);
     }
 
     /// Loads (or reloads) the Plugin from `source` with what the user granted. It runs with only
@@ -305,23 +325,39 @@ impl PluginHost {
             .filter(|p| grants.contains(p))
             .cloned()
             .collect();
-        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone());
-        let mut slot = Slot {
-            manifest: manifest.clone(),
-            dir: dir.clone(),
-            grants,
-            jobs: Some(jobs),
-            listens: Vec::new(),
-            errors: 0,
-            disabled: None,
-        };
-        let reply = match ask(&slot, Job::Load(source), self.limits.load + self.limits.grace) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone(), generation);
+        // In the slots before init.lua runs: a request it makes may answer while it still loads.
+        self.slots.lock().expect("plugin slots").insert(
+            name.clone(),
+            Slot {
+                manifest: manifest.clone(),
+                dir: dir.clone(),
+                grants,
+                jobs: Some(jobs.clone()),
+                listens: Vec::new(),
+                errors: 0,
+                disabled: None,
+                generation,
+            },
+        );
+        let answer = send(&jobs, Job::Load(source))
+            .and_then(|rx| wait(&rx, Instant::now() + self.limits.load + self.limits.grace));
+        drop(jobs);
+        let mut slots = self.slots.lock().expect("plugin slots");
+        // Unloaded or loaded again meanwhile: this load's slot is gone, and that's fine.
+        let mut slot = slots.get_mut(&name).filter(|s| s.generation == generation);
+        let reply = match answer {
             Some((outcome, listens)) => {
-                slot.listens = listens;
+                if let Some(slot) = slot.as_deref_mut() {
+                    slot.listens = listens;
+                }
                 match outcome.error {
                     Some(error) => {
                         let why = format!("it failed to load: {error}");
-                        disable(&mut slot, &why);
+                        if let Some(slot) = slot {
+                            disable(slot, &why);
+                        }
                         Reply::failed(&name, error, Some(why))
                     }
                     None => Reply {
@@ -335,7 +371,9 @@ impl PluginHost {
             }
             None => {
                 let why = format!("it took longer than {} ms to load", self.limits.load.as_millis());
-                disable(&mut slot, &why);
+                if let Some(slot) = slot {
+                    disable(slot, &why);
+                }
                 Reply::failed(
                     &name,
                     PluginError::new(&name, Some(ENTRY.into()), None, why.clone()),
@@ -343,7 +381,6 @@ impl PluginHost {
                 )
             }
         };
-        self.slots.lock().expect("plugin slots").insert(name, slot);
         Ok((manifest, reply))
     }
 
@@ -427,45 +464,26 @@ impl PluginHost {
     /// Records how a call went: errors count toward disabling, and a call that never came back
     /// disables at once.
     fn settle(&self, plugin: &str, answer: Option<Answer>) -> Reply {
-        let mut slots = self.slots.lock().expect("plugin slots");
-        let Some(slot) = slots.get_mut(plugin) else {
-            return Reply::failed(
-                plugin,
-                PluginError::new(plugin, None, None, "it isn't loaded".into()),
-                None,
-            );
-        };
-        let Some((outcome, listens)) = answer else {
-            let why = format!(
-                "it didn't answer within {} ms",
-                (self.limits.call + self.limits.grace).as_millis()
-            );
-            disable(slot, &why);
-            return Reply::failed(plugin, PluginError::new(plugin, None, None, why.clone()), Some(why));
-        };
-        slot.listens = listens;
-        let mut disabled = None;
-        if outcome.error.is_some() && !outcome.stale {
-            slot.errors += 1;
-            if slot.errors >= self.limits.strikes {
-                let why = format!("it failed {} times", slot.errors);
-                disable(slot, &why);
-                disabled = Some(why);
-            }
-        }
-        Reply {
-            plugin: plugin.to_string(),
-            result: outcome.result,
-            ops: outcome.ops,
-            error: outcome.error,
-            disabled,
-        }
+        settle(&self.slots, self.limits, plugin, None, answer)
     }
 
-    fn spawn(&self, manifest: &Manifest, dir: &Path, grants: BTreeSet<Permission>, config: Json) -> Jobs {
+    fn spawn(
+        &self,
+        manifest: &Manifest,
+        dir: &Path,
+        grants: BTreeSet<Permission>,
+        config: Json,
+        generation: u64,
+    ) -> Jobs {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
         let (serve, limits) = (Arc::clone(&self.serve), self.limits);
+        let post: Option<runtime::Post> = grants.iter().any(|p| matches!(p, Permission::Network(_))).then(|| {
+            let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
+            Arc::new(move |id: u64, answer: network::Answer| {
+                deliver(&slots, &listener, limits, &plugin, generation, Job::Answer(id, answer));
+            }) as runtime::Post
+        });
         let spawned = std::thread::Builder::new()
             .name(format!("plugin:{name}"))
             .spawn(move || {
@@ -478,6 +496,7 @@ impl PluginHost {
                     serve,
                     limits.memory,
                     limits.call,
+                    post,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -491,6 +510,7 @@ impl PluginHost {
                         Ok(rt) => match job {
                             Job::Load(source) => rt.load(&source, limits.load),
                             Job::Call(handler, args) => rt.call(handler, &args),
+                            Job::Answer(id, answer) => rt.answer(id, answer),
                             Job::Event(event) => {
                                 if runtime::may_hear(&event.name, rt.grants()).is_ok() {
                                     rt.event(&event)
@@ -524,6 +544,76 @@ impl PluginHost {
     }
 }
 
+/// Runs `job` (an answer nobody waits for) in the Plugin, if it's still the load that asked,
+/// and hands what it did to the listener.
+fn deliver(slots: &Slots, listener: &Mutex<Option<Listener>>, limits: Limits, plugin: &str, generation: u64, job: Job) {
+    let jobs = match slots.lock().expect("plugin slots").get(plugin) {
+        Some(slot) if slot.generation == generation && slot.disabled.is_none() => slot.jobs.clone(),
+        _ => None,
+    };
+    let Some(jobs) = jobs else { return };
+    let answer = send(&jobs, job).and_then(|rx| wait(&rx, Instant::now() + limits.call + limits.grace));
+    let reply = settle(slots, limits, plugin, Some(generation), answer);
+    if reply.ops.is_empty() && reply.error.is_none() {
+        return;
+    }
+    let listener = listener.lock().expect("plugin listener").clone();
+    if let Some(l) = listener {
+        l(reply);
+    }
+}
+
+/// Records how a call went: errors count toward disabling, and a call that never came back
+/// disables at once. With `generation`, only for that load of the Plugin.
+fn settle(slots: &Slots, limits: Limits, plugin: &str, generation: Option<u64>, answer: Option<Answer>) -> Reply {
+    let mut slots = slots.lock().expect("plugin slots");
+    let slot = match slots.get_mut(plugin) {
+        Some(slot) if generation.is_none_or(|g| g == slot.generation) => slot,
+        // Reloaded or removed since: the answer is for a Plugin that isn't there any more.
+        _ if generation.is_some() => {
+            return Reply {
+                plugin: plugin.to_string(),
+                result: Json::Null,
+                ops: Vec::new(),
+                error: None,
+                disabled: None,
+            };
+        }
+        _ => {
+            return Reply::failed(
+                plugin,
+                PluginError::new(plugin, None, None, "it isn't loaded".into()),
+                None,
+            );
+        }
+    };
+    let Some((outcome, listens)) = answer else {
+        let why = format!(
+            "it didn't answer within {} ms",
+            (limits.call + limits.grace).as_millis()
+        );
+        disable(slot, &why);
+        return Reply::failed(plugin, PluginError::new(plugin, None, None, why.clone()), Some(why));
+    };
+    slot.listens = listens;
+    let mut disabled = None;
+    if outcome.error.is_some() && !outcome.stale {
+        slot.errors += 1;
+        if slot.errors >= limits.strikes {
+            let why = format!("it failed {} times", slot.errors);
+            disable(slot, &why);
+            disabled = Some(why);
+        }
+    }
+    Reply {
+        plugin: plugin.to_string(),
+        result: outcome.result,
+        ops: outcome.ops,
+        error: outcome.error,
+        disabled,
+    }
+}
+
 fn disable(slot: &mut Slot, why: &str) {
     slot.disabled = Some(why.to_string());
     // Dropping the sender ends the thread once it's done (or, stuck in C, when that call ends).
@@ -538,11 +628,6 @@ fn send(tx: &Jobs, job: Job) -> Option<Receiver<Answer>> {
 
 fn wait(rx: &Receiver<Answer>, deadline: Instant) -> Option<Answer> {
     rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
-}
-
-fn ask(slot: &Slot, job: Job, wall: Duration) -> Option<Answer> {
-    let rx = send(slot.jobs.as_ref()?, job)?;
-    wait(&rx, Instant::now() + wall)
 }
 
 /// Reads the manifest in `dir` (`roster-plugin.lua`): a Lua file that returns a table, run in
