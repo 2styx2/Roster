@@ -20,7 +20,16 @@ M.MAX_EDGES = 9000 -- of a graph's 10,000: the rest is room for live Sessions' e
 ---@param part string?
 local function gid(name, part) return ":group:" .. name .. (part and ("/" .. part) or "") end
 
-local function plural(n, one, many) return n .. " " .. (n == 1 and one or (many or one .. "s")) end
+-- A count as the app writes one: 2,000.
+local function count(n)
+  local s, k = tostring(n), 1
+  while k > 0 do
+    s, k = s:gsub("^(%d+)(%d%d%d)", "%1,%2")
+  end
+  return s
+end
+
+local function plural(n, one, many) return count(n) .. " " .. (n == 1 and one or (many or one .. "s")) end
 M.plural = plural
 
 -- ------------------------------------------------------------------- settings

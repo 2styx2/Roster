@@ -791,6 +791,7 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
     ok(&reply);
     eprintln!("2,000 Hosts, 98,000 Links: loaded in {:?}", t.elapsed());
     let g = &view(&reply)["graph"];
+    assert!(view(&reply)["text"].as_str().unwrap().starts_with("2,000 Hosts in 40 groups."));
     assert_eq!(g["nodes"].as_array().unwrap().len(), 2001);
     assert_eq!(
         g["edges"].as_array().unwrap().len(),

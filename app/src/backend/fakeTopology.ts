@@ -18,7 +18,7 @@ const MAX_HOSTS = 4999;
 const MAX_EDGES = 9000;
 
 const gid = (name: string, part?: string) => `:group:${name}${part ? `/${part}` : ""}`;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 /** Lua's `pairs`: keys in order. */
 const keys = (o: unknown) => Object.keys((o ?? {}) as Obj).sort();
 /** Leaves out what's nil, as a Lua table does. */
