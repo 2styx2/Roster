@@ -84,6 +84,10 @@ _Avoid_: normal mode, command mode
 The state where the vault is forgotten and every Session's content is hidden. The vault master password ends it.
 _Avoid_: logout, sleep
 
+**Sign out**:
+Signing the vault CLI out of its account on this Box (`vault.logout`), so a different account can sign in. Everything the Lock forgets is forgotten first, and the CLI's local copy of the vault goes too. Only for a provider with accounts (Bitwarden).
+_Avoid_: logout (for the Lock), switch user
+
 **Config**:
 The user's `init.lua`: code that sets fonts, colors, keys and options, layered over the built-in defaults.
 _Avoid_: settings, preferences, profile

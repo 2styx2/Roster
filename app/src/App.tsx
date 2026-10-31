@@ -40,6 +40,8 @@ import {
   HOST_KEY_API_VERSION,
   QUICK_CONNECT_API_VERSION,
   SAVE_TO_VAULT_API_VERSION,
+  SIGN_OUT_API_VERSION,
+  type VaultAccount,
   type VaultSettings,
 } from "./backend/types";
 import { publishChecked } from "./backend/afterTimeout";
@@ -73,7 +75,7 @@ import { defaultConfig } from "./config/fixture";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
 import { realClock, type Clock } from "./lock/idle";
-import { LockGate } from "./lock/LockScreen";
+import { LockGate, noAccountWords, serverName, SIGN_OUT_WHAT, signOutQuestion } from "./lock/LockScreen";
 import { useVault } from "./lock/useVault";
 import { actionsOf, chordOf, defaultOptions, keymapOf, type CommandLine as Line, type Keymap, type Options } from "./keymap";
 import { Picker } from "./picker/Picker";
@@ -276,6 +278,8 @@ export function App({
   const [saving, setSaving] = useState<number | null>(null);
   // Ticket 28: removing a Host asks first.
   const [confirming, setConfirming] = useState<{ host: string; group: string } | null>(null);
+  // Ticket 42: `:vault signout` asks first, naming the account.
+  const [signingOut, setSigningOut] = useState<VaultAccount | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
   const keyRef = useRef<KeyState>(terminalMode);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -784,6 +788,10 @@ export function App({
     setConfirming(null);
     restoreFocus();
   };
+  const closeSignOut = () => {
+    setSigningOut(null);
+    restoreFocus();
+  };
   const closeChanges = () => {
     setChangesView(null);
     restoreFocus();
@@ -910,6 +918,22 @@ export function App({
     lock: () => {
       if (!vault.lock()) setMessage("Nothing to lock: no Host Login uses a vault with a master password.");
     },
+    vault: () => {
+      if (apiVersion < SIGN_OUT_API_VERSION) {
+        return setMessage(`:vault signout needs a newer roster (API version ${SIGN_OUT_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      // Ask roster who the CLI is signed in as now: a sign-in from the lock screen doesn't say.
+      backend.vaultStatus().then(
+        (s) => {
+          if (!s.provider) return setMessage("Nothing to sign out of: no Host Login uses a vault with an account.");
+          if (!s.can_sign_out) return setMessage(noAccountWords(s.provider));
+          if (!s.account) return setMessage("The vault CLI isn't signed in on this Box, so there's no account to sign out of.");
+          if (!signingOut) rememberFocus();
+          setSigningOut(s.account);
+        },
+        (e: unknown) => setMessage(`Couldn't ask the vault who's signed in: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    },
     toTerminal: () => {
       setMode(terminalMode);
       ctx.closePanel();
@@ -918,6 +942,7 @@ export function App({
     closePanel: () => {
       if (helpAt.at) return helpView.close();
       if (keysOpen) return closeKeys();
+      if (signingOut) return closeSignOut();
       if (confirming) return closeConfirm();
       if (editing !== null) return closeEdit();
       if (adding) return closeAdd();
@@ -1683,6 +1708,23 @@ export function App({
               closeConfirm();
             }}
             onClose={closeConfirm}
+          />
+        )}
+        {signingOut && (
+          <ConfirmPanel
+            title={signOutQuestion(signingOut)}
+            body={
+              <>
+                {SIGN_OUT_WHAT} Server: <span className="mono">{serverName(signingOut.server)}</span>. The app locks and
+                shows the sign-in form; open Sessions keep running behind it.
+              </>
+            }
+            action="Sign out"
+            onConfirm={async () => {
+              setSigningOut(null);
+              await vault.signOut();
+            }}
+            onClose={closeSignOut}
           />
         )}
         {keysOpen && (

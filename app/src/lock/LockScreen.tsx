@@ -1,13 +1,15 @@
 // The lock screen, and the gate that hides everything behind it. Sessions keep running under the
 // gate (it never unmounts its children); while locked they're invisible, inert and out of the
 // accessibility tree, and the lock screen covers the window.
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { VaultAccount } from "../backend/types";
 import { Logo } from "../chrome/Logo";
 import type { ErrorRow } from "../errors/catalog";
 import { CopyCommand } from "../errors/ErrorPanel";
 import { SignIn } from "./SignIn";
 import type { Vault, VaultView } from "./useVault";
 import { withCode } from "./withCode";
+import { Keys } from "../ui/Keys";
 
 const PROVIDER_NAMES: Record<string, string> = { bw: "Bitwarden", kp: "KeePassXC" };
 const providerName = (p: string) => PROVIDER_NAMES[p] ?? p;
@@ -43,6 +45,20 @@ export function LockGate({
   );
 }
 
+/** Where an account lives, as a person reads it: `bitwarden.com`, `vault.example.com`. */
+export const serverName = (server: string | null) => (server ?? "https://bitwarden.com").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+
+/** The question both ways of signing out ask (ticket 42). */
+export const signOutQuestion = (account: VaultAccount) => `Sign out of ${account.email} on this Box?`;
+export const SIGN_OUT_WHAT = "The CLI's local copy of the vault is removed; signing in again syncs it.";
+
+/** Why a provider has no sign-out (ticket 42): KeePassXC opens a file, the rest read this Box. */
+export function noAccountWords(provider: string): string {
+  if (provider === "kp")
+    return "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua.";
+  return `${providerName(provider)} has no account roster can sign out of: its Logins come from this Box itself.`;
+}
+
 /** The lock screen's heading: what's actually wrong (ticket 29 S10), not "Locked" for a vault
  * that can't be unlocked here at all. */
 function heading(view: VaultView): string {
@@ -65,7 +81,17 @@ function LockScreen({ vault, hint, errorRows, copy }: { vault: Vault; hint?: Rea
         <Logo size={40} className="lock-mark" />
         <h1 id="lock-title">{heading(vault.view)}</h1>
         {vault.view.state === "signin" ? (
-          <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />
+          vault.view.signedOut !== undefined ? (
+            // Just signed out (ticket 42): the full sign-in form rises into place, confirming the switch.
+            <div className="lock-switch">
+              <p role="status" className="lock-notice muted">
+                {vault.view.signedOut ? `Signed out of ${vault.view.signedOut.email}.` : "Signed out."} Sign in to the account you want.
+              </p>
+              <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />
+            </div>
+          ) : (
+            <SignIn vault={vault} info={vault.view.info} errorRows={errorRows} copy={copy} />
+          )
         ) : (
           <Body view={vault.view} vault={vault} copy={copy} />
         )}
@@ -80,7 +106,14 @@ function Body({ view, vault, copy }: { view: VaultView; vault: Vault; copy?: Loc
     case "checking":
       return <p className="muted">Checking the vault…</p>;
     case "locked":
-      return <UnlockForm provider={view.provider} error={view.error} onUnlock={vault.unlock} />;
+      return (
+        <>
+          <UnlockForm provider={view.provider} error={view.error} onUnlock={vault.unlock} />
+          {view.account && <AccountLine account={view.account} onSwitch={vault.askSignOut} />}
+        </>
+      );
+    case "signout":
+      return <SignOutQuestion account={view.account} error={view.error} vault={vault} />;
     case "unavailable":
     case "failed": {
       const command = view.state === "unavailable" ? commandIn(view.message) : null;
@@ -154,5 +187,71 @@ function UnlockForm({
         </p>
       )}
     </form>
+  );
+}
+
+/** Who the CLI is signed in as, and the way to another account (ticket 42). */
+function AccountLine({ account, onSwitch }: { account: VaultAccount; onSwitch: () => void }) {
+  return (
+    <div className="lock-account">
+      <p className="muted">
+        Signed in as <span className="mono">{account.email}</span> on <span className="mono">{serverName(account.server)}</span>
+      </p>
+      <button type="button" className="lock-link" onClick={onSwitch}>
+        Use a different account
+      </button>
+    </div>
+  );
+}
+
+/** "Sign out of …?" in place of the unlock form. Enter (the focused button) signs out, Esc keeps it. */
+function SignOutQuestion({ account, error, vault }: { account: VaultAccount; error: string | null; vault: Vault }) {
+  const yes = useRef<HTMLButtonElement>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => yes.current?.focus(), []);
+  return (
+    <div
+      className="lock-form lock-switch"
+      role="group"
+      aria-labelledby="lock-signout-q"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || busy) return;
+        e.preventDefault();
+        e.stopPropagation();
+        vault.keepAccount();
+      }}
+    >
+      <p id="lock-signout-q" className="lock-question">
+        {signOutQuestion(account)}
+      </p>
+      <p className="muted">
+        {SIGN_OUT_WHAT} Server: <span className="mono">{serverName(account.server)}</span>.
+      </p>
+      <div className="lock-row lock-actions">
+        <button
+          ref={yes}
+          type="button"
+          className="danger"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void vault.signOut().finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Signing out…" : "Sign out"}
+        </button>
+        <button type="button" onClick={vault.keepAccount} disabled={busy}>
+          Keep it
+        </button>
+      </div>
+      <p className="signin-keys muted key-hint">
+        <Keys keys="Enter" /> sign out <Keys keys="Escape" /> keep
+      </p>
+      {error && (
+        <p role="alert" className="lock-error">
+          {withCode(error)}
+        </p>
+      )}
+    </div>
   );
 }

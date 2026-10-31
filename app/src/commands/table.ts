@@ -42,6 +42,9 @@ export interface CommandContext {
   openCommandLine(initial?: string): void;
   toggleKeys(): void;
   lock(): void;
+  /** `:vault signout` (ticket 42): asks first, naming the account, then signs the vault CLI out
+   * and shows the lock screen's full sign-in form; says why for a provider with no account. */
+  vault(action: VaultAction): void;
   /** Back to Terminal mode, closing the topmost side panel (Key bindings, :check) if one is open. */
   toTerminal(): void;
   /** Closes the topmost side panel, if one is open. */
@@ -90,6 +93,10 @@ export interface CommandContext {
    * or says where it is. */
   config(what: ConfigAction): void;
 }
+
+/** What `:vault` does: `:vault signout`. */
+export const VAULT_ACTIONS = ["signout"] as const;
+export type VaultAction = (typeof VAULT_ACTIONS)[number];
 
 /** What `:config` does: `:config`, `:config reload`, `:config path`. */
 export const CONFIG_ACTIONS = ["open", "reload", "path", "import-terminal"] as const;
@@ -317,6 +324,23 @@ export const builtinCommands: readonly CommandDef[] = [
   { id: "keys", source: BUILTIN, area: "App", label: () => "Key bindings", run: (ctx) => ctx.toggleKeys() },
   { id: "statusbar", source: BUILTIN, area: "App", label: () => "Show or hide the status bar", run: (ctx) => ctx.toggleStatusBar() },
   { id: "lock", source: BUILTIN, area: "App", label: () => "Lock", run: (ctx) => ctx.lock() },
+  {
+    id: "vault",
+    source: BUILTIN,
+    area: "App",
+    seldom: true,
+    arg: "text",
+    label: (what) =>
+      what === "signout"
+        ? "Sign the vault CLI out, to sign in to a different account (asks first)"
+        : "The vault: signout signs its CLI out, to use a different account",
+    run: (ctx, what) => {
+      const action = VAULT_ACTIONS.find((a) => a === what?.toLowerCase());
+      if (!action) return ctx.say(`vault takes ${VAULT_ACTIONS.join(", ")}`);
+      ctx.vault(action);
+    },
+    complete: (what) => VAULT_ACTIONS.filter((a) => a.startsWith(what.toLowerCase())),
+  },
   { id: "terminal", source: BUILTIN, area: "App", label: () => "Back to the terminal", run: (ctx) => ctx.toTerminal() },
   { id: "hidepanel", source: BUILTIN, area: "App", label: () => "Close the side panel", run: (ctx) => ctx.closePanel() },
   {

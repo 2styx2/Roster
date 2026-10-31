@@ -293,6 +293,14 @@ async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "vault.lock", json!({})).await
 }
 
+/// Sign the vault CLI out (`vault.logout`, API 14, ticket 42): serve forgets every secret first,
+/// then runs `bw logout`. No params and nothing secret in the answer: the account's email and
+/// server, and the ways to sign in again.
+#[tauri::command]
+async fn vault_logout(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.logout", json!({})).await
+}
+
 /// This Box's vault settings from init.lua (`vault.configure`, API 10; tickets 35 and 41): paths
 /// and choices only, never a secret. Sent at start and after every `:source`.
 #[tauri::command]
@@ -784,6 +792,7 @@ pub fn run() {
             vault_unlock,
             vault_login,
             vault_lock,
+            vault_logout,
             vault_configure,
             vault_targets,
             config_load,

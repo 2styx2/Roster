@@ -43,6 +43,12 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 53).where).toContain("the network");
   });
 
+  it("gives vault.logout's codes their rows (docs/app/errors.md rows 71-72, ticket 42)", () => {
+    expect(rowFor(rows, 15).row).toBe(71);
+    expect(rowFor(rows, 16).row).toBe(72);
+    expect(rowFor(rows, 54).fix(p(54))).toMatch(/Use a different account/);
+  });
+
   it("gives every editing code its row (docs/app/errors.md rows 38-43, ticket 10)", () => {
     const covered = new Set(builtinErrorRows.map((r) => r.row));
     for (let n = 38; n <= 43; n++) expect(covered.has(n), `row ${n}`).toBe(true);
