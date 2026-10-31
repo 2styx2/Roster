@@ -703,7 +703,7 @@ describe("Quick Connect (ticket 14)", () => {
   it("its output reaches the Plugins' tap with no Host: it isn't one in the Inventory", async () => {
     const { tabs } = quick();
     const hostsSeen = new Set<string | null>();
-    tabs.setOutputTap({ output: (_id, host) => void hostsSeen.add(host), resized: () => {} });
+    tabs.setOutputTap({ output: (_id, host) => void hostsSeen.add(host) });
     const id = tabs.openQuick(to);
     await asked(tabs);
     tabs.connectQuick(id, PASSWORD);
