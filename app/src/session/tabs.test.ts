@@ -850,3 +850,33 @@ describe('"Save to vault" on Quick Connect (ticket 15)', () => {
     expect(backend.forgotten()).toEqual([]);
   });
 });
+
+describe("a held password, around the Session's life (iteration-4 review)", () => {
+  /** The fake Backend, but the test resolves the Session's opening and says when it logged in. */
+  function heldSessions() {
+    const backend = fakeBackend({ ...unlocked, hosts, apiVersion: SAVE_TO_VAULT_API_VERSION });
+    let events: SessionEvents | null = null;
+    let resolve: (held: string) => void = () => {};
+    backend.openSession = (_host, _size, ev) => {
+      events = ev;
+      return new Promise((r) => {
+        const done = async () => {};
+        resolve = (held) => r({ id: 1, auth: "password", held, write: done, resize: done, close: done });
+      });
+    };
+    let login: (held: string) => void = () => {};
+    backend.onLoggedIn = (cb) => ((login = cb), () => {});
+    const tabs = new Tabs(backend);
+    const print = (s: string | Uint8Array) => events!.output(typeof s === "string" ? new TextEncoder().encode(s) : s);
+    return { backend, tabs, open: (held: string) => resolve(held), login: (held: string) => login(held), print };
+  }
+
+  it("forgets the password a Session holds when it opens after its tab was closed", async () => {
+    const { backend, tabs, open } = heldSessions();
+    const id = tabs.open(reviewed[0]!);
+    await settle();
+    tabs.close(id);
+    open("h1");
+    await vi.waitFor(() => expect(backend.forgotten()).toEqual(["h1"]));
+  });
+});

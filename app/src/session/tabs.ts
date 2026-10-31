@@ -182,6 +182,11 @@ export class Tabs {
     if (save.saved === null) void this.backend.forgetTyped(save.held).catch(() => {});
   }
 
+  /** Tells serve to forget what it holds for a Session no tab will offer to save. */
+  private forgetHeld(session: SessionHandle) {
+    if (session.held !== undefined) void this.backend.forgetTyped(session.held).catch(() => {});
+  }
+
   /** The user turned the offer down: serve forgets the password now. */
   dismissSave(id: number) {
     const entry = this.find(id);
@@ -423,6 +428,8 @@ export class Tabs {
       .then(
         (session) => {
           if (!current()) {
+            // Closed or started again while it opened: nothing will ever save what serve holds for it.
+            this.forgetHeld(session);
             void session.close().catch(() => {});
             return;
           }
@@ -430,12 +437,15 @@ export class Tabs {
           // knowing the auth now tells a refused password from a refused key.
           const s = entry.tab.status;
           if (s.state === "ended") {
-            if (session.held !== undefined) void this.backend.forgetTyped(session.held).catch(() => {});
+            this.forgetHeld(session);
             entry.tab = { ...entry.tab, auth: session.auth };
             this.setStatus(entry, { ...s, problem: this.classify(entry, s.exit) });
             return;
           }
-          if (s.state !== "connecting") return;
+          if (s.state !== "connecting") {
+            this.forgetHeld(session);
+            return;
+          }
           entry.session = session;
           for (const data of entry.pending.splice(0)) void session.write(data).catch(() => {});
           const quick = entry.tab.quick && { ...entry.tab.quick, id: session.quick ?? null };
