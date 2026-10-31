@@ -24,6 +24,7 @@ from .claude import write_claude_files
 from .common import deadline, not_reviewed, ssh_config_file
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
+    ALREADY_SIGNED_OUT,
     CANT_WRITE,
     CLI_MISSING,
     GROUP_NOT_EMPTY,
@@ -46,6 +47,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     PASSWORD_NEEDED,
     READ_ONLY_TARGET,
     ROSTER_ERROR,
+    SIGN_OUT_FAILED,
     UNKNOWN_GROUP,
     UNKNOWN_HOST,
     UNKNOWN_TARGET,
@@ -1222,6 +1224,12 @@ def provider_status(name):
         status, account = providers.vault_account(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
+    return status_result(name, status, account)
+
+
+def status_result(name, status, account, server=providers.ASK):
+    """vault.status's answer for provider NAME from what its CLI said. SERVER: the server it's set to, when that's
+    already known (vault.logout: a second `bw status` costs a second), else login_info asks."""
     result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name),
               "can_sign_out": providers.can_sign_out(name)}
     if account:
@@ -1229,7 +1237,7 @@ def provider_status(name):
     message = providers.status_message(name, status)
     if status == "unauthenticated" and PROVIDERS[name].get("login_info"):
         try:
-            result["sign_in"] = PROVIDERS[name]["login_info"](providers.Ctx(name, None))
+            result["sign_in"] = PROVIDERS[name]["login_info"](providers.Ctx(name, None), server)
         except providers.SecretError:
             pass
     return result | ({"message": message} if message else {})
@@ -1328,10 +1336,7 @@ def vault_logout(state, params):
     out. Answers with where the vault stands now: not-logged-in, with the ways to sign in again."""
     name = vault_provider(state, params)
     if not providers.can_sign_out(name):
-        try:
-            providers.logout(name)              # raises Unsupported with the provider's own words
-        except providers.SecretError as e:
-            raise secret_error(e) from None
+        raise secret_error(providers.no_account(name))
     try:
         _, account = providers.vault_account(name)
     except providers.SecretError as e:
@@ -1340,8 +1345,21 @@ def vault_logout(state, params):
     try:
         providers.logout(name)
     except providers.SecretError as e:
-        raise secret_error(e) from None
-    return {**provider_status(name), "signed_out": account}
+        raise sign_out_error(e) from None
+    # Signed out: no second `bw status` to say so (each bw call takes about a second). The server stays set.
+    return {**status_result(name, "unauthenticated", None, server=(account or {}).get("server", providers.ASK)),
+            "signed_out": account}
+
+
+SIGN_OUT_FIXES = {ALREADY_SIGNED_OUT: "sign in from the lock screen",
+                  SIGN_OUT_FAILED: "see the message; `roster bw logout` in a terminal shows the same"}
+
+
+def sign_out_error(e):
+    """A failed `bw logout` as vault.logout's error, with the app's fix (the CLI's vault_problem has none)."""
+    problem = secret_error(e)
+    fix = SIGN_OUT_FIXES.get(problem.code)
+    return Problem(problem.code, problem.message, problem.data, fix=fix) if fix else problem
 
 
 METHODS["vault.status"] = vault_status

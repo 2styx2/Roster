@@ -324,14 +324,14 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 
 - `provider` defaults to the one `vault.status` names. It works locked or unlocked.
 - Everything `vault.lock` forgets is forgotten **before** the CLI logs out: askpass tokens (spent or not), typed passwords held for "Save to vault", every cached value, a sign-in in progress, the session key and KeePassXC's held master password, for every provider. Then it runs `bw logout` (no `bw lock` first: logging out ends the session anyway). `bw logout` removes the account and the CLI's local copy of the vault; the server setting stays.
-- The result is where the vault stands now, as `vault.status` would describe it (`sign_in` included, so the app can show the full sign-in form straight away), plus `signed_out`: the account it was, or `null` if `bw status` didn't name one.
+- The result is where the vault stands now, as `vault.status` would describe it (`sign_in` included, so the app can show the full sign-in form straight away), plus `signed_out`: the account it was, or `null` if `bw status` didn't name one. It takes one `bw status`, before the logout, and builds the result from it (the server setting survives the logout), so signing out costs two `bw` calls, not four.
 - Nothing secret is in a command line, a response or the log.
 
 | Code | Meaning |
 |---|---|
-| `13` | The provider has no account to sign out of. KeePassXC: "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua"; `env`, `cmd`: "provider 'env' has no account to sign out of - its Logins come from this box itself". Nothing was forgotten |
+| `13` | The provider has no account to sign out of; roster doesn't try. KeePassXC: "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua"; `env`, `cmd`: "provider 'env' has no account to sign out of - its Logins come from this box itself". Nothing was forgotten |
 | `15` | The CLI isn't signed in, so there's no account to sign out of: "the Bitwarden CLI isn't signed in on this box - there's no account to sign out of". `data.fix`: sign in from the lock screen. Everything was forgotten anyway |
-| `16` | `bw logout` failed some other way; the message has bw's words. Everything was forgotten anyway |
+| `16` | `bw logout` failed some other way; the message has bw's words. `data.fix`: see the message; `roster bw logout` in a terminal shows the same. Everything was forgotten anyway |
 
 ## Saving to the vault: `vault.create_item`
 
