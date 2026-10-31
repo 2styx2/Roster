@@ -184,6 +184,16 @@ return {
     },
   },
 
+  -- Packages -------------------------------------------------------------------------------------
+  -- Plugins from git repos, as lazy.nvim does it: fetched into the app's data folder, asked about
+  -- before they run, and pinned in roster.lock next to this file (keep it with your dotfiles).
+  -- :packages lists them, :packages update shows what's new first, :packages clean removes the
+  -- ones taken out of here. config is the settings a Package reads (roster.plugin.config).
+  packages = {
+    -- { "someone/recent-alerts", tag = "v1.0.0", config = { patterns = { "ERROR", "panic" } } },
+    -- "https://git.example.com/team/roster-extras.git",
+  },
+
   -- Other ----------------------------------------------------------------------------------------
   idle_lock_minutes = 15, -- lock after this many minutes without input (1 to 1440)
 

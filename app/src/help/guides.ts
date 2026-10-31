@@ -181,7 +181,7 @@ export const guides: readonly Guide[] = [
     id: "plugins",
     path: "docs/plugins.md",
     title: "Writing a Plugin",
-    summary: "Plugins: installing and trusting one, permissions, the roster Lua module, events, limits",
+    summary: "Plugins: installing and trusting one, Packages from git, permissions, the roster Lua module, events, limits",
     part: "Extending",
     order: 81,
     aliases: {
@@ -189,6 +189,7 @@ export const guides: readonly Guide[] = [
       permissions: "plugins#permissions",
       "plugin-events": "plugins#events",
       ":plugins": "plugins#installing-and-trusting",
+      ":packages": "plugins#packages",
     },
     markdown: plugins,
   },

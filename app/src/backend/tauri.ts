@@ -29,6 +29,8 @@ import {
   type InventoryChanged,
   type InventoryReload,
   type PendingChanges,
+  type PackageChecked,
+  type PackageStatus,
   type PluginReply,
   type PublishResult,
   type PullResult,
@@ -208,6 +210,14 @@ export function tauriBackend(): Backend {
     pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
+    // Packages (ticket 24): git runs in the core; init.lua says what may be fetched.
+    packagesSync: () => call<PackageStatus[]>("packages_sync"),
+    packagesPin: (name) => call<PackageStatus>("packages_pin", { name }),
+    packagesDiscard: (name) => call<unknown>("packages_discard", { name }).then(() => undefined),
+    packagesRemove: (name) => call<unknown>("packages_remove", { name }).then(() => undefined),
+    packagesCheck: () => call<PackageChecked[]>("packages_check"),
+    packagesApply: (name, commit) => call<PackageStatus>("packages_apply", { name, commit }),
+    packagesClean: () => call<string[]>("packages_clean"),
     onLoggedIn(onLogin) {
       const stop = listen<{ method: string; params: { held?: unknown } }>("roster-notification", (e) => {
         const held = e.payload.params?.held;

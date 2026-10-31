@@ -40,7 +40,7 @@ roster.commands.add("hello", {
 roster.keymap.set("leader", "h h", "hello world")
 ```
 
-`:plugins install ~/plugins/pinned` installs it. A path is `~/…`, a full path, or a folder under the config folder (`plugins/pinned`).
+`:plugins install ~/plugins/pinned` installs it. To share it, push the folder to a git repo: others name it in `init.lua` as a [Package](#packages). A path is `~/…`, a full path, or a folder under the config folder (`plugins/pinned`).
 
 ## Installing and trusting
 
@@ -53,6 +53,26 @@ roster.keymap.set("leader", "h h", "hello world")
 What you granted is kept in the app's State, which neither `init.lua` nor a Plugin can write.
 
 Every Plugin is made the same way, with the same API, the same prompts and the same install path. The one built into the app, `hosts` (the status bar's Host count), is written on this API too: `:plugins` lists it, and revoking its permission takes the count away.
+
+## Packages
+
+A Package is a Plugin from a git repo, named in `init.lua` and pinned to a commit, the way lazy.nvim does it for Neovim ([config.md](app/config.md#packages)):
+
+```lua
+packages = {
+  { "someone/recent-alerts", tag = "v1.2.0", config = { patterns = { "ERROR", "panic" } } },
+  "https://git.example.com/team/roster-extras.git",
+},
+```
+
+- **Nothing installs that isn't named there.** At start, and on `:source` after you change the list, the app clones each new one into its own data folder (next to the State, never the config folder) and asks first, with the same prompt as `:plugins install`: who wrote it, its git URL and commit as the unverified source, and every permission. Cancel removes the clone and installs nothing; it asks again at the next start while `init.lua` still names it.
+- **`roster.lock`**, next to `init.lua`, pins each installed Package's commit. Put it in your dotfiles with `init.lua`: on another machine the app clones exactly those commits (and asks, since what you granted is per Box). With the clones and the lock in place, the app starts without the network.
+- **`:packages`** lists them: the commit each is at, what `init.lua` asks for, and whether it runs.
+- **`:packages update`** fetches each one and shows what's new before anything changes: the commits, the diff, and any permission the new version asks for. Enter updates (and grants what it newly asks for); Esc keeps the version it has.
+- **`:packages clean`** removes the clones and lock lines of Packages `init.lua` no longer names, with everything they added. **`:plugins remove NAME`** takes one out at once, clone and lock line included.
+- **`config`** is a table of settings the Package reads as `roster.plugin.config` (a `config = function() … end` as in lazy.nvim isn't possible: the Package's code runs in a Lua state of its own, which a function from `init.lua` can't move into).
+
+The app runs your system's `git` (it must be installed) with no shell, no credentials of roster's and no way to ask for any: a private repo works when your own git setup (an ssh agent, say) already gets in. Only `https`, `ssh` and `file` URLs, no submodules, and no hooks.
 
 ## Permissions
 
@@ -76,7 +96,7 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 
 | Name | What |
 |---|---|
-| `roster.plugin` | `{ name, version, permissions }`: the Plugin itself, and what it was granted |
+| `roster.plugin` | `{ name, version, permissions, config }`: the Plugin itself, what it was granted, and its settings from `init.lua` when it's a Package (else `{}`) |
 | `roster.os` | `"windows"`, `"linux"` or `"macos"` |
 | `roster.commands.add(name, { desc, run })` | `:name ARGS` runs `run({ args = "ARGS", words = { … } })`, or `run` is a command line. A name roster or another Plugin has is refused |
 | `roster.commands.remove(name)` | |
@@ -119,7 +139,7 @@ An error shows a notice naming your Plugin with the file and line: `pinned: init
 
 ## For roster's developers: how it's built
 
-The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. Packages (a Plugin from a git repo, ticket 24) load through the same `PluginHost::load`, from their clone.
+The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
 
 ## See also
 

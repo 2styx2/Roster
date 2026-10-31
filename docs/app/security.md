@@ -77,6 +77,7 @@ A Plugin is third-party Lua (decision Q81, [plugins.md](../plugins.md)). It runs
 - **It can't Publish.** `inventory.write` gives `host.update`, `host.rename`, `host.move` and `host.review`, which only make Pending changes.
 - **It draws nothing itself.** It hands over data (rows, text, items) that the frontend checks and draws with roster's own components: no HTML, no script, no iframe. It can't bind a key in the terminal, take a key or command that's bound already, or hide one with a longer sequence.
 - **Asked, and revocable.** It installs only after a prompt that lists every permission with the risky ones explained; an update that wants a new one asks again; `:plugins` revokes at once. What was granted is kept in the State, which neither `init.lua` nor a Plugin can write.
+- **Packages are fetched, never trusted.** A Package (a Plugin from a git repo, decision Q83) is cloned only when `init.lua` names it, into the app's own data folder, and runs only after the same prompt, with its git URL shown as unverified; Cancel deletes the clone. `roster.lock` pins its commit, and `:packages update` shows the diff and any new permission before moving it. git runs as a subprocess with no shell, no credentials from roster and no prompt for any, over `https`, `ssh` or `file` only (no `ext::`, no plain `http`), with no submodules and no hooks.
 
 ## Writes
 
