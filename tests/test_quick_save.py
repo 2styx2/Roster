@@ -10,13 +10,14 @@ Against the local paramiko Host and the stand-in bw from test_changes; no networ
 import json
 import os
 import subprocess
+import threading
 
 import pytest
 from conftest import SECRET
 from test_changes import app, box, git, infra, result, sshd  # noqa: F401 (fixtures)
 from test_quick import needs_ssh, run_ssh, to
 
-from roster import edit
+from roster import askpass, edit
 from roster import serve as rpc
 from roster.sshops import fingerprint
 
@@ -245,3 +246,23 @@ def test_the_log_names_the_login_never_the_password(app, box, sshd, vault, unkno
     assert f"askpass: root@127.0.0.1:{sshd.port}: logged in" in err
     assert SECRET not in "".join(app.responses) + out + err
     assert fingerprint(sshd.key) in "".join(app.responses)
+
+
+# ---------------------------------------------------------------- the held passwords across serve's threads
+
+def test_a_login_report_waits_while_the_held_passwords_change(box):
+    """ssh's login report arrives on the askpass channel's thread: it marks the Held under the same lock as every
+    change to the held passwords, so a password being forgotten is never reported as logged in."""
+    state = rpc.State(str(box.yml))
+    notes = []
+    state.notify = lambda method, params: notes.append((method, params))
+    typed = askpass.Typed(SECRET)
+    hid = rpc.hold(state, "q1", typed, "quick", "root@box")
+    with state.held_lock:
+        report = threading.Thread(target=typed.on_login)
+        report.start()
+        report.join(0.2)
+        assert report.is_alive()                # it waits for the lock
+        assert rpc.forget_held(state, hid)
+    report.join(2)
+    assert notes == [] and state.held == {} and typed.password is None

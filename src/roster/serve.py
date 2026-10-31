@@ -95,6 +95,9 @@ class State:
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         self.quick = {}                     # quick.prepare's Quick Connects by id: where, and the key confirmed (T15)
         self.held = {}                      # typed passwords held for "Save to vault", by id: Held (T15, T16)
+        # state.held is also changed on the askpass channel's threads (a login report), so it has a lock of its own:
+        # never state.lock, which a long request holds for up to its deadline and would hold up askpass's answers.
+        self.held_lock = threading.RLock()
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -662,31 +665,38 @@ def saving_provider(state, params):
 def hold(state, hid, typed, kind, label, target=None):
     """Hold TYPED under HID until it's saved or forgotten; its Session's login report marks it (and tells the app:
     the session.logged_in notification)."""
-    prune_held(state)
     held = Held(typed, kind, label, target)
 
-    def on_login():
-        if state.held.get(hid) is held and held.typed.password is not None:
+    def on_login():                             # on the askpass channel's thread
+        with state.held_lock:
+            if state.held.get(hid) is not held or held.typed.password is None:
+                return
             held.logged_in = True
-            if state.notify:
-                state.notify("session.logged_in", {"held": hid})
+        if state.notify:                        # outside the lock: it writes to the app
+            state.notify("session.logged_in", {"held": hid})
     typed.on_login = on_login
-    state.held[hid] = held
+    with state.held_lock:
+        prune_held(state)
+        state.held[hid] = held
     return hid
 
 
 def prune_held(state):
-    now = time.monotonic()
-    for hid, held in list(state.held.items()):
-        if held.until <= now:
-            held.forget()
-            del state.held[hid]
+    with state.held_lock:
+        now = time.monotonic()
+        for hid, held in list(state.held.items()):
+            if held.until <= now:
+                held.forget()
+                del state.held[hid]
 
 
 def logged_in_with(state, hid, kind):
-    """The Held for HID, once its Session logged in with it (66 before, 67 if there's none)."""
-    prune_held(state)
-    held = state.held.get(hid) if isinstance(hid, str) else None
+    """The Held for HID, once its Session logged in with it (66 before, 67 if there's none), and its password (read
+    now: the Held may be forgotten on another thread meanwhile)."""
+    with state.held_lock:
+        prune_held(state)
+        held = state.held.get(hid) if isinstance(hid, str) else None
+        password = held.typed.password if held is not None else None
     if held is None or held.kind != kind:
         raise RpcError(NOTHING_HELD, "there's no typed password to save for that Session: it was saved already, or "
                                      "forgotten (the Session ended, the vault was locked, or 10 minutes passed)",
@@ -695,17 +705,18 @@ def logged_in_with(state, hid, kind):
         raise RpcError(LOGIN_NOT_SEEN, f"{held.label} hasn't logged in with that password - roster saves it only "
                                        "after the login succeeded",
                        fix="wait until the Session has logged in; if the box refused the password, nothing is saved")
-    return held
+    return held, password
 
 
 def forget_held(state, hid=None):
     """Forget one held password (HID; whether there was one), or all of them (vault.lock)."""
     found = False
-    for key in [hid] if hid is not None else list(state.held):
-        held = state.held.pop(key, None)
-        if held is not None:
-            held.forget()
-            found = True
+    with state.held_lock:
+        for key in [hid] if hid is not None else list(state.held):
+            held = state.held.pop(key, None)
+            if held is not None:
+                held.forget()
+                found = True
     return found
 
 
@@ -753,7 +764,7 @@ def save_quick(state, params):
     name, group = text_param(params, "name"), text_param(params, "group")
     item = item_param(params, name)
     save_to = save_to_param(params)
-    held = logged_in_with(state, hid, "quick")
+    held, password = logged_in_with(state, hid, "quick")
     provider = saving_provider(state, params)
     q = state.quick[hid]
     fields = {"ip": q["address"], "user": q["user"], "port": q["port"], "auth": f"{provider}:{item}",
@@ -768,7 +779,7 @@ def save_quick(state, params):
     state.fresh()
     repo = changes.Repo(state.path)
     _, _, h = edit.added(repo.path, group, name, fields)      # a dry run: the name and group, before the vault
-    made = make_item(provider, item, held.typed.password, q["user"], q["address"], q["port"], save_to)
+    made = make_item(provider, item, password, q["user"], q["address"], q["port"], save_to)
     try:                                        # until the Host is written, any failure takes the item back out
         old_text, new_text, _ = edit.added(repo.path, group, name, fields)
         backup = repo.backup(old_text)
@@ -802,7 +813,7 @@ def host_save_login(state, params):
 
 def save_login(state, params):
     hid = text_param(params, "held")
-    held = logged_in_with(state, hid, "host")
+    held, password = logged_in_with(state, hid, "host")
     name = held.target["host"]
     item = item_param(params, name)
     save_to = save_to_param(params)
@@ -815,7 +826,7 @@ def save_login(state, params):
     wanted = {"auth": f"{provider}:{item}"}
     repo = changes.Repo(state.path)
     edit.edited(repo.path, name, wanted)        # a dry run: the edit must be possible before the vault is touched
-    made = make_item(provider, item, held.typed.password, h["ssh"]["user"], h["ip"], h["ssh"]["port"], save_to)
+    made = make_item(provider, item, password, h["ssh"]["user"], h["ip"], h["ssh"]["port"], save_to)
     try:                                        # until the Login is written, any failure takes the item back out
         old_text, new_text, _ = edit.edited(repo.path, name, wanted)
         backup = repo.backup(old_text)
