@@ -89,6 +89,23 @@ describe("Quick Connect", () => {
     expect(screen.queryByRole("group", { name: "Session root@10.0.0.5" })).toBeNull();
   });
 
+  it("`:open user@address` connects through Quick Connect, and goes back to that Session once it's open", async () => {
+    const backend = backendAt();
+    const user = await ready(backend);
+    await user.keyboard(`{Control>} {/Control}:open root@10.0.0.5{Enter}`);
+    await question("root@10.0.0.5");
+    await user.keyboard(`${FAKE_HOST_PASSWORD}{Enter}`);
+    await within(pane("root@10.0.0.5")).findByText("Connected to root@10.0.0.5", { exact: false });
+    const host = hosts.hosts.find((h) => h.reviewed)!.name;
+    await user.keyboard(`{Control>} {/Control}:open ${host}{Enter}`);
+    await within(pane(host)).findByText(`Connected to ${host}`, { exact: false });
+    await user.keyboard(`{Control>} {/Control}:open root@10.0.0.5{Enter}`);
+    expect(screen.queryByText(/No Host named/)).toBeNull();
+    expect(screen.getAllByRole("group", { name: "Session root@10.0.0.5" })).toHaveLength(1);
+    expect(backend.quickConnects()).toHaveLength(1);
+    await waitFor(() => expect(within(pane("root@10.0.0.5")).getByLabelText("terminal input")).toHaveFocus());
+  });
+
   it("still opens a Host by its name", async () => {
     const user = await ready();
     const host = hosts.hosts.find((h) => h.reviewed)!.name;

@@ -113,6 +113,9 @@ export interface CommandDef extends Entry {
   area: string;
   /** What it does, for the Key bindings panel and completion. */
   label(arg?: string): string;
+  /** More about it, for `:help commands` (and `:help :ID`): one paragraph of Markdown under the
+   * label, whose links are help topics (`[options](options)`, `[:review](:review)`). */
+  doc?: string;
   arg?: "host" | "number" | "text";
   /** The argument may be left out. */
   optionalArg?: boolean;
@@ -182,6 +185,12 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Hosts",
     arg: "host",
     label: (h) => (h ? `Connect to ${h}` : "Open a Session to a Host, or to user@address (Quick Connect)"),
+    doc:
+      "Opens a new Session to the Host, in a tab of its own. A Host that isn't reviewed yet stays closed until you " +
+      "review it ([:review](:review)). Anything that isn't a Host's name but reads as `user@address` or " +
+      "`user@address:port` is a Quick Connect: the tab shows the box's host key for you to check, and asks for a " +
+      "password (left empty, this Box's own keys log in). [:here](:here) reuses a tab whose Session has ended; " +
+      "[Connection errors](errors-guide) says what to do when it doesn't connect.",
     run: (ctx, h) => ctx.connect(h ?? ""),
   },
   {
