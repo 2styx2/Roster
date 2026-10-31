@@ -4,6 +4,14 @@ What changed in each Release of roster, the CLI and the app together, newest fir
 
 Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
+## Unreleased
+
+### New
+
+**App**
+
+- Packages from a folder of a repo: `dir = "plugins/NAME"` in a Package's line in `init.lua` loads the Plugin from that folder, so one repo can hold several Plugins. The install and update prompts show the folder, `roster.lock` keeps it, and `:packages update` shows only what changed in it. A folder outside the repo (`..`, a full path, a symlink that leads out) is refused. roster's own optional Plugins will live this way, in its repo's `plugins/` folder, none bundled in the app. See [Packages](plugins.md#packages) and [First-party Plugins](plugins.md#first-party-plugins).
+
 ## v0.2.0
 
 ### New
