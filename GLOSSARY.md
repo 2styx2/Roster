@@ -133,8 +133,12 @@ A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:co
 _Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
 
 **Plugin**:
-Lua code that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks). It never sees secrets.
+A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
+
+**Permission**:
+What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`, `serve:<method>`, …): asked for in its manifest, granted at install, revoked in `:plugins`. None reaches a secret.
+_Avoid_: scope, capability, right
 
 **Package**:
 A Plugin fetched from a git repo, named in the Config and pinned to a commit in the lock file.
