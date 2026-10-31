@@ -379,13 +379,13 @@ local function details()
   draw_details(first)
   state.queue = {}
   for i = DETAILS_AT_ONCE + 1, #all do state.queue[#state.queue + 1] = all[i] end
-  if #state.queue > 0 then
-    roster.defer(50, function()
-      local batch = {}
-      while #batch < DETAILS_AT_ONCE and #state.queue > 0 do batch[#batch + 1] = table.remove(state.queue, 1) end
-      draw_details(batch)
-    end)
+  local function more()
+    local batch = {}
+    while #batch < DETAILS_AT_ONCE and #state.queue > 0 do batch[#batch + 1] = table.remove(state.queue, 1) end
+    draw_details(batch)
+    if #state.queue > 0 then roster.defer(50, more) end
   end
+  if #state.queue > 0 then roster.defer(50, more) end
 end
 
 local function badges(st)
@@ -448,15 +448,12 @@ end
 local function views()
   local st = state.status
   local text, facts = overview(st)
-  local rows = {}
+  local rows, members = {}, {}
+  for _, m in ipairs(st and st.members or {}) do members[m] = true end
   for i, h in ipairs(st and hosts_of(st) or {}) do
     local what, tone = words.state(h, st)
-    local member = false
-    for _, m in ipairs(st.members or {}) do
-      if m == h then member = true end
-    end
     rows[#rows + 1] = { id = words.id(h, i), host = h, tone = tone,
-      cells = { host = h, reach = st.reach[h] or 0, reached = st.reached[h] or 0, state = what, member = member and "yes" or "no" } }
+      cells = { host = h, reach = st.reach[h] or 0, reached = st.reached[h] or 0, state = what, member = members[h] and "yes" or "no" } }
   end
   roster.views.set("mesh", {
     title = "Mesh",

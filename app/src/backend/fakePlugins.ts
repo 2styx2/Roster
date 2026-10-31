@@ -43,6 +43,8 @@ export interface FakeRoster {
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
   sessions: { show(session: number, line?: string): void; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
+  /** roster serve's methods the Plugin was granted (`serve:METHOD`), answered by the fake's `serve`. */
+  serve?: { call(method: string, params?: Record<string, unknown>): unknown };
 }
 
 export interface FakePlugin {
@@ -280,6 +282,11 @@ export function fakePluginHost(
   hosts: () => Host[],
   /** Paths found elsewhere (a Package's `package:NAME`), with the settings they're handed. */
   extra: (path: string) => { plugin: FakePlugin; config: Record<string, unknown> } | undefined = () => undefined,
+  /** roster serve for `roster.serve.call`: the method's result, or an Error whose message is serve's
+   * (`unknown method 'x' (code -32601)`), as the core hands it on. */
+  serve: (method: string, params: Record<string, unknown>) => unknown = (method) => {
+    throw new Error(`unknown method '${method}' (code -32601)`);
+  },
 ): {
   pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
   pluginTypes(path: string): Promise<string>;
@@ -428,6 +435,19 @@ export function fakePluginHost(
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
+    // As runtime.rs: `roster.serve` with any serve: grant, each call checked against its own.
+    if ([...r.grants].some((g) => g.startsWith("serve:"))) {
+      m.serve = {
+        call: (method, params = {}) => {
+          if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
+          try {
+            return serve(method, params);
+          } catch (e) {
+            throw new Error(`roster.serve.call ${method}: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+          }
+        },
+      };
+    }
     return m;
   };
 

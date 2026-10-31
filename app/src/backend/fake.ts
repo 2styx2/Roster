@@ -66,6 +66,7 @@ import {
 import type { KeymapOverrides } from "../keymap";
 import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
 import { recentAlerts } from "./fakeRecentAlerts";
+import { MESH_OTHERS, MESH_PERMISSIONS, meshLab, meshPlugin, meshServe, type MeshWorld } from "./fakeMesh";
 import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
@@ -179,6 +180,8 @@ export interface FakeScenario {
   plugins?: Record<string, FakePlugin>;
   /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
   packages?: FakePackages;
+  /** Ticket 50: roster serve's Mesh methods (API 17), for the Mesh controls Plugin. */
+  mesh?: MeshWorld;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -536,6 +539,11 @@ export const fixtures: Record<string, FakeScenario> = {
   "worst-case": worstCase(),
   /** The example Plugin, recent-alerts, running with alerts to show (ticket 79). */
   "recent-alerts": recentAlertsCase(),
+  /** Ticket 50: the Mesh controls (plugins/mesh) installed as a Package with every permission, on a
+   * meshed group of 4 Hosts that's out of date, with a no-via Link. `:mesh`, `:mesh plan`, `:info esx-02`. */
+  mesh: meshCase({ lab: 4, ticks: 3 }),
+  /** The same, worst case: 500 Hosts in the meshed group (249,501 Links), the long names among them. */
+  "mesh-worst": meshCase({ lab: 500, ticks: 3, name: (i) => (i % 97 === 5 ? `${LONG_NAME_OPEN}-${i}` : i % 89 === 7 ? `خادم-الإنتاج-${i}` : `lab-${String(i).padStart(3, "0")}`) }),
   /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
    * Sessions (default 12) whose shells print `&rate=R` log lines a second (default 100). */
   perf: perfCase(),
@@ -580,6 +588,30 @@ function recentAlertsCase(): FakeScenario {
       state: { plugins: [{ path: "package:recent-alerts", name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }] },
       openAtStart: open,
     },
+  };
+}
+
+/** `?fixture=mesh` (ticket 50): plugins/mesh installed from roster's repo with `dir`, granted
+ * everything it asks for, and a stand-in serve whose Mesh `world` describes. */
+function meshCase(world: MeshWorld): FakeScenario {
+  const commit = fakeCommit(5);
+  const lab = meshLab(world);
+  const names = [...lab, ...MESH_OTHERS];
+  const base = makeHosts(names.length);
+  const hosts: HostList = {
+    hosts: base.hosts.map((h, i) => ({ ...h, name: names[i] ?? h.name, group: i < lab.length ? "lab" : "far", reviewed: true })),
+    groups: { lab: { title: "Meshed: every Host reaches every other", description: "" }, far: { title: "Another network", description: "" } },
+  };
+  return {
+    hosts,
+    vault: { status: "unsupported" },
+    mesh: world,
+    packages: {
+      named: [{ name: "mesh", source: "https://github.com/2styx2/roster", dir: "plugins/mesh", versions: [{ commit, subject: "v0.3.0", plugin: meshPlugin(), diff: "" }] }],
+      lock: { mesh: commit },
+      clones: { mesh: commit },
+    },
+    app: { state: { plugins: [{ path: "package:mesh", name: "mesh", granted: MESH_PERMISSIONS, asked: MESH_PERMISSIONS }] } },
   };
 }
 
@@ -1810,7 +1842,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
-    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin),
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, scenario.mesh ? meshServe(scenario.mesh) : undefined),
     ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,

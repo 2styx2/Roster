@@ -754,6 +754,20 @@ fn five_hundred_hosts_in_a_meshed_group_stay_inside_the_limits() {
 }
 
 #[test]
+fn a_thousand_hosts_get_their_details_in_batches_until_every_one_has_its_section() {
+    let mut run = started(World {
+        lab: 1000,
+        ..World::default()
+    });
+    while of(&run.ops, "details").len() < 1002 {
+        run.tick();
+    }
+    let hosts: std::collections::BTreeSet<&str> =
+        of(&run.ops, "details").iter().map(|d| d["host"].as_str().unwrap()).collect();
+    assert_eq!(hosts.len(), 1002);
+}
+
+#[test]
 fn revoking_a_permission_reloads_it_without_and_its_controls_say_so() {
     let mut run = started(World::default());
     let (_, reply) = run
