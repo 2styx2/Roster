@@ -263,14 +263,13 @@ describe("a Plugin's key bindings", () => {
     const ran: string[] = [];
     const said: string[] = [];
     const ctx = { say: (m: string) => void said.push(m) } as unknown as CommandContext;
-    let command: ReturnType<typeof pluginsCommand>;
     const dispatch = (line: string) => {
       ran.push(line);
       const [word = "", ...rest] = line.split(" ");
       if (word === "plugins") command.run(ctx, rest.join(" "));
     };
     const manager = new PluginManager(backend, registries, store, { run: dispatch, send: () => undefined, copy: async () => undefined });
-    command = pluginsCommand(manager, () => undefined);
+    const command = pluginsCommand(manager, () => undefined);
     await manager.start();
     const press = (k: string) => dispatch(registries.keymap.get(`leader ${k}`)!.action!);
     for (const k of ["k g", "k p", "k s", "k o", "k m", "k f"]) press(k);
