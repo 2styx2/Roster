@@ -167,6 +167,9 @@ export function registerConfig(registries: Registries, c: Config): { dispose: ()
   };
   const disposers: (() => void)[] = [];
 
+  // A renamed option still works, under its new name; say which and where to read about it.
+  for (const d of c.deprecated ?? []) warn(d.old, `${d.old} is deprecated: use ${d.new} (:help ${d.topic})`);
+
   // Themes first: the Theme options below name them.
   const defs = Object.entries(c.themes);
   const built = new Map<string, Theme>();

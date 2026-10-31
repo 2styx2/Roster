@@ -183,7 +183,8 @@ describe("Finders in Focus", () => {
     const unreviewed = hosts.hosts.find((h) => !h.reviewed)!.name;
     await user.keyboard(`${LEADER}m${LEADER}t`);
     await user.keyboard(`${unreviewed}{Enter}`);
-    expect(within(finder()).getByRole("status")).toHaveTextContent(/isn't reviewed/);
+    // The notice, beside the hidden count that a screen reader hears.
+    expect(within(finder()).getAllByRole("status").map((s) => s.textContent).join(" ")).toMatch(/isn't reviewed/);
   });
 });
 

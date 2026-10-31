@@ -17,7 +17,7 @@ import { searchItems, type FinderSourceDef } from "../finder/sources";
 import type { Keymap, Options } from "../keymap";
 import { BUILTIN, Registry, type Entry, type Source } from "../registry";
 import type { Theme } from "../theme/theme";
-import { code, h, keys, link, p, plain, text, type Block, type Inline } from "./doc";
+import { code, h, keys, link, p, plain, slug, text, type Block, type Inline } from "./doc";
 import { configMarkdown, guideLink, guides, PARTS, type Guide } from "./guides";
 import { inline, parseMarkdown, withoutDevNotes } from "./markdown";
 import { luaValue, optionDocs, optionSource, optionValue, type StateChoices } from "./options";
@@ -48,7 +48,7 @@ export interface HelpPage extends Entry {
   summary: string;
   /** Lower comes first in the index. The built-ins use 0–100. */
   order: number;
-  /** The index's group: "Getting started", "Make it yours", "Reference" or "Extending". A page
+  /** The index's group: "Getting started", "Make it yours", "Reference", "Extending" or "What's new". A page
    * without one (a Plugin's) is listed under its source. */
   part?: string;
   /** Other names that find it or a place on it (`init.lua` → `config`), as tag → topic. */
@@ -646,8 +646,10 @@ function guideBlocks(guide: Guide): Block[] {
         return { ...b, text: fix(b.text) };
       case "list":
         return { ...b, items: b.items.map(fix) };
-      case "table":
-        return { ...b, head: b.head.map(fix), rows: b.rows.map((r) => r.map(fix)) };
+      case "table": {
+        const anchors = guide.rowTopics ? b.rows.map((r) => (slug(plain(r[0] ?? [])) ? `${guide.id}#${slug(plain(r[0] ?? []))}` : undefined)) : undefined;
+        return { ...b, head: b.head.map(fix), rows: b.rows.map((r) => r.map(fix)), ...(anchors ? { anchors } : {}) };
+      }
       default:
         return b;
     }

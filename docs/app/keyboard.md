@@ -29,6 +29,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `help [TOPIC]` | Help, like Neovim's `:help` (ticket 37): with no topic, the topic finder; `:help terminal.size`, `:help :connect`, `:help E13` open a page at that entry. Tab completes topics. See [help.md](help.md) |
+| `<leader> F1` | `lookup` | Help on what's selected, like Neovim's `K` (which `␣ K` can't be here): a Host's row in the Sidebar opens `:connect`, another row the command it runs, nothing selected the topic finder. In the Key bindings panel's filter, F1 opens help on the first binding's option ([help.md](help.md#help-from-where-you-are)) |
 | `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | (no key) | `vault signout` | Sign the vault CLI out, to sign in to a different account (ticket 42). It asks first, naming the account ("Sign out of you@example.com on this Box?"; Enter signs out, Esc keeps it), then locks and shows the full sign-in form. The lock screen's "Use a different account" does the same. KeePassXC, `pass`, `env` and `cmd` have no account: the command says why. Needs API 14 |
@@ -64,6 +65,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
 | In the Picker: Ctrl+I | `picker.info` | The selected Host's details (closes the Picker) |
+| In the Picker and every finder: F1 | `picker.help` | Help on the selected result: a Host opens `:connect`, a Theme its entry (`themes#nord`), a help topic itself, anything else the command Enter runs ([help.md](help.md#help-from-where-you-are)) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (the keymap's `terminal` table; see "Copy and paste" below) |
 
@@ -94,6 +96,7 @@ The command line completes like bash or zsh, and like Neovim's wildmenu. The can
 | Ctrl+Y | `cmdline.accept` | Accept the candidate in the line; the list then shows the next argument's |
 | Enter | `cmdline.run` | Run the line. On a command that still needs its argument (`connect `) it only accepts it |
 | Esc | `cmdline.cancel` | Cancel the completion, back to what you typed; a second Esc closes the line |
+| Ctrl+], F1 | `cmdline.help` | Help on the command you're typing (`:conn` → `:help :connect`; nothing typed: the Commands page). Esc in help brings the line back as it was, the cursor too ([help.md](help.md#help-from-where-you-are)) |
 
 Typing anything also accepts the candidate. A click on one accepts it too.
 

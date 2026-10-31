@@ -85,6 +85,19 @@ describe("registering the Config", () => {
     expect(keymapOf(r.keymap.list()).leader.x).toBeUndefined();
   });
 
+  it("warns about a deprecated option, naming its replacement and its row in :help deprecated", () => {
+    const { warnings } = registerConfig(
+      builtinRegistries(),
+      configWith({
+        deprecated: [{ old: "terminal.font_size", new: "terminal.size", topic: "deprecated#terminalfont_size" }],
+        lines: { "terminal.font_size": { file: "init.lua", line: 3 } },
+      }),
+    );
+    expect(warnings).toEqual([
+      { file: "init.lua", line: 3, message: "terminal.font_size is deprecated: use terminal.size (:help deprecated#terminalfont_size)" },
+    ]);
+  });
+
   it("binds the command line's and the Picker's Tab keys (keys.cmdline, ticket 34), and knows their actions", () => {
     const r = builtinRegistries();
     const { warnings } = registerConfig(

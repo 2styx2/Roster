@@ -36,6 +36,13 @@ Everything about roster, the CLI and the app, in one place. The pages marked **:
 | [app/extending.md](app/extending.md) | How far roster bends: the registries `init.lua` and Plugins add to | `extending` |
 | [adr/0006-lua-plugins-and-packages.md](adr/0006-lua-plugins-and-packages.md) | Plugins and Packages, as decided | |
 
+## What's new
+
+| Page | What it's for | :help |
+|---|---|---|
+| [news.md](news.md) | What changed in each Release, by area: new, changed, removed, deprecated | `news` |
+| [deprecated.md](deprecated.md) | Old names that still work, and what replaces each one | `deprecated` |
+
 ## Working on roster
 
 | Page | What it's for |

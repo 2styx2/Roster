@@ -43,6 +43,19 @@ Prose is in Inter and anything you could type or paste (commands, options, value
 
 `/` searches only the page you're on; `␣ ?` matches topic names, not text.
 
+## Help from where you are
+
+Help has no cursor of its own to look a word up under, as Neovim's `K` and `Ctrl+]` do, so the lookup keys work from where you already are:
+
+| Where | Keys | Opens help on |
+|---|---|---|
+| The command line | `Ctrl+]`, `F1` | The command you're typing: `:conn` opens `:connect`. With nothing typed, the [Commands](commands) page. Esc in help brings the command line back with your text and the cursor where they were |
+| App mode | `␣ F1` (`:lookup`) | What's selected: a Host's row in the Sidebar opens `:connect`, any other row the command it runs. With nothing selected, the topic finder |
+| The Picker, every finder | `F1` | The selected result: a Host opens `:connect`, a Theme its entry (`themes#nord`), a help topic itself, anything else the command Enter would run |
+| The Key bindings panel | `F1` | The option of the first binding shown, so type to narrow it first (`keys.cmdline`) |
+
+They're `cmdline.help` and `picker.help` in the keymap, and the `lookup` command, so `init.lua` can move them ([Keyboard](keyboard.md#default-bindings)).
+
 ## The pages
 
 The [index](index) groups them, like Neovim's `help.txt`:
@@ -51,6 +64,7 @@ The [index](index) groups them, like Neovim's `help.txt`:
 - **Make it yours:** [Your init.lua](config.md), [Recipes](recipes.md), [Keyboard](keyboard.md), [Themes](themes.md).
 - **Reference**, mostly generated from what the app has now, every time it's shown, so it can't go stale: `quickref` (the commands you'll use most, with their keys now), `commands`, `keys`, `options` (each with the value in effect and where it came from), `themes`, `finders`, `errors`, `all` (every topic, A to Z), and the guides [Connection errors](errors.md), [The roster command](../cli-reference.md) and [The roster serve API](../serve-api.md).
 - **Extending:** [How far roster bends](extending.md).
+- **What's new:** [What's new](../news.md), the changes in each Release, and [Deprecated names](../deprecated.md), every old name that still works and what replaces it. `:help` on an old name (`:help ROSTER_DESK_ROSTER`) lands on its row there.
 
 ### Where an option's value came from
 

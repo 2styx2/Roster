@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One version for the whole repo: the CLI, the app and its Rust crates ship together.
 #
-#   scripts/bump-version.sh 0.2.0          set every version below to 0.2.0
+#   scripts/bump-version.sh 0.2.0          set every version below to 0.2.0, and rename docs/news.md's
+#                                          `## Unreleased` to `## v0.2.0`
 #   scripts/bump-version.sh --check        fail unless every file has the same version (CI runs this)
 #   scripts/bump-version.sh --check 0.2.0  ...and that version is 0.2.0 (the release workflow runs this
 #                                          with the tag, so a tag can't ship a build with another version)
@@ -9,13 +10,15 @@
 # The files: pyproject.toml, src/roster/__init__.py, uv.lock (the CLI); app/package.json,
 # app/package-lock.json, app/src-tauri/tauri.conf.json (the app); app/src-tauri/Cargo.toml,
 # crates/roster-core/Cargo.toml, Cargo.lock (the Rust crates). docs/releasing.md has the rest.
+# docs/news.md isn't a version file: its `## Unreleased` becomes the version's section, which the
+# Release's notes start with (scripts/news_section.py).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 mode=set want=""
 case "${1:-}" in
   --check) mode=check; want="${2:-}" ;;
-  ""|-h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  ""|-h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
   *) want="$1" ;;
 esac
 if [ -n "$want" ] && ! [[ "$want" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -80,5 +83,13 @@ for path in dict.fromkeys(p for p, _, _ in SPOTS):
     f.write_text(text)
 json.loads(pathlib.Path("app/package.json").read_text())  # still valid JSON
 print(f"version {want}: {', '.join(dict.fromkeys(p for p, _, _ in SPOTS))}")
+# What's new: the changes so far become this version's section.
+news = pathlib.Path("docs/news.md")
+text = news.read_text()
+if re.search(r"^## Unreleased$", text, re.M):
+    news.write_text(re.sub(r"^## Unreleased$", f"## v{want}", text, count=1, flags=re.M))
+    print(f"docs/news.md: ## Unreleased is ## v{want} now")
+elif not re.search(rf"^## v{re.escape(want)}$", text, re.M):
+    print(f"docs/news.md has no ## Unreleased: add v{want}'s section by hand (the Release's notes start with it)")
 print("Next: commit on a Work branch, open a pull request to dev (docs/releasing.md).")
 PY

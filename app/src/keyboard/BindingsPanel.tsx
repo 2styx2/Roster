@@ -11,9 +11,11 @@ export interface BindingsPanelProps {
   /** The Leader chord, as the ␣ key's tooltip. */
   leader: string;
   onClose(): void;
+  /** F1 in the filter: help on the first binding shown's option (ticket 52). */
+  onHelp?(option: string): void;
 }
 
-export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
+export function BindingsPanel({ rows, leader, onClose, onHelp }: BindingsPanelProps) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => filterRows(rows, query), [rows, query]);
   const groups = useMemo(() => {
@@ -42,6 +44,10 @@ export function BindingsPanel({ rows, leader, onClose }: BindingsPanelProps) {
           if (e.key === "Escape") {
             e.preventDefault();
             onClose();
+          } else if (e.key === "F1" && onHelp) {
+            e.preventDefault();
+            const option = shown[0]?.options[0];
+            if (option) onHelp(option);
           }
         }}
       />

@@ -1,0 +1,39 @@
+# The news reminder, like Neovim's news.yml (ticket 47): a pull request whose title or commits
+# start `feat` or `perf`, or say `!:` (breaking), and that leaves docs/news.md and
+# docs/deprecated.md alone fails with a reminder to add a line. A reminder, not a rule: the
+# `skip-news` label silences it. One small job, no build: it reads the PR through the API and runs
+# scripts/news_check.py (tests/test_news_check.py).
+name: News
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+
+concurrency:
+  group: news-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  news:
+    name: News entry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/news_check.py
+          sparse-checkout-cone-mode: false
+      - name: Did a user-visible change say what's new?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" --jq '.[].commit.message | split("\n")[0]' > commits.txt
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' > files.txt
+          python3 -I scripts/news_check.py --title "$TITLE" --labels "$LABELS" --commits commits.txt --files files.txt
