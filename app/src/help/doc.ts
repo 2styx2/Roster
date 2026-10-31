@@ -83,3 +83,22 @@ export function plain(inlines: readonly Inline[]): string {
     })
     .join("");
 }
+
+/** Every link's href in a page's blocks, in order: what the docs lint (lint.test.ts) and the
+ * docs website's build (src/docs-site) check. */
+export function blockLinks(blocks: readonly Block[]): string[] {
+  const out: string[] = [];
+  const walk = (inlines: readonly Inline[]) => {
+    for (const i of inlines) {
+      if (i.t === "link") out.push(i.href);
+      if (i.t === "link" || i.t === "strong" || i.t === "em") walk(i.children);
+    }
+  };
+  for (const b of blocks) {
+    if (b.t === "h" || b.t === "p" || b.t === "quote") walk(b.text);
+    else if (b.t === "list") b.items.forEach(walk);
+    else if (b.t === "table") [b.head, ...b.rows].forEach((row) => row.forEach(walk));
+    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body, d.more ?? []].forEach(walk));
+  }
+  return out;
+}

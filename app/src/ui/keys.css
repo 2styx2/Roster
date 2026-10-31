@@ -1,0 +1,10 @@
+/* Keycaps (ui/Keys.tsx): every key hint, in the app and on the docs website (src/docs-site). */
+.keys { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; white-space: nowrap; }
+.chord { display: inline-flex; gap: 2px; }
+.keycap {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
+  font: 500 var(--text-xs)/1 var(--font-mono); color: var(--muted);
+  background: var(--raised); border: 1px solid var(--line-strong); border-bottom-width: 1.5px;
+  border-radius: var(--radius-sm);
+}
+.keycap-leader { padding: 0 3px; }

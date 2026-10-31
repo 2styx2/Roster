@@ -1,0 +1,27 @@
+# The docs website and PDF: the help panel's own renderer, GitHub Pages from `main`, a PDF on each Release
+
+_Proposed for the owner's review with ticket 46 (issue #76); decision Q75._
+
+roster's docs are on the web at **https://2styx2.github.io/roster/** and in one PDF, both built from exactly what `:help` shows: the same Markdown in `docs/`, the same generated pages (commands, keys, options, Themes, finders, errors) and the same renderer. That's Neovim's model: `gen_help_html.lua` renders `:help` to HTML, and its PDF is a headless browser's print of one page holding all of it.
+
+- **The renderer is the help panel's.** `app/src/docs-site/site.tsx` builds a `HelpContext` from the built-in registries and the Config's defaults (the core's defaults fixture, as `lint.test.ts` does), and renders each page's `Block[]` with `HelpDoc`, the component the help panel itself draws pages with (`app/src/help/HelpPanel.tsx`), through `react-dom/server`'s `renderToStaticMarkup`. The page's stylesheet is the app's too: the help page, keycap and mark rules moved out of `styles.css` into `help/doc.css`, `ui/keys.css` and `chrome/logo.css`, which the app imports and the site inlines into `site.css`, with the colours from the `roster-dark` and `roster-light` Theme objects. The site adds only its frame: a top bar, the pages by part, a footer. No static-site generator: the Block model has seven kinds, and the app already renders all of them.
+- **Run by Vite's module runner, no new tool.** `app/scripts/gen-docs-site.ts` imports the app's modules, which bundle `docs/` as `?raw` imports. `tsx` can't load those and `vite-node` would be one more dependency, so `app/scripts/vite-run.mjs` loads the script with Vite's own `runnerImport` (in Vite since 6.1), the transforms `npm run dev` and Vitest already use. The only new package is `@types/node` (types only, never shipped), so `tsc` checks the script strictly like the rest (`tsconfig.scripts.json`).
+- **What it writes.** One page per help page (`options.html`), `tags.json` (every topic → `page.html#id`), `tag.html?t=TOPIC`, a redirect that gives every `:help` topic a stable address (`tag.html?t=terminal.size`), `site.css`, the Inter and Iosevka files, and with `--print` one `print.html` holding every page in the index's order. Every page ends with "Generated from `<sha>`", "Edit this page" (the guide's Markdown on GitHub; a generated page names `app/src/help/pages.ts` instead) and "Wrong or unclear? Report it", a new issue with the page and topic filled in and the `needs-triage` and `documentation` labels. Never any host data.
+- **The build fails on a dead link.** Before rendering, every link in every page must be a topic or a file in the repo (as `lint.test.ts` checks); after, every `page.html#id` the site wrote must land on a page that has that id, and no page may use an id twice.
+- **Deploy: GitHub Pages from `main`.** `.github/workflows/docs.yml` builds the site and the PDF on every pull request and uploads them as an artifact only; a push to `main` (the released docs) deploys them with `actions/deploy-pages`. `dev` isn't published: its docs describe what hasn't shipped.
+- **The PDF: Chromium's print, attached to each Release.** `npm run docs -- --pdf FILE` writes `print.html` (light, a page break before each page, a link naming the page it goes to, "→ Options") and runs headless Chromium's `--print-to-pdf` on it, with Neovim's flags (no header or footer, no PDF tagging). The release workflow attaches it as `roster-docs-X.Y.Z.pdf`; the website carries the latest as `roster-docs.pdf`.
+- **Public repo:** the site and the PDF show the repo's docs and the defaults only. There's no Inventory, `init.lua`, State or Plugin in the context, and nothing reads a `roster.yml`. The generated pages say so: "On the website this page shows roster's defaults".
+
+## Considered Options
+
+- **A static-site generator (VitePress, Astro, Docusaurus):** search and themes for free, but a second Markdown renderer that would drift from `:help` (anchors, links between guides, keycaps, the generated pages), a large dependency tree under ADR 0005's "no extra libraries", and a look that's theirs, not roster's.
+- **A second, string-building renderer:** about 150 lines with no React, but two renderers to keep in step; the help panel's own renderer is the one guarantee that the site looks like `:help`.
+- **Pandoc or LaTeX for the PDF:** better typesetting, but a third renderer and a large CI install; Chromium's print of the same HTML is what Neovim does and is on every GitHub runner.
+- **Deploying `dev` too (under `/dev/`):** useful for reviewers, but two sites to explain; the PR artifact covers review.
+
+## Consequences
+
+- **Enabling Pages is the owner's step:** Settings → Pages → Source: **GitHub Actions**. Until then the deploy job fails on `main` and the build job keeps working on pull requests.
+- The help panel's renderer has four optional hooks (`href`, `id`, `pageOf`, `outside`) the app doesn't set; a change to how a page renders changes the site in the same pull request.
+- A link the app shows as plain text (a file that isn't a help page) is a real link on the site, to that file on GitHub at the commit the site was built from.
+- Pages are latin-subset Inter and Iosevka; other scripts fall back to the system's fonts.

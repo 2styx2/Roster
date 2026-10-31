@@ -155,6 +155,8 @@ Point `ROSTER_CONFIG` at the file (`export ROSTER_CONFIG="$HOME/infra/roster.yml
 
 Start at **[docs/README.md](docs/README.md)**, the index of every doc. In the app, the same docs are inside it: `:help start` is where to begin, and `␣ ?` finds any topic.
 
+**Docs: [on the web](https://2styx2.github.io/roster/) · [PDF](https://2styx2.github.io/roster/roster-docs.pdf).** The same pages as `:help`, made from the same source; each Release carries the PDF too.
+
 | Doc | For |
 |---|---|
 | [docs/README.md](docs/README.md) | Every doc, grouped: getting started, making it yours, reference, extending, working on roster |

@@ -7,7 +7,7 @@ import { defaultConfig } from "../config/fixture";
 import { defaultOptions, keymapOf } from "../keymap";
 import { builtinRegistries } from "../registries";
 import { HelpView, registerHelp } from "./command";
-import { slug, type Block, type Inline } from "./doc";
+import { blockLinks, slug } from "./doc";
 import { linkKind, pageBody, topicIndex, type HelpContext, helpContext } from "./pages";
 
 /** The files a guide may link to, from the repo's root, and the Markdown among them. */
@@ -33,23 +33,6 @@ function ctxOf(): HelpContext {
   });
 }
 
-function links(blocks: Block[]): string[] {
-  const out: string[] = [];
-  const walk = (inlines: readonly Inline[]) => {
-    for (const i of inlines) {
-      if (i.t === "link") out.push(i.href);
-      if (i.t === "link" || i.t === "strong" || i.t === "em") walk(i.children);
-    }
-  };
-  for (const b of blocks) {
-    if (b.t === "h" || b.t === "p" || b.t === "quote") walk(b.text);
-    else if (b.t === "list") b.items.forEach(walk);
-    else if (b.t === "table") [b.head, ...b.rows].forEach((row) => row.forEach(walk));
-    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body, d.more ?? []].forEach(walk));
-  }
-  return out;
-}
-
 /** The anchors GitHub makes for a Markdown file's headings. */
 function anchorsOf(path: string): Set<string> {
   const text = (MARKDOWN[UP + path] ?? "").replace(/```[\s\S]*?```/g, "");
@@ -68,7 +51,7 @@ describe("the docs lint", () => {
   it("every link in every page goes to a topic, or to a file (and heading) that exists", () => {
     const broken: string[] = [];
     for (const pg of ctx.pages) {
-      for (const href of links(pageBody(ctx, pg.id))) {
+      for (const href of blockLinks(pageBody(ctx, pg.id))) {
         const kind = linkKind(href);
         if (kind === "web") continue;
         if (kind === "topic") {

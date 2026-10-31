@@ -1,0 +1,66 @@
+# The docs website and its PDF (ticket 46, ADR 0008), like Neovim's: every :help page as static
+# HTML from the same Markdown and renderer as the app (app/scripts/gen-docs-site.ts), and one PDF
+# printed from them by headless Chromium.
+#
+#   pull_request     build both; upload them as an artifact only (download it to look). A dead link
+#                    fails the build.
+#   push to main     build both and deploy them to GitHub Pages: https://2styx2.github.io/roster/
+#                    (needs Settings → Pages → Source: GitHub Actions).
+#   workflow_dispatch  build, and deploy only when run on main.
+name: Docs site
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  # A deploy runs to the end; a pull request's older build gives way to the newer one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the website and the PDF
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      # Google Chrome comes with the runner image; the script finds it on PATH.
+      - name: Build
+        working-directory: app
+        run: npm run docs -- --out ../site --pdf ../site/roster-docs.pdf
+      - name: Summary
+        run: |
+          { echo "Built $(ls site/*.html | wc -l) pages and roster-docs.pdf ($(du -h site/roster-docs.pdf | cut -f1)) from ${GITHUB_SHA::7}."
+            echo "Download the github-pages artifact and open index.html to look."; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+          retention-days: 7
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write      # only this job publishes, and only from main
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
