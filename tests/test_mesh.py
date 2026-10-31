@@ -783,6 +783,114 @@ def test_serve_plans_applies_cuts_and_reports_status(net, serve, monkeypatch):
     json.dumps(cut)
 
 
+def wait_for(s, job, until=lambda j: j["state"] != "running", seconds=20):
+    """Polls mesh.job, as the Mesh controls Plugin does, until UNTIL holds; returns the last answer."""
+    import time
+    end = time.monotonic() + seconds
+    while True:
+        j = s.call("mesh.job", {"job": job})["result"]
+        if until(j) or time.monotonic() > end:
+            return j
+        time.sleep(0.05)
+
+
+def test_serve_runs_a_mesh_job_in_the_background_and_answers_meanwhile(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    assert s.call("mesh.job")["result"] is None                         # no job yet
+    (net.host("orion-2") / "slow").write_text("1")                      # its step takes a second
+    started = s.call("mesh.plan", {"background": True})["result"]
+    assert started["action"] == "plan" and started["total"] > 0 and isinstance(started["job"], int)
+    # serve answers other requests while the job runs, and another Mesh run is refused
+    assert s.call("mesh.status")["result"]["out_of_date"] is True
+    busy = s.call("mesh.apply", {"background": True})["error"]
+    assert busy["code"] == 111 and busy["data"]["job"] == started["job"]
+    assert s.call("mesh.apply")["error"]["code"] == 111
+    j = wait_for(s, started["job"])
+    assert j["state"] == "done" and j["done"] == j["total"] == started["total"]
+    assert j["result"]["applied"] is False and not j["result"]["already"]
+    assert net.mesh_lines("nas-1") == []                                # a plan changes nothing
+    a = s.call("mesh.apply", {"background": True})["result"]
+    j = wait_for(s, a["job"])
+    assert j["action"] == "apply" and j["state"] == "done" and j["result"]["pending"] == {}
+    assert net.mesh_lines("nas-1") == [key_line_of(net, "orion-2", "10.0.0.2")]
+    assert s.call("mesh.status")["result"]["out_of_date"] is False
+    assert s.call("mesh.job", {"job": a["job"] + 7})["result"] is None   # not the latest job
+
+
+def test_a_background_job_reports_how_far_it_has_got(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("1")
+    started = s.call("mesh.apply", {"background": True})["result"]
+    j = wait_for(s, started["job"], until=lambda j: j["at"] == "orion-2" or j["state"] != "running")
+    assert j["state"] == "running" and 0 <= j["done"] < j["total"] and "result" not in j
+
+
+def test_stopping_a_job_leaves_the_rest_pending_for_the_next_run(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("1")
+    started = s.call("mesh.apply", {"background": True})["result"]
+    wait_for(s, started["job"], until=lambda j: j["at"] == "orion-2")
+    assert s.call("mesh.stop", {"job": started["job"]})["result"] == {"job": started["job"], "stopping": True}
+    j = wait_for(s, started["job"])
+    assert j["state"] == "done" and j["stopped"] is True
+    assert j["result"]["pending"] and all("stopped" in why for why in j["result"]["pending"].values())
+    assert mesh.load_state()["pending"] == j["result"]["pending"]       # the next roster mesh finishes them
+    assert s.call("mesh.stop", {"job": started["job"]})["result"]["stopping"] is False   # over already
+
+
+def test_a_background_cut_writes_mesh_false_and_says_which_hosts_didnt_confirm(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    wait_for(s, s.call("mesh.apply", {"background": True})["result"]["job"])
+    net.down("nas-1")
+    started = s.call("mesh.cut", {"host": "orion-2", "background": True})["result"]
+    assert started["action"] == "cut" and started["host"] == "orion-2"
+    j = wait_for(s, started["job"])
+    assert j["state"] == "done" and j["done"] == j["total"]
+    assert set(j["result"]["pending"]) == {"nas-1"} and j["result"]["change"]["written"] is True
+    assert s.call("hosts.list")["result"]["hosts"][0]["mesh"] is False
+
+
+def test_a_background_job_refuses_what_it_would_refuse_at_once(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    assert s.call("mesh.plan", {"rotate": ["nas-1"], "background": True})["error"]["code"] == 110
+    assert s.call("mesh.cut", {"host": "nope", "background": True})["error"]["code"] == 2
+    assert s.call("mesh.plan", {"background": "yes"})["error"]["code"] == -32602
+    assert s.call("mesh.stop", {"job": 99})["result"] == {"job": 99, "stopping": False}
+    assert s.call("mesh.job")["result"] is None                         # nothing started
+
+
+def test_brief_answers_stay_small_for_a_big_mesh_and_keep_what_is_worth_a_look(net, serve):
+    net.cfg_path.write_text(VIA.replace("  - { from: orion-3, to: jump-1 }\n", ""))
+    s = serve("-c", str(net.cfg_path))
+    full = s.call("mesh.status")["result"]
+    st = s.call("mesh.status", {"brief": True})["result"]
+    assert st["link_count"] == len(full["links"]) and st["links_more"] == 0
+    assert st["out_of_date"] is True and st["reach"]["orion-2"] == full["reach"]["orion-2"]
+    assert st["reach"]["orion-3"] == full["reach"]["orion-3"] - 1          # its no-via Link doesn't count
+    # the hop's Link, and only it: with no Link to jump-1 it's no-via, which needs no connection to know
+    assert st["links"] == [{"from": "orion-3", "to": "db-9", "kind": "key", "via": "jump-1", "status": "no-via",
+                            "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"}]
+    working = [x for x in full["links"] if "skip" not in x and not x.get("via")]
+    assert st["reached"]["nas-1"] == sum(1 for x in working if x["to"] == "nas-1") > 0
+    assert sum(st["link_statuses"].values()) == st["link_count"] and st["link_statuses"]["no-via"] == 1
+    (net.host("orion-2") / "blocked").write_text("10.0.0.30:22\n")
+    j = wait_for(s, s.call("mesh.plan", {"background": True})["result"]["job"])
+    full_plan = j["result"]
+    j = s.call("mesh.job", {"job": j["job"], "brief": True})["result"]
+    assert j["result"]["link_count"] == len(full_plan["links"])
+    assert {(x["from"], x["to"], x["status"]) for x in j["result"]["links"]} == {
+        ("orion-3", "db-9", "no-via"), ("orion-2", "nas-1", "unreachable")}
+    assert j["result"]["hosts"] == full_plan["hosts"]                   # few changes each: kept whole
+
+
+def test_brief_keeps_at_most_a_thousand_links_and_ten_changes_a_host():
+    links = [{"from": f"h{i}", "to": "x", "kind": "key", "status": "unreachable"} for i in range(1500)]
+    hosts = [{"host": "x", "status": "would-change", "changes": [f"add key from h{i}" for i in range(1500)]}]
+    b = mesh.brief({"links": links, "hosts": hosts, "reach": {}})
+    assert len(b["links"]) == 1000 and b["links_more"] == 500 and b["link_statuses"] == {"unreachable": 1500}
+    assert b["hosts"][0]["changes"] == [f"add key from h{i}" for i in range(10)] and b["hosts"][0]["more"] == 1490
+
+
 def test_private_keys_never_leave_their_host_and_no_secret_is_looked_up(net, monkeypatch, isolated, capsys):
     from roster import providers
 

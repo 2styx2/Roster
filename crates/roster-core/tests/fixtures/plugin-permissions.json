@@ -3,7 +3,7 @@
   "permissions": ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"],
   "serve_methods": ["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"],
   "serve_prefixes": ["mesh.", "discover."],
-  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan"],
+  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan", "mesh.job", "mesh.stop"],
   "network": {
     "network:api.example.com": { "summary": "Send and fetch over the network: api.example.com", "risk": "Can send data to api.example.com and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer." },
     "network:*.example.com": { "summary": "Send and fetch over the network: any site under example.com", "risk": "Can send data to any site under example.com and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer." },
