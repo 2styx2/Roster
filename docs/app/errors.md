@@ -162,7 +162,7 @@ Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permiss
 
 ## The Mesh
 
-`roster mesh`, `roster check` and the `mesh.*` methods (see [The Mesh](../mesh.md)). Most of what can go wrong is one Link or one Host, not the whole run: the rest is applied, and the result says what wasn't. A `links:` entry (its `via:` included), a `mesh:` or a `mesh_dir:` that doesn't load is row 1, an unknown Host code 2.
+`roster mesh`, `roster check` and the `mesh.*` methods (see [The Mesh](../mesh.md)). Most of what can go wrong is one Link or one Host, not the whole run: the rest is applied, and the result says what wasn't. A `links:` entry (its `via:` included), a `mesh:`, a `mesh_dir:` or a `seen_as:` that doesn't load is row 1, an unknown Host code 2.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|

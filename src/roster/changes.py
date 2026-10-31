@@ -191,6 +191,7 @@ def host_changes(path, old_text, new_text):
         a, b = host_view(old["hosts"][name]), host_view(h)
         fields = [k for k in b if a[k] != b[k]]
         fields += ["mesh_dir"] if old["mesh_dirs"].get(name) != new["mesh_dirs"].get(name) else []
+        fields += ["seen_as"] if old["seen_as"].get(name) != new["seen_as"].get(name) else []
         if fields:
             out_.append({"host": name, "change": "changed", "fields": fields})
     out_ += [{"host": n, "change": "removed", "fields": []} for n in old["hosts"] if n not in new["hosts"]]

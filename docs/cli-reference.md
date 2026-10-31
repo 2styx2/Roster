@@ -63,6 +63,7 @@ groups:
 | `reviewed` | `false` on scanned hosts; `setup` skips them until you flip it |
 | `mesh` | `true` lets a group's Hosts reach each other (the [Mesh](mesh.md)); `false` keeps a group or Host out of it and out of every Link. Cascades like the rest |
 | `mesh_dir` | Where a Mesh source keeps its key, known hosts, ssh config (and, on ESXi, `ROSTER.md`), in place of `~/.ssh/roster-mesh` or ESXi's datastore pick: an absolute path, on ESXi on a datastore. Cascades like the rest. See [`mesh_dir:`](mesh.md#esxi) |
+| `seen_as` | The Host's other addresses (one or a list, addresses or networks) that a Mesh peer's `from=` takes beside its `ip`: for a jump Host on several networks or a Host behind NAT. On the Host only. See [`seen_as:`](mesh.md#other-addresses) |
 
 Top-level `links:` add one-way Host-to-Host reach across groups: `- { from: HOST-OR-GROUP, to: HOST-OR-GROUP, both: true, via: HOST }` (`both` makes it two-way; `via` sends it through a jump Host with `ProxyJump`, and the peer's `from=` names that Host's address). See [The Mesh](mesh.md) and [Through a jump Host](mesh.md#through-a-jump-host).
 

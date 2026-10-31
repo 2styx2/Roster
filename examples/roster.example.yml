@@ -141,6 +141,8 @@ groups:
 #   via: HOST sends a link through a jump host (ProxyJump); the source needs its own link to that host.
 #   mesh_dir: /vmfs/volumes/DATASTORE/roster-mesh on a host (or group) says where a source keeps its Mesh files,
 #   for an ESXi host with no datastore roster would pick.
+#   seen_as: 10.0.9.1 on a host lists its other addresses (one or a list), which its peers' from= also accept:
+#   for a jump host with a leg on each network, or a host behind NAT.
 # links:
 #   - { from: orion, to: net-sw-core-01 }
 #   - { from: orion, to: bastion }

@@ -102,6 +102,7 @@ def digest(cfg, g=None):
     parts = [(x["from"], x["to"], x["kind"], h[x["to"]]["ip"], h[x["to"]]["ssh"]["user"], h[x["to"]]["ssh"]["port"],
               h[x["from"]]["ip"]) + ((x["via"], h[x["via"]]["ip"]) if x.get("via") else ())
              + ((cfg["mesh_dirs"][x["from"]],) if x["from"] in cfg.get("mesh_dirs", {}) else ())
+             + tuple(cfg.get("seen_as", {}).get(x.get("via") or x["from"], ()))
              for x in g["links"] if "skip" not in x]
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()[:16]
 
@@ -165,6 +166,12 @@ fi
 
 PROBE = r"""
 umask 077
+SEEN=$(cd "$P" 2>/dev/null && pwd -P)
+stale() {  # stale DIR: an earlier Mesh directory, once per directory, never the one in use
+  r=$(cd "$1" 2>/dev/null && pwd -P) || return 0
+  case " $SEEN " in *" $r "*) return 0;; esac
+  SEEN="$SEEN $r"; echo "STALE $1"
+}
 echo "DIR $P"
 [ -n "$ESXI" ] && echo "PLATFORM esxi"
 K=$P/id_ed25519
@@ -184,11 +191,12 @@ if [ -n "$MD" ]; then
     done
   fi
   if [ -n "$ESXI" ]; then
-    for v in /vmfs/volumes/*/.roster-mesh; do
-      [ -f "$v/id_ed25519" ] && [ "$(cd "$v" && pwd -P)" != "$(cd "$P" 2>/dev/null && pwd -P)" ] && echo "STALE $v"
-    done
-  elif [ -f "$HOME/.ssh/roster-mesh/id_ed25519" ]; then echo "STALE $HOME/.ssh/roster-mesh"; fi
+    for v in /vmfs/volumes/*/.roster-mesh; do [ -f "$v/id_ed25519" ] && stale "$v"; done
+  elif [ -f "$HOME/.ssh/roster-mesh/id_ed25519" ]; then stale "$HOME/.ssh/roster-mesh"; fi
 fi
+# the directory the Include after roster's mark in ~/.ssh/config names: an earlier mesh_dir: (or roster's own pick)
+O=$(awk -v m="$MARK" 'p { print; exit } $0 == m { p = 1 }' "$HOME/.ssh/config" 2>/dev/null)
+case "$O" in "Include "/*/config) O=${O#Include }; O=${O%/config}; [ -f "$O/id_ed25519" ] && mine "$O" && stale "$O";; esac
 KG=$(command -v ssh-keygen 2>/dev/null || echo /usr/lib/vmware/openssh/bin/ssh-keygen)
 if [ "$ROTATE" = 1 ] && [ -f "$K" ]; then
   if [ "$MODE" = apply ]; then rm -f "$K" "$K.pub"; fi
@@ -252,7 +260,9 @@ else
   echo "CHANGE include"
   if [ "$MODE" = apply ]; then
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"; t=$(mktemp)
-    { echo "$MARK"; echo "$INC"; grep -vxF -e "$MARK" "$C" 2>/dev/null; } > "$t"; replace "$C" < "$t"; rm -f "$t"
+    # the Include after an earlier mark (another directory) goes with it
+    { echo "$MARK"; echo "$INC"; awk -v m="$MARK" 'd { d = 0; if (/^Include /) next } $0 == m { d = 1; next } { print }' "$C" 2>/dev/null; } > "$t"
+    replace "$C" < "$t"; rm -f "$t"
   fi
 fi
 if [ -n "$R" ] && [ -f "$R" ] && ! ours "$R"; then echo "CONFLICT $R"; fi
@@ -313,8 +323,10 @@ rm -f "$H" "$W" "$S1" "$S2"
 
 
 def with_mesh_dirs(cfg):
-    """cfg's Hosts, each with its mesh_dir (None: roster's own pick), which roster.yml keeps beside them."""
-    return {n: {**h, "mesh_dir": cfg.get("mesh_dirs", {}).get(n)} for n, h in cfg["hosts"].items()}
+    """cfg's Hosts, each with its mesh_dir (None: roster's own pick) and seen_as (its other addresses), which
+    roster.yml keeps beside them."""
+    return {n: {**h, "mesh_dir": cfg.get("mesh_dirs", {}).get(n), "seen_as": cfg.get("seen_as", {}).get(n, [])}
+            for n, h in cfg["hosts"].items()}
 
 
 def preamble(h, mode):
@@ -442,9 +454,11 @@ def roster_md(src, peers, d, esxi, vias=None):
 
 
 def key_line(src, pub, via=None):
-    """The peer's authorized_keys line for SRC: from= the address the peer sees, VIA's when it goes through one."""
+    """The peer's authorized_keys line for SRC: from= the addresses the peer sees, VIA's when it goes through one
+    (its ip: and its seen_as:)."""
     parts = pub.split()
-    return f"{OPTIONS.format(ip=(via or src)['ip'])} {parts[0]} {parts[1]} {TAG}:{src['name']}"
+    seen = via or src
+    return f"{OPTIONS.format(ip=','.join([seen['ip'], *seen.get('seen_as', [])]))} {parts[0]} {parts[1]} {TAG}:{src['name']}"
 
 
 # ---------------------------------------------------------------- plan and apply
@@ -534,7 +548,7 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
                               "reach": dict(x.split(" ", 1) for x in report(lines, "REACH "))}
         for old in report(lines, "STALE "):
             out.setdefault("warnings", []).append(
-                f"{name}: {old} holds an earlier Mesh key, from before mesh_dir: roster no longer uses it, so delete it "
+                f"{name}: {old} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it "
                 "by hand")
 
     # jump Hosts that aren't sources: whether they reach the peers they're a hop to

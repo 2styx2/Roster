@@ -154,7 +154,7 @@ export const guides: readonly Guide[] = [
     id: "mesh",
     path: "docs/mesh.md",
     title: "The Mesh: Hosts that reach each other",
-    summary: "mesh: and links: in roster.yml, via: jump Hosts, roster mesh, cut, drift in roster check, ESXi and mesh_dir:, appliances",
+    summary: "mesh: and links: in roster.yml, via: jump Hosts, seen_as: addresses, roster mesh, cut, drift in roster check, ESXi and mesh_dir:, appliances",
     part: "Reference",
     order: 72,
     aliases: {
@@ -163,6 +163,7 @@ export const guides: readonly Guide[] = [
       "mesh cut": "mesh#cut",
       "mesh via": "mesh#through-a-jump-host",
       mesh_dir: "mesh#esxi",
+      seen_as: "mesh#other-addresses",
     },
     markdown: meshGuide,
   },

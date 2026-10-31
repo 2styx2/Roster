@@ -713,3 +713,10 @@ def test_a_mesh_dir_change_names_its_host(write_config):
     path = committed(write_config, LINKED)
     path.write_text(LINKED.replace("h1: 10.0.0.1", "h1: { ip: 10.0.0.1, mesh_dir: /srv/mesh }"))
     assert changes.diff(path)["message"] == "roster: change h1 (mesh_dir)"
+
+
+def test_a_seen_as_change_names_its_host(write_config):
+    from roster import changes
+    path = committed(write_config, LINKED)
+    path.write_text(LINKED.replace("h1: 10.0.0.1", "h1: { ip: 10.0.0.1, seen_as: 10.0.9.1 }"))
+    assert changes.diff(path)["message"] == "roster: change h1 (seen_as)"

@@ -382,6 +382,33 @@ def test_moving_to_a_mesh_dir_warns_about_the_old_one(net):
     assert any(w.startswith("esx-02: /vmfs/volumes/5f0e-uuid/.roster-mesh holds an earlier Mesh key") for w in r["warnings"])
 
 
+def test_removing_a_mesh_dir_warns_about_it_and_drops_its_include(net):
+    d = net.host("orion-2") / "srv/mesh"
+    (net.host("orion-2") / "srv").mkdir()
+    with_mesh_dir(net, str(d), host="orion-2")
+    mesh.run(net.cfg(), apply=True)
+    net.cfg_path.write_text(CONFIG)
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert [w for w in r["warnings"] if w.startswith("orion-2:")] == [
+        f"orion-2: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+    config = net.file("orion-2", "home/.ssh/config")
+    assert f"Include {d}/config" not in config and config.count("Include ") == 1
+    assert (d / "id_ed25519").exists()                      # never removed by roster
+    assert mesh.run(net.cfg())["already"]
+
+
+def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
+    a, b = net.host("orion-2") / "srv/a", net.host("orion-2") / "srv/b"
+    (net.host("orion-2") / "srv").mkdir()
+    with_mesh_dir(net, str(a), host="orion-2")
+    mesh.run(net.cfg(), apply=True)
+    with_mesh_dir(net, str(b), host="orion-2")
+    r = mesh.run(net.cfg(), apply=True)
+    assert any(w.startswith(f"orion-2: {a} holds an earlier Mesh key") for w in r["warnings"])
+    assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
+
+
 def test_unreachable_links_are_reported_and_not_written(net, capsys):
     (net.host("orion-3") / "blocked").write_text("10.0.9.9:22\n")
     r = mesh.run(net.cfg(), apply=True)
@@ -415,6 +442,44 @@ def test_a_link_via_a_jump_host_goes_through_it_end_to_end(net, capsys):
     assert net.mesh_lines("jump-1") == [key_line_of(net, "orion-3", "10.0.0.3")]
     assert "| db-9 | admin@10.0.9.9:22 via jump-1 | key |" in net.file("orion-3", "home/ROSTER.md")
     assert mesh.run(net.cfg())["already"]
+
+
+def test_seen_as_adds_a_jump_hosts_other_addresses_to_from(net):
+    net.cfg_path.write_text(VIA.replace("jump-1: 10.0.5.1", "jump-1: { ip: 10.0.5.1, seen_as: 10.0.9.1 }"))
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    line = key_line_of(net, "orion-3", "10.0.5.1,10.0.9.1")              # db-9 sees jump-1 on its own network
+    assert net.mesh_lines("db-9") == [line]
+    assert mesh.run(net.cfg())["already"]
+
+
+def test_seen_as_works_for_a_direct_source_and_takes_a_list(net):
+    net.cfg_path.write_text(CONFIG.replace("orion-3: 10.0.0.3", "orion-3: { ip: 10.0.0.3, seen_as: [192.0.2.3, 10.0.8.0/24] }"))
+    mesh.run(net.cfg(), apply=True)
+    assert key_line_of(net, "orion-3", "10.0.0.3,192.0.2.3,10.0.8.0/24") in net.mesh_lines("db-9")
+
+
+@pytest.mark.parametrize("entry, message", [
+    ("a1: {ip: 10.0.0.1, seen_as: nope}", "host 'a1': seen_as: must be IP addresses"),
+    ("a1: {ip: 10.0.0.1, seen_as: ['10.0.0.2,10.0.0.3']}", "host 'a1': seen_as: must be IP addresses"),
+])
+def test_a_bad_seen_as_is_refused_when_roster_yml_loads(write_config, entry, message):
+    with pytest.raises(SystemExit) as e:
+        load_config(write_config(f"defaults: {{user: u}}\ngroups:\n  lab:\n    hosts:\n      {entry}\n"))
+    assert message in str(e.value)
+
+
+def test_seen_as_belongs_to_a_host_not_a_group(write_config):
+    with pytest.raises(SystemExit) as e:
+        load_config(write_config("defaults: {user: u}\ngroups:\n  lab:\n    seen_as: 10.0.0.9\n    hosts:\n      a1: 10.0.0.1\n"))
+    assert "seen_as: goes on a Host" in str(e.value)
+
+
+def test_a_seen_as_change_puts_the_mesh_out_of_date(write_config):
+    path = write_config(CONFIG)
+    before = mesh.digest(load_config(path))
+    path.write_text(CONFIG.replace("orion-2: 10.0.0.2", "orion-2: { ip: 10.0.0.2, seen_as: 10.0.7.2 }"))
+    assert mesh.digest(load_config(path)) != before
 
 
 def test_via_goes_both_ways_and_wins_over_the_same_pair_without_it(net):
