@@ -8,7 +8,7 @@ It's also the template for writing your own: copy this folder, rename it, and ch
 
 | Where | What |
 |---|---|
-| Sidebar | A **Recent alerts** section, newest first: the line, its Host and the time. Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it. A Quick Connect Session has no Host: its alerts say "Quick Connect", with no badge and nothing for Enter to go to |
+| Sidebar | A **Recent alerts** section, newest first: the line, its Host and how long ago ("4 min ago", kept up to date). Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it. A Quick Connect Session has no Host: its alerts say "Quick Connect", with no badge and nothing for Enter to go to |
 | Inventory | A badge on each Host that has alerts: its count, `2`, as a small chip after the name (a screen reader hears `recent-alerts: 2`) |
 | Status bar | `⚠ 3`, which opens the finder |
 | Finder | `:finder alerts` (and `␣ w w`): search the alerts; Enter shows one's details |
@@ -60,12 +60,13 @@ recent-alerts/
 
 - **The manifest** is read before any of its code runs, for the install prompt. Ask for as little as you can: each permission is a line the user has to accept.
 - **`roster.plugin.config`** is the table from init.lua's `config = { … }`. Check it: anyone can write anything there.
-- **`roster.plugin.permissions`** says what it was granted. Listening for an event it may not hear is an error, so it only calls `roster.on("terminal_output", …)` when it has `terminal.read`.
+- **`roster.has("terminal.read")`** says whether it was granted. Listening for an event it may not hear is an error, so it only calls `roster.on("terminal_output", …)` when it has `terminal.read`.
 - **One `show()` draws everything** from its own state: the section, the finder, the status segment and the badges. Each `set` replaces the last, so there's nothing to keep in step.
-- **`terminal_output` comes in batches**, a few times a second, without colours or escape sequences. A line can be split across two batches, so it keeps the unfinished end of each Session's output until the rest arrives (the last 2000 bytes, cut where a character starts, never inside one), and forgets it on `session_exit`.
+- **`terminal_output` comes in batches** of whole lines, a few times a second, as the terminal shows them (no colours or escape sequences). It still keeps an unfinished end of each Session's output in case (the last 2000 bytes, cut where a character starts, never inside one), and forgets it on `session_exit`.
+- **A timer keeps "2 min ago" true**: each row's note says "just now", "4 min ago", then the time, and `roster.every(30000, show)` draws them again while there are alerts. It cancels the timer (`roster.cancel`) when there are none, so an idle Plugin does nothing.
 - **`host` can be `nil`**: a Quick Connect Session isn't on a Host of the Inventory, so it gets no badge and its rows have no `host`.
 - **It matches the whole line and shows it cut** to 300 characters, so an `ERROR` at the end of a long line still counts.
-- **Everything is in name order** (the badges, the rows), so the same alerts always make the same changes.
+- **Everything is in a fixed order** (the badges in name order, the rows newest first), so the same alerts always make the same changes. `pairs` visits keys in order in a Plugin, so that comes free.
 - **Copying** (`roster.clipboard.copy`) works only inside an action the user chose; at load or on an event it's an error. Say "Copied" after it: if the clipboard can't be written, the app drops that and says what went wrong.
 
 ## Testing it

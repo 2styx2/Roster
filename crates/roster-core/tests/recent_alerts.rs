@@ -540,10 +540,10 @@ fn its_actions_show_the_details_copy_the_line_and_dismiss_it_and_alerts_clear_di
         .call(NAME, command, json!({ "args": "clear", "words": ["clear"] }));
     ok(&r);
     assert!(rows(one(&r.ops, "section")).is_empty());
-    assert_eq!(
-        one(&r.ops, "remove"),
-        &json!({ "op": "remove", "kind": "status", "id": "alerts" })
-    );
+    // The status segment goes, and so does the timer that kept "2 min ago" true.
+    let removed: Vec<&Value> = find(&r.ops, "remove");
+    assert_eq!(removed[0], &json!({ "op": "remove", "kind": "status", "id": "alerts" }));
+    assert_eq!(removed[1]["kind"], "timer");
     assert_eq!(one(&r.ops, "notify")["text"], "Dismissed 1 alert");
 }
 
@@ -837,6 +837,7 @@ fn steps() -> Value {
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "all good\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "esx-02$ grep ERROR /var/log/syslog\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 3, "host": null, "text": "ERROR on a box\n" } },
+        { "do": "timer" },
         { "do": "action", "label": "Details of ERROR on a box" },
         { "do": "action", "label": "Details of ERROR: disk /dev/sda1 full" },
         { "do": "action", "label": "Copy ERROR again" },
@@ -848,6 +849,16 @@ fn steps() -> Value {
         { "do": "event", "name": "session_exit", "payload": { "session": 2, "host": "appliance", "code": 0 } },
         { "do": "load", "grants": [], "config": { "patterns": ["ERROR", "panic"], "leader": "w a" } }
     ])
+}
+
+/// An op as the transcript keeps it: as [`normal`], with a timer's id as `"N"` (it's a handler's
+/// number, which the stand-in counts its own way).
+fn normal_op(op: &Value) -> Value {
+    let mut op = normal(op);
+    if op["op"] == "timer" || (op["op"] == "remove" && op["kind"] == "timer") {
+        op["id"] = json!("N");
+    }
+    op
 }
 
 /// Ops as the transcript keeps them: each function as `"fn"`, each time as `HH:MM:SS`, each date
@@ -904,6 +915,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
     let mut sections: BTreeMap<String, Value> = BTreeMap::new();
     let mut commands: BTreeMap<String, u64> = BTreeMap::new();
     let mut finders: BTreeMap<String, Value> = BTreeMap::new();
+    let mut timer: Option<u64> = None;
     let mut out = Vec::new();
     for step in steps().as_array().unwrap() {
         let replies: Vec<Reply> = match step["do"].as_str().unwrap() {
@@ -946,6 +958,8 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                     .clone();
                 vec![w.host.call(NAME, handler(&item["run"]), json!({}))]
             }
+            // The app's clock: the timer the Plugin set last fires.
+            "timer" => vec![w.host.call(NAME, timer.expect("a timer"), json!({}))],
             other => panic!("no step {other}"),
         };
         let mut ops = Vec::new();
@@ -962,9 +976,10 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                     "finder" => {
                         finders.insert(op["id"].as_str().unwrap().into(), op.clone());
                     }
+                    "timer" => timer = Some(handler(&op["run"])),
                     _ => {}
                 }
-                ops.push(normal(op));
+                ops.push(normal_op(op));
             }
         }
         let mut step = step.clone();
