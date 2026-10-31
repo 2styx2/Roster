@@ -448,16 +448,17 @@ export function PluginConfirmPanel({ confirm, onAnswer }: { confirm: PendingConf
 
 /** What Plugins are doing that takes a while (`roster.progress`, ticket 78), in the status bar: the
  * title, a hairline track (filled as far as it's done, or an edge that travels along it while it
- * only knows it's going), the share, and a button that stops it (`:cancel ID`). */
+ * only knows it's going), the share, and a button that stops it (`:cancel ID`). The latest keeps
+ * its title longest: the others are `older`, and give way first when the bar is short (ticket 85). */
 export function PluginProgressItems({ progress, onCancel }: { progress: readonly RunningProgress[]; onCancel(id: string): void }) {
   return (
     <>
-      {progress.map((p) => {
+      {progress.map((p, i) => {
         const known = p.done !== undefined && p.total !== undefined;
         const share = known ? Math.round(((p.done as number) / (p.total as number)) * 100) : null;
         const title = `${p.title}${p.text ? `: ${p.text}` : ""} (from ${p.plugin})`;
         return (
-          <span key={p.id} className="statusbar-progress" title={title}>
+          <span key={p.id} className={`statusbar-progress${i < progress.length - 1 ? " older" : ""}`} title={title}>
             <span className="statusbar-progress-title statusbar-cut">{p.stopping ? `${p.title}: stopping…` : p.title}</span>
             <span
               className={`progress-track${known ? "" : " going"}`}

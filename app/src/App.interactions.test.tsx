@@ -160,6 +160,24 @@ describe("roster.progress", () => {
   });
 });
 
+describe("roster.progress without the status bar", () => {
+  // Ticket 85: Focus hides the status bar, so progress has a corner of its own there.
+  it("shows in a corner in Focus, with its stop button, and goes back to the status bar after", async () => {
+    const user = await ready();
+    await screen.findByRole("progressbar", { name: "Scanning 10.0.0.0/24" });
+    expect(document.querySelector(".statusbar .statusbar-progress")).not.toBeNull();
+    await user.keyboard(`${LEADER}:focus{Enter}`);
+    await waitFor(() => expect(document.querySelector(".screen.app")?.getAttribute("data-view")).toBe("focus"));
+    const corner = await screen.findByRole("group", { name: "What Plugins are doing" });
+    expect(within(corner).getByRole("progressbar", { name: "Scanning 10.0.0.0/24" })).toHaveAttribute("aria-valuenow", "25");
+    await user.click(within(corner).getByRole("button", { name: "Stop Scanning 10.0.0.0/24" }));
+    await notice("mesh: stopping");
+    await user.keyboard(`${LEADER}:focus{Enter}`);
+    await waitFor(() => expect(screen.queryByRole("group", { name: "What Plugins are doing" })).toBeNull());
+    expect(document.querySelector(".statusbar .statusbar-progress")).not.toBeNull();
+  });
+});
+
 describe("roster.cmd and a Plugin's command lines", () => {
   it("runs the Plugin's own finder, and refuses :plugins", async () => {
     const user = await ready();
