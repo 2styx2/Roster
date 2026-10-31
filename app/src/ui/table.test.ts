@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeRows, nextSort, sortRows, windowOf, type TableColumn, type TableRow } from "./table";
+import { actionApplies, filterRows, mergeRows, nextSort, sortRows, windowOf, type TableColumn, type TableRow } from "./table";
 
 const columns: TableColumn[] = [
   { id: "name", label: "Host", kind: "data" },
@@ -64,5 +64,38 @@ describe("windowOf", () => {
 
   it("draws a first screenful when it can't measure (a hidden panel, tests)", () => {
     expect(windowOf({ count: 1000, rowHeight: 24, scrollTop: 0, height: 0, overscan: 5 })).toEqual({ start: 0, end: 45 });
+  });
+});
+
+describe("actionApplies (ticket 78)", () => {
+  const row: TableRow = { id: "a", cells: { state: "up", ports: 3 } };
+  it("applies with no condition, and when every named cell holds one of its values", () => {
+    expect(actionApplies(undefined, row)).toBe(true);
+    expect(actionApplies({ state: ["up"] }, row)).toBe(true);
+    expect(actionApplies({ state: ["down", "up"], ports: ["3"] }, row)).toBe(true);
+  });
+  it("doesn't when a cell differs or is missing", () => {
+    expect(actionApplies({ state: ["down"] }, row)).toBe(false);
+    expect(actionApplies({ group: ["lab"] }, row)).toBe(false);
+  });
+});
+
+describe("filterRows (ticket 78)", () => {
+  const columns: TableColumn[] = [
+    { id: "name", label: "Name", kind: "data" },
+    { id: "title", label: "Title", kind: "text" },
+  ];
+  const rows: TableRow[] = [
+    { id: "1", cells: { name: "esx-02", title: "Storage appliance" } },
+    { id: "2", cells: { name: "pve-1", title: "Lab" }, host: "esx-02" },
+    { id: "3", cells: { name: "nas-4", title: "ストレージ" } },
+  ];
+  it("keeps the rows that say every word, in any column, ignoring case", () => {
+    expect(filterRows(rows, columns, "ESX storage").map((r) => r.id)).toEqual(["1"]);
+    expect(filterRows(rows, columns, "ストレージ").map((r) => r.id)).toEqual(["3"]);
+  });
+  it("looks only at what the columns show, and keeps everything for an empty query", () => {
+    expect(filterRows(rows, columns, "esx").map((r) => r.id)).toEqual(["1"]);
+    expect(filterRows(rows, columns, "  ")).toBe(rows);
   });
 });
