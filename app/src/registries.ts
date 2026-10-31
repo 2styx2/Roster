@@ -31,7 +31,7 @@ export interface Registries {
   /** Folders defined in init.lua (ticket 21) or by Plugins: read-only in the app. The Folders
    * made in the app live in the State. */
   folders: FolderRegistry;
-  /** What `:source` reloads (decision Q58): init.lua; ticket 28 adds folders.yml and roster.yml. */
+  /** What `:source` reloads (decision Q58): init.lua; ticket 28 adds roster.yml. */
   reloaders: ReloaderRegistry;
   /** The toolbar's controls (decision Q65): the built-ins, and what Plugins add. */
   toolbar: ToolbarRegistry;

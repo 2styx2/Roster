@@ -29,6 +29,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.on(event, listener)`](#rosteronevent-listener) | Runs a function on an event | none |
 | [`roster.confirm(question)`](#rosterconfirmquestion) | Asks the user to confirm, then runs a function | none |
 | [`roster.cmd(line)`](#rostercmdline) | Runs a command line | none |
+| [`roster.echo(text)`](#rosterechotext) | Answers on the message line, as roster's own commands do | none |
+| [`roster.cmdline(text)`](#rostercmdlinetext) | Opens the command line with text typed in | none |
 | [`roster.has(permission)`](#rosterhaspermission) | Whether the Plugin was granted a permission | none |
 | [`roster.defer(ms, fn)`](#rosterdeferms-fn) | Runs a function once, later | none |
 | [`roster.every(ms, fn)`](#rostereveryms-fn) | Runs a function again and again, until it's cancelled | none |
@@ -66,6 +68,12 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.details.set(id, host, section)`](#rosterdetailssetid-host-section) | Adds a section to a Host's details, or replaces it | none |
 | [`roster.details.remove(id)`](#rosterdetailsremoveid) | Removes a section from every Host's details | none |
 | [`roster.clipboard.copy(text)`](#rosterclipboardcopytext) | Puts text on the clipboard | none |
+| [`roster.storage.read(name)`](#rosterstoragereadname) | Reads one of the Plugin's files | none |
+| [`roster.storage.write(name, text)`](#rosterstoragewritename-text) | Writes one of the Plugin's files, whole | none |
+| [`roster.storage.list()`](#rosterstoragelist) | The names of the Plugin's files | none |
+| [`roster.storage.remove(name)`](#rosterstorageremovename) | Removes one of the Plugin's files | none |
+| [`roster.storage.read_json(name)`](#rosterstorageread_jsonname) | Reads one of the Plugin's files as JSON | none |
+| [`roster.storage.write_json(name, value)`](#rosterstoragewrite_jsonname-value) | Writes one of the Plugin's files as JSON, whole | none |
 | [`roster.inventory.hosts()`](#rosterinventoryhosts) | Every Host, in `roster.yml` order | `inventory.read` |
 | [`roster.inventory.host(name)`](#rosterinventoryhostname) | One Host, by its exact name | `inventory.read` |
 | [`roster.inventory.groups()`](#rosterinventorygroups) | Every group, by name | `inventory.read` |
@@ -98,6 +106,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Row`](#row) | A row of a Sidebar section |
 | [`RowAction`](#rowaction) | A button on a row |
 | [`RowIcon`](#rowicon) | A row action's icon |
+| [`RowGlyph`](#rowglyph) | A Sidebar row's glyph (since api 3) |
 | [`StatusSegment`](#statussegment) | A status bar segment (`roster.status.set`) |
 | [`Finder`](#finder) | A finder (`roster.finders.set`) |
 | [`FinderItem`](#finderitem) | One thing a finder lists |
@@ -356,6 +365,62 @@ Nothing.
 ```lua
 roster.commands.add("alerts", { run = function(a)
   if a.words[1] == nil then roster.cmd("finder alerts") end
+end })
+```
+
+### `roster.echo(text)`
+
+Answers on the message line, as roster's own commands do. For what a command did ("Added esx-02 to Lab"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level) for anything else.
+
+**Parameters**
+
+- `text` (`string`): What to say, on one line.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.echo: only while the user runs one of your actions, commands or finder items`: at load, in an event listener or a timer.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.commands.add("alerts", { run = function(a)
+  if a.words[1] == "clear" then alerts = {} roster.echo("Cleared the alerts") end
+end })
+```
+
+### `roster.cmdline(text)`
+
+Opens the command line with text typed in. For a command that needs one more word from the user: it opens the command line with `text` in it and the cursor at its end, and Tab completes the rest with your command's `complete`. Nothing runs until the user presses Enter. Only your own commands, and only while the user runs one of your actions, commands or finder items.
+
+**Parameters**
+
+- `text` (`string`): The start of a line for one of your commands (`"folder new "`); the user finishes it.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.cmdline: only while the user runs one of your actions, commands or finder items`: at load, in an event listener or a timer.
+- `roster.cmdline: "WORD" isn't one of your commands …`: the line starts with anything but one of the Plugin's commands.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.commands.add("note", { run = function(a)
+  if a.args == "" then return roster.cmdline("note ") end
+  roster.storage.write("note.txt", a.args)
 end })
 ```
 
@@ -1520,6 +1585,174 @@ Nothing.
 actions = { { label = "Copy", icon = "copy", run = function() roster.clipboard.copy(line) end } }
 ```
 
+## `roster.storage`
+
+The Plugin's own files. Every Plugin has a data folder of its own, in the app's data folder (next to the State; never the config folder, never on the network), and `roster.storage` reads and writes files there by name (decision Q93). No permission: it's the Plugin's own, and nothing else is reachable through it. A name is a plain file name (letters, digits, `-`, `_` and `.`, not starting with `.`; at most 100 characters), never a path, so there's no way out of the folder; a link there (a symlink, or a junction on Windows) is never followed. A write replaces the whole file at once (a temporary file, then a rename), so a crash leaves the old file or the new one, never half of one. A file holds at most 1 MB, the folder 10 MB in at most 1,000 files. The folder goes when the Plugin is removed (`:plugins remove`, or `:packages clean` for a Package), and stays across reloads, updates and revoked permissions. The time the disk takes doesn't count against the Plugin's budget.
+
+### `roster.storage.read(name)`
+
+Reads one of the Plugin's files.
+
+**Parameters**
+
+- `name` (`string`): The file's name (`"folders.json"`).
+
+**Returns**
+
+- `string?`: What the file holds, or `nil` when there's no such file.
+
+**Errors**
+
+- `roster.storage.FN: "NAME" isn't a file name: letters, digits, - _ and . only, …`: a path (`a/b`, `../x`, `C:\x`), a name starting with `.`, or other characters.
+- `roster.storage.FN: NAME is a link: roster won't follow it`: the file was made a link (a symlink, a junction): it's never followed.
+- `roster.storage.FN: the Plugin's data folder is a link …`: its folder was made a link: it's never followed.
+- `roster.storage.FN: there's no data folder for Plugins here`: the app has no data folder (a test, say).
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+local seen = roster.storage.read("seen.txt") or ""
+```
+
+### `roster.storage.write(name, text)`
+
+Writes one of the Plugin's files, whole. Makes the file, or replaces what it held, all at once: a crash leaves the old content or the new, never half.
+
+**Parameters**
+
+- `name` (`string`): The file's name.
+- `text` (`string`): What it holds from now on, at most 1 MB (any bytes).
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.storage.write: NAME would be N bytes: a file holds at most 1 MB (1048576 bytes)`: the text is longer.
+- `roster.storage.write: the Plugin's data folder holds at most 10 MB …`: the folder would hold more (a file replaced counts only its new size).
+- `roster.storage.write: the Plugin's data folder holds at most 1000 files`: a new file past the thousandth.
+- `roster.storage.write: "NAME" isn't a file name: …`: as `roster.storage.read`.
+- `roster.storage.write: NAME is a link: roster won't follow it`: as `roster.storage.read`.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.storage.write("seen.txt", table.concat(lines, "\n"))
+```
+
+### `roster.storage.list()`
+
+The names of the Plugin's files.
+
+**Parameters**
+
+None.
+
+**Returns**
+
+- `string[]`: In name order; `{}` before the first write.
+
+**Errors**
+
+- `roster.storage.list: the Plugin's data folder is a link …`: its folder was made a link: it's never followed.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+for _, name in ipairs(roster.storage.list()) do roster.notify(name) end
+```
+
+### `roster.storage.remove(name)`
+
+Removes one of the Plugin's files.
+
+**Parameters**
+
+- `name` (`string`): The file's name.
+
+**Returns**
+
+- `boolean`: `true` if it was there.
+
+**Errors**
+
+- `roster.storage.FN: "NAME" isn't a file name: letters, digits, - _ and . only, …`: a path (`a/b`, `../x`, `C:\x`), a name starting with `.`, or other characters.
+- `roster.storage.FN: NAME is a link: roster won't follow it`: the file was made a link (a symlink, a junction): it's never followed.
+- `roster.storage.FN: the Plugin's data folder is a link …`: its folder was made a link: it's never followed.
+- `roster.storage.FN: there's no data folder for Plugins here`: the app has no data folder (a test, say).
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.storage.remove("cache.json")
+```
+
+### `roster.storage.read_json(name)`
+
+Reads one of the Plugin's files as JSON. Objects and arrays become tables, `null` becomes `nil`.
+
+**Parameters**
+
+- `name` (`string`): The file's name.
+
+**Returns**
+
+- `any`: The value, or `nil` when there's no such file.
+
+**Errors**
+
+- `roster.storage.read_json: NAME isn't JSON (…)`: the file holds something else.
+- `roster.storage.read_json: …`: as `roster.storage.read`.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+local state = roster.storage.read_json("state.json") or { hosts = {} }
+```
+
+### `roster.storage.write_json(name, value)`
+
+Writes one of the Plugin's files as JSON, whole. As `roster.storage.write`, with the value as indented JSON. An empty table is written as `{}` (Lua can't tell an empty list from an empty table).
+
+**Parameters**
+
+- `name` (`string`): The file's name.
+- `value` (`any`): Plain data: tables, text, numbers and booleans (no functions).
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.storage.write_json: a Lua function can't go to roster serve`: the value holds a function (or another value that isn't data).
+- `roster.storage.write_json: …`: as `roster.storage.write`.
+- And [those of every function](#errors).
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+roster.storage.write_json("state.json", { hosts = { "esx-02" } })
+```
+
 ## `roster.inventory`
 
 Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget.
@@ -2034,6 +2267,7 @@ Since api 3 (api 2 called them with an empty table). Only the fields for what ra
 | `section` | `string` | no | The Sidebar section's id, for a row or a row's button. |
 | `row` | `string` | no | The row's `id` (its place in the list, `"3"`, if it has none). |
 | `action` | `integer` | no | Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's. |
+| `dropped` | `string` | no | For a section's or a row's `drop`: the Host dropped on it (since api 3). |
 | `finder` | `string` | no | The finder's id, for a finder item. |
 | `item` | `string` | no | The item's `id` (its place, if it has none). |
 | `segment` | `string` | no | The status segment's id. |
@@ -2052,6 +2286,7 @@ Since api 3 (api 2 called them with an empty table). Only the fields for what ra
 |---|---|---|---|
 | `desc` | `string` | no | Its description, for `:help commands` and completion. The name if left out. |
 | `run` | `string\|fun(args: `[`CommandArgs`](#commandargs)`): any` | yes | A function, called with what followed the command, or a command line to run instead. |
+| `complete` | `fun(arg: string): string[]` | no | Since api 3: what Tab offers after the command's name. Called with what's typed after it (`"add esx"`) as the user types, it returns whole arguments that start with it (`{ "add esx-02 " }`; end one with a space when another word follows). At most 200; the app shows the last answer until the next comes. It isn't a call the user started: no clipboard, questions or command lines in it. |
 
 ### `CommandArgs`
 
@@ -2063,6 +2298,9 @@ What a command's function is called with.
 | `words` | `string[]` | yes | `args` split at spaces (`{}` for none). |
 | `session` | `integer` | no | The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3). |
 | `session_host` | `string` | no | The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3). |
+| `host` | `string` | no | The Host under the Sidebar's cursor (else the one on screen), as roster's own commands take it; `nil` with none, and without `inventory.read` (since api 3). |
+| `section` | `string` | no | When the Sidebar's cursor is on a row of one of your own sections: that section's id (since api 3). |
+| `row` | `string` | no | And that row's `id`, or `nil` on the section's heading (since api 3). |
 
 ### `KeyContext`
 
@@ -2096,6 +2334,8 @@ A Sidebar section (`roster.sidebar.set`).
 | `empty` | `string` | no | What it says with no rows. |
 | `rows` | [`Row`](#row)`[]` | no | Its rows, at most 2,000. |
 | `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading (`"Dismiss all"`), at most 4: shown while the heading is selected. |
+| `count` | `number` | no | The count on its heading; the number of rows if left out (since api 3). |
+| `drop` | [`Run`](#run) | no | Takes a Host dragged onto the heading or the empty section: it runs with `{ section, dropped = HOST }` (since api 3). |
 
 ### `Row`
 
@@ -2116,6 +2356,11 @@ Text is cut to 500 characters.
 | `title` | `string` | no | Its tooltip. |
 | `run` | [`Run`](#run) | no | What Enter runs. With `host` and no `run`, it opens the Host; with neither, nothing. |
 | `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on the row. |
+| `icon` | [`RowGlyph`](#rowglyph) | no | A glyph before the label, as the app's Folders and groups have (since api 3). |
+| `fold` | `boolean` | no | It folds the rows after it with a higher `level`, as a Folder or group does: `h`/`l`, its chevron and a click fold it, the app keeps what's folded, and its id for `:fold` is `SECTION:ID` (since api 3). |
+| `kind` | `"host"` | no | With `host`: drawn as the Inventory draws that Host (its state, address, Details and Review buttons, then the row's own `actions`); `label` and `note` are used only while the Host isn't in the Inventory (since api 3). |
+| `drop` | [`Run`](#run) | no | Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged. |
+| `drag_out` | [`Run`](#run) | no | Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3). |
 
 ### `RowAction`
 
@@ -2132,6 +2377,12 @@ A button on a row.
 A row action's icon.
 
 One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy"`
+
+### `RowGlyph`
+
+A Sidebar row's glyph (since api 3).
+
+One of: `"folder" \| "group"`
 
 ### `StatusSegment`
 
@@ -2151,6 +2402,7 @@ A finder (`roster.finders.set`).
 |---|---|---|---|
 | `title` | `string` | no | Its title and prompt; the id if left out. |
 | `items` | [`FinderItem`](#finderitem)`[]\|fun(): `[`FinderItem`](#finderitem)`[]` | no | What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again. |
+| `section` | `string` | no | Instead of `items`: one of your own Sidebar sections, whose rows it finds in (with their paths, unfolded), as roster's own `inventory` finder does (since api 3). |
 
 ### `FinderItem`
 

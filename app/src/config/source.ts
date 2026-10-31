@@ -1,7 +1,7 @@
 // `:source` (`:so`), Neovim-style reloading (decision Q58): saving a Config file doesn't reload
 // it unless `auto_reload = true`; `:source` reloads every Config file now, and `:source PATH`
 // only the one that owns PATH. What can be reloaded is a registry (ADR 0006): init.lua (with its
-// Lua modules) registers here, and ticket 28's folders.yml and roster.yml register the same way.
+// Lua modules) registers here, and ticket 28's roster.yml registers the same way.
 import type { CommandDef } from "../commands/table";
 import { BUILTIN, Registry, type Entry } from "../registry";
 

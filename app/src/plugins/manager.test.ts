@@ -166,7 +166,7 @@ describe("running", () => {
     const { manager } = setup({ "/p/late": late }, { [STATE_KEY]: [{ path: "/p/late", name: "late", granted: [], asked: [] }] });
     await manager.start();
     const said = manager.snapshot().notices.map((n) => n.text);
-    expect(said).toContain("late: ␣ f is taken (by builtin: find). Free after the Leader: a, g, h. Choose another (:keys lists them all)");
+    expect(said).toContain("late: ␣ f is taken (by builtin: find). Free after the Leader: g, h, j. Choose another (:keys lists them all)");
     expect(said).toContain("late: ␣ d d is taken (by builtin: close). Free after the Leader: d a, d b, d c. Choose another (:keys lists them all)");
   });
 
