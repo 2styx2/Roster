@@ -81,7 +81,7 @@ const codeOf = (e: unknown) => {
 };
 const messageOf = (e: unknown) =>
   String(e instanceof Error ? e.message : e)
-    .replace(/^roster\.serve\.call [\w._]+: /, "")
+    .replace(/^roster\.serve\.[a-z]+ [\w._]+: /, "")
     .replace(/ \(code -?\d+\)$/, "");
 
 const portsText = (ports: FoundPort[]) => {
@@ -179,6 +179,16 @@ function load(roster: FakeRoster) {
     if (!roster.serve) throw new Error("roster.serve.call: not granted");
     return roster.serve.call(method, clean);
   };
+  /** As the Lua's `request`: roster serve without waiting; `done(true, result)` or `done(false, why)` later. */
+  const request = (method: string, params: Record<string, unknown>, done: (ok: boolean, result: unknown) => void) => {
+    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
+    try {
+      if (!roster.serve) throw new Error("roster.serve.request: not granted");
+      roster.serve.request(method, clean, (r, why) => (why !== undefined ? done(false, why) : done(true, r)));
+    } catch (e) {
+      done(false, e);
+    }
+  };
   const attempt = <T>(f: () => T): [true, T] | [false, unknown] => {
     try {
       return [true, f()];
@@ -193,6 +203,9 @@ function load(roster: FakeRoster) {
   let kept = new Set<string>();
   let cut = false;
   let polling: number | null = null;
+  let asking = false;
+  let planning = false;
+  let adding = false;
   /** A found address, by its address: always one the scan found. */
   const the = (a: string): Found => {
     const f = found.get(a);
@@ -308,30 +321,34 @@ function load(roster: FakeRoster) {
       ],
       action: "Add",
       run: () => {
-        const [ok, r] = attempt(() => call("discover.add", { scan: id, addresses: picks, group: s.group }) as { group: string; added: { address: string; name: string }[] });
-        if (!ok) {
-          roster.notify(`Nothing was added: ${messageOf(r)}`, "error");
-          return;
-        }
-        const touched: string[] = [];
-        for (const x of r.added) {
-          const f = found.get(x.address);
-          if (f) {
-            f.added = x.name;
-            kept.delete(x.address);
-            touched.push(x.address);
+        if (adding) return;
+        adding = true;
+        request("discover.add", { scan: id, addresses: picks, group: s.group }, (ok, a) => {
+          adding = false;
+          if (!ok) {
+            roster.notify(`Nothing was added: ${messageOf(a)}`, "error");
+            return;
           }
-        }
-        redraw(touched);
-        roster.notify(`Added ${plural(r.added.length, "Host", "Hosts")} to ${r.group} as Pending changes: review them in :changes, then Publish`);
+          const r = a as { group: string; added: { address: string; name: string }[] };
+          const touched: string[] = [];
+          for (const x of r.added) {
+            const f = found.get(x.address);
+            if (f) {
+              f.added = x.name;
+              kept.delete(x.address);
+              touched.push(x.address);
+            }
+          }
+          redraw(touched);
+          roster.notify(`Added ${plural(r.added.length, "Host", "Hosts")} to ${r.group} as Pending changes: review them in :changes, then Publish`);
+        });
       },
     });
   };
 
   const stop = () => {
     if (!scan || scan.state !== "running") return;
-    const id = scan.id;
-    attempt(() => call("discover.stop", { scan: id }));
+    request("discover.stop", { scan: scan.id }, () => undefined);
   };
 
   const progress = () => {
@@ -347,14 +364,13 @@ function load(roster: FakeRoster) {
     } else roster.progress.remove("scan");
   };
 
-  const poll = () => {
+  const heard = (ok: boolean, a: unknown) => {
     if (!scan) return;
-    const asked = { scan: scan.id, since: scan.count };
-    const [ok, r] = attempt(() => call("discover.status", asked) as Status);
     if (!ok) {
       scan.state = "failed";
-      scan.error = messageOf(r);
+      scan.error = messageOf(a);
     } else {
+      const r = a as Status;
       Object.assign(scan, { state: r.state, done: r.done, total: r.total, count: r.count, error: r.error });
       const fresh: string[] = [];
       for (const f of r.found) {
@@ -383,6 +399,16 @@ function load(roster: FakeRoster) {
     }
   };
 
+  const poll = () => {
+    if (!scan || asking) return;
+    asking = true;
+    const id = scan.id;
+    request("discover.status", { scan: id, since: scan.count }, (ok, r) => {
+      asking = false;
+      if (scan && scan.id === id) heard(ok, r);
+    });
+  };
+
   const table = {
     columns: [
       { id: "keep", label: "Keep", width: 5 },
@@ -405,12 +431,7 @@ function load(roster: FakeRoster) {
     rows: [],
   };
 
-  const start = (targets: string[], force: boolean) => {
-    const [ok, r] = attempt(() => call("discover.start", { targets, ports: s.ports, force }) as Status);
-    if (!ok) {
-      roster.notify(`The scan didn't start: ${messageOf(r)}`, codeOf(r) === 120 ? "warn" : "error");
-      return;
-    }
+  const started = (r: Status) => {
     scan = { id: r.scan, targets: r.targets, scanner: r.scanner, state: r.state, done: r.done, total: r.total, count: 0, error: null };
     let gone: string[] = [];
     for (const a of order) {
@@ -432,6 +453,16 @@ function load(roster: FakeRoster) {
     polling = roster.every(1000, poll);
   };
 
+  const start = (targets: string[], force: boolean) => {
+    request("discover.start", { targets, ports: s.ports, force }, (ok, r) => {
+      if (!ok) {
+        roster.notify(`The scan didn't start: ${messageOf(r)}`, codeOf(r) === 120 ? "warn" : "error");
+        return;
+      }
+      started(r as Status);
+    });
+  };
+
   const ask = (targets: string[]) => {
     if (missing().length > 0) {
       roster.notify(`Discover needs ${list(missing())}: allow them in :plugins`, "warn");
@@ -441,12 +472,18 @@ function load(roster: FakeRoster) {
       roster.notify(`A scan of ${list(scan.targets)} is going: stop it first (:discover stop)`, "warn");
       return;
     }
-    let force = false;
-    let [ok, plan] = attempt(() => call("discover.plan", { targets, ports: s.ports }) as Plan);
-    if (!ok && codeOf(plan) === 121) {
-      force = true;
-      [ok, plan] = attempt(() => call("discover.plan", { targets, ports: s.ports, force: true }) as Plan);
+    if (planning) {
+      roster.notify("Still waiting for roster serve to size the last range: a moment");
+      return;
     }
+    planning = true;
+    request("discover.plan", { targets, ports: s.ports, force: true }, (ok, plan) => {
+      planning = false;
+      confirm(ok, plan);
+    });
+  };
+
+  const confirm = (ok: boolean, plan: unknown) => {
     if (!ok && codeOf(plan) === -32601) {
       roster.notify(
         "Not scanned: the roster on this Box is too old to scan from the app (it needs roster serve API 18). Update roster there, or run `roster discover` in a terminal.",
@@ -458,6 +495,7 @@ function load(roster: FakeRoster) {
       return;
     }
     const p = plan as Plan;
+    const force = p.addresses > p.limit;
     const where = list(p.targets);
     let text = `roster scans from this computer: it connects to each of the ${plural(p.addresses, "address", "addresses")} on ${plural(p.ports, "TCP port", "TCP ports")}, with ${p.scanner}. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.`;
     if (force) text += `\n\nThat's more than ${count(p.limit)} addresses, so it takes a while. Type the range to scan it.`;

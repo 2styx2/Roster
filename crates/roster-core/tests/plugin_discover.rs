@@ -15,7 +15,10 @@ use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source, 
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::cell::RefCell;
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const NAME: &str = "discover";
 const ALL: &[&str] = &[
@@ -93,6 +96,8 @@ struct FakeServe {
     /// Each call and its answer, for the transcript: `[method, params, result]` or `[…, …, null, error]`.
     answers: Mutex<Vec<Value>>,
     polls: Mutex<usize>,
+    /// Held while serve is busy with the app's own call (a Publish): every call waits for it.
+    busy: Mutex<()>,
 }
 
 impl FakeServe {
@@ -111,6 +116,8 @@ fn status(scan: &str, state: &str, done: u64, found: &[Value], count: usize) -> 
 
 impl Serve for FakeServe {
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        // serve answers one request at a time.
+        let _turn = self.busy.lock().unwrap();
         self.calls.lock().unwrap().push((method.to_string(), params.clone()));
         let answer = self.answer(method, &params);
         self.answers.lock().unwrap().push(match &answer {
@@ -177,6 +184,11 @@ struct World {
     serve: Arc<FakeServe>,
     dir: PathBuf,
     config: Value,
+    /// What the Plugin did when its roster serve requests answered (the Tauri shell's
+    /// `plugin-reply`).
+    replies: Receiver<Reply>,
+    /// The ops of each of those answers since the last step, for the transcript.
+    answers: RefCell<Vec<Value>>,
 }
 
 impl World {
@@ -209,11 +221,19 @@ impl World {
         packages.pin(&specs, NAME).unwrap();
         let (dir, _) = packages.loadable(&specs, NAME).unwrap();
         let serve = Arc::new(FakeServe::default());
+        let host = PluginHost::new(serve.clone(), Limits::default());
+        let (tx, replies) = channel();
+        let tx = Mutex::new(tx);
+        host.set_listener(Arc::new(move |r: Reply| {
+            let _ = tx.lock().unwrap().send(r);
+        }));
         World {
-            host: PluginHost::new(serve.clone(), Limits::default()),
+            host,
             serve,
             dir,
             config,
+            replies,
+            answers: RefCell::default(),
         }
     }
 
@@ -222,14 +242,29 @@ impl World {
             .host
             .load_with(&Source::Dir(self.dir.clone()), &perms(grants), &self.config)
             .unwrap();
-        ok(&reply);
-        reply
+        self.settled(reply)
     }
 
     fn call(&self, handler: u64, args: Value) -> Reply {
         let r = self.host.call(NAME, handler, args);
-        ok(&r);
-        r
+        self.settled(r)
+    }
+
+    /// `reply`, with the ops of the answers to the requests it made once every one has come back:
+    /// what the user sees after a moment.
+    fn settled(&self, mut reply: Reply) -> Reply {
+        ok(&reply);
+        let started = Instant::now();
+        while self.host.requests(NAME) > 0 {
+            assert!(started.elapsed() < Duration::from_secs(5), "roster serve's answers didn't come");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        while let Ok(r) = self.replies.try_recv() {
+            ok(&r);
+            self.answers.borrow_mut().push(Value::Array(r.ops.iter().map(normal).collect()));
+            reply.ops.extend(r.ops);
+        }
+        reply
     }
 
     fn command(&self, loaded: &Reply, args: &str) -> Reply {
@@ -381,6 +416,31 @@ fn it_asks_before_it_scans_and_nothing_starts_until_the_user_says_scan() {
     );
     let timer = op(&started.ops, "timer");
     assert_eq!(timer["every"], true);
+}
+
+/// serve answers one request at a time, so the app's Publish holds the scan's question behind it:
+/// Discover keeps answering, and the question comes once serve does, still part of what the user
+/// did (decision Q103).
+#[test]
+fn behind_a_busy_roster_serve_the_question_comes_when_it_answers() {
+    let w = World::new("busy", json!({}));
+    let loaded = w.load(ALL);
+    let publish = w.serve.busy.lock().unwrap();
+    let started = Instant::now();
+    let words = json!({ "args": "10.0.0.0/24", "words": ["10.0.0.0/24"] });
+    let asked = w.host.call(NAME, command(&loaded.ops), words.clone());
+    ok(&asked);
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(!has(&asked.ops, "confirm"));
+    let again = w.host.call(NAME, command(&loaded.ops), words);
+    ok(&again);
+    assert!(op(&again.ops, "notify")["text"].as_str().unwrap().contains("Still waiting"));
+    std::thread::sleep(Duration::from_millis(2600));
+    drop(publish);
+    let answered = w.settled(asked);
+    assert_eq!(op(&answered.ops, "confirm")["spec"]["title"], "Scan 10.0.0.0/24?");
+    assert_eq!(w.serve.methods(), ["discover.plan"]);
+    assert!(w.host.list()[0].disabled.is_none());
 }
 
 #[test]
@@ -636,6 +696,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
     let mut timer: Option<u64> = None;
     let mut out = Vec::new();
     for step in steps().as_array().unwrap() {
+        w.answers.borrow_mut().clear();
         let reply = match step["do"].as_str().unwrap() {
             "load" => {
                 let grants: Vec<&str> = step["grants"]
@@ -665,8 +726,12 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                 _ => {}
             }
         }
+        // The call's own ops, then each answer's: the stand-in replays both, in order.
+        let answers = std::mem::take(&mut *w.answers.borrow_mut());
+        let own = reply.ops.len() - answers.iter().map(|a| a.as_array().unwrap().len()).sum::<usize>();
         let mut step = step.clone();
-        step["ops"] = Value::Array(reply.ops.iter().map(normal).collect());
+        step["ops"] = Value::Array(reply.ops[..own].iter().map(normal).collect());
+        step["answers"] = Value::Array(answers);
         out.push(step);
     }
     let calls = w.serve.answers.lock().unwrap().clone();

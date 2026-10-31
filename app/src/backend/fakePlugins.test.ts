@@ -3,7 +3,8 @@
 // crates/roster-core/src/plugin/permission.rs checks its own tables and cases against).
 import { describe, expect, it } from "vitest";
 import table from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
-import { described, manifestProblem, type FakePlugin } from "./fakePlugins";
+import { described, fakePluginHost, manifestProblem, type FakePlugin } from "./fakePlugins";
+import { BackendCallError, type PluginReply } from "./types";
 
 const manifest = (permissions: string[]): FakePlugin["manifest"] => ({
   name: "example",
@@ -36,5 +37,51 @@ describe("a fake Plugin's manifest", () => {
   it("flags every network site", () => {
     const sites = table.grant.filter((p) => p.startsWith("network:"));
     expect(described(manifest(sites)).permissions.every((p) => p.risk?.startsWith("Can send data to "))).toBe(true);
+  });
+});
+
+describe("a fake Plugin's roster.serve.request (decision Q103)", () => {
+  const asker: FakePlugin = {
+    manifest: { ...manifest(["serve:hosts.list", "serve:discover.start"]), name: "asker" },
+    load(roster) {
+      roster.commands.add("ask", {
+        run: () => {
+          roster.serve?.request("hosts.list", {}, (r, err) => {
+            roster.notify(r ? `hosts ${(r as { hosts: unknown[] }).hosts.length}` : `failed: ${err}`);
+            // The answer to the user's call is part of it, once.
+            roster.confirm({ title: "Scan?", run: () => undefined });
+            roster.serve?.request("discover.start", {}, () => {
+              let asked = true;
+              try {
+                roster.confirm({ title: "Again?", run: () => undefined });
+              } catch {
+                asked = false;
+              }
+              roster.notify(asked ? "asked again" : "didn't ask again");
+            });
+          });
+          roster.serve?.request("discover.plan" as string, {}, () => undefined);
+        },
+      });
+    },
+  };
+
+  it("answers later, through the replies nobody asked for, as the core does", async () => {
+    const serve = (method: string) => {
+      if (method === "hosts.list") return { hosts: [{ name: "esx-02" }] };
+      if (method === "discover.start") return { scan: "scan-1" };
+      throw new BackendCallError(`unknown method '${method}'`, -32601);
+    };
+    const host = fakePluginHost({ asker }, () => [], undefined, serve);
+    const loaded = await host.pluginLoad("asker", ["serve:hosts.list", "serve:discover.start"]);
+    const run = (loaded.reply.ops[0] as { run: { handler: number } }).run.handler;
+    const replies: PluginReply[] = [];
+    host.onPluginReply((r) => replies.push(r));
+    const asked = await host.pluginCall("asker", run, { args: "", words: [] });
+    // Not granted: refused at once, as the core does.
+    expect(asked.error?.message).toBe("roster.serve.request: not granted (serve:discover.plan)");
+    await host.pluginSettled("asker");
+    expect(replies.map((r) => r.ops.map((o) => (o as { op: string }).op))).toEqual([["notify", "confirm"], ["notify"]]);
+    expect(replies[1]?.ops[0]).toMatchObject({ text: "didn't ask again" });
   });
 });

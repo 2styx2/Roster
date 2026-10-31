@@ -608,11 +608,12 @@ export class PluginManager {
     return reply.result;
   }
 
-  /** A reply nobody asked for, from the core: what a Plugin did when one of its HTTP requests
-   * answered (decision Q97). Applied like a call's, if the Plugin still runs. */
+  /** A reply nobody asked for, from the core: what a Plugin did when one of its requests answered,
+   * over the network (decision Q97) or from roster serve (Q103). Applied like a call's, if the
+   * Plugin still runs. */
   replied(reply: PluginReply): void {
     if (!this.loaded.has(reply.plugin)) return;
-    this.used(reply.plugin, "got an answer over the network");
+    this.used(reply.plugin, "got an answer to a request");
     this.apply(reply);
   }
 

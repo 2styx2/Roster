@@ -5,8 +5,10 @@
 -- the public Plugin API, with the permissions its manifest asks for (README.md says why each).
 --
 -- Every Mesh run (plan, apply, cut) is a job in roster serve (`background = true`, API 17): a
--- Plugin's call into serve may not wait more than a couple of seconds, and a Mesh of many Hosts
--- takes minutes. A timer polls `mesh.job` once a second while one runs, for the progress.
+-- Mesh of many Hosts takes minutes. Every call into serve is a `roster.serve.request` that
+-- doesn't wait (decision Q103): serve answers one request at a time, and the app's Publish can
+-- hold it for a minute or two, while the Mesh's controls keep answering. A timer asks `mesh.job`
+-- once a second while a job runs, for the progress, one question at a time.
 --
 -- Install it as a Package (plugins/README.md):
 --   packages = { { "https://github.com/2styx2/roster", dir = "plugins/mesh" } }
@@ -34,6 +36,10 @@ local state = {
   problem = nil, ---@type string? why there's no status
   jobs = false, -- roster serve has Mesh jobs (API 17)
   job = nil, ---@type MeshJob? the job being followed
+  starting = nil, ---@type string? the job asked for, until serve answers
+  asking = false, -- a mesh.job question is out
+  refreshing = false, -- a refresh is out
+  again = false, -- refresh again once it's back
   timer = nil, ---@type roster.Timer?
   done = 0, -- how far the job has got
   plan = nil, ---@type table? the last plan (brief)
@@ -46,10 +52,14 @@ local state = {
 
 local function can(method) return roster.has("serve:" .. method) end
 
----@return boolean ok, any result
-local function call(method, params)
-  if not roster.serve then return false, "no serve permission" end
-  return pcall(roster.serve.call, method, params or {})
+-- Asks roster serve without waiting: `done(true, result)` or `done(false, why)` comes later.
+---@param done fun(ok: boolean, result: any)
+local function ask(method, params, done)
+  if not roster.serve then return done(false, "no serve permission") end
+  local sent, err = pcall(roster.serve.request, method, params or {}, function(r, why)
+    if why then done(false, why) else done(true, r) end
+  end)
+  if not sent then done(false, err) end
 end
 
 local show -- draws everything from `state`, below
@@ -57,17 +67,39 @@ local poll -- follows a running job, below
 
 -- ------------------------------------------------------------------ reading the Mesh
 
--- mesh.status (brief: a meshed group of 500 Hosts is 249,500 Links), and whether serve has jobs.
-local function refresh()
+local refresh
+
+-- mesh.status (brief: a meshed group of 500 Hosts is 249,500 Links), once serve has answered.
+local function status()
+  ask("mesh.status", { brief = true }, function(ok, r)
+    if ok then
+      state.status, state.problem = r, nil
+    else
+      state.status, state.problem = nil, "roster serve couldn't say how the Mesh is: " .. words.clean(r)
+    end
+    state.refreshing = false
+    show()
+    if state.again then refresh() end
+  end)
+end
+
+-- mesh.status, and whether serve has jobs. One at a time: asked again meanwhile, it goes again
+-- once this one is back.
+refresh = function()
   if not (can("mesh.status") and can("mesh.job")) then
     state.status, state.problem = nil, "Allow serve:mesh.status and serve:mesh.job in :plugins to see the Mesh."
     return show()
   end
-  if not state.jobs then
-    local ok, j = call("mesh.job", {})
+  if state.refreshing then
+    state.again = true
+    return
+  end
+  state.refreshing, state.again = true, false
+  if state.jobs then return status() end
+  ask("mesh.job", {}, function(ok, j)
     if not ok then
       local e = words.clean(j)
-      state.status = nil
+      state.status, state.refreshing = nil, false
       state.problem = e:find("unknown method", 1, true)
           and "This roster serve has no Mesh jobs (API 17): update roster to use the Mesh controls."
         or ("roster serve couldn't say how the Mesh is: " .. e)
@@ -78,14 +110,8 @@ local function refresh()
       state.job = { job = j.job, action = j.action, host = j.host, total = j.total }
       state.timer = roster.every(POLL, function() poll() end)
     end
-  end
-  local ok, r = call("mesh.status", { brief = true })
-  if ok then
-    state.status, state.problem = r, nil
-  else
-    state.status, state.problem = nil, "roster serve couldn't say how the Mesh is: " .. words.clean(r)
-  end
-  show()
+    status()
+  end)
 end
 
 -- ------------------------------------------------------------------ jobs
@@ -142,28 +168,38 @@ local function over(j)
   refresh()
 end
 
--- The timer's function, while a job runs.
-poll = function()
-  if not state.job then return end
-  local ok, j = call("mesh.job", { job = state.job.job, brief = true })
-  if not ok then
-    -- serve is busy or gone for a moment: try again on the next tick.
-    return
-  end
-  if j == nil or j.state ~= "running" then return over(j) end
-  state.done = j.done
-  roster.progress.set("mesh", {
-    title = (ACTIONS[j.action] or j.action) .. (j.host and (" " .. j.host .. " out") or ""),
-    text = j.at and ("At " .. j.at) or nil,
-    done = j.done,
-    total = j.total,
-    cancel = can("mesh.stop") and function() call("mesh.stop", { job = j.job }) end or nil,
-  })
-  if j.action == "plan" then show() end
+local function stop(job)
+  ask("mesh.stop", { job = job }, function() end)
 end
 
--- Whether a job runs already; says so when it does.
+-- The timer's function, while a job runs: one question out at a time, however long serve takes.
+poll = function()
+  if not state.job or state.asking then return end
+  state.asking = true
+  local following = state.job.job
+  ask("mesh.job", { job = following, brief = true }, function(ok, j)
+    state.asking = false
+    -- serve is busy or gone for a moment (try again on the next tick), or the job was let go.
+    if not ok or not state.job or state.job.job ~= following then return end
+    if j == nil or j.state ~= "running" then return over(j) end
+    state.done = j.done
+    roster.progress.set("mesh", {
+      title = (ACTIONS[j.action] or j.action) .. (j.host and (" " .. j.host .. " out") or ""),
+      text = j.at and ("At " .. j.at) or nil,
+      done = j.done,
+      total = j.total,
+      cancel = can("mesh.stop") and function() stop(j.job) end or nil,
+    })
+    if j.action == "plan" then show() end
+  end)
+end
+
+-- Whether a job runs already (or is being asked for); says so when it does.
 local function busy()
+  if state.starting then
+    roster.notify("A Mesh " .. state.starting .. " is starting: wait for roster serve to answer.", "warn")
+    return true
+  end
   if not state.job then return false end
   roster.notify("A Mesh " .. state.job.action .. " is running: wait for it, or stop it with :cancel mesh.", "warn")
   return true
@@ -176,7 +212,8 @@ local function allowed(action)
   return false
 end
 
--- Starts a Mesh job: `action` is plan, apply or cut.
+-- Starts a Mesh job: `action` is plan, apply or cut. True once it's asked for; whether it
+-- started comes when roster serve answers.
 local function start(action, params)
   if busy() then return false end
   if not state.jobs then
@@ -185,22 +222,25 @@ local function start(action, params)
   end
   if not allowed(action) then return false end
   params.background = true
-  local ok, r = call("mesh." .. action, params)
-  if not ok then
-    roster.notify("The Mesh " .. action .. " didn't start: " .. words.clean(r), "error")
-    return false
-  end
-  state.job = { job = r.job, action = r.action, host = r.host, total = r.total }
-  state.done = 0
-  if action == "plan" then state.plan = nil end
-  roster.progress.set("mesh", {
-    title = ACTIONS[action] .. (r.host and (" " .. r.host .. " out") or ""),
-    done = 0,
-    total = r.total,
-    cancel = can("mesh.stop") and function() call("mesh.stop", { job = r.job }) end or nil,
-  })
-  state.timer = roster.every(POLL, poll)
-  show()
+  state.starting = action
+  ask("mesh." .. action, params, function(ok, r)
+    state.starting = nil
+    if not ok then
+      roster.notify("The Mesh " .. action .. " didn't start: " .. words.clean(r), "error")
+      return
+    end
+    state.job = { job = r.job, action = r.action, host = r.host, total = r.total }
+    state.done = 0
+    if action == "plan" then state.plan = nil end
+    roster.progress.set("mesh", {
+      title = ACTIONS[action] .. (r.host and (" " .. r.host .. " out") or ""),
+      done = 0,
+      total = r.total,
+      cancel = can("mesh.stop") and function() stop(r.job) end or nil,
+    })
+    state.timer = roster.every(POLL, poll)
+    show()
+  end)
   return true
 end
 

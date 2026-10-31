@@ -1,7 +1,9 @@
 -- discover: scan a network from the app, review what it found, and add the Hosts you keep as
 -- Pending changes. A first-party Plugin (plugins/README.md): built only on the public Plugin API,
 -- like anyone's. The scan itself runs in roster serve (discover.*), never here: this draws the
--- view, asks before anything happens, shows the progress and polls for results.
+-- view, asks before anything happens, shows the progress and polls for results. It asks serve
+-- with `roster.serve.request`, which doesn't wait (decision Q103): serve answers one request at
+-- a time, and the app's Publish can hold it for a minute or two.
 --
 -- Settings come from init.lua, where you name it as a Package:
 --   packages = { { "https://github.com/2styx2/roster", dir = "plugins/discover",
@@ -47,9 +49,17 @@ local order = {} -- addresses, as found
 local kept = {} -- address -> true: marked to add
 local cut = false -- more were found than the view keeps
 local polling -- the timer that asks roster serve how the scan is going
+local asking = false -- a discover.status question is out
+local planning = false -- a discover.plan question is out, for a scan the user asked for
+local adding = false -- a discover.add is out
 
-local function call(method, params)
-  return roster.serve.call(method, params or {})
+-- Asks roster serve without waiting: `done(true, result)` or `done(false, why)` comes later.
+---@param done fun(ok: boolean, result: any)
+local function request(method, params, done)
+  local sent, err = pcall(roster.serve.request, method, params or {}, function(r, why)
+    if why then done(false, why) else done(true, r) end
+  end)
+  if not sent then done(false, err) end
 end
 
 local function counts()
@@ -188,30 +198,34 @@ local function add()
     },
     action = "Add",
     run = function()
-      local ok, r = pcall(call, "discover.add", { scan = id, addresses = picks, group = settings.group })
-      if not ok then
-        roster.notify("Nothing was added: " .. model.message(r), "error")
-        return
-      end
-      local touched = {}
-      for _, x in ipairs(r.added) do
-        local f = found[x.address]
-        if f then
-          f.added = x.name
-          kept[x.address] = nil
-          touched[#touched + 1] = x.address
+      if adding then return end
+      adding = true
+      request("discover.add", { scan = id, addresses = picks, group = settings.group }, function(ok, r)
+        adding = false
+        if not ok then
+          roster.notify("Nothing was added: " .. model.message(r), "error")
+          return
         end
-      end
-      redraw(touched)
-      roster.notify("Added " .. model.plural(#r.added, "Host", "Hosts") .. " to " .. r.group
-        .. " as Pending changes: review them in :changes, then Publish")
+        local touched = {}
+        for _, x in ipairs(r.added) do
+          local f = found[x.address]
+          if f then
+            f.added = x.name
+            kept[x.address] = nil
+            touched[#touched + 1] = x.address
+          end
+        end
+        redraw(touched)
+        roster.notify("Added " .. model.plural(#r.added, "Host", "Hosts") .. " to " .. r.group
+          .. " as Pending changes: review them in :changes, then Publish")
+      end)
     end,
   })
 end
 
 local function stop()
   if not scan or scan.state ~= "running" then return end
-  pcall(call, "discover.stop", { scan = scan.id })
+  request("discover.stop", { scan = scan.id }, function() end)
 end
 
 local poll -- below
@@ -231,10 +245,9 @@ local function progress()
   end
 end
 
--- Asks roster serve how the scan is going: the new results, how far it has got, and whether it's over.
-poll = function()
+-- What roster serve said about the scan: the new results, how far it has got, and whether it's over.
+local function heard(ok, r)
   if not scan then return end
-  local ok, r = pcall(call, "discover.status", { scan = scan.id, since = scan.count })
   if not ok then
     -- roster serve restarted (its scans don't outlive it), or the permission was taken away.
     scan.state, scan.error = "failed", model.message(r)
@@ -269,6 +282,18 @@ poll = function()
   end
 end
 
+-- Asks roster serve how the scan is going, one question at a time however long serve takes.
+poll = function()
+  if not scan or asking then return end
+  asking = true
+  local id = scan.id
+  request("discover.status", { scan = id, since = scan.count }, function(ok, r)
+    asking = false
+    -- A newer scan started meanwhile: this answer is about the old one.
+    if scan and scan.id == id then heard(ok, r) end
+  end)
+end
+
 -- The table: what each column shows, and what a row can do.
 ---@type roster.Table
 local TABLE = {
@@ -300,15 +325,8 @@ local function view()
   roster.views.set(VIEW, { title = "Discover", place = "full", text = text, facts = facts, table = TABLE })
 end
 
--- Starts the scan the user confirmed.
----@param targets string[]
----@param force boolean
-local function start(targets, force)
-  local ok, r = pcall(call, "discover.start", { targets = targets, ports = settings.ports, force = force })
-  if not ok then
-    roster.notify("The scan didn't start: " .. model.message(r), model.code(r) == 120 and "warn" or "error")
-    return
-  end
+-- The scan roster serve started.
+local function started(r)
   scan = { id = r.scan, targets = r.targets, scanner = r.scanner, state = r.state, done = r.done,
     total = r.total, count = 0, error = nil }
   -- The last scan's rows go; the table and its actions stay as they were set.
@@ -323,11 +341,27 @@ local function start(targets, force)
   if #gone > 0 then roster.views.update(VIEW, { remove = gone }) end
   found, order, kept, cut = {}, {}, {}, false
   retell()
+  -- The answer to the user's Scan is part of it: the view may open.
   roster.views.open(VIEW)
   progress()
   if polling then roster.cancel(polling) end
   polling = roster.every(1000, poll)
 end
+
+-- Starts the scan the user confirmed.
+---@param targets string[]
+---@param force boolean
+local function start(targets, force)
+  request("discover.start", { targets = targets, ports = settings.ports, force = force }, function(ok, r)
+    if not ok then
+      roster.notify("The scan didn't start: " .. model.message(r), model.code(r) == 120 and "warn" or "error")
+      return
+    end
+    started(r)
+  end)
+end
+
+local confirm -- below
 
 -- Asks before scanning `targets`: what will happen, to how many addresses, from where.
 ---@param targets string[]
@@ -340,12 +374,21 @@ local function ask(targets)
     roster.notify("A scan of " .. model.list(scan.targets) .. " is going: stop it first (:discover stop)", "warn")
     return
   end
-  local force = false
-  local ok, plan = pcall(call, "discover.plan", { targets = targets, ports = settings.ports })
-  if not ok and model.code(plan) == 121 then
-    force = true
-    ok, plan = pcall(call, "discover.plan", { targets = targets, ports = settings.ports, force = true })
+  if planning then
+    roster.notify("Still waiting for roster serve to size the last range: a moment")
+    return
   end
+  planning = true
+  -- With force, the plan says how many addresses whatever the range; a scan of more than `limit`
+  -- needs the stronger question. The question comes with the answer, still part of the user's call.
+  request("discover.plan", { targets = targets, ports = settings.ports, force = true }, function(ok, plan)
+    planning = false
+    confirm(ok, plan)
+  end)
+end
+
+-- The question before a scan, from discover.plan's answer.
+confirm = function(ok, plan)
   if not ok and model.code(plan) == -32601 then
     roster.notify("Not scanned: the roster on this Box is too old to scan from the app (it needs roster "
       .. "serve API 18). Update roster there, or run `roster discover` in a terminal.", "error")
@@ -354,6 +397,7 @@ local function ask(targets)
     roster.notify("Not scanned: " .. model.message(plan), "error")
     return
   end
+  local force = plan.addresses > plan.limit
   local where = model.list(plan.targets)
   local text = "roster scans from this computer: it connects to each of the " .. model.plural(plan.addresses,
     "address", "addresses") .. " on " .. model.plural(plan.ports, "TCP port", "TCP ports") .. ", with "
@@ -456,7 +500,9 @@ roster.health.set("discover", {
       return { { level = "warn", message = model.list(gone) .. " not granted: Discover can't scan",
         fix = "Allow them in :plugins" } }
     end
-    local ok, plan = pcall(call, "discover.plan", { targets = { "10.0.0.0/30" } })
+    -- A `:check` section answers when it's run, so this one call waits for roster serve (behind
+    -- a Publish, that's a while; the wait never counts against the Plugin).
+    local ok, plan = pcall(roster.serve.call, "discover.plan", { targets = { "10.0.0.0/30" } })
     if not ok and model.code(plan) == -32601 then
       return { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 18)",
         fix = "Update roster on this Box; `roster discover` in a terminal works meanwhile" } }

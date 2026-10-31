@@ -112,7 +112,7 @@ end
 -- The message of a roster serve error, without the function's name and the code.
 ---@param err any
 function M.message(err)
-  local m = tostring(err):gsub("^roster%.serve%.call [%w%._]+: ", ""):gsub(" %(code %-?%d+%)$", "")
+  local m = tostring(err):gsub("^roster%.serve%.%a+ [%w%._]+: ", ""):gsub(" %(code %-?%d+%)$", "")
   return m
 end
 
