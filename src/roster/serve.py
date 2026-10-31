@@ -467,10 +467,7 @@ def typed_login(state, params, name):
     if params.get("auth") is not None:
         raise RpcError(INVALID_PARAMS, "give params.auth (an existing vault item) or params.password (a new one), "
                                        "not both")
-    item = params.get("item") or f"{name} ssh"
-    if not isinstance(item, str) or not item.strip() or "\n" in item or ":" in item:
-        raise RpcError(INVALID_PARAMS, "params.item must be one line, without ':' (e.g. 'esx-02 ssh')")
-    return {"password": password, "provider": vault_provider(state, params), "item": " ".join(item.split()),
+    return {"password": password, "provider": vault_provider(state, params), "item": item_param(params, name),
             "save_to": save_to_param(params)}
 
 
