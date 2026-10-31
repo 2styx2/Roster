@@ -96,6 +96,16 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
         .set_mode(ChunkMode::Text)
         .eval()
         .map_err(|e| from_lua_error(&e))?;
+    if let Value::Table(t) = &value {
+        let packages: Value = t.raw_get("packages").map_err(|e| from_lua_error(&e))?;
+        let normal = packages_table(&lua, packages).map_err(|(path, message)| ConfigError {
+            file: FILE_NAME.into(),
+            line: None,
+            message: located_message(&path, &message),
+            path,
+        })?;
+        t.raw_set("packages", normal).map_err(|e| from_lua_error(&e))?;
+    }
     let value = match value {
         Value::Nil => Json::Object(Map::new()),
         Value::Table(_) => to_json(&value, &budget).map_err(|e| ConfigError {
@@ -375,6 +385,11 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
                     "roster.set: {name:?} isn't an option name like \"terminal.size\""
                 )));
             }
+            let value = if name == "packages" {
+                packages_table(lua, value).map_err(|(p, m)| mlua::Error::runtime(located_message(&p, &m)))?
+            } else {
+                value
+            };
             let value =
                 to_json(&value, &left).map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
             entries.borrow_mut().push(ApiEntry {
@@ -386,6 +401,83 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
         })?,
     )?;
     Ok(roster)
+}
+
+/// `packages` as the schema takes it (ticket 24): each entry written the lazy.nvim way,
+/// `{ "owner/repo", tag = … }` or a plain `"owner/repo"`, becomes `{ source = "owner/repo",
+/// tag = … }`. Anything else is left for the schema to report. A `config` that's a function is
+/// refused here, with a reason: init.lua and each Package run in Lua states of their own, and a
+/// function can't move between them (decision Q83).
+fn packages_table(lua: &Lua, packages: Value) -> Result<Value, (Vec<String>, String)> {
+    let Value::Table(list) = packages else {
+        return Ok(packages);
+    };
+    let at = |i: usize, key: Option<&str>| {
+        let mut p = vec!["packages".to_string(), i.to_string()];
+        p.extend(key.map(str::to_string));
+        p
+    };
+    let internal = |e: mlua::Error| (vec!["packages".to_string()], e.to_string());
+    let out = lua.create_table().map_err(internal)?;
+    let len = list.raw_len();
+    for i in 1..=len {
+        let entry: Value = list.raw_get(i).map_err(internal)?;
+        let normal = match entry {
+            Value::String(source) => {
+                let t = lua.create_table().map_err(internal)?;
+                t.raw_set("source", source).map_err(internal)?;
+                Value::Table(t)
+            }
+            Value::Table(spec) => {
+                if matches!(spec.raw_get::<Value>("config").map_err(internal)?, Value::Function(_)) {
+                    return Err((
+                        at(i, Some("config")),
+                        "a table of the Package's settings, not a function: a Package runs in a Lua \
+                         state of its own, so a function from init.lua can't run there (it reads them \
+                         as roster.plugin.config)"
+                            .into(),
+                    ));
+                }
+                let first: Value = spec.raw_get(1).map_err(internal)?;
+                if first.is_nil() {
+                    Value::Table(spec)
+                } else {
+                    if spec.raw_len() > 1 {
+                        return Err((
+                            at(i, None),
+                            "one source per Package: { \"owner/repo\", tag = … }".into(),
+                        ));
+                    }
+                    let t = lua.create_table().map_err(internal)?;
+                    for pair in spec.pairs::<Value, Value>() {
+                        let (k, v) = pair.map_err(internal)?;
+                        if !matches!(k, Value::Integer(1)) {
+                            t.raw_set(k, v).map_err(internal)?;
+                        }
+                    }
+                    if !t.raw_get::<Value>("source").map_err(internal)?.is_nil() {
+                        return Err((
+                            at(i, Some("source")),
+                            "give the source once: first, or as source =".into(),
+                        ));
+                    }
+                    t.raw_set("source", first).map_err(internal)?;
+                    Value::Table(t)
+                }
+            }
+            other => other,
+        };
+        out.raw_set(i, normal).map_err(internal)?;
+    }
+    // Keys past the list part (a gap, a name) stay, so the schema reports them as it would.
+    for pair in list.pairs::<Value, Value>() {
+        let (k, v) = pair.map_err(internal)?;
+        let in_list = matches!(k, Value::Integer(n) if n >= 1 && (n as usize) <= len);
+        if !in_list {
+            out.raw_set(k, v).map_err(internal)?;
+        }
+    }
+    Ok(Value::Table(out))
 }
 
 /// Where the Lua code that called a Rust function is.

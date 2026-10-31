@@ -108,11 +108,16 @@ crates/roster-core/src/plugin/
                       Plugins (ticket 23, docs/plugins.md): mod.rs (PluginHost: one thread and Lua state per Plugin,
                       load/call/event, time budget, strikes, the manifest), runtime.rs (the `roster` module a
                       Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list)
+crates/roster-core/src/package/
+                      Packages (ticket 24, Q83): mod.rs (Packages: clones in the app's data dir, roster.lock next to
+                      init.lua; sync/pin/discard/check/apply/clean, only for what init.lua names), git.rs (system git,
+                      no shell, no credentials, https/ssh/file only); tests use local bare repos
 crates/roster-core/plugins/hosts/
                       the status bar's Host count, a built-in Plugin on the public API (`builtin:hosts`)
 app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in the State, prompts, ops → registries,
-                      events, the Sessions' output for terminal.read), ops.ts (checks every op), command.ts
-                      (`:plugins`), PluginsPanel.tsx (the prompt, `:plugins`, a float, notices)
+                      events, the Sessions' output for terminal.read; Packages as `package:NAME`), ops.ts (checks every
+                      op), command.ts (`:plugins`, `:packages`), PluginsPanel.tsx (the prompt, an update's diff,
+                      `:plugins`, `:packages`, a float, notices); backend/fakePackages.ts is the fake Backend's
 app/src/view/status.ts  the status segment and Host-badge registries Plugins add to
 examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
 app/src/registry.ts   Registry: entries by id with a source (builtin/init.lua/Plugin), ADR 0006; registries.ts = the app's set

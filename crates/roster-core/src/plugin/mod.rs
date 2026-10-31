@@ -18,8 +18,9 @@
 //! for the methods its permissions name ([`permission`]); none of those touches a password, a
 //! vault session or an askpass token.
 //!
-//! Where a folder comes from is the caller's business: a local folder (`:plugins install PATH`)
-//! today, a Package's clone (ticket 24) later. Both load through [`PluginHost::load`].
+//! Where a folder comes from is the caller's business: a local folder (`:plugins install PATH`),
+//! or a Package's clone (ticket 24, [`crate::package`]), which loads through
+//! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod permission;
 mod runtime;
@@ -253,6 +254,17 @@ impl PluginHost {
     /// the permissions its manifest asks for and `grants` contains. An error in the manifest
     /// loads nothing; an error in its code leaves it listed, disabled.
     pub fn load(&self, source: &Source, grants: &[Permission]) -> Result<(Manifest, Reply), PluginError> {
+        self.load_with(source, grants, &Json::Null)
+    }
+
+    /// [`PluginHost::load`], handing the Plugin `config` as `roster.plugin.config` (a Package's
+    /// settings from init.lua; `null` gives an empty table).
+    pub fn load_with(
+        &self,
+        source: &Source,
+        grants: &[Permission],
+        config: &Json,
+    ) -> Result<(Manifest, Reply), PluginError> {
         let (manifest, dir, code) = match source {
             Source::Dir(dir) => {
                 let manifest = read_manifest(dir)?;
@@ -289,7 +301,7 @@ impl PluginHost {
             .filter(|p| grants.contains(p))
             .cloned()
             .collect();
-        let jobs = self.spawn(&manifest, &dir, grants.clone());
+        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone());
         let mut slot = Slot {
             manifest: manifest.clone(),
             dir: dir.clone(),
@@ -446,14 +458,23 @@ impl PluginHost {
         }
     }
 
-    fn spawn(&self, manifest: &Manifest, dir: &Path, grants: BTreeSet<Permission>) -> Jobs {
+    fn spawn(&self, manifest: &Manifest, dir: &Path, grants: BTreeSet<Permission>, config: Json) -> Jobs {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
         let (serve, limits) = (Arc::clone(&self.serve), self.limits);
         let spawned = std::thread::Builder::new()
             .name(format!("plugin:{name}"))
             .spawn(move || {
-                let runtime = runtime::Runtime::new(&name, &version, &dir, grants, serve, limits.memory, limits.call);
+                let runtime = runtime::Runtime::new(
+                    &name,
+                    &version,
+                    &dir,
+                    &config,
+                    grants,
+                    serve,
+                    limits.memory,
+                    limits.call,
+                );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
                     let outcome = match &runtime {
@@ -542,8 +563,10 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, PluginError> {
     manifest_from(&source, &shown)
 }
 
-/// The manifest `source` gives; errors name the Plugin as `shown` (its folder's name).
-fn manifest_from(source: &str, shown: &str) -> Result<Manifest, PluginError> {
+/// The manifest `source` gives (a `roster-plugin.lua`'s text, read before any of the Plugin's
+/// code runs); errors name the Plugin as `shown` (its folder's name). Packages read a new
+/// version's this way, before moving to it.
+pub fn manifest_from(source: &str, shown: &str) -> Result<Manifest, PluginError> {
     let fail = |line: Option<u32>, message: String| PluginError::new(shown, Some(MANIFEST.into()), line, message);
     let source = source.to_string();
     let (tx, rx) = channel();

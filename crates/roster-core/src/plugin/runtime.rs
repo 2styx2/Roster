@@ -87,10 +87,12 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    #[allow(clippy::too_many_arguments)] // each is one fact about the Plugin, from its own place
     pub(crate) fn new(
         plugin: &str,
         version: &str,
         dir: &Path,
+        config: &Json,
         grants: BTreeSet<Permission>,
         serve: Arc<dyn Serve>,
         memory: usize,
@@ -112,7 +114,7 @@ impl Runtime {
             .map_err(fail)?;
         lua.set_named_registry_value(LISTENERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
-        let roster = api(&lua, &shared, version).map_err(fail)?;
+        let roster = api(&lua, &shared, version, config).map_err(fail)?;
         lua::set_api(&lua, roster).map_err(fail)?;
         Ok(Runtime { lua, shared, budget })
     }
@@ -310,7 +312,7 @@ fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> 
 }
 
 /// The `roster` module for one Plugin: everything every Plugin gets, then what its grants add.
-fn api(lua: &Lua, shared: &Rc<Shared>, version: &str) -> mlua::Result<Table> {
+fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Result<Table> {
     let roster = lua.create_table()?;
     roster.raw_set("api_version", super::API_VERSION)?;
     roster.raw_set("os", Os::current().as_str())?;
@@ -322,6 +324,12 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str) -> mlua::Result<Table> {
         granted.raw_set(i + 1, p.to_string())?;
     }
     me.raw_set("permissions", granted)?;
+    // A Package's settings from init.lua (ticket 24): always a table.
+    let config = match config {
+        Json::Object(_) => to_lua(lua, config)?,
+        _ => Value::Table(lua.create_table()?),
+    };
+    me.raw_set("config", config)?;
     roster.raw_set("plugin", me)?;
 
     // A function `f(lua, shared, args)` in the module.
