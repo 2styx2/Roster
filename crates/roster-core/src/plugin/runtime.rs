@@ -503,6 +503,31 @@ fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua
     Ok(())
 }
 
+/// A view's spec without its table's `actions`, and those actions (`nil` for none). The
+/// Plugin's own tables are copied, not changed.
+fn table_actions(lua: &Lua, spec: &Table) -> mlua::Result<(Table, Value)> {
+    let Ok(Value::Table(table)) = spec.raw_get::<Value>("table") else {
+        return Ok((spec.clone(), Value::Nil));
+    };
+    let actions: Value = table.raw_get("actions")?;
+    if actions.is_nil() {
+        return Ok((spec.clone(), Value::Nil));
+    }
+    let copy = |t: &Table, leave: &str| -> mlua::Result<Table> {
+        let out = lua.create_table()?;
+        for pair in t.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            if !matches!(&k, Value::String(k) if k.as_bytes().as_ref() == leave.as_bytes()) {
+                out.raw_set(k, v)?;
+            }
+        }
+        Ok(out)
+    };
+    let (out, inner) = (copy(spec, "")?, copy(&table, "actions")?);
+    out.raw_set("table", inner)?;
+    Ok((out, actions))
+}
+
 /// A Lua value as data for roster serve: no functions.
 fn plain(shared: &Shared, what: &str, v: &Value) -> mlua::Result<Json> {
     lua::to_json(v, &shared.budget).map_err(|e| convert_error(what, &e))
@@ -1028,9 +1053,22 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     let views = lua.create_table()?;
     func!(views, "set", |lua, s, (id, spec): (String, Table)| {
         check_id("roster.views.set", &id)?;
-        let actions = format!("view:{id}:actions");
-        drop_owners(lua, s, |k| k == actions)?;
-        let spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
+        // A table's actions are owned apart from the rest (its `open`), as an update's are, so an
+        // update that replaces them drops their functions at once (ticket 85).
+        let (spec, actions) = table_actions(lua, &spec)?;
+        let mut spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
+        let actions = data(
+            lua,
+            s,
+            "roster.views.set: table.actions",
+            &actions,
+            &format!("view:{id}:actions"),
+        )?;
+        if !actions.is_null()
+            && let Some(table) = spec.get_mut("table").and_then(Json::as_object_mut)
+        {
+            table.insert("actions".into(), actions);
+        }
         push(s, json!({ "op": "view", "id": id, "spec": spec }))
     });
     func!(views, "update", |lua, s, (id, changes): (String, Table)| {

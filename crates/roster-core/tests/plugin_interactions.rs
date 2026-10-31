@@ -387,6 +387,11 @@ fn a_view_update_may_change_columns_sort_and_actions() {
         host.call("mesh", handler(&set["open"]), json!({ "row": "a" })).result,
         "open a"
     );
+    // The set's actions were replaced, so their functions are gone at once (ticket 85), not
+    // only when the view is set again or removed.
+    let cut = handler(&set["actions"][0]["run"]);
+    let r = host.call("mesh", cut, json!({ "row": "a" }));
+    assert!(r.error.is_some_and(|e| e.message.contains("gone")), "{:?}", r.result);
     // A function anywhere else is still an error.
     assert!(status_text(&reply.ops, "e").contains("functions go in roster.views.set"));
 }
