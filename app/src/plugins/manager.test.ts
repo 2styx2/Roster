@@ -1,7 +1,7 @@
 // The Plugin manager (ticket 23) over the fake Backend's Plugin host: installing asks first,
 // ops become registry entries with the Plugin's name as their source, revoking takes a permission
 // away at once, and only Sessions' output (never what's typed) reaches terminal.read.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fakeBackend, makeHosts } from "../backend/fake";
 import type { FakePlugin } from "../backend/fakePlugins";
 import { builtinRegistries } from "../registries";
@@ -28,15 +28,15 @@ function alerts(seen: string[] = []): FakePlugin {
   };
 }
 
-function setup(plugins: Record<string, FakePlugin> = {}, state: Record<string, unknown> = {}) {
+function setup(plugins: Record<string, FakePlugin> = {}, state: Record<string, unknown> = {}, copy: PluginUi["copy"] = async () => undefined) {
   const backend = fakeBackend({ hosts: makeHosts(3), plugins });
   const registries = builtinRegistries();
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
   const ran: string[] = [];
   const sent: [number, string][] = [];
-  const ui: PluginUi = { run: (l) => void ran.push(l), send: (id, t) => void sent.push([id, t]), copy: () => undefined };
+  const ui: PluginUi = { run: (l) => void ran.push(l), send: (id, t) => void sent.push([id, t]), copy };
   const manager = new PluginManager(backend, registries, store, ui);
-  return { manager, registries, state, ran, sent };
+  return { manager, registries, state, ran, sent, backend };
 }
 
 describe("installing", () => {
@@ -227,5 +227,55 @@ describe("tutorials", () => {
     const op = { op: "tutor", id: "x", spec: { lessons: [{ title: "a", steps: [{ id: "s", text: "t", on: { event: "keypress" } }] }] } };
     expect(parseOp(op)).toMatchObject({ invalid: expect.stringContaining("event must be one of command, session_open") as unknown });
     expect(parseOp({ op: "tutor", id: "x", spec: { lessons: [] } })).toEqual({ invalid: "roster.tutor.set x: lessons must have at least one lesson" });
+  });
+});
+
+/** A Plugin with `:cp TEXT`, which copies TEXT and then says so (as recent-alerts' Copy does). */
+const copier: FakePlugin = {
+  manifest: { name: "copier", version: "1.0.0", description: "Copies", author: null, api: 2, permissions: [] },
+  load(roster) {
+    roster.commands.add("cp", {
+      run: (a: Record<string, unknown>) => {
+        roster.clipboard.copy(String(a.args));
+        roster.notify("Copied it");
+      },
+    });
+  },
+};
+const COPIER = "~/plugins/copier";
+
+async function installed(copy: PluginUi["copy"]) {
+  const s = setup({ [COPIER]: copier }, {}, copy);
+  await s.manager.install(COPIER);
+  const prompt = s.manager.snapshot().prompts[0];
+  if (prompt) await s.manager.answer(prompt, true);
+  return s;
+}
+
+describe("the clipboard", () => {
+  it("copied: the Plugin's own words are said", async () => {
+    const copied: string[] = [];
+    const { manager, registries } = await installed(async (t) => void copied.push(t));
+    registries.commands.get("cp")?.run({} as never, "hello");
+    await vi.waitFor(() => expect(manager.snapshot().notices.map((n) => n.text)).toEqual(["copier: Copied it"]));
+    expect(copied).toEqual(["hello"]);
+  });
+
+  it("a copy that fails says so, and the Plugin's \"Copied\" isn't shown (it would be a lie)", async () => {
+    const { manager, registries } = await installed(() => Promise.reject(new Error("the clipboard is busy")));
+    registries.commands.get("cp")?.run({} as never, "hello");
+    await vi.waitFor(() => expect(manager.snapshot().notices.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(manager.snapshot().notices.map((n) => [n.level, n.text])).toEqual([["error", "copier: couldn't copy to the clipboard: the clipboard is busy"]]);
+  });
+
+  it("a copy op is the core's to allow: the manager applies it as the reply has it", async () => {
+    const copied: string[] = [];
+    const { manager, backend } = await installed(async (t) => void copied.push(t));
+    // The core makes a copy op only in a call the user started (crates/roster-core/tests/plugin.rs);
+    // the manager doesn't check it again.
+    vi.spyOn(backend, "pluginEvent").mockResolvedValue([{ plugin: "copier", result: null, ops: [{ op: "copy", text: "from the core" }], error: null, disabled: null }]);
+    await manager.event("lock");
+    expect(copied).toEqual(["from the core"]);
   });
 });
