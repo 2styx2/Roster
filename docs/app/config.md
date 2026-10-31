@@ -38,7 +38,7 @@ Everything configurable says its name where it shows, so you can tell where to c
 The Lua code runs in the Rust core, which never holds a secret (docs/app/security.md), and it gets less than the core has:
 
 - **Libraries:** the base functions, `string` (without `string.dump`), `table`, `math`, `utf8`, and an `os` with only `time`, `clock`, `date` and `difftime`.
-- **Not there:** `io`, `os.execute`, `os.getenv`, `os.remove`, `os.exit`, `debug`, `package` (so no C modules), `dofile`, `loadfile`, `collectgarbage`. `load` takes text only, never bytecode.
+- **Not there:** `io`, `os.execute`, `os.getenv`, `os.remove`, `os.exit`, `debug`, `package` (so no C modules), `dofile`, `loadfile`, `collectgarbage`, `coroutine` (a Plugin has it, since `roster.api_version` 3). `load` takes text only, never bytecode.
 - **`require(name)`** loads only `name.lua`, `name/init.lua`, `lua/name.lua` or `lua/name/init.lua` from the config folder (`.` in a name is a `/`). A name with `..` or a slash is refused, and so is a file (or a symlink) that resolves outside the folder. `require("roster")` returns the API table.
 - **Limits:** 1 second of run time (an instruction hook checks a deadline, so `while true do end` stops with its line) and 64 MB of memory. Running out of time can't be caught: `pcall` and `xpcall` raise it again, so the run ends. The table it returns (with what it gave the `roster` calls) may hold at most 100,000 values and 16 MB of text, counting a table used in several places once per place.
 - **One C call can't be stopped** by the instruction hook (a pattern that backtracks, say), so `string.find`, `match`, `gmatch` and `gsub` take text up to 64 KB and patterns up to 256 bytes, `string.rep` makes at most 1 MB, and a watchdog gives up on the whole run after 2 seconds of wall-clock time ("init.lua: took too long to run"). The last good Config stays in use.
@@ -51,7 +51,7 @@ A global, and also `require("roster")`. It's kept small. A Plugin gets the same 
 | Name | What |
 |---|---|
 | `roster.os` | `"windows"`, `"linux"` or `"macos"`, for `if roster.os == "windows" then … end` |
-| `roster.api_version` | `2`. Raised when this module changes (it went to 2 with Plugins; nothing in `init.lua`'s changed) |
+| `roster.api_version` | `3`. Raised when this module changes (it went to 2 with Plugins and to 3 with more for Plugins; nothing in `init.lua`'s changed) |
 | `roster.keymap.set(context, keys, action)` | A key binding, as in `keys` below. `action` is a command line, or `false` to unbind |
 | `roster.themes.define(id, theme)` | A Theme, as in `themes` below |
 | `roster.set(name, value)` | Any option by its dotted name: `roster.set("terminal.size", "16pt")`. What `:config import-terminal` writes |

@@ -4,6 +4,35 @@ What changed in each Release of roster, the CLI and the app together, newest fir
 
 Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
+## Unreleased
+
+### Breaking
+
+**App**
+
+- Plugin API 3 (`roster.api_version` 3): `roster.inventory.host(name)` gives `nil` for a name that isn't a Host, where it raised an error (code 2), so a Plugin that wrapped it in `pcall` checks for `nil` now. A `cmd:` or `env:` Login reference reaches a Plugin cut to its kind (`cmd:`, `env:`): it says how a secret is fetched, and a Plugin never needs it. See [`roster.inventory.host()`](plugin-api.md#rosterinventoryhostname) and [`LoginRef`](plugin-api.md#loginref).
+
+### New
+
+**App**
+
+- Plugins can add a section to `:check` that runs each time, like Neovim's `vim.health`: `roster.health.set(id, { check = function() … end })`. Its OK, WARNING and ERROR lines show under the Plugin's name on [Health](health); one that fails or doesn't answer in time is an ERROR line of its own. See [Health sections](plugins.md#health-sections).
+- `:check %` checks the Host of the Session on screen, as Vim's `%` is the current file. See [Health](health).
+- Plugin API 3: `roster.inventory.groups()`, `roster.keymap.del`, `roster.themes.remove` and `coroutine`. A row's, a button's, a finder item's or a status segment's function is told which one ran it and, with `inventory.read` or `terminal.read`, the Session on screen ([`HandlerContext`](plugin-api.md#handlercontext)).
+- `:plugins types PATH` writes the Plugin API's types for this app (`types/roster.lua`) into a Plugin's folder, for lua-language-server. See [Types in your editor](plugins.md#types-in-your-editor).
+
+### Changed
+
+**App**
+
+- A Plugin's error about data that can't be handed over names the function and where in the table (`roster.sidebar.set: rows.3.label: a thread can't be a Plugin value`), and every `remove` checks its id as `set` does. `session_exit` names the Host of a tab closed while its Session ran.
+
+### Deprecated
+
+**App**
+
+- `roster.keymap.set(context, keys, false)`: use `roster.keymap.del(context, keys)`. It takes the Plugin's own binding off now, rather than claiming the keys with no action. See [Deprecated names](deprecated.md).
+
 ## v0.2.0
 
 ### New

@@ -917,7 +917,7 @@ export class PluginManager {
 
   /** Calls a `:check` section's `check` and gives its lines; what goes wrong is an ERROR line. */
   private async healthCheck(plugin: string, id: string, handler: number) {
-    const error = (message: string) => [{ section: id, level: "error" as const, message }];
+    const error = (message: string) => [{ section: id, level: "error" as const, message, fix: `:plugins says how ${plugin} is doing; :plugins reload ${plugin} runs it again` }];
     if (!this.loaded.has(plugin)) return error(`${plugin} isn't running`);
     const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }).catch((e: unknown) => this.lost(plugin, e));
     this.used(plugin, "ran its :check section");
