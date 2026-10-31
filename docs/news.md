@@ -16,6 +16,8 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Plugin views and tables: a Plugin can add a side panel or a full view (`roster.views`), opened with `:view ID`, a key it binds, the `views` finder or its own command, with Esc taking you back. Its table sorts, moves with vim keys, runs actions on the selected row with a key or a button, takes rows changed in place as a scan finds them, and stays smooth at thousands of rows. A Plugin can also add a section to a Host's details (`roster.details`). See [Views, tables and Host-details sections](plugins.md#views-tables-and-host-details-sections).
 - Packages from a folder of a repo: `dir = "plugins/NAME"` in a Package's line in `init.lua` loads the Plugin from that folder, so one repo can hold several Plugins. The install and update prompts show the folder, `roster.lock` keeps it, and `:packages update` shows only what changed in it. A folder outside the repo (`..`, a full path, a symlink that leads out) is refused. roster's own optional Plugins will live this way, in its repo's `plugins/` folder, none bundled in the app. See [Packages](plugins.md#packages) and [First-party Plugins](plugins.md#first-party-plugins).
 
+- Plugins can ask, show progress and act for you: `roster.confirm` asks a question the app draws (a stronger form, starting on Cancel and asking you to type a Host's name, for a Mesh Cut), `roster.progress` shows something long in the status bar with a stop button and `:cancel`, `roster.toolbar` adds a toolbar control, a Sidebar section can have buttons on its heading ("Dismiss all"), a floating window can have buttons and links, `roster.cmd(line)` runs a command line, and `roster.sessions.show(session, line)` goes to a Session by its id and finds the line in it. A table filters with `/`, an action can apply only to some rows, and `roster.views.update` can change its columns, sort and actions. See [Asking, progress, the toolbar and going places](plugins.md#asking-progress-the-toolbar-and-going-places).
+
 **CLI**
 
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
@@ -24,6 +26,8 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 ### Changed
 
 **App**
+
+- A command line a Plugin hands over (a row's, a button's, a finder item's, a status segment's) runs only if it's one of that Plugin's own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run): a button can no longer run `:plugins grant …` whatever its label says. `roster.sessions` is there for every Plugin now (for `show`); `roster.sessions.open` still needs `sessions.open`.
 
 - `terminal_output` sends the lines a Session's terminal commits, read from a terminal of its own, instead of the raw output with a one-second repaint filter: a progress bar arrives as it ended, a wrapped line comes whole, the screen ConPTY prints again after a resize is never output, and what full-screen programs (`vim`, `top`) draw isn't sent. See [Events](plugin-api.md#events).
 - In a Plugin, `pairs` visits keys in order (numbers, then text), so the same state makes the same changes on every machine. An empty table reaches the app as `{}`, which it takes as an empty list.

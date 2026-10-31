@@ -178,7 +178,7 @@
 ---@field danger? boolean The stronger form, for what can't easily be undone: the button in the danger colour, the keys starting on Cancel.
 ---@field typed? string With `danger`: a word the user types before the button works (a Host's name), at most 100 characters.
 ---@field run fun(e: table): any Called when the user confirms.
----@field cancel? fun(e: table): any Called when they don't, or another question replaces it.
+---@field cancel? fun(e: table): any Called when they don't (`Esc` or Cancel), or another Plugin's question takes its place.
 
 --- How far something long has got (`roster.progress.set`)
 ---@class roster.Progress

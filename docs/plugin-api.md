@@ -271,7 +271,7 @@ end)
 
 ### `roster.confirm(question)`
 
-Asks the user to confirm, then runs a function. The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc`, Cancel, or another question replacing this one). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.
+Asks the user to confirm, then runs a function. The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc` or Cancel, or another Plugin's question taking its place). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.
 
 **Parameters**
 
@@ -1610,7 +1610,7 @@ Going to Sessions, and opening them. Every Plugin may go to a Session the user i
 
 ### `roster.sessions.show(session, line)`
 
-Goes to a Session, and to a line in its scrollback. It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `n`/`N` (Enter, Shift+Enter) go on from there and `Esc` closes it. A Session that has ended, or a line no longer in the scrollback, is said in a notice. Only while the user runs one of your actions, commands or finder items.
+Goes to a Session, and to a line in its scrollback. It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `Enter` and `Shift+Enter` go on up and down from there and `Esc` closes it; a line no longer in the scrollback shows "no matches" there. A Session that has ended is said in a notice. Only while the user runs one of your actions, commands or finder items.
 
 **Parameters**
 
@@ -2081,7 +2081,7 @@ The app draws it with your Plugin's name on it. Text is cut to 500 characters, e
 | `danger` | `boolean` | no | The stronger form, for what can't easily be undone: the button in the danger colour, the keys starting on Cancel. |
 | `typed` | `string` | no | With `danger`: a word the user types before the button works (a Host's name), at most 100 characters. |
 | `run` | `fun(e: table): any` | yes | Called when the user confirms. |
-| `cancel` | `fun(e: table): any` | no | Called when they don't, or another question replaces it. |
+| `cancel` | `fun(e: table): any` | no | Called when they don't (`Esc` or Cancel), or another Plugin's question takes its place. |
 
 ### `Progress`
 

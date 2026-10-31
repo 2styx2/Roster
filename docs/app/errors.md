@@ -188,6 +188,17 @@ A Package's line in `init.lua` and its clone (see [Packages](../plugins.md#packa
 | 82 | none (a Package's error) | The repo has no such folder at the commit it's at: a typo, or a version from before the Plugin was added | init.lua / the repo | "https://git.example.com/team/roster-extras.git at 1a2b3c4 has no folder plugins/alrets: check dir in init.lua" | Fix `dir`, or ask for a version that has it (`tag`, `branch`), then `:source` |
 | 83 | none (a Package's error) | `dir`, or a folder on the way to it, is a symlink that leads outside the clone | The repo | "dir = \"plugins/escape\" leads outside the Package's clone (through a symlink): roster won't load it" | Nothing in roster: a Plugin is only ever loaded from inside its repo. Tell the repo's author; an update that does this is refused and the Package stays where it was |
 
+## Plugin interactions
+
+What a Plugin's buttons, questions and command lines can run into ([plugins.md](../plugins.md#asking-progress-the-toolbar-and-going-places)). Each is a notice naming the Plugin, or the Plugin's own error with its file and line; nothing else changes.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 87 | none (a Plugin's notice) | A button, row, finder item or toolbar control runs a command line the Plugin may not run: `:plugins`, `:publish`, another Plugin's command, or `:open` without `sessions.open` | The Plugin | "mesh: :plugins isn't one a Plugin may run" | Nothing ran. If you trust it with more, grant the permission in `:plugins`; tell the Plugin's author otherwise |
+| 88 | none (a Plugin's error) | `roster.cmd`, `roster.confirm` or `roster.sessions.show` called at load, in an event listener or a timer | The Plugin | "mesh: init.lua:12: roster.cmd: only while the user runs one of your actions, commands or finder items" | The Plugin's to fix: call it from an action or command |
+| 89 | none (a Plugin's notice) | `roster.sessions.show` names a Session that has ended (or never was) | The Plugin / the Session | "recent-alerts: there's no Session 3 now: it has ended" | Open the Host again; the line isn't there any more |
+| 90 | none (a Plugin's notice) | Two Plugins use one progress id | The Plugins | "discover: there's a progress named scan already, from mesh" | The second is ignored until the first is removed; tell an author |
+
 ## This Box's health
 
 `:check` with no Host checks this Box rather than a Host, like Neovim's `:checkhealth`, and shows the result as a help page, [`health`](health). It opens at once, says it's checking, then fills in. Each section is a heading and each check a line: `OK`, `WARNING` or `ERROR`, what it found, the fix, and a link to the topic that explains it (a row of this catalog, `E6`, or a command). The page's links, `/`, `g O` and `:helpgrep` work as on any help page, and running `:check` again replaces it.

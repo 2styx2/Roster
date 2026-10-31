@@ -420,7 +420,7 @@ pub const FUNCTIONS: &[Function] = &[
             "What to ask, the button that confirms, and what runs when the user does.",
         )],
         summary: "Asks the user to confirm, then runs a function",
-        doc: "The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc`, Cancel, or another question replacing this one). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.",
+        doc: "The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc` or Cancel, or another Plugin's question taking its place). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.",
         returns: ("", ""),
         errors: &[
             (
@@ -1268,7 +1268,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Goes to a Session, and to a line in its scrollback",
-        doc: "It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `n`/`N` (Enter, Shift+Enter) go on from there and `Esc` closes it. A Session that has ended, or a line no longer in the scrollback, is said in a notice. Only while the user runs one of your actions, commands or finder items.",
+        doc: "It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `Enter` and `Shift+Enter` go on up and down from there and `Esc` closes it; a line no longer in the scrollback shows \"no matches\" there. A Session that has ended is said in a notice. Only while the user runs one of your actions, commands or finder items.",
         returns: ("", ""),
         errors: &[(
             "roster.sessions.show: only while the user runs one of your actions, commands or finder items",
@@ -1920,7 +1920,7 @@ pub const TYPES: &[Type] = &[
             o(
                 "cancel",
                 "fun(e: table): any",
-                "Called when they don't, or another question replaces it.",
+                "Called when they don't (`Esc` or Cancel), or another Plugin's question takes its place.",
             ),
         ],
         open: false,
