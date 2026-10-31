@@ -149,7 +149,7 @@ What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`
 _Avoid_: scope, capability, right
 
 **Package**:
-A Plugin fetched from a git repo, named in the Config (`packages`) and pinned to a commit in the lock file, `roster.lock`, next to `init.lua`.
+A Plugin fetched from a git repo, named in the Config (`packages`) and pinned to a commit in the lock file, `roster.lock`, next to `init.lua`. The Plugin is the repo's top folder, or the folder `dir` names (`plugins/topology`). A **first-party Plugin** is one in roster's own repo, under `plugins/`, installed as a Package like any other (decision Q94).
 _Avoid_: bundle, module
 
 **Provider**:

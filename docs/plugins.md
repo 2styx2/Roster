@@ -111,8 +111,21 @@ packages = {
 - **`:packages update`** fetches each one and shows what's new before anything changes: the commits, the diff, and any permission the new version asks for. Enter updates (and grants what it newly asks for); Esc keeps the version it has.
 - **`:packages clean`** removes the clones and lock lines of Packages `init.lua` no longer names, with everything they added. **`:plugins remove NAME`** takes one out at once, clone and lock line included.
 - **`config`** is a table of settings the Package reads as `roster.plugin.config` (a `config = function() … end` as in lazy.nvim isn't possible: the Package's code runs in a Lua state of its own, which a function from `init.lua` can't move into).
+- **`dir`** loads the Plugin from a folder of the repo instead of its top, for a repo that holds several: `{ "https://git.example.com/team/roster-extras.git", dir = "plugins/alerts" }`. The clone is the whole repo; the Package is named after the folder (`alerts`) unless `name =` says otherwise. The prompts show the folder next to the git URL, `roster.lock` keeps it (another folder is other code, so it asks again), and `:packages update` shows only the commits, diff and manifest of that folder: a commit elsewhere in the repo isn't an update to it. The folder must be inside the repo: a full path, `..`, a backslash, `.git`, or a symlink that leads out of the clone is refused ([errors](app/errors.md#packages)). Two Packages from one repo each get a clone of their own, so each is pinned and updated on its own (decision Q94).
 
 The app runs your system's `git` (it must be installed) with no shell, no credentials of roster's and no way to ask for any: a private repo works when your own git setup (an ssh agent, say) already gets in. Only `https`, `ssh` and `file` URLs, no submodules, and no hooks.
+
+### First-party Plugins
+
+Optional Plugins the roster project writes live in roster's repo, one folder each under [`plugins/`](../plugins/README.md), and install as Packages like any other (decisions Q81 and Q94): the same prompt, the same permissions, pinned in `roster.lock`. None is bundled in the app. What sets them apart is that they're reviewed like the core, tested in CI with it, and security-reviewed against [a checklist](../plugins/README.md#security-review). To install one, name it with `dir`:
+
+```lua
+packages = {
+  { "https://github.com/2styx2/roster", dir = "plugins/NAME" },
+},
+```
+
+None is there yet; the Topology view, the Discover UI and the Mesh controls are the first planned.
 
 ## Permissions
 
