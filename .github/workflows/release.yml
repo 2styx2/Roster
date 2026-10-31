@@ -64,14 +64,23 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: ${{ env.UV_VERSION }}
+      # roster(1) is generated from the parser and docs/cli-reference.md and committed; never ship a stale one.
+      - run: uv run --python python3.12 python -m roster.manpage --check
       - run: uv build --python python3.12 --out-dir out
       # The CLI's own files with install.sh, for boxes without git: unpack and run ./install.sh in it.
+      # Laid out like a prefix for the man page too (share/man/man1/roster.1), as Neovim's tarballs are.
       - name: roster-cli tarball
         run: |
           files=(pyproject.toml uv.lock .python-version README.md install.sh src examples
                  docs/cli-reference.md docs/serve-api.md docs/new-box.md docs/adding-hosts.md)
           [ -f LICENSE ] && files+=(LICENSE)
-          git archive --format=tar.gz --prefix="roster-cli-$VERSION/" -o "out/roster-cli-$VERSION.tar.gz" HEAD "${files[@]}"
+          d="roster-cli-$VERSION"
+          mkdir -p stage
+          git archive --format=tar --prefix="$d/" HEAD "${files[@]}" | tar -x -C stage
+          mkdir -p "stage/$d/share/man/man1" && cp src/roster/roster.1 "stage/$d/share/man/man1/roster.1"
+          tar -czf "out/$d.tar.gz" -C stage "$d"
+      # The man page on its own, for packagers.
+      - run: cp src/roster/roster.1 out/roster.1
       - run: ls -l out
       - uses: actions/upload-artifact@v4
         with:
@@ -215,7 +224,8 @@ jobs:
           Linux \`.AppImage\` or \`.deb\` (or the \`.tar.gz\` with the bare binary); macOS \`roster-app-$VERSION-macos-universal.dmg\`.
           The app needs the roster CLI (\`roster serve\`) on the same machine, or in WSL on Windows.
 
-          **The CLI:** \`uv tool install roster-$VERSION-py3-none-any.whl\`, or unpack \`roster-cli-$VERSION.tar.gz\` and run \`./install.sh\`.
+          **The CLI:** unpack \`roster-cli-$VERSION.tar.gz\` and run \`./install.sh\`, or \`uv tool install roster-$VERSION-py3-none-any.whl\`
+          then \`roster man --install\`. Either way \`man roster\` works afterwards; \`roster.1\` is the page on its own, for packagers.
 
           These builds aren't code-signed yet: Windows SmartScreen asks "More info → Run anyway", and macOS needs
           right-click → Open the first time. Check downloads against \`SHA256SUMS\` (\`sha256sum -c SHA256SUMS --ignore-missing\`).

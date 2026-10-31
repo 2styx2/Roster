@@ -113,6 +113,7 @@ Requires Python 3.10+, the OpenSSH client, [uv](https://docs.astral.sh/uv/), and
 ```bash
 uv tool install git+https://github.com/2styx2/roster      # from the repo
 uv tool install ./roster-<version>-py3-none-any.whl       # or the wheel from a Release
+roster man --install                                      # the man page, next to the roster command
 roster --help
 ```
 
@@ -124,7 +125,9 @@ git clone https://github.com/2styx2/roster.git && cd roster
 ./install.sh --dry-run    # show what it would do, change nothing
 ```
 
-A Release also has `roster-cli-<version>.tar.gz`: unpack it and run `./install.sh` inside, no git needed. Setting up another box, step by step: [docs/new-box.md](docs/new-box.md).
+A Release also has `roster-cli-<version>.tar.gz`: unpack it and run `./install.sh` inside, no git needed. `install.sh --prefix DIR` puts the command in `DIR/bin` instead of `~/.local/bin`.
+
+After installing, either way, `man roster` shows the manual: the man page goes to `PREFIX/share/man/man1/roster.1`, next to `PREFIX/bin/roster`, where `man` looks. Setting up another box, step by step: [docs/new-box.md](docs/new-box.md).
 
 ## Quick start
 

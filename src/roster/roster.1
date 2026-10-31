@@ -1,0 +1,323 @@
+.TH ROSTER 1 "" "roster" "User Commands"
+.SH NAME
+roster \- give this box (and Claude) access to the hosts in roster.yml
+.SH SYNOPSIS
+.nf
+roster init
+roster setup [\-\-only LIST] [\-\-dry\-run]
+roster sync
+roster check [\-\-only LIST] [host]
+roster hosts [\-\-only LIST] [\-\-find TEXT] [\-\-all] [\-\-long]
+roster resources [\-\-only LIST] [\-\-find TEXT]
+roster reveal [\-\-wifi] name
+roster info NAME [NAME ...]
+roster run [\-\-sudo] host ...
+roster discover [\-\-write] [\-\-group NAME] [\-\-ports PORTS] [\-\-top\-ports N] [\-\-no\-ping] [\-\-os] [\-\-builtin] [\-\-timeout SECONDS] [\-\-force] CIDR [CIDR ...]
+roster bw ...
+roster providers
+roster auth\-check [\-\-only LIST]
+roster web [\-d BODY] [\-H HEADER] [\-k] [\-\-timeout SECONDS] HOST [SERVICE] METHOD PATH [HOST [SERVICE] METHOD PATH ...]
+roster revoke [\-\-only LIST] [\-y]
+roster serve
+roster askpass [prompt]
+roster man [\-\-install] [\-\-prefix DIR]
+.fi
+.SH DESCRIPTION
+.PP
+Give this box (and Claude) access to the hosts in roster.yml.
+.IP \(bu 2
+\fBOne source of truth for the team.\fR The host list lives in git and the logins live in the shared vault. Adding a host takes one change to \fBroster.yml\fR, and rotating a password takes one vault edit. Every box picks the change up.
+.IP \(bu 2
+\fBNo passwords on disk.\fR Passwords are fetched from Bitwarden, 1Password, \fBpass\fR, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
+.IP \(bu 2
+\fBClaude works on the network without seeing secrets.\fR \fBroster setup\fR writes \fBROSTER.md\fR, which tells Claude which hosts exist and how to reach them. Claude uses \fBssh\fR, \fBroster run\fR and \fBroster web\fR: roster supplies the credentials and Claude sees only the output.
+.IP \(bu 2
+\fBScans become inventory safely.\fR \fBroster discover\fR turns an nmap sweep into \fBroster.yml\fR entries marked \fBreviewed: false\fR\&. Nothing logs in to them until a person has reviewed them.
+.SH OPTIONS
+.TP
+\fB\-\-version\fR
+show program's version number and exit
+.TP
+\fB\-c, \-\-config PATH\fR
+path to roster.yml (default: ./roster.yml, then ~/.config/roster/)
+.SH COMMANDS
+.SS init
+.PP
+\fBroster init\fR
+.PP
+Write the commented example \fBroster.yml\fR
+.SS setup
+.PP
+\fBroster setup [\-\-only LIST] [\-\-dry\-run]\fR
+.PP
+One\-time per box: key, fingerprints, key install, SSH config, Claude files (\fB\-\-only\fR, \fB\-\-dry\-run\fR)
+.TP
+\fB\-\-only LIST\fR
+only these hosts, groups, types or products (comma\-separated)
+.TP
+\fB\-\-dry\-run\fR
+show what would happen, change nothing remote
+.SS sync
+.PP
+\fBroster sync\fR
+.PP
+Rewrite the SSH config and Claude files after editing \fBroster.yml\fR
+.SS check
+.PP
+\fBroster check [\-\-only LIST] [host]\fR
+.PP
+Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see \fBroster check HOST\fR)
+.TP
+\fBHOST\fR
+diagnose this one Host: inventory, ssh config, vault, DNS, port, host key, login (one connection)
+.TP
+\fB\-\-only LIST\fR
+only these hosts, groups, types or products (comma\-separated)
+.SS hosts
+.PP
+\fBroster hosts [\-\-only LIST] [\-\-find TEXT] [\-\-all] [\-\-long]\fR
+.PP
+The hosts and resources you can use: name, IP, user, logins (\fBssh (key), web (admin), api\fR, \fBwifi\fR) and title. Unreviewed scanned hosts are hidden unless you pass \fB\-\-all\fR, \fB\-\-find\fR or \fB\-\-only\fR\&. \fB\-\-long\fR shows the full table (type, product, web URL, scan description)
+.TP
+\fB\-\-only LIST\fR
+only these hosts, groups, types or products (comma\-separated)
+.TP
+\fB\-\-find TEXT\fR
+search name, title, description, type, product, group, ip
+.TP
+\fB\-\-all\fR
+include unreviewed (scanned) hosts
+.TP
+\fB\-\-long\fR
+full table: type, product, web URL, description
+.SS resources
+.PP
+\fBroster resources [\-\-only LIST] [\-\-find TEXT]\fR
+.PP
+List or search Wi\-Fi networks, accounts and secrets that aren't hosts
+.TP
+\fB\-\-only LIST\fR
+resource names, types or groups
+.TP
+\fB\-\-find TEXT\fR
+search every field
+.SS reveal
+.PP
+\fBroster reveal [\-\-wifi] name\fR
+.PP
+Print a resource's secret for a person to use (\fB\-\-wifi\fR: a QR\-ready \fBWIFI:\fR string)
+.TP
+\fBNAME\fR
+the resource
+.TP
+\fB\-\-wifi\fR
+print a WIFI:... string for a QR code instead
+.SS info
+.PP
+\fBroster info NAME [NAME ...]\fR
+.PP
+Everything about one host or resource; fuzzy names work (\fBroster info core switch\fR)
+.TP
+\fBNAME\fR
+a host or resource; fuzzy words work
+.SS run
+.PP
+\fBroster run [\-\-sudo] host ...\fR
+.PP
+Run a command; password\-only hosts get their password from the provider. \fB\-\-sudo\fR runs it as root, handing sudo the login's password (never shown)
+.TP
+\fB\-\-sudo\fR
+run it as root with sudo; roster gives sudo the login's password (never shown)
+.TP
+\fBHOST\fR
+the host to run it on
+.TP
+\fBCOMMAND\fR
+the command, after \-\-
+.SS discover
+.PP
+\fBroster discover [\-\-write] [\-\-group NAME] [\-\-ports PORTS] [\-\-top\-ports N] [\-\-no\-ping] [\-\-os] [\-\-builtin] [\-\-timeout SECONDS] [\-\-force] CIDR [CIDR ...]\fR
+.PP
+Scan networks; \fB\-\-write\fR adds the results to \fBroster.yml\fR
+.TP
+\fBCIDR\fR
+e.g. 10.0.1.0/24 (several allowed)
+.TP
+\fB\-\-write\fR
+add new hosts to roster.yml (default: preview only)
+.TP
+\fB\-\-group NAME\fR
+group name for new hosts (default: discovered\-YYYYMMDD)
+.TP
+\fB\-\-ports PORTS\fR
+TCP ports to scan (default: common server, web, database, remote\-admin and network\-gear ports)
+.TP
+\fB\-\-top\-ports N\fR
+nmap only: scan nmap's N most common ports instead
+.TP
+\fB\-\-no\-ping\fR
+nmap only: scan hosts that don't answer ping (slower)
+.TP
+\fB\-\-os\fR
+nmap only: OS detection (needs sudo)
+.TP
+\fB\-\-builtin\fR
+use the built\-in scanner even if nmap is installed
+.TP
+\fB\-\-timeout SECONDS\fR
+built\-in scanner connect timeout (default: 0.5)
+.TP
+\fB\-\-force\fR
+allow scanning more than 4096 addresses
+.SS bw
+.PP
+\fBroster bw ...\fR
+.PP
+The Bitwarden CLI with this box's vault session from \fB~/.config/roster/bw\-session\fR (never prompts), e.g. \fBroster bw list items \-\-search proxmox\fR
+.TP
+\fBBW_ARGS\fR
+arguments for bw
+.SS providers
+.PP
+\fBroster providers\fR
+.PP
+Available providers, whether their tools are installed, unknown ones in use
+.SS auth\-check
+.PP
+\fBroster auth\-check [\-\-only LIST]\fR
+.PP
+Test every password source in use (SSH, services and resources) without printing anything secret
+.TP
+\fB\-\-only LIST\fR
+only these hosts, groups, types or products (comma\-separated)
+.SS web
+.PP
+\fBroster web [\-d BODY] [\-H HEADER] [\-k] [\-\-timeout SECONDS] HOST [SERVICE] METHOD PATH [HOST [SERVICE] METHOD PATH ...]\fR
+.PP
+HTTP request to a host's web service, logged in with its stored credentials (\fB\-d BODY\fR, \fB\-H 'Name: value'\fR, \fB\-k\fR)
+.TP
+\fBHOST [SERVICE] METHOD PATH\fR
+e.g. esxi GET /folder  or  orion3 https GET /api/status
+.TP
+\fB\-d, \-\-data BODY\fR
+request body (@FILE reads a file)
+.TP
+\fB\-H, \-\-header HEADER\fR
+extra header 'Name: value' (repeatable)
+.TP
+\fB\-k, \-\-insecure\fR
+don't verify the TLS certificate
+.TP
+\fB\-\-timeout SECONDS\fR
+how long to wait for the answer (default: 30)
+.SS revoke
+.PP
+\fBroster revoke [\-\-only LIST] [\-y]\fR
+.PP
+Remove this box's key from every host
+.TP
+\fB\-\-only LIST\fR
+only these hosts, groups, types or products (comma\-separated)
+.TP
+\fB\-y, \-\-yes\fR
+don't ask first
+.SS serve
+.PP
+\fBroster serve\fR
+.PP
+The JSON\-RPC API the desktop app talks to, on stdin/stdout (see \fBroster serve\fR API)
+.SS askpass
+.PP
+\fBroster askpass [prompt]\fR
+.PP
+The \fBSSH_ASKPASS\fR helper for a \fBserve\fR password Session. ssh runs it, not you
+.TP
+\fBPROMPT\fR
+the prompt ssh shows
+.SS man
+.PP
+\fBroster man [\-\-install] [\-\-prefix DIR]\fR
+.PP
+Show the \fBroster(1)\fR man page. \fB\-\-install\fR copies it to \fBPREFIX/share/man/man1/roster.1\fR, next to \fBPREFIX/bin/roster\fR (\fB~/.local\fR after \fBuv tool install\fR), where \fBman roster\fR finds it. \fBinstall.sh\fR does this for you
+.TP
+\fB\-\-install\fR
+copy it to PREFIX/share/man/man1/, next to PREFIX/bin/roster (~/.local for uv tool install)
+.TP
+\fB\-\-prefix DIR\fR
+with \-\-install: install into DIR/share/man/man1/ instead
+.SH FILES
+.TP
+\fB\&./roster.yml\fR
+The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: \fB\-c PATH\fR, \fB$ROSTER_CONFIG\fR, \fB\&./roster.yml\fR, \fB~/.config/roster/roster.yml\fR
+.TP
+\fB~/.config/roster/\fR
+This box's roster folder: \fBroster.yml\fR if you keep it here, \fBproviders/\fR for provider plugins, \fBbw\-session\fR
+.TP
+\fB~/.config/roster/bw\-session\fR
+A saved Bitwarden session (\fBbw unlock \-\-raw\fR), used only if only you can read it
+.TP
+\fB~/.ssh/roster_ed25519\fR
+This box's SSH key (\fBkey_path:\fR in \fBroster.yml\fR moves it), made by \fBroster setup\fR
+.TP
+\fB~/.ssh/roster_known_hosts\fR
+Host keys recorded on first contact
+.TP
+\fB~/.ssh/config.d/roster\fR
+The SSH config entries \fBroster setup\fR and \fBroster sync\fR write
+.TP
+\fBROSTER.md\fR, \fBCLAUDE.md\fR, \fB\&.claude/settings.json\fR
+What Claude reads, written next to \fBroster.yml\fR by \fBsetup\fR and \fBsync\fR
+.TP
+\fB$XDG_RUNTIME_DIR/roster/\fR
+Short\-lived private state: kept web logins and the askpass socket
+.SH ENVIRONMENT
+.TP
+\fBROSTER_CONFIG\fR
+The \fBroster.yml\fR to use when \fB\-c\fR isn't given
+.TP
+\fBBW_SESSION\fR, \fBBW_PASSWORD\fR
+An unlocked Bitwarden session, or the master password to unlock with
+.TP
+\fBBW_CLIENTID\fR, \fBBW_CLIENTSECRET\fR
+A Bitwarden API key, for headless boxes
+.TP
+\fBOP_SERVICE_ACCOUNT_TOKEN\fR
+A 1Password service account, for headless boxes
+.TP
+\fBXDG_RUNTIME_DIR\fR
+Where roster keeps its short\-lived private state
+.SH EXIT STATUS
+.TP
+\fB0\fR
+Success
+.TP
+\fB1\fR
+An error (roster prints it on stderr, starting \fBerror:\fR), a check that failed, or a web request answered with HTTP 400 or above
+.TP
+\fB2\fR
+Wrong arguments
+.TP
+\fB130\fR
+Interrupted with Ctrl+C
+.PP
+\fBroster run\fR exits with the remote command's status, and \fBroster bw\fR with \fBbw\fR\&'s.
+.SH EXAMPLES
+.PP
+.nf
+.RS 4
+roster init                              # write a commented roster.yml to start from
+roster setup \-\-dry\-run                   # which hosts would get this box's key
+roster hosts \-\-find esx                  # search names, titles, types, addresses
+roster info esx\-02                       # everything about one host
+roster check esx\-02                      # why a Session to esx\-02 would or wouldn't open
+roster run esx\-02 \-\- uptime              # run a command with the stored login
+roster web esx\-02 GET /api/status        # an HTTP request, logged in
+roster discover 10.0.5.0/24              # scan a network, preview only
+roster reveal lab\-guest \-\-wifi | qrencode \-t ansiutf8
+.RE
+.fi
+.SH SEE ALSO
+.PP
+\fBssh\fR(1), \fBssh_config\fR(5), \fBnmap\fR(1), \fBbw\fR(1)
+.PP
+The full reference, with the roster.yml format and the security model: docs/cli\-reference.md in roster's source, https://github.com/2styx2/roster

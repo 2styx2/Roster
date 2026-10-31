@@ -27,7 +27,9 @@ You need three things:
 git clone git@github.com:2styx2/roster.git
 cd roster
 uv tool install .          # puts `roster` in ~/.local/bin
+roster man --install       # puts its man page in ~/.local/share/man/man1, next to it
 roster --help              # if not found: export PATH="$HOME/.local/bin:$PATH"
+man roster                 # the manual
 ```
 
 No git access on that box? Use `git archive --format=zip -o roster.zip HEAD` on a box that has it, copy the zip over, unzip it, and run `uv tool install .` inside.

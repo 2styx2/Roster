@@ -243,10 +243,13 @@ Let your security team know before scanning big ranges.
 | `revoke` | Remove this box's key from every host |
 | `serve` | The JSON-RPC API the desktop app talks to, on stdin/stdout (see [`roster serve` API](serve-api.md)) |
 | `askpass PROMPT` | The `SSH_ASKPASS` helper for a `serve` password Session. ssh runs it, not you |
+| `man [--install [--prefix DIR]]` | Show the `roster(1)` man page. `--install` copies it to `PREFIX/share/man/man1/roster.1`, next to `PREFIX/bin/roster` (`~/.local` after `uv tool install`), where `man roster` finds it. `install.sh` does this for you |
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
 
 Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then `~/.config/roster/roster.yml`.
+
+The man page (`man roster`) is generated from this section, the next four and roster's own argument parser, so it never drifts from them: after changing either, run `uv run python -m roster.manpage` and commit `src/roster/roster.1`. A test fails until you do.
 
 ### `roster check HOST`
 
@@ -273,6 +276,54 @@ FAIL vault-item  [33] 2 vault items are named 'esx ssh' (ssh Login of esx): 'esx
                  fix: delete or rename the extra items in the vault, or use the item's id in auth:
 skip dns         an earlier step failed
 ...
+```
+
+## Files
+
+| File | What it is |
+|---|---|
+| `./roster.yml` | The Inventory: hosts, groups, resources and vault references, never passwords. roster looks for it in this order: `-c PATH`, `$ROSTER_CONFIG`, `./roster.yml`, `~/.config/roster/roster.yml` |
+| `~/.config/roster/` | This box's roster folder: `roster.yml` if you keep it here, `providers/` for provider plugins, `bw-session` |
+| `~/.config/roster/bw-session` | A saved Bitwarden session (`bw unlock --raw`), used only if only you can read it |
+| `~/.ssh/roster_ed25519` | This box's SSH key (`key_path:` in `roster.yml` moves it), made by `roster setup` |
+| `~/.ssh/roster_known_hosts` | Host keys recorded on first contact |
+| `~/.ssh/config.d/roster` | The SSH config entries `roster setup` and `roster sync` write |
+| `ROSTER.md`, `CLAUDE.md`, `.claude/settings.json` | What Claude reads, written next to `roster.yml` by `setup` and `sync` |
+| `$XDG_RUNTIME_DIR/roster/` | Short-lived private state: kept web logins and the askpass socket |
+
+## Environment
+
+| Variable | What it does |
+|---|---|
+| `ROSTER_CONFIG` | The `roster.yml` to use when `-c` isn't given |
+| `BW_SESSION`, `BW_PASSWORD` | An unlocked Bitwarden session, or the master password to unlock with |
+| `BW_CLIENTID`, `BW_CLIENTSECRET` | A Bitwarden API key, for headless boxes |
+| `OP_SERVICE_ACCOUNT_TOKEN` | A 1Password service account, for headless boxes |
+| `XDG_RUNTIME_DIR` | Where roster keeps its short-lived private state |
+
+## Exit status
+
+| Status | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | An error (roster prints it on stderr, starting `error:`), a check that failed, or a web request answered with HTTP 400 or above |
+| `2` | Wrong arguments |
+| `130` | Interrupted with Ctrl+C |
+
+`roster run` exits with the remote command's status, and `roster bw` with `bw`'s.
+
+## Examples
+
+```
+roster init                              # write a commented roster.yml to start from
+roster setup --dry-run                   # which hosts would get this box's key
+roster hosts --find esx                  # search names, titles, types, addresses
+roster info esx-02                       # everything about one host
+roster check esx-02                      # why a Session to esx-02 would or wouldn't open
+roster run esx-02 -- uptime              # run a command with the stored login
+roster web esx-02 GET /api/status        # an HTTP request, logged in
+roster discover 10.0.5.0/24              # scan a network, preview only
+roster reveal lab-guest --wifi | qrencode -t ansiutf8
 ```
 
 ## How Claude uses it

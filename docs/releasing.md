@@ -17,7 +17,8 @@ A Release is one version of the whole repo: the CLI and the app ship together, w
 | `roster-app-X.Y.Z-macos-universal.dmg` | macOS, Apple silicon and Intel in one app, ad-hoc signed |
 | `roster-app-X.Y.Z-macos.tar.gz` | `Roster.app` and `LICENSE` |
 | `roster-X.Y.Z-py3-none-any.whl`, `roster-X.Y.Z.tar.gz` | The CLI's wheel and sdist (`uv build`) |
-| `roster-cli-X.Y.Z.tar.gz` | The CLI's source with `install.sh` and `LICENSE`, for a box without git: unpack, `./install.sh` |
+| `roster-cli-X.Y.Z.tar.gz` | The CLI's source with `install.sh` and `LICENSE`, for a box without git: unpack, `./install.sh`. It has the man page at `share/man/man1/roster.1` too, laid out like a prefix |
+| `roster.1` | The `roster(1)` man page on its own, for packagers (the wheel also installs it to `PREFIX/share/man/man1/`) |
 | `SHA256SUMS` | The SHA-256 of every file above |
 
 The Release notes start with a short install note and then list the pull requests merged since the last Release (GitHub's generated notes).
@@ -56,7 +57,7 @@ CI runs `--check` on every pull request, and the release workflow checks the tag
 
 4. **Wait for the draft.** The Release workflow takes about 12 minutes (the three app builds run side by side; macOS is the slowest). When it's done there's a draft Release named `roster v0.2.0` with every file above. Nobody else can see a draft.
 
-5. **Check it.** Read the notes and cut what doesn't belong. Download the installer for your own platform, check it against `SHA256SUMS` (`sha256sum -c SHA256SUMS --ignore-missing`), install it, and open a Session. `uv tool install ./roster-0.2.0-py3-none-any.whl && roster --version` should print 0.2.0.
+5. **Check it.** Read the notes and cut what doesn't belong. Download the installer for your own platform, check it against `SHA256SUMS` (`sha256sum -c SHA256SUMS --ignore-missing`), install it, and open a Session. `uv tool install ./roster-0.2.0-py3-none-any.whl && roster --version` should print 0.2.0, and after `roster man --install`, `man roster` shows the page.
 
 6. **Publish** the draft. The tag already exists, so publishing only makes it visible.
 
