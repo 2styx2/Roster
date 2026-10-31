@@ -23,6 +23,9 @@ export function tauriPlatform(): Platform {
     window: tauriWindow(),
     setFullscreen: (on) => getCurrentWindow().setFullscreen(on),
     fontInstalled: canvasProbe(),
+    // roster-core browser.rs checks it again (http or https, no user or password) and hands it
+    // to the OS's default browser.
+    openUrl: (url) => invoke("open_url", { url }),
     // roster-core config.rs: read at start, then a `config-changed` event after every save.
     config: {
       load: () => invoke<ConfigReport | null>("config_load"),

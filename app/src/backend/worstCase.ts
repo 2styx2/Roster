@@ -5,7 +5,7 @@
 // it seeds, like any other fixture; the UI tests render the same data (App.worst.test.tsx).
 //
 // Spread the failures across the first rows: that's what's on screen.
-import { CHECK_STEPS, SessionRefusal, type Group, type Host, type HostCheck, type HostList } from "./types";
+import { CHECK_STEPS, SessionRefusal, type Group, type Host, type HostCheck, type HostList, type Service } from "./types";
 
 /** The name the ticket names: a `roster discover` result nobody has renamed yet. */
 export const LONG_NAME = "server-10-19-77-202-very-long-discovered-name";
@@ -42,10 +42,48 @@ const base = (name: string, over: Partial<Host> = {}): Host => ({
   ...over,
 });
 
+const web = (url: string | null, port: number, own?: { user: string; auth: string }): Service => ({
+  port,
+  url,
+  scheme: url ? (url.startsWith("https") ? "https" : "http") : null,
+  user: own?.user ?? "administrator",
+  auth: own?.auth ?? "bw:server-10-19-77-203 ssh",
+  verify: true,
+  login: "basic",
+  override: own !== undefined,
+});
+
+/** Host details at its worst (ticket 18): 40 services, long names, a long URL with a path and a
+ * query, Logins of their own with long vault item names, services with no URL, and one URL that
+ * carries a password (never opened). */
+export const WORST_SERVICES: Record<string, Service> = {
+  web: web("https://10.19.77.203", 443),
+  "integrated-lights-out-management-console-for-the-rack-b-u42-chassis": web(
+    "https://10.19.77.203:8443/ui/management/console/index.html?view=summary&tab=hardware-health-and-sensors",
+    8443,
+    { user: "ilo-administrator-account-with-a-long-name", auth: "bw:server-10-19-77-203 integrated lights out management console" },
+  ),
+  "with-a-password-in-the-url": web("https://admin:not-a-real-secret@10.19.77.203:9443", 9443),
+  postgres: web(null, 5432),
+  ...Object.fromEntries(Array.from({ length: 36 }, (_, i) => [`svc-${String(i + 1).padStart(2, "0")}`, web(i % 3 === 2 ? null : `http://10.19.77.203:${8000 + i}`, 8000 + i)])),
+};
+
 /** The odd ones, first in the tree, the Picker and the Sessions. */
 export const oddHosts: Host[] = [
   base(LONG_NAME, { ip: "10.19.77.202", reviewed: false, enroll: false, ssh: { user: "admin", port: 22, auth: "bw:server-10-19-77-202 ssh" } }),
-  base(LONG_NAME_OPEN, { ip: "10.19.77.203", enroll: false, ssh: { user: "administrator", port: 2222, auth: "bw:server-10-19-77-203 ssh" } }),
+  base(LONG_NAME_OPEN, {
+    ip: "10.19.77.203",
+    enroll: false,
+    ssh: { user: "administrator", port: 2222, auth: "bw:server-10-19-77-203 ssh" },
+    title: "The long-named server in rack B, unit 42, that everyone reaches from the jump box first",
+    description:
+      "Discovered by a scan and never renamed: it runs the lab's build agents, the nightly backups and a database nobody remembers creating. Ask before rebooting it.",
+    product: "BRAVO",
+    mac: "00:1a:2b:3c:4d:5e",
+    login: { user: "administrator", auth: "bw:server-10-19-77-203 ssh" },
+    services: WORST_SERVICES,
+    web: "https://10.19.77.203",
+  }),
   base("x", { ip: "10.0.0.1", type: "router" }),
   base("🦊-fox-lab", { ip: "10.19.77.31", type: "proxmox", product: "BRAVO" }),
   base("خادم-الإنتاج-٠١", { ip: "10.19.77.32", type: "windows" }),

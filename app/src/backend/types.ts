@@ -20,6 +20,26 @@ export interface Host {
   /** Service entries roster left out of the Host because it can't use them (a bad port, url or
    * `login:` type in roster.yml); the rest of the Host loads. Absent from rosters before it. */
   problems?: ServiceProblem[];
+  /** The Host's services by name (Host details, ticket 18). roster has always sent them; older
+   * fixtures leave them out. */
+  services?: Record<string, Service>;
+  /** The Host's default Login for its services (`login:` in roster.yml). */
+  login?: { user: string | null; auth: string | null };
+  mac?: string | null;
+}
+
+/** One of a Host's services, as roster resolves it. `auth` is a vault reference such as
+ * `bw:esx-02 web` (the Vault item's name), never a secret. `url` is set for http and https ones. */
+export interface Service {
+  port: number;
+  url: string | null;
+  scheme: string | null;
+  user: string | null;
+  auth: string | null;
+  verify: boolean;
+  login: string;
+  /** The service has a Login of its own; false: it uses the Host's default. */
+  override: boolean;
 }
 
 /** One service entry roster left out: `message` names the service, `fix` says what to change. */

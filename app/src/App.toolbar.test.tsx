@@ -43,10 +43,10 @@ function withToolbar(toolbar: Config["modes"]["standard"]["toolbar"]): Config {
 }
 
 describe("the toolbar", () => {
-  it("shows Find, Add Host and Changes in the title bar by default; Add Host opens the form", async () => {
+  it("shows Find, Add Host, Changes and Host details in the title bar by default; Add Host opens the form", async () => {
     const user = await ready();
     expect(within(screen.getByRole("banner")).getByRole("toolbar", { name: "Commands" })).toBeInTheDocument();
-    expect(names()).toEqual(["Find a Host", "Add a Host", "Pending changes"]);
+    expect(names()).toEqual(["Find a Host", "Add a Host", "Pending changes", "Show Host details"]);
     await user.click(within(toolbar()).getByRole("button", { name: "Add a Host" }));
     expect(await screen.findByRole("region", { name: "Add a Host" })).toBeInTheDocument();
   });

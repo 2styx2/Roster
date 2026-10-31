@@ -102,6 +102,13 @@ async fn config_load(config: tauri::State<'_, ConfigState>) -> Result<Option<Rep
     blocking(move || Ok(loader.settled_report())).await
 }
 
+/// A Host's web service in the default browser (ticket 18): only an http or https URL with no user
+/// or password in it (roster-core browser.rs checks it again; the frontend checked it first).
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    blocking(move || roster_core::browser::open_url(&url)).await
+}
+
 /// What `:config` did: the file's path, and whether it was just made (ticket 32).
 #[derive(serde::Serialize)]
 struct ConfigOpened {
@@ -754,6 +761,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             backend_connect,
+            open_url,
             hosts_list,
             host_get,
             host_check,

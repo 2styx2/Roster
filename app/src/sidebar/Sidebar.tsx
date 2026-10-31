@@ -25,7 +25,7 @@ export type { Dot } from "../ui/StateDot";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview";
+  icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview" | "info";
   command: CommandLine;
   /** Always shown, not only on hover or on the raised row (the Inventory's "Add a Host"). */
   pinned?: boolean;
@@ -218,6 +218,8 @@ const ICONS: Record<RowAction["icon"], string> = {
   review: "M3.5 8.5l3 3 6-7",
   // Take a review back: an arrow turning back over the line (undo).
   unreview: "M5.5 3.5L2.5 6.5l3 3M2.5 6.5h7a3.5 3.5 0 010 7H7",
+  // An i in a ring: the Host's details (ticket 18).
+  info: "M8 2.25a5.75 5.75 0 110 11.5 5.75 5.75 0 010-11.5zM8 7.25v3.5M8 5.25v.01",
 };
 
 const Icon = ({ name }: { name: RowAction["icon"] }) => (
