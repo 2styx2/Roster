@@ -6,7 +6,7 @@
 // Esc cancels the completion, back to what was typed, and a second Esc closes. The keys are the
 // keymap's `cmdline` context, so init.lua can rebind them. Each command candidate says what it
 // does and its key (ticket 29 S8), so the command line is also where commands are discovered.
-import { useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { chordOf, defaultKeymap, type CmdlineAction, type KeyTable } from "../keymap";
 import { prefixFill } from "../ui/completion";
 import { formatCount } from "../ui/format";
@@ -24,6 +24,8 @@ const SHOWN = 8;
 export interface CommandLineProps {
   /** Typed in already (a command asking for the rest, like `folder add esxi-02 `). */
   initial?: string;
+  /** Where the cursor starts in `initial` (the end by default): back from help, where it was. */
+  caret?: number;
   complete(input: string): string[];
   /** A command candidate's label and keys; null for an argument (a Host name). */
   describe?(candidate: string): Candidate | null;
@@ -33,6 +35,9 @@ export interface CommandLineProps {
   leader?: string;
   onRun(line: string): void;
   onClose(): void;
+  /** `cmdline.help` (Ctrl+], F1): help on the line's command, with the line and the cursor to
+   * come back to. */
+  onHelp?(line: string, caret: number): void;
 }
 
 /** While cycling: the candidates for what was typed, which one is in the line, and the typed text
@@ -43,8 +48,14 @@ interface Cycle {
   typed: string;
 }
 
-export function CommandLine({ initial = "", complete, describe, keys = defaultKeymap.cmdline, leader, onRun, onClose }: CommandLineProps) {
+export function CommandLine({ initial = "", caret, complete, describe, keys = defaultKeymap.cmdline, leader, onRun, onClose, onHelp }: CommandLineProps) {
   const [value, setValue] = useState(initial);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (caret !== undefined) inputRef.current?.setSelectionRange(caret, caret);
+    // Only where the line starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [cycle, setCycle] = useState<Cycle | null>(null);
   const listId = useId();
   const candidates = useMemo(() => cycle?.candidates ?? complete(value), [cycle, complete, value]);
@@ -91,6 +102,8 @@ export function CommandLine({ initial = "", complete, describe, keys = defaultKe
       case "cmdline.cancel":
         if (cycle) return accept(cycle.typed);
         return onClose();
+      case "cmdline.help":
+        return onHelp?.(value, e.currentTarget.selectionStart ?? value.length);
     }
   }
 
@@ -144,6 +157,7 @@ export function CommandLine({ initial = "", complete, describe, keys = defaultKe
       <div className="cmdline-input">
         <span aria-hidden="true">:</span>
         <input
+          ref={inputRef}
           role="combobox"
           aria-label="Command"
           aria-expanded={candidates.length > 0}

@@ -20,11 +20,12 @@ export type PickerAction =
   | "picker.chooseHere"
   | "picker.review"
   | "picker.info"
+  | "picker.help"
   | "picker.close";
 
 /** The command line's own keys (ticket 34): cycle through the completions, accept one, run the
- * line, cancel. */
-export type CmdlineAction = "cmdline.next" | "cmdline.prev" | "cmdline.accept" | "cmdline.run" | "cmdline.cancel";
+ * line, cancel; and help on the command being typed (ticket 52). */
+export type CmdlineAction = "cmdline.next" | "cmdline.prev" | "cmdline.accept" | "cmdline.run" | "cmdline.cancel" | "cmdline.help";
 
 /** Anything a key can be bound to: a command line, or a Picker or terminal action. */
 export type Action = string;
@@ -120,6 +121,8 @@ export const defaultBindings: KeymapTables = {
     E: "edit",
     // Host details for the selected Host (ticket 18).
     i: "details",
+    // Help on what's selected (ticket 52): Neovim's K, which ␣ K (Key bindings) can't be here.
+    F1: "lookup",
     "+": "host add",
     // The Live Inventory (ticket 28): on the Host or group under the cursor, or the Session's Host.
     n: "host add",
@@ -155,6 +158,7 @@ export const defaultBindings: KeymapTables = {
     Enter: "picker.choose",
     "Ctrl+r": "picker.review",
     "Ctrl+i": "picker.info",
+    F1: "picker.help",
     Escape: "picker.close",
     ...terminalKeys.picker,
   },
@@ -167,6 +171,9 @@ export const defaultBindings: KeymapTables = {
     "Ctrl+y": "cmdline.accept",
     Enter: "cmdline.run",
     Escape: "cmdline.cancel",
+    // Help on the command being typed (ticket 52), as Ctrl+] follows a tag in Neovim.
+    "Ctrl+]": "cmdline.help",
+    F1: "cmdline.help",
   },
   terminal: terminalKeys.terminal,
   global: { F11: "focus" },

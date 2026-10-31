@@ -71,7 +71,10 @@ import { shownControls, Toolbar, type ToolbarContext } from "./chrome/toolbar";
 import { BindingsPanel } from "./keyboard/BindingsPanel";
 import { HelpView, registerHelp } from "./help/command";
 import { HelpPanel } from "./help/HelpPanel";
-import { helpContext } from "./help/pages";
+import { NEWS_KEY, newsNote } from "./news/news";
+import { version as APP_VERSION } from "../package.json";
+import { itemTopic, lineTopic, optionTopic } from "./help/lookup";
+import { helpContext, topics } from "./help/pages";
 import { defaultConfig } from "./config/fixture";
 import { bindingRows } from "./keyboard/bindings";
 import { press, terminalMode, type KeyState } from "./keyboard/mode";
@@ -131,7 +134,7 @@ type Conn =
   | { state: "ready"; info: BackendInfo; hosts: HostList };
 
 /** An overlay with its own input, which takes the keys while it's open. */
-type Overlay = "picker" | "quick" | { cmdline: string } | { finder: string; query?: string } | null;
+type Overlay = "picker" | "quick" | { cmdline: string; caret?: number } | { finder: string; query?: string } | null;
 
 /** How long the hint on entering a mode stays. */
 const HINT_MS = 2000;
@@ -177,6 +180,9 @@ export interface AppProps {
   /** Hosts to open Sessions to once the Backend is up, in order (a fixture's open Sessions: the
    * dev page's `?fixture=worst-case`, and the UI tests), once the app is first unlocked. */
   openAtStart?: readonly string[];
+  /** This build's version (package.json's), for what's new after an upgrade (ticket 47); tests
+   * pass their own. */
+  appVersion?: string;
   /** The Config as the app starts (ticket 21): it replaces `options`, `appearance`,
    * `terminalOptions` and `layouts`, and its keys, Themes and Folders go into the registries.
    * Later saves come through `platform.config`. */
@@ -195,6 +201,7 @@ export function App({
   layouts: layoutsProp,
   openAtStart,
   config: configProp = null,
+  appVersion = APP_VERSION,
 }: AppProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
@@ -652,9 +659,15 @@ export function App({
 
   // The State file and the Windows build, once. What changed before the file was read (Hosts
   // picked) is replayed over it.
+  // What's new (ticket 47): said once after an upgrade, when the workspace first shows.
+  const [newsLine, setNewsLine] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    void store.load();
+    void store.load().then(() => {
+      const { note, seen } = newsNote(store.snapshot(), appVersion);
+      if (store.get(NEWS_KEY) !== seen) store.set(NEWS_KEY, seen);
+      if (note && live) setNewsLine(note);
+    });
     platform.windowsBuild().then(
       (build) => live && setWindowsBuild(build),
       () => {},
@@ -662,7 +675,7 @@ export function App({
     return () => {
       live = false;
     };
-  }, [platform, store]);
+  }, [platform, store, appVersion]);
 
   // The window's size and place go in the State; the Tauri shell restores them at the next start.
   useEffect(() => platform.window?.watchGeometry((g) => store.set("window", g)), [platform, store]);
@@ -736,6 +749,8 @@ export function App({
     [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health],
   );
   helpView.setContext(() => helpCtx);
+  // `cmdline.help` (ticket 52): the command line to come back to when help closes, as it was.
+  const backToLine = useRef<{ line: string; caret: number } | null>(null);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
   const reportPath = useRef<string | null>(null);
   reportPath.current = report?.path ?? null;
@@ -808,6 +823,12 @@ export function App({
     opened.current = true;
     for (const host of openAtStart) tabs.open(host);
   }, [unlockedOnce, openAtStart, tabs]);
+  useEffect(() => {
+    if (!unlockedOnce || !newsLine) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- saying it once the workspace shows is the effect
+    setMessage(newsLine);
+    setNewsLine(null);
+  }, [unlockedOnce, newsLine]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
@@ -841,6 +862,19 @@ export function App({
     setMode(terminalMode);
     restoreFocus();
   };
+
+  // Help opened from the command line (ticket 52) has closed: the line comes back as it was.
+  useEffect(
+    () =>
+      helpView.subscribe(() => {
+        const back = backToLine.current;
+        if (helpView.snapshot().at || !back) return;
+        backToLine.current = null;
+        // Focus goes back, when the line closes, where it was before the line first opened.
+        setOverlay({ cmdline: back.line, caret: back.caret });
+      }),
+    [helpView],
+  );
 
   const closeEdit = () => {
     setEditing(null);
@@ -1911,7 +1945,15 @@ export function App({
           />
         )}
         {keysOpen && (
-          <BindingsPanel rows={bindingRows(keymap, options, commands)} leader={options.leader} onClose={closeKeys} />
+          <BindingsPanel
+            rows={bindingRows(keymap, options, commands)}
+            leader={options.leader}
+            onClose={closeKeys}
+            onHelp={(option) => {
+              closeKeys();
+              run(`help ${optionTopic(option, new Set(topics(helpCtx).map((t) => t.tag)))}`);
+            }}
+          />
         )}
         {helpAt.at && (
           <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} onOutline={() => run("finder outline")} />
@@ -1942,6 +1984,15 @@ export function App({
           }}
           keys={keymap.cmdline}
           leader={options.leader}
+          {...(overlay.caret !== undefined ? { caret: overlay.caret } : {})}
+          onHelp={(line, caret) => {
+            const topic = lineTopic(commands, line);
+            if (!topic) return setMessage(`No command starts with ${line.trim().split(/\s+/)[0]}: Tab lists them`);
+            closeOverlay();
+            backToLine.current = { line, caret };
+            run(`help ${topic}`);
+            if (!helpView.snapshot().at) backToLine.current = null;
+          }}
           onClose={closeOverlay}
           onRun={(line) => {
             closeOverlay();
@@ -1978,6 +2029,11 @@ export function App({
             closeOverlay();
             run(item.command);
           }}
+          onHelp={(item: FinderItem) => {
+            const topic = itemTopic(commands, finderSource, item);
+            closeOverlay();
+            run(topic ? `help ${topic}` : "help");
+          }}
         />
       )}
       {(overlay === "picker" || overlay === "quick") && !vault.locked && (
@@ -2003,6 +2059,10 @@ export function App({
           onInfo={(host: Host) => {
             closeOverlay();
             run(`info ${host.name}`);
+          }}
+          onHelp={(topic: string) => {
+            closeOverlay();
+            run(`help ${topic}`);
           }}
           {...(canAdd
             ? {

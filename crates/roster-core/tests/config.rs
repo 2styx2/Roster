@@ -1255,3 +1255,36 @@ fn save_to_is_personal_a_collection_or_a_group() {
         assert!(e.message.contains("vault.save_to"), "{name}: {e}");
     }
 }
+
+/// A renamed option (ticket 48) still applies under its new name, and the Config says so, with
+/// its line, so the frontend can warn and link `:help deprecated#…`. The new name wins when the
+/// file sets both.
+#[test]
+fn a_deprecated_option_applies_under_its_new_name_and_is_named() {
+    let renamed = [config::Renamed {
+        old: "terminal.font_size",
+        new: "terminal.size",
+    }];
+    let dir = temp_dir("deprecated-option");
+    let lua = "return {\n  terminal = {\n    font_size = \"15px\",\n  },\n}\n";
+    let c = config::load_source_renaming(&dir, lua, &config::Env::default(), &renamed).unwrap();
+    assert_eq!(c.terminal.size, config::FontSize::Px(15.0));
+    assert_eq!(
+        c.deprecated,
+        [config::DeprecatedUse {
+            old: "terminal.font_size".into(),
+            new: "terminal.size".into(),
+            topic: "deprecated#terminalfont_size".into(),
+        }]
+    );
+    assert_eq!(c.lines.get("terminal.font_size").map(|l| l.line), Some(3));
+    assert!(c.set.contains(&"terminal.size".to_string()));
+
+    let both = "return { terminal = { font_size = \"15px\", size = \"20px\" } }";
+    let c = config::load_source_renaming(&dir, both, &config::Env::default(), &renamed).unwrap();
+    assert_eq!(c.terminal.size, config::FontSize::Px(20.0));
+    assert_eq!(c.deprecated.len(), 1);
+
+    // Without the rename, the old name is just unknown.
+    assert!(config::load_source(&dir, lua, &config::Env::default()).is_err());
+}

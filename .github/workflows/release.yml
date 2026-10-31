@@ -18,6 +18,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - scripts/bump-version.sh
+      - scripts/news_section.py
 
 concurrency:
   group: release-${{ github.ref }}
@@ -47,6 +48,8 @@ jobs:
           else
             v=$(scripts/bump-version.sh --check)
           fi
+          # A tag's Release notes start with its docs/news.md section: fail now, not after the builds.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then python3 -I scripts/news_section.py "$v" > /dev/null; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Version $v" >> "$GITHUB_STEP_SUMMARY"
 
@@ -211,13 +214,24 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docs/news.md
+            scripts/news_section.py
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           name: release-all
           path: out
+      # The notes start with this version's section of docs/news.md (what's new, by area), then how
+      # to install; GitHub's list of merged pull requests follows.
+      - name: What's new
+        run: python3 -I scripts/news_section.py "$VERSION" --repo "$GITHUB_REPOSITORY" > notes.md
       - name: Install notes
         run: |
-          cat > notes.md <<EOF
+          cat >> notes.md <<EOF
+
           ## Install
 
           **The app:** Windows \`roster-app-$VERSION-windows-x64-setup.exe\` (or the \`.msi\`, or the portable \`.zip\`);
