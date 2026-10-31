@@ -12,6 +12,8 @@ import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections
 import { builtinToolbarRegistry, type ToolbarRegistry } from "./chrome/toolbar";
 import type { ThemeRegistry } from "./theme/theme";
 import { builtinThemeRegistry } from "./theme/themes";
+import { Registry } from "./registry";
+import type { BadgeEntry, BadgeRegistry, StatusRegistry, StatusSegmentDef } from "./view/status";
 
 export interface Registries {
   commands: CommandRegistry;
@@ -32,6 +34,10 @@ export interface Registries {
   toolbar: ToolbarRegistry;
   /** `:help`'s pages (ticket 37): generated from the registries above, plus the guides. */
   help: HelpRegistry;
+  /** Status bar segments Plugins add (ticket 23), the built-in Host count among them. */
+  status: StatusRegistry;
+  /** Badges Plugins put on Host rows (ticket 23). */
+  badges: BadgeRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -51,5 +57,7 @@ export function builtinRegistries(): Registries {
     reloaders,
     toolbar: builtinToolbarRegistry(),
     help: builtinHelpRegistry(),
+    status: new Registry<StatusSegmentDef>(),
+    badges: new Registry<BadgeEntry>(),
   };
 }

@@ -31,6 +31,8 @@ export interface SidebarContext {
   /** Adding a Host (ticket 11, API 6): its keys ("␣ +"), or why this roster can't. Left out, the
    * Inventory heading has no "Add a Host" button. */
   addHost?: { keys: string | null; tooOld: string | null };
+  /** Badges Plugins put on Hosts ("2 alerts"), by Host name (ticket 23). */
+  badges?: ReadonlyMap<string, string>;
 }
 
 export interface SidebarSectionDef extends Entry {
@@ -220,7 +222,7 @@ export const inventorySection: SidebarSectionDef = {
   id: "inventory",
   source: BUILTIN,
   order: 300,
-  build: ({ hosts, hostByName, live, addHost }) => ({
+  build: ({ hosts, hostByName, live, addHost, badges }) => ({
     id: "inventory",
     title: "Inventory",
     count: hosts.hosts.length,
@@ -273,7 +275,10 @@ export const inventorySection: SidebarSectionDef = {
             : {}),
         },
         ...members.map((h): SidebarRow => {
-          const row = hostRow(h, `inventory:${h.name}`, 1);
+          const plain = hostRow(h, `inventory:${h.name}`, 1);
+          // A Plugin's badge, unless the row has roster's own ("unreviewed").
+          const badge = badges?.get(h.name);
+          const row = badge && !plain.badge ? { ...plain, badge } : plain;
           if (!live) return row;
           return {
             ...row,

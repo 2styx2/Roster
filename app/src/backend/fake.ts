@@ -59,6 +59,7 @@ import {
   type SignedOut,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
+import { fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
   HOST_KEY_CHANGED_OUTPUT,
@@ -155,6 +156,8 @@ export interface FakeScenario {
   /** Every Session's shell prints a busy log at this many lines a second once it has logged in, like
    * app/scripts/perf/serve.py's: the perf fixture (docs/app/performance.md). */
   stream?: number;
+  /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
+  plugins?: Record<string, FakePlugin>;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -1659,6 +1662,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts),
     watching: () => watchAuto,
     vaultSettings: () => settings,
     adds: () => added,

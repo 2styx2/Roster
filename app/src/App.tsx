@@ -89,6 +89,10 @@ import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
+import { pluginsCommand } from "./plugins/command";
+import { PluginManager } from "./plugins/manager";
+import { PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
+import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
 import { fontInUse } from "./terminal/fonts";
@@ -349,6 +353,46 @@ export function App({
   const [windowsBuild, setWindowsBuild] = useState<number | null>(null);
   const [tabs] = useState(() => new Tabs(backend));
   const sessions = useSyncExternalStore(tabs.subscribe, tabs.snapshot);
+  // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
+  // and their UI goes into the registries with their name as its source.
+  const runRef = useRef<(line: string) => void>(() => {});
+  const [plugins] = useState(
+    () => new PluginManager(backend, registries, store, { run: (line) => runRef.current(line), send: (id, text) => tabs.write(id, text) }),
+  );
+  const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
+  const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
+  const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const openPlugins = useRef(() => {});
+  useEffect(() => registries.commands.register(pluginsCommand(plugins, () => openPlugins.current())), [registries, plugins]);
+  useEffect(() => {
+    tabs.setOutputTap((id, host, data) => plugins.output(id, host, data));
+    return () => tabs.setOutputTap(null);
+  }, [tabs, plugins]);
+  // Sessions opening and ending, and the Session on screen, as Plugin events.
+  const seenTabs = useRef(new Map<number, "live" | "ended">());
+  useEffect(() => {
+    const before = seenTabs.current;
+    const now = new Map<number, "live" | "ended">();
+    for (const t of sessions.tabs) {
+      const ended = t.status.state === "ended" || t.status.state === "failed";
+      now.set(t.id, ended ? "ended" : "live");
+      if (!ended && before.get(t.id) !== "live") void plugins.event("session_open", { session: t.id, host: t.host });
+      if (ended && before.get(t.id) === "live") {
+        const code = t.status.state === "ended" ? t.status.exit.code : null;
+        void plugins.event("session_exit", { session: t.id, host: t.host, code });
+      }
+    }
+    for (const [id, was] of before) {
+      if (!now.has(id) && was === "live") void plugins.event("session_exit", { session: id, host: null, code: null });
+    }
+    seenTabs.current = now;
+  }, [sessions.tabs, plugins]);
+  const onScreenHost = sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
+  useEffect(() => {
+    if (onScreenHost) void plugins.event("host_selected", { host: onScreenHost });
+  }, [onScreenHost, plugins]);
   const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
@@ -397,6 +441,13 @@ export function App({
   const quickConnects = conn.state === "ready" && conn.info.inventory.api_version >= QUICK_CONNECT_API_VERSION;
   useEffect(() => tabs.setAsksAboutKeys(asksAboutKeys), [tabs, asksAboutKeys]);
   const vaultUnlocked = vault.view.state === "unlocked";
+  const backendReady = conn.state === "ready";
+  useEffect(() => {
+    if (backendReady) void plugins.start();
+  }, [backendReady, plugins]);
+  useEffect(() => {
+    void plugins.event(vault.locked ? "lock" : "unlock");
+  }, [vault.locked, plugins]);
   useEffect(() => {
     if (vaultUnlocked) tabs.resumeAfterUnlock();
   }, [vaultUnlocked, tabs]);
@@ -451,9 +502,10 @@ export function App({
             folded,
             ...(live ? { live } : {}),
             addHost,
+            badges: hostBadges,
           })
         : [],
-    [buildSections, shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost],
+    [buildSections, shownSectionDefs, sessions, hosts, hostByName, options.sessions, appState, folded, live, addHost, hostBadges],
   );
   const rows = useMemo(() => allRows(sections), [sections]);
   const sidebarAt = layout.pieces.find((p) => p.id === "sidebar")?.at;
@@ -948,7 +1000,9 @@ export function App({
     },
     // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
+      if (pluginSnap.float) return plugins.closeFloat();
       if (helpAt.at) return helpView.close();
+      if (pluginsOpen) return closePlugins();
       if (keysOpen) return closeKeys();
       if (signingOut) return closeSignOut();
       if (confirming) return closeConfirm();
@@ -1218,6 +1272,15 @@ export function App({
     setMessage("");
     runLine(commands, ctx, line);
   }
+  runRef.current = run;
+  openPlugins.current = () => {
+    rememberFocus();
+    setPluginsOpen(true);
+  };
+  const closePlugins = () => {
+    setPluginsOpen(false);
+    restoreFocus();
+  };
 
   const staysInAppMode = (line: Line) => commands.get(line.split(" ")[0] ?? "")?.staysInAppMode ?? false;
 
@@ -1311,6 +1374,7 @@ export function App({
         )}
         <div className="window-body">{content}</div>
         {toast}
+        <PluginNotices notices={pluginSnap.notices} onClose={(id) => plugins.dismissNotice(id)} />
       </div>
     </HintsShown>
   );
@@ -1376,12 +1440,6 @@ export function App({
             <span className="statusbar-cut">{info.inventory.box}</span>
           </span>
         );
-      case "hosts":
-        return (
-          <span key={id} className="count">
-            {countOf(conn.hosts.hosts.length, "Host")}
-          </span>
-        );
       case "path":
         return (
           <span key={id} className="statusbar-cut path" title={`${info.inventory.path}\n${info.command.join(" ")}`}>
@@ -1438,11 +1496,33 @@ export function App({
             </span>
           )
         );
-      default:
-        return null;
+      default: {
+        // A Plugin's segment (the Host count is one: the built-in `hosts` Plugin).
+        const def = statusDefs.find((d) => d.id === id);
+        if (!def) return null;
+        const title = def.title ?? `From ${def.source}`;
+        return def.command ? (
+          <button
+            key={id}
+            type="button"
+            className="statusbar-plugin"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => run(def.command ?? "")}
+            title={title}
+          >
+            {def.text}
+          </button>
+        ) : (
+          <span key={id} className={id === "hosts" ? "count" : "statusbar-plugin"} title={title}>
+            {def.text}
+          </span>
+        );
+      }
     }
   };
-  const segments = layout.segments ?? STATUS_SEGMENTS;
+  // Segments Plugins add show after the layout's own, unless the layout lists them itself.
+  const segments =
+    layout.segments ?? [...STATUS_SEGMENTS, ...statusDefs.map((d) => d.id).filter((d) => !(STATUS_SEGMENTS as readonly string[]).includes(d))];
   const right = new Set(["hints", "mode"]);
   const statusBar = (
     <footer key="statusbar" className="statusbar">
@@ -1764,6 +1844,28 @@ export function App({
               await vault.signOut();
             }}
             onClose={closeSignOut}
+          />
+        )}
+        {pluginSnap.prompts[0] && (
+          <PluginPrompt
+            key={`${pluginSnap.prompts[0].kind}:${pluginSnap.prompts[0].manifest.name}`}
+            prompt={pluginSnap.prompts[0]}
+            onAnswer={(allow) => {
+              const prompt = pluginSnap.prompts[0];
+              if (prompt) void plugins.answer(prompt, allow);
+              restoreFocus();
+            }}
+          />
+        )}
+        {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
+        {pluginSnap.float && (
+          <PluginFloatPanel
+            key={pluginSnap.float.plugin}
+            float={pluginSnap.float}
+            onClose={() => {
+              plugins.closeFloat();
+              restoreFocus();
+            }}
           />
         )}
         {keysOpen && (

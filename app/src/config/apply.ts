@@ -157,6 +157,21 @@ function localActions(context: KeymapContext): Set<string> | null {
   return null;
 }
 
+/** A Theme from its definition (init.lua's `themes`, a Plugin's `roster.themes.define`) over `base`. */
+export function themeOf(id: string, def: ThemeDef, base: Theme, source: string): Theme {
+  const ansi =
+    def.ansi === "standard" ? undefined : def.ansi === "inherit" ? base.ansi : { ...(base.ansi ?? standardAnsi), ...def.ansi };
+  return {
+    id,
+    source,
+    label: def.label ?? id,
+    appearance: def.appearance ?? base.appearance,
+    colors: { ...base.colors, ...def.colors },
+    terminal: { ...base.terminal, ...def.terminal },
+    ...(ansi ? { ansi } : {}),
+  };
+}
+
 /** Registers the Config's keys, Themes and Folders; returns what undoes it and the warnings. */
 export function registerConfig(registries: Registries, c: Config): { dispose: () => void; warnings: ConfigWarning[] } {
   const warnings: ConfigWarning[] = [];
@@ -184,18 +199,7 @@ export function registerConfig(registries: Registries, c: Config): { dispose: ()
       warn(`themes.${id}`, `Theme ${id}: no Theme named ${baseId} to start from; using Roster dark`);
       base = registries.themes.get("roster-dark");
     }
-    const b = base as Theme;
-    const ansi =
-      def.ansi === "standard" ? undefined : def.ansi === "inherit" ? b.ansi : { ...(b.ansi ?? standardAnsi), ...def.ansi };
-    const theme: Theme = {
-      id,
-      source: CONFIG,
-      label: def.label ?? id,
-      appearance: def.appearance ?? b.appearance,
-      colors: { ...b.colors, ...def.colors },
-      terminal: { ...b.terminal, ...def.terminal },
-      ...(ansi ? { ansi } : {}),
-    };
+    const theme = themeOf(id, def, base as Theme, CONFIG);
     building.delete(id);
     built.set(id, theme);
     return theme;
