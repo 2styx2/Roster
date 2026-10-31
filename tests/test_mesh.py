@@ -1,6 +1,7 @@
 """The Mesh (ticket 39, decision Q63): roster.yml's mesh: and links:, and `roster mesh` against stand-in Hosts
 (tests/fakes/ssh with FAKE_HOSTS). Nothing here connects anywhere: each Host is a directory."""
 import json
+import os
 import shutil
 import subprocess
 
@@ -303,6 +304,63 @@ def test_a_down_source_keeps_its_keys_on_peers(net):
     assert net.mesh_lines("nas-1") == before
 
 
+def interrupt(tmp_path, monkeypatch):
+    """From now on, every Host's run dies part way through writing a file on the Host (a timeout, a deadline, a dropped link):
+    a stand-in `cat` that writes one line to a file under the Host, then kills the shell running roster's script."""
+    if not os.path.exists("/proc/self/fd/1"):
+        pytest.skip("needs /proc to see where cat writes")
+    d = tmp_path / "interrupt"
+    d.mkdir()
+    (d / "cat").write_text(f"""#!/bin/sh
+out=$(readlink /proc/$$/fd/1)
+case "$out" in
+  "$FAKE_HOST_ROOT"/*) {shutil.which("cat")} "$@" | head -n 1; kill -9 $PPID; exit 1;;
+esac
+exec {shutil.which("cat")} "$@"
+""")
+    (d / "cat").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{d}{os.pathsep}{os.environ['PATH']}")
+
+
+@pytest.fixture
+def interrupted(tmp_path, monkeypatch):
+    interrupt(tmp_path, monkeypatch)
+
+
+def assert_no_file_was_damaged(net, before):
+    """Each file is as it was, or (one roster owns, which a cut removes whole) gone; authorized_keys always there."""
+    after = net.snapshot()
+    for path, data in before.items():
+        if "/roster-mesh/" in path and path not in after:
+            continue
+        assert after.get(path) == data, f"{path} was damaged by an interrupted run"
+
+
+def test_an_interrupted_apply_never_leaves_a_file_half_written(net, interrupted):
+    before = net.snapshot()
+    r = mesh.run(net.cfg(), apply=True)
+    assert set(r["pending"]) == set(mesh.graph(net.cfg())["visit"])
+    assert_no_file_was_damaged(net, before)                      # the Box's key and the user's keys included
+
+
+def test_an_interrupted_cut_never_leaves_a_file_half_written(net, monkeypatch, tmp_path):
+    mesh.run(net.cfg(), apply=True)
+    before = net.snapshot()
+    interrupt(tmp_path, monkeypatch)
+    r = mesh.cut(net.cfg(), "orion-2")
+    assert {"orion-2", "orion-3", "esx-02", "nas-1"} <= set(r["pending"])
+    assert_no_file_was_damaged(net, before)
+
+
+def test_rewriting_a_file_keeps_its_mode(net):
+    ak = net.host("orion-2") / "home/.ssh/authorized_keys"
+    ak.chmod(0o640)
+    mesh.run(net.cfg(), apply=True)
+    assert "roster-mesh:orion-3" in ak.read_text()
+    assert ak.stat().st_mode & 0o7777 == 0o640
+    assert not list(net.host("orion-2").rglob("*.roster-new"))
+
+
 # ---------------------------------------------------------------- removal, rotation, drift
 
 def test_removing_a_link_removes_exactly_its_tagged_entries(net):
@@ -411,6 +469,21 @@ def test_cut_without_a_git_repo_still_writes_mesh_false(net, capsys):
     assert main(["mesh", "cut", "orion-3", "--yes"]) == 0
     assert net.cfg()["hosts"]["orion-3"]["mesh"] is False
     assert "isn't in a git repo" in capsys.readouterr().out
+
+
+def test_cut_keeps_the_peers_that_confirmed_it_in_the_meshs_bookkeeping(net):
+    mesh.run(net.cfg(), apply=True)
+    r = mesh.cut(net.cfg(), "esx-02")
+    assert r["pending"] == {} and "orion-2" in r["confirmed"]
+    members = mesh.load_state()["members"]
+    assert "esx-02" not in members
+    assert {"orion-2", "orion-3", "nas-1", "db-9"} <= set(members)     # they still hold each other's keys
+    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", "").split("links:")[0])
+    assert mesh.run(net.cfg(), apply=True)["pending"] == {}           # so taking the Mesh away still visits them
+    for h in HOSTS:
+        assert net.mesh_lines(h) == [] and not (net.host(h) / "home/.ssh/roster-mesh").exists()
+    assert "roster-mesh" not in net.file("orion-2", "home/.ssh/config")
+    assert net.file("orion-2", "home/.claude/CLAUDE.md") == "# my notes\n"
 
 
 # ---------------------------------------------------------------- setup and serve

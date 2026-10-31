@@ -356,7 +356,7 @@ def inherited(text, group):
     layers = [{}, {k: v for k, v in g.items() if k not in GROUP_ONLY}, raw.get("defaults") or {}]
     ssh = resolve_ssh("new", layers)
     out = {k: ssh[k] for k in SSH_KEYS} | {k: bool(first(layers, k, True)) for k in FLAGS}
-    return out | {k: oneline(first(layers, k, "")) for k in TEXT}
+    return out | {k: oneline(first(layers, k, "")) for k in TEXT} | {"mesh": first(layers, "mesh")}
 
 
 def last_value(node):
@@ -658,7 +658,9 @@ def own_keys(text, group, name):
     return set(map(str, h)) | set(map(str, h.get("ssh") or {}) if isinstance(h.get("ssh"), dict) else ())
 
 
-PINNED = ("user", "port", "auth", "enroll", "reviewed", *TEXT)       # what a move writes on the Host to keep it
+# What a move writes on the Host to keep it. A Host with no mesh: anywhere has nothing to keep: it takes the Mesh
+# setting of the group it moves to, as any new member would (decision Q77).
+PINNED = ("user", "port", "auth", "enroll", "reviewed", "mesh", *TEXT)
 
 
 def pinned_move(text, was_host, name, group):
@@ -668,7 +670,8 @@ def pinned_move(text, was_host, name, group):
     old = current(was_host)
     was, will = inherited(text, was_host["group"]), inherited(text, group)
     own = own_keys(text, was_host["group"], name)
-    pin = {k: old[k] for k in PINNED if was[k] != will[k] and old[k] != will[k] and k not in own}
+    pin = {k: old[k] for k in PINNED if was[k] != will[k] and old[k] != will[k] and k not in own
+           and not (k == "mesh" and old[k] is None)}
     new_text = move_text(text, name, group)
     if pin:
         new_text = edit_text(new_text, name, pin, drop_empty=False)
@@ -679,8 +682,9 @@ def check_moved(before, after, names, group):
     """Each of Hosts NAMES came out in AFTER as it was in BEFORE but for its group, or Problem(WOULD_CHANGE)."""
     for name in names:
         h = after["hosts"].get(name)
-        differs = sorted(k for k in before["hosts"][name]
-                         if k != "group" and (h or {}).get(k) != before["hosts"][name][k])
+        was = before["hosts"][name]
+        differs = sorted(k for k in was if k != "group" and (h or {}).get(k) != was[k]
+                         and not (k == "mesh" and was[k] is None))
         if h is None or h["group"] != group or differs:
             raise Problem(WOULD_CHANGE, f"{name} would come out different in group {group} ({', '.join(differs)} it "
                                         "inherits there) - nothing was written", {"host": name, "fields": differs},

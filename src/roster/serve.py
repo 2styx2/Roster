@@ -1269,9 +1269,10 @@ def host_move(state, params):
 
     Params: `{host, group}`
     Result: `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`,
-        re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …)
-        and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same
-        Host. `101` no such group, `103` if it would still come out different
+        re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `mesh`,
+        `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays
+        the same Host; a Host with no `mesh:` anywhere takes the new group's. `101` no such group, `103` if it
+        would still come out different
     Errors: 1, 2, 70, 74, 101, 103
     Since: API 8
     """

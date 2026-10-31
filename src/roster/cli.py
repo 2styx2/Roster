@@ -529,9 +529,10 @@ def run_sudo(h, command):
             "(set auth: to the vault item that holds the password)")
     wrapped = sudo_wrap(command)
     if h["enroll"]:
-        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]), input=secret + "\n",
-                           capture_output=True, text=True)
-        rc, out, err = r.returncode, r.stdout, r.stderr
+        # bytes: text mode on Windows would send "password\r\n", and sudo would take the "\r" as part of it
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]),
+                           input=(secret + "\n").encode(), capture_output=True)
+        rc, out, err = r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
     else:
         try:
             rc, out, err = password_exec(h, wrapped, secret, stdin=secret + "\n")

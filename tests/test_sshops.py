@@ -92,3 +92,31 @@ def test_ssh_config_offers_only_rosters_key_or_none(isolated, write_config):
     assert "IdentitiesOnly yes" in block["pw"] and "IdentityFile" not in block["pw"]
     assert "PubkeyAuthentication no" in block["pw"]
     assert "IdentitiesOnly" not in block["agent"]
+
+
+@posix_shell
+def test_an_interrupted_key_change_never_truncates_authorized_keys(tmp_path):
+    """A run cut short (a timeout, a dropped link) while it rewrites authorized_keys must leave it as it was: a stand-in
+    cat that dies part way would leave a file rewritten in place empty, locking the Box (and the user) out."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "cat").write_text("#!/bin/sh\nexit 1\n")
+    (bin_ / "cat").chmod(0o755)
+    ak = tmp_path / ".ssh" / "authorized_keys"
+    ak.parent.mkdir()
+    before = "ssh-rsa AAAAother someone@laptop\nssh-ed25519 AAAAold roster-managed:ws1\n"
+    for script in (add_key_script(PUB, TAG_RE), remove_key_script(TAG_RE)):
+        ak.write_text(before)
+        subprocess.run(["sh", "-c", script], env={**os.environ, "HOME": str(tmp_path),
+                                                  "PATH": f"{bin_}:{os.environ['PATH']}"}, capture_output=True)
+        assert ak.read_text().startswith("ssh-rsa AAAAother someone@laptop\n")
+        assert not list(ak.parent.glob("*.roster"))
+
+
+@posix_shell
+def test_removing_the_key_keeps_the_files_mode(tmp_path):
+    run_remote(add_key_script(PUB, TAG_RE), tmp_path)
+    ak = tmp_path / ".ssh" / "authorized_keys"
+    ak.chmod(0o640)
+    run_remote(remove_key_script(TAG_RE), tmp_path)
+    assert ak.stat().st_mode & 0o777 == 0o640

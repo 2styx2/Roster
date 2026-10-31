@@ -182,10 +182,17 @@ reach() {
 
 WRITE = r"""
 umask 077
+replace() {  # replace PATH < content: a temp file next to it, then mv, so a run cut short leaves PATH as it was;
+             # the temp starts as a copy (cp -p), so PATH keeps its mode and owner (and ESXi's sticky bit)
+  f=$1; [ -L "$f" ] && f=$(readlink -f "$f" 2>/dev/null || echo "$f")
+  n=$f.roster-new; rm -f "$n"
+  if { [ ! -f "$f" ] || cp -p "$f" "$n"; } && cat > "$n" && mv -f "$n" "$f"; then return 0; fi
+  rm -f "$n"; echo "ERROR couldn't rewrite $1"; return 1
+}
 put() {  # put PATH LABEL < content: write it when it differs
   t=$(mktemp) || { echo "ERROR mktemp failed"; exit 1; }; cat > "$t"
   if [ -f "$1" ] && cmp -s "$t" "$1"; then echo "SAME $2"
-  else echo "CHANGE $2"; [ "$MODE" = apply ] && { mkdir -p "${1%/*}" && cat "$t" > "$1" && chmod 600 "$1"; }; fi
+  else echo "CHANGE $2"; [ "$MODE" = apply ] && { mkdir -p "${1%/*}" && replace "$1" < "$t"; }; fi
   rm -f "$t"
 }
 drop() {  # drop PATH LABEL: remove it if it's there
@@ -202,7 +209,7 @@ else
   echo "CHANGE include"
   if [ "$MODE" = apply ]; then
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"; t=$(mktemp)
-    { echo "$MARK"; echo "$INC"; grep -vxF -e "$MARK" "$C" 2>/dev/null; } > "$t"; cat "$t" > "$C"; rm -f "$t"; chmod 600 "$C"
+    { echo "$MARK"; echo "$INC"; grep -vxF -e "$MARK" "$C" 2>/dev/null; } > "$t"; replace "$C" < "$t"; rm -f "$t"
   fi
 fi
 if [ -n "$R" ] && [ -f "$R" ] && ! ours "$R"; then echo "CONFLICT $R"; fi
@@ -212,7 +219,9 @@ if [ -z "$ESXI" ] && [ -d "$HOME/.claude" ]; then
   else
     echo "CHANGE claude"
     if [ "$MODE" = apply ]; then
-      [ -s "$CM" ] && [ -n "$(tail -c 1 "$CM")" ] && echo >> "$CM"; echo "$IMPORT" >> "$CM"
+      t=$(mktemp)
+      { cat "$CM" 2>/dev/null; [ -s "$CM" ] && [ -n "$(tail -c 1 "$CM")" ] && echo; echo "$IMPORT"; } > "$t"
+      replace "$CM" < "$t"; rm -f "$t"
     fi
   fi
 fi
@@ -226,7 +235,7 @@ fi
 if grep -qxF "$INC" "$C" 2>/dev/null; then
   echo "CHANGE remove include"
   if [ "$MODE" = apply ]; then
-    t=$(mktemp); grep -vxF -e "$MARK" -e "$INC" "$C" > "$t"; cat "$t" > "$C"; rm -f "$t"; [ -s "$C" ] || rm -f "$C"
+    t=$(mktemp); grep -vxF -e "$MARK" -e "$INC" "$C" > "$t"; replace "$C" < "$t"; rm -f "$t"; [ -s "$C" ] || rm -f "$C"
   fi
 fi
 [ -z "$ESXI" ] && ours "$R" && drop "$R" "remove ROSTER.md"
@@ -234,7 +243,7 @@ CM=$HOME/.claude/CLAUDE.md
 if grep -qxF "$IMPORT" "$CM" 2>/dev/null; then
   echo "CHANGE remove claude"
   if [ "$MODE" = apply ]; then
-    t=$(mktemp); grep -vxF "$IMPORT" "$CM" > "$t"; cat "$t" > "$CM"; rm -f "$t"; [ -s "$CM" ] || rm -f "$CM"
+    t=$(mktemp); grep -vxF "$IMPORT" "$CM" > "$t"; replace "$CM" < "$t"; rm -f "$t"; [ -s "$CM" ] || rm -f "$CM"
   fi
 fi
 """
@@ -248,7 +257,7 @@ grep -vxFf "$H" "$W" | while read -r l; do echo "ADD ${l##*:}"; done
 S1=$(mktemp); S2=$(mktemp); sort "$H" > "$S1"; sort "$W" > "$S2"
 if [ "$MODE" = apply ] && ! cmp -s "$S1" "$S2"; then
   d=${AK%/*}; mkdir -p "$d"; [ -z "$ESXI" ] && chmod 700 "$d"
-  t=$(mktemp); grep -vE "$TAGS" "$AK" 2>/dev/null > "$t"; cat "$W" >> "$t"; cat "$t" > "$AK"; rm -f "$t"; chmod 600 "$AK"
+  t=$(mktemp); grep -vE "$TAGS" "$AK" 2>/dev/null > "$t"; cat "$W" >> "$t"; replace "$AK" < "$t"; rm -f "$t"
   [ -n "$ESXI" ] && [ -x /sbin/auto-backup.sh ] && /sbin/auto-backup.sh >/dev/null 2>&1
 fi
 rm -f "$H" "$W" "$S1" "$S2"
@@ -297,7 +306,7 @@ def cut_script(h, host, own):
         s.append(NOT_SOURCE)
     s.append(f"""T=' roster-mesh:{tag}$'
 if [ -f "$AK" ] && grep -qE "$T" "$AK"; then
-  t=$(mktemp); grep -vE "$T" "$AK" > "$t"; cat "$t" > "$AK"; rm -f "$t"; echo "CHANGE cut"
+  t=$(mktemp); grep -vE "$T" "$AK" > "$t"; replace "$AK" < "$t"; rm -f "$t"; echo "CHANGE cut"
   [ -n "$ESXI" ] && [ -x /sbin/auto-backup.sh ] && /sbin/auto-backup.sh >/dev/null 2>&1
 fi
 grep -qE "$T" "$AK" 2>/dev/null && echo "ERROR a roster-mesh line is still there" || echo ROSTER_DONE
@@ -309,21 +318,22 @@ grep -qE "$T" "$AK" 2>/dev/null && echo "ERROR a roster-mesh line is still there
 
 def on_host(h, script, timeout=STEP_TIMEOUT):
     """Run SCRIPT on H over the Box's ssh (its key, roster's ssh config). Returns (report lines, None) or
-    (None, why it didn't finish)."""
+    (None, why it didn't finish). The script goes as bytes: text mode on Windows would hand sh "\r\n" line ends."""
     try:
         r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
                                          h["name"], "sh -s"]),
-                           input=script, capture_output=True, text=True, timeout=time_left(timeout))
+                           input=script.encode(), capture_output=True, timeout=time_left(timeout))
     except subprocess.TimeoutExpired:
         return None, "didn't answer in time"
     except FileNotFoundError:
         return None, "ssh isn't installed on this Box"
-    lines = r.stdout.splitlines()
+    stdout, stderr = r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
+    lines = stdout.splitlines()
     err = next((x[6:] for x in lines if x.startswith("ERROR ")), None)
     if err:
         return None, err
     if "ROSTER_DONE" not in lines:
-        words = (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
+        words = (stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
         return None, f"no answer: {words}" if r.returncode == 255 else f"stopped part way: {words}"
     return lines, None
 
@@ -571,7 +581,8 @@ def cut(cfg, name, workers=16):
         st["cut"][name] = sorted(pending)
     else:
         st["cut"].pop(name, None)
-    st["members"] = sorted(set(st["members"]) - {name} - set(confirmed) | set(pending))
+    # HOST leaves the Mesh's bookkeeping once its own part is done; its peers stay (they still hold each other's keys)
+    st["members"] = sorted((set(st["members"]) - {name}) | set(pending))
     st["applied"] = None
     save_state(st)
     return {"host": name, "confirmed": sorted(confirmed), "pending": pending}

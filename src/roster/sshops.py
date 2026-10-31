@@ -261,19 +261,24 @@ def password_exec(h, command, password, timeout=15, stdin=None):
         c.close()
 
 
+# Both rewrite authorized_keys as a new file next to it, then mv it into place: a run cut short leaves the old file
+# whole (rewritten in place, it could be left empty and lock everyone out). cp -p first keeps its mode and owner.
+REPLACE_AK = ("f=~/.ssh/authorized_keys; [ -L \"$f\" ] && f=$(readlink -f \"$f\"); "
+              "rm -f \"$f.roster\"; cp -p \"$f\" \"$f.roster\"; ")
+
+
 def add_key_script(pub, tag_re):
     # Drops any older key from this same box, appends the current one. Safe to re-run.
-    return ("set -e; umask 077; mkdir -p ~/.ssh; f=~/.ssh/authorized_keys; touch \"$f\"; "
+    return ("set -e; umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; " + REPLACE_AK +
             f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
             f"printf '%s\\n' {shlex.quote(pub)} >> \"$f.roster\"; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; "
-            "chmod 700 ~/.ssh; chmod 600 \"$f\"; echo ROSTER_OK")
+            "chmod 600 \"$f.roster\"; mv -f \"$f.roster\" \"$f\"; chmod 700 ~/.ssh; echo ROSTER_OK")
 
 
 def remove_key_script(tag_re):
-    return ("set -e; f=~/.ssh/authorized_keys; [ -f \"$f\" ] || { echo ROSTER_OK; exit 0; }; "
+    return ("set -e; [ -f ~/.ssh/authorized_keys ] || { echo ROSTER_OK; exit 0; }; " + REPLACE_AK +
             f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; echo ROSTER_OK")
+            "mv -f \"$f.roster\" \"$f\"; echo ROSTER_OK")
 
 
 def enroll(h, pub, tag_re):

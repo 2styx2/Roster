@@ -117,6 +117,33 @@ def test_a_move_that_would_change_what_the_host_inherits_is_refused(write_config
     assert e.value.code == WOULD_CHANGE and "services" in e.value.data["fields"]
 
 
+MESHED = ("groups:\n  lab:\n    user: u\n    mesh: true\n    hosts:\n      h1: 10.0.0.1\n      h2: 10.0.0.2\n"
+          "  quiet:\n    user: u\n    mesh: false\n    hosts:\n      q1: 10.0.0.5\n"
+          "  plain:\n    user: u\n    hosts:\n      p1: 10.0.0.9\n")
+
+
+def test_moving_a_host_out_of_a_meshed_group_keeps_its_mesh_setting(write_config):
+    path = write_config(MESHED)
+    _, new, h, pinned = edit.moved(path, "h1", "plain")
+    assert pinned == ["mesh"] and h["mesh"] is True and "      h1:\n        ip: 10.0.0.1\n        mesh: true\n" in new
+    _, new, h, pinned = edit.moved(path, "q1", "lab")            # an opt-out stays an opt-out
+    assert pinned == ["mesh"] and h["mesh"] is False
+
+
+def test_a_host_with_no_mesh_setting_joins_the_mesh_of_the_group_it_moves_to(write_config):
+    path = write_config(MESHED)
+    _, _, h, pinned = edit.moved(path, "p1", "lab")
+    assert pinned == [] and h["mesh"] is True
+
+
+def test_deleting_a_meshed_group_moves_its_hosts_keeping_their_mesh_setting(write_config):
+    path = write_config(MESHED)
+    _, new, moved = edit.group_deleted(path, "lab", "plain")
+    from roster.config import load_config_text
+    cfg = load_config_text(new, path)
+    assert moved == ["h1", "h2"] and cfg["hosts"]["h1"]["mesh"] is True and cfg["hosts"]["h2"]["mesh"] is True
+
+
 def test_moving_into_an_empty_group(write_config):
     path = write_config("groups:\n  a:\n    user: u\n    hosts:\n      h1: 10.0.0.1\n      h2: 10.0.0.2\n"
                         "  b:\n    user: u\n    hosts: {}\n  c:\n")

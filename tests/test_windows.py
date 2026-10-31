@@ -135,3 +135,44 @@ def test_roster_run_hands_over_to_ssh_and_passes_on_its_code(write_config, fakes
     r = subprocess.run([sys.executable, "-m", "roster", "run", "box", "--", "true"], capture_output=True, text=True,
                        env=os.environ, timeout=60)
     assert r.returncode == 7 and "not connecting to" in r.stderr
+
+
+# ---------------------------------------------------------------- what a remote sh reads from a Windows Box
+
+def sent_on_windows(kw):
+    """The bytes a child reads on stdin from subprocess.run(**KW) on Windows, where text mode turns "\n" into "\r\n"
+    (a remote sh then sees CRLF: a heredoc's end marker never matches, sudo's password ends in "\r")."""
+    data = kw.get("input")
+    if isinstance(data, str):
+        return data.replace("\n", "\r\n").encode()
+    return data
+
+
+def fake_run_answering(seen, stdout):
+    def run(argv, **kw):
+        seen.update(argv=argv, **kw)
+        text = kw.get("text") or kw.get("universal_newlines")
+        return subprocess.CompletedProcess(argv, 0, stdout if text else stdout.encode(), "" if text else b"")
+    return run
+
+
+def test_the_meshs_script_reaches_the_remote_sh_with_unix_newlines(as_windows, monkeypatch):
+    from roster import mesh
+    seen = {}
+    monkeypatch.setattr(mesh.subprocess, "run", fake_run_answering(seen, "SAME include\nROSTER_DONE\n"))
+    h = {"name": "esx-02", "ip": "10.0.0.12", "ssh": {"user": "root", "port": 22}, "enroll": True}
+    lines, err = mesh.on_host(h, mesh.write_script(h, "apply", None, [], set()))
+    assert err is None and lines == ["SAME include", "ROSTER_DONE"]
+    sent = sent_on_windows(seen)
+    assert b"ROSTER_MESH_EOF\n" in sent and b"\r" not in sent
+
+
+def test_sudos_password_reaches_the_remote_sh_without_a_carriage_return(as_windows, monkeypatch, write_config):
+    from roster import cli
+    from test_cli import SUDO_CFG
+    write_config(SUDO_CFG)
+    monkeypatch.setenv("ROSTER_TEST_PW", "s3cret")
+    seen = {}
+    monkeypatch.setattr(cli.subprocess, "run", fake_run_answering(seen, "root\n"))
+    assert cli.main(["run", "--sudo", "key-host", "--", "whoami"]) == 0
+    assert sent_on_windows(seen) == b"s3cret\n"
