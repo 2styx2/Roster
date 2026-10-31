@@ -32,4 +32,5 @@ For the owner, on 2–3 owner-chosen Hosts (at least one Linux pair; ESXi only a
 9. **Remove.** Take a Host out of the pilot group (or a Link out): its tagged entries go, nothing else changes.
 10. **Cut.** `roster mesh cut HOST` with one peer down: the loud `cut pending` warning, then finished once that peer answers. The Box can still log in to HOST.
 11. **Back to the snapshot.** Remove `mesh: true` and the Links, run `roster mesh`: each Host's files match the snapshot again.
-12. **ESXi (later stage).** Apply with ESXi as source and peer, reboot it, `roster check` (drift: the `Include`), `roster mesh` (restored), and confirm its key and `authorized_keys` lines survived.
+12. **SELinux.** On an SELinux-enforcing Host (RHEL, Oracle Linux, Fedora): after `roster setup`, and again after a `roster mesh` apply, the Box's key login still works (`roster check HOST`), a Mesh peer's `ssh PEER true` works, and `ls -Z ~/.ssh/authorized_keys` still shows `ssh_home_t`. roster rewrites the file as a new one moved into place, then copies the old label (`chcon --reference`) and runs `restorecon`.
+13. **ESXi (later stage).** Apply with ESXi as source and peer, reboot it, `roster check` (drift: the `Include`), `roster mesh` (restored), and confirm its key and `authorized_keys` lines survived.

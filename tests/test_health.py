@@ -47,7 +47,7 @@ def test_a_box_set_up_and_synced_is_healthy(write_config, capsys, vault, ssh_log
     assert list(found) == ["roster", "inventory", "ssh", "vault", "askpass", "infra"]
     assert "error" not in out.split("\n\n")[0]
     assert set(levels(found, "vault")) == {"ok"} and "bw" in found["vault"][0][1]
-    assert found["askpass"] == [("ok", "the askpass channel opens on this Box")]
+    assert found["askpass"] == [("ok", "the askpass channel is open")]
     assert code == 0 and out.rstrip().endswith("no errors")
     assert ssh_log() == []
     assert not [x for x in ALL_SECRETS if x in out]
@@ -149,3 +149,18 @@ def test_box_check_while_roster_yml_doesnt_load(serve, write_config, capsys, fak
     bad = [c for c in r["checks"] if c["level"] == "error"]
     assert r["ok"] is False and bad[0]["section"] == "inventory" and bad[0]["topic"] == "E1"
     assert "line 1" in bad[0]["fix"]
+
+
+def test_check_box_reports_an_askpass_channel_that_opens_but_cannot_work(write_config, capsys, fakes, monkeypatch):
+    """Windows without roster-askpass.exe: the channel opens, but ssh has nothing to ask for a password with. The CLI
+    says so, as serve's box.check does."""
+    from roster import askpass
+    real = askpass.Channel.__init__
+
+    def without_helper(self, *a, **kw):
+        real(self, *a, **kw)
+        self.problem = "roster-askpass.exe isn't installed next to roster"
+    monkeypatch.setattr(askpass.Channel, "__init__", without_helper)
+    write_config(INVENTORY)
+    code, _, found = box_check(capsys)
+    assert found["askpass"] == [("error", "roster-askpass.exe isn't installed next to roster")] and code == 1

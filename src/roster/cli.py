@@ -293,10 +293,10 @@ def cmd_check_box(args):
     except SystemExit as e:
         error = str(e.code).removeprefix("error: ")
     try:
-        with askpass.Channel(diagnose.askpass_lookup):
-            channel = (True, "the askpass channel opens on this Box")
+        with askpass.Channel(diagnose.askpass_lookup) as ch:
+            channel = health.askpass_state(ch)
     except OSError as e:
-        channel = (False, f"the askpass channel can't open here: {e}")
+        channel = health.askpass_state(None, e)
     checks = health.check_box(path, cfg, error, channel)
     section = None
     for c in checks:
@@ -529,9 +529,10 @@ def run_sudo(h, command):
             "(set auth: to the vault item that holds the password)")
     wrapped = sudo_wrap(command)
     if h["enroll"]:
-        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]), input=secret + "\n",
-                           capture_output=True, text=True)
-        rc, out, err = r.returncode, r.stdout, r.stderr
+        # bytes: text mode on Windows would send "password\r\n", and sudo would take the "\r" as part of it
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]),
+                           input=(secret + "\n").encode(), capture_output=True)
+        rc, out, err = r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
     else:
         try:
             rc, out, err = password_exec(h, wrapped, secret, stdin=secret + "\n")

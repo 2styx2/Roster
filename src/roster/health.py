@@ -8,10 +8,10 @@ import platform
 import shutil
 
 from . import __version__, changes, providers
-from .common import known_hosts_file, ssh_config_file, ssh_dir, ssh_path
+from .common import known_hosts_file, ssh_config_file
 from .errors import Problem
 from .providers import PROVIDERS
-from .sshops import hk_name, known_names
+from .sshops import hk_name, known_names, ssh_config_hosts
 
 # The sections, in order, with the name the CLI prints (the app has its own titles, by id).
 SECTIONS = {"roster": "roster", "inventory": "Inventory", "ssh": "ssh", "vault": "Vault", "askpass": "askpass",
@@ -35,10 +35,24 @@ def count(n, word):
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+def askpass_state(channel, error=None):
+    """(ok, message) for the askpass check, from CHANNEL (an askpass.Channel, None when there's none) or ERROR (why
+    it couldn't open). One for the CLI and serve: a channel that opened can still be unable to work (Windows
+    without roster-askpass.exe: `problem`)."""
+    if error is not None:
+        return False, f"the askpass channel can't open here: {error}"
+    if channel is None:
+        return False, "this roster serve has no askpass channel, so password Sessions can't log in"
+    if channel.problem:
+        return False, channel.problem
+    return True, "the askpass channel is open"
+
+
 def check_box(path, cfg, error, askpass, api_version=None):
     """Every check, in SECTIONS order. PATH: roster.yml's path (None when none was found); CFG: the loaded Inventory
     (serve's last good one even while the file doesn't load), or None; ERROR: why roster.yml doesn't load now, or
-    None; ASKPASS: (ok, message) for the askpass channel. API_VERSION: serve's, for the roster line."""
+    None; ASKPASS: (ok, message) for the askpass channel (askpass_state). API_VERSION: serve's, for the roster
+    line."""
     out = [roster_version(api_version)]
     out += inventory(path, cfg, error)
     out += ssh(cfg)
@@ -99,13 +113,12 @@ def ssh(cfg):
     if cfg is None:
         return out
     hosts = [h for h in cfg["hosts"].values() if h["reviewed"]]
-    ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
+    ours, written = ssh_config_file(), ssh_config_hosts()
+    if written is None:
         out.append(check("ssh", "error", f"roster's ssh config ({ours}) isn't written, or ~/.ssh/config doesn't "
                                          "include it", "run `roster sync` (or `roster setup` on a new Box)", "E2"))
     else:
-        written = set(ours.read_text().splitlines())
-        missing = [h["name"] for h in hosts if f"Host {h['name']}" not in written]
+        missing = [h["name"] for h in hosts if h["name"] not in written]
         if missing:
             out.append(check("ssh", "warn", f"{count(len(missing), 'Host')} not in roster's ssh config yet: "
                                             f"{names(missing)}", "run `roster sync`", "E2"))

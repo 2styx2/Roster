@@ -13,7 +13,6 @@ import os
 import sys
 import time
 
-
 PROGRESS = "/tmp/roster-perf"
 
 

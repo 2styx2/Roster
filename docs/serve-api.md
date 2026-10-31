@@ -258,12 +258,12 @@ Removing, renaming and moving Hosts and adding, renaming and deleting groups (ti
 
 | Method | Params | Result | Errors | Since API |
 |---|---|---|---|---|
-| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays | `1`, `2`, `70`, `74` | 8 |
-| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes. Its vault item keeps its name. `100` if `to` is taken | `1`, `2`, `70`, `74`, `80`, `100` | 8 |
-| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host. `101` no such group, `103` if it would still come out different | `1`, `2`, `70`, `74`, `101`, `103` | 8 |
+| `host.remove` | `{host}` | `{removed, group, backup}`: the Host's entry taken out, and every `links:` entry that names it. Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays | `1`, `2`, `70`, `74` | 8 |
+| `host.rename` | `{host, to}` | `{changed, host, backup}`: only its key changes, and its name in `links:`. Its vault item keeps its name. `100` if `to` is taken | `1`, `2`, `70`, `74`, `80`, `100` | 8 |
+| `host.move` | `{host, group}` | `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`, re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `mesh`, `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays the same Host; a Host with no `mesh:` anywhere takes the new group's. `101` no such group, `103` if it would still come out different | `1`, `2`, `70`, `74`, `101`, `103` | 8 |
 | `group.new` | `{name, title?}` | `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken | `1`, `70`, `74`, `80`, `100` | 8 |
-| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes; its Hosts follow. `100` if taken | `1`, `70`, `74`, `80`, `100`, `101` | 8 |
-| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) | `1`, `70`, `74`, `101`-`103` | 8 |
+| `group.rename` | `{group, to}` | `{changed, group, backup}`: only its key changes, and its name in `links:`; its Hosts follow. `100` if taken | `1`, `70`, `74`, `80`, `100`, `101` | 8 |
+| `group.delete` | `{group, to?}` | `{deleted, moved, to, backup}`: the group's entry taken out, and every `links:` entry that names it. A group that still has Hosts is refused (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them) | `1`, `70`, `74`, `101`-`103` | 8 |
 | `inventory.reload` | none | `{changed, host_count, error}`: `:source` for `roster.yml`, read again now |  | 8 |
 | `inventory.watch` | `{auto}` | `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's `auto_reload`) applies them |  | 8 |
 

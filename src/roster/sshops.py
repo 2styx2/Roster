@@ -100,12 +100,18 @@ def start_transport(sock, key_types, timeout=10):
     return t
 
 
-def in_ssh_config(name):
-    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
+def ssh_config_hosts():
+    """The Hosts a plain `ssh NAME` reaches through roster's ssh config: the names of its Host blocks, or None when
+    it isn't written or ~/.ssh/config doesn't include it."""
     ours, main = ssh_config_file(), ssh_dir() / "config"
     if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
-        return False
-    return f"Host {name}" in ours.read_text().splitlines()
+        return None
+    return {line[5:] for line in ours.read_text().splitlines() if line.startswith("Host ")}
+
+
+def in_ssh_config(name):
+    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
+    return name in (ssh_config_hosts() or ())
 
 
 def record_fingerprints(cfg, hosts):
@@ -261,19 +267,31 @@ def password_exec(h, command, password, timeout=15, stdin=None):
         c.close()
 
 
+# Both rewrite authorized_keys as a new file next to it, then mv it into place: a run cut short leaves the old file
+# whole (rewritten in place, it could be left empty and lock everyone out). cp -p first keeps its mode and owner.
+# The new file is a new inode: on an SELinux-enforcing Host it may lack the old one's label (ssh_home_t) and sshd
+# would refuse it. So the old file's context is copied (chcon --reference) before the mv, and restorecon sets the
+# policy's after it. Both only where they exist, and never fatal (ESXi's busybox, macOS, Alpine have neither).
+REPLACE_AK = ("f=~/.ssh/authorized_keys; [ -L \"$f\" ] && f=$(readlink -f \"$f\"); "
+              "rm -f \"$f.roster\"; cp -p \"$f\" \"$f.roster\"; ")
+KEEP_LABEL = ("{ command -v chcon >/dev/null 2>&1 && chcon --reference=\"$f\" \"$f.roster\" 2>/dev/null; } "
+              "|| true; ")
+RELABEL = "{ command -v restorecon >/dev/null 2>&1 && restorecon -F \"$f\" 2>/dev/null; } || true; "
+
+
 def add_key_script(pub, tag_re):
     # Drops any older key from this same box, appends the current one. Safe to re-run.
-    return ("set -e; umask 077; mkdir -p ~/.ssh; f=~/.ssh/authorized_keys; touch \"$f\"; "
+    return ("set -e; umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; " + REPLACE_AK +
             f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
             f"printf '%s\\n' {shlex.quote(pub)} >> \"$f.roster\"; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; "
-            "chmod 700 ~/.ssh; chmod 600 \"$f\"; echo ROSTER_OK")
+            "chmod 600 \"$f.roster\"; " + KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL +
+            "chmod 700 ~/.ssh; echo ROSTER_OK")
 
 
 def remove_key_script(tag_re):
-    return ("set -e; f=~/.ssh/authorized_keys; [ -f \"$f\" ] || { echo ROSTER_OK; exit 0; }; "
-            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; echo ROSTER_OK")
+    return ("set -e; [ -f ~/.ssh/authorized_keys ] || { echo ROSTER_OK; exit 0; }; " + REPLACE_AK +
+            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; " +
+            KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL + "echo ROSTER_OK")
 
 
 def enroll(h, pub, tag_re):
