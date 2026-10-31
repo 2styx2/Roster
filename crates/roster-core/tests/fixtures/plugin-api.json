@@ -386,6 +386,117 @@
     {
       "params": [
         {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "view",
+          "optional": false,
+          "type": "View"
+        }
+      ],
+      "path": "roster.views.set",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "changes",
+          "optional": false,
+          "type": "ViewUpdate"
+        }
+      ],
+      "path": "roster.views.update",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.views.open",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.views.close",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.views.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "optional": false,
+          "type": "string"
+        },
+        {
+          "name": "section",
+          "optional": true,
+          "type": "DetailsSection"
+        }
+      ],
+      "path": "roster.details.set",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.details.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "text",
           "optional": false,
           "type": "string"
@@ -542,10 +653,14 @@
     "roster-Change": "plugin-api#change",
     "roster-ChangesDiff": "plugin-api#changesdiff",
     "roster-CheckStep": "plugin-api#checkstep",
+    "roster-Column": "plugin-api#column",
+    "roster-ColumnKind": "plugin-api#columnkind",
     "roster-CommandArgs": "plugin-api#commandargs",
     "roster-CommandSpec": "plugin-api#commandspec",
+    "roster-DetailsSection": "plugin-api#detailssection",
     "roster-EmptyEvent": "plugin-api#emptyevent",
     "roster-EventName": "plugin-api#eventname",
+    "roster-Fact": "plugin-api#fact",
     "roster-Finder": "plugin-api#finder",
     "roster-FinderItem": "plugin-api#finderitem",
     "roster-Float": "plugin-api#float",
@@ -577,6 +692,7 @@
     "roster-Row": "plugin-api#row",
     "roster-RowAction": "plugin-api#rowaction",
     "roster-RowIcon": "plugin-api#rowicon",
+    "roster-RowTone": "plugin-api#rowtone",
     "roster-Run": "plugin-api#run",
     "roster-Section": "plugin-api#section",
     "roster-Service": "plugin-api#service",
@@ -587,11 +703,19 @@
     "roster-StatusSegment": "plugin-api#statussegment",
     "roster-Step": "plugin-api#step",
     "roster-StepMatch": "plugin-api#stepmatch",
+    "roster-Table": "plugin-api#table",
+    "roster-TableAction": "plugin-api#tableaction",
+    "roster-TableEvent": "plugin-api#tableevent",
+    "roster-TableRow": "plugin-api#tablerow",
+    "roster-TableRun": "plugin-api#tablerun",
     "roster-TerminalOutputEvent": "plugin-api#terminaloutputevent",
     "roster-Theme": "plugin-api#theme",
     "roster-TutorEvent": "plugin-api#tutorevent",
     "roster-Tutorial": "plugin-api#tutorial",
     "roster-UpdateResult": "plugin-api#updateresult",
+    "roster-View": "plugin-api#view",
+    "roster-ViewPlace": "plugin-api#viewplace",
+    "roster-ViewUpdate": "plugin-api#viewupdate",
     "roster.api_version": "plugin-api#rosterapi_version",
     "roster.badges": "plugin-api#rosterbadges",
     "roster.badges.set()": "plugin-api#rosterbadgessethost-text",
@@ -600,6 +724,9 @@
     "roster.commands": "plugin-api#rostercommands",
     "roster.commands.add()": "plugin-api#rostercommandsaddname-spec",
     "roster.commands.remove()": "plugin-api#rostercommandsremovename",
+    "roster.details": "plugin-api#rosterdetails",
+    "roster.details.remove()": "plugin-api#rosterdetailsremoveid",
+    "roster.details.set()": "plugin-api#rosterdetailssetid-host-section",
     "roster.finders": "plugin-api#rosterfinders",
     "roster.finders.remove()": "plugin-api#rosterfindersremoveid",
     "roster.finders.set()": "plugin-api#rosterfinderssetid-finder",
@@ -641,7 +768,13 @@
     "roster.themes.define()": "plugin-api#rosterthemesdefineid-theme",
     "roster.tutor": "plugin-api#rostertutor",
     "roster.tutor.remove()": "plugin-api#rostertutorremoveid",
-    "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial"
+    "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial",
+    "roster.views": "plugin-api#rosterviews",
+    "roster.views.close()": "plugin-api#rosterviewscloseid",
+    "roster.views.open()": "plugin-api#rosterviewsopenid",
+    "roster.views.remove()": "plugin-api#rosterviewsremoveid",
+    "roster.views.set()": "plugin-api#rosterviewssetid-view",
+    "roster.views.update()": "plugin-api#rosterviewsupdateid-changes"
   },
   "types": {
     "Change": {
@@ -769,6 +902,34 @@
       ],
       "open": false
     },
+    "Column": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "kind",
+          "required": false,
+          "type": "ColumnKind"
+        },
+        {
+          "name": "width",
+          "required": false,
+          "type": "number"
+        }
+      ],
+      "open": false
+    },
+    "ColumnKind": {
+      "alias": "\"text\"|\"data\"|\"number\""
+    },
     "CommandArgs": {
       "fields": [
         {
@@ -799,12 +960,62 @@
       ],
       "open": false
     },
+    "DetailsSection": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "order",
+          "required": false,
+          "type": "number"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facts",
+          "required": false,
+          "type": "Fact[]"
+        },
+        {
+          "name": "table",
+          "required": false,
+          "type": "Table"
+        }
+      ],
+      "open": false
+    },
     "EmptyEvent": {
       "fields": [],
       "open": false
     },
     "EventName": {
       "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\""
+    },
+    "Fact": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "data",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "open": false
     },
     "Finder": {
       "fields": [
@@ -1469,6 +1680,9 @@
     "RowIcon": {
       "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\""
     },
+    "RowTone": {
+      "alias": "\"muted\"|\"warn\"|\"error\""
+    },
     "Run": {
       "alias": "string|fun(args: table): any"
     },
@@ -1672,6 +1886,124 @@
       ],
       "open": false
     },
+    "Table": {
+      "fields": [
+        {
+          "name": "columns",
+          "required": true,
+          "type": "Column[]"
+        },
+        {
+          "name": "rows",
+          "required": false,
+          "type": "TableRow[]"
+        },
+        {
+          "name": "sort",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "desc",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "name": "empty",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "open",
+          "required": false,
+          "type": "TableRun"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "TableAction[]"
+        }
+      ],
+      "open": false
+    },
+    "TableAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "key",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "RowIcon"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "TableRun"
+        }
+      ],
+      "open": false
+    },
+    "TableEvent": {
+      "fields": [
+        {
+          "name": "row",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "view",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "section",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "TableRow": {
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "cells",
+          "required": false,
+          "type": "table<string, string|number>"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "tone",
+          "required": false,
+          "type": "RowTone"
+        }
+      ],
+      "open": false
+    },
+    "TableRun": {
+      "alias": "string|fun(e: TableEvent): any"
+    },
     "TerminalOutputEvent": {
       "fields": [
         {
@@ -1779,6 +2111,69 @@
         },
         {
           "name": "warnings",
+          "required": false,
+          "type": "string[]"
+        }
+      ],
+      "open": false
+    },
+    "View": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "place",
+          "required": false,
+          "type": "ViewPlace"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facts",
+          "required": false,
+          "type": "Fact[]"
+        },
+        {
+          "name": "table",
+          "required": false,
+          "type": "Table"
+        }
+      ],
+      "open": false
+    },
+    "ViewPlace": {
+      "alias": "\"panel\"|\"full\""
+    },
+    "ViewUpdate": {
+      "fields": [
+        {
+          "name": "title",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "facts",
+          "required": false,
+          "type": "Fact[]"
+        },
+        {
+          "name": "rows",
+          "required": false,
+          "type": "TableRow[]"
+        },
+        {
+          "name": "remove",
           "required": false,
           "type": "string[]"
         }
