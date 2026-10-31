@@ -3,7 +3,7 @@
 ```bash
 uv sync                  # creates .venv with dev tools
 uv run pytest            # no network or SSH server needed
-uv run ruff check src tests
+uv run ruff check src tests scripts
 uv build                 # wheel + sdist in dist/
 ```
 

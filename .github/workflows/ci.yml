@@ -40,7 +40,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen --python python3.12
-      - run: uv run --python python3.12 ruff check src tests
+      - run: uv run --python python3.12 ruff check src tests scripts
       # One version across pyproject.toml, package.json, tauri.conf.json, the Cargo.tomls and the lock files.
       - run: scripts/bump-version.sh --check
 
