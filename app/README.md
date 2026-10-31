@@ -121,6 +121,9 @@ app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in
                       op), command.ts (`:plugins`, `:packages`), PluginsPanel.tsx (the prompt, an update's diff,
                       `:plugins`, `:packages`, a float, notices); backend/fakePackages.ts is the fake Backend's
 app/src/view/status.ts  the status segment and Host-badge registries Plugins add to
+app/src/view/views.ts   views and Host-details sections as registries (ticket 76): `:view`, the `views` finder, the open
+                      view (ViewHost); ViewContent.tsx draws a view or section (text, facts, a table) and the view panel
+app/src/ui/table.ts     a table's model: sort, updates in place, which rows are on screen; ui/DataTable.tsx draws it
 examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
 examples/plugins/recent-alerts the worked example in docs/plugins.md, a third-party Plugin end to end (ticket 56): crates/roster-core/tests/recent_alerts.rs
                       installs it from a git repo and records app/src/plugins/recent-alerts.transcript.json, which

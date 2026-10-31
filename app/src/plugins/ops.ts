@@ -5,6 +5,7 @@
 import type { ThemeDef } from "../config/types";
 import type { RowAction } from "../sidebar/Sidebar";
 import { TUTOR_EVENTS, type StepMatch } from "../tutor/tutor";
+import type { ColumnKind, Sort, TableColumn, TableRow, Tone } from "../ui/table";
 
 /** What choosing something runs: a function the Plugin handed over, or a command line. */
 export type Run = { handler: number } | { command: string };
@@ -63,6 +64,60 @@ export interface PluginFloat {
   lines: string[];
 }
 
+/** A label and its value (a Host's details, a view). `data`: set in the data font. */
+export interface PluginFact {
+  label: string;
+  value: string;
+  data?: true;
+}
+
+export interface PluginTableAction {
+  label: string;
+  /** One character that runs it on the selected row. */
+  key?: string;
+  icon?: RowAction["icon"];
+  run: Run;
+}
+
+/** A table (ticket 76): rows are plain data; what a row does is the table's, and a function gets
+ * the row (`{ row, host, view | section }`). */
+export interface PluginTable {
+  columns: TableColumn[];
+  rows: TableRow[];
+  sort: Sort | null;
+  empty?: string;
+  open?: Run;
+  actions: PluginTableAction[];
+}
+
+/** What a view and a Host-details section hold, drawn top to bottom. */
+export interface PluginContent {
+  text?: string;
+  facts: PluginFact[];
+  table?: PluginTable;
+}
+
+export type ViewPlace = "panel" | "full";
+
+export interface PluginView extends PluginContent {
+  title: string;
+  place: ViewPlace;
+}
+
+export interface PluginViewUpdate {
+  title?: string;
+  /** "" takes the text away. */
+  text?: string;
+  facts?: PluginFact[];
+  rows: TableRow[];
+  remove: string[];
+}
+
+export interface PluginDetails extends PluginContent {
+  title: string;
+  order: number;
+}
+
 export type PluginOp =
   | { op: "command"; name: string; desc: string; run: Run }
   | { op: "key"; context: string; keys: string; action: string | false }
@@ -75,13 +130,18 @@ export type PluginOp =
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
   | { op: "badge"; host: string; text: string | null }
   | { op: "float"; spec: PluginFloat | null }
+  | { op: "view"; id: string; view: PluginView }
+  | { op: "view_update"; id: string; update: PluginViewUpdate }
+  | { op: "view_open"; id: string }
+  | { op: "view_close"; id: string }
+  | { op: "details"; id: string; host: string; section: PluginDetails | null }
   | { op: "notify"; text: string; level: "info" | "warn" | "error" }
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
   | { op: "copy"; text: string }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor"] as const;
+export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor", "view", "details"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
@@ -90,7 +150,16 @@ const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
 /** Most rows a section, items a finder, lines a float may have. */
 export const MAX_ROWS = 2000;
+/** Most rows a table may hold after updates (ticket 76). */
+export const MAX_TABLE_ROWS = 10_000;
 const MAX_TEXT = 500;
+const MAX_VIEW_TEXT = 4000;
+const MAX_COLUMNS = 20;
+const MAX_ACTIONS = 8;
+const KINDS: readonly ColumnKind[] = ["text", "data", "number"];
+const TONES: readonly Tone[] = ["muted", "warn", "error"];
+/** Keys a table uses itself (moving, sorting, and kept for a filter and its help). */
+export const TABLE_KEYS = ["j", "k", "g", "G", "s", "S", "/", "?", "q"] as const;
 const MAX_HELP = 200_000;
 const MAX_COPY = 64 * 1024;
 
@@ -161,6 +230,101 @@ function row(v: unknown, i: number, what: string): PluginRow {
     title: optStr(v, "title", at),
     run: optRun(v, at).run,
     actions,
+  });
+}
+
+/** A list that may come from Lua as `{}` (an empty table is an object in JSON). */
+const isList = (v: unknown): v is unknown[] => Array.isArray(v);
+
+function facts(o: Obj, what: string): PluginFact[] {
+  return list(o, "facts", what).map((v, i): PluginFact => {
+    const at = `${what} fact ${i + 1}`;
+    if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+    if (v.data !== undefined && v.data !== null && typeof v.data !== "boolean") throw new Invalid(`${at}: data must be true or false`);
+    return defined<PluginFact>({ label: str(v, "label", at, 100), value: str(v, "value", at), data: v.data === true ? true : undefined });
+  });
+}
+
+/** A table's row: an id, its cells (text or numbers), its Host and tone. */
+function tableRow(v: unknown, i: number, what: string): TableRow {
+  const at = `${what} row ${i + 1}`;
+  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+  const raw = v.cells;
+  const cells: Record<string, string | number> = {};
+  if (isObj(raw)) {
+    for (const [k, c] of Object.entries(raw)) {
+      if (typeof c === "number" && Number.isFinite(c)) cells[k] = c;
+      else if (typeof c === "string") cells[k] = c.length > MAX_TEXT ? `${c.slice(0, MAX_TEXT - 1)}…` : c;
+      else throw new Invalid(`${at}: cells.${k} must be text or a number`);
+    }
+  } else if (!(raw === undefined || raw === null || (isList(raw) && raw.length === 0))) throw new Invalid(`${at}: cells must be a table of column = value`);
+  const tone = v.tone === undefined || v.tone === null ? undefined : TONES.find((t) => t === v.tone);
+  if (v.tone !== undefined && v.tone !== null && !tone) throw new Invalid(`${at}: tone must be "muted", "warn" or "error"`);
+  return defined<TableRow>({ id: str(v, "id", at, 100), cells, host: optStr(v, "host", at, 200), tone });
+}
+
+function tableRows(o: Obj, key: string, what: string): TableRow[] {
+  const rows = list(o, key, what).map((r, i) => tableRow(r, i, what));
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.id)) throw new Invalid(`${what}: row id ${r.id} is used twice`);
+    seen.add(r.id);
+  }
+  return rows;
+}
+
+function table(v: unknown, what: string): PluginTable {
+  const at = `${what} table`;
+  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+  const ids = new Set<string>();
+  const columns = list(v, "columns", at).map((c, i): TableColumn => {
+    const where = `${at} column ${i + 1}`;
+    if (!isObj(c)) throw new Invalid(`${where}: must be a table`);
+    const id = str(c, "id", where, 64);
+    if (ids.has(id)) throw new Invalid(`${where}: id ${id} is used twice`);
+    ids.add(id);
+    const kind = c.kind === undefined || c.kind === null ? "text" : KINDS.find((k) => k === c.kind);
+    if (!kind) throw new Invalid(`${where}: kind must be "text", "data" or "number"`);
+    const width = num(c, "width", where);
+    return defined<TableColumn>({ id, label: str(c, "label", where, 100), kind, width: width === undefined ? undefined : Math.max(2, Math.min(80, Math.round(width))) });
+  });
+  if (columns.length === 0) throw new Invalid(`${at}: columns must have at least one column`);
+  if (columns.length > MAX_COLUMNS) throw new Invalid(`${at}: columns has more than ${MAX_COLUMNS}`);
+  const by = optStr(v, "sort", at, 64);
+  if (by !== undefined && !ids.has(by)) throw new Invalid(`${at}: sort names no column (${by})`);
+  if (v.desc !== undefined && v.desc !== null && typeof v.desc !== "boolean") throw new Invalid(`${at}: desc must be true or false`);
+  const keys = new Set<string>();
+  const actions = list(v, "actions", at).map((a, j): PluginTableAction => {
+    const where = `${at} action ${j + 1}`;
+    if (!isObj(a)) throw new Invalid(`${where}: must be a table`);
+    const key = optStr(a, "key", where, 8);
+    if (key !== undefined) {
+      if ([...key].length !== 1 || key.trim() === "") throw new Invalid(`${where}: key must be one character`);
+      if ((TABLE_KEYS as readonly string[]).includes(key)) throw new Invalid(`${where}: the table uses ${key} itself (${TABLE_KEYS.join(" ")})`);
+      if (keys.has(key)) throw new Invalid(`${where}: key ${key} is used twice`);
+      keys.add(key);
+    }
+    const icon = a.icon === undefined || a.icon === null ? undefined : ICONS.find((x) => x === a.icon);
+    if (a.icon !== undefined && a.icon !== null && !icon) throw new Invalid(`${where}: icon must be one of ${ICONS.join(", ")}`);
+    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon, run: run(a.run, where) });
+  });
+  if (actions.length > MAX_ACTIONS) throw new Invalid(`${at}: actions has more than ${MAX_ACTIONS}`);
+  return defined<PluginTable>({
+    columns,
+    rows: tableRows(v, "rows", at),
+    sort: by === undefined ? null : { by, desc: v.desc === true },
+    empty: optStr(v, "empty", at),
+    open: optRun({ run: v.open }, `${at} open`).run,
+    actions,
+  });
+}
+
+/** The text, facts and table a view or a Host-details section holds. */
+function content(spec: Obj, what: string): PluginContent {
+  return defined<PluginContent>({
+    text: optStr(spec, "text", what, MAX_VIEW_TEXT),
+    facts: facts(spec, what),
+    table: spec.table === undefined || spec.table === null ? undefined : table(spec.table, what),
   });
 }
 
@@ -295,6 +459,39 @@ function parse(raw: unknown): PluginOp {
       const what = "roster.float.open";
       const lines = list(spec, "lines", what).map((l) => (typeof l === "string" ? l.slice(0, MAX_TEXT) : String(l)));
       return { op: "float", spec: { title: optStr(spec, "title", what) ?? "", lines } };
+    }
+    case "view": {
+      const what = `roster.views.set ${id}`;
+      const place = spec.place === undefined || spec.place === null ? "panel" : spec.place;
+      if (place !== "panel" && place !== "full") throw new Invalid(`${what}: place must be "panel" or "full"`);
+      return { op: "view", id, view: { title: optStr(spec, "title", what) ?? id, place, ...content(spec, what) } };
+    }
+    case "view_update": {
+      const what = `roster.views.update ${id}`;
+      const c = isObj(raw.changes) ? raw.changes : {};
+      return {
+        op: "view_update",
+        id,
+        update: defined<PluginViewUpdate>({
+          title: optStr(c, "title", what),
+          text: optStr(c, "text", what, MAX_VIEW_TEXT),
+          facts: c.facts === undefined || c.facts === null ? undefined : facts(c, what),
+          rows: tableRows(c, "rows", what),
+          remove: list(c, "remove", what).map((r, i) => {
+            if (typeof r !== "string") throw new Invalid(`${what}: remove ${i + 1} must be a row's id`);
+            return r;
+          }),
+        }),
+      };
+    }
+    case "view_open":
+    case "view_close":
+      return { op: raw.op, id };
+    case "details": {
+      const host = str(raw, "host", "roster.details.set", 200);
+      if (raw.spec === null || raw.spec === undefined) return { op: "details", id, host, section: null };
+      const what = `roster.details.set ${id} ${host}`;
+      return { op: "details", id, host, section: { title: optStr(spec, "title", what) ?? id, order: num(spec, "order", what) ?? 500, ...content(spec, what) } };
     }
     case "notify": {
       const level = LEVELS.find((l) => l === raw.level) ?? "info";

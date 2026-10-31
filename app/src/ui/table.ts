@@ -1,0 +1,93 @@
+// A table's model (ticket 76): columns, rows as plain data, sorting, updates in place and which
+// rows are on screen. Pure, so DataTable.tsx stays a drawing of it and Plugins' tables (views,
+// Host-details sections) and the app's own sort and update the same way.
+
+export type ColumnKind = "text" | "data" | "number";
+
+export interface TableColumn {
+  id: string;
+  label: string;
+  kind: ColumnKind;
+  /** In characters; shares the room with the others when left out. */
+  width?: number;
+}
+
+export type Tone = "muted" | "warn" | "error";
+
+export interface TableRow {
+  id: string;
+  cells: Readonly<Record<string, string | number>>;
+  host?: string;
+  tone?: Tone;
+}
+
+export interface Sort {
+  by: string;
+  desc: boolean;
+}
+
+/** Numbers inside text compare as numbers: `10.0.0.9` before `10.0.0.10`, `esx-2` before `esx-10`. */
+const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+function compare(a: string | number, b: string | number, kind: ColumnKind): number {
+  if (kind === "number") {
+    const x = typeof a === "number" ? a : Number(a);
+    const y = typeof b === "number" ? b : Number(b);
+    if (Number.isFinite(x) && Number.isFinite(y)) return x - y;
+  }
+  return collator.compare(String(a), String(b));
+}
+
+/** The rows in `sort`'s order (the given order when null). Stable; a missing value sorts last
+ * whichever way. */
+export function sortRows(rows: readonly TableRow[], columns: readonly TableColumn[], sort: Sort | null): readonly TableRow[] {
+  const column = sort && columns.find((c) => c.id === sort.by);
+  if (!sort || !column) return rows;
+  const sign = sort.desc ? -1 : 1;
+  return rows
+    .map((r, i) => ({ r, i }))
+    .sort((p, q) => {
+      const a = p.r.cells[column.id];
+      const b = q.r.cells[column.id];
+      const missingA = a === undefined || a === "";
+      const missingB = b === undefined || b === "";
+      if (missingA || missingB) return missingA === missingB ? p.i - q.i : missingA ? 1 : -1;
+      return sign * compare(a, b, column.kind) || p.i - q.i;
+    })
+    .map((x) => x.r);
+}
+
+/** `rows` with `upserts` in: a row whose id is there already is replaced where it stands, a new
+ * one goes at the end; then the ids in `remove` are taken away. */
+export function mergeRows(rows: readonly TableRow[], upserts: readonly TableRow[], remove: readonly string[]): TableRow[] {
+  const at = new Map(rows.map((r, i) => [r.id, i]));
+  const out = [...rows];
+  for (const u of upserts) {
+    const i = at.get(u.id);
+    if (i === undefined) {
+      at.set(u.id, out.length);
+      out.push(u);
+    } else out[i] = u;
+  }
+  if (remove.length === 0) return out;
+  const gone = new Set(remove);
+  return out.filter((r) => !gone.has(r.id));
+}
+
+/** `s`: sort by the next column (ascending), and after the last, the given order again. */
+export function nextSort(columns: readonly TableColumn[], sort: Sort | null): Sort | null {
+  const i = sort ? columns.findIndex((c) => c.id === sort.by) : -1;
+  const next = columns[i + 1];
+  return next ? { by: next.id, desc: false } : null;
+}
+
+/** Rows drawn when the table can't be measured (hidden, or in tests). */
+const UNMEASURED = 40;
+
+/** Which rows to draw: those on screen and `overscan` more each way. */
+export function windowOf(o: { count: number; rowHeight: number; scrollTop: number; height: number; overscan: number }): { start: number; end: number } {
+  if (o.height <= 0) return { start: 0, end: Math.min(o.count, UNMEASURED + o.overscan) };
+  const first = Math.floor(o.scrollTop / o.rowHeight);
+  const shown = Math.ceil(o.height / o.rowHeight);
+  return { start: Math.max(0, first - o.overscan), end: Math.min(o.count, first + shown + o.overscan) };
+}

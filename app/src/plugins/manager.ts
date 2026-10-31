@@ -27,7 +27,9 @@ import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
-import { parseOp, type PluginFloat, type PluginOp, type PluginRow, type Run } from "./ops";
+import { MAX_TABLE_ROWS, parseOp, type PluginContent, type PluginFloat, type PluginOp, type PluginRow, type PluginView, type Run } from "./ops";
+import { mergeRows, type TableRow } from "../ui/table";
+import { detailsId, type Content } from "../view/views";
 
 /** What the manager asks of the app. */
 export interface PluginUi {
@@ -38,6 +40,8 @@ export interface PluginUi {
   /** Puts `text` on the clipboard (`roster.clipboard.copy`; the core allows it only in a call
    * the user started). Rejects when the clipboard can't be written. */
   copy(text: string): Promise<void>;
+  /** Closes view `id` if it's the one open (`roster.views.close`). */
+  closeView?(id: string): void;
 }
 
 /** A Plugin as the State keeps it. */
@@ -223,6 +227,8 @@ interface Loaded {
   path: string;
   granted: string[];
   disposers: Map<string, () => void>;
+  /** Its views as last set and updated, so an update changes some rows in place. */
+  views?: Map<string, PluginView>;
 }
 
 export class PluginManager {
@@ -875,9 +881,94 @@ export class PluginManager {
         return this.ui.send(op.session, op.text);
       case "copy":
         return void this.ui.copy(op.text).catch(() => undefined);
+      case "view": {
+        if (this.taken(r.views, op.id, plugin)) return refuse(`there's a view named ${op.id} already`);
+        (l.views ??= new Map()).set(op.id, op.view);
+        return this.putView(l, plugin, op.id, op.view);
+      }
+      case "view_update": {
+        const view = l.views?.get(op.id);
+        if (!view) return refuse(`roster.views.update: there's no view ${op.id} (roster.views.set it first)`);
+        const u = op.update;
+        if ((u.rows.length || u.remove.length) && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table for rows`);
+        let table = view.table;
+        if (table && (u.rows.length || u.remove.length)) {
+          const rows = mergeRows(table.rows, u.rows, u.remove);
+          if (rows.length > MAX_TABLE_ROWS) return refuse(`roster.views.update ${op.id}: more than ${MAX_TABLE_ROWS.toLocaleString("en-US")} rows`);
+          table = { ...table, rows };
+        }
+        const next: PluginView = {
+          ...view,
+          ...(u.title !== undefined ? { title: u.title } : {}),
+          ...(u.facts !== undefined ? { facts: u.facts } : {}),
+          ...(table ? { table } : {}),
+        };
+        if (u.text === "") delete next.text;
+        else if (u.text !== undefined) next.text = u.text;
+        l.views?.set(op.id, next);
+        return this.putView(l, plugin, op.id, next);
+      }
+      case "view_open":
+      case "view_close": {
+        if (r.views.get(op.id)?.source !== plugin) return refuse(`${op.op === "view_open" ? "roster.views.open" : "roster.views.close"}: there's no view ${op.id} of yours`);
+        return op.op === "view_open" ? this.ui.run(`view ${op.id}`) : this.ui.closeView?.(op.id);
+      }
+      case "details": {
+        const id = detailsId(op.id, op.host);
+        const other = r.details.list().find((e) => e.section === op.id && e.source !== plugin);
+        if (other) return refuse(`there's a Host-details section named ${op.id} already, from ${other.source}`);
+        if (op.section === null) return this.drop(l, `details:${id}`);
+        const content = this.content(plugin, { section: op.id, host: op.host }, op.section);
+        return this.put(
+          l,
+          `details:${id}`,
+          r.details.register({ id, source: plugin, section: op.id, host: op.host, title: op.section.title, order: op.section.order, content }),
+        );
+      }
       case "remove":
+        if (op.kind === "view") l.views?.delete(op.id);
+        if (op.kind === "details") {
+          for (const key of [...l.disposers.keys()].filter((k) => k.startsWith(`details:${op.id}@`))) this.drop(l, key);
+          return;
+        }
         return this.drop(l, `${op.kind}:${op.id}`);
     }
+  }
+
+  private putView(l: Loaded, plugin: string, id: string, view: PluginView) {
+    const content = this.content(plugin, { view: id }, view);
+    this.put(l, `view:${id}`, this.registries.views.register({ id, source: plugin, title: view.title, place: view.place, content }));
+  }
+
+  /** A view's or section's content, with what its table's rows and actions run. A function gets
+   * the row: `{ row, host, view | section }`. */
+  private content(plugin: string, where: { view?: string; section?: string; host?: string }, c: PluginContent): Content {
+    const go = (run: Run) => (row: TableRow) => {
+      if ("command" in run) return this.ui.run(run.command);
+      const host = row.host ?? where.host;
+      void this.call(plugin, run.handler, { row: row.id, ...(host ? { host } : {}), ...(where.view ? { view: where.view } : {}), ...(where.section ? { section: where.section } : {}) });
+    };
+    const t = c.table;
+    // Without its own `open`, a row with a Host opens that Host, as a Sidebar row does.
+    const openHost = (row: TableRow) => {
+      if (row.host) this.ui.run(`open ${row.host}`);
+    };
+    return {
+      ...(c.text ? { text: c.text } : {}),
+      facts: c.facts,
+      ...(t
+        ? {
+            table: {
+              columns: t.columns,
+              rows: t.rows,
+              sort: t.sort,
+              ...(t.empty ? { empty: t.empty } : {}),
+              ...(t.open ? { open: go(t.open) } : t.rows.some((row) => row.host) ? { open: openHost } : {}),
+              actions: t.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
+            },
+          }
+        : {}),
+    };
   }
 
   private row(plugin: string, section: string, row: PluginRow): SidebarRow {

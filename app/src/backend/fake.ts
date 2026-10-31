@@ -1,5 +1,6 @@
 // The fake Backend: same interface as the real one, answering from fixtures. Used by the UI tests
 // and by `npm run dev` in a plain browser, where `?fixture=<name>` picks a scenario.
+import { demoScanPlugin, VIEWS_PATH } from "./fakeViews";
 import {
   AddError,
   type AddHostParams,
@@ -384,8 +385,16 @@ const signingIn = (signIn: FakeAccount): FakeScenario => ({
   signIn,
 });
 
+/** A Plugin installed already (its State entry), so it loads at start. */
+const installedPlugin = (path: string, name: string) => ({ plugins: [{ path, name, granted: [], asked: [] }] });
+
 export const fixtures: Record<string, FakeScenario> = {
   "many-hosts": { hosts: makeHosts(300) },
+  /** Ticket 76: a Plugin with a full view of 600 rows (`␣ y v`, `:view demo-scan`), an empty
+   * view (`:view demo-empty`) and a Mesh section in three Hosts' details (`:info linux-1-000`). */
+  "plugin-views": { hosts: makeHosts(12), plugins: { [VIEWS_PATH]: demoScanPlugin() }, app: { state: installedPlugin(VIEWS_PATH, "demo-scan") } },
+  /** The same with worst-case cells (long, unbreakable, non-Latin, emoji, huge, missing). */
+  "plugin-views-worst": { hosts: makeHosts(12), plugins: { [VIEWS_PATH]: demoScanPlugin(true, 2000) }, app: { state: installedPlugin(VIEWS_PATH, "demo-scan") } },
   "few-hosts": { hosts: makeHosts(12) },
   /** Ticket 10: a roster that can edit and publish (api 7), no Pending changes yet. */
   edit: { hosts: makeHosts(12), apiVersion: 7 },

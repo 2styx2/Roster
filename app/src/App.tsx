@@ -96,6 +96,8 @@ import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
+import { ViewPanel } from "./view/ViewContent";
+import { registerViews, sectionsFor, ViewHost } from "./view/views";
 import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
@@ -458,14 +460,22 @@ function Workspace({
   // Plugins (ticket 23): the Lua runs in roster-core; they act on the app through command lines,
   // and their UI goes into the registries with their name as its source.
   const runRef = useRef<(line: string) => void>(() => {});
+  const [viewHost] = useState(() => new ViewHost());
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
         send: (id, text) => tabs.write(id, text),
         copy: (text) => platform.clipboard.writeText(text),
+        closeView: (id) => viewHost.close(id),
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  // Views (ticket 76): the one open, and each Host's sections from Plugins.
+  const viewAt = useSyncExternalStore(viewHost.subscribe, viewHost.snapshot);
+  useEffect(() => registerViews(registries, viewHost), [registries, viewHost]);
+  const viewList = useSyncExternalStore(registries.views.subscribe, registries.views.list);
+  const openView = viewAt.at === null ? undefined : viewList.find((v) => v.id === viewAt.at);
+  const detailsList = useSyncExternalStore(registries.details.subscribe, registries.details.list);
   // What a Plugin does when one of its HTTP requests answers comes from the core on its own.
   useEffect(() => backend.onPluginReply((r) => plugins.replied(r)), [backend, plugins]);
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
@@ -1301,6 +1311,7 @@ function Workspace({
     // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
       if (pluginSnap.float) return plugins.closeFloat();
+      if (openView) return viewHost.close();
       if (helpAt.at) return helpView.close();
       if (pluginsOpen) return closePlugins();
       if (packagesOpen) return closePackages();
@@ -1956,8 +1967,10 @@ function Workspace({
             onClose={() => setDetails(null)}
             cmdlineKeys={hintFor(keymap, "cmdline")}
             leader={options.leader}
+            sections={sectionsFor(detailsList, detailsHost.name)}
           />
         )}
+        {openView && <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} />}
         {importing && (
           <ImportPanel
             preview={importing.preview}
