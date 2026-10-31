@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<h1 align="center">roster</h1>
+<h1 align="center">Roster</h1>
 
 <p align="center">
   Your password manager knows the secrets. roster knows your network.<br>
