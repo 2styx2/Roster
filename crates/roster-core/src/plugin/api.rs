@@ -115,6 +115,77 @@ pub struct ServeResult {
     pub link: &'static str,
 }
 
+/// A roster command a Plugin's command line may run (`roster.cmd`, and a `Run` that's a line).
+pub struct CommandRule {
+    /// The command's name (`finder`).
+    pub name: &'static str,
+    /// What the Plugin needs for it: nothing, or a permission (never [`Needs::AnyServe`]).
+    pub needs: Needs,
+    /// What it does, for the reference.
+    pub doc: &'static str,
+}
+
+/// The commands of roster's a Plugin may run: the ones that only show something, and opening a
+/// Session with `sessions.open`. Everything else (`:plugins`, `:packages`, `:publish`, `:source`,
+/// the editor, the vault) is never a Plugin's to run, nor another Plugin's commands.
+pub const COMMANDS: &[CommandRule] = &[
+    CommandRule {
+        name: "finder",
+        needs: Needs::Nothing,
+        doc: "Opens a finder: `finder alerts`.",
+    },
+    CommandRule {
+        name: "view",
+        needs: Needs::Nothing,
+        doc: "Opens a view: `view discover`.",
+    },
+    CommandRule {
+        name: "help",
+        needs: Needs::Nothing,
+        doc: "Opens a help page: `help recent-alerts`.",
+    },
+    CommandRule {
+        name: "find",
+        needs: Needs::Nothing,
+        doc: "Opens the Picker.",
+    },
+    CommandRule {
+        name: "info",
+        needs: Needs::Nothing,
+        doc: "Shows a Host's details: `info esx-02`.",
+    },
+    CommandRule {
+        name: "changes",
+        needs: Needs::Nothing,
+        doc: "Shows the Pending changes (Publishing them stays the user's).",
+    },
+    CommandRule {
+        name: "session",
+        needs: Needs::Nothing,
+        doc: "Goes to the Nth Session (`roster.sessions.show` goes by id).",
+    },
+    CommandRule {
+        name: "next",
+        needs: Needs::Nothing,
+        doc: "Goes to the next Session.",
+    },
+    CommandRule {
+        name: "prev",
+        needs: Needs::Nothing,
+        doc: "Goes to the previous Session.",
+    },
+    CommandRule {
+        name: "open",
+        needs: Needs::Permission("sessions.open"),
+        doc: "Opens a Host: its Session, or a new one.",
+    },
+    CommandRule {
+        name: "connect",
+        needs: Needs::Permission("sessions.open"),
+        doc: "Opens a Session on a Host.",
+    },
+];
+
 const fn p(name: &'static str, ty: &'static str, doc: &'static str) -> Param {
     Param {
         name,
@@ -203,6 +274,16 @@ pub const MODULES: &[Module] = &[
         doc: "",
     },
     Module {
+        name: "roster.toolbar",
+        summary: "Controls in the toolbar",
+        doc: "A control in the title bar's toolbar (decision Q65), after roster's own by the window's buttons. It's shown unless `init.lua` picks the controls itself with `modes.<mode>.toolbar`: then it shows where that list names its id. It never takes focus from the terminal.",
+    },
+    Module {
+        name: "roster.progress",
+        summary: "Progress of something long",
+        doc: "What the Plugin is doing that takes a while (a scan, a long roster serve call), shown in the status bar: how far it has got, or only that it's going, and a way to stop it. `:cancel ID` (or the button) calls its `cancel` function. Setting it any time is fine, from an event too: it changes nothing but itself.",
+    },
+    Module {
         name: "roster.badges",
         summary: "Badges on Host rows",
         doc: "",
@@ -234,8 +315,8 @@ pub const MODULES: &[Module] = &[
     },
     Module {
         name: "roster.sessions",
-        summary: "Opening Sessions",
-        doc: "`nil` unless the Plugin was granted `sessions.open`.",
+        summary: "Going to Sessions, and opening them",
+        doc: "Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.",
     },
     Module {
         name: "roster.terminal",
@@ -330,6 +411,61 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 2,
         example: "roster.on(\"session_open\", function(e)\n  if e.host then roster.badges.set(e.host, \"open\") end\nend)",
+    },
+    Function {
+        path: "roster.confirm",
+        params: &[p(
+            "question",
+            "Confirm",
+            "What to ask, the button that confirms, and what runs when the user does.",
+        )],
+        summary: "Asks the user to confirm, then runs a function",
+        doc: "The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc`, Cancel, or another question replacing this one). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question.",
+        returns: ("", ""),
+        errors: &[
+            (
+                "roster.confirm: only while the user runs one of your actions, commands or finder items",
+                "at load or in an event listener",
+            ),
+            (
+                "roster.confirm: `run` must be a function: what happens when the user confirms",
+                "`run` is missing or a command line",
+            ),
+        ],
+        refused: &["a field of the wrong kind (`roster.confirm: action must be text`): nothing is asked"],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "actions = { { label = \"Cut\", key = \"x\", run = function(e)\n  roster.confirm({\n    title = \"Cut \" .. e.host .. \" from the Mesh?\",\n    text = \"Its key is taken off every Host it can reach.\",\n    action = \"Cut\",\n    danger = true,\n    typed = e.host,\n    run = function() roster.serve.call(\"mesh.cut\", { host = e.host }) end,\n  })\nend } }",
+    },
+    Function {
+        path: "roster.cmd",
+        params: &[p(
+            "line",
+            "string",
+            "A command line, as typed after `:` (`\"finder alerts\"`).",
+        )],
+        summary: "Runs a command line",
+        doc: "It runs after the call returns, as if the user typed it. Only while the user runs one of your actions, commands or finder items, and only your own commands and the few of roster's in [Command lines a Plugin may run](#command-lines-a-plugin-may-run), each with the permission it needs there: never `:plugins`, `:packages`, `:publish` or anything else that changes what's installed, granted or written.",
+        returns: ("", ""),
+        errors: &[
+            (
+                "roster.cmd: only while the user runs one of your actions, commands or finder items",
+                "at load or in an event listener",
+            ),
+            ("roster.cmd: which command? …", "an empty line"),
+            (
+                "roster.cmd: :NAME isn't one a Plugin may run (its own commands, and …)",
+                "a command not in the list, or another Plugin's",
+            ),
+            (
+                "roster.cmd: :NAME needs the P permission",
+                "`:open` or `:connect` without `sessions.open`",
+            ),
+        ],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.commands.add(\"alerts\", { run = function(a)\n  if a.words[1] == nil then roster.cmd(\"finder alerts\") end\nend })",
     },
     Function {
         path: "roster.commands.add",
@@ -608,6 +744,78 @@ pub const FUNCTIONS: &[Function] = &[
         example: "roster.tutor.remove(\"pinned\")",
     },
     Function {
+        path: "roster.toolbar.set",
+        params: &[
+            p(
+                "id",
+                "string",
+                "The control's id: a name like `scan`, which `modes.<mode>.toolbar` can list.",
+            ),
+            p(
+                "control",
+                "ToolbarControl",
+                "Its label, icon or word, and what it runs.",
+            ),
+        ],
+        summary: "Adds a control to the toolbar, or replaces it",
+        doc: "",
+        returns: ("", ""),
+        errors: &[("roster.toolbar.set: \"ID\" isn't a name like …", "a bad `id`")],
+        refused: &[
+            "a control with that id from elsewhere (roster's own: `find`, `add`, …)",
+            "a field of the wrong kind",
+        ],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.toolbar.set(\"scan\", { label = \"Scan a network\", text = \"Scan\", icon = \"map\", run = \"discover\" })",
+    },
+    Function {
+        path: "roster.toolbar.remove",
+        params: &[p("id", "string", "One of the Plugin's controls.")],
+        summary: "Removes a toolbar control",
+        doc: "",
+        returns: ("", ""),
+        errors: &[],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.toolbar.remove(\"scan\")",
+    },
+    Function {
+        path: "roster.progress.set",
+        params: &[
+            p("id", "string", "A name like `scan`: `:cancel scan` cancels it."),
+            p(
+                "progress",
+                "Progress",
+                "What's going on, how far it has got, and how to stop it.",
+            ),
+        ],
+        summary: "Shows or updates the progress of something long",
+        doc: "With `done` and `total` it shows how far it has got; without, only that it's going. Set it again as it moves on, and `roster.progress.remove` it when it's over. With `cancel`, the user can stop it: the app calls the function once and shows \"Stopping…\" until you set or remove it again.",
+        returns: ("", ""),
+        errors: &[("roster.progress.set: \"ID\" isn't a name like …", "a bad `id`")],
+        refused: &[
+            "a progress with that id from another Plugin",
+            "a field of the wrong kind",
+        ],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.progress.set(\"scan\", {\n  title = \"Scanning 10.0.0.0/24\",\n  done = 40, total = 256,\n  cancel = function() roster.serve.call(\"discover.stop\") end,\n})",
+    },
+    Function {
+        path: "roster.progress.remove",
+        params: &[p("id", "string", "One of the Plugin's progresses.")],
+        summary: "Takes a progress away: it's over",
+        doc: "Say how it ended with `roster.notify` or in your view.",
+        returns: ("", ""),
+        errors: &[],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.progress.remove(\"scan\")\nroster.notify(\"Scan done: 12 Hosts found\")",
+    },
+    Function {
         path: "roster.badges.set",
         params: &[
             p("host", "string", "The Host's name in the Inventory."),
@@ -630,7 +838,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.float.open",
         params: &[p("float", "Float", "Its title and lines.")],
         summary: "Opens a floating window over the terminal, or replaces the Plugin's",
-        doc: "It lies over the terminal, on the side away from the Sidebar, so it never resizes a Session. `Esc` closes it. It has no actions.",
+        doc: "It lies over the terminal, on the side away from the Sidebar, so it never resizes a Session. `Esc` closes it. Its actions are buttons at its foot (with a key each, once it has focus), and its links open in the browser, the address shown with them.",
         returns: ("", ""),
         errors: &[],
         refused: &[],
@@ -953,6 +1161,28 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Permission("inventory.write"),
         since: 2,
         example: "roster.inventory.review(\"esx-02\")",
+    },
+    Function {
+        path: "roster.sessions.show",
+        params: &[
+            p("session", "integer", "The Session's id, from an event (`e.session`)."),
+            opt(
+                "line",
+                "string",
+                "Text of a line it printed: the app searches its scrollback from the bottom for the latest line with it, and shows it highlighted.",
+            ),
+        ],
+        summary: "Goes to a Session, and to a line in its scrollback",
+        doc: "It happens after the call returns, as if the user picked the Session: with two Sessions to one Host, this is the one the id names. With `line`, the terminal's search opens on it, so `n`/`N` (Enter, Shift+Enter) go on from there and `Esc` closes it. A Session that has ended, or a line no longer in the scrollback, is said in a notice. Only while the user runs one of your actions, commands or finder items.",
+        returns: ("", ""),
+        errors: &[(
+            "roster.sessions.show: only while the user runs one of your actions, commands or finder items",
+            "at load or in an event listener",
+        )],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "-- An alert's row goes to the line in the Session that printed it.\nopen = function(e) roster.sessions.show(alerts[e.row].session, alerts[e.row].text) end",
     },
     Function {
         path: "roster.sessions.open",
@@ -1278,6 +1508,11 @@ pub const TYPES: &[Type] = &[
             ),
             o("empty", "string", "What it says with no rows."),
             o("rows", "Row[]", "Its rows, at most 2,000."),
+            o(
+                "actions",
+                "RowAction[]",
+                "Buttons on its heading (`\"Dismiss all\"`), at most 4: shown while the heading is selected.",
+            ),
         ],
         open: false,
     },
@@ -1506,7 +1741,136 @@ pub const TYPES: &[Type] = &[
                 "string[]",
                 "Its text, a line each (at most 2,000, each cut to 500 characters).",
             ),
+            o("actions", "FloatAction[]", "Buttons at its foot (at most 4)."),
+            o("links", "Link[]", "Web pages to open in the browser (at most 4)."),
         ],
+        open: false,
+    },
+    Type {
+        name: "FloatAction",
+        summary: "A button in a floating window",
+        doc: "",
+        alias: "",
+        fields: &[
+            f("label", "string", "What it does (`\"Go to the line\"`)."),
+            o(
+                "key",
+                "string",
+                "One character that runs it while the window has focus (not `q`, which closes it).",
+            ),
+            f("run", "Run", "What pressing it runs."),
+        ],
+        open: false,
+    },
+    Type {
+        name: "Link",
+        summary: "A web page a floating window links to",
+        doc: "The app shows the address's host next to the label, so the user sees where it goes before they click.",
+        alias: "",
+        fields: &[
+            f("label", "string", "Its text (`\"Runbook\"`)."),
+            f(
+                "url",
+                "string",
+                "An `https://` or `http://` address; anything else is refused.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "Confirm",
+        summary: "A question the user answers (`roster.confirm`)",
+        doc: "The app draws it with your Plugin's name on it. Text is cut to 500 characters, except `text` (4,000).",
+        alias: "",
+        fields: &[
+            f("title", "string", "The question (`\"Cut esx-02 from the Mesh?\"`)."),
+            o(
+                "text",
+                "string",
+                "What will happen, in the app's voice; a blank line starts a paragraph.",
+            ),
+            o(
+                "facts",
+                "Fact[]",
+                "Label and value pairs: exactly what will be done to what.",
+            ),
+            o(
+                "action",
+                "string",
+                "The confirming button's word (`\"Cut\"`); `\"Confirm\"` if left out.",
+            ),
+            o(
+                "danger",
+                "boolean",
+                "The stronger form, for what can't easily be undone: the button in the danger colour, the keys starting on Cancel.",
+            ),
+            o(
+                "typed",
+                "string",
+                "With `danger`: a word the user types before the button works (a Host's name), at most 100 characters.",
+            ),
+            f("run", "fun(e: table): any", "Called when the user confirms."),
+            o(
+                "cancel",
+                "fun(e: table): any",
+                "Called when they don't, or another question replaces it.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "Progress",
+        summary: "How far something long has got (`roster.progress.set`)",
+        doc: "",
+        alias: "",
+        fields: &[
+            f(
+                "title",
+                "string",
+                "What's going on (`\"Scanning 10.0.0.0/24\"`), at most 80 characters.",
+            ),
+            o("text", "string", "More, for its tooltip (`\"12 Hosts found\"`)."),
+            o("done", "number", "How much is done, with `total`."),
+            o(
+                "total",
+                "number",
+                "How much there is; with `done`, shown as a share. Without both, it only shows it's going.",
+            ),
+            o(
+                "cancel",
+                "Run",
+                "What stopping it runs: the button and `:cancel ID` call it once.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "ToolbarControl",
+        summary: "A control in the toolbar (`roster.toolbar.set`)",
+        doc: "",
+        alias: "",
+        fields: &[
+            f(
+                "label",
+                "string",
+                "What it does, for its tooltip and screen readers (`\"Scan a network\"`), at most 80 characters.",
+            ),
+            o(
+                "text",
+                "string",
+                "A word shown beside the icon (at most 20 characters); without an icon, the label is shown.",
+            ),
+            o("icon", "ToolbarIcon", "Its icon."),
+            f("run", "Run", "What pressing it runs."),
+        ],
+        open: false,
+    },
+    Type {
+        name: "ToolbarIcon",
+        summary: "A toolbar control's icon",
+        doc: "`map` is three nodes joined: a network, Topology.",
+        alias: "\"find\"|\"add\"|\"details\"|\"help\"|\"map\"",
+        fields: &[],
         open: false,
     },
     Type {
@@ -1546,7 +1910,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "ViewUpdate",
         summary: "What `roster.views.update` changes",
-        doc: "Plain data. A field left out stays as it is.",
+        doc: "Plain data, but for `actions`. A field left out stays as it is.",
         alias: "",
         fields: &[
             o("title", "string", "A new heading."),
@@ -1558,6 +1922,18 @@ pub const TYPES: &[Type] = &[
                 "Rows to add or replace, by `id` (at most 2,000 at once).",
             ),
             o("remove", "string[]", "The ids of rows to take away."),
+            o(
+                "columns",
+                "Column[]",
+                "New columns, all of them; the rows keep their cells.",
+            ),
+            o("sort", "string", "Sort by this column now (the user's sort gives way)."),
+            o("desc", "boolean", "With `sort`: highest first."),
+            o(
+                "actions",
+                "TableAction[]",
+                "New actions, all of them: their functions replace the old ones' (`open` stays).",
+            ),
         ],
         open: false,
     },
@@ -1598,7 +1974,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "Table",
         summary: "A table: columns, rows as plain data, and what a row can do",
-        doc: "The app sorts it, keeps the selected row across changes and draws only the rows on screen, so it stays smooth at thousands of rows. Keys, once it has focus: `j`/`k` or the arrows move, `g g`/`G` go to the first and last row, `Ctrl+D`/`Ctrl+U` half a page, `s` sorts by the next column and `S` reverses it, `Enter` runs `open`, an action's `key` runs it. A click selects a row, a double click opens it, and a click on a heading sorts by it. The selected row shows its actions as buttons.",
+        doc: "The app sorts it, keeps the selected row across changes and draws only the rows on screen, so it stays smooth at thousands of rows. Keys, once it has focus: `j`/`k` or the arrows move, `g g`/`G` go to the first and last row, `Ctrl+D`/`Ctrl+U` half a page, `s` sorts by the next column and `S` reverses it, `/` filters the rows by what they say (`Esc` clears it), `Enter` runs `open`, an action's `key` runs it. A click selects a row, a double click opens it, and a click on a heading sorts by it. The selected row shows its actions as buttons.",
         alias: "",
         fields: &[
             f("columns", "Column[]", "Its columns, left to right (1 to 20)."),
@@ -1710,6 +2086,11 @@ pub const TYPES: &[Type] = &[
                 "One character that runs it on the selected row, not one the table uses itself.",
             ),
             o("icon", "RowIcon", "Its button's icon; the label alone if left out."),
+            o(
+                "when",
+                "table<string, string|number|(string|number)[]>",
+                "Only on the rows whose cells match: `{ state = \"up\" }`, or a list of values (`{ state = { \"up\", \"slow\" } }`). A cell needn't be a column, so a row can carry what decides it without showing it.",
+            ),
             f("run", "TableRun", "What it runs."),
         ],
         open: false,
@@ -2440,6 +2821,12 @@ pub fn markdown() -> String {
     }
     s.push('\n');
 
+    s.push_str("## Command lines a Plugin may run\n\n`roster.cmd(line)`, and a `run` that's a command line (a row's, a button's, a finder item's, a toolbar control's), run the Plugin's own commands and only these of roster's, each with what it needs. Anything else is refused: `roster.cmd` raises an error, and a button that would run it says why in a notice instead.\n\n| Command | What it does | Needs |\n|---|---|---|\n");
+    for c in COMMANDS {
+        s.push_str(&format!("| `{}` | {} | {} |\n", c.name, cell(c.doc), c.needs.text()));
+    }
+    s.push('\n');
+
     s.push_str("## roster serve's results\n\nWhat `roster.serve.call(method)` returns, for the methods a Plugin may be granted. JSON `null` is `nil`.\n\n| Method | Result | In serve-api.md |\n|---|---|---|\n");
     for r in SERVE_RESULTS {
         let result = if r.result.is_empty() {
@@ -2711,6 +3098,7 @@ pub fn json() -> Json {
         "values": VALUES.iter().map(|v| json!({ "path": v.path, "type": v.ty })).collect::<Vec<_>>(),
         "functions": functions,
         "events": EVENTS.iter().map(|e| json!({ "name": e.name, "needs": e.needs, "payload": e.payload })).collect::<Vec<_>>(),
+        "commands": COMMANDS.iter().map(|c| json!({ "name": c.name, "permission": match c.needs { Needs::Permission(p) => json!(p), _ => Json::Null } })).collect::<Vec<_>>(),
         "types": types,
         "tags": tags,
     })

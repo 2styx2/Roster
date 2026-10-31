@@ -59,6 +59,7 @@
 ---@field order? number Where it goes: Sessions is 100, the Inventory 300. 400 if left out.
 ---@field empty? string What it says with no rows.
 ---@field rows? roster.Row[] Its rows, at most 2,000.
+---@field actions? roster.RowAction[] Buttons on its heading (`"Dismiss all"`), at most 4: shown while the heading is selected.
 
 --- A row of a Sidebar section
 ---@class roster.Row
@@ -151,6 +152,48 @@
 ---@class roster.Float
 ---@field title? string Its title.
 ---@field lines? string[] Its text, a line each (at most 2,000, each cut to 500 characters).
+---@field actions? roster.FloatAction[] Buttons at its foot (at most 4).
+---@field links? roster.Link[] Web pages to open in the browser (at most 4).
+
+--- A button in a floating window
+---@class roster.FloatAction
+---@field label string What it does (`"Go to the line"`).
+---@field key? string One character that runs it while the window has focus (not `q`, which closes it).
+---@field run roster.Run What pressing it runs.
+
+--- A web page a floating window links to
+---@class roster.Link
+---@field label string Its text (`"Runbook"`).
+---@field url string An `https://` or `http://` address; anything else is refused.
+
+--- A question the user answers (`roster.confirm`)
+---@class roster.Confirm
+---@field title string The question (`"Cut esx-02 from the Mesh?"`).
+---@field text? string What will happen, in the app's voice; a blank line starts a paragraph.
+---@field facts? roster.Fact[] Label and value pairs: exactly what will be done to what.
+---@field action? string The confirming button's word (`"Cut"`); `"Confirm"` if left out.
+---@field danger? boolean The stronger form, for what can't easily be undone: the button in the danger colour, the keys starting on Cancel.
+---@field typed? string With `danger`: a word the user types before the button works (a Host's name), at most 100 characters.
+---@field run fun(e: table): any Called when the user confirms.
+---@field cancel? fun(e: table): any Called when they don't, or another question replaces it.
+
+--- How far something long has got (`roster.progress.set`)
+---@class roster.Progress
+---@field title string What's going on (`"Scanning 10.0.0.0/24"`), at most 80 characters.
+---@field text? string More, for its tooltip (`"12 Hosts found"`).
+---@field done? number How much is done, with `total`.
+---@field total? number How much there is; with `done`, shown as a share. Without both, it only shows it's going.
+---@field cancel? roster.Run What stopping it runs: the button and `:cancel ID` call it once.
+
+--- A control in the toolbar (`roster.toolbar.set`)
+---@class roster.ToolbarControl
+---@field label string What it does, for its tooltip and screen readers (`"Scan a network"`), at most 80 characters.
+---@field text? string A word shown beside the icon (at most 20 characters); without an icon, the label is shown.
+---@field icon? roster.ToolbarIcon Its icon.
+---@field run roster.Run What pressing it runs.
+
+--- A toolbar control's icon
+---@alias roster.ToolbarIcon "find"|"add"|"details"|"help"|"map"
 
 --- A side panel or a full view (`roster.views.set`)
 ---@class roster.View
@@ -170,6 +213,10 @@
 ---@field facts? roster.Fact[] New facts, all of them.
 ---@field rows? roster.TableRow[] Rows to add or replace, by `id` (at most 2,000 at once).
 ---@field remove? string[] The ids of rows to take away.
+---@field columns? roster.Column[] New columns, all of them; the rows keep their cells.
+---@field sort? string Sort by this column now (the user's sort gives way).
+---@field desc? boolean With `sort`: highest first.
+---@field actions? roster.TableAction[] New actions, all of them: their functions replace the old ones' (`open` stays).
 
 --- A section of a Host's details (`roster.details.set`)
 ---@class roster.DetailsSection
@@ -220,6 +267,7 @@
 ---@field label string What it does (`"Keep"`), on its button and in the key hints.
 ---@field key? string One character that runs it on the selected row, not one the table uses itself.
 ---@field icon? roster.RowIcon Its button's icon; the label alone if left out.
+---@field when? table<string, string|number|(string|number)[]> Only on the rows whose cells match: `{ state = "up" }`, or a list of values (`{ state = { "up", "slow" } }`). A cell needn't be a column, so a row can carry what decides it without showing it.
 ---@field run roster.TableRun What it runs.
 
 --- What a table's row or action runs
@@ -447,6 +495,16 @@ function roster.notify(text, level) end
 ---@overload fun(event: "terminal_output", listener: fun(e: roster.TerminalOutputEvent))
 function roster.on(event, listener) end
 
+--- Asks the user to confirm, then runs a function.
+--- Permission: none. Since: api 3.
+---@param question roster.Confirm What to ask, the button that confirms, and what runs when the user does.
+function roster.confirm(question) end
+
+--- Runs a command line.
+--- Permission: none. Since: api 3.
+---@param line string A command line, as typed after `:` (`"finder alerts"`).
+function roster.cmd(line) end
+
 --- `:` commands. 
 roster.commands = {}
 
@@ -564,6 +622,34 @@ function roster.tutor.set(id, tutorial) end
 ---@param id string One of the Plugin's tutorials.
 function roster.tutor.remove(id) end
 
+--- Controls in the toolbar. A control in the title bar's toolbar (decision Q65), after roster's own by the window's buttons. It's shown unless `init.lua` picks the controls itself with `modes.<mode>.toolbar`: then it shows where that list names its id. It never takes focus from the terminal.
+roster.toolbar = {}
+
+--- Adds a control to the toolbar, or replaces it.
+--- Permission: none. Since: api 3.
+---@param id string The control's id: a name like `scan`, which `modes.<mode>.toolbar` can list.
+---@param control roster.ToolbarControl Its label, icon or word, and what it runs.
+function roster.toolbar.set(id, control) end
+
+--- Removes a toolbar control.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's controls.
+function roster.toolbar.remove(id) end
+
+--- Progress of something long. What the Plugin is doing that takes a while (a scan, a long roster serve call), shown in the status bar: how far it has got, or only that it's going, and a way to stop it. `:cancel ID` (or the button) calls its `cancel` function. Setting it any time is fine, from an event too: it changes nothing but itself.
+roster.progress = {}
+
+--- Shows or updates the progress of something long.
+--- Permission: none. Since: api 3.
+---@param id string A name like `scan`: `:cancel scan` cancels it.
+---@param progress roster.Progress What's going on, how far it has got, and how to stop it.
+function roster.progress.set(id, progress) end
+
+--- Takes a progress away: it's over.
+--- Permission: none. Since: api 3.
+---@param id string One of the Plugin's progresses.
+function roster.progress.remove(id) end
+
 --- Badges on Host rows. 
 roster.badges = {}
 
@@ -680,8 +766,14 @@ function roster.inventory.move(host, group) end
 ---@return roster.ReviewResult # What was written.
 function roster.inventory.review(host, reviewed) end
 
---- Opening Sessions. `nil` unless the Plugin was granted `sessions.open`.
+--- Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.
 roster.sessions = {}
+
+--- Goes to a Session, and to a line in its scrollback.
+--- Permission: none. Since: api 3.
+---@param session integer The Session's id, from an event (`e.session`).
+---@param line? string Text of a line it printed: the app searches its scrollback from the bottom for the latest line with it, and shows it highlighted.
+function roster.sessions.show(session, line) end
 
 --- Opens a Session on a Host, as `:connect HOST`.
 --- Permission: sessions.open. Since: api 2.
