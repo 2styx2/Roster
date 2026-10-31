@@ -14,6 +14,7 @@ import start from "../../../docs/app/start.md?raw";
 import themes from "../../../docs/app/themes.md?raw";
 import addingHosts from "../../../docs/adding-hosts.md?raw";
 import cli from "../../../docs/cli-reference.md?raw";
+import meshGuide from "../../../docs/mesh.md?raw";
 import newBox from "../../../docs/new-box.md?raw";
 import plugins from "../../../docs/plugins.md?raw";
 import serveApi from "../../../docs/serve-api.md?raw";
@@ -139,6 +140,16 @@ export const guides: readonly Guide[] = [
       resources: "cli#resources-secrets-with-no-address",
     },
     markdown: cli,
+  },
+  {
+    id: "mesh",
+    path: "docs/mesh.md",
+    title: "The Mesh: Hosts that reach each other",
+    summary: "mesh: and links: in roster.yml, roster mesh, cut, drift in roster check, ESXi and appliances",
+    part: "Reference",
+    order: 72,
+    aliases: { "mesh links": "mesh#saying-who-reaches-whom", "roster mesh": "mesh#roster-mesh", "mesh cut": "mesh#cut" },
+    markdown: meshGuide,
   },
   {
     id: "serve-api",
