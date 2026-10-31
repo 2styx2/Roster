@@ -119,7 +119,7 @@ interface Entry {
   windowFrom: number | null;
   /** The current attempt's last output after the window (decoded), for classifyDrop. */
   late: string;
-  /** Decodes this tab's output for `preAuth` and `late`. Its own, and new each attempt: a streaming decoder
+  /** Decodes this tab's output for `preAuth`, `late` and `saveScan`. Its own, and new each attempt: a streaming decoder
    * holds a character split across chunks, which must not end up in another tab's text. */
   decoder: TextDecoder;
   sink: Sink | null;
@@ -261,16 +261,19 @@ export class Tabs {
     return entry.windowFrom !== null;
   }
 
-  private keepTail(entry: Entry, data: Uint8Array) {
+  /** Keeps the attempt's output for classifyExit / classifyDrop; returns it decoded (the tab's
+   * streaming decoder, so a character split across chunks comes out whole). */
+  private keepTail(entry: Entry, data: Uint8Array): string {
     const text = entry.decoder.decode(data, { stream: true });
     if (this.windowOpen(entry) && entry.preAuthBytes + data.length <= PRE_AUTH_BYTES) {
       entry.preAuth += text;
       entry.preAuthBytes += data.length;
-      return;
+      return text;
     }
     entry.windowFrom = null;
     entry.late += text;
     if (entry.late.length > LATE_LIMIT) entry.late = entry.late.slice(-LATE_LIMIT);
+    return text;
   }
 
   /** A Quick Connect's Problem says so (its fixes then leave out the Host-only ones). */
@@ -411,8 +414,8 @@ export class Tabs {
         output: (data) => {
           if (!current()) return;
           const before = entry.tab;
-          this.keepTail(entry, data);
-          if (entry.tab.save) this.scanForName(entry, new TextDecoder().decode(data));
+          const text = this.keepTail(entry, data);
+          if (entry.tab.save) this.scanForName(entry, text);
           this.output(entry, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
