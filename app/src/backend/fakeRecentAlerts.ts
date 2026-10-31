@@ -9,18 +9,20 @@ const DEFAULT_PATTERNS = ["ERROR", "panic", "disk full"];
 const LINE_MAX = 300;
 const CARRY_MAX = 2000;
 const CONTEXT = 3;
+const QUICK = "Quick Connect";
 
 interface Settings {
   patterns: string[];
   leader: string;
   max: number;
   notify: boolean;
+  quiet: number;
 }
 
 /** match.settings: init.lua's settings, checked; bad values use the default and are named. */
 export function settings(config: Record<string, unknown>): [Settings, string[]] {
   const problems: string[] = [];
-  const s: Settings = { patterns: DEFAULT_PATTERNS, leader: "w w", max: 100, notify: true };
+  const s: Settings = { patterns: DEFAULT_PATTERNS, leader: "w w", max: 100, notify: true, quiet: 30 };
   if (config.patterns !== undefined) {
     const p = config.patterns;
     if (Array.isArray(p) && p.length > 0 && p.every((x) => typeof x === "string" && x !== "" && x.length <= 200)) s.patterns = p as string[];
@@ -36,7 +38,15 @@ export function settings(config: Record<string, unknown>): [Settings, string[]] 
     if (typeof m === "number" && Number.isInteger(m) && m >= 1 && m <= 1000) s.max = m;
     else problems.push("config.max must be a whole number from 1 to 1000");
   }
-  if (config.notify !== undefined) s.notify = config.notify !== false;
+  if (config.notify !== undefined) {
+    if (typeof config.notify === "boolean") s.notify = config.notify;
+    else problems.push("config.notify must be true or false");
+  }
+  if (config.quiet !== undefined) {
+    const q = config.quiet;
+    if (typeof q === "number" && Number.isInteger(q) && q >= 0 && q <= 3600) s.quiet = q;
+    else problems.push("config.quiet must be a whole number of seconds from 0 to 3600");
+  }
   return [s, problems];
 }
 
@@ -44,14 +54,25 @@ function lines(carry: string | undefined, text: string): [string[], string] {
   const all = (carry ?? "") + text;
   const parts = all.split("\n");
   let rest = parts.pop() ?? "";
-  if (rest.length > CARRY_MAX) rest = rest.slice(-CARRY_MAX);
+  // The Lua keeps the last CARRY_MAX bytes, cut where a character starts.
+  const bytes = new TextEncoder().encode(rest);
+  if (bytes.length > CARRY_MAX) {
+    let from = bytes.length - CARRY_MAX;
+    while (from < bytes.length && ((bytes[from] ?? 0) & 0xc0) === 0x80) from++;
+    rest = new TextDecoder().decode(bytes.slice(from));
+  }
   return [parts, rest];
+}
+
+/** match.prompt: a shell prompt and what was typed after it, the shell's echo of your command. */
+export function prompt(line: string): boolean {
+  return /^\S+[$#] /.test(line) || /^\[[^\]]*\][$#] /.test(line) || /^\$ /.test(line) || /^PS [^>]*> /.test(line);
 }
 
 function tidy(line: string): string {
   const t = line.trim();
   const chars = [...t];
-  return chars.length > LINE_MAX ? `${chars.slice(0, LINE_MAX).join("")}…` : t;
+  return chars.length > LINE_MAX ? `${chars.slice(0, LINE_MAX - 1).join("")}…` : t;
 }
 
 const two = (n: number) => String(n).padStart(2, "0");
@@ -68,7 +89,8 @@ const list = (p: string[]) => (p.length === 1 ? (p[0] ?? "") : `${p.slice(0, -1)
 
 interface Alert {
   id: number;
-  host: string;
+  /** null: a Quick Connect Session, which has no Host. */
+  host: string | null;
   session: number;
   text: string;
   pattern: string;
@@ -108,12 +130,14 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
   const carry = new Map<number, string>();
   const context = new Map<number, string[]>();
   let badged = new Map<string, number>();
+  const told = new Map<string, { at: number | null; held: number }>();
+  const where = (a: Alert) => a.host ?? QUICK;
 
   const details = (a: Alert) => {
-    const out = [`Host     ${a.host}`, `Session  ${a.session}`, `At       ${date(a.at)}`, `Matched  ${a.pattern}`, ""];
+    const out = [`Host     ${a.host ?? `none (${QUICK})`}`, `Session  ${a.session}`, `At       ${date(a.at)}`, `Matched  ${a.pattern}`, ""];
     for (const l of a.before) out.push(`  ${l}`);
     out.push(`› ${a.text}`);
-    roster.float.open({ title: `Alert on ${a.host}`, lines: out });
+    roster.float.open({ title: a.host ? `Alert on ${a.host}` : "Alert in a Quick Connect Session", lines: out });
   };
 
   const show = () => {
@@ -121,14 +145,14 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
     const items: Record<string, unknown>[] = [];
     const perHost = new Map<string, number>();
     for (const a of [...alerts].reverse()) {
-      perHost.set(a.host, (perHost.get(a.host) ?? 0) + 1);
+      if (a.host) perHost.set(a.host, (perHost.get(a.host) ?? 0) + 1);
       rows.push({
         id: String(a.id),
         label: a.text,
-        detail: a.host,
+        detail: where(a),
         note: clock(a.at),
-        title: `${a.host} at ${clock(a.at)}: ${a.text}`,
-        host: a.host,
+        title: `${where(a)} at ${clock(a.at)}: ${a.text}`,
+        ...(a.host ? { host: a.host } : {}),
         actions: [
           { label: `Details of ${a.text}`, icon: "info", run: () => details(a) },
           {
@@ -136,7 +160,7 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
             icon: "copy",
             run: () => {
               roster.clipboard.copy(a.text);
-              roster.notify(`Copied the line from ${a.host}`);
+              roster.notify(`Copied the line from ${where(a)}`);
             },
           },
           {
@@ -149,7 +173,7 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
           },
         ],
       });
-      items.push({ id: String(a.id), label: a.text, detail: `${a.host} · ${clock(a.at)}`, run: () => details(a) });
+      items.push({ id: String(a.id), label: a.text, detail: `${where(a)} · ${clock(a.at)}`, run: () => details(a) });
     }
     const empty = reads ? `No alerts. Lines with ${list(s.patterns)} show here.` : "Allow terminal.read in :plugins to see alerts.";
     roster.sidebar.set("recent-alerts", { title: "Recent alerts", order: 200, empty, rows });
@@ -176,7 +200,7 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
         roster.notify(n === 0 ? "No alerts to clear" : `Dismissed ${plural(n, "alert", "alerts")}`);
       } else if (what === undefined) {
         if (alerts.length === 0) return roster.notify("No alerts");
-        roster.float.open({ title: "Recent alerts", lines: [...alerts].reverse().map((x) => `${clock(x.at)}  ${x.host}  ${x.text}`) });
+        roster.float.open({ title: "Recent alerts", lines: [...alerts].reverse().map((x) => `${clock(x.at)}  ${where(x)}  ${x.text}`) });
       } else roster.notify(":alerts shows the alerts, :alerts clear dismisses them all", "warn");
     },
   });
@@ -205,14 +229,15 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
       const text = String(e.text);
       if (options.throwsOn && text.includes(options.throwsOn)) throw new Error(`${options.throwsOn} in the output`);
       const session = Number(e.session);
-      const host = typeof e.host === "string" ? e.host : "?";
+      const host = typeof e.host === "string" ? e.host : null;
       const [whole, rest] = lines(carry.get(session), text);
       carry.set(session, rest);
       const seen = context.get(session) ?? [];
       const fresh: Alert[] = [];
       for (const raw of whole) {
-        const line = tidy(raw);
-        const pattern = line !== "" ? s.patterns.find((p) => line.includes(p)) : undefined;
+        const all = raw.trim();
+        const pattern = all !== "" && !prompt(all) ? s.patterns.find((p) => all.includes(p)) : undefined;
+        const line = tidy(all);
         if (pattern) {
           const a: Alert = { id: ++nextId, host, session, text: line, pattern, at: Math.floor(Date.now() / 1000), before: seen.slice(-CONTEXT) };
           alerts.push(a);
@@ -229,7 +254,18 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
       while (alerts.length > s.max) alerts.shift();
       show();
       if (s.notify) {
-        roster.notify(fresh.length === 1 ? `${last.host}: ${last.text}` : `${fresh.length} new alerts, the last on ${last.host}: ${last.text}`, "warn");
+        // At most one notice per Host each `quiet` seconds; the ones held back count in the next.
+        const key = where(last);
+        const t = told.get(key) ?? { at: null, held: 0 };
+        told.set(key, t);
+        const now = Math.floor(Date.now() / 1000);
+        if (t.at !== null && now - t.at < s.quiet) t.held += fresh.length;
+        else {
+          const n = t.held + fresh.length;
+          t.at = now;
+          t.held = 0;
+          roster.notify(n === 1 ? `${key}: ${last.text}` : `${n} new alerts on ${key}, the last: ${last.text}`, "warn");
+        }
       }
     });
     roster.on("session_exit", (e) => {

@@ -8,12 +8,12 @@ It's also the template for writing your own: copy this folder, rename it, and ch
 
 | Where | What |
 |---|---|
-| Sidebar | A **Recent alerts** section, newest first: the line, its Host and the time. Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it |
+| Sidebar | A **Recent alerts** section, newest first: the line, its Host and the time. Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it. A Quick Connect Session has no Host: its alerts say "Quick Connect", with no badge and nothing for Enter to go to |
 | Inventory | A badge on each Host that has alerts: `2 alerts` |
 | Status bar | `⚠ 3`, which opens the finder |
 | Finder | `:finder alerts` (and `␣ w w`): search the alerts; Enter shows one's details |
 | Floating window | An alert's details: Host, Session, time, the pattern, and the lines before it. `Esc` closes it |
-| Notices | One when new alerts arrive (several at once make one notice) |
+| Notices | One when new alerts arrive (several at once make one notice), at most one per Host every 30 seconds (`quiet`): the next one counts those in between, "3 new alerts on esx-02" |
 | Commands | `:alerts` shows them all; `:alerts clear` dismisses them all |
 | Help | `:help recent-alerts` |
 
@@ -35,7 +35,8 @@ packages = {
     patterns = { "ERROR", "panic", "disk full" }, -- plain text, matched as is (not Lua patterns)
     leader = "w w",                               -- the keys after the Leader that open its finder
     max = 100,                                    -- how many alerts it keeps
-    notify = true,                                -- a notice for each new alert
+    notify = true,                                -- a notice when new alerts arrive (true or false)
+    quiet = 30,                                   -- seconds between a Host's notices (0 to 3600)
   } },
 },
 ```
@@ -43,6 +44,10 @@ packages = {
 The app clones it, shows who wrote it and where it's from (unverified), and asks before it runs. Or, from a folder on this machine: `:plugins install ~/plugins/recent-alerts`.
 
 A setting it can't use is named in a notice, and the default is used instead.
+
+## What it can't tell apart
+
+Plugins never see what you type, but the shell echoes it, so `grep ERROR /var/log/syslog` is in the output like anything else. recent-alerts skips a line that looks like a shell prompt followed by a command (`esx-02$ …`, `root@esx-02:~# …`, `[admin@appliance logs]$ …`, `$ …`, `PS C:\logs> …`). It's a guess from the text: a prompt it doesn't know still counts, and a log line that happens to start like a prompt is skipped.
 
 ## How it's made
 
@@ -57,9 +62,11 @@ recent-alerts/
 - **`roster.plugin.config`** is the table from init.lua's `config = { … }`. Check it: anyone can write anything there.
 - **`roster.plugin.permissions`** says what it was granted. Listening for an event it may not hear is an error, so it only calls `roster.on("terminal_output", …)` when it has `terminal.read`.
 - **One `show()` draws everything** from its own state: the section, the finder, the status segment and the badges. Each `set` replaces the last, so there's nothing to keep in step.
-- **`terminal_output` comes in batches**, a few times a second, without colours or escape sequences. A line can be split across two batches, so it keeps the unfinished end of each Session's output until the rest arrives, and forgets it on `session_exit`.
+- **`terminal_output` comes in batches**, a few times a second, without colours or escape sequences. A line can be split across two batches, so it keeps the unfinished end of each Session's output until the rest arrives (the last 2000 bytes, cut where a character starts, never inside one), and forgets it on `session_exit`.
+- **`host` can be `nil`**: a Quick Connect Session isn't on a Host of the Inventory, so it gets no badge and its rows have no `host`.
+- **It matches the whole line and shows it cut** to 300 characters, so an `ERROR` at the end of a long line still counts.
 - **Everything is in name order** (the badges, the rows), so the same alerts always make the same changes.
-- **Copying** (`roster.clipboard.copy`) works only inside an action the user chose; at load or on an event it's an error.
+- **Copying** (`roster.clipboard.copy`) works only inside an action the user chose; at load or on an event it's an error. Say "Copied" after it: if the clipboard can't be written, the app drops that and says what went wrong.
 
 ## Testing it
 

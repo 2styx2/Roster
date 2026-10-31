@@ -5,6 +5,8 @@ local M = {}
 M.DEFAULT_PATTERNS = { "ERROR", "panic", "disk full" }
 M.DEFAULT_LEADER = "w w"
 M.DEFAULT_MAX = 100
+-- At most one notice per Host this many seconds apart; the alerts in between are counted in the next.
+M.DEFAULT_QUIET = 30
 -- A line is cut to this many characters (a Sidebar row shows far fewer).
 M.LINE_MAX = 300
 -- What's kept of a line that hasn't ended yet, per Session.
@@ -15,7 +17,7 @@ local CARRY_MAX = 2000
 function M.settings(config)
   config = type(config) == "table" and config or {}
   local problems = {}
-  local s = { patterns = M.DEFAULT_PATTERNS, leader = M.DEFAULT_LEADER, max = M.DEFAULT_MAX, notify = true }
+  local s = { patterns = M.DEFAULT_PATTERNS, leader = M.DEFAULT_LEADER, max = M.DEFAULT_MAX, notify = true, quiet = M.DEFAULT_QUIET }
 
   if config.patterns ~= nil then
     local ok = type(config.patterns) == "table" and #config.patterns > 0
@@ -51,7 +53,18 @@ function M.settings(config)
     end
   end
   if config.notify ~= nil then
-    s.notify = config.notify ~= false
+    if type(config.notify) == "boolean" then
+      s.notify = config.notify
+    else
+      problems[#problems + 1] = "config.notify must be true or false"
+    end
+  end
+  if config.quiet ~= nil then
+    if math.type(config.quiet) == "integer" and config.quiet >= 0 and config.quiet <= 3600 then
+      s.quiet = config.quiet
+    else
+      problems[#problems + 1] = "config.quiet must be a whole number of seconds from 0 to 3600"
+    end
   end
   return s, problems
 end
@@ -67,7 +80,10 @@ function M.lines(carry, text)
     start = nl + 1
   end
   local rest = all:sub(start)
-  if #rest > CARRY_MAX then rest = rest:sub(-CARRY_MAX) end
+  if #rest > CARRY_MAX then
+    -- Keep its end, cut where a character starts: never in the middle of a multi-byte one.
+    rest = rest:sub(-CARRY_MAX):gsub("^[\128-\191]+", "")
+  end
   return out, rest
 end
 
@@ -78,6 +94,17 @@ function M.first(line, patterns)
     if line:find(p, 1, true) then return p end
   end
   return nil
+end
+
+-- Whether `line` looks like a shell prompt and what was typed after it ("esx-02$ grep ERROR …",
+-- "root@esx-02:~# …", "[admin@appliance logs]$ …", "$ …", "PS C:\logs> …"): the shell's echo of
+-- your own command, not something the server said. A guess: a log line that happens to start the
+-- same way is skipped too. roster never shows a Plugin what you type, so this is all it can go on.
+function M.prompt(line)
+  return line:find("^%S+[%$#] ") ~= nil
+    or line:find("^%[[^%]]*%][%$#] ") ~= nil
+    or line:find("^%$ ") ~= nil
+    or line:find("^PS [^>]*> ") ~= nil
 end
 
 -- A line as an alert shows it: no surrounding blanks, cut to LINE_MAX.

@@ -150,7 +150,7 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 | `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)`, `roster.health.remove(id)`, `roster.tutor.remove(id)` | |
 | `roster.badges.set(host, text)` | A badge on the Host's Inventory row (`"2 alerts"`); `nil` takes it off |
 | `roster.float.open({ title, lines })`, `roster.float.close()` | A floating window over the terminal; `Esc` closes it |
-| `roster.clipboard.copy(text)` | Puts text on the clipboard. Only while the user runs one of your actions, commands or finder items: at load or on an event it's an error, so a Plugin can't change what you copied behind your back |
+| `roster.clipboard.copy(text)` | Puts text on the clipboard. Only while the user runs one of your actions, commands or finder items: at load or on an event it's an error, so a Plugin can't change what you copied behind your back. If the clipboard can't be written, the app says so, and the notices your call gave after the copy aren't shown (a "Copied" would be wrong) |
 | `roster.notify(text, level)` | A notice, `"info"` (the default), `"warn"` or `"error"`, naming your Plugin |
 | `roster.on(event, function(e) … end)` | Runs on an event (below) |
 
@@ -166,7 +166,11 @@ A Sidebar row is `{ id, label, detail, note, host, badge, count, level, title, r
 | `inventory_changed` | `{}` | `inventory.read` |
 | `terminal_output` | `{ session, host, text }`: what a Session printed, as text without colours or escape sequences, a few times a second | `terminal.read` |
 
-Subscribing to an event your Plugin may not hear is an error. What you type into a Session is never an event.
+`host` is the Host's name in the Inventory, and `nil` for a Quick Connect Session (`:quick`), which isn't on a Host: don't badge it or make a row go to it.
+
+Subscribing to an event your Plugin may not hear is an error. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command).
+
+Text you hand the app (a label, a notice, a float's lines, a badge, what you copy) that isn't valid UTF-8, such as a line you cut in the middle of a character, is shown with `�` where it breaks; it isn't an error. A name that isn't (an id, a table key) is.
 
 ### A tutorial's steps
 
