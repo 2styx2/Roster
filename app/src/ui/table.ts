@@ -81,6 +81,27 @@ export function nextSort(columns: readonly TableColumn[], sort: Sort | null): So
   return next ? { by: next.id, desc: false } : null;
 }
 
+/** Whether an action with `when` applies to `row` (ticket 78): every cell it names holds one of
+ * its values. A number and its text are the same value; a cell the row lacks matches nothing. */
+export function actionApplies(when: Readonly<Record<string, readonly (string | number)[]>> | undefined, row: TableRow): boolean {
+  if (!when) return true;
+  return Object.entries(when).every(([k, values]) => {
+    const v = row.cells[k];
+    return v !== undefined && values.some((x) => String(x) === String(v));
+  });
+}
+
+/** The rows that say every word of `query` somewhere in `columns`' cells, ignoring case (the
+ * table's `/`, ticket 78). An empty query keeps them all. */
+export function filterRows(rows: readonly TableRow[], columns: readonly TableColumn[], query: string): readonly TableRow[] {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return rows;
+  return rows.filter((r) => {
+    const text = columns.map((c) => String(r.cells[c.id] ?? "")).join("\u0000").toLocaleLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}
+
 /** Rows drawn when the table can't be measured (hidden, or in tests). */
 const UNMEASURED = 40;
 

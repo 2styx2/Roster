@@ -60,9 +60,61 @@ export interface PluginTutorLesson {
   steps: PluginTutorStep[];
 }
 
+/** A button in a floating window (ticket 78). */
+export interface PluginFloatAction {
+  label: string;
+  key?: string;
+  run: Run;
+}
+
+/** A web page a floating window links to: http or https only, shown with its host. */
+export interface PluginLink {
+  label: string;
+  url: string;
+}
+
 export interface PluginFloat {
   title: string;
   lines: string[];
+  actions: PluginFloatAction[];
+  links: PluginLink[];
+}
+
+/** A question the app draws and the user answers (`roster.confirm`, ticket 78). */
+export interface PluginConfirm {
+  title: string;
+  text?: string;
+  facts: PluginFact[];
+  /** The confirming button's word. */
+  action: string;
+  /** The stronger form: the danger button, the keys starting on Cancel. */
+  danger: boolean;
+  /** With danger: what the user types before the button works. */
+  typed?: string;
+  run: { handler: number };
+  cancel?: Run;
+}
+
+/** How far something long has got (`roster.progress.set`, ticket 78). */
+export interface PluginProgress {
+  title: string;
+  text?: string;
+  /** Both, or neither (it only shows it's going). */
+  done?: number;
+  total?: number;
+  cancel?: Run;
+}
+
+/** The icons a Plugin's toolbar control may have. */
+export const PLUGIN_TOOLBAR_ICONS = ["find", "add", "details", "help", "map"] as const;
+export type PluginToolbarIcon = (typeof PLUGIN_TOOLBAR_ICONS)[number];
+
+/** A toolbar control (`roster.toolbar.set`, ticket 78). */
+export interface PluginToolbarControl {
+  label: string;
+  text?: string;
+  icon?: PluginToolbarIcon;
+  run: Run;
 }
 
 /** A label and its value (a Host's details, a view). `data`: set in the data font. */
@@ -77,6 +129,8 @@ export interface PluginTableAction {
   /** One character that runs it on the selected row. */
   key?: string;
   icon?: RowAction["icon"];
+  /** Only on rows whose cells match: each key one of its values (ticket 78). */
+  when?: Readonly<Record<string, readonly (string | number)[]>>;
   run: Run;
 }
 
@@ -117,6 +171,12 @@ export interface PluginViewUpdate {
   remove: string[];
   /** Nodes, edges and clusters, in a graph (ticket 77). */
   graph?: PluginGraphUpdate;
+  /** New columns, all of them (ticket 78). */
+  columns?: TableColumn[];
+  /** Sort by this now; `desc` with it. */
+  sort?: Sort;
+  /** New actions, all of them. */
+  actions?: PluginTableAction[];
 }
 
 export interface PluginDetails extends PluginContent {
@@ -128,7 +188,7 @@ export type PluginOp =
   | { op: "command"; name: string; desc: string; run: Run }
   | { op: "key"; context: string; keys: string; action: string | false }
   | { op: "theme"; id: string; theme: ThemeDef }
-  | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[] }
+  | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[]; actions: PluginRowAction[] }
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
   /** `items` is a handler when the Plugin hands a function (ticket 79): run as the finder opens. */
   | { op: "finder"; id: string; title: string; items: PluginFinderItem[] | { handler: number } }
@@ -146,11 +206,16 @@ export type PluginOp =
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
   | { op: "copy"; text: string }
+  | { op: "confirm"; confirm: PluginConfirm }
+  | { op: "progress"; id: string; progress: PluginProgress }
+  | { op: "toolbar"; id: string; control: PluginToolbarControl }
+  | { op: "cmd"; line: string }
+  | { op: "session_show"; session: number; line: string | null }
   /** A timer (ticket 79): run `run` after `ms`, again every `ms` when `every`. */
   | { op: "timer"; id: string; ms: number; every: boolean; run: { handler: number } }
   | { op: "remove"; kind: RemovableKind; id: string };
 
-export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer"] as const;
+export const REMOVABLE = ["command", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer", "toolbar", "progress"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
@@ -170,6 +235,11 @@ const TONES: readonly Tone[] = ["muted", "warn", "error"];
 /** Keys a table uses itself (moving, sorting, and kept for a filter and its help). */
 export const TABLE_KEYS = ["j", "k", "g", "G", "s", "S", "/", "?", "q"] as const;
 const MAX_HELP = 200_000;
+/** Most buttons on a section's heading, and actions and links in a float. */
+const MAX_HEAD_ACTIONS = 4;
+/** Most cells an action's `when` may test. */
+const MAX_WHEN = 8;
+const MAX_URL = 2000;
 const MAX_COPY = 64 * 1024;
 
 class Invalid extends Error {}
@@ -210,22 +280,48 @@ function run(v: unknown, what: string): Run {
 
 const optRun = (o: Obj, what: string): { run?: Run } => (o.run === undefined || o.run === null ? {} : { run: run(o.run, what) });
 
+/** Buttons on a section's heading (ticket 78): row actions, at most 4. */
+function headActions(spec: Obj, what: string): PluginRowAction[] {
+  const actions = rowActions(spec, what);
+  if (actions.length > MAX_HEAD_ACTIONS) throw new Invalid(`${what}: actions has more than ${MAX_HEAD_ACTIONS}`);
+  return actions;
+}
+
+/** An http or https address, or why it can't be one. */
+function webUrl(text: string, what: string): string {
+  if (text.length > MAX_URL) throw new Invalid(`${what}: url is over ${MAX_URL} characters`);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Invalid(`${what}: url must be an https:// or http:// address`);
+  }
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || !url.hostname || url.username || url.password) {
+    throw new Invalid(`${what}: url must be an https:// or http:// address`);
+  }
+  return url.href;
+}
+
 /** Leaves out the keys whose value is undefined (exactOptionalPropertyTypes). */
 function defined<T>(o: { [K in keyof T]-?: T[K] | undefined }): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
 
-function row(v: unknown, i: number, what: string): PluginRow {
-  const at = `${what} row ${i + 1}`;
-  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
-  const label = str(v, "label", at);
-  const actions = list(v, "actions", at).map((a, j): PluginRowAction => {
+function rowActions(v: Obj, at: string): PluginRowAction[] {
+  return list(v, "actions", at).map((a, j): PluginRowAction => {
     const where = `${at} action ${j + 1}`;
     if (!isObj(a)) throw new Invalid(`${where}: must be a table`);
     const icon = a.icon === undefined ? "info" : a.icon;
     if (!ICONS.includes(icon as RowAction["icon"])) throw new Invalid(`${where}: icon must be one of ${ICONS.join(", ")}`);
     return { label: str(a, "label", where), icon: icon as RowAction["icon"], run: run(a.run, where) };
   });
+}
+
+function row(v: unknown, i: number, what: string): PluginRow {
+  const at = `${what} row ${i + 1}`;
+  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+  const label = str(v, "label", at);
+  const actions = rowActions(v, at);
   const level = num(v, "level", at);
   return defined<PluginRow>({
     id: optStr(v, "id", at, 100) ?? String(i + 1),
@@ -306,9 +402,8 @@ function tableRows(o: Obj, key: string, what: string): TableRow[] {
   return rows;
 }
 
-function table(v: unknown, what: string): PluginTable {
-  const at = `${what} table`;
-  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+/** A table's columns: 1 to 20, each id once. */
+function columnsOf(v: Obj, at: string): TableColumn[] {
   const ids = new Set<string>();
   const columns = list(v, "columns", at).map((c, i): TableColumn => {
     const where = `${at} column ${i + 1}`;
@@ -323,9 +418,30 @@ function table(v: unknown, what: string): PluginTable {
   });
   if (columns.length === 0) throw new Invalid(`${at}: columns must have at least one column`);
   if (columns.length > MAX_COLUMNS) throw new Invalid(`${at}: columns has more than ${MAX_COLUMNS}`);
-  const by = optStr(v, "sort", at, 64);
-  if (by !== undefined && !ids.has(by)) throw new Invalid(`${at}: sort names no column (${by})`);
-  if (v.desc !== undefined && v.desc !== null && typeof v.desc !== "boolean") throw new Invalid(`${at}: desc must be true or false`);
+  return columns;
+}
+
+/** An action's `when`: cell = value, or a list of values. */
+function when(a: Obj, where: string): PluginTableAction["when"] {
+  const v = a.when;
+  if (v === undefined || v === null) return undefined;
+  if (!isObj(v)) throw new Invalid(`${where}: when must be a table of cell = value`);
+  const keys = Object.keys(v);
+  if (keys.length > MAX_WHEN) throw new Invalid(`${where}: when tests more than ${MAX_WHEN} cells`);
+  const out: Record<string, (string | number)[]> = {};
+  for (const k of keys) {
+    const raw = v[k];
+    const values = Array.isArray(raw) ? raw : [raw];
+    if (values.length === 0 || !values.every((x) => typeof x === "string" || (typeof x === "number" && Number.isFinite(x)))) {
+      throw new Invalid(`${where}: when.${k} must be text, a number, or a list of them`);
+    }
+    out[k.slice(0, 64)] = values as (string | number)[];
+  }
+  return out;
+}
+
+/** A table's actions: at most 8, each key once and none the table's own. */
+function tableActions(v: Obj, at: string): PluginTableAction[] {
   const keys = new Set<string>();
   const actions = list(v, "actions", at).map((a, j): PluginTableAction => {
     const where = `${at} action ${j + 1}`;
@@ -339,16 +455,26 @@ function table(v: unknown, what: string): PluginTable {
     }
     const icon = a.icon === undefined || a.icon === null ? undefined : ICONS.find((x) => x === a.icon);
     if (a.icon !== undefined && a.icon !== null && !icon) throw new Invalid(`${where}: icon must be one of ${ICONS.join(", ")}`);
-    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon, run: run(a.run, where) });
+    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon, when: when(a, where), run: run(a.run, where) });
   });
   if (actions.length > MAX_ACTIONS) throw new Invalid(`${at}: actions has more than ${MAX_ACTIONS}`);
+  return actions;
+}
+
+function table(v: unknown, what: string): PluginTable {
+  const at = `${what} table`;
+  if (!isObj(v)) throw new Invalid(`${at}: must be a table`);
+  const columns = columnsOf(v, at);
+  const by = optStr(v, "sort", at, 64);
+  if (by !== undefined && !columns.some((c) => c.id === by)) throw new Invalid(`${at}: sort names no column (${by})`);
+  if (v.desc !== undefined && v.desc !== null && typeof v.desc !== "boolean") throw new Invalid(`${at}: desc must be true or false`);
   return defined<PluginTable>({
     columns,
     rows: tableRows(v, "rows", at),
     sort: by === undefined ? null : { by, desc: v.desc === true },
     empty: optStr(v, "empty", at),
     open: optRun({ run: v.open }, `${at} open`).run,
-    actions,
+    actions: tableActions(v, at),
   });
 }
 
@@ -394,6 +520,7 @@ function parse(raw: unknown): PluginOp {
         order: num(spec, "order", what) ?? 400,
         empty: optStr(spec, "empty", what),
         rows: list(spec, "rows", what).map((r, i) => row(r, i, what)),
+        actions: headActions(spec, what),
       });
     }
     case "status": {
@@ -489,7 +616,27 @@ function parse(raw: unknown): PluginOp {
       if (raw.spec === null) return { op: "float", spec: null };
       const what = "roster.float.open";
       const lines = list(spec, "lines", what).map((l) => (typeof l === "string" ? l.slice(0, MAX_TEXT) : String(l)));
-      return { op: "float", spec: { title: optStr(spec, "title", what) ?? "", lines } };
+      const keys = new Set<string>();
+      const actions = list(spec, "actions", what).map((a, i): PluginFloatAction => {
+        const at = `${what} action ${i + 1}`;
+        if (!isObj(a)) throw new Invalid(`${at}: must be a table`);
+        const key = optStr(a, "key", at, 8);
+        if (key !== undefined) {
+          if ([...key].length !== 1 || key.trim() === "") throw new Invalid(`${at}: key must be one character`);
+          if (key === "q") throw new Invalid(`${at}: q closes the window`);
+          if (keys.has(key)) throw new Invalid(`${at}: key ${key} is used twice`);
+          keys.add(key);
+        }
+        return defined<PluginFloatAction>({ label: str(a, "label", at, 100), key, run: run(a.run, at) });
+      });
+      const links = list(spec, "links", what).map((l, i): PluginLink => {
+        const at = `${what} link ${i + 1}`;
+        if (!isObj(l)) throw new Invalid(`${at}: must be a table`);
+        return { label: str(l, "label", at, 100), url: webUrl(str(l, "url", at, MAX_URL + 1), at) };
+      });
+      if (actions.length > MAX_HEAD_ACTIONS) throw new Invalid(`${what}: actions has more than ${MAX_HEAD_ACTIONS}`);
+      if (links.length > MAX_HEAD_ACTIONS) throw new Invalid(`${what}: links has more than ${MAX_HEAD_ACTIONS}`);
+      return { op: "float", spec: { title: optStr(spec, "title", what) ?? "", lines, actions, links } };
     }
     case "view": {
       const what = `roster.views.set ${id}`;
@@ -502,10 +649,17 @@ function parse(raw: unknown): PluginOp {
     case "view_update": {
       const what = `roster.views.update ${id}`;
       const c = isObj(raw.changes) ? raw.changes : {};
+      const columns = c.columns === undefined || c.columns === null ? undefined : columnsOf(c, what);
+      const by = optStr(c, "sort", what, 64);
+      if (by !== undefined && columns && !columns.some((col) => col.id === by)) throw new Invalid(`${what}: sort names no column (${by})`);
+      if (c.desc !== undefined && c.desc !== null && typeof c.desc !== "boolean") throw new Invalid(`${what}: desc must be true or false`);
       return {
         op: "view_update",
         id,
         update: defined<PluginViewUpdate>({
+          columns,
+          sort: by === undefined ? undefined : { by, desc: c.desc === true },
+          actions: c.actions === undefined || c.actions === null ? undefined : tableActions(c, what),
           title: optStr(c, "title", what),
           text: optStr(c, "text", what, MAX_VIEW_TEXT),
           facts: c.facts === undefined || c.facts === null ? undefined : facts(c, what),
@@ -540,6 +694,64 @@ function parse(raw: unknown): PluginOp {
     }
     case "copy":
       return { op: "copy", text: str(raw, "text", "roster.clipboard.copy", MAX_COPY) };
+    case "confirm": {
+      const what = "roster.confirm";
+      const r = run(spec.run, what);
+      if (!("handler" in r)) throw new Invalid(`${what}: run must be a function`);
+      if (spec.danger !== undefined && spec.danger !== null && typeof spec.danger !== "boolean") throw new Invalid(`${what}: danger must be true or false`);
+      const danger = spec.danger === true;
+      const typed = optStr(spec, "typed", what, 101);
+      if (typed !== undefined && (typed.trim() === "" || typed.length > 100)) throw new Invalid(`${what}: typed must be a word of at most 100 characters`);
+      if (typed !== undefined && !danger) throw new Invalid(`${what}: typed goes with danger = true`);
+      return {
+        op: "confirm",
+        confirm: defined<PluginConfirm>({
+          title: str(spec, "title", what),
+          text: optStr(spec, "text", what, MAX_VIEW_TEXT),
+          facts: facts(spec, what),
+          action: optStr(spec, "action", what, 40) ?? "Confirm",
+          danger,
+          typed,
+          run: r,
+          cancel: optRun({ run: spec.cancel }, `${what} cancel`).run,
+        }),
+      };
+    }
+    case "progress": {
+      const what = `roster.progress.set ${id}`;
+      const done = num(spec, "done", what);
+      const total = num(spec, "total", what);
+      if ((done === undefined) !== (total === undefined)) throw new Invalid(`${what}: done and total go together`);
+      if (total !== undefined && total <= 0) throw new Invalid(`${what}: total must be more than 0`);
+      return {
+        op: "progress",
+        id,
+        progress: defined<PluginProgress>({
+          title: str(spec, "title", what, 80),
+          text: optStr(spec, "text", what),
+          done: done === undefined || total === undefined ? undefined : Math.max(0, Math.min(total, done)),
+          total,
+          cancel: optRun({ run: spec.cancel }, `${what} cancel`).run,
+        }),
+      };
+    }
+    case "toolbar": {
+      const what = `roster.toolbar.set ${id}`;
+      const icon = spec.icon === undefined || spec.icon === null ? undefined : PLUGIN_TOOLBAR_ICONS.find((i) => i === spec.icon);
+      if (spec.icon !== undefined && spec.icon !== null && !icon) throw new Invalid(`${what}: icon must be one of ${PLUGIN_TOOLBAR_ICONS.join(", ")}`);
+      return {
+        op: "toolbar",
+        id,
+        control: defined<PluginToolbarControl>({ label: str(spec, "label", what, 80), text: optStr(spec, "text", what, 20), icon, run: run(spec.run, what) }),
+      };
+    }
+    case "cmd":
+      return { op: "cmd", line: str(raw, "line", "roster.cmd", MAX_TEXT) };
+    case "session_show": {
+      const session = num(raw, "session", "roster.sessions.show");
+      if (session === undefined || !Number.isInteger(session)) throw new Invalid("roster.sessions.show: which Session?");
+      return { op: "session_show", session, line: raw.line === null || raw.line === undefined ? null : str(raw, "line", "roster.sessions.show") };
+    }
     case "remove": {
       const kind = REMOVABLE.find((k) => k === raw.kind);
       if (!kind) throw new Invalid("remove: of what?");

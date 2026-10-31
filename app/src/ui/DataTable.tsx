@@ -1,6 +1,7 @@
 // A table (ticket 76): what a Plugin's view or Host-details section shows as rows. Keyboard first:
 // j/k and the arrows move, g g / G go to the ends, Ctrl+D/U half a page, s sorts by the next column
-// and S reverses it, Enter opens the row, an action's key runs it on the selected row. A click
+// and S reverses it, / filters the rows by what they say (Esc clears it, ticket 78), Enter opens
+// the row, an action's key runs it on the selected row (one whose `when` the row matches). A click
 // selects, a double click opens, a heading's click sorts. The selected row shows its actions as
 // buttons (decision Q88: on the selected row, never on hover).
 //
@@ -11,7 +12,7 @@ import type { TableModel } from "../view/views";
 import { RowActionGlyph } from "../sidebar/Sidebar";
 import { countOf } from "./format";
 import { Keys } from "./Keys";
-import { nextSort, sortRows, windowOf, type Sort, type TableColumn, type TableRow } from "./table";
+import { actionApplies, filterRows, nextSort, sortRows, windowOf, type Sort, type TableColumn, type TableRow } from "./table";
 
 export interface DataTableProps {
   model: TableModel;
@@ -51,7 +52,12 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
     setGiven(model.sort);
     setSort(model.sort);
   }
-  const rows = useMemo(() => sortRows(model.rows, model.columns, sort), [model.rows, model.columns, sort]);
+  // The `/` filter: open while its field shows; the query stays after Enter, until Esc clears it.
+  const [filter, setFilter] = useState<{ open: boolean; query: string }>({ open: false, query: "" });
+  const filterInput = useRef<HTMLInputElement>(null);
+  const backToGrid = useRef(false);
+  const sorted = useMemo(() => sortRows(model.rows, model.columns, sort), [model.rows, model.columns, sort]);
+  const rows = useMemo(() => filterRows(sorted, model.columns, filter.query), [sorted, model.columns, filter.query]);
   // The selected row's id, and where it was: the selection follows its row across updates and
   // sorts, and a row taken away hands it to the one that took its place.
   const [selected, setSelected] = useState<{ id: string; at: number } | null>(() => (selectedId === undefined ? null : { id: selectedId, at: 0 }));
@@ -93,6 +99,17 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
     const el = grid.current;
     if (el) el.scrollTop = Math.max(0, index * rowH - el.clientHeight / 2);
   }, [selectedId, index, rowH]);
+  useEffect(() => {
+    if (filter.open) filterInput.current?.focus();
+    else if (backToGrid.current) {
+      backToGrid.current = false;
+      grid.current?.focus();
+    }
+  }, [filter.open]);
+  const closeFilter = (clear: boolean) => {
+    backToGrid.current = true;
+    setFilter((f) => ({ open: false, query: clear ? "" : f.query }));
+  };
 
   const head = rowH;
   const { start, end } = windowOf({ count: rows.length, rowHeight: rowH, scrollTop: view.scrollTop, height: Math.max(0, view.height - head), overscan: OVERSCAN });
@@ -153,6 +170,11 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
         return () => setSort((s) => nextSort(model.columns, s));
       case "S":
         return () => setSort((s) => (s ? { ...s, desc: !s.desc } : s));
+      case "/":
+        return () => setFilter((f) => ({ ...f, open: true }));
+      case "Escape":
+        // A filter in place: Esc clears it first; the next one is the view's.
+        return filter.query ? () => setFilter({ open: false, query: "" }) : null;
       case "Enter": {
         // A key held from before (the Enter that opened the view) runs nothing.
         if (e.repeat) return () => {};
@@ -161,7 +183,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
       }
     }
     const action = model.actions.find((a) => a.key === k);
-    if (!action || !current) return null;
+    if (!action || !current || !actionApplies(action.when, current)) return null;
     return e.repeat ? () => {} : () => action.run(current);
   };
 
@@ -181,10 +203,47 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
   const actionsTrack = actionsWidth.length ? ` calc(${actionsWidth.join(" + ")} + ${(actionsWidth.length - 1) * 4}px)` : "";
   const template = model.columns.map((c) => (c.width ? `${c.width}ch` : "minmax(0, 1fr)")).join(" ") + actionsTrack;
   const sortedBy = sort && model.columns.find((c) => c.id === sort.by);
-  const keyed = model.actions.filter((a) => a.key);
+  // What the selected row can do: an action whose `when` it doesn't match isn't offered.
+  const usable = current ? model.actions.filter((a) => actionApplies(a.when, current)) : model.actions;
+  const keyed = usable.filter((a) => a.key);
+  const filtering = filter.open || filter.query !== "";
 
   return (
     <div className="data-table">
+      {filtering && (
+        <div className="dt-filter">
+          <span className="dt-filter-slash mono" aria-hidden="true">
+            /
+          </span>
+          {filter.open ? (
+            <input
+              ref={filterInput}
+              className="dt-filter-input mono"
+              aria-label={`Filter ${label}`}
+              spellCheck={false}
+              autoComplete="off"
+              value={filter.query}
+              onChange={(e) => setFilter({ open: true, query: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "ArrowDown" || (e.key === "Escape" && filter.query === "")) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeFilter(e.key === "Escape");
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeFilter(true);
+                }
+              }}
+              onBlur={() => setFilter((f) => (f.open ? { ...f, open: false } : f))}
+            />
+          ) : (
+            <button type="button" className="dt-filter-query mono" tabIndex={-1} onMouseDown={keepFocus} onClick={() => setFilter((f) => ({ ...f, open: true }))}>
+              {filter.query}
+            </button>
+          )}
+        </div>
+      )}
       {rows.length === 0 ? (
         <>
           <div className="dt-head dt-head-alone" aria-hidden="true" style={{ gridTemplateColumns: template }}>
@@ -194,7 +253,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
               </span>
             ))}
           </div>
-          <p className="panel-empty dt-empty">{model.empty ?? "Nothing here."}</p>
+          <p className="panel-empty dt-empty">{filter.query && model.rows.length > 0 ? `No rows say “${filter.query}”. Esc clears the filter.` : (model.empty ?? "Nothing here.")}</p>
         </>
       ) : (
         <div
@@ -257,7 +316,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
                   {model.actions.length > 0 && (
                     <div role="gridcell" className="dt-actions">
                       {on &&
-                        model.actions.map((a) => (
+                        usable.map((a) => (
                           <button
                             key={a.label}
                             type="button"
@@ -281,7 +340,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
       )}
       <p className="dt-foot muted key-hint">
         <span className="dt-count">
-          {countOf(rows.length, "row")}
+          {rows.length === model.rows.length ? countOf(rows.length, "row") : `${rows.length.toLocaleString("en-US")} of ${countOf(model.rows.length, "row")}`}
           {sortedBy ? `, by ${sortedBy.label}${sort?.desc ? " (highest first)" : ""}` : ""}
         </span>
         {rows.length > 0 && (
@@ -298,6 +357,9 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
             ))}
             <span>
               <Keys keys="s" leader={leader} /> sort
+            </span>
+            <span>
+              <Keys keys="/" leader={leader} /> filter
             </span>
           </span>
         )}

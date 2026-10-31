@@ -45,7 +45,7 @@ function topoPlugin(): FakePlugin {
           open: (e: Record<string, unknown>) => roster.notify(`opened ${String(e.node)} on ${String(e.host)}`),
           actions: [
             { label: "Check", key: "c", run: (e: Record<string, unknown>) => roster.notify(`checked ${String(e.node)}`) },
-            { label: "Connect", key: "s", run: (e: Record<string, unknown>) => roster.views.update("topo", { nodes: [{ id: e.node, cluster: "web", host: e.node, state: "live" }] }) },
+            { label: "Connect", key: "w", run: (e: Record<string, unknown>) => roster.views.update("topo", { nodes: [{ id: e.node, cluster: "web", host: e.node, state: "live" }] }) },
           ],
         },
       });
@@ -166,7 +166,7 @@ describe("a Plugin's graph", () => {
     await user.keyboard(`${LEADER}:view topo{Enter}`);
     await screen.findByRole("application", { name: "Topology" });
     await user.keyboard("/web-1{Enter}");
-    await user.keyboard("s");
+    await user.keyboard("w");
     await waitFor(() => expect(foot()).toBe("web-1, filled, live. Reaches 0 nodes; reached by 3"));
   });
 

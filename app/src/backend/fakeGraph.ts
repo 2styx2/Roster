@@ -65,7 +65,7 @@ export function demoMapPlugin(count = 640, groups = 16, worst = false): FakePlug
             { label: "Check", key: "c", run: (e: Record<string, unknown>) => roster.notify(`would check ${String(e.host ?? e.node)}`) },
             {
               label: "Connect",
-              key: "s",
+              key: "w",
               run: (e: Record<string, unknown>) => {
                 const id = String(e.node);
                 const on = !live.has(id);

@@ -12,8 +12,9 @@ export const MAX_CLUSTERS = 500;
 const MAX_ACTIONS = 8;
 const MAX_TEXT = 500;
 
-/** Keys the graph uses itself: moving, panning, zoom, search, clusters, the list, and kept ones. */
-export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "/", "?", "q", "+", "-", "=", "0"] as const;
+/** Keys the graph uses itself: moving, panning, zoom, search, clusters, the list, and kept ones;
+ * and `s` `S`, which sort its node list (a table). */
+export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "s", "S", "/", "?", "q", "+", "-", "=", "0"] as const;
 
 export const SHAPES: readonly NodeShape[] = ["dot", "ring", "dashed", "hollow", "square"];
 const STATES: readonly NodeState[] = ["live", "down"];
@@ -168,7 +169,7 @@ export function parseGraph(v: unknown, what: string): PluginGraph {
       if (keys.has(key)) throw new GraphInvalid(`${where}: key ${key} is used twice`);
       keys.add(key);
     }
-    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon: oneOf(a, "icon", where, ICONS), run: run(a.run, where) });
+    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon: oneOf(a, "icon", where, ICONS), when: undefined, run: run(a.run, where) });
   });
   return defined<PluginGraph>({ data: parts(v, at), open: given(v, "open") ? run(v.open, `${at} open`) : undefined, actions });
 }

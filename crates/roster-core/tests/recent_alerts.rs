@@ -645,7 +645,7 @@ roster.status.set("probe", { text = table.concat(found, " | ") })
         .to_string();
     for (name, says) in [
         ("terminal.send", "attempt to index a nil value (field 'terminal')"),
-        ("sessions.open", "attempt to index a nil value (field 'sessions')"),
+        ("sessions.open", "attempt to call a nil value (field 'open')"),
         ("inventory", "attempt to index a nil value (field 'inventory')"),
         ("serve", "attempt to index a nil value (field 'serve')"),
         ("network", "attempt to index a nil value (field 'network')"),
