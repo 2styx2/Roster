@@ -121,7 +121,8 @@ def cmd_sync(cfg, args):
 # ---------------------------------------------------------------- the Mesh (ticket 39, decision Q63)
 
 LINK_WORDS = {"ok": "ok", "untested": "ok (port not tested: no nc or bash there)", "unreachable": "UNREACHABLE",
-              "no-host-key": "NO HOST KEY", "pending": "pending", "skipped": "skipped"}
+              "no-host-key": "NO HOST KEY", "no-via": "NO LINK TO ITS HOP", "pending": "pending", "skipped": "skipped"}
+BROKEN_LINKS = ("unreachable", "no-host-key", "no-via")       # make `roster check` fail
 
 
 def plural(n, word):
@@ -134,15 +135,18 @@ def show_mesh(r, drift=False):
     if not drift:
         say(f"links        {plural(len(links), 'link')} "
             f"({sum(x['kind'] == 'key' for x in links)} key, {sum(x['kind'] == 'password' for x in links)} password)")
-        width = max((len(x["from"]) + len(x["to"]) for x in links), default=0) + 4
+        def pair(x):
+            return f"{x['from']} -> {x['to']}" + (f" via {x['via']}" if x.get("via") else "")
+        width = max((len(pair(x)) for x in links), default=0)
         for x in links:
             word = LINK_WORDS[x["status"]]
-            why = f" - {x['why']}" if x.get("why") and x["status"] != "untested" else ""
+            word = "ok (hop not tested)" if x["status"] == "untested" and x.get("via") else word
+            why = f" - {x['why']}" if x.get("why") and (x["status"] != "untested" or x.get("via")) else ""
             note = " (ssh asks the person for the password)" if x["kind"] == "password" and x["status"] == "ok" else ""
-            say(f"  {x['from'] + ' -> ' + x['to']:<{width}} {x['kind']:<9}{word}{note}{why}")
+            say(f"  {pair(x):<{width}} {x['kind']:<9}{word}{note}{why}")
     else:
         for x in links:
-            if x["status"] in ("unreachable", "no-host-key"):
+            if x["status"] in BROKEN_LINKS:
                 say(f"  link {x['from']} -> {x['to']}: {x['why']}")
     changed = [h for h in r["hosts"] if h["changes"]]
     if changed:
@@ -245,7 +249,7 @@ def cmd_check(cfg, args):
         say()
         show_mesh(drift, drift=True)
         bad += bool(drift["pending"] or any(h["changes"] for h in drift["hosts"])
-                    or any(x["status"] in ("unreachable", "no-host-key") for x in drift["links"]))
+                    or any(x["status"] in BROKEN_LINKS for x in drift["links"]))
         if drift["already"]:
             say("mesh         every Host holds what roster wrote")
     return 1 if bad else 0

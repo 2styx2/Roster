@@ -154,10 +154,16 @@ export const guides: readonly Guide[] = [
     id: "mesh",
     path: "docs/mesh.md",
     title: "The Mesh: Hosts that reach each other",
-    summary: "mesh: and links: in roster.yml, roster mesh, cut, drift in roster check, ESXi and appliances",
+    summary: "mesh: and links: in roster.yml, via: jump Hosts, roster mesh, cut, drift in roster check, ESXi and mesh_dir:, appliances",
     part: "Reference",
     order: 72,
-    aliases: { "mesh links": "mesh#saying-who-reaches-whom", "roster mesh": "mesh#roster-mesh", "mesh cut": "mesh#cut" },
+    aliases: {
+      "mesh links": "mesh#saying-who-reaches-whom",
+      "roster mesh": "mesh#roster-mesh",
+      "mesh cut": "mesh#cut",
+      "mesh via": "mesh#through-a-jump-host",
+      mesh_dir: "mesh#esxi",
+    },
     markdown: meshGuide,
   },
   {
