@@ -4,6 +4,7 @@
 // A Login is shown as roster shows it: the user and the vault reference (`bw:esx-02 ssh`, the
 // Vault item's name). roster never sends a secret, and nothing here asks for one.
 import type { Host, HostList } from "../backend/types";
+import { parseQuickTarget } from "../quick/target";
 
 /** One line of the panel: roster info's label and value. `data`: something you could paste into
  * a shell (an address, a reference), so it's set in Iosevka. */
@@ -118,12 +119,22 @@ export type OpenTarget =
   | { kind: "web"; host: string; service: string; url: string }
   | { kind: "error"; message: string };
 
-/** What `:open ARG` means (decision Q71): a Host's name opens the Host (or goes to its Session), as
- * it always has; `HOST SERVICE` opens that Host's web service; a service's name alone opens it on
- * `current` (the Host details' Host, else the selected one). A Host's name wins over a service. */
-export function resolveOpen(arg: string, hosts: ReadonlyMap<string, Host>, current: string | null): OpenTarget {
+/** What `:open ARG` means (decision Q71): what opened before still does, first: a Host's name
+ * opens the Host (or goes to its Session), an open Session's host (`sessions`: a Quick Connect's
+ * `user@address`, a Host since gone from the Inventory) goes to that Session, and a Quick Connect
+ * address connects to it. Only then is it a service: `HOST SERVICE` opens that Host's web
+ * service; a service's name alone opens it on `current` (the Host details' Host, else the selected
+ * one). So a Host's name wins over a service. */
+export function resolveOpen(
+  arg: string,
+  hosts: ReadonlyMap<string, Host>,
+  current: string | null,
+  sessions: readonly string[] = [],
+): OpenTarget {
   const [first = "", second] = arg.trim().split(/\s+/);
-  if (second === undefined && hosts.has(first)) return { kind: "host", host: first };
+  if (second === undefined && (hosts.has(first) || sessions.includes(first) || parseQuickTarget(first))) {
+    return { kind: "host", host: first };
+  }
   const host = second === undefined ? current : first;
   const name = second ?? first;
   const h = host === null ? undefined : hosts.get(host);

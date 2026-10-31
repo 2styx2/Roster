@@ -863,7 +863,8 @@ export function App({
     },
     // A Host, or a web service in the default browser (ticket 18, decision Q71).
     open: (arg) => {
-      const to = resolveOpen(arg, hostByName, details ?? ctx.selectedHost());
+      const sessionHosts = sessions.tabs.map((t) => t.host);
+      const to = resolveOpen(arg, hostByName, details ?? ctx.selectedHost(), sessionHosts);
       if (to.kind === "error") return setMessage(to.message);
       if (to.kind === "web") return openWeb(to.host, to.service, to.url);
       const tab = sessions.tabs.find((t) => t.host === to.host);

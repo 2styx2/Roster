@@ -140,6 +140,19 @@ describe("resolveOpen", () => {
     expect(at("nas-01", "esx-02")).toEqual({ kind: "host", host: "nas-01" });
   });
 
+  it("an open Session's host or a Quick Connect address opens (or goes back to) that Session, as before", () => {
+    const withSessions = (arg: string, current: string | null = null) => resolveOpen(arg, hosts, current, ["root@10.0.0.9", "old-box"]);
+    expect(withSessions("root@10.0.0.9", "esx-02")).toEqual({ kind: "host", host: "root@10.0.0.9" });
+    expect(withSessions("old-box", "esx-02")).toEqual({ kind: "host", host: "old-box" });
+    expect(at("admin@10.0.0.5:2222", "esx-02")).toEqual({ kind: "host", host: "admin@10.0.0.5:2222" });
+  });
+
+  it("a service only when no Host, Session or address matches", () => {
+    const withSessions = resolveOpen("admin", hosts, "esx-02", ["admin"]);
+    expect(withSessions).toEqual({ kind: "host", host: "admin" });
+    expect(at("admin", "esx-02")).toEqual({ kind: "web", host: "esx-02", service: "admin", url: "https://10.0.0.5:8443" });
+  });
+
   it("says why when there's nothing to open", () => {
     expect(at("admin")).toEqual({ kind: "error", message: "No Host named admin" });
     expect(at("ftp", "esx-02")).toEqual({ kind: "error", message: "No Host named ftp, and esx-02 has no web service ftp (web, admin)" });
