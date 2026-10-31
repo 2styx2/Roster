@@ -876,6 +876,9 @@ export interface Backend {
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   /** Takes a Plugin out of the core. */
   pluginUnload(plugin: string): Promise<boolean>;
+  /** The replies nobody asked for: what a Plugin did when one of its HTTP requests answered
+   * (the `network` permission, decision Q97). The core sends them as they come. */
+  onPluginReply(onReply: (reply: PluginReply) => void): () => void;
   /** Packages (ticket 24, docs/plugins.md): clones what init.lua names and isn't cloned yet, and
    * checks out what roster.lock pins. A Package loads as the Plugin `package:NAME`. */
   packagesSync(): Promise<PackageStatus[]>;

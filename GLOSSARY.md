@@ -145,7 +145,7 @@ A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that exte
 _Avoid_: extension, addon, mod
 
 **Permission**:
-What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`, `serve:<method>`, …): asked for in its manifest, granted at install, revoked in `:plugins`. None reaches a secret.
+What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`, `serve:<method>`, `network:<site>`, …): asked for in its manifest, granted at install, revoked in `:plugins`. None reaches a secret.
 _Avoid_: scope, capability, right
 
 **Package**:

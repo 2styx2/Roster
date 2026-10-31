@@ -466,6 +466,8 @@ function Workspace({
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  // What a Plugin does when one of its HTTP requests answers comes from the core on its own.
+  useEffect(() => backend.onPluginReply((r) => plugins.replied(r)), [backend, plugins]);
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
   const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
   const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);

@@ -4,6 +4,14 @@ What changed in each Release of roster, the CLI and the app together, newest fir
 
 Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
+## Unreleased
+
+### New
+
+**App**
+
+- Plugins can talk to web services: `network:api.example.com` in a manifest grants `roster.http.request` and `roster.http.get` for that site only (`*.example.com` for the names under a domain, `http://` and `:PORT` when written). The requests run in roster's core, don't block the Plugin, follow redirects only to its sites, and never reach this computer or a private network by name. The install prompt and `:packages update` show every site, flagged, and an update that adds one asks again. See [The network](plugins.md#the-network).
+
 ## v0.2.0
 
 ### New
