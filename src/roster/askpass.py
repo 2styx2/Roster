@@ -178,10 +178,12 @@ class Typed:
 
 class Channel:
     """serve's end. lookup(login) -> password, raising with a message safe to show when it can't;
-    it runs on the channel's threads, so it must be thread-safe (providers.get_secret is)."""
+    it runs on the channel's threads, so it must be thread-safe (providers.get_secret is). tick(), if given, runs on
+    the accept loop every 0.2 s while it's idle (serve forgets what it holds past its time there); it must be quick and
+    never raise."""
 
-    def __init__(self, lookup, log=None):
-        self.lookup, self.log = lookup, log or (lambda msg: None)
+    def __init__(self, lookup, log=None, tick=None):
+        self.lookup, self.log, self.tick = lookup, log or (lambda msg: None), tick
         self.ttl = ttl()
         self.tokens = {}                     # token -> (login, label, expires at: time.monotonic())
         self.labels = {}                     # token -> (label, until): names a spent token's prompt reports
@@ -222,10 +224,16 @@ class Channel:
         return token
 
     def _prune(self):
+        """Drop what has expired: unused tokens, their labels, and typed passwords handed to ssh whose login report
+        never came (the box refused the password, or the Session ended first)."""
         with self.lock:
             now = time.monotonic()
             if any(v[2] <= now for v in self.tokens.values()):
                 self.tokens = {t: v for t, v in self.tokens.items() if v[2] > now}
+            if any(v[1] <= now for v in self.labels.values()):
+                self.labels = {t: v for t, v in self.labels.items() if v[1] > now}
+            if any(v[2] <= now for v in self.handed.values()):
+                self.handed = {t: v for t, v in self.handed.items() if v[2] > now}
 
     def redeem(self, token):
         """The token's (login, label), once; None if unknown, used, expired or forgotten."""
@@ -280,6 +288,11 @@ class Channel:
                 conn, _ = self.server.accept()
             except TimeoutError:
                 self._prune()               # an unused token (a typed password above all) goes once it expires
+                if self.tick is not None:
+                    try:
+                        self.tick()
+                    except Exception as e:  # never let it stop the channel
+                        self.log(f"askpass: tick failed: {type(e).__name__}")
                 continue
             except OSError:
                 return

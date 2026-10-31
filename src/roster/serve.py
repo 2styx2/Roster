@@ -624,7 +624,7 @@ def quick_prepare(state, params):
 # or the Host Session's), and ssh runs askpass's logged-in script as its LocalCommand, which ssh does only once it has
 # logged in. The report counts only if that Session's token handed this password to ssh. The save then refers to
 # the id; the password is never sent again. It's forgotten after one save, by vault.forget_typed (the Session ended
-# without saving), by vault.lock, or HOLD_FOR after it was typed.
+# without saving), by vault.lock, or HOLD_FOR after it was typed (the askpass channel's tick enforces it).
 
 HOLD_FOR = 600              # s: how long a typed password waits for its "Save to vault"
 
@@ -679,6 +679,12 @@ def hold(state, hid, typed, kind, label, target=None):
         prune_held(state)
         state.held[hid] = held
     return hid
+
+
+def open_channel(state):
+    """serve's askpass channel, which also forgets the held passwords whose HOLD_FOR is up (on its tick), so none
+    outlives its time waiting for a request that would prune it."""
+    return askpass.Channel(askpass_lookup, log=log_line, tick=lambda: prune_held(state))
 
 
 def prune_held(state):
@@ -1566,7 +1572,7 @@ def serve(config_arg):
 
     # the one message serve sends unasked: a JSON-RPC notification (no id), e.g. inventory.changed
     state.notify = lambda method, params: send({"jsonrpc": "2.0", "method": method, "params": params})
-    with askpass.Channel(askpass_lookup, log=log_line) as state.askpass:
+    with open_channel(state) as state.askpass:
         try:
             for line in sys.stdin:
                 if not line.strip():

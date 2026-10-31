@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 
 import pytest
 from conftest import SECRET
@@ -266,3 +267,33 @@ def test_a_login_report_waits_while_the_held_passwords_change(box):
         assert rpc.forget_held(state, hid)
     report.join(2)
     assert notes == [] and state.held == {} and typed.password is None
+
+
+def eventually(check, timeout=3.0):
+    end = time.monotonic() + timeout
+    while not check() and time.monotonic() < end:
+        time.sleep(0.05)
+    return check()
+
+
+def test_a_held_password_goes_once_hold_for_is_up_without_another_call(box, sshd, vault, unknown, fakes,
+                                                                       monkeypatch):
+    """HOLD_FOR is enforced by serve itself (the askpass channel's tick), not only when the next save comes."""
+    state = unlocked(box)
+    monkeypatch.setattr(rpc, "HOLD_FOR", 0.5)
+    with rpc.open_channel(state) as state.askpass:
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        typed = state.held[spec["held"]].typed
+        assert eventually(lambda: state.held == {})
+        assert typed.password is None
+
+
+def test_a_password_handed_to_ssh_goes_once_its_login_report_is_overdue(box, sshd, vault, unknown, fakes,
+                                                                        monkeypatch):
+    """The box refused the password, so no login report ever comes: the channel drops what it kept for one."""
+    monkeypatch.setenv("ROSTER_ASKPASS_TTL", "0.2")
+    state = unlocked(box)
+    with rpc.open_channel(state) as state.askpass:
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        log_in(spec, password="wrong")
+        assert eventually(lambda: state.askpass.handed == {})
