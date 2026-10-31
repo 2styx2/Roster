@@ -29,6 +29,8 @@ links:
 
 A Link that names something that isn't a Host or a group, links a name to itself, or has a key other than `from`, `to` and `both` stops `roster.yml` from loading, with the entry's number in the message. A name that is both a Host's and a group's is refused too.
 
+Editing `roster.yml` from roster keeps `links:` in step: renaming a Host or a group (`host.rename`, `group.rename` in the app) renames it in `links:` too, and removing a Host or deleting a group takes out the `links:` entries that name it, line and all (the next `roster mesh` removes what they gave). An entry in a one-line list (`links: [{ from: a, to: b }]`) can't be taken out that way: the edit is refused and says so, and you take it out by hand.
+
 **Password peers.** A Host with `enroll: false` (switches, appliances) stays in the Mesh as a password peer: its peers get an ssh config entry for it, and ssh asks the person for the password. roster never copies a password to a Host, and the `ROSTER.md` there tells Claude to ask the user to log in. A password Host can't reach others: roster only logs in to it with a password, so it never writes files on it (`roster mesh` lists those Links as `skipped`).
 
 ## roster mesh
@@ -61,7 +63,7 @@ On a peer it adds one line per source to `authorized_keys`:
 from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster-mesh:orion-2
 ```
 
-`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
+`from=` accepts the key only from the source's address, and the `roster-mesh:SOURCE` tag is how roster finds exactly its own lines again. Everything else in the file, including this Box's own `roster-managed` key, is never touched. Every file roster changes on a Host (`authorized_keys`, `~/.ssh/config`, `~/.claude/CLAUDE.md` and its own) is written to a new file beside it and moved into place, keeping the old one's mode and owner, so a run cut short (a timeout, a dropped connection) leaves each file as it was or as it should be, never half written. A `~/ROSTER.md` that roster didn't write is left alone, with a warning.
 
 **Idempotent.** The Mesh comes from `roster.yml` only, so applying it again, from this Box or any other, changes nothing and says `already in the mesh`.
 

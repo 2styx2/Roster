@@ -144,6 +144,54 @@ def test_deleting_a_meshed_group_moves_its_hosts_keeping_their_mesh_setting(writ
     assert moved == ["h1", "h2"] and cfg["hosts"]["h1"]["mesh"] is True and cfg["hosts"]["h2"]["mesh"] is True
 
 
+LINKED = ("groups:\n  lab:\n    user: u\n    hosts:\n      h1: 10.0.0.1\n      h2: 10.0.0.2\n"
+          "  far:\n    user: u\n    hosts:\n      f1: 10.0.9.1\n"
+          "links:\n"
+          "  - { from: h1, to: far }   # h1 backs up to far\n"
+          "  - from: lab\n    to: f1\n    both: true\n"
+          "  - { from: h2, to: f1 }\n")
+
+
+def links_of(text, path):
+    from roster.config import load_config_text
+    return [(x["from"], x["to"], x["both"]) for x in load_config_text(text, path)["links"]]
+
+
+def test_renaming_a_linked_host_or_group_renames_it_in_links(write_config):
+    path = write_config(LINKED)
+    old, new, _ = edit.renamed(path, "h1", "web-1")
+    assert changed_lines(old, new) == ["-      h1: 10.0.0.1", "+      web-1: 10.0.0.1",
+                                       "-  - { from: h1, to: far }   # h1 backs up to far",
+                                       "+  - { from: web-1, to: far }   # h1 backs up to far"]
+    old, new = edit.group_renamed(path, "far", "dr")
+    assert links_of(new, path) == [("h1", "dr", False), ("lab", "f1", True), ("h2", "f1", False)]
+
+
+def test_removing_a_linked_host_or_group_drops_the_links_that_name_it(write_config):
+    path = write_config(LINKED)
+    old, new, _ = edit.removed(path, "f1")
+    assert links_of(new, path) == [("h1", "far", False)]
+    assert changed_lines(old, new) == ["-      f1: 10.0.9.1", "-  - from: lab", "-    to: f1", "-    both: true",
+                                       "-  - { from: h2, to: f1 }"]
+    old, new, moved = edit.group_deleted(path, "far", "lab")
+    assert moved == ["f1"] and links_of(new, path) == [("lab", "f1", True), ("h2", "f1", False)]
+
+
+def test_removing_every_link_leaves_an_empty_links_key_that_loads(write_config):
+    path = write_config(LINKED.replace("from: h1, to: far", "from: h1, to: f1"))
+    _, new, _ = edit.removed(path, "f1")
+    assert links_of(new, path) == [] and new.endswith("links:\n")
+
+
+def test_a_link_in_a_one_line_list_is_refused_with_a_clean_error(write_config):
+    path = write_config(LINKED.split("links:")[0] + "links: [{ from: h1, to: far }]\n")
+    with pytest.raises(Problem) as e:
+        edit.removed(path, "h1")
+    assert e.value.code == INVALID_EDIT and "links: names h1" in e.value.message
+    _, new, _ = edit.renamed(path, "h1", "web-1")                    # a rename only changes the name
+    assert links_of(new, path) == [("web-1", "far", False)]
+
+
 def test_moving_into_an_empty_group(write_config):
     path = write_config("groups:\n  a:\n    user: u\n    hosts:\n      h1: 10.0.0.1\n      h2: 10.0.0.2\n"
                         "  b:\n    user: u\n    hosts: {}\n  c:\n")
