@@ -1225,13 +1225,33 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   .progress-track.going { background: transparent; border-top: 1px dashed var(--muted); height: 0; }
   .progress-track.going .progress-fill { display: none; }
 }
-.statusbar .statusbar-progress-stop {
+/* Two or more at once: the latest keeps its title longest. The older ones give way first and,
+   in a short bar, show only their track and share (the whole title is in the tooltip and the
+   progressbar's name). */
+.statusbar-progress.older { flex-shrink: 4; }
+@media (max-width: 900px) {
+  .statusbar-progress.older .statusbar-progress-title { display: none; }
+  .statusbar-progress-title { max-width: 20ch; }
+}
+/* Without the status bar (Focus, or the bar hidden): the same items in the top-right corner,
+   under the title bar, where a terminal's lines rarely reach (the prompt is bottom-left, the
+   notices bottom-right). No motion of its own: it's there while something runs. */
+.corner-progress {
+  position: fixed; right: 14px; top: calc(var(--titlebar-h) + 8px); z-index: 30; display: flex; gap: 16px; align-items: center;
+  max-width: calc(100vw - 28px); padding: 4px 10px; overflow: hidden; white-space: nowrap;
+  font-size: var(--text-xs); color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--line-strong); border-radius: var(--radius-lg);
+}
+.statusbar .statusbar-progress-stop,
+.corner-progress .statusbar-progress-stop {
   width: 16px; height: 16px; padding: 0; display: inline-grid; place-items: center; border-color: transparent; background: transparent; color: var(--muted);
 }
 @media (hover: hover) and (pointer: fine) {
-  .statusbar .statusbar-progress-stop:hover { color: var(--text); }
+  .statusbar .statusbar-progress-stop:hover,
+  .corner-progress .statusbar-progress-stop:hover { color: var(--text); }
 }
-.statusbar .statusbar-progress-stop svg { width: 10px; height: 10px; }
+.statusbar .statusbar-progress-stop svg,
+.corner-progress .statusbar-progress-stop svg { width: 10px; height: 10px; }
 .plugin-notices {
   position: fixed; right: 14px; bottom: 14px; z-index: 40; display: flex; flex-direction: column; gap: 8px;
   width: min(520px, calc(100vw - 28px));

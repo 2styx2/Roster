@@ -65,7 +65,7 @@ describe("installing", () => {
     const prompt = manager.snapshot().prompts[0];
     if (prompt) await manager.answer(prompt, true);
     expect(registries.commands.get("alerts")?.source).toBe("recent-alerts");
-    expect(registries.keymap.get("leader a a")).toMatchObject({ source: "recent-alerts", action: "alerts" });
+    expect(registries.keymap.get("leader a a")).toMatchObject({ source: "recent-alerts", action: "plugins run recent-alerts alerts" });
     expect(registries.status.get("alerts")?.text).toBe("⚠ 0");
     expect(state[STATE_KEY]).toEqual([{ path: ALERTS, name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }]);
   });

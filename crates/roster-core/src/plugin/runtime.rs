@@ -160,8 +160,14 @@ pub(crate) enum Arrival {
     Serve(Result<Json, String>),
 }
 
+/// A handler's number carries its load's generation above these bits (ticket 85), so an id
+/// from before a reload (a late timer, a queued click) can't name a function of the new load.
+/// 2^32 handlers a load, and the ids stay below 2^53, a whole number to JavaScript, for 2^21 loads.
+const HANDLER_BITS: u32 = 32;
+
 #[derive(Default)]
 struct Handlers {
+    /// The last handler's number: the load's generation in the high bits.
     next: u64,
     /// Which handlers each owner (a section, a command, a call's result) handed over, so setting
     /// the owner again drops the old ones.
@@ -189,6 +195,7 @@ impl Runtime {
         post: Option<Post>,
         storage: Option<Result<Storage, String>>,
         serving: Arc<ServeWait>,
+        generation: u64,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -212,7 +219,10 @@ impl Runtime {
             clock,
             ops: RefCell::default(),
             budget: Cell::new(Budget::default()),
-            handlers: RefCell::default(),
+            handlers: RefCell::new(Handlers {
+                next: generation << HANDLER_BITS,
+                ..Handlers::default()
+            }),
             user_call: Cell::new(false),
             commands: RefCell::default(),
             net,
@@ -493,6 +503,31 @@ fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua
     Ok(())
 }
 
+/// A view's spec without its table's `actions`, and those actions (`nil` for none). The
+/// Plugin's own tables are copied, not changed.
+fn table_actions(lua: &Lua, spec: &Table) -> mlua::Result<(Table, Value)> {
+    let Ok(Value::Table(table)) = spec.raw_get::<Value>("table") else {
+        return Ok((spec.clone(), Value::Nil));
+    };
+    let actions: Value = table.raw_get("actions")?;
+    if actions.is_nil() {
+        return Ok((spec.clone(), Value::Nil));
+    }
+    let copy = |t: &Table, leave: &str| -> mlua::Result<Table> {
+        let out = lua.create_table()?;
+        for pair in t.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            if !matches!(&k, Value::String(k) if k.as_bytes().as_ref() == leave.as_bytes()) {
+                out.raw_set(k, v)?;
+            }
+        }
+        Ok(out)
+    };
+    let (out, inner) = (copy(spec, "")?, copy(&table, "actions")?);
+    out.raw_set("table", inner)?;
+    Ok((out, actions))
+}
+
 /// A Lua value as data for roster serve: no functions.
 fn plain(shared: &Shared, what: &str, v: &Value) -> mlua::Result<Json> {
     lua::to_json(v, &shared.budget).map_err(|e| convert_error(what, &e))
@@ -655,28 +690,79 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
 }
 
 /// The Login references that say how a secret is fetched, `cmd:COMMAND` and `env:VAR`, cut to
-/// their kind (`cmd:`, `env:`) wherever an `auth` holds one (decision Q92): a command line can
-/// carry a secret pasted into it, and a Plugin never needs either to do its work.
+/// their kind (`cmd:`, `env:`) in every text of serve's answer, not only an `auth` (decision Q92,
+/// ticket 86): a command line can carry a secret pasted into it, a Plugin never needs either to
+/// do its work, and raw text (`changes.diff`'s diff, `host.check`'s messages) shows them as
+/// written. The app's own UI gets serve's answers whole; only a Plugin's are cut.
 fn redact(v: &mut Json) {
     match v {
-        Json::Object(map) => {
-            for (key, item) in map.iter_mut() {
-                if key == "auth"
-                    && let Json::String(text) = item
-                {
-                    for kind in ["cmd:", "env:"] {
-                        if text.len() >= kind.len() && text[..kind.len()].eq_ignore_ascii_case(kind) {
-                            *text = kind.to_string();
-                        }
-                    }
-                } else {
-                    redact(item);
-                }
+        Json::String(text) => {
+            if let Some(cut) = redact_text(text) {
+                *text = cut;
             }
         }
+        Json::Object(map) => map.values_mut().for_each(redact),
         Json::Array(items) => items.iter_mut().for_each(redact),
         _ => {}
     }
+}
+
+/// `text` with each `cmd:`/`env:` reference cut to its kind, or `None` when it has none. A
+/// reference starts a text or follows a space, a quote or one of `=:,({[`, in any case. A
+/// `cmd:` one runs to the end of its line (a command can hold anything; a closing quote is put
+/// back), an `env:` one is the variable's name. `cmd: is ready` is the kind alone, kept.
+fn redact_text(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let starts = |i: usize| -> Option<&'static str> {
+        let word = bytes.get(i..i + 4)?;
+        let before = i.checked_sub(1).map(|j| bytes[j]);
+        let boundary = before.is_none_or(|b| b.is_ascii_whitespace() || b"\"'=:,({[".contains(&b));
+        if !boundary {
+            return None;
+        }
+        ["cmd:", "env:"]
+            .into_iter()
+            .find(|k| word.eq_ignore_ascii_case(k.as_bytes()))
+    };
+    let mut out = String::new();
+    let (mut copied, mut i, mut cut) = (0, 0, false);
+    while i < bytes.len() {
+        let Some(kind) = starts(i) else {
+            i += 1;
+            continue;
+        };
+        let from = i + 4;
+        let to = if kind == "cmd:" {
+            if bytes.get(from).is_none_or(|b| b.is_ascii_whitespace()) {
+                from
+            } else {
+                text[from..].find(['\n', '\r']).map_or(bytes.len(), |n| from + n)
+            }
+        } else {
+            from + bytes[from..]
+                .iter()
+                .take_while(|b| b.is_ascii_alphanumeric() || **b == b'_')
+                .count()
+        };
+        if to > from || !text[i..from].eq(kind) {
+            out.push_str(&text[copied..i]);
+            out.push_str(kind);
+            let quote = i.checked_sub(1).map(|j| bytes[j]).filter(|b| *b == b'"' || *b == b'\'');
+            if kind == "cmd:"
+                && to > from
+                && let Some(q) = quote
+            {
+                out.push(q as char);
+            }
+            copied = to;
+            cut = true;
+        }
+        i = to.max(from);
+    }
+    cut.then(|| {
+        out.push_str(&text[copied..]);
+        out
+    })
 }
 
 /// roster serve's answer as Lua, or an error naming `what` called it.
@@ -967,9 +1053,22 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     let views = lua.create_table()?;
     func!(views, "set", |lua, s, (id, spec): (String, Table)| {
         check_id("roster.views.set", &id)?;
-        let actions = format!("view:{id}:actions");
-        drop_owners(lua, s, |k| k == actions)?;
-        let spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
+        // A table's actions are owned apart from the rest (its `open`), as an update's are, so an
+        // update that replaces them drops their functions at once (ticket 85).
+        let (spec, actions) = table_actions(lua, &spec)?;
+        let mut spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
+        let actions = data(
+            lua,
+            s,
+            "roster.views.set: table.actions",
+            &actions,
+            &format!("view:{id}:actions"),
+        )?;
+        if !actions.is_null()
+            && let Some(table) = spec.get_mut("table").and_then(Json::as_object_mut)
+        {
+            table.insert("actions".into(), actions);
+        }
         push(s, json!({ "op": "view", "id": id, "spec": spec }))
     });
     func!(views, "update", |lua, s, (id, changes): (String, Table)| {

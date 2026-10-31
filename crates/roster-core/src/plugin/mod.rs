@@ -561,6 +561,7 @@ impl PluginHost {
                     post,
                     storage,
                     serving,
+                    generation,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {

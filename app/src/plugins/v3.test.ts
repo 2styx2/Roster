@@ -225,3 +225,56 @@ describe("ticket 78's handlers", () => {
     expect(heard.pop()).toEqual({});
   });
 });
+
+// Ticket 88 (decision Q98): a Plugin's key binding is a command line it hands over, like a button's,
+// so it goes through `plugins run` and the same check. It can't run `:plugins grant`, `:packages`,
+// `:source` or another Plugin's command by a key, only its own commands and the core's list.
+describe("a Plugin's key bindings", () => {
+  const keys: FakePlugin = {
+    manifest: { name: "keys", version: "1", description: "", author: null, api: 3, permissions: [] },
+    load(roster) {
+      roster.commands.add("mine", { run: () => undefined });
+      roster.keymap.set("leader", "k g", "plugins grant keys terminal.write");
+      roster.keymap.set("leader", "k p", "packages clean");
+      roster.keymap.set("leader", "k s", "source");
+      roster.keymap.set("leader", "k o", "scan");
+      roster.keymap.set("leader", "k m", "mine now");
+      roster.keymap.set("leader", "k f", "finder hosts");
+    },
+  };
+  const other: FakePlugin = {
+    manifest: { name: "other", version: "1", description: "", author: null, api: 3, permissions: [] },
+    load(roster) {
+      roster.commands.add("scan", { run: () => undefined });
+    },
+  };
+
+  it("run only what a button may: never :plugins, :packages, :source or another Plugin's command", async () => {
+    const backend = fakeBackend({ hosts: makeHosts(3), plugins: { "/p/keys": keys, "/p/other": other } });
+    const registries = builtinRegistries();
+    const state: Record<string, unknown> = {
+      [STATE_KEY]: [
+        { path: "/p/keys", name: "keys", granted: [], asked: [] },
+        { path: "/p/other", name: "other", granted: [], asked: [] },
+      ],
+    };
+    const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
+    // Every line that reaches the command table, as the app runs it.
+    const ran: string[] = [];
+    const said: string[] = [];
+    const ctx = { say: (m: string) => void said.push(m) } as unknown as CommandContext;
+    const dispatch = (line: string) => {
+      ran.push(line);
+      const [word = "", ...rest] = line.split(" ");
+      if (word === "plugins") command.run(ctx, rest.join(" "));
+    };
+    const manager = new PluginManager(backend, registries, store, { run: dispatch, send: () => undefined, copy: async () => undefined });
+    const command = pluginsCommand(manager, () => undefined);
+    await manager.start();
+    const press = (k: string) => dispatch(registries.keymap.get(`leader ${k}`)!.action!);
+    for (const k of ["k g", "k p", "k s", "k o", "k m", "k f"]) press(k);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ran.filter((l) => !l.startsWith("plugins run "))).toEqual(["mine now", "finder hosts"]);
+    expect(manager.snapshot().plugins.find((p) => p.name === "keys")?.granted).toEqual([]);
+  });
+});

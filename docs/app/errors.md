@@ -195,7 +195,7 @@ What a Plugin's buttons, questions and command lines can run into ([plugins.md](
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
-| 87 | none (a Plugin's notice) | A button, row, finder item or toolbar control runs a command line the Plugin may not run: `:plugins`, `:publish`, another Plugin's command, or `:open` without `sessions.open` | The Plugin | "mesh: :plugins isn't one a Plugin may run" | Nothing ran. If you trust it with more, grant the permission in `:plugins`; tell the Plugin's author otherwise |
+| 87 | none (a Plugin's notice) | A button, row, finder item, toolbar control or key binding runs a command line the Plugin may not run: `:plugins`, `:publish`, another Plugin's command, or `:open` without `sessions.open` | The Plugin | "mesh: :plugins isn't one a Plugin may run" | Nothing ran. If you trust it with more, grant the permission in `:plugins`; tell the Plugin's author otherwise |
 | 88 | none (a Plugin's error) | `roster.cmd`, `roster.confirm` or `roster.sessions.show` called at load, in an event listener or a timer | The Plugin | "mesh: init.lua:12: roster.cmd: only while the user runs one of your actions, commands or finder items" | The Plugin's to fix: call it from an action or command |
 | 89 | none (a Plugin's notice) | `roster.sessions.show` names a Session that has ended (or never was) | The Plugin / the Session | "recent-alerts: there's no Session 3 now: it has ended" | Open the Host again; the line isn't there any more |
 | 90 | none (a Plugin's notice) | Two Plugins use one progress id | The Plugins | "discover: there's a progress named scan already, from mesh" | The second is ignored until the first is removed; tell an author |
