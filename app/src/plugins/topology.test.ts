@@ -43,6 +43,16 @@ describe("the Topology stand-in", () => {
       throw new Error(`unknown method '${method}' (code -32601)`);
     };
     const host = fakePluginHost({ topology: topologyPlugin() }, () => hosts, undefined, serve);
+    // What the Plugin did when its roster serve requests answered: part of the step, as the Rust
+    // side records it.
+    const answered: PluginReply[] = [];
+    host.onPluginReply((r) => answered.push(r));
+    const settle = async (r: PluginReply): Promise<PluginReply> => {
+      await host.pluginSettled("topology");
+      const more = answered.splice(0);
+      for (const a of more) expect(a.error).toBeNull();
+      return { ...r, ops: [...r.ops, ...more.flatMap((a) => a.ops)] };
+    };
     let view: Op | undefined;
     const commands = new Map<string, number>();
     let confirm = -1;
@@ -56,38 +66,38 @@ describe("the Topology stand-in", () => {
           const loaded = (await host.pluginLoad("topology", step.grants as string[])).reply;
           // As the app's clock: the deferred first look, 50 ms later.
           const first = (loaded.ops as Op[]).find((o) => o.op === "timer" && o.every === false);
-          const later = await host.pluginCall("topology", handlerOf(first?.run), {});
+          const later = await settle(await host.pluginCall("topology", handlerOf(first?.run), {}));
           replies = [{ ...loaded, ops: [...loaded.ops, ...later.ops] }];
           timer = -1;
           break;
         }
         case "event":
-          replies = await host.pluginEvent(step.name as PluginEventName, step.payload as Record<string, unknown>);
+          replies = await Promise.all((await host.pluginEvent(step.name as PluginEventName, step.payload as Record<string, unknown>)).map(settle));
           break;
         case "action": {
           const action = ((view?.spec as Op).graph as { actions: Op[] }).actions.find((a) => a.label === step.label);
-          replies = [await host.pluginCall("topology", handlerOf(action?.run), { view: "topology", node: step.node, host: step.node })];
+          replies = [await settle(await host.pluginCall("topology", handlerOf(action?.run), { view: "topology", node: step.node, host: step.node }))];
           break;
         }
         case "confirm":
-          replies = [await host.pluginCall("topology", confirm, { confirm: "yes" })];
+          replies = [await settle(await host.pluginCall("topology", confirm, { confirm: "yes" }))];
           break;
         case "cut-timer":
-          replies = [await host.pluginCall("topology", cutTimer, {})];
+          replies = [await settle(await host.pluginCall("topology", cutTimer, {}))];
           break;
         case "command": {
           const args = step.args as string;
-          replies = [await host.pluginCall("topology", commands.get(step.name as string) ?? -1, { args, words: args.split(/\s+/).filter(Boolean) })];
+          replies = [await settle(await host.pluginCall("topology", commands.get(step.name as string) ?? -1, { args, words: args.split(/\s+/).filter(Boolean) }))];
           break;
         }
         case "health": {
-          const r = await host.pluginCall("topology", health, {});
+          const r = await settle(await host.pluginCall("topology", health, {}));
           expect(normal(r.result)).toEqual(step.result);
           replies = [r];
           break;
         }
         case "timer":
-          replies = [await host.pluginCall("topology", timer, {})];
+          replies = [await settle(await host.pluginCall("topology", timer, {}))];
           break;
         default:
           throw new Error(`no step ${step.do}`);

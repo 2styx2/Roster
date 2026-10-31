@@ -16,7 +16,9 @@ use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, S
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const NAME: &str = "mesh";
 const ALL: &[&str] = &[
@@ -79,6 +81,8 @@ struct FakeMesh {
     job: Mutex<Option<Job>>,
     /// Every call, with its answer: `{ method, params, result }` or `{ …, error }`.
     calls: Mutex<Vec<Value>>,
+    /// Held while serve is busy with the app's own call (a Publish): every call waits for it.
+    busy: Mutex<()>,
 }
 
 fn lab_hosts(w: &World) -> Vec<String> {
@@ -288,6 +292,8 @@ impl FakeMesh {
 
 impl Serve for FakeMesh {
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        // serve answers one request at a time.
+        let _turn = self.busy.lock().unwrap();
         let answer = self.answer(method, &params);
         let mut record = json!({ "method": method, "params": params });
         match &answer {
@@ -306,31 +312,81 @@ struct Run {
     serve: Arc<FakeMesh>,
     /// Every op so far, in order.
     ops: Vec<Value>,
+    /// What the Plugin did when its roster serve requests answered (the Tauri shell's
+    /// `plugin-reply`).
+    replies: Receiver<Reply>,
+    /// The ops of each of those answers since the last step, for the transcript.
+    answers: Vec<Value>,
 }
 
 impl Run {
     fn new(world: World, grants: &[&str]) -> Run {
-        let serve = Arc::new(FakeMesh::new(world));
-        let host = PluginHost::new(serve.clone(), Limits::default());
-        let mut run = Run {
-            host,
-            serve,
-            ops: Vec::new(),
-        };
+        let mut run = Run::with(Arc::new(FakeMesh::new(world)));
         let (_, reply) = run.host.load(&Source::Dir(plugin()), &perms(grants)).unwrap();
         run.take(reply);
         run
     }
 
+    /// A host with `serve`, nothing loaded yet.
+    fn with(serve: Arc<FakeMesh>) -> Run {
+        let host = PluginHost::new(serve.clone(), Limits::default());
+        let (tx, replies) = channel();
+        let tx = Mutex::new(tx);
+        host.set_listener(Arc::new(move |r: Reply| {
+            let _ = tx.lock().unwrap().send(r);
+        }));
+        Run {
+            host,
+            serve,
+            ops: Vec::new(),
+            replies,
+            answers: Vec::new(),
+        }
+    }
+
+    /// What `reply` did, and then what the answers to the requests it made did, once every one
+    /// of them has come back: what the user sees after a moment.
     fn take(&mut self, reply: Reply) -> Vec<Value> {
         assert!(reply.error.is_none(), "{:?}", reply.error);
         self.ops.extend(reply.ops.iter().cloned());
-        reply.ops
+        let mut ops = reply.ops;
+        let started = Instant::now();
+        while self.host.requests(NAME) > 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "roster serve's answers didn't come"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        while let Ok(r) = self.replies.try_recv() {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            self.ops.extend(r.ops.iter().cloned());
+            self.answers.push(normal(&Value::Array(r.ops.clone())));
+            ops.extend(r.ops);
+        }
+        ops
     }
 
     fn call(&mut self, handler: u64, args: Value) -> Vec<Value> {
         let reply = self.host.call(NAME, handler, args);
         self.take(reply)
+    }
+
+    /// Sends `name` to the Plugin: what it did, then what its requests' answers did.
+    fn event(&mut self, name: &str) -> Vec<Value> {
+        let replies = self.host.event(Event {
+            name: name.into(),
+            payload: json!({}),
+        });
+        let mut ops: Vec<Value> = replies.into_iter().flat_map(|r| self.take(r)).collect();
+        ops.extend(self.take(Reply {
+            plugin: NAME.into(),
+            result: Value::Null,
+            ops: Vec::new(),
+            error: None,
+            disabled: None,
+        }));
+        ops
     }
 
     /// The latest op of a kind (`view` with that id, …) that matches `f`.
@@ -618,6 +674,34 @@ fn plan_shows_the_changes_and_apply_comes_only_after_a_question() {
     assert_eq!(seg["op"], "remove");
 }
 
+/// serve answers one request at a time, so the app's Publish holds every Mesh question behind it
+/// for a minute or two: the controls keep answering meanwhile (decision Q103).
+#[test]
+fn the_controls_answer_while_roster_serve_is_busy_and_catch_up_after() {
+    let mut run = started(World::default());
+    run.serve.take();
+    let publish = run.serve.busy.lock().unwrap();
+    let c = run.last(|o| o["op"] == "command" && o["name"] == NAME);
+    let started = Instant::now();
+    let reply = run
+        .host
+        .call(NAME, handler(&c["run"]), json!({ "args": "plan", "words": ["plan"] }));
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert!(reply.error.is_none() && reply.disabled.is_none(), "{reply:?}");
+    assert_eq!(of(&reply.ops, "view_open")[0]["id"], "mesh-plan");
+    // Asked again before serve answers: it says it's starting, and asks nothing more.
+    let again = run
+        .host
+        .call(NAME, handler(&c["run"]), json!({ "args": "plan", "words": ["plan"] }));
+    assert!(texts(&again.ops)[0].contains("is starting"));
+    std::thread::sleep(Duration::from_millis(2600));
+    assert!(run.host.list()[0].disabled.is_none());
+    drop(publish);
+    let ops = run.take(reply);
+    assert_eq!(of(&ops, "progress")[0]["spec"]["title"], "Planning the Mesh");
+    assert_eq!(run.serve.methods(), ["mesh.plan"]);
+}
+
 #[test]
 fn apply_without_a_plan_plans_first() {
     let mut run = started(World::default());
@@ -722,13 +806,10 @@ fn an_older_roster_serve_without_jobs_is_never_asked_to_run_the_mesh() {
 
 #[test]
 fn it_refreshes_after_a_publish() {
-    let run = started(World::default());
+    let mut run = started(World::default());
     run.serve.take();
-    let replies = run.host.event(Event {
-        name: "inventory_changed".into(),
-        payload: json!({}),
-    });
-    assert_eq!(replies.len(), 1);
+    let ops = run.event("inventory_changed");
+    assert!(!of(&ops, "view").is_empty());
     assert_eq!(run.serve.methods(), ["mesh.status"]);
 }
 
@@ -873,15 +954,10 @@ fn times(s: &str) -> String {
 
 #[test]
 fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
-    let serve = Arc::new(FakeMesh::new(World::default()));
-    let host = PluginHost::new(serve.clone(), Limits::default());
-    let mut run = Run {
-        host,
-        serve,
-        ops: Vec::new(),
-    };
+    let mut run = Run::with(Arc::new(FakeMesh::new(World::default())));
     let mut out = Vec::new();
     for step in steps().as_array().unwrap() {
+        run.answers.clear();
         let ops = match step["do"].as_str().unwrap() {
             "load" => {
                 let grants: Vec<&str> = step["grants"]
@@ -901,17 +977,21 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                 step["row"].as_str().unwrap(),
             ),
             "confirm" => run.confirm(),
-            "event" => {
-                let replies = run.host.event(Event {
-                    name: step["name"].as_str().unwrap().into(),
-                    payload: json!({}),
-                });
-                replies.into_iter().flat_map(|r| run.take(r)).collect()
-            }
+            "event" => run.event(step["name"].as_str().unwrap()),
             other => panic!("no step {other}"),
         };
+        // The call's own ops, then each answer's: the stand-in replays both, in order.
+        let answers = Value::Array(std::mem::take(&mut run.answers));
+        let own = ops.len()
+            - answers
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a.as_array().unwrap().len())
+                .sum::<usize>();
         let mut step = step.clone();
-        step["ops"] = normal(&Value::Array(ops));
+        step["ops"] = normal(&Value::Array(ops[..own].to_vec()));
+        step["answers"] = answers;
         step["serve"] = Value::Array(run.serve.take());
         out.push(step);
     }

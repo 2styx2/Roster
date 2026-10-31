@@ -18,8 +18,9 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const NAME: &str = "topology";
 const ALL: &[&str] = &[
@@ -257,6 +258,9 @@ struct World {
     dir: PathBuf,
     host: PluginHost,
     serve: Arc<FakeServe>,
+    /// What the Plugin did when its roster serve requests answered (the Tauri shell's
+    /// `plugin-reply`).
+    replies: Mutex<Receiver<Reply>>,
 }
 
 impl World {
@@ -285,7 +289,17 @@ impl World {
         let (dir, _) = packages.loadable(&specs, NAME).unwrap();
         let serve = Arc::new(serve);
         let host = PluginHost::new(serve.clone(), limits());
-        World { dir, host, serve }
+        let (tx, replies) = channel();
+        let tx = Mutex::new(tx);
+        host.set_listener(Arc::new(move |r: Reply| {
+            let _ = tx.lock().unwrap().send(r);
+        }));
+        World {
+            dir,
+            host,
+            serve,
+            replies: Mutex::new(replies),
+        }
     }
 
     fn new(test: &str) -> World {
@@ -315,17 +329,44 @@ impl World {
             find(&reply.ops, "view").is_empty() && self.serve.calls.lock().unwrap().len() == before,
             "it called serve while it loaded"
         );
-        let later = self.host.call(NAME, first, json!({}));
+        let later = self.call(first, json!({}));
         ok(&later);
         reply.ops.extend(later.ops);
         reply
     }
 
+    /// `reply`, with what the answers to the requests it made did once every one came back: what
+    /// the user sees after a moment.
+    fn settle(&self, mut reply: Reply) -> Reply {
+        let started = Instant::now();
+        while self.host.requests(NAME) > 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "roster serve's answers didn't come"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // An answer's reply can reach the listener just after the count drops: wait a moment.
+        while let Ok(r) = self.replies.lock().unwrap().recv_timeout(Duration::from_millis(50)) {
+            ok(&r);
+            reply.ops.extend(r.ops);
+        }
+        reply
+    }
+
+    fn call(&self, handler: u64, args: Value) -> Reply {
+        self.settle(self.host.call(NAME, handler, args))
+    }
+
     fn event(&self, name: &str, payload: Value) -> Vec<Reply> {
-        self.host.event(Event {
-            name: name.into(),
-            payload,
-        })
+        self.host
+            .event(Event {
+                name: name.into(),
+                payload,
+            })
+            .into_iter()
+            .map(|r| self.settle(r))
+            .collect()
     }
 }
 
@@ -563,13 +604,13 @@ fn check_from_a_node_runs_the_apps_check_of_that_host() {
     let w = World::new("check");
     let reply = w.load(ALL);
     let check = action(view(&reply), "Check");
-    let r = w.host.call(NAME, check, on("nas-01"));
+    let r = w.call(check, on("nas-01"));
     ok(&r);
     // The app's own :check HOST shows each step; it takes seconds, longer than a Plugin's call may.
     assert_eq!(one(&r.ops, "cmd")["line"], "check nas-01");
     assert!(w.serve.called("host.check").is_empty());
     // This Box isn't a Host.
-    let r = w.host.call(NAME, check, json!({ "view": "topology", "node": ":box" }));
+    let r = w.call(check, json!({ "view": "topology", "node": ":box" }));
     assert_eq!(one(&r.ops, "notify")["text"], "That's this Box: pick a Host to check.");
     // Without serve:host.check there's no Check, and :check isn't a command it may run.
     let reply = w.load(&["inventory.read"]);
@@ -587,7 +628,7 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     let w = World::new("cut");
     let reply = w.load(ALL);
     let cut = action(view(&reply), "Cut");
-    let r = w.host.call(NAME, cut, on("esx-01"));
+    let r = w.call(cut, on("esx-01"));
     ok(&r);
     let q = &one(&r.ops, "confirm")["spec"];
     assert_eq!(q["title"], "Cut esx-01 from the Mesh?");
@@ -597,7 +638,7 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     );
     assert_eq!(q["facts"][0]["value"], "5 Hosts directly");
     assert!(w.serve.called("mesh.cut").is_empty(), "asking cuts nothing");
-    let r = w.host.call(NAME, handler(&q["run"]), json!({ "confirm": "yes" }));
+    let r = w.call(handler(&q["run"]), json!({ "confirm": "yes" }));
     ok(&r);
     // It runs as roster serve's job, and a timer asks how it's going.
     assert_eq!(
@@ -607,7 +648,7 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     assert_eq!(one(&r.ops, "progress")["spec"]["title"], "Cutting esx-01 from the Mesh");
     let timer = one(&r.ops, "timer");
     assert_eq!(timer["every"], true);
-    let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
+    let r = w.call(handler(&timer["run"]), json!({}));
     ok(&r);
     assert_eq!(w.serve.called("mesh.job"), [json!({ "job": 7 })]);
     assert_eq!(
@@ -617,7 +658,7 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "progress"));
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
     // A Host that isn't in the Mesh has nothing to cut, and isn't asked about.
-    let r = w.host.call(NAME, cut, on("new-01"));
+    let r = w.call(cut, on("new-01"));
     assert!(find(&r.ops, "confirm").is_empty());
     assert_eq!(
         one(&r.ops, "notify")["text"],
@@ -630,7 +671,7 @@ fn topology_group_opens_the_view_filtered_to_that_groups_clusters() {
     let w = World::new("command");
     let reply = w.load(ALL);
     let run = handler(&one(&reply.ops, "command")["run"]);
-    let r = w.host.call(NAME, run, json!({ "args": "lab", "words": ["lab"] }));
+    let r = w.call(run, json!({ "args": "lab", "words": ["lab"] }));
     ok(&r);
     assert_eq!(
         r.ops[0],
@@ -638,9 +679,9 @@ fn topology_group_opens_the_view_filtered_to_that_groups_clusters() {
     );
     assert_eq!(r.ops[1], json!({ "op": "view_open", "id": "topology" }));
     // Then :topology alone shows everything again.
-    let r = w.host.call(NAME, run, json!({ "args": "", "words": [] }));
+    let r = w.call(run, json!({ "args": "", "words": [] }));
     assert_eq!(r.ops[0]["changes"]["filter"], json!({}));
-    let r = w.host.call(NAME, run, json!({ "args": "nope", "words": ["nope"] }));
+    let r = w.call(run, json!({ "args": "nope", "words": ["nope"] }));
     assert_eq!(one(&r.ops, "notify")["text"], "There's no group nope on the map.");
 }
 
@@ -674,7 +715,7 @@ fn without_its_permissions_it_still_loads_draws_this_box_and_says_what_it_needs(
     );
     // Its :check section says what's missing.
     let health = one(&reply.ops, "health");
-    let r = w.host.call(NAME, handler(&health["spec"]["check"]), json!({}));
+    let r = w.call(handler(&health["spec"]["check"]), json!({}));
     assert_eq!(r.result[0]["level"], "warn");
     assert_eq!(
         r.result[1]["message"],
@@ -687,7 +728,7 @@ fn its_check_section_says_whether_mesh_status_is_available() {
     let w = World::new("health");
     let reply = w.load(ALL);
     let h = handler(&one(&reply.ops, "health")["spec"]["check"]);
-    let r = w.host.call(NAME, h, json!({}));
+    let r = w.call(h, json!({}));
     ok(&r);
     assert_eq!(
         r.result,
@@ -816,7 +857,7 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
         .into_iter()
         .find(|t| t["every"] == true)
         .unwrap();
-    let r = w.host.call(NAME, handler(&timer["run"]), json!({}));
+    let r = w.call(handler(&timer["run"]), json!({}));
     ok(&r);
     assert!(find(&r.ops, "view_update").is_empty());
 }
@@ -886,27 +927,20 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
             "event" => w.event(step["name"].as_str().unwrap(), step["payload"].clone()),
             "action" => {
                 let node = step["node"].as_str().unwrap();
-                vec![
-                    w.host
-                        .call(NAME, action(&view_spec, step["label"].as_str().unwrap()), on(node)),
-                ]
+                vec![w.call(action(&view_spec, step["label"].as_str().unwrap()), on(node))]
             }
-            "confirm" => vec![
-                w.host
-                    .call(NAME, confirm.take().expect("a question"), json!({ "confirm": "yes" })),
-            ],
+            "confirm" => vec![w.call(confirm.take().expect("a question"), json!({ "confirm": "yes" }))],
             "command" => {
                 let args = step["args"].as_str().unwrap();
                 let words: Vec<&str> = args.split_whitespace().collect();
-                vec![w.host.call(
-                    NAME,
+                vec![w.call(
                     commands[step["name"].as_str().unwrap()],
                     json!({ "args": args, "words": words }),
                 )]
             }
-            "health" => vec![w.host.call(NAME, health.expect("a :check section"), json!({}))],
-            "cut-timer" => vec![w.host.call(NAME, cut_timer.take().expect("a cut's timer"), json!({}))],
-            "timer" => vec![w.host.call(NAME, timer.expect("a timer"), json!({}))],
+            "health" => vec![w.call(health.expect("a :check section"), json!({}))],
+            "cut-timer" => vec![w.call(cut_timer.take().expect("a cut's timer"), json!({}))],
+            "timer" => vec![w.call(timer.expect("a timer"), json!({}))],
             other => panic!("no step {other}"),
         };
         let mut ops = Vec::new();

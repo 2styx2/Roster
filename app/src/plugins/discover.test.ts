@@ -3,7 +3,8 @@
 // stand-in roster serve and records every op and every serve call with its answer
 // (discover.transcript.json); this replays the same steps against the stand-in, answering its
 // serve calls from the recording (and checking it makes the same ones), compares the ops, and
-// checks every op the real Lua sent passes the frontend's checks (ops.ts).
+// checks every op the real Lua sent passes the frontend's checks (ops.ts). Each step has the call's
+// own ops and then each answer's: what the Plugin did when its roster serve requests answered (Q103).
 import { describe, expect, it } from "vitest";
 import { makeHosts } from "../backend/fake";
 import { discoverPlugin, fakeDiscoverServe, smallNet } from "../backend/fakeDiscover";
@@ -13,7 +14,7 @@ import { parseOp } from "./ops";
 import transcript from "./discover.transcript.json";
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
-type Step = { do: string; ops: Json[] } & Record<string, Json>;
+type Step = { do: string; ops: Json[]; answers: Json[][] } & Record<string, Json>;
 type Op = Record<string, unknown>;
 
 const steps = transcript.steps as unknown as Step[];
@@ -49,6 +50,8 @@ describe("the discover stand-in", () => {
       return result;
     };
     const host = fakePluginHost({}, () => makeHosts(2).hosts, (path) => (path === "discover" ? { plugin: discoverPlugin(), config } : undefined), serve);
+    const answered: PluginReply[] = [];
+    host.onPluginReply((r) => answered.push(r));
     let view: Op | undefined;
     let command = -1;
     let confirm = -1;
@@ -81,20 +84,27 @@ describe("the discover stand-in", () => {
           throw new Error(`no step ${step.do}`);
       }
       expect(reply.error, JSON.stringify(step)).toBeNull();
-      for (const op of reply.ops as Op[]) {
-        if (op.op === "view") view = op;
-        if (op.op === "command") command = handlerOf(op.run);
-        if (op.op === "confirm") confirm = handlerOf((op.spec as Op).run);
-        if (op.op === "timer") timer = handlerOf(op.run);
+      const name = `${step.do} ${JSON.stringify(step.label ?? step.args ?? "")}`;
+      expect(normal(reply.ops), name).toEqual(step.ops);
+      await host.pluginSettled("discover");
+      const answers = answered.splice(0);
+      for (const r of [reply, ...answers]) {
+        expect(r.error, `${name}: an answer`).toBeNull();
+        for (const op of r.ops as Op[]) {
+          if (op.op === "view") view = op;
+          if (op.op === "command") command = handlerOf(op.run);
+          if (op.op === "confirm") confirm = handlerOf((op.spec as Op).run);
+          if (op.op === "timer") timer = handlerOf(op.run);
+        }
       }
-      expect(normal(reply.ops), `${step.do} ${JSON.stringify(step.label ?? step.args ?? "")}`).toEqual(step.ops);
+      expect(answers.map((r) => normal(r.ops)), `${name}: the answers`).toEqual(step.answers);
     }
     expect(next).toBe(recorded.length);
   });
 
   it("every op the real Lua sent passes the frontend's checks", () => {
     for (const step of steps) {
-      for (const op of step.ops) {
+      for (const op of [...step.ops, ...step.answers.flat()]) {
         const raw = JSON.parse(JSON.stringify(op).replaceAll('"fn"', '{"handler":1}')) as unknown;
         expect(parseOp(raw), JSON.stringify(op)).not.toHaveProperty("invalid");
       }

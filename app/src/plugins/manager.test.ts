@@ -332,7 +332,7 @@ describe("replies nobody asked for (an HTTP request's answer, decision Q97)", ()
     if (prompt) await manager.answer(prompt, true);
     backend.pluginReplied(reply("⚠ 9"));
     expect(registries.status.get("alerts")?.text).toBe("⚠ 9");
-    expect(manager.snapshot().plugins[0]?.uses.at(-1)?.what).toBe("got an answer over the network");
+    expect(manager.snapshot().plugins[0]?.uses.at(-1)?.what).toBe("got an answer to a request");
     await manager.remove("recent-alerts");
     backend.pluginReplied(reply("⚠ 10"));
     expect(registries.status.get("alerts")).toBeUndefined();

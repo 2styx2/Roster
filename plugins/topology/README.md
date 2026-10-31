@@ -30,7 +30,7 @@ It draws the Mesh best with roster serve's API 19 (`mesh.status`'s `grouped`, wh
 | On a Host | Enter opens a Session (the app's own `:open`). `i` shows its details, `c` runs the app's `:check HOST`, `x` cuts it from the Mesh after a question you answer by typing its name |
 | Keys of the graph | `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state and hides the rest, `o` collapses a cluster to its count, `+` `-` `0` zoom, `H` `J` `K` `L` pan, `t` lists every node and then every edge as a table |
 | Host details | A **Reach** section in each Mesh Host's details (`:info HOST`): whether it's in the Mesh (or why not), how many Hosts it reaches and is reached by **directly** (its own Links), Links from it roster doesn't write, its hop, pending, cut pending |
-| `:check` | A **Topology** section: whether Mesh status is available here, and whether the Mesh is out of date |
+| `:check` | A **Topology** section: whether Mesh status was available the last time it asked (it doesn't make `:check` wait for serve), and whether the Mesh is out of date |
 | Help | `:help topology` |
 
 It never changes anything on its own. Cut is the only thing that does, and only after you type the Host's name.
@@ -74,7 +74,7 @@ topology/
 - **Few edges for a big Mesh.** A meshed group of 50 is 2,450 Links. `mesh.status { grouped = true }` (serve API 19) says each meshed group once, and the Plugin draws it as its cluster's mesh; the other Links are grouped by the clusters at their ends, so a group-to-group Link is one edge. 2,000 Hosts in 40 meshed groups (98,000 Links) are 2,001 nodes and 40 edges.
 - **Reach every hop away** (`reach = "all"` on the graph): the graph counts it on select. The Reach section in a Host's details gives the direct counts, the ones `roster mesh` reports.
 - **Only what changed.** The map is set once; after that, a Session, an Inventory change or a refresh sends only the nodes, edges and clusters that changed (`roster.views.update`), so a node that turns live keeps its place and its edge draws in. The Hosts are read again only when the app says they changed.
-- **Inside the limits.** Its calls into roster serve are short (`mesh.status` never connects; Check is the app's; Cut is a job), the first look is deferred so nothing waits on serve while the app starts, and the Reach sections go 400 a call.
+- **It never waits for roster serve.** Every Mesh question is a `roster.serve.request`: the answer comes later as a call of its own, so a busy serve (a Publish, a long Mesh run) holds up neither the Plugin nor the app. One `mesh.status` at a time; Check is the app's; Cut is a job polled with `mesh.job`. The Hosts come from `roster.inventory`, read again only on `inventory_changed`. The first look is deferred so nothing asks serve while the app starts, and the Reach sections go 400 a call.
 - **What it can't know:** Sessions opened before it loaded (it hears of them when they open or end), and what a `:check` found (the app shows that). A filter over several clusters (`:topology lab`, with its peers) shows as "3 clusters" in the filter.
 
 ## Testing it

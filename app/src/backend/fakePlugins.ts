@@ -56,8 +56,12 @@ export interface FakeRoster {
   inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
   sessions: { show(session: number, line?: string): void; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
-  /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend. */
-  serve?: { call(method: string, params?: Spec): unknown };
+  /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend.
+   * `request` doesn't wait: `done` runs later, as the core's does (decision Q103). */
+  serve?: {
+    call(method: string, params?: Spec): unknown;
+    request(method: string, params: Spec | null | undefined, done: (result: unknown, err?: string) => void): void;
+  };
 }
 
 /** How a fake Plugin's `roster.serve.call` reaches the fake Backend: the result, or a thrown
@@ -306,7 +310,12 @@ interface Running {
   listeners: Map<string, Fn[]>;
   errors: number;
   disabled: string | null;
+  /** Its `roster.serve.request` calls not yet answered and run. */
+  requests: number;
 }
+
+/** How many `roster.serve.request` calls a Plugin may have waiting, as runtime.rs's. */
+const MAX_SERVE_REQUESTS = 8;
 
 export function fakePluginHost(
   plugins: Record<string, FakePlugin>,
@@ -330,6 +339,9 @@ export function fakePluginHost(
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
   /** As the core does when a request answers: hands `reply` to whoever listens. */
   pluginReplied(reply: PluginReply): void;
+  /** Resolves once every request the Plugin made has answered and run (as the core's
+   * `PluginHost::requests` reaching 0). */
+  pluginSettled(plugin: string): Promise<void>;
 } {
   const all: Record<string, FakePlugin> = { "builtin:hosts": fakeHostsPlugin, "builtin:folders": fakeFoldersPlugin, ...plugins };
   /** Each Plugin's data folder, by its name: kept across reloads, gone with pluginForget. */
@@ -346,6 +358,8 @@ export function fakePluginHost(
   let ops: unknown[] = [];
   /** Whether the run is a call the user started: only then may a Plugin copy. */
   let userCall = false;
+  /** Whether the run is an answer carrying the user's call: a request made in it doesn't carry it. */
+  let carried = false;
   const replyWatchers = new Set<(reply: PluginReply) => void>();
 
   const configs = new Map<string, Record<string, unknown>>();
@@ -511,6 +525,8 @@ export function fakePluginHost(
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
     // As runtime.rs: `roster.serve` with any serve: grant, each call checked against its own.
     if ([...r.grants].some((g) => g.startsWith("serve:"))) {
+      const errorText = (e: unknown) =>
+        e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e);
       m.serve = {
         call: (method, params = {}) => {
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
@@ -518,9 +534,39 @@ export function fakePluginHost(
           try {
             return serve(method, params);
           } catch (e) {
-            const text = e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e);
-            throw new Error(`roster.serve.call ${method}: ${text}`, { cause: e });
+            throw new Error(`roster.serve.call ${method}: ${errorText(e)}`, { cause: e });
           }
+        },
+        // serve is asked now (the core's thread asks at once); `done` runs later, as a call of its
+        // own whose reply goes to whoever listens.
+        request: (method, params, done) => {
+          const what = `roster.serve.request ${method}`;
+          if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.request: not granted (serve:${method})`);
+          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(what);
+          if (r.requests >= MAX_SERVE_REQUESTS) {
+            throw new Error(`${what}: ${MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer`);
+          }
+          let answer: () => void;
+          try {
+            const result = serve(method, params ?? {});
+            answer = () => done(result ?? undefined);
+          } catch (e) {
+            answer = () => done(undefined, `${what}: ${errorText(e)}`);
+          }
+          const user = userCall && !carried;
+          r.requests++;
+          setTimeout(() => {
+            r.requests--;
+            if (running.get(r.manifest.name) !== r || r.disabled) return;
+            [userCall, carried] = [user, user];
+            let reply: PluginReply;
+            try {
+              reply = run(r.manifest.name, r, answer);
+            } finally {
+              [userCall, carried] = [false, false];
+            }
+            if (reply.ops.length || reply.error) for (const w of replyWatchers) w(reply);
+          }, 0);
         },
       };
     }
@@ -574,6 +620,7 @@ export function fakePluginHost(
         listeners: new Map(),
         errors: 0,
         disabled: null,
+        requests: 0,
       };
       running.set(manifest.name, r);
       const config = path.startsWith("builtin:") && settings ? settings : configs.get(path);
@@ -625,6 +672,9 @@ export function fakePluginHost(
     },
     pluginReplied(reply) {
       for (const w of replyWatchers) w(reply);
+    },
+    async pluginSettled(plugin) {
+      while ((running.get(plugin)?.requests ?? 0) > 0) await new Promise((done) => setTimeout(done, 0));
     },
   };
 }

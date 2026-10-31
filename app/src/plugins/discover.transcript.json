@@ -4,6 +4,7 @@
     [
       "discover.plan",
       {
+        "force": true,
         "targets": [
           "10.0.0.0/24"
         ]
@@ -189,16 +190,6 @@
     [
       "discover.plan",
       {
-        "targets": [
-          "10.0.0.0/19"
-        ]
-      },
-      null,
-      "that's 8,190 addresses; a scan visits at most 4,096 without force (code 121)"
-    ],
-    [
-      "discover.plan",
-      {
         "force": true,
         "targets": [
           "10.0.0.0/19"
@@ -218,6 +209,7 @@
   ],
   "steps": [
     {
+      "answers": [],
       "config": {
         "group": "found"
       },
@@ -362,256 +354,269 @@
       ]
     },
     {
+      "answers": [
+        [
+          {
+            "op": "confirm",
+            "spec": {
+              "action": "Scan",
+              "danger": false,
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Addresses",
+                  "value": "254"
+                },
+                {
+                  "label": "Ports",
+                  "value": "47"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                }
+              ],
+              "run": "fn",
+              "text": "roster scans from this computer: it connects to each of the 254 addresses on 47 TCP ports, with nmap. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.",
+              "title": "Scan 10.0.0.0/24?"
+            }
+          }
+        ]
+      ],
       "args": "10.0.0.0/24",
       "do": "command",
-      "ops": [
-        {
-          "op": "confirm",
-          "spec": {
-            "action": "Scan",
-            "danger": false,
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Addresses",
-                "value": "254"
-              },
-              {
-                "label": "Ports",
-                "value": "47"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              }
-            ],
-            "run": "fn",
-            "text": "roster scans from this computer: it connects to each of the 254 addresses on 47 TCP ports, with nmap. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.",
-            "title": "Scan 10.0.0.0/24?"
-          }
-        }
-      ]
+      "ops": []
     },
     {
+      "answers": [
+        [
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "0 new, 0 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "text": "Scanning 10.0.0.0/24 with nmap: 0 of 254 addresses. Hosts show here as they're found."
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "id": "discover",
+            "op": "view_open"
+          },
+          {
+            "id": "scan",
+            "op": "progress",
+            "spec": {
+              "cancel": "fn",
+              "done": 0,
+              "text": "0 Hosts found so far",
+              "title": "Scanning 10.0.0.0/24",
+              "total": 254
+            }
+          },
+          {
+            "every": true,
+            "id": "N",
+            "ms": 1000,
+            "op": "timer",
+            "run": "fn"
+          }
+        ]
+      ],
       "do": "confirm",
-      "ops": [
-        {
-          "changes": {
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              },
-              {
-                "label": "Found",
-                "value": "0 new, 0 in the Inventory"
-              },
-              {
-                "label": "Kept",
-                "value": "0"
-              }
-            ],
-            "text": "Scanning 10.0.0.0/24 with nmap: 0 of 254 addresses. Hosts show here as they're found."
+      "ops": []
+    },
+    {
+      "answers": [
+        [
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "1 new, 1 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "rows": [
+                {
+                  "cells": {
+                    "address": "10.0.0.5",
+                    "keep": "",
+                    "name": "esx-02",
+                    "pick": "no",
+                    "ports": "22 ssh · 443 https",
+                    "state": "known",
+                    "status": "in the Inventory as esx-02",
+                    "title": "",
+                    "type": "server"
+                  },
+                  "host": "esx-02",
+                  "id": "10.0.0.5",
+                  "tone": "muted"
+                },
+                {
+                  "cells": {
+                    "address": "10.0.0.7",
+                    "keep": "",
+                    "name": "appliance",
+                    "pick": "no",
+                    "ports": "443 https",
+                    "state": "new",
+                    "status": "new",
+                    "title": "Appliance login",
+                    "type": "appliance"
+                  },
+                  "id": "10.0.0.7"
+                }
+              ],
+              "text": "Scanning 10.0.0.0/24 with nmap: 128 of 254 addresses. Hosts show here as they're found.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
           },
-          "id": "discover",
-          "op": "view_update"
-        },
-        {
-          "id": "discover",
-          "op": "view_open"
-        },
-        {
-          "id": "scan",
-          "op": "progress",
-          "spec": {
-            "cancel": "fn",
-            "done": 0,
-            "text": "0 Hosts found so far",
-            "title": "Scanning 10.0.0.0/24",
-            "total": 254
+          {
+            "id": "scan",
+            "op": "progress",
+            "spec": {
+              "cancel": "fn",
+              "done": 128,
+              "text": "2 Hosts found so far",
+              "title": "Scanning 10.0.0.0/24",
+              "total": 254
+            }
           }
-        },
-        {
-          "every": true,
-          "id": "N",
-          "ms": 1000,
-          "op": "timer",
-          "run": "fn"
-        }
-      ]
+        ]
+      ],
+      "do": "timer",
+      "ops": []
     },
     {
-      "do": "timer",
-      "ops": [
-        {
-          "changes": {
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              },
-              {
-                "label": "Found",
-                "value": "1 new, 1 in the Inventory"
-              },
-              {
-                "label": "Kept",
-                "value": "0"
-              }
-            ],
-            "rows": [
-              {
-                "cells": {
-                  "address": "10.0.0.5",
-                  "keep": "",
-                  "name": "esx-02",
-                  "pick": "no",
-                  "ports": "22 ssh · 443 https",
-                  "state": "known",
-                  "status": "in the Inventory as esx-02",
-                  "title": "",
-                  "type": "server"
+      "answers": [
+        [
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
                 },
-                "host": "esx-02",
-                "id": "10.0.0.5",
-                "tone": "muted"
-              },
-              {
-                "cells": {
-                  "address": "10.0.0.7",
-                  "keep": "",
-                  "name": "appliance",
-                  "pick": "no",
-                  "ports": "443 https",
-                  "state": "new",
-                  "status": "new",
-                  "title": "Appliance login",
-                  "type": "appliance"
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
                 },
-                "id": "10.0.0.7"
-              }
-            ],
-            "text": "Scanning 10.0.0.0/24 with nmap: 128 of 254 addresses. Hosts show here as they're found.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+                {
+                  "label": "Found",
+                  "value": "2 new, 1 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "rows": [
+                {
+                  "cells": {
+                    "address": "10.0.0.9",
+                    "keep": "",
+                    "name": "db-10-0-0-9",
+                    "pick": "no",
+                    "ports": "22 ssh · 5432 postgresql",
+                    "state": "new",
+                    "status": "new",
+                    "title": "",
+                    "type": "db"
+                  },
+                  "id": "10.0.0.9"
+                }
+              ],
+              "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
           },
-          "id": "discover",
-          "op": "view_update"
-        },
-        {
-          "id": "scan",
-          "op": "progress",
-          "spec": {
-            "cancel": "fn",
-            "done": 128,
-            "text": "2 Hosts found so far",
-            "title": "Scanning 10.0.0.0/24",
-            "total": 254
+          {
+            "id": "scan",
+            "kind": "progress",
+            "op": "remove"
+          },
+          {
+            "id": "N",
+            "kind": "timer",
+            "op": "remove"
+          },
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "2 new, 1 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "level": "info",
+            "op": "notify",
+            "text": "Scan done: 3 Hosts answered, 2 new"
           }
-        }
-      ]
-    },
-    {
+        ]
+      ],
       "do": "timer",
-      "ops": [
-        {
-          "changes": {
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              },
-              {
-                "label": "Found",
-                "value": "2 new, 1 in the Inventory"
-              },
-              {
-                "label": "Kept",
-                "value": "0"
-              }
-            ],
-            "rows": [
-              {
-                "cells": {
-                  "address": "10.0.0.9",
-                  "keep": "",
-                  "name": "db-10-0-0-9",
-                  "pick": "no",
-                  "ports": "22 ssh · 5432 postgresql",
-                  "state": "new",
-                  "status": "new",
-                  "title": "",
-                  "type": "db"
-                },
-                "id": "10.0.0.9"
-              }
-            ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
-          },
-          "id": "discover",
-          "op": "view_update"
-        },
-        {
-          "id": "scan",
-          "kind": "progress",
-          "op": "remove"
-        },
-        {
-          "id": "N",
-          "kind": "timer",
-          "op": "remove"
-        },
-        {
-          "changes": {
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              },
-              {
-                "label": "Found",
-                "value": "2 new, 1 in the Inventory"
-              },
-              {
-                "label": "Kept",
-                "value": "0"
-              }
-            ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
-          },
-          "id": "discover",
-          "op": "view_update"
-        },
-        {
-          "level": "info",
-          "op": "notify",
-          "text": "Scan done: 3 Hosts answered, 2 new"
-        }
-      ]
+      "ops": []
     },
     {
+      "answers": [],
       "do": "action",
       "label": "Details",
       "ops": [
@@ -640,6 +645,7 @@
       "row": "10.0.0.7"
     },
     {
+      "answers": [],
       "do": "action",
       "label": "Keep",
       "ops": [
@@ -689,6 +695,7 @@
       "row": "10.0.0.9"
     },
     {
+      "answers": [],
       "do": "action",
       "label": "Keep",
       "ops": [
@@ -738,6 +745,7 @@
       "row": "10.0.0.7"
     },
     {
+      "answers": [],
       "do": "action",
       "label": "Don't keep",
       "ops": [
@@ -787,6 +795,7 @@
       "row": "10.0.0.7"
     },
     {
+      "answers": [],
       "args": "keep all",
       "do": "command",
       "ops": [
@@ -839,6 +848,7 @@
       ]
     },
     {
+      "answers": [],
       "do": "action",
       "label": "Add the kept Hosts",
       "ops": [
@@ -867,112 +877,119 @@
       "row": "10.0.0.9"
     },
     {
-      "do": "confirm",
-      "ops": [
-        {
-          "changes": {
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/24"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              },
-              {
-                "label": "Found",
-                "value": "0 new, 1 in the Inventory, 2 added"
-              },
-              {
-                "label": "Kept",
-                "value": "0"
-              }
-            ],
-            "rows": [
-              {
-                "cells": {
-                  "address": "10.0.0.7",
-                  "keep": "",
-                  "name": "appliance",
-                  "pick": "no",
-                  "ports": "443 https",
-                  "state": "added",
-                  "status": "added as appliance",
-                  "title": "Appliance login",
-                  "type": "appliance"
+      "answers": [
+        [
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
                 },
-                "host": "appliance",
-                "id": "10.0.0.7",
-                "tone": "muted"
-              },
-              {
-                "cells": {
-                  "address": "10.0.0.9",
-                  "keep": "",
-                  "name": "db-10-0-0-9",
-                  "pick": "no",
-                  "ports": "22 ssh · 5432 postgresql",
-                  "state": "added",
-                  "status": "added as db-10-0-0-9",
-                  "title": "",
-                  "type": "db"
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
                 },
-                "host": "db-10-0-0-9",
-                "id": "10.0.0.9",
-                "tone": "muted"
-              }
-            ],
-            "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nThe ones you added are Pending changes: review them in :changes, then Publish."
+                {
+                  "label": "Found",
+                  "value": "0 new, 1 in the Inventory, 2 added"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "rows": [
+                {
+                  "cells": {
+                    "address": "10.0.0.7",
+                    "keep": "",
+                    "name": "appliance",
+                    "pick": "no",
+                    "ports": "443 https",
+                    "state": "added",
+                    "status": "added as appliance",
+                    "title": "Appliance login",
+                    "type": "appliance"
+                  },
+                  "host": "appliance",
+                  "id": "10.0.0.7",
+                  "tone": "muted"
+                },
+                {
+                  "cells": {
+                    "address": "10.0.0.9",
+                    "keep": "",
+                    "name": "db-10-0-0-9",
+                    "pick": "no",
+                    "ports": "22 ssh · 5432 postgresql",
+                    "state": "added",
+                    "status": "added as db-10-0-0-9",
+                    "title": "",
+                    "type": "db"
+                  },
+                  "host": "db-10-0-0-9",
+                  "id": "10.0.0.9",
+                  "tone": "muted"
+                }
+              ],
+              "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nThe ones you added are Pending changes: review them in :changes, then Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
           },
-          "id": "discover",
-          "op": "view_update"
-        },
-        {
-          "level": "info",
-          "op": "notify",
-          "text": "Added 2 Hosts to discovered-20261031 as Pending changes: review them in :changes, then Publish"
-        }
-      ]
+          {
+            "level": "info",
+            "op": "notify",
+            "text": "Added 2 Hosts to discovered-20261031 as Pending changes: review them in :changes, then Publish"
+          }
+        ]
+      ],
+      "do": "confirm",
+      "ops": []
     },
     {
+      "answers": [
+        [
+          {
+            "op": "confirm",
+            "spec": {
+              "action": "Scan",
+              "danger": true,
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/19"
+                },
+                {
+                  "label": "Addresses",
+                  "value": "8,190"
+                },
+                {
+                  "label": "Ports",
+                  "value": "47"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                }
+              ],
+              "run": "fn",
+              "text": "roster scans from this computer: it connects to each of the 8,190 addresses on 47 TCP ports, with nmap. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.\n\nThat's more than 4,096 addresses, so it takes a while. Type the range to scan it.",
+              "title": "Scan 10.0.0.0/19?",
+              "typed": "10.0.0.0/19"
+            }
+          }
+        ]
+      ],
       "args": "10.0.0.0/19",
       "do": "command",
-      "ops": [
-        {
-          "op": "confirm",
-          "spec": {
-            "action": "Scan",
-            "danger": true,
-            "facts": [
-              {
-                "data": true,
-                "label": "Range",
-                "value": "10.0.0.0/19"
-              },
-              {
-                "label": "Addresses",
-                "value": "8,190"
-              },
-              {
-                "label": "Ports",
-                "value": "47"
-              },
-              {
-                "label": "Scanner",
-                "value": "nmap"
-              }
-            ],
-            "run": "fn",
-            "text": "roster scans from this computer: it connects to each of the 8,190 addresses on 47 TCP ports, with nmap. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.\n\nThat's more than 4,096 addresses, so it takes a while. Type the range to scan it.",
-            "title": "Scan 10.0.0.0/19?",
-            "typed": "10.0.0.0/19"
-          }
-        }
-      ]
+      "ops": []
     },
     {
+      "answers": [],
       "args": "stop",
       "do": "command",
       "ops": [
@@ -984,6 +1001,7 @@
       ]
     },
     {
+      "answers": [],
       "config": {},
       "do": "load",
       "grants": [],
@@ -1120,6 +1138,7 @@
       ]
     },
     {
+      "answers": [],
       "args": "10.0.0.0/24",
       "do": "command",
       "ops": [

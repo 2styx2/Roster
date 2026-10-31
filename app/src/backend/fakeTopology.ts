@@ -449,20 +449,15 @@ export function topologyPlugin(): FakePlugin {
       let hosts: Host[] | null = null;
       let groups: Record<string, { title?: string }> = {};
 
-      const fetchMesh = () => {
-        if (!canMesh) {
-          mesh = null;
-          meshError = undefined;
-          return;
-        }
+      const ask = (method: string, params: Obj, done: (r: unknown, why?: string) => void) => {
         try {
-          const r = roster.serve?.call("mesh.status", { grouped: true });
-          if (typeof r === "object" && r !== null) [mesh, meshError] = [r as Obj, undefined];
-          else [mesh, meshError] = [null, String(r)];
+          if (!roster.serve) throw new Error("roster.serve: no serve permission");
+          roster.serve.request(method, params, (r, why) => done(r, why));
         } catch (e) {
-          [mesh, meshError] = [null, errorText(e).replace(/^.*?roster\.serve\.call mesh\.status: /, "")];
+          done(undefined, errorText(e));
         }
       };
+      const clean = (why: unknown) => String(why).replace(/^.*?roster\.serve\.request [\w._]+: /, "");
       const readInventory = () => {
         [hosts, groups, inventoryError] = [[], {}, undefined];
         if (!reads || !roster.inventory) return;
@@ -503,11 +498,14 @@ export function topologyPlugin(): FakePlugin {
       };
 
       let refresh = () => {};
+      let asking = false;
+      let again = false;
       const check = (e: Obj) => {
         if (!e.host) return roster.notify("That's this Box: pick a Host to check.");
         roster.cmd(`check ${String(e.host)}`);
       };
-      let cutting: { job: unknown; host: string; timer?: number } | null = null;
+      type Cutting = { job?: unknown; host: string; timer?: number; polling?: boolean };
+      let cutting: Cutting | null = null;
       const cutDone = (host: string, r: Obj) => {
         const waiting = keys(r.pending).length;
         if (waiting > 0) roster.notify(`Cut ${host}: cut pending on ${plural(waiting, "Host")} that didn't answer.`, "warn");
@@ -520,24 +518,24 @@ export function topologyPlugin(): FakePlugin {
         refresh();
       };
       const cutPoll = () => {
-        if (!cutting) return;
-        let j: Obj | null;
-        try {
-          j = (roster.serve?.call("mesh.job", { job: cutting.job }) ?? null) as Obj | null;
-        } catch {
-          j = null;
-        }
-        if (!j) {
-          roster.notify(`Cut ${cutting.host}: roster serve lost track of it; :topology shows where the Mesh is now.`, "warn");
-          return cutOver();
-        }
-        if (j.state === "running") {
-          roster.progress.set("topology-cut", { title: `Cutting ${cutting.host} from the Mesh`, done: j.done ?? 0, total: j.total ?? 0 });
-          return;
-        }
-        if (j.state === "done") cutDone(cutting.host, (j.result ?? {}) as Obj);
-        else roster.notify(`Cut ${cutting.host}: ${String((j.error as Obj | undefined)?.message ?? "it failed")}`, "error");
-        cutOver();
+        if (!cutting || cutting.polling) return;
+        cutting.polling = true;
+        ask("mesh.job", { job: cutting.job }, (r) => {
+          if (!cutting) return;
+          cutting.polling = false;
+          const j = typeof r === "object" && r !== null ? (r as Obj) : null;
+          if (!j) {
+            roster.notify(`Cut ${cutting.host}: roster serve lost track of it; :topology shows where the Mesh is now.`, "warn");
+            return cutOver();
+          }
+          if (j.state === "running") {
+            roster.progress.set("topology-cut", { title: `Cutting ${cutting.host} from the Mesh`, done: j.done ?? 0, total: j.total ?? 0 });
+            return;
+          }
+          if (j.state === "done") cutDone(cutting.host, (j.result ?? {}) as Obj);
+          else roster.notify(`Cut ${cutting.host}: ${String((j.error as Obj | undefined)?.message ?? "it failed")}`, "error");
+          cutOver();
+        });
       };
       const cut = (e: Obj) => {
         if (!e.host) return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.");
@@ -556,21 +554,21 @@ export function topologyPlugin(): FakePlugin {
           typed: h,
           run: () => {
             if (cutting) return roster.notify(`A cut of ${cutting.host} is still going: wait for it to finish.`, "warn");
-            let r: unknown;
-            try {
-              r = roster.serve?.call("mesh.cut", { host: h, background: true });
-            } catch (err) {
-              return roster.notify(`Cut ${h}: ${errorText(err)}`, "error");
-            }
-            if (typeof r === "object" && r !== null && (r as Obj).job !== undefined) {
-              const job = r as Obj;
-              cutting = { job: job.job, host: h };
-              roster.progress.set("topology-cut", { title: `Cutting ${h} from the Mesh`, done: 0, total: job.total ?? 0 });
-              cutting.timer = roster.every(1000, cutPoll);
-            } else if (typeof r === "object" && r !== null) {
-              cutDone(h, r as Obj);
+            const c: Cutting = { host: h };
+            cutting = c;
+            ask("mesh.cut", { host: h, background: true }, (r, why) => {
+              if (typeof r === "object" && r !== null && (r as Obj).job !== undefined) {
+                const job = r as Obj;
+                c.job = job.job;
+                roster.progress.set("topology-cut", { title: `Cutting ${h} from the Mesh`, done: 0, total: job.total ?? 0 });
+                c.timer = roster.every(1000, cutPoll);
+                return;
+              }
+              cutting = null;
+              if (typeof r === "object" && r !== null) cutDone(h, r as Obj);
+              else roster.notify(`Cut ${h}: ${clean(why)}`, "error");
               refresh();
-            }
+            });
           },
         });
       };
@@ -606,15 +604,36 @@ export function topologyPlugin(): FakePlugin {
         details();
       };
       refresh = () => {
-        fetchMesh();
-        restructure();
-        draw();
+        if (!canMesh) {
+          [mesh, meshError] = [null, undefined];
+          restructure();
+          return draw();
+        }
+        if (asking) {
+          again = true;
+          return;
+        }
+        asking = true;
+        ask("mesh.status", { grouped: true }, (r, why) => {
+          asking = false;
+          if (typeof r === "object" && r !== null) [mesh, meshError] = [r as Obj, undefined];
+          else [mesh, meshError] = [null, clean(why ?? "roster serve said nothing about the Mesh")];
+          restructure();
+          draw();
+          if (again) {
+            again = false;
+            refresh();
+          }
+        });
       };
 
       roster.commands.add("topology", {
         desc: "The Topology view: this Box, your Hosts by group and the Mesh; :topology GROUP shows one group",
         run: (a: Obj) => {
-          if (!sent) refresh();
+          if (!sent) {
+            restructure();
+            draw();
+          }
           const word = (a.words as string[] | undefined)?.[0];
           if (word) {
             const ids = groupClusters(s, word);
@@ -639,16 +658,10 @@ export function topologyPlugin(): FakePlugin {
             out.push({ level: "warn", message: "serve:mesh.status isn't granted, so the map has no Mesh", fix: "allow it in :plugins" });
             return out;
           }
-          let r: unknown;
-          try {
-            r = roster.serve?.call("mesh.status", { grouped: true });
-          } catch (e) {
-            r = errorText(e);
-          }
-          if (typeof r !== "object" || r === null) {
-            out.push({ level: "warn", message: `Mesh status isn't available: ${String(r)}`, fix: "update roster on this Box (the Mesh came with serve API 15)" });
-          } else {
-            const st = r as Obj;
+          if (meshError) out.push({ level: "warn", message: `Mesh status isn't available: ${meshError}`, fix: "update roster on this Box (the Mesh came with serve API 15)" });
+          else if (!mesh) out.push({ level: "warn", message: "Mesh status hasn't come yet", fix: "run :check again in a moment" });
+          else {
+            const st = mesh as Obj;
             out.push({ level: "ok", message: `Mesh status available: ${plural(((st.members ?? []) as unknown[]).length, "Host")} roster visits` });
             if (st.out_of_date) out.push({ level: "warn", message: "The Mesh is out of date", fix: "apply it: roster mesh" });
           }

@@ -85,6 +85,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.sessions.open(host)`](#rostersessionsopenhost) | Opens a Session on a Host, as `:connect HOST` | `sessions.open` |
 | [`roster.terminal.send(session, text)`](#rosterterminalsendsession-text) | Types into an open Session | `terminal.write` |
 | [`roster.serve.call(method, params)`](#rosterservecallmethod-params) | Calls a roster serve method the Plugin was granted | `serve:<method>` (that method) |
+| [`roster.serve.request(method, params, done)`](#rosterserverequestmethod-params-done) | Asks roster serve without waiting: `done` gets the answer | `serve:<method>` (that method) |
 | [`roster.http.request(request, done)`](#rosterhttprequestrequest-done) | Sends an HTTP request to a site the Plugin was granted | `network:<site>` (that site) |
 | [`roster.http.get(url, done)`](#rosterhttpgeturl-done) | Fetches a URL from a site the Plugin was granted | `network:<site>` (that site) |
 
@@ -1758,7 +1759,7 @@ roster.storage.write_json("state.json", { hosts = { "esx-02" } })
 
 ## `roster.inventory`
 
-Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget.
+Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on.
 
 ### `roster.inventory.hosts()`
 
@@ -2047,11 +2048,11 @@ roster.on("session_open", function(e) roster.terminal.send(e.session, "uptime\n"
 
 ## `roster.serve`
 
-roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission.
+roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers one request at a time, so a call can wait behind the app's own (a Publish: a minute or two). [`roster.serve.request`](#rosterserverequestmethod-params-done) doesn't wait: prefer it in anything the user starts, and for a job's progress. [`roster.serve.call`](#rosterservecallmethod-params) waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
 
 ### `roster.serve.call(method, params)`
 
-Calls a roster serve method the Plugin was granted. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
+Calls a roster serve method the Plugin was granted. Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).
 
 **Parameters**
 
@@ -2076,6 +2077,40 @@ Calls a roster serve method the Plugin was granted. A Plugin may be granted `inv
 ```lua
 local info = roster.serve.call("inventory.info")
 roster.status.set("box", { text = info.box .. ": " .. info.host_count .. " Hosts" })
+```
+
+### `roster.serve.request(method, params, done)`
+
+Asks roster serve without waiting: `done` gets the answer. Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (it answers one request at a time: a Publish holds it for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, `discover.start` and `discover.add` only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for `discover.start` or `discover.add`. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.
+
+**Parameters**
+
+- `method` (`string`): A roster serve method the Plugin was granted, as [`roster.serve.call`](#rosterservecallmethod-params)'s.
+- `params` (`table?`, optional): The method's params; `nil` or `{}` for none. Data only: no functions.
+- `done` (`fun(result: any, err: string?)`): Runs once with the answer: the method's `result` (as `roster.serve.call` returns it), or `nil` and why (`roster.serve.request METHOD: MESSAGE (code N)`). Its return value is ignored; an error in it counts like an action's.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.serve.request: not granted (serve:METHOD)`: the Plugin wasn't granted that method.
+- `roster.serve.request METHOD: only while the user runs one of your actions, commands or finder items`: `discover.start` or `discover.add` at load, in an event listener or a timer.
+- `roster.serve.request METHOD: 8 requests are waiting for roster serve already: wait for one to answer`: 8 haven't answered yet.
+- And [those of every function](#errors).
+
+**Permission:** `serve:<method>` (that method) · **Since:** api 3
+
+**Example**
+
+```lua
+roster.commands.add("count", { run = function()
+  roster.serve.request("hosts.list", {}, function(r, err)
+    if not r then return roster.notify(err, "warn") end
+    roster.notify(#r.hosts .. " Hosts")
+  end)
+end })
 ```
 
 ## `roster.http`

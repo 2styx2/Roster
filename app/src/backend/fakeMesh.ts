@@ -101,7 +101,7 @@ export const words = {
   },
   clean(e: unknown): string {
     const s = e instanceof Error ? e.message : String(e);
-    return s.replace(/^[\s\S]*?roster\.serve\.call [\w._]+: /, "");
+    return s.replace(/^[\s\S]*?roster\.serve\.[a-z]+ [\w._]+: /, "");
   },
   keys(t: object | undefined | null): string[] {
     return sorted(Object.keys(t ?? {}));
@@ -185,6 +185,10 @@ function load(roster: FakeRoster) {
     problem: null as string | null,
     jobs: false,
     job: null as Job | null,
+    starting: null as string | null,
+    asking: false,
+    refreshing: false,
+    again: false,
     timer: null as number | null,
     done: 0,
     plan: null as Plan | null,
@@ -196,16 +200,31 @@ function load(roster: FakeRoster) {
   };
 
   const can = (method: string) => roster.has(`serve:${method}`);
-  const call = (method: string, params: Obj = {}): [boolean, unknown] => {
-    if (!roster.serve) return [false, "no serve permission"];
+  const ask = (method: string, params: Obj, done: (ok: boolean, result: unknown) => void): void => {
+    if (!roster.serve) return done(false, "no serve permission");
     try {
-      return [true, roster.serve.call(method, params) ?? null];
+      roster.serve.request(method, params, (r, why) => (why !== undefined ? done(false, why) : done(true, r ?? null)));
     } catch (e) {
-      return [false, e];
+      done(false, e);
     }
   };
 
   // ---------------------------------------------------------------- reading the Mesh
+
+  const askStatus = (): void => {
+    ask("mesh.status", { brief: true }, (ok, r) => {
+      if (ok) {
+        state.status = r as Status;
+        state.problem = null;
+      } else {
+        state.status = null;
+        state.problem = `roster serve couldn't say how the Mesh is: ${words.clean(r)}`;
+      }
+      state.refreshing = false;
+      show();
+      if (state.again) refresh();
+    });
+  };
 
   const refresh = (): void => {
     if (!(can("mesh.status") && can("mesh.job"))) {
@@ -213,11 +232,18 @@ function load(roster: FakeRoster) {
       state.problem = "Allow serve:mesh.status and serve:mesh.job in :plugins to see the Mesh.";
       return show();
     }
-    if (!state.jobs) {
-      const [ok, j] = call("mesh.job", {});
+    if (state.refreshing) {
+      state.again = true;
+      return;
+    }
+    state.refreshing = true;
+    state.again = false;
+    if (state.jobs) return askStatus();
+    ask("mesh.job", {}, (ok, j) => {
       if (!ok) {
         const e = words.clean(j);
         state.status = null;
+        state.refreshing = false;
         state.problem = e.includes("unknown method")
           ? "This roster serve has no Mesh jobs (API 17): update roster to use the Mesh controls."
           : `roster serve couldn't say how the Mesh is: ${e}`;
@@ -229,16 +255,8 @@ function load(roster: FakeRoster) {
         state.job = { job: job.job, action: job.action, host: job.host, total: job.total };
         state.timer = roster.every(POLL, () => poll());
       }
-    }
-    const [ok, r] = call("mesh.status", { brief: true });
-    if (ok) {
-      state.status = r as Status;
-      state.problem = null;
-    } else {
-      state.status = null;
-      state.problem = `roster serve couldn't say how the Mesh is: ${words.clean(r)}`;
-    }
-    show();
+      askStatus();
+    });
   };
 
   // ---------------------------------------------------------------- jobs
@@ -304,24 +322,34 @@ function load(roster: FakeRoster) {
     refresh();
   };
 
+  const stop = (job: number): void => ask("mesh.stop", { job }, () => undefined);
+
   const poll = (): void => {
-    if (!state.job) return;
-    const [ok, a] = call("mesh.job", { job: state.job.job, brief: true });
-    if (!ok) return;
-    const j = a as JobAnswer | null;
-    if (j === null || j.state !== "running") return over(j);
-    state.done = j.done;
-    roster.progress.set("mesh", {
-      title: (ACTIONS[j.action] ?? j.action) + (j.host ? ` ${j.host} out` : ""),
-      text: j.at ? `At ${j.at}` : undefined,
-      done: j.done,
-      total: j.total,
-      cancel: can("mesh.stop") ? () => void call("mesh.stop", { job: j.job }) : undefined,
+    if (!state.job || state.asking) return;
+    state.asking = true;
+    const following = state.job.job;
+    ask("mesh.job", { job: following, brief: true }, (ok, a) => {
+      state.asking = false;
+      if (!ok || !state.job || state.job.job !== following) return;
+      const j = a as JobAnswer | null;
+      if (j === null || j.state !== "running") return over(j);
+      state.done = j.done;
+      roster.progress.set("mesh", {
+        title: (ACTIONS[j.action] ?? j.action) + (j.host ? ` ${j.host} out` : ""),
+        text: j.at ? `At ${j.at}` : undefined,
+        done: j.done,
+        total: j.total,
+        cancel: can("mesh.stop") ? () => stop(j.job) : undefined,
+      });
+      if (j.action === "plan") show();
     });
-    if (j.action === "plan") show();
   };
 
   const busy = (): boolean => {
+    if (state.starting) {
+      roster.notify(`A Mesh ${state.starting} is starting: wait for roster serve to answer.`, "warn");
+      return true;
+    }
     if (!state.job) return false;
     roster.notify(`A Mesh ${state.job.action} is running: wait for it, or stop it with :cancel mesh.`, "warn");
     return true;
@@ -341,23 +369,26 @@ function load(roster: FakeRoster) {
     }
     if (!allowed(action)) return false;
     params.background = true;
-    const [ok, a] = call(`mesh.${action}`, params);
-    if (!ok) {
-      roster.notify(`The Mesh ${action} didn't start: ${words.clean(a)}`, "error");
-      return false;
-    }
-    const r = a as Job;
-    state.job = { job: r.job, action: r.action, host: r.host, total: r.total };
-    state.done = 0;
-    if (action === "plan") state.plan = null;
-    roster.progress.set("mesh", {
-      title: (ACTIONS[action] ?? action) + (r.host ? ` ${r.host} out` : ""),
-      done: 0,
-      total: r.total,
-      cancel: can("mesh.stop") ? () => void call("mesh.stop", { job: r.job }) : undefined,
+    state.starting = action;
+    ask(`mesh.${action}`, params, (ok, a) => {
+      state.starting = null;
+      if (!ok) {
+        roster.notify(`The Mesh ${action} didn't start: ${words.clean(a)}`, "error");
+        return;
+      }
+      const r = a as Job;
+      state.job = { job: r.job, action: r.action, host: r.host, total: r.total };
+      state.done = 0;
+      if (action === "plan") state.plan = null;
+      roster.progress.set("mesh", {
+        title: (ACTIONS[action] ?? action) + (r.host ? ` ${r.host} out` : ""),
+        done: 0,
+        total: r.total,
+        cancel: can("mesh.stop") ? () => stop(r.job) : undefined,
+      });
+      state.timer = roster.every(POLL, poll);
+      show();
     });
-    state.timer = roster.every(POLL, poll);
-    show();
     return true;
   };
 

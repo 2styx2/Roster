@@ -3,7 +3,8 @@
 // and every roster serve call with its answer (mesh.transcript.json); this replays the same steps
 // against the stand-in, answering its serve calls from the recording (and checking it makes the
 // same ones), and checks every op the real Lua sent passes the frontend's checks (ops.ts). So the
-// UI tests that use the stand-in test the real Plugin's behaviour.
+// UI tests that use the stand-in test the real Plugin's behaviour. Each step has the call's own ops
+// and then each answer's: what the Plugin did when its roster serve requests answered (Q103).
 import { describe, expect, it } from "vitest";
 import { makeHosts } from "../backend/fake";
 import { meshPlugin, words } from "../backend/fakeMesh";
@@ -14,7 +15,7 @@ import { parseOp } from "./ops";
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 type Call = { method: string; params: Json; result?: Json; error?: string };
-type Step = { do: string; ops: Json[]; serve: Call[] } & Record<string, Json>;
+type Step = { do: string; ops: Json[]; answers: Json[][]; serve: Call[] } & Record<string, Json>;
 
 const steps = transcript.steps as unknown as Step[];
 
@@ -47,6 +48,8 @@ describe("the Mesh controls stand-in", () => {
       return next?.result ?? null;
     };
     const host = fakePluginHost({ mesh: meshPlugin() }, () => makeHosts(2).hosts, undefined, serve);
+    const answered: PluginReply[] = [];
+    host.onPluginReply((r) => answered.push(r));
     const all: Op[] = [];
     const last = (f: (o: Op) => boolean) => [...all].reverse().find(f);
     for (const step of steps) {
@@ -96,13 +99,20 @@ describe("the Mesh controls stand-in", () => {
       }
       const name = `${step.do} ${JSON.stringify(step.label ?? step.args ?? "")}`;
       expect(normal(ops), name).toEqual(step.ops);
+      await host.pluginSettled("mesh");
+      const answers = answered.splice(0);
+      for (const r of answers) {
+        expect(r.error, `${name}: an answer`).toBeNull();
+        all.push(...(r.ops as Op[]));
+      }
+      expect(answers.map((r) => normal(r.ops)), `${name}: the answers`).toEqual(step.answers);
       expect(expected, `${name}: serve calls it didn't make`).toEqual([]);
     }
   });
 
   it("every op the real Lua sent passes the frontend's checks", () => {
     for (const step of steps) {
-      for (const op of step.ops) {
+      for (const op of [...step.ops, ...step.answers.flat()]) {
         const raw = JSON.parse(JSON.stringify(op).replaceAll('"fn"', '{"handler":1}')) as unknown;
         expect(parseOp(raw), JSON.stringify(op)).not.toHaveProperty("invalid");
       }
@@ -124,5 +134,6 @@ describe("the Mesh controls' words", () => {
 
   it("take the function's name off serve's error", () => {
     expect(words.clean(new Error("roster.serve.call mesh.job: unknown method 'mesh.job' (code -32601)"))).toBe("unknown method 'mesh.job' (code -32601)");
+    expect(words.clean("roster.serve.request mesh.job: unknown method 'mesh.job' (code -32601)")).toBe("unknown method 'mesh.job' (code -32601)");
   });
 });

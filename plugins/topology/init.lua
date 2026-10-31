@@ -34,18 +34,17 @@ local queued = {} -- Hosts whose reach section is still to send (at most 400 a c
 local flushing = false
 local filtered = false -- the view's filter is one :topology GROUP set
 
-local function fetch_mesh()
-  if not can_mesh then
-    mesh, mesh_error = nil, nil
-    return
-  end
-  local ok, r = pcall(roster.serve.call, "mesh.status", { grouped = true })
-  if ok and type(r) == "table" then
-    mesh, mesh_error = r, nil
-  else
-    mesh, mesh_error = nil, tostring(r):gsub("^.-roster%.serve%.call mesh%.status: ", "")
-  end
+-- Asks roster serve without waiting (roster.serve.request): `done(result)` or `done(nil, why)`
+-- comes later, as a call of its own, so a busy serve (a Publish, a long Mesh run) never holds up
+-- this Plugin or the app.
+---@param done fun(result: any, why: string?)
+local function ask(method, params, done)
+  local sent_ok, err = pcall(roster.serve.request, method, params or {}, function(r, why) done(r, why) end)
+  if not sent_ok then done(nil, tostring(err)) end
 end
+
+-- serve's words without the call's name in front.
+local function clean(why) return (tostring(why):gsub("^.-roster%.serve%.request [%w._]+: ", "")) end
 
 -- The Hosts and groups, read again only when the app says they changed (inventory_changed): at
 -- 2,000 Hosts each read is most of a call's time.
@@ -159,10 +158,34 @@ local function draw()
   details()
 end
 
+-- Draws what it has now, then asks for the Mesh and draws again when serve answers. One question
+-- at a time: a refresh while one waits asks again once it's answered.
+local asking, again = false, false
 local function refresh()
-  fetch_mesh()
-  restructure()
-  draw()
+  if not can_mesh then
+    mesh, mesh_error = nil, nil
+    restructure()
+    return draw()
+  end
+  if asking then
+    again = true
+    return
+  end
+  asking = true
+  ask("mesh.status", { grouped = true }, function(r, why)
+    asking = false
+    if type(r) == "table" then
+      mesh, mesh_error = r, nil
+    else
+      mesh, mesh_error = nil, clean(why or "roster serve said nothing about the Mesh")
+    end
+    restructure()
+    draw()
+    if again then
+      again = false
+      refresh()
+    end
+  end)
 end
 
 -- ------------------------------------------------------------------- what a node does
@@ -196,22 +219,26 @@ local function cut_over()
 end
 
 local function cut_poll()
-  if not cutting then return end
-  local ok, j = pcall(roster.serve.call, "mesh.job", { job = cutting.job })
-  if not ok or j == nil then
-    roster.notify("Cut " .. cutting.host .. ": roster serve lost track of it; :topology shows where the Mesh is now.", "warn")
-    return cut_over()
-  end
-  if j.state == "running" then
-    roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = j.done or 0, total = j.total or 0 })
-    return
-  end
-  if j.state == "done" then
-    cut_done(cutting.host, j.result or {})
-  else
-    roster.notify("Cut " .. cutting.host .. ": " .. tostring(j.error and j.error.message or "it failed"), "error")
-  end
-  cut_over()
+  if not cutting or cutting.polling then return end
+  cutting.polling = true
+  ask("mesh.job", { job = cutting.job }, function(j)
+    if not cutting then return end
+    cutting.polling = false
+    if type(j) ~= "table" then
+      roster.notify("Cut " .. cutting.host .. ": roster serve lost track of it; :topology shows where the Mesh is now.", "warn")
+      return cut_over()
+    end
+    if j.state == "running" then
+      roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = j.done or 0, total = j.total or 0 })
+      return
+    end
+    if j.state == "done" then
+      cut_done(cutting.host, j.result or {})
+    else
+      roster.notify("Cut " .. cutting.host .. ": " .. tostring(j.error and j.error.message or "it failed"), "error")
+    end
+    cut_over()
+  end)
 end
 
 function cut(e)
@@ -235,18 +262,23 @@ function cut(e)
     typed = h,
     run = function()
       if cutting then return roster.notify("A cut of " .. cutting.host .. " is still going: wait for it to finish.", "warn") end
-      local ok, r = pcall(roster.serve.call, "mesh.cut", { host = h, background = true })
-      if not ok then
-        roster.notify("Cut " .. h .. ": " .. tostring(r), "error")
-      elseif type(r) == "table" and r.job then
-        cutting = { job = r.job, host = h }
-        roster.progress.set("topology-cut", { title = "Cutting " .. h .. " from the Mesh", done = 0, total = r.total or 0 })
-        cutting.timer = roster.every(1000, cut_poll)
-      elseif type(r) == "table" then
-        -- A roster serve before jobs (API 17) answers when it's over.
-        cut_done(h, r)
+      cutting = { host = h }
+      ask("mesh.cut", { host = h, background = true }, function(r, why)
+        if type(r) == "table" and r.job then
+          cutting.job = r.job
+          roster.progress.set("topology-cut", { title = "Cutting " .. h .. " from the Mesh", done = 0, total = r.total or 0 })
+          cutting.timer = roster.every(1000, cut_poll)
+          return
+        end
+        cutting = nil
+        if type(r) == "table" then
+          -- A roster serve before jobs (API 17) answers when it's over.
+          cut_done(h, r)
+        else
+          roster.notify("Cut " .. h .. ": " .. clean(why), "error")
+        end
         refresh()
-      end
+      end)
     end,
   })
 end
@@ -256,7 +288,11 @@ end
 roster.commands.add("topology", {
   desc = "The Topology view: this Box, your Hosts by group and the Mesh; :topology GROUP shows one group",
   run = function(a)
-    if not sent then refresh() end
+    -- Before the first look has drawn the view: draw what there is (the Mesh follows).
+    if not sent then
+      restructure()
+      draw()
+    end
     local word = a.words[1]
     if word then
       local ids = build.group_clusters(s, word)
@@ -306,19 +342,21 @@ roster.health.set("topology", {
       out[#out + 1] = { level = "warn", message = "serve:mesh.status isn't granted, so the map has no Mesh", fix = "allow it in :plugins" }
       return out
     end
-    local ok, r = pcall(roster.serve.call, "mesh.status", { grouped = true })
-    if not ok or type(r) ~= "table" then
+    -- What it last heard from roster serve (a :check doesn't wait for serve).
+    if mesh_error then
       out[#out + 1] = {
         level = "warn",
-        message = "Mesh status isn't available: " .. tostring(r),
+        message = "Mesh status isn't available: " .. mesh_error,
         fix = "update roster on this Box (the Mesh came with serve API 15)",
       }
+    elseif not mesh then
+      out[#out + 1] = { level = "warn", message = "Mesh status hasn't come yet", fix = "run :check again in a moment" }
     else
       out[#out + 1] = {
         level = "ok",
-        message = "Mesh status available: " .. build.plural(#(r.members or {}), "Host") .. " roster visits",
+        message = "Mesh status available: " .. build.plural(#(mesh.members or {}), "Host") .. " roster visits",
       }
-      if r.out_of_date then
+      if mesh.out_of_date then
         out[#out + 1] = { level = "warn", message = "The Mesh is out of date", fix = "apply it: roster mesh" }
       end
     end
