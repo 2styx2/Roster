@@ -5,7 +5,7 @@
 //! Lua function inside them is kept here and sent as `{ "handler": N }`.
 
 use super::network::{self, Answer, Net};
-use super::{Event, Outcome, PluginError, Serve, permission::Permission};
+use super::{Event, Outcome, PluginError, Serve, ServeWait, permission::Permission};
 use crate::config::lua::{self, Budget, Clock};
 use crate::config::{Os, ThemeDef};
 use mlua::chunk::ChunkMode;
@@ -133,6 +133,8 @@ struct Shared {
     next_request: Cell<u64>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
+    /// How long this thread has waited for roster serve: the host doesn't count it.
+    serving: Arc<ServeWait>,
 }
 
 /// Hands a request's answer back to the host (request id, answer), from a network thread.
@@ -165,6 +167,7 @@ impl Runtime {
         memory: usize,
         budget: Duration,
         post: Option<Post>,
+        serving: Arc<ServeWait>,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -195,6 +198,7 @@ impl Runtime {
             post,
             next_request: Cell::new(0),
             timers: RefCell::default(),
+            serving,
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -584,7 +588,9 @@ fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> 
 /// roster serve's answer, before it's Lua.
 fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String> {
     let started = Instant::now();
+    shared.serving.begin();
     let result = shared.serve.call(method, params);
+    shared.serving.end();
     shared.clock.extend(started.elapsed());
     result.map(|mut v| {
         redact(&mut v);

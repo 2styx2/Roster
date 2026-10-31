@@ -12,7 +12,9 @@
 //! budget for each call. An error comes back naming the Plugin, file and line; an error while
 //! loading disables the Plugin, and so does the third error after it loaded (repeat offenders).
 //! A Plugin stuck in one long C call is abandoned after the wall-clock limit and disabled, so a
-//! slow Plugin delays nothing but itself.
+//! slow Plugin delays nothing but itself. Time spent waiting for `roster serve` is serve's, not
+//! the Plugin's ([`ServeWait`], decision Q103): serve answers one request at a time, and a call
+//! behind the app's Publish isn't the Plugin misbehaving.
 //!
 //! Secrets: the Rust core never holds one, and a Plugin reaches roster only through [`Serve`],
 //! for the methods its permissions name ([`permission`]); none of those touches a password, a
@@ -190,8 +192,8 @@ pub struct Limits {
     pub load: Duration,
     /// Lua run time for each call or event (a hook's budget).
     pub call: Duration,
-    /// How much longer than its budget a call may take in all (a long C call, a slow serve call)
-    /// before the Plugin is given up on and disabled.
+    /// How much longer than its budget a call may take in all (a long C call) before the Plugin is
+    /// given up on and disabled. Waiting for roster serve doesn't count (decision Q103).
     pub grace: Duration,
     /// Errors after loading that disable it.
     pub strikes: u32,
@@ -236,6 +238,8 @@ type Slots = Mutex<BTreeMap<String, Slot>>;
 type Answer = (Outcome, Vec<String>);
 /// Where a Plugin's thread takes its work from.
 type Jobs = Sender<(Job, Sender<Answer>)>;
+/// A Plugin's thread to give work to, with how long it has waited for serve.
+type Target = (Jobs, Arc<ServeWait>);
 
 struct Slot {
     manifest: Manifest,
@@ -247,6 +251,8 @@ struct Slot {
     disabled: Option<String>,
     /// Which load this is: an answer to a request made before a reload is dropped.
     generation: u64,
+    /// How long its thread has waited for roster serve.
+    serving: Arc<ServeWait>,
 }
 
 /// Every loaded Plugin. Cheap to share: calls into different Plugins run at the same time.
@@ -326,7 +332,8 @@ impl PluginHost {
             .cloned()
             .collect();
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone(), generation);
+        let serving = Arc::new(ServeWait::default());
+        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone(), generation, &serving);
         // In the slots before init.lua runs: a request it makes may answer while it still loads.
         self.slots.lock().expect("plugin slots").insert(
             name.clone(),
@@ -339,10 +346,11 @@ impl PluginHost {
                 errors: 0,
                 disabled: None,
                 generation,
+                serving: Arc::clone(&serving),
             },
         );
         let answer = send(&jobs, Job::Load(source))
-            .and_then(|rx| wait(&rx, Instant::now() + self.limits.load + self.limits.grace));
+            .and_then(|rx| wait(&rx, Instant::now(), self.limits.load + self.limits.grace, &serving));
         drop(jobs);
         let mut slots = self.slots.lock().expect("plugin slots");
         // Unloaded or loaded again meanwhile: this load's slot is gone, and that's fine.
@@ -392,35 +400,37 @@ impl PluginHost {
     /// Calls a function the Plugin handed over (`{ "handler": N }` in its ops) with `args`.
     pub fn call(&self, plugin: &str, handler: u64, args: Json) -> Reply {
         let wall = self.limits.call + self.limits.grace;
-        let Some(sender) = self.sender(plugin) else {
+        let Some((sender, serving)) = self.sender(plugin) else {
             let why = self.why_not(plugin);
             return Reply::failed(plugin, PluginError::new(plugin, None, None, why), None);
         };
-        let answer = send(&sender, Job::Call(handler, args)).and_then(|rx| wait(&rx, Instant::now() + wall));
+        let start = Instant::now();
+        let answer = send(&sender, Job::Call(handler, args)).and_then(|rx| wait(&rx, start, wall, &serving));
         self.settle(plugin, answer)
     }
 
     /// Sends `event` to every Plugin that listens and may hear it, all at once; the slow ones
     /// are given up on together. Only Plugins that changed something or failed answer.
     pub fn event(&self, event: Event) -> Vec<Reply> {
-        let targets: Vec<(String, Jobs)> = {
+        let targets: Vec<(String, Target)> = {
             let slots = self.slots.lock().expect("plugin slots");
             slots
                 .iter()
                 .filter(|(_, s)| s.disabled.is_none() && s.listens.contains(&event.name))
                 .filter(|(_, s)| runtime::may_hear(&event.name, &s.grants).is_ok())
-                .filter_map(|(n, s)| s.jobs.clone().map(|j| (n.clone(), j)))
+                .filter_map(|(n, s)| s.jobs.clone().map(|j| (n.clone(), (j, Arc::clone(&s.serving)))))
                 .collect()
         };
-        let pending: Vec<(String, Option<Receiver<Answer>>)> = targets
+        let start = Instant::now();
+        let pending: Vec<(String, Option<Receiver<Answer>>, Arc<ServeWait>)> = targets
             .into_iter()
-            .map(|(n, tx)| (n, send(&tx, Job::Event(event.clone()))))
+            .map(|(n, (tx, serving))| (n, send(&tx, Job::Event(event.clone())), serving))
             .collect();
-        let deadline = Instant::now() + self.limits.call + self.limits.grace;
+        let wall = self.limits.call + self.limits.grace;
         pending
             .into_iter()
-            .map(|(n, rx)| {
-                let answer = rx.and_then(|rx| wait(&rx, deadline));
+            .map(|(n, rx, serving)| {
+                let answer = rx.and_then(|rx| wait(&rx, start, wall, &serving));
                 self.settle(&n, answer)
             })
             .filter(|r| !r.ops.is_empty() || r.error.is_some())
@@ -443,13 +453,13 @@ impl PluginHost {
             .collect()
     }
 
-    fn sender(&self, plugin: &str) -> Option<Jobs> {
+    fn sender(&self, plugin: &str) -> Option<Target> {
         let slots = self.slots.lock().expect("plugin slots");
         let slot = slots.get(plugin)?;
         if slot.disabled.is_some() {
             return None;
         }
-        slot.jobs.clone()
+        Some((slot.jobs.clone()?, Arc::clone(&slot.serving)))
     }
 
     fn why_not(&self, plugin: &str) -> String {
@@ -474,10 +484,11 @@ impl PluginHost {
         grants: BTreeSet<Permission>,
         config: Json,
         generation: u64,
+        serving: &Arc<ServeWait>,
     ) -> Jobs {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
-        let (serve, limits) = (Arc::clone(&self.serve), self.limits);
+        let (serve, limits, serving) = (Arc::clone(&self.serve), self.limits, Arc::clone(serving));
         let post: Option<runtime::Post> = grants.iter().any(|p| matches!(p, Permission::Network(_))).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
             Arc::new(move |id: u64, answer: network::Answer| {
@@ -497,6 +508,7 @@ impl PluginHost {
                     limits.memory,
                     limits.call,
                     post,
+                    serving,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -547,12 +559,15 @@ impl PluginHost {
 /// Runs `job` (an answer nobody waits for) in the Plugin, if it's still the load that asked,
 /// and hands what it did to the listener.
 fn deliver(slots: &Slots, listener: &Mutex<Option<Listener>>, limits: Limits, plugin: &str, generation: u64, job: Job) {
-    let jobs = match slots.lock().expect("plugin slots").get(plugin) {
-        Some(slot) if slot.generation == generation && slot.disabled.is_none() => slot.jobs.clone(),
+    let target = match slots.lock().expect("plugin slots").get(plugin) {
+        Some(slot) if slot.generation == generation && slot.disabled.is_none() => {
+            slot.jobs.clone().map(|j| (j, Arc::clone(&slot.serving)))
+        }
         _ => None,
     };
-    let Some(jobs) = jobs else { return };
-    let answer = send(&jobs, job).and_then(|rx| wait(&rx, Instant::now() + limits.call + limits.grace));
+    let Some((jobs, serving)) = target else { return };
+    let start = Instant::now();
+    let answer = send(&jobs, job).and_then(|rx| wait(&rx, start, limits.call + limits.grace, &serving));
     let reply = settle(slots, limits, plugin, Some(generation), answer);
     if reply.ops.is_empty() && reply.error.is_none() {
         return;
@@ -626,8 +641,57 @@ fn send(tx: &Jobs, job: Job) -> Option<Receiver<Answer>> {
     Some(rx)
 }
 
-fn wait(rx: &Receiver<Answer>, deadline: Instant) -> Option<Answer> {
-    rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+/// Waits for a Plugin's answer until `wall` after `start`, plus however long its thread spent
+/// waiting for roster serve meanwhile (decision Q103): serve's queue isn't the Plugin's fault.
+fn wait(rx: &Receiver<Answer>, start: Instant, wall: Duration, serving: &ServeWait) -> Option<Answer> {
+    let before = serving.total();
+    loop {
+        let deadline = start + wall + serving.total().saturating_sub(before);
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return rx.try_recv().ok();
+        }
+        // While it waits for serve the deadline moves, so look again soon.
+        let step = if serving.busy() { left.min(SERVE_LOOK) } else { left };
+        match rx.recv_timeout(step) {
+            Ok(answer) => return Some(answer),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+        }
+    }
+}
+
+/// How often the host looks again at a Plugin waiting for roster serve.
+const SERVE_LOOK: Duration = Duration::from_millis(50);
+
+/// How long one Plugin's thread has spent waiting for roster serve (`roster.serve.call`, the
+/// `roster.inventory` reads), so the host's wall clock leaves it out (decision Q103).
+#[derive(Default)]
+pub(crate) struct ServeWait(Mutex<(Duration, Option<Instant>)>);
+
+impl ServeWait {
+    /// The thread starts waiting for serve.
+    pub(crate) fn begin(&self) {
+        self.0.lock().expect("serve wait").1 = Some(Instant::now());
+    }
+
+    /// serve answered.
+    pub(crate) fn end(&self) {
+        let mut w = self.0.lock().expect("serve wait");
+        if let Some(since) = w.1.take() {
+            w.0 += since.elapsed();
+        }
+    }
+
+    /// All the time spent waiting so far, the wait going on included.
+    fn total(&self) -> Duration {
+        let w = self.0.lock().expect("serve wait");
+        w.0 + w.1.map_or(Duration::ZERO, |since| since.elapsed())
+    }
+
+    fn busy(&self) -> bool {
+        self.0.lock().expect("serve wait").1.is_some()
+    }
 }
 
 /// Reads the manifest in `dir` (`roster-plugin.lua`): a Lua file that returns a table, run in

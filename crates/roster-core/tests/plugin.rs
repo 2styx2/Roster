@@ -445,30 +445,26 @@ fn a_plugin_that_eats_memory_is_stopped() {
 
 #[test]
 fn a_slow_plugin_is_given_up_on_and_the_others_keep_working() {
-    let slow_serve = Arc::new(FakeServe {
-        delay: Some(Duration::from_secs(3)),
-        ..FakeServe::default()
-    });
     let host = PluginHost::new(
-        slow_serve,
+        Arc::new(FakeServe::default()),
         Limits {
             grace: Duration::from_millis(300),
             ..Limits::default()
         },
     );
+    // One long C call (a pattern that backtracks): the time budget can't stop it inside.
     let slow = plugin_dir(
         "slow",
-        &manifest("slow", &["inventory.read"]),
-        r#"roster.commands.add("wait", { run = function() return roster.inventory.hosts() end })"#,
+        &manifest("slow", &[]),
+        r#"roster.commands.add("wait", { run = function()
+  return (string.rep("a", 4000)):find("(.-)(.-)(.-)(.-)b") end })"#,
     );
     let quick = plugin_dir(
         "quick",
         &manifest("quick", &[]),
         r#"roster.commands.add("q", { run = function() return 1 end })"#,
     );
-    let (_, slow_load) = host
-        .load(&Source::Dir(slow.clone()), &perms(&["inventory.read"]))
-        .unwrap();
+    let (_, slow_load) = host.load(&Source::Dir(slow.clone()), &[]).unwrap();
     let (_, quick_load) = host.load(&Source::Dir(quick.clone()), &[]).unwrap();
     let started = Instant::now();
     let r = host.call("slow", handler(&slow_load.ops[0], "run"), json!({}));
@@ -478,6 +474,51 @@ fn a_slow_plugin_is_given_up_on_and_the_others_keep_working() {
         host.call("quick", handler(&quick_load.ops[0], "run"), json!({})).result,
         1
     );
+}
+
+/// Waiting for roster serve is serve's time, not the Plugin's (decision Q103).
+#[test]
+fn a_plugin_waiting_for_a_slow_serve_isnt_given_up_on_and_the_others_keep_working() {
+    let slow_serve = Arc::new(FakeServe {
+        delay: Some(Duration::from_millis(1500)),
+        ..FakeServe::default()
+    });
+    let host = Arc::new(PluginHost::new(
+        slow_serve,
+        Limits {
+            grace: Duration::from_millis(300),
+            ..Limits::default()
+        },
+    ));
+    let slow = plugin_dir(
+        "waits",
+        &manifest("waits", &["inventory.read"]),
+        r#"roster.commands.add("wait", { run = function() return #roster.inventory.hosts() end })"#,
+    );
+    let quick = plugin_dir(
+        "quick2",
+        &manifest("quick2", &[]),
+        r#"roster.commands.add("q", { run = function() return 1 end })"#,
+    );
+    let (_, slow_load) = host
+        .load(&Source::Dir(slow.clone()), &perms(&["inventory.read"]))
+        .unwrap();
+    let (_, quick_load) = host.load(&Source::Dir(quick.clone()), &[]).unwrap();
+    let waiting = {
+        let host = Arc::clone(&host);
+        let h = handler(&slow_load.ops[0], "run");
+        std::thread::spawn(move || host.call("waits", h, json!({})))
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    let started = Instant::now();
+    assert_eq!(
+        host.call("quick2", handler(&quick_load.ops[0], "run"), json!({})).result,
+        1
+    );
+    assert!(started.elapsed() < Duration::from_millis(500));
+    let r = waiting.join().unwrap();
+    assert!(r.disabled.is_none(), "{:?}", r.disabled);
+    assert_eq!(r.result, 1);
 }
 
 #[test]
