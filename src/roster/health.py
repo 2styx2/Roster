@@ -35,10 +35,24 @@ def count(n, word):
     return f"{n} {word}" + ("" if n == 1 else "s")
 
 
+def askpass_state(channel, error=None):
+    """(ok, message) for the askpass check, from CHANNEL (an askpass.Channel, None when there's none) or ERROR (why
+    it couldn't open). One for the CLI and serve: a channel that opened can still be unable to work (Windows
+    without roster-askpass.exe: `problem`)."""
+    if error is not None:
+        return False, f"the askpass channel can't open here: {error}"
+    if channel is None:
+        return False, "this roster serve has no askpass channel, so password Sessions can't log in"
+    if channel.problem:
+        return False, channel.problem
+    return True, "the askpass channel is open"
+
+
 def check_box(path, cfg, error, askpass, api_version=None):
     """Every check, in SECTIONS order. PATH: roster.yml's path (None when none was found); CFG: the loaded Inventory
     (serve's last good one even while the file doesn't load), or None; ERROR: why roster.yml doesn't load now, or
-    None; ASKPASS: (ok, message) for the askpass channel. API_VERSION: serve's, for the roster line."""
+    None; ASKPASS: (ok, message) for the askpass channel (askpass_state). API_VERSION: serve's, for the roster
+    line."""
     out = [roster_version(api_version)]
     out += inventory(path, cfg, error)
     out += ssh(cfg)

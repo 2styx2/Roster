@@ -293,10 +293,10 @@ def cmd_check_box(args):
     except SystemExit as e:
         error = str(e.code).removeprefix("error: ")
     try:
-        with askpass.Channel(diagnose.askpass_lookup):
-            channel = (True, "the askpass channel opens on this Box")
+        with askpass.Channel(diagnose.askpass_lookup) as ch:
+            channel = health.askpass_state(ch)
     except OSError as e:
-        channel = (False, f"the askpass channel can't open here: {e}")
+        channel = health.askpass_state(None, e)
     checks = health.check_box(path, cfg, error, channel)
     section = None
     for c in checks:
