@@ -1,5 +1,5 @@
 {
-  "api_version": 2,
+  "api_version": 3,
   "commands": [
     {
       "name": "finder",
@@ -278,6 +278,24 @@
     {
       "params": [
         {
+          "name": "context",
+          "optional": false,
+          "type": "KeyContext"
+        },
+        {
+          "name": "keys",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.keymap.del",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "id",
           "optional": false,
           "type": "string"
@@ -292,6 +310,19 @@
       "permission": null,
       "returns": "",
       "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "id",
+          "optional": false,
+          "type": "string"
+        }
+      ],
+      "path": "roster.themes.remove",
+      "permission": null,
+      "returns": "",
+      "since": 3
     },
     {
       "params": [
@@ -720,8 +751,15 @@
       ],
       "path": "roster.inventory.host",
       "permission": "inventory.read",
-      "returns": "Host",
+      "returns": "Host?",
       "since": 2
+    },
+    {
+      "params": [],
+      "path": "roster.inventory.groups",
+      "permission": "inventory.read",
+      "returns": "table<string, Group>",
+      "since": 3
     },
     {
       "params": [
@@ -918,6 +956,7 @@
     "roster-FloatAction": "plugin-api#floataction",
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
+    "roster-HandlerContext": "plugin-api#handlercontext",
     "roster-HealthCheck": "plugin-api#healthcheck",
     "roster-HealthSection": "plugin-api#healthsection",
     "roster-HelpPage": "plugin-api#helppage",
@@ -1008,6 +1047,7 @@
     "roster.http.get()": "plugin-api#rosterhttpgeturl-done",
     "roster.http.request()": "plugin-api#rosterhttprequestrequest-done",
     "roster.inventory": "plugin-api#rosterinventory",
+    "roster.inventory.groups()": "plugin-api#rosterinventorygroups",
     "roster.inventory.host()": "plugin-api#rosterinventoryhostname",
     "roster.inventory.hosts()": "plugin-api#rosterinventoryhosts",
     "roster.inventory.move()": "plugin-api#rosterinventorymovehost-group",
@@ -1015,6 +1055,7 @@
     "roster.inventory.review()": "plugin-api#rosterinventoryreviewhost-reviewed",
     "roster.inventory.update()": "plugin-api#rosterinventoryupdatehost-changes",
     "roster.keymap": "plugin-api#rosterkeymap",
+    "roster.keymap.del()": "plugin-api#rosterkeymapdelcontext-keys",
     "roster.keymap.set()": "plugin-api#rosterkeymapsetcontext-keys-action",
     "roster.notify()": "plugin-api#rosternotifytext-level",
     "roster.on()": "plugin-api#rosteronevent-listener",
@@ -1038,6 +1079,7 @@
     "roster.terminal.send()": "plugin-api#rosterterminalsendsession-text",
     "roster.themes": "plugin-api#rosterthemes",
     "roster.themes.define()": "plugin-api#rosterthemesdefineid-theme",
+    "roster.themes.remove()": "plugin-api#rosterthemesremoveid",
     "roster.toolbar": "plugin-api#rostertoolbar",
     "roster.toolbar.remove()": "plugin-api#rostertoolbarremoveid",
     "roster.toolbar.set()": "plugin-api#rostertoolbarsetid-control",
@@ -1216,6 +1258,16 @@
           "name": "words",
           "required": true,
           "type": "string[]"
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "session_host",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false
@@ -1457,6 +1509,71 @@
       ],
       "open": false
     },
+    "HandlerContext": {
+      "fields": [
+        {
+          "name": "section",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "row",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "action",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "finder",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "item",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "segment",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "health",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "toolbar",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "progress",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "confirm",
+          "required": false,
+          "type": "\"yes\"|\"no\""
+        },
+        {
+          "name": "session",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "session_host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
     "HealthCheck": {
       "fields": [
         {
@@ -1488,6 +1605,11 @@
           "name": "checks",
           "required": false,
           "type": "HealthCheck[]"
+        },
+        {
+          "name": "check",
+          "required": false,
+          "type": "fun(ctx: HandlerContext): HealthCheck[]"
         }
       ],
       "open": false
@@ -2134,7 +2256,7 @@
       "alias": "\"muted\"|\"warn\"|\"error\""
     },
     "Run": {
-      "alias": "string|fun(args: table): any"
+      "alias": "string|fun(ctx: HandlerContext): any"
     },
     "Section": {
       "fields": [

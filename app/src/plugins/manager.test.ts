@@ -437,7 +437,7 @@ describe("a finder whose items come from a function", () => {
     source()?.open?.();
     await vi.waitFor(() => expect(source()?.items({} as never).map((i) => i.label)).toEqual(["item 1"]));
     expect(source()?.empty).toBeUndefined();
-    expect(source()?.items({} as never)[0]?.command).toMatch(/^plugins call lazy \d+$/);
+    expect(source()?.items({} as never)[0]?.command).toMatch(/^plugins call lazy \d+ \S+$/);
     source()?.open?.();
     await vi.waitFor(() => expect(source()?.items({} as never).map((i) => i.label)).toEqual(["item 2"]));
   });

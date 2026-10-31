@@ -557,3 +557,37 @@ fn nothing_listening_is_said_plainly() {
         "{got:?}"
     );
 }
+
+/// Ticket 74 (decision Q92): `done` runs with a call's budget under the same global hook, so a
+/// loop in it, inside a coroutine too, is stopped; and the `cmd:`/`env:` redaction is only for
+/// roster serve's answers, never a web service's (`/echo`'s body has `auth: cmd:` text in it).
+#[test]
+fn a_done_callback_that_loops_in_a_coroutine_is_stopped_and_http_isnt_redacted() {
+    let server = Server::start();
+    let init = r#"
+roster.http.request({ url = roster.plugin.config.url, headers = { auth = "cmd:pass show x" } }, function(res)
+  roster.notify(tostring(res.body:find("cmd:pass show x", 1, true) ~= nil))
+end)
+roster.http.request({ url = roster.plugin.config.url }, function()
+  coroutine.wrap(function() while true do end end)()
+end)
+"#;
+    let (_host, reply, rx) = load("loop", &[&server.site()], json!({ "url": server.url("/echo") }), init);
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let mut seen_true = false;
+    let mut seen_loop = false;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !(seen_true && seen_loop) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let Ok(r) = rx.recv_timeout(left) else { break };
+        if let Some(e) = &r.error {
+            assert!(e.to_string().contains("an endless loop?"), "{e}");
+            seen_loop = true;
+        }
+        if r.ops.iter().any(|o| o["op"] == "notify" && o["text"] == "true") {
+            seen_true = true;
+        }
+    }
+    assert!(seen_true, "the echoed header wasn't there whole");
+    assert!(seen_loop, "the looping callback wasn't stopped");
+}

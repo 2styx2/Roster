@@ -136,8 +136,9 @@ fn the_runtime_exposes_exactly_what_the_api_declares_for_every_grant() {
 #[test]
 fn roster_plugin_has_the_plugin_types_fields_and_errors_reach_pcall_as_strings() {
     let (_, plugin, errors, lua) = walk("plugin", &["inventory.read"]);
-    // The reference's "The Lua": 5.4, integers, native bitwise operators, and the sandbox.
-    assert_eq!(lua, "Lua 5.4 1 integer 1 nil nil nil nil nil nil nil nil");
+    // The reference's "The Lua": 5.4, integers, native bitwise operators, `coroutine` (api 3),
+    // and the sandbox.
+    assert_eq!(lua, "Lua 5.4 1 integer 1 table nil nil nil nil nil nil nil");
     let ty = api::TYPES.iter().find(|t| t.name == "Plugin").unwrap();
     let mut want: Vec<String> = ty.fields.iter().map(|f| f.name.to_string()).collect();
     want.sort();
@@ -148,10 +149,8 @@ fn roster_plugin_has_the_plugin_types_fields_and_errors_reach_pcall_as_strings()
         lines.next().unwrap(),
         "string roster.notify: the level is \"info\", \"warn\" or \"error\""
     );
-    assert_eq!(
-        lines.next().unwrap(),
-        "false roster.inventory.host: unknown host 'web-9' (code 2)"
-    );
+    // An unknown Host is `nil`, not an error (api 3).
+    assert_eq!(lines.next().unwrap(), "true nil");
 }
 
 #[test]
@@ -171,8 +170,8 @@ fn the_committed_reference_stubs_and_data_are_what_the_generator_writes() {
     }
 }
 
-/// `roster.inventory.host` raises on an unknown name (as the reference says), so the pinned
-/// example asks through `pcall`: `:pin web-9` is a notice, not an error that counts against it.
+/// `roster.inventory.host` gives `nil` for an unknown name (as the reference says): the pinned
+/// example's `:pin web-9` is a notice, not an error that counts against it.
 #[test]
 fn the_pinned_example_answers_an_unknown_host_with_a_notice() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/pinned");

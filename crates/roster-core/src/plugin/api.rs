@@ -606,7 +606,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes one of the Plugin's commands",
         doc: "Removing one it doesn't have does nothing.",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.commands.remove: \"NAME\" isn't a name like …",
+            "a bad `name` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -624,7 +627,7 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "action",
                 "string|false",
-                "A command line: one of the Plugin's commands or the app's (`\"finder alerts\"`). `false` claims the keys with no action.",
+                "A command line: one of the Plugin's commands or the app's (`\"finder alerts\"`). `false` is deprecated: it takes the Plugin's binding off, as [`roster.keymap.del`](#rosterkeymapdelcontext-keys) does.",
             ),
         ],
         summary: "Binds keys to a command line",
@@ -642,6 +645,21 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 2,
         example: "roster.keymap.set(\"leader\", roster.plugin.config.leader or \"w w\", \"finder alerts\")",
+    },
+    Function {
+        path: "roster.keymap.del",
+        params: &[
+            p("context", "KeyContext", "Where it was bound."),
+            p("keys", "string", "The keys, as `set` took them."),
+        ],
+        summary: "Takes one of the Plugin's key bindings off",
+        doc: "Keys it didn't bind stay as they are: a Plugin can't unbind roster's, `init.lua`'s or another Plugin's.",
+        returns: ("", ""),
+        errors: &[],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.keymap.del(\"leader\", \"w w\")",
     },
     Function {
         path: "roster.themes.define",
@@ -663,6 +681,18 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 2,
         example: "roster.themes.define(\"dusk\", { base = \"nord\", colors = { accent = \"#e0a060\" } })",
+    },
+    Function {
+        path: "roster.themes.remove",
+        params: &[p("id", "string", "One of the Plugin's Themes.")],
+        summary: "Removes one of the Plugin's Themes",
+        doc: "Removing one it doesn't have does nothing. If it was the Theme in use, the app goes back to `init.lua`'s.",
+        returns: ("", ""),
+        errors: &[("roster.themes.remove: \"ID\" isn't a name like …", "a bad `id`")],
+        refused: &[],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "roster.themes.remove(\"dusk\")",
     },
     Function {
         path: "roster.sidebar.set",
@@ -688,7 +718,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a Sidebar section",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.sidebar.remove: \"ID\" isn't a name like …",
+            "a bad `id` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -719,7 +752,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a status bar segment",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.status.remove: \"ID\" isn't a name like …",
+            "a bad `id` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -749,7 +785,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a finder",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.finders.remove: \"ID\" isn't a name like …",
+            "a bad `id` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -776,7 +815,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a help page",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.help.remove: \"TOPIC\" isn't a name like …",
+            "a bad `topic` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -786,10 +828,14 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.health.set",
         params: &[
             p("id", "string", "The section's id."),
-            p("section", "HealthSection", "Its title and checks."),
+            p(
+                "section",
+                "HealthSection",
+                "Its title, and its checks or the function that makes them.",
+            ),
         ],
         summary: "Adds a section to `:check` (this Box's health), or replaces it",
-        doc: "`:check` shows the checks as the Plugin last set them: it doesn't call the Plugin.",
+        doc: "Like Neovim's `vim.health`: with `check`, each `:check` calls it and shows the lines it returns, under the Plugin's name on `:help health`. It runs with the Plugin's permissions and the time budget of any call (a quarter of a second); one that fails or doesn't answer in time is an `ERROR` line of its section, and `:check` goes on without it. With `checks` and no `check`, `:check` shows them as the Plugin last set them.",
         returns: ("", ""),
         errors: &[("roster.health.set: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[
@@ -798,7 +844,7 @@ pub const FUNCTIONS: &[Function] = &[
         ],
         needs: Needs::Nothing,
         since: 2,
-        example: "roster.health.set(\"recent-alerts\", {\n  title = \"Recent alerts\",\n  checks = { { level = \"warn\", message = \"terminal.read isn't granted\", fix = \"Allow it in :plugins\" } },\n})",
+        example: "roster.health.set(\"recent-alerts\", {\n  title = \"Recent alerts\",\n  check = function()\n    if not granted(\"terminal.read\") then\n      return { { level = \"warn\", message = \"terminal.read isn't granted\", fix = \"Allow it in :plugins\" } }\n    end\n    return { { level = \"ok\", message = #alerts .. \" alerts so far\" } }\n  end,\n})",
     },
     Function {
         path: "roster.health.remove",
@@ -806,7 +852,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a `:check` section",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.health.remove: \"ID\" isn't a name like …",
+            "a bad `id` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -840,7 +889,10 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a tutorial",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[(
+            "roster.tutor.remove: \"ID\" isn't a name like …",
+            "a bad `id` (since api 3)",
+        )],
         refused: &[],
         needs: Needs::Nothing,
         since: 2,
@@ -1037,7 +1089,7 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Closes a view, if it's open",
         doc: "Focus goes back where it was, as with `Esc`. Another view, or one that isn't open, stays as it is.",
         returns: ("", ""),
-        errors: &[],
+        errors: &[("roster.views.close: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[],
         needs: Needs::Nothing,
         since: 3,
@@ -1049,7 +1101,7 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a view",
         doc: "It closes if it's open, and its functions are dropped.",
         returns: ("", ""),
-        errors: &[],
+        errors: &[("roster.views.remove: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[],
         needs: Needs::Nothing,
         since: 3,
@@ -1084,7 +1136,7 @@ pub const FUNCTIONS: &[Function] = &[
         summary: "Removes a section from every Host's details",
         doc: "",
         returns: ("", ""),
-        errors: &[],
+        errors: &[("roster.details.remove: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[],
         needs: Needs::Nothing,
         since: 3,
@@ -1115,10 +1167,10 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.hosts",
         params: &[],
         summary: "Every Host, in `roster.yml` order",
-        doc: "From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups aren't in it: `roster.serve.call(\"hosts.list\")` (with `serve:hosts.list`) has them.",
+        doc: "From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups).",
         returns: (
             "Host[]",
-            "The Hosts, each with its Login references (a vault item's name, never a password).",
+            "The Hosts, each with its Login references (a vault item's name, never a password; a `cmd:` or `env:` one cut to its kind).",
         ),
         errors: &[(
             "roster.inventory.hosts: MESSAGE (code N)",
@@ -1133,22 +1185,31 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.host",
         params: &[p("name", "string", "The Host's exact name.")],
         summary: "One Host, by its exact name",
-        doc: "From serve's [`host.get`](serve-api.md). An unknown name is an error, not `nil`: wrap the call in `pcall` when the name came from the user.",
-        returns: ("Host", "The Host."),
-        errors: &[
-            (
-                "roster.inventory.host: unknown host 'NAME' (code 2)",
-                "no Host has that name",
-            ),
-            (
-                "roster.inventory.host: MESSAGE (code N)",
-                "roster serve failed otherwise",
-            ),
-        ],
+        doc: "From serve's [`host.get`](serve-api.md). An unknown name is `nil` (since api 3; it was an error in api 2).",
+        returns: ("Host?", "The Host, or `nil` when no Host has that name."),
+        errors: &[(
+            "roster.inventory.host: MESSAGE (code N)",
+            "roster serve failed otherwise",
+        )],
         refused: &[],
         needs: Needs::Permission("inventory.read"),
         since: 2,
-        example: "local ok, h = pcall(roster.inventory.host, name)\nif ok then roster.notify(name .. \" is \" .. h.ip) end",
+        example: "local h = roster.inventory.host(name)\nif h then roster.notify(name .. \" is \" .. h.ip) end",
+    },
+    Function {
+        path: "roster.inventory.groups",
+        params: &[],
+        summary: "Every group, by name",
+        doc: "From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is. A Host's `group` names one of them.",
+        returns: ("table<string, Group>", "The groups, by name."),
+        errors: &[(
+            "roster.inventory.groups: MESSAGE (code N)",
+            "roster serve failed (see [Errors](#errors))",
+        )],
+        refused: &[],
+        needs: Needs::Permission("inventory.read"),
+        since: 3,
+        example: "local groups = roster.inventory.groups()\nfor _, h in ipairs(roster.inventory.hosts()) do\n  local g = groups[h.group]\n  roster.notify(h.name .. \" is in \" .. (g and g.title ~= \"\" and g.title or h.group))\nend",
     },
     Function {
         path: "roster.inventory.update",
@@ -1333,7 +1394,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Calls a roster serve method the Plugin was granted",
-        doc: "A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results).",
+        doc: "A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)).",
         returns: ("any", "The method's result, as Lua tables (JSON `null` is `nil`)."),
         errors: &[
             (
@@ -1508,7 +1569,7 @@ pub const SERVE_RESULTS: &[ServeResult] = &[
     },
 ];
 
-const RUN_DOC: &str = "What choosing it runs: a function (called with an empty table; its return value is ignored) or a command line (`\"open esx-02\"`).";
+const RUN_DOC: &str = "What choosing it runs: a function, called with a [`HandlerContext`](#handlercontext) that says which row, item or segment it was and the Session on screen (its return value is ignored), or a command line (`\"open esx-02\"`).";
 
 pub const TYPES: &[Type] = &[
     // ---------------------------------------------------------------- the Plugin
@@ -1601,8 +1662,53 @@ pub const TYPES: &[Type] = &[
         name: "Run",
         summary: "What choosing a row, an action, a finder item or a status segment runs",
         doc: RUN_DOC,
-        alias: "string|fun(args: table): any",
+        alias: "string|fun(ctx: HandlerContext): any",
         fields: &[],
+        open: false,
+    },
+    Type {
+        name: "HandlerContext",
+        summary: "What a row's, a button's, a finder item's, a status segment's, a toolbar control's, a question's, a progress's or a `:check` section's function is called with",
+        doc: "Since api 3 (api 2 called them with an empty table). Only the fields for what ran it are there: a row button has `section`, `row` and `action`; a finder item `finder` and `item`. A command's function gets [`CommandArgs`](#commandargs), which has `session` and `session_host` too.",
+        alias: "",
+        fields: &[
+            o(
+                "section",
+                "string",
+                "The Sidebar section's id, for a row or a row's button.",
+            ),
+            o(
+                "row",
+                "string",
+                "The row's `id` (its place in the list, `\"3\"`, if it has none).",
+            ),
+            o(
+                "action",
+                "integer",
+                "Which button was pressed, 1 for the first: of the row's `actions`, the section's (no `row` then) or the float's.",
+            ),
+            o("finder", "string", "The finder's id, for a finder item."),
+            o("item", "string", "The item's `id` (its place, if it has none)."),
+            o("segment", "string", "The status segment's id."),
+            o("health", "string", "The `:check` section's id, for its `check`."),
+            o("toolbar", "string", "The toolbar control's id."),
+            o("progress", "string", "The progress's id, for its `cancel`."),
+            o(
+                "confirm",
+                "\"yes\"|\"no\"",
+                "For a question's `run` (`\"yes\"`) or `cancel` (`\"no\"`, also when another Plugin's question replaced it).",
+            ),
+            o(
+                "session",
+                "integer",
+                "The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read`.",
+            ),
+            o(
+                "session_host",
+                "string",
+                "The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read`. (A table's function gets the row's Host as `host`: [`TableEvent`](#tableevent).)",
+            ),
+        ],
         open: false,
     },
     Type {
@@ -1636,6 +1742,16 @@ pub const TYPES: &[Type] = &[
                 "Everything after the command's name, trimmed (`\"\"` for none).",
             ),
             f("words", "string[]", "`args` split at spaces (`{}` for none)."),
+            o(
+                "session",
+                "integer",
+                "The Session on screen; `nil` with none. Only with `inventory.read` or `terminal.read` (since api 3).",
+            ),
+            o(
+                "session_host",
+                "string",
+                "The Host of the Session on screen; `nil` with none, for a Quick Connect Session, and without `inventory.read` or `terminal.read` (since api 3).",
+            ),
         ],
         open: false,
     },
@@ -1832,7 +1948,16 @@ pub const TYPES: &[Type] = &[
         alias: "",
         fields: &[
             o("title", "string", "Its heading; the id if left out."),
-            o("checks", "HealthCheck[]", "Its lines."),
+            o(
+                "checks",
+                "HealthCheck[]",
+                "Its lines, as they are now. Left out with `check`.",
+            ),
+            o(
+                "check",
+                "fun(ctx: HandlerContext): HealthCheck[]",
+                "Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`.",
+            ),
         ],
         open: false,
     },
@@ -2425,7 +2550,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "LoginRef",
         summary: "A Login reference: where a password is, never the password",
-        doc: "`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too: they name a variable or a command, and a Plugin sees that text. The providers are in [Password providers](cli-reference.md#password-providers).",
+        doc: "`PROVIDER:ITEM`, a vault item's name (`bw:esx-02 ssh`, `op:Lab/esx-02#password`, `kp:esx-02 ssh`), or `prompt` (asked for), `agent` (an ssh key), `key`, `none`. `env:VAR` and `cmd:COMMAND` are references too, but they say how a secret is fetched (and a secret pasted into a `cmd:` line would show), so a Plugin gets them cut to their kind: `env:` and `cmd:` (since api 3; decision Q92). The providers are in [Password providers](cli-reference.md#password-providers).",
         alias: "string",
         fields: &[],
         open: false,
@@ -2815,7 +2940,7 @@ pub const TYPES: &[Type] = &[
             o(
                 "host",
                 "string",
-                "The Host's name; `nil` for a Quick Connect Session, and for a tab closed while it ran.",
+                "The Host's name; `nil` for a Quick Connect Session. A tab closed while it ran has it too (since api 3).",
             ),
             o(
                 "code",
@@ -2849,7 +2974,7 @@ const LUA_DOC: &str = "roster embeds **Lua 5.4** (built into the app, nothing to
 - Integers are real 64-bit integers (`3 // 2` is `1`, `math.type(1)` is `\"integer\"`), and the bitwise operators are native (`a & b`, `a | b`, `~a`, `a << 2`): there's no `bit` library.
 - `goto`, `<const>` and `<close>` locals work; there's no `jit` and no FFI.
 - The API is `roster.*`, never `vim.*`: there's no `vim.api`, `vim.fn`, `vim.loop` or `vim.schedule`.
-- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. No `io`, no `os.execute`, no `debug`, no `coroutine`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
+- It runs in the [sandbox](app/config.md#the-sandbox): the base functions, `string`, `table`, `math`, `utf8` and an `os` with only `time`, `clock`, `date` and `difftime`. `coroutine` too (since api 3: a coroutine runs within the same time budget and memory limit). No `io`, no `os.execute`, no `debug`, no `package` and no C modules; `load` takes text only, and `require` loads only from the Plugin's own folder (`name.lua`, `name/init.lua`, or the same under `lua/`).
 - `pairs` visits a table's keys in order: numbers, then text, then the rest. So the same state always makes the same changes in the same order, on every machine; `next` is Lua's own.
 - An empty table is `{}` to the app, whether you meant a list or a table of fields: the app takes `{}` as an empty list wherever it wants one (`rows = {}`, `items = {}`).
 - It runs on a thread of its own with a memory limit and a time budget per call: see [Limits](plugins.md#limits).";
@@ -2860,7 +2985,7 @@ const ERRORS_DOC: &str = "A function that fails raises a Lua error: `pcall` catc
 Any function can also raise:
 
 - Lua's own `bad argument` error, for an argument of the wrong kind (a number where a table goes);
-- `PATH: a table that mixes a list with named keys (or has gaps): use one or the other`, `PATH: a Lua function can't be a Config value`, `PATH: a userdata can't be a Config value` and the like, for data that can't be handed over (`PATH` is where in your table, `rows.3.label`);
+- `roster.sidebar.set: PATH: a table that mixes a list with named keys (or has gaps): use one or the other`, `roster.float.open: PATH: a thread can't be a Plugin value` and the like, for data that can't be handed over (the function, then `PATH`, where in your table: `rows.3.label`). A function's return value that can't be is `the value it returned: PATH: …`;
 - `more than 1000 UI changes in one go`, when one call sets more than that;
 - `more than 10000 functions handed to roster at once`.
 
@@ -3290,6 +3415,19 @@ pub fn stubs() -> String {
 // ---------------------------------------------------------------- the data
 
 /// crates/roster-core/tests/fixtures/plugin-api.json: the API as data, and the help topics.
+/// `:plugins types PATH` (ticket 74): writes [`stubs`] for this app's API as `types/roster.lua` in
+/// the Plugin folder `dir`, over an older copy, and gives where. `dir` must exist.
+pub fn write_stubs(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    if !dir.is_dir() {
+        return Err(format!("{} isn't a folder", dir.display()));
+    }
+    let types = dir.join("types");
+    std::fs::create_dir_all(&types).map_err(|e| format!("{}: {e}", types.display()))?;
+    let file = types.join("roster.lua");
+    std::fs::write(&file, stubs()).map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(file)
+}
+
 pub fn json() -> Json {
     let mut tags = serde_json::Map::new();
     for v in VALUES {
