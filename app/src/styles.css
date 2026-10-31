@@ -1224,7 +1224,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .details-section .dt-grid { flex: none; max-height: calc(var(--ui-size) * 1.75 * 9); }
 .dt-grid:focus { outline: none; }
 .dt-grid:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
-.dt-head, .dt-row { display: grid; column-gap: 12px; align-items: center; padding: 0 10px; min-width: 0; }
+.dt-head, .dt-row { display: grid; column-gap: 12px; align-items: center; padding: 0 10px 0 14px; min-width: 0; }
 .dt-head {
   position: sticky; top: 0; z-index: 1; height: calc(var(--ui-size) * 1.75); background: var(--sidebar);
   border-bottom: 1px solid var(--line);
@@ -1249,9 +1249,11 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .dt-td.kind-data, .dt-td.kind-number { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
 .dt-row.selected .dt-td.kind-data, .dt-row.selected .dt-td.kind-number { color: var(--text); }
 .dt-td.kind-number { text-align: right; }
+/* A right-to-left value reads in its own order (dir=auto) but keeps the column's left edge. */
+.dt-td.kind-text { text-align: left; }
 .dt-row.tone-muted .dt-td { color: var(--muted); opacity: 0.75; }
 /* A marked row: a small node before it, warn yellow or error raspberry, never the accent. */
-.dt-mark { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: 1px; }
+.dt-mark { position: absolute; left: 4px; top: calc(50% - 3px); width: 6px; height: 6px; border-radius: 50%; }
 .dt-row.tone-warn .dt-mark { background: var(--warn); }
 .dt-row.tone-error .dt-mark { background: var(--error); }
 .dt-actions { display: flex; gap: 4px; justify-content: flex-end; min-width: 0; }

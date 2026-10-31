@@ -157,7 +157,11 @@ export function DataTable({ model, label, autoFocus = false, leader }: DataTable
     act();
   };
 
-  const template = model.columns.map((c) => (c.width ? `${c.width}ch` : "minmax(0, 1fr)")).join(" ") + (model.actions.length ? " auto" : "");
+  // The actions' track is as wide on every row as on the selected one, so columns never shift
+  // when the buttons show: an icon is a square, a label its length.
+  const actionsWidth = model.actions.map((a) => (a.icon ? "calc(var(--ui-size) * 1.35)" : `calc(${a.label.length + 2}ch)`));
+  const actionsTrack = actionsWidth.length ? ` calc(${actionsWidth.join(" + ")} + ${(actionsWidth.length - 1) * 4}px)` : "";
+  const template = model.columns.map((c) => (c.width ? `${c.width}ch` : "minmax(0, 1fr)")).join(" ") + actionsTrack;
   const sortedBy = sort && model.columns.find((c) => c.id === sort.by);
   const keyed = model.actions.filter((a) => a.key);
 
@@ -227,7 +231,7 @@ export function DataTable({ model, label, autoFocus = false, leader }: DataTable
                   onDoubleClick={() => model.open?.(row)}
                 >
                   {model.columns.map((c, ci) => (
-                    <div key={c.id} role="gridcell" className={`dt-td kind-${c.kind}`} title={cellText(row, c) || undefined}>
+                    <div key={c.id} role="gridcell" className={`dt-td kind-${c.kind}`} title={cellText(row, c) || undefined} dir={c.kind === "text" ? "auto" : undefined}>
                       {ci === 0 && row.tone && row.tone !== "muted" && <span className="dt-mark" aria-label={row.tone === "warn" ? "warning" : "error"} role="img" />}
                       {cellText(row, c)}
                     </div>

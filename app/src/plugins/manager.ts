@@ -941,6 +941,10 @@ export class PluginManager {
       void this.call(plugin, run.handler, { row: row.id, ...(host ? { host } : {}), ...(where.view ? { view: where.view } : {}), ...(where.section ? { section: where.section } : {}) });
     };
     const t = c.table;
+    // Without its own `open`, a row with a Host opens that Host, as a Sidebar row does.
+    const openHost = (row: TableRow) => {
+      if (row.host) this.ui.run(`open ${row.host}`);
+    };
     return {
       ...(c.text ? { text: c.text } : {}),
       facts: c.facts,
@@ -951,11 +955,7 @@ export class PluginManager {
               rows: t.rows,
               sort: t.sort,
               ...(t.empty ? { empty: t.empty } : {}),
-              ...(t.open ? { open: go(t.open) } : {
-                  open: (row: TableRow) => {
-                    if (row.host) this.ui.run(`open ${row.host}`);
-                  },
-                }),
+              ...(t.open ? { open: go(t.open) } : t.rows.some((row) => row.host) ? { open: openHost } : {}),
               actions: t.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
             },
           }
