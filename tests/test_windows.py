@@ -176,3 +176,73 @@ def test_sudos_password_reaches_the_remote_sh_without_a_carriage_return(as_windo
     monkeypatch.setattr(cli.subprocess, "run", fake_run_answering(seen, "root\n"))
     assert cli.main(["run", "--sudo", "key-host", "--", "whoami"]) == 0
     assert sent_on_windows(seen) == b"s3cret\n"
+
+
+# ---------------------------------------------------------------- the pipe's timeouts (winpipe.Conn), anywhere
+
+@pytest.fixture
+def winpipe_anywhere(monkeypatch):
+    """roster.winpipe with stand-in Win32 calls that log what they're given, so its timeout logic runs anywhere."""
+    import ctypes
+    import importlib
+    import threading
+
+    class Dll:
+        def __getattr__(self, name):
+            return type("Fn", (), {"__call__": lambda self, *a: 0})()
+    if not WINDOWS:
+        monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **kw: Dll(), raising=False)
+    import roster.winpipe as winpipe
+    winpipe = importlib.reload(winpipe) if not WINDOWS else winpipe
+    log = []
+    monkeypatch.setattr(winpipe, "GetCurrentThreadId", lambda: 1)
+    monkeypatch.setattr(winpipe, "OpenThread", lambda *a: 7)
+    monkeypatch.setattr(winpipe, "CancelSynchronousIo", lambda h: log.append(("cancel", h)) or True)
+    monkeypatch.setattr(winpipe, "CloseHandle", lambda h: log.append(("close", h)) or True)
+
+    class Timer:
+        """Fires when the test says: at start() (the call took too long) or as cancel() is called (the race)."""
+        when = "cancel"
+
+        def __init__(self, seconds, fn):
+            self.fn = fn
+
+        def start(self):
+            if Timer.when == "start":
+                self.fn()
+
+        def cancel(self):
+            if Timer.when == "cancel":
+                self.fn()
+
+        def join(self):
+            pass
+    monkeypatch.setattr(threading, "Timer", Timer)
+    yield winpipe, log, Timer
+    if not WINDOWS:
+        sys.modules.pop("roster.winpipe", None)
+
+
+def test_a_pipe_timeout_that_fires_as_the_call_returns_cancels_nothing(winpipe_anywhere):
+    """The timer can fire after the read returned but before it's cancelled: CancelSynchronousIo would then hit this
+    thread's next I/O, or a closed (perhaps reused) thread handle. It must only ever cancel the call in flight."""
+    winpipe, log, _ = winpipe_anywhere
+    conn = winpipe.Conn(5)
+    conn.settimeout(1)
+    assert conn._limited(lambda: b"answer") == b"answer"
+    assert log == [("close", 7)]
+
+
+def test_a_pipe_call_that_blocks_past_its_timeout_is_cancelled_and_times_out(winpipe_anywhere):
+    winpipe, log, timer = winpipe_anywhere
+    timer.when = "start"
+    conn = winpipe.Conn(5)
+    conn.settimeout(1)
+
+    def blocked_read():
+        e = OSError("cancelled")
+        e.winerror = winpipe.ERROR_OPERATION_ABORTED
+        raise e
+    with pytest.raises(TimeoutError):
+        conn._limited(blocked_read)
+    assert log == [("cancel", 7), ("close", 7)]
