@@ -240,6 +240,21 @@
 ---@field view? string The view's id, in a view.
 ---@field section? string The section's id, in a Host's details.
 
+--- What `roster.http.request` sends
+---@class roster.HttpRequest
+---@field url string Where: on a site the Plugin was granted (`https://api.example.com/v1/alerts`).
+---@field method? string `GET` (the default), `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`, in any case.
+---@field headers? table<string, string> Headers to send, such as a token of the Plugin's own (`Authorization`). Not the ones that steer the connection (`Host`, `Content-Length`, `Proxy-…`). roster adds only `User-Agent: roster/VERSION` and what HTTP needs.
+---@field body? string The body, at most 256 KB; bytes as they are.
+---@field timeout? number Seconds to wait for the whole answer; at most 30 (the default). 10 seconds to connect.
+
+--- What a site answered
+---@class roster.HttpResponse
+---@field status integer The status code (`200`, `404`).
+---@field url string Where it ended, after redirects.
+---@field headers table<string, string> By lower-case name; a header sent twice has its values joined with `, `.
+---@field body string The body, at most 1 MB, as bytes: not decompressed, not decoded.
+
 --- A graph: nodes, edges and clusters as plain data, and what a node can do
 ---@class roster.Graph
 ---@field nodes? roster.GraphNode[] Its nodes, in order: a cluster's first node is at its centre (at most 5,000).
@@ -812,5 +827,20 @@ roster.serve = {}
 ---@param params? table The method's params; `{}` if left out. Data only: no functions.
 ---@return any # The method's result, as Lua tables (JSON `null` is `nil`).
 function roster.serve.call(method, params) end
+
+--- HTTP requests to the sites the manifest lists. `nil` unless the Plugin was granted at least one `network:<site>` permission (Permissions). The request runs in roster's core, never in the app's window, and doesn't wait: the function you pass gets the answer later, as a call of its own with a call's budget. Only the sites granted are reached, redirects included; a name that resolves to an address on this computer or a private network is refused unless the manifest lists the address itself. No cookies, proxy or credentials of roster's go along. At most 4 requests at once, a 256 KB body out, a 1 MB body back, 30 seconds each.
+roster.http = {}
+
+--- Sends an HTTP request to a site the Plugin was granted.
+--- Permission: network:<site> (that site). Since: api 2.
+---@param request roster.HttpRequest What to send: at least its `url`.
+---@param done fun(response: roster.HttpResponse?, err: string?) Runs once with the answer: `response` for any status the site gave (a 404 too), or `nil` and why there was none (refused, unreachable, timed out, too big). Its return value is ignored; an error in it counts like an action's.
+function roster.http.request(request, done) end
+
+--- Fetches a URL from a site the Plugin was granted.
+--- Permission: network:<site> (that site). Since: api 2.
+---@param url string The URL, on a site the Plugin was granted.
+---@param done fun(response: roster.HttpResponse?, err: string?) As `roster.http.request`'s.
+function roster.http.get(url, done) end
 
 return roster

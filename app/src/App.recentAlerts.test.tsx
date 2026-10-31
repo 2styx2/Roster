@@ -284,17 +284,20 @@ describe("trust", () => {
     expect(screen.getByText("No alerts. Lines with ERROR or panic show here.")).toBeInTheDocument();
   });
 
-  it("an update that asks for network can't be used yet, and the version it has keeps running", async () => {
+  it("an update that asks for network shows each site, flagged; Esc keeps the version it has", async () => {
     const r = await installed();
     r.pk.named[0]?.versions.push({
       commit: fakeCommit(2),
       subject: "Post alerts to a webhook",
-      plugin: recentAlerts({ version: "2.0.0", permissions: ["terminal.read", "network"] }),
-      diff: "",
+      plugin: recentAlerts({ version: "2.0.0", permissions: ["terminal.read", "network:hooks.example.com"] }),
+      diff: '+  permissions = { "terminal.read", "network:hooks.example.com" },',
     });
     await r.user.keyboard(`${LEADER}:packages update{Enter}`);
-    expect(await screen.findByText(/recent-alerts: its new version can't be used: .*"network" isn't available yet/)).toBeInTheDocument();
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    const p = await screen.findByRole("alertdialog", { name: "Update recent-alerts?" });
+    expect(p).toHaveTextContent("Its new version also asks to:");
+    expect(p).toHaveTextContent("network:hooks.example.com");
+    expect(p).toHaveTextContent("Can send data to hooks.example.com and fetch from it");
+    await r.user.keyboard("{Escape}");
     expect(r.pk.lock["recent-alerts"]).toBe(fakeCommit(1));
     await connect(r);
     r.backend.print(HOST, "ERROR still watched\r\n");

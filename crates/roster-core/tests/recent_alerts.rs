@@ -665,9 +665,9 @@ roster.status.set("probe", { text = table.concat(found, " | ") })
 }
 
 #[test]
-fn a_version_that_asks_for_network_or_a_secret_doesnt_install() {
+fn a_version_that_asks_for_network_without_a_site_or_a_secret_doesnt_install() {
     for (permission, says) in [
-        ("network", "isn't available yet"),
+        ("network", "names the site it may reach"),
         ("serve:vault.unlock", "never one that reaches a secret"),
         ("serve:session.prepare", "never one that reaches a secret"),
     ] {
@@ -686,8 +686,10 @@ fn a_version_that_asks_for_network_or_a_secret_doesnt_install() {
     }
 }
 
+/// T56's gap 1 (#105): an update that asks for `network` shows each site it names, flagged,
+/// and declining keeps the version it has; a later one that adds a site asks again for it.
 #[test]
-fn an_update_that_asks_for_network_cant_be_used_and_the_old_version_stays() {
+fn an_update_that_asks_for_network_shows_its_sites_flagged_and_a_new_site_asks_again() {
     let w = World::new("update-network");
     ok(&w.install(&["terminal.read"]));
     let old = git(&w.repo.work, &["rev-parse", "HEAD"]);
@@ -695,27 +697,47 @@ fn an_update_that_asks_for_network_cant_be_used_and_the_old_version_stays() {
     w.repo.edit(
         "roster-plugin.lua",
         "permissions = { \"terminal.read\" }",
-        "permissions = { \"terminal.read\", \"network\" }",
+        "permissions = { \"terminal.read\", \"network:hooks.example.com\" }",
     );
-    w.repo.publish("v2: post alerts to a webhook");
+    let v2 = w.repo.publish("v2: post alerts to a webhook");
 
     let checked = w.packages.check(&w.specs);
     let update = checked[0].update.as_ref().expect("an update");
-    assert!(update.manifest.is_none());
-    assert!(
-        update
-            .manifest_error
-            .as_deref()
-            .unwrap()
-            .contains("\"network\" isn't available yet")
-    );
-    assert!(update.log[0].ends_with("v2: post alerts to a webhook"));
-    // Nothing moved: the clone, the lock and the running Plugin are the old version.
+    let m = update.manifest.as_ref().expect("a usable manifest");
+    assert_eq!(m.permissions, perms(&["terminal.read", "network:hooks.example.com"]));
+    let shown = serde_json::to_value(m).unwrap();
+    let risk = shown["permissions"][1]["risk"].as_str().expect("flagged");
+    assert!(risk.contains("hooks.example.com"), "{risk}");
+    // Declined (Esc): nothing moved, and it runs as it did, with no roster.http.
     let status = w.packages.sync(&w.specs);
     assert_eq!(status[0].commit.as_deref(), Some(old.as_str()));
-    assert!(status[0].pinned);
     assert_eq!(w.host.list()[0].manifest.version, "1.0.0");
     assert_eq!(w.output(1, "esx-02", "ERROR still here\n").len(), 1);
+    // Allowed: it moves and runs with the site granted.
+    w.packages.apply(&w.specs, NAME, &v2).unwrap();
+    ok(&w.load(&["terminal.read", "network:hooks.example.com"]));
+    assert_eq!(
+        w.host.list()[0].granted,
+        perms(&["terminal.read", "network:hooks.example.com"])
+    );
+
+    // v3 adds a site: that one is a new permission, so the prompt asks for it.
+    w.repo.edit(
+        "roster-plugin.lua",
+        "\"network:hooks.example.com\" }",
+        "\"network:hooks.example.com\", \"network:*.chat.example\" }",
+    );
+    w.repo.publish("v3: and to chat");
+    let checked = w.packages.check(&w.specs);
+    let m = checked[0].update.as_ref().unwrap().manifest.as_ref().unwrap();
+    let granted = &w.host.list()[0].granted;
+    let new: Vec<String> = m
+        .permissions
+        .iter()
+        .filter(|p| !granted.contains(p))
+        .map(|p| p.to_string())
+        .collect();
+    assert_eq!(new, ["network:*.chat.example"]);
 }
 
 #[test]

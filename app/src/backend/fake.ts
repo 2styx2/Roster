@@ -28,6 +28,7 @@ import {
   LiveError,
   LOGIN_FIELDS,
   type PendingChanges,
+  type PluginReply,
   type ScannedKey,
   VERIFY_STEPS,
   type ProviderStatus,
@@ -858,6 +859,9 @@ export interface FakeBackend extends Backend {
   /** Every logged-in Session to `host` prints `text`, as its server would (ticket 56: scripted
    * output for the Plugins that read the terminal). Gives how many printed it. */
   print(host: string, text: string): number;
+  /** A reply the core sends on its own (an HTTP request's answer, decision Q97), to whoever
+   * listens through `onPluginReply`. */
+  pluginReplied(reply: PluginReply): void;
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;

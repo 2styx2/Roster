@@ -479,6 +479,8 @@ function Workspace({
   const viewList = useSyncExternalStore(registries.views.subscribe, registries.views.list);
   const openView = viewAt.at === null ? undefined : viewList.find((v) => v.id === viewAt.at);
   const detailsList = useSyncExternalStore(registries.details.subscribe, registries.details.list);
+  // What a Plugin does when one of its HTTP requests answers comes from the core on its own.
+  useEffect(() => backend.onPluginReply((r) => plugins.replied(r)), [backend, plugins]);
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
   const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
   const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);

@@ -4,6 +4,7 @@
 //! the Plugin asks of the UI during a call comes back as that call's ops (data, never HTML); a
 //! Lua function inside them is kept here and sent as `{ "handler": N }`.
 
+use super::network::{self, Answer, Net};
 use super::{Event, Outcome, PluginError, Serve, permission::Permission};
 use crate::config::lua::{self, Budget, Clock};
 use crate::config::{Os, ThemeDef};
@@ -19,6 +20,10 @@ use std::time::{Duration, Instant};
 
 const HANDLERS: &str = "roster.plugin.handlers";
 const LISTENERS: &str = "roster.plugin.listeners";
+/// The functions waiting for a `roster.http` request's answer, by request id.
+const REQUESTS: &str = "roster.plugin.requests";
+/// The keys `roster.http.request` takes.
+const REQUEST_KEYS: &[&str] = &["url", "method", "headers", "body", "timeout"];
 /// The most UI ops one call may produce.
 pub(crate) const MAX_OPS: usize = 1000;
 /// The most text `roster.clipboard.copy` takes.
@@ -119,9 +124,17 @@ struct Shared {
     /// Whether the run is a call the user started (an action, a command, a finder item): only
     /// then may the Plugin put text on the clipboard.
     user_call: Cell<bool>,
+    /// Its HTTP client, with a `network:` grant (network.rs).
+    net: Option<Net>,
+    /// Where an answer goes: to the host, which runs it on this Plugin's thread.
+    post: Option<Post>,
+    next_request: Cell<u64>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
 }
+
+/// Hands a request's answer back to the host (request id, answer), from a network thread.
+pub(crate) type Post = Arc<dyn Fn(u64, Answer) + Send + Sync>;
 
 #[derive(Default)]
 struct Handlers {
@@ -149,8 +162,21 @@ impl Runtime {
         serve: Arc<dyn Serve>,
         memory: usize,
         budget: Duration,
+        post: Option<Post>,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
+        let sites: Vec<network::Site> = grants
+            .iter()
+            .filter_map(|p| match p {
+                Permission::Network(site) => Some(site.clone()),
+                _ => None,
+            })
+            .collect();
+        let net = if sites.is_empty() {
+            None
+        } else {
+            Some(Net::new(sites).map_err(|e| PluginError::new(plugin, None, None, e))?)
+        };
         let (lua, clock) =
             lua::sandboxed(memory, (!dir.as_os_str().is_empty()).then_some(dir), plugin.to_string()).map_err(fail)?;
         let shared = Rc::new(Shared {
@@ -162,11 +188,16 @@ impl Runtime {
             budget: Cell::new(Budget::default()),
             handlers: RefCell::default(),
             user_call: Cell::new(false),
+            net,
+            post,
+            next_request: Cell::new(0),
             timers: RefCell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
         lua.set_named_registry_value(LISTENERS, lua.create_table().map_err(fail)?)
+            .map_err(fail)?;
+        lua.set_named_registry_value(REQUESTS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
         lua.load(SORTED_PAIRS)
             .set_name("=pairs")
@@ -228,6 +259,38 @@ impl Runtime {
             let payload = to_lua(lua, &event.payload)?;
             for f in list.sequence_values::<Function>() {
                 f?.call::<()>(payload.clone())?;
+            }
+            Ok(Json::Null)
+        })
+    }
+
+    /// Calls the function waiting for request `id` with its answer: `(response)` or `(nil, why)`.
+    pub(crate) fn answer(&self, id: u64, answer: Answer) -> Outcome {
+        self.run(self.budget, move |lua| {
+            let requests: Table = lua.named_registry_value(REQUESTS)?;
+            let Some(done) = requests.raw_get::<Option<Function>>(id)? else {
+                return Ok(Json::Null);
+            };
+            requests.raw_set(id, Value::Nil)?;
+            match answer {
+                Answer::Response {
+                    status,
+                    url,
+                    headers,
+                    body,
+                } => {
+                    let res = lua.create_table()?;
+                    res.raw_set("status", status)?;
+                    res.raw_set("url", url)?;
+                    let h = lua.create_table()?;
+                    for (name, value) in headers {
+                        h.raw_set(name, lua.create_string(value)?)?;
+                    }
+                    res.raw_set("headers", h)?;
+                    res.raw_set("body", lua.create_string(body)?)?;
+                    done.call::<()>(res)?;
+                }
+                Answer::Failed(why) => done.call::<()>((Value::Nil, why))?,
             }
             Ok(Json::Null)
         })
@@ -450,6 +513,39 @@ fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> 
         Ok(v) => to_lua(lua, &v),
         Err(message) => Err(mlua::Error::runtime(format!("{what}: {message}"))),
     }
+}
+
+/// Checks and starts a request for `roster.http`; `done` gets the answer later.
+#[allow(clippy::too_many_arguments)] // the request's parts, as Lua gave them
+fn request(
+    lua: &Lua,
+    s: &Shared,
+    what: &str,
+    method: &str,
+    url: &str,
+    headers: Vec<(String, String)>,
+    body: Option<Vec<u8>>,
+    timeout: Option<f64>,
+    done: Function,
+) -> mlua::Result<()> {
+    let fail = |m: String| mlua::Error::runtime(format!("{what}: {m}"));
+    let (Some(net), Some(post)) = (&s.net, &s.post) else {
+        return Err(fail("not granted (network:<site>)".into()));
+    };
+    let req = net.check(method, url, headers, body, timeout).map_err(fail)?;
+    if !s
+        .grants
+        .iter()
+        .any(|g| matches!(g, Permission::Network(site) if site.allows(&req.url)))
+    {
+        return Err(fail("not granted (network:<site>)".into()));
+    }
+    let id = s.next_request.get() + 1;
+    s.next_request.set(id);
+    let requests: Table = lua.named_registry_value(REQUESTS)?;
+    let post = Arc::clone(post);
+    net.start(req, move |answer| post(id, answer)).map_err(fail)?;
+    requests.raw_set(id, done)
 }
 
 /// The `roster` module for one Plugin: everything every Plugin gets, then what its grants add.
@@ -714,7 +810,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     func!(roster, "has", |_lua, s, name: String| {
         match Permission::parse(&name) {
             Ok(p) => Ok(s.grants.contains(&p)),
-            Err(_) if name == "network" || name.starts_with("serve:") => Ok(false),
+            // Any site: whether `roster.http` is there.
+            Err(_) if name == "network" => Ok(s.grants.iter().any(|g| matches!(g, Permission::Network(_)))),
+            Err(_) if name.starts_with("serve:") || name.starts_with("network:") => Ok(false),
             Err(e) => Err(mlua::Error::runtime(format!("roster.has: {e}"))),
         }
     });
@@ -794,6 +892,47 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             serve(lua, s, &format!("roster.serve.call {method}"), &method, params)
         });
         roster.raw_set("serve", t)?;
+    }
+    if g.iter().any(|p| matches!(p, Permission::Network(_))) {
+        let http = lua.create_table()?;
+        func!(http, "request", |lua, s, (req, done): (Table, Function)| {
+            let what = "roster.http.request";
+            for pair in req.pairs::<Value, Value>() {
+                let (k, _) = pair?;
+                let key = match &k {
+                    Value::String(k) => k.to_string_lossy(),
+                    _ => String::new(),
+                };
+                if !REQUEST_KEYS.contains(&key.as_str()) {
+                    return Err(mlua::Error::runtime(format!(
+                        "{what}: {key:?} isn't a key of a request (there's {})",
+                        REQUEST_KEYS.join(", ")
+                    )));
+                }
+            }
+            let url: String = req
+                .raw_get::<Option<String>>("url")?
+                .ok_or_else(|| mlua::Error::runtime(format!("{what}: `url` is missing")))?;
+            let method = req.raw_get::<Option<String>>("method")?.unwrap_or_else(|| "GET".into());
+            let mut headers = Vec::new();
+            if let Some(h) = req.raw_get::<Option<Table>>("headers")? {
+                for pair in h.pairs::<String, mlua::LuaString>() {
+                    let (k, v) = pair.map_err(|_| {
+                        mlua::Error::runtime(format!("{what}: `headers` is a table of names to strings"))
+                    })?;
+                    headers.push((k, v.to_str()?.to_string()));
+                }
+            }
+            let body = req
+                .raw_get::<Option<mlua::LuaString>>("body")?
+                .map(|b| b.as_bytes().to_vec());
+            let timeout = req.raw_get::<Option<f64>>("timeout")?;
+            request(lua, s, what, &method, &url, headers, body, timeout, done)
+        });
+        func!(http, "get", |lua, s, (url, done): (String, Function)| {
+            request(lua, s, "roster.http.get", "GET", &url, Vec::new(), None, None, done)
+        });
+        roster.raw_set("http", http)?;
     }
     Ok(roster)
 }
