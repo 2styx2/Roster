@@ -211,7 +211,7 @@ function load(roster: FakeRoster) {
 
   // ---------------------------------------------------------------- reading the Mesh
 
-  const status = (): void => {
+  const askStatus = (): void => {
     ask("mesh.status", { brief: true }, (ok, r) => {
       if (ok) {
         state.status = r as Status;
@@ -238,7 +238,7 @@ function load(roster: FakeRoster) {
     }
     state.refreshing = true;
     state.again = false;
-    if (state.jobs) return status();
+    if (state.jobs) return askStatus();
     ask("mesh.job", {}, (ok, j) => {
       if (!ok) {
         const e = words.clean(j);
@@ -255,7 +255,7 @@ function load(roster: FakeRoster) {
         state.job = { job: job.job, action: job.action, host: job.host, total: job.total };
         state.timer = roster.every(POLL, () => poll());
       }
-      status();
+      askStatus();
     });
   };
 

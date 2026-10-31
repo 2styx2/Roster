@@ -70,7 +70,7 @@ local poll -- follows a running job, below
 local refresh
 
 -- mesh.status (brief: a meshed group of 500 Hosts is 249,500 Links), once serve has answered.
-local function status()
+local function ask_status()
   ask("mesh.status", { brief = true }, function(ok, r)
     if ok then
       state.status, state.problem = r, nil
@@ -95,7 +95,7 @@ refresh = function()
     return
   end
   state.refreshing, state.again = true, false
-  if state.jobs then return status() end
+  if state.jobs then return ask_status() end
   ask("mesh.job", {}, function(ok, j)
     if not ok then
       local e = words.clean(j)
@@ -110,7 +110,7 @@ refresh = function()
       state.job = { job = j.job, action = j.action, host = j.host, total = j.total }
       state.timer = roster.every(POLL, function() poll() end)
     end
-    status()
+    ask_status()
   end)
 end
 
