@@ -1761,8 +1761,9 @@ export function App({
             }
             action="Sign out"
             onConfirm={async () => {
+              const account = signingOut;
               setSigningOut(null);
-              await vault.signOut();
+              await vault.signOut(account);
             }}
             onClose={closeSignOut}
           />
