@@ -230,7 +230,7 @@ Let your security team know before scanning big ranges.
 | `discover CIDR…` | Scan networks; `--write` adds the results to `roster.yml` |
 | `setup` | One-time per box: key, fingerprints, key install, SSH config, Claude files (`--only`, `--dry-run`) |
 | `sync` | Rewrite the SSH config and Claude files after editing `roster.yml` |
-| `check [HOST]` | Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see [`roster check HOST`](#roster-check-host)) |
+| `check [HOST]` | Reachability of SSH, web UIs and services. With one HOST: why a Session to it would or wouldn't open, step by step (see [`roster check HOST`](#roster-check-host)). With `--box`: this Box's health, without connecting anywhere (see [`roster check --box`](#roster-check---box)) |
 | `hosts [--find TEXT] [--all] [--long]` | The hosts and resources you can use: name, IP, user, logins (`ssh (key), web (admin), api`, `wifi`) and title. Unreviewed scanned hosts are hidden unless you pass `--all`, `--find` or `--only`. `--long` shows the full table (type, product, web URL, scan description) |
 | `info NAME` | Everything about one host or resource; fuzzy names work (`roster info core switch`) |
 | `resources [--find TEXT]` | List or search Wi-Fi networks, accounts and secrets that aren't hosts |
@@ -278,6 +278,32 @@ skip dns         an earlier step failed
 ...
 ```
 
+### `roster check --box`
+
+This Box's health, like Neovim's `:checkhealth`: the same checks as the app's `:check` with no Host (`box.check`), a section at a time, each `ok`, `warn` or `error` with the fix and the `:help` topic that explains it. Every check is local. It reads files, looks on `PATH`, asks each vault CLI where it stands, and reads the infra repo's git as this Box last saw it. It never logs in to a Host, scans one or fetches, so it's safe to run any time; `roster check HOST` is the one that connects. It takes no HOST and no `--only`, never prints a password, and exits 1 if any check is an `error`.
+
+| Section | Checks |
+|---|---|
+| roster | roster's version and Python's |
+| Inventory | `roster.yml` is found and loads (its path, or the error and its line); Hosts waiting for review, Hosts with no SSH user, service entries left out |
+| ssh | `ssh` is on `PATH`; roster's ssh config is written, included from `~/.ssh/config` and has every Host (else run `roster sync`); this Box's key exists if a Host uses key Logins; roster's known hosts has every Host's key |
+| Vault | Each provider the Logins use: its CLI is installed, logged in, and locked or unlocked (from its own status command, as the lock screen asks it) |
+| askpass | The askpass channel (the private socket password Sessions get their password through) opens on this Box |
+| Infra repo | `roster.yml` is in a git repo, and whether it has Pending changes, other uncommitted files, or commits the upstream doesn't have (as last fetched) |
+
+```
+ssh
+  ok     ssh found: /usr/bin/ssh
+  warn   1 Host not in roster's ssh config yet: nas
+         fix: run `roster sync`
+         help: E2
+
+Vault
+  ok     bw (9 Logins): logged in, locked; it asks for the master password when a Login needs it
+
+1 warning, no errors
+```
+
 ## Files
 
 | File | What it is |
@@ -320,6 +346,7 @@ roster setup --dry-run                   # which hosts would get this box's key
 roster hosts --find esx                  # search names, titles, types, addresses
 roster info esx-02                       # everything about one host
 roster check esx-02                      # why a Session to esx-02 would or wouldn't open
+roster check --box                       # this Box's health: roster.yml, ssh, vault, infra repo
 roster run esx-02 -- uptime              # run a command with the stored login
 roster web esx-02 GET /api/status        # an HTTP request, logged in
 roster discover 10.0.5.0/24              # scan a network, preview only
