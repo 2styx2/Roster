@@ -40,6 +40,7 @@ import {
   type SaveTargets,
   type SaveTo,
   SaveToError,
+  type Service,
   type SessionAuth,
   type SessionEvents,
   type SessionHandle,
@@ -251,6 +252,41 @@ export function withPromptHost(list: HostList): HostList {
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
 const PRODUCTS = ["", "", "ALPHA", "HUB", "BRAVO", "UniFi"];
 
+/** A service as roster resolves it (Host details, ticket 18): the Host's default Login unless
+ * `own` gives it one of its own. */
+export function service(ip: string, port: number, scheme: "http" | "https" | null, login: Host["login"], own?: { user: string; auth: string }): Service {
+  const url = scheme ? `${scheme}://${ip}${port === (scheme === "https" ? 443 : 80) ? "" : `:${port}`}` : null;
+  return {
+    port,
+    url,
+    scheme,
+    user: own?.user ?? login?.user ?? null,
+    auth: own?.auth ?? login?.auth ?? null,
+    verify: true,
+    login: "basic",
+    override: own !== undefined,
+  };
+}
+
+/** Made-up services by type, as a discover scan and a team would give them: none on a plain
+ * Linux box, a web UI on most others, and a NAS with a web UI, an admin UI of its own and SMB. */
+function servicesFor(type: string, name: string, ip: string): Pick<Host, "services" | "login" | "web"> {
+  const login = { user: "admin", auth: `bw:${name} web` };
+  const svc = (port: number, scheme: "http" | "https" | null, own?: { user: string; auth: string }) => service(ip, port, scheme, login, own);
+  const services: Record<string, Service> =
+    type === "esxi" || type === "router" || type === "switch"
+      ? { web: svc(443, "https") }
+      : type === "proxmox"
+        ? { web: svc(8006, "https") }
+        : type === "printer"
+          ? { web: svc(80, "http") }
+          : type === "nas"
+            ? { web: svc(443, "https"), admin: svc(5001, "https", { user: "nasadmin", auth: `bw:${name} admin` }), smb: svc(445, null) }
+            : {};
+  const web = services.web?.url ?? null;
+  return { services, login: Object.keys(services).length ? login : { user: null, auth: null }, web };
+}
+
 /** `n` made-up Hosts across a few subnets; every seventh one unreviewed (like a discover scan). */
 export function makeHosts(n: number): HostList {
   const hosts: Host[] = Array.from({ length: n }, (_, i) => {
@@ -267,7 +303,7 @@ export function makeHosts(n: number): HostList {
       reviewed: i % 7 !== 3,
       enroll: i % 3 !== 0,
       ssh: { user: "admin", port: 22, auth: i % 3 === 0 ? `bw:${type}-${i} ssh` : "key" },
-      web: null,
+      ...servicesFor(type, `${type}-${subnet}-${String(i).padStart(3, "0")}`, `10.19.${subnet}.${(i % 250) + 2}`),
     };
   });
   const groups = Object.fromEntries(

@@ -49,6 +49,8 @@ The roster app never stores secrets: there's no built-in vault, now or later (de
 
 The built app runs under a Content Security Policy (`app/src-tauri/tauri.conf.json`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'`. So no remote script, style, font or connection, no inline script and no `eval`. Tauri adds hashes for its own inline scripts. `style-src` keeps `'unsafe-inline'` for the `<style>` elements xterm.js creates, and `dangerousDisableAssetCspModification: ["style-src"]` stops Tauri from adding a style nonce, which would void `'unsafe-inline'`. Fonts (Inter, Iosevka) are bundled, never fetched. On desktop, `tauri dev` loads the Vite dev server directly and Tauri adds no CSP header there (only to embedded assets), so HMR needs no `devCsp`.
 
+**Web services (ticket 18, decision Q71).** Host details and `:open SERVICE` hand a service's URL from `roster.yml` to the OS's default browser, never to the webview. Only http and https URLs with a host and no user or password in them are opened, checked in the frontend and again in the Rust core (`roster-core browser.rs`), which passes the URL to ShellExecute (Windows) or `xdg-open` as one argument, never through a shell. A URL never carries a secret: logging in to the web UI is the browser's business, and the panel shows a Login only as its vault reference (the Vault item's name). A password someone wrote into a URL in `roster.yml` is drawn as `•••` and that URL isn't opened.
+
 ## Connections
 
 - Unreviewed Hosts are never connected to (the same rule as `roster run`).

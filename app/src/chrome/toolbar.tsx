@@ -16,9 +16,11 @@ export interface ToolbarContext {
   sidebarShown: boolean;
   /** roster can Quick Connect (API 12, ticket 14). */
   quickConnect: boolean;
+  /** The Host details panel is on screen (ticket 18). */
+  detailsShown?: boolean;
 }
 
-export type ToolbarIcon = "find" | "quick" | "add" | "changes" | "publish" | "cmdline" | "keys" | "help" | "lock" | "mode" | "sidebar";
+export type ToolbarIcon = "find" | "quick" | "add" | "changes" | "publish" | "cmdline" | "keys" | "help" | "lock" | "mode" | "sidebar" | "details";
 
 export interface ToolbarControlDef extends Entry {
   /** The accessible name and the tooltip ("Add a Host"). */
@@ -90,6 +92,16 @@ export const builtinControls: readonly ToolbarControlDef[] = [
     byDefault: true,
     when: (c) => c.pendingCount > 0,
   }),
+  // Host details for the selected Host (ticket 18, Q71): by the window's buttons, as the panel is
+  // on the right; pressed while it shows.
+  control({
+    id: "details",
+    label: (c) => (c.detailsShown ? "Hide Host details" : "Show Host details"),
+    icon: "details",
+    command: "details",
+    byDefault: true,
+    pressed: (c) => c.detailsShown ?? false,
+  }),
   control({ id: "cmdline", label: () => "Command line", icon: "cmdline", command: "cmdline" }),
   control({ id: "keys", label: () => "Key bindings", icon: "keys", command: "keys" }),
   // `:help`'s topic finder (ticket 37).
@@ -157,6 +169,13 @@ const PATHS: Record<ToolbarIcon, React.ReactNode> = {
     </>
   ),
   mode: <path d="M3 6V3h3M10 3h3v3M13 10v3h-3M6 13H3v-3" />,
+  // A window with its right pane, and lines in it: Host details.
+  details: (
+    <>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M10 3v10M11.5 6h1M11.5 8.5h1" />
+    </>
+  ),
   // A window with its left pane: the Sidebar.
   sidebar: (
     <>

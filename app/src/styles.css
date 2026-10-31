@@ -504,6 +504,36 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .check-problem { margin: 8px 0 0 22px; }
 .check-problem .problem-message { margin-bottom: 8px; }
 
+/* ---------- Host details (ticket 18, decision Q71) ---------- */
+
+/* Opposite the Sidebar: on the right, or on the left when the Sidebar is on the right. It opens
+   from a key as often as a click, so like every side panel it doesn't animate. */
+.body.sidebar-right .host-details { order: -1; border-left: 0; border-right: 1px solid var(--line); }
+.host-details h2 .mono { font-weight: 500; }
+.details-facts { margin: 6px 0 12px; }
+.details-fact { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+.details-fact dt { color: var(--muted); font-size: var(--text-xs); line-height: 18px; }
+.details-fact dd { margin: 0; overflow-wrap: anywhere; line-height: 18px; }
+.details-heading {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; padding-top: 8px; border-top: 1px solid var(--line);
+  font-size: var(--text-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+}
+.details-count { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.details-services, .details-problems { list-style: none; margin: 0 0 10px; padding: 0; }
+.details-service { padding: 6px 0; border-top: 1px solid var(--line); }
+.details-service:first-child { border-top: 0; }
+.svc-line { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+/* The name gives way (cut, whole in its tooltip); the port and Open never do. */
+.svc-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.svc-port { flex: none; color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.svc-open {
+  flex: none; margin-left: auto; height: 22px; padding: 0 8px; display: inline-flex; align-items: center; gap: 5px;
+  font-size: var(--text-xs);
+}
+.svc-url, .svc-login { font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; line-height: 16px; }
+.details-problems li { padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font-size: var(--text-xs); }
+.details-foot { margin: 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--text-xs); }
+
 /* ---------- Editing a Host, Pending changes (ticket 10) ---------- */
 
 .mono { font-family: var(--font-mono); }
@@ -617,7 +647,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .picker-query:focus-visible { box-shadow: none; }
 .picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
 .picker-row {
-  display: grid; grid-template-columns: minmax(0, 2fr) 9.5em minmax(0, 1fr) minmax(0, 6em) 6.5em;
+  display: grid; grid-template-columns: minmax(0, 2fr) 9.5em minmax(0, 1fr) minmax(0, 6em) 6.5em 22px;
   gap: 12px; align-items: center; min-height: 34px; padding: 8px 10px; border-radius: var(--radius); color: var(--muted);
 }
 .picker-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -631,6 +661,18 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .picker-row.unreviewed { cursor: not-allowed; }
 .picker-row.unreviewed .host-name { color: var(--muted); }
 .picker-row > .badge { justify-self: end; overflow: visible; }
+/* A Host's details (ticket 18): in the last column, so it never moves the row; shown on the
+   selected row (Ctrl+I is its key) and under a real pointer. */
+.picker-row > .badge + .picker-info, .picker-row > .host-type + .picker-info { grid-column: 6; }
+.picker-info {
+  width: 22px; height: 22px; padding: 0; display: grid; place-items: center; visibility: hidden;
+  background: transparent; border-color: transparent; color: var(--muted);
+}
+.picker-row.selected .picker-info { visibility: visible; }
+@media (hover: hover) and (pointer: fine) {
+  .picker-row:hover .picker-info { visibility: visible; }
+  .picker-info:hover { color: var(--text); background: var(--hover); }
+}
 /* Quick Connect (ticket 14): a box that isn't in the Inventory, offered first while the query reads
    as user@address[:port]. The address is data (Iosevka); the words around it are the app's. */
 .picker-row.quick-row { grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -891,6 +933,10 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
+/* Host details sit opposite the Sidebar in Focus too (decision Q71). */
+.screen[data-view="focus"] .body.sidebar-right .host-details {
+  left: 0; right: auto; border-left: 0; border-right: 1px solid var(--line-strong); box-shadow: 8px 0 32px var(--shadow);
+}
 /* Focus with the Sidebar shown (␣ e, issue #78): over the terminal on its side, so showing it
    doesn't resize the terminal. It comes from a key, so it doesn't animate. */
 .screen[data-view="focus"] .sidebar {
@@ -908,6 +954,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   .keys-panel, .check-panel, .side-panel {
     position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
     border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
+  }
+  .body.sidebar-right .host-details {
+    left: 0; right: auto; border-left: 0; border-right: 1px solid var(--line-strong); box-shadow: 8px 0 32px var(--shadow);
   }
 }
 

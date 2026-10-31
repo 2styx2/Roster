@@ -170,7 +170,7 @@ fn open_default(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-mod win {
+pub(crate) mod win {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;

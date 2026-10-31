@@ -8,7 +8,7 @@
 //! Config, so a typo while editing never takes the app's keys or colours away. [`watch`] calls
 //! back when a `.lua` file in the dir changes, for live reload.
 
-mod editor;
+pub(crate) mod editor;
 pub mod folders;
 mod locate;
 mod lua;

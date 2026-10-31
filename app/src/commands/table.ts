@@ -69,6 +69,9 @@ export interface CommandContext {
   openFinder(source: string): void;
   /** Says the Backend, the Box and the Inventory's path, whole (the status bar cuts them). */
   showInfo(): void;
+  /** Host details (ticket 18): shows the Host's panel; null shows or hides it for the selected
+   * Host. */
+  details(host: string | null): void;
   /** Opens the edit form for the Host, or the selected one (ticket 10). */
   edit(host: string | null): void;
   /** Opens the add-Host form (ticket 11), in `group` (else the selected Host's). */
@@ -135,6 +138,9 @@ export interface CompletionContext {
   sessions: readonly string[];
   /** Every group's name, in roster.yml order (`host move`, `group …`, ticket 28). */
   groupNames?: readonly string[];
+  /** The web services of a Host, or (null) of the current one: Host details', else the selected
+   * Host's (`:open`, ticket 18). */
+  webServices?(host: string | null): readonly string[];
 }
 
 /** Names that start with `word` first, then the rest that contain it, without case. */
@@ -178,12 +184,28 @@ export const builtinCommands: readonly CommandDef[] = [
     run: (ctx, h) => ctx.connect(h ?? ""),
   },
   {
+    // A Host (or its open Session), or a web service in the default browser (ticket 18, Q71):
+    // `open HOST`, `open SERVICE` (the current Host's), `open HOST SERVICE`. A Host's name wins.
     id: "open",
     source: BUILTIN,
     area: "Hosts",
-    arg: "host",
-    label: (h) => (h ? `Open ${h}, or go to its Session` : "Open a Host, or go to its open Session"),
-    run: (ctx, h) => ctx.open(h ?? ""),
+    arg: "text",
+    label: (a) =>
+      a
+        ? a.includes(" ")
+          ? `Open ${a.replace(" ", "'s ")} in the browser`
+          : `Open ${a}: the Host or its Session, else the current Host's web service`
+        : "Open a Host or go to its Session, or open a web service in the browser",
+    run: (ctx, a) => ctx.open(a ?? ""),
+    complete: (word, hostNames, ctx) => {
+      const space = word.indexOf(" ");
+      if (space >= 0) {
+        const host = word.slice(0, space);
+        return matching(ctx?.webServices?.(host) ?? [], word.slice(space + 1).trimStart()).map((s) => `${host} ${s}`);
+      }
+      const names = [...new Set([...(ctx?.webServices?.(null) ?? []), ...[...hostNames].sort()])];
+      return matching(names, word);
+    },
   },
   {
     id: "here",
@@ -370,11 +392,22 @@ export const builtinCommands: readonly CommandDef[] = [
     complete: (what) => CONFIG_SUBCOMMANDS.filter((a) => a.startsWith(what.toLowerCase())),
   },
   {
+    // `:info` alone says what the app runs on; `:info HOST` shows Host details (ticket 18, Q71).
     id: "info",
     source: BUILTIN,
-    area: "App",
-    label: () => "Show the Backend, the Box, the Inventory's path and the roster command",
-    run: (ctx) => ctx.showInfo(),
+    area: "Hosts",
+    arg: "host",
+    optionalArg: true,
+    label: (h) =>
+      h ? `Show ${h}'s details` : "Show a Host's details (address, services, Logins), or alone: the Backend, the Box and the Inventory",
+    run: (ctx, h) => (h ? ctx.details(h) : ctx.showInfo()),
+  },
+  {
+    id: "details",
+    source: BUILTIN,
+    area: "Hosts",
+    label: () => "Show or hide Host details for the selected Host",
+    run: (ctx) => ctx.details(null),
   },
 ];
 

@@ -100,6 +100,10 @@ _Avoid_: settings, cache
 The left pane listing open Sessions, the user's Folders and the Inventory tree. It's the default way to see and switch Sessions.
 _Avoid_: tab strip, session manager, explorer
 
+**Host details**:
+The side panel, opposite the Sidebar, that shows what `roster info HOST` shows: address, type, product, description, services, the Vault item each Login uses (by name), enrolled and reviewed. A **web service** is one of a Host's services with an http or https URL; the panel and `:open SERVICE` open it in the default browser.
+_Avoid_: inspector, properties, host info (`:info` alone is the app's own info)
+
 **Folder**:
 A personal grouping of Hosts in the Sidebar (for example "Lab ESXi"), kept on this Box and never in the Inventory.
 _Avoid_: group (that's the Inventory's own grouping, shared by the team), favorite, collection

@@ -101,6 +101,22 @@ def test_host_get(serve, write_config):
     assert s.close()[0] == 0
 
 
+def test_host_get_has_everything_roster_info_shows(serve, write_config, capsys):
+    """The app's Host details (ticket 18) draw `roster info HOST` from host.get alone: every field and every
+    service's port, url and Login (the vault reference, never a value) is in the result."""
+    write_config(INVENTORY)
+    esx = serve().call("host.get", {"name": "esx"})["result"]
+    assert main(["info", "esx"]) == 0
+    info = capsys.readouterr().out
+    assert f"{esx['ssh']['user']}@{esx['ip']}:{esx['ssh']['port']}" in info
+    assert f"password: roster run {esx['name']} -- CMD" in info and esx["reviewed"] and not esx["enroll"]
+    assert f"{esx['ssh']['user']}, auth {esx['ssh']['auth']}" in info
+    assert f"{esx['login']['user']}, auth {esx['login']['auth']} (default for services)" in info
+    admin = esx["services"]["admin"]
+    assert admin["override"] and f"{admin['url']}  {admin['user']}, auth {admin['auth']} (own login)" in info
+    assert str(admin["port"]) in info and esx["group"] in info and esx["type"] in info
+
+
 def test_bad_requests_get_errors_and_the_server_keeps_going(serve, write_config):
     write_config(INVENTORY)
     s = serve()

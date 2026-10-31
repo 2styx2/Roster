@@ -61,4 +61,7 @@ export interface Platform {
   config?: ConfigSource;
   /** folders.yml (ticket 28); absent where there's no config folder: Folders then stay in the State. */
   folders?: FoldersSource;
+  /** Opens an http or https URL in the default browser (a Host's web service, ticket 18). The
+   * caller checks it first (details/details.ts webUrl), and the Tauri shell checks it again. */
+  openUrl?(url: string): Promise<void>;
 }

@@ -45,21 +45,25 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
 | `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |
 | — | `finder SOURCE` | The Finder over a finder source: `sessions`, `hosts`, `tree` (Folders and Inventory), `folders`, `inventory`. Enter runs the item's command, Esc closes; the Picker's keys move |
-| Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`) if one is open |
+| Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`, then Host details) if one is open |
 | — | `hidepanel` | Close the topmost side panel (bind it in `init.lua`) |
 | — | `hints [on\|off\|toggle]` | Show or hide every keycap hint (no word: toggle). The choice is kept in the State unless `init.lua` sets `ui.hints`, which wins ([config.md](config.md)). Hidden hints only go out of sight: every binding still works |
-| — | `info` | Say the Backend, the Box and the Inventory's path whole (the status bar cuts them) |
+| — | `info` | Alone: say the Backend, the Box and the Inventory's path whole (the status bar cuts them) |
+| — | `info HOST` | Host details (ticket 18, decision Q71): a side panel opposite the Sidebar with what `roster info HOST` shows (address, type, product, description, services, the Vault item each Login uses by name, enrolled and reviewed). Tab completes Host names. Also the ⓘ on every Host row in the tree, the ⓘ on a Picker row, and Ctrl+I in the Picker. In Focus it floats over the terminal, like the Sidebar. Esc (App mode) closes it with the other side panels |
+| `<leader> i` | `details` | Show or hide Host details for the selected Host (the Sidebar's cursor, else the Session on screen); also the Host details toggle by the window's buttons (toolbar id `details`), pressed while they show |
 | `<leader> S` | `source [PATH]` (`so`) | Reload the Config now, Neovim-style: `init.lua` and its modules; with PATH, only the file that owns it. Saving doesn't reload unless `auto_reload = true` (decision Q58) |
 | — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is (ticket 32, [config.md](config.md)) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |
 | — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs) |
+| — | `open SERVICE`, `open HOST SERVICE` | Open a web service (http or https) in the default browser (ticket 18): SERVICE of the Host in Host details (else the selected Host), or of HOST. A Host's name wins over a service of the same name. Tab completes the current Host's web services first, then Host names, then HOST's services. Also each service's Open button in Host details |
 | `<leader> a` | `folder add` | Add the Host under the cursor (or on screen) to a Folder: opens the command line at `folder add HOST ` for the Folder's name (Tab completes; a new name creates the Folder) |
 | `<leader> A` | `folder remove` | Remove the Host under the cursor from its Folder |
 | — | `folder new NAME`, `folder rename NAME NEW`, `folder delete NAME`, `folder add HOST NAME`, `folder remove HOST NAME` | Folders (GLOSSARY), kept in State. Names may have spaces; quote one (`"Lab ESXi"`) only where it would be ambiguous. Without a name, `new` and `rename` open the command line for it |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
+| In the Picker: Ctrl+I | `picker.info` | The selected Host's details (closes the Picker) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
 | Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table; see "Copy and paste" below) |
 
