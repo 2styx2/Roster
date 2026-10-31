@@ -4,9 +4,24 @@
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { DataTable } from "../ui/DataTable";
+import { GraphView } from "../graph/GraphView";
+import type { GraphMemory } from "../graph/memory";
 import type { Content, ViewDef } from "./views";
 
-export function ViewContent({ content, label, leader, autoFocus = false }: { content: Content; label: string; leader: string; autoFocus?: boolean }) {
+export function ViewContent({
+  content,
+  label,
+  leader,
+  autoFocus = false,
+  graph,
+}: {
+  content: Content;
+  label: string;
+  leader: string;
+  autoFocus?: boolean;
+  /** Where a graph keeps its places, and the view's key there (ticket 77). */
+  graph?: { memory?: GraphMemory | undefined; key: string };
+}) {
   const paragraphs = content.text ? content.text.split(/\n\s*\n/).filter((p) => p.trim() !== "") : [];
   return (
     <>
@@ -28,6 +43,7 @@ export function ViewContent({ content, label, leader, autoFocus = false }: { con
         </dl>
       )}
       {content.table && <DataTable model={content.table} label={label} leader={leader} autoFocus={autoFocus} />}
+      {content.graph && graph && <GraphView model={content.graph} label={label} leader={leader} memory={graph.memory} memoKey={graph.key} autoFocus={autoFocus} />}
     </>
   );
 }
@@ -35,7 +51,7 @@ export function ViewContent({ content, label, leader, autoFocus = false }: { con
 /** A view: beside the terminal (`panel`), or over the whole window (`full`). It opens from a key as
  * often as a click, so, like every side panel, it doesn't animate. Esc closes it; focus goes back
  * where it was. */
-export function ViewPanel({ view, leader, onClose }: { view: ViewDef; leader: string; onClose(): void }) {
+export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; leader: string; onClose(): void; graphs?: GraphMemory }) {
   const panel = useRef<HTMLElement>(null);
   const before = useRef<Element | null>(null);
   // Before the table takes focus (its own effect runs after this one).
@@ -77,7 +93,7 @@ export function ViewPanel({ view, leader, onClose }: { view: ViewDef; leader: st
         </button>
       </header>
       <div className="view-body">
-        <ViewContent key={view.id} content={view.content} label={view.title} leader={leader} autoFocus />
+        <ViewContent key={view.id} content={view.content} label={view.title} leader={leader} autoFocus graph={{ ...(graphs ? { memory: graphs } : {}), key: `${view.source}/${view.id}` }} />
       </div>
     </section>
   );
