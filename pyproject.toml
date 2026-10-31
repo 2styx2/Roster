@@ -13,6 +13,10 @@ dependencies = [
 
 [project.scripts]
 roster = "roster.cli:main"
+# ssh's askpass helpers on Windows, where ssh runs only a program as SSH_ASKPASS (roster/askpass.py); Linux and
+# macOS use a script serve writes, and these do nothing when ssh didn't start them
+roster-askpass = "roster.askpass:main"
+roster-askpass-login = "roster.askpass:logged_in_main"
 
 [dependency-groups]
 dev = [

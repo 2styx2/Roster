@@ -530,7 +530,7 @@ fn the_defaults_fixture_is_current() {
 #[test]
 fn the_env_vars_win_over_the_configs_backend_and_roster_command() {
     use config::{BackendChoice, RosterCommand, backend_plan};
-    use roster_core::detect::Platform;
+    use roster_core::detect::{Choice, Platform};
     let c = Config {
         roster_command: Some(RosterCommand(vec!["uv".into(), "run".into(), "roster".into()])),
         backend: BackendChoice::Wsl(Some("Ubuntu".into())),
@@ -538,28 +538,64 @@ fn the_env_vars_win_over_the_configs_backend_and_roster_command() {
     };
     let plan = backend_plan(&c, Platform::Windows, None, None).unwrap();
     assert_eq!(plan.command, ["uv", "run", "roster"]);
-    assert_eq!(plan.distro.as_deref(), Some("Ubuntu"));
+    assert_eq!(plan.distro(), Some("Ubuntu"));
 
     let plan = backend_plan(&c, Platform::Windows, Some("roster-dev serve-stack"), Some("Debian")).unwrap();
     assert_eq!(plan.command, ["roster-dev", "serve-stack"]);
-    assert_eq!(plan.distro.as_deref(), Some("Debian"));
+    assert_eq!(plan.distro(), Some("Debian"));
 
     // Blank env vars don't count.
     let plan = backend_plan(&Config::default(), Platform::Windows, Some("  "), Some("")).unwrap();
     assert_eq!(plan.command, ["roster"]);
-    assert_eq!(plan.distro, None);
+    assert_eq!(plan.distro(), None);
+    assert_eq!(plan.choice, Choice::Auto);
 
-    // Native Windows roster is ticket 19.
+    // Native Windows roster (ticket 19): `local` is a plan of its own on both platforms, and the
+    // distro env var still wins over it (development).
     let local = Config {
         backend: BackendChoice::Local,
         ..Config::default()
     };
-    assert!(
-        backend_plan(&local, Platform::Windows, None, None)
-            .unwrap_err()
-            .contains("ticket 19")
+    assert_eq!(
+        backend_plan(&local, Platform::Windows, None, None).unwrap().choice,
+        Choice::Local
     );
-    assert!(backend_plan(&local, Platform::Linux, None, None).is_ok());
+    assert_eq!(
+        backend_plan(&local, Platform::Linux, None, None).unwrap().choice,
+        Choice::Local
+    );
+    assert_eq!(
+        backend_plan(&local, Platform::Windows, None, Some("Debian"))
+            .unwrap()
+            .choice,
+        Choice::Wsl(Some("Debian".into()))
+    );
+    let any_wsl = Config {
+        backend: BackendChoice::Wsl(None),
+        ..Config::default()
+    };
+    assert_eq!(
+        backend_plan(&any_wsl, Platform::Windows, None, None).unwrap().choice,
+        Choice::Wsl(None)
+    );
+}
+
+/// Changing `backend` in init.lua is a different plan, both ways, so the app restarts serve on
+/// `:source` (ticket 19); a reload that keeps it is the same plan, so serve keeps running.
+#[test]
+fn switching_backend_changes_the_plan_both_ways() {
+    use config::{BackendChoice, backend_plan};
+    use roster_core::detect::Platform;
+    let with = |b: BackendChoice| Config {
+        backend: b,
+        ..Config::default()
+    };
+    let plan = |b| backend_plan(&with(b), Platform::Windows, None, None).unwrap();
+    let wsl = plan(BackendChoice::Wsl(Some("Ubuntu".into())));
+    let local = plan(BackendChoice::Local);
+    assert_ne!(wsl, local);
+    assert_ne!(local, plan(BackendChoice::Wsl(Some("Ubuntu".into()))));
+    assert_eq!(local, plan(BackendChoice::Local));
 }
 
 /// examples/init.lua documents every option with its default value, so loading it gives the
@@ -1209,6 +1245,19 @@ fn a_windows_path_for_the_keepassxc_database_is_refused_with_its_wsl_path() {
         e.message.contains("vault.kp.key_file") && e.message.contains("Windows path"),
         "{e}"
     );
+}
+
+/// With roster on Windows itself (`backend = "local"`, ticket 19) a Windows path is the right one;
+/// the same path with another backend is still refused.
+#[test]
+fn a_windows_path_is_taken_with_the_local_backend() {
+    let lua = "return {\n  backend = \"local\",\n  vault = { kp = { database = [[C:\\Users\\you\\roster.kdbx]] } },\n}\n";
+    let c = config::load(&with_init("vault-local", lua)).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(c.vault.kp.database.as_deref(), Some(r"C:\Users\you\roster.kdbx"));
+    let wsl = lua.replace("\"local\"", "\"wsl\"");
+    let e = config::load(&with_init("vault-wsl", &wsl)).unwrap_err();
+    assert!(e.message.contains("vault.kp.database") && e.message.contains("backend = \"local\""), "{e}");
+    assert_eq!(e.line, Some(3), "{e}");
 }
 
 /// Ticket 35: where "Save to vault" puts new Vault items on this Box: "personal", an

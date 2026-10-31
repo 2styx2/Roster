@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 
+from roster.common import user_config_dir
 from roster.config import find_config, load_config, matches, selected
 from roster.example import EXAMPLE_CONFIG
 
@@ -62,11 +65,11 @@ def test_key_tag_pattern_includes_old_fleet_tag(write_config):
 
 
 def test_find_config_order(isolated, monkeypatch):
-    user_cfg = isolated["home"] / ".config" / "roster" / "roster.yml"
+    user_cfg = user_config_dir() / "roster.yml"        # ~/.config/roster, %APPDATA%\\roster on Windows
     user_cfg.parent.mkdir(parents=True)
     user_cfg.write_text("x")
     assert find_config(None) == user_cfg
     (isolated["work"] / "roster.yml").write_text("x")
     assert find_config(None) == isolated["work"] / "roster.yml"
     monkeypatch.setenv("ROSTER_CONFIG", "/somewhere/else.yml")
-    assert str(find_config(None)) == "/somewhere/else.yml"
+    assert find_config(None) == Path("/somewhere/else.yml")

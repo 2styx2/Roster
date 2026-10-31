@@ -6,6 +6,7 @@ import json
 import threading
 
 import pytest
+from conftest import WINDOWS
 
 from roster.cli import main
 
@@ -295,7 +296,8 @@ def test_unifi_session_reused_across_calls(capsys, unifi, isolated):
         assert rc == 0 and FakeUnifi.TOKEN not in out + err
     assert unifi_logins() == 1 and len(FakeUnifi.calls) == 6           # one login, no logouts
     cache = unifi_cache(isolated)
-    assert cache.stat().st_mode & 0o777 == 0o600 and cache.parent.stat().st_mode & 0o777 == 0o700
+    if not WINDOWS:                     # Windows: private by the profile folder's ACL, not a mode
+        assert cache.stat().st_mode & 0o777 == 0o600 and cache.parent.stat().st_mode & 0o777 == 0o700
     assert SECRET not in cache.read_text()                              # the session, never the password
 
 

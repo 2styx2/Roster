@@ -9,7 +9,7 @@ import sys
 import threading
 from pathlib import Path
 
-from ..common import die, say, time_left, user_config_dir
+from ..common import die, program_argv, run, say, time_left, user_config_dir
 
 # ---------------------------------------------------------------- password providers
 #
@@ -237,12 +237,16 @@ class Ctx:
         tool = args if isinstance(args, str) else args[0]
         stdin = {} if input is not None else {"stdin": None if interactive else subprocess.DEVNULL}
         try:
-            return subprocess.run(args, shell=shell, capture_output=True, text=True, timeout=time_left(timeout, floor),
-                                  input=input, env={**os.environ, **(env or {})}, **stdin)
+            if not shell:
+                args = program_argv(args)
+            return run(args, shell=shell, text=True, timeout=time_left(timeout, floor),
+                       input=input, env={**os.environ, **(env or {})}, **stdin)
         except FileNotFoundError:
             raise CliMissing(not_installed(self.provider, tool))
         except subprocess.TimeoutExpired:
             raise TimedOut(f"`{tool}` timed out")
+        except ValueError as e:                     # program_argv: a batch file and an argument cmd.exe acts on
+            raise SecretError(str(e))
 
 
 def not_installed(name, tool=None):

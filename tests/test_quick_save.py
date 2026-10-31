@@ -176,7 +176,8 @@ def test_a_login_report_without_the_password_handed_out_counts_for_nothing(app, 
     """The box accepted no password (or none was asked for): the LocalCommand's report doesn't make it a login with
     that password."""
     spec = result(app.call("quick.prepare", to(sshd, password=SECRET, save=True)))
-    helper = os.path.join(os.path.dirname(spec["env"]["SSH_ASKPASS"]), "logged-in")
+    local = next(a for a in spec["argv"] if a.startswith("LocalCommand="))
+    helper = local.split("=", 1)[1].strip("'\"")       # the logged-in script (roster-askpass-login.exe on Windows)
     subprocess.run([helper], env={**os.environ, **spec["env"]}, timeout=30, check=True)
     assert save(app, spec)["error"]["code"] == 66
 

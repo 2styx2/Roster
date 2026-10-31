@@ -5,6 +5,11 @@ Every test checks that no secret reached a command line, serve's stdout or its s
 import json
 
 import pytest
+from conftest import WINDOWS
+
+# Signing in with a password or SSO drives bw on a PTY, which native Windows roster doesn't have yet: there it refuses
+# (test_windows.py), and the API key sign-in is the way.
+pytestmark = pytest.mark.skipif(WINDOWS, reason="vault.login drives bw on a PTY: not on native Windows yet")
 
 INVENTORY = """\
 groups:

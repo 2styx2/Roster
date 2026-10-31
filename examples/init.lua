@@ -196,9 +196,10 @@ return {
   -- (Leader S) reloads, and the status bar says when a save isn't applied yet.
   auto_reload = false,
 
-  -- Which roster runs (read when the backend starts: Retry, or restart the app, after changing).
-  -- "auto" detects it: on Windows, the default WSL distro, then running ones. "wsl:<distro>"
-  -- uses that distro. ("local", native Windows roster, comes with ticket 19.)
+  -- Which roster runs. Changing it and reloading (:source) starts roster serve again.
+  -- "auto" detects it: on Windows, roster on Windows itself if it has an Inventory, else the
+  -- default WSL distro, then running ones. "local" is roster on this machine (on Windows, the
+  -- one installed on Windows). "wsl" is WSL's; "wsl:<distro>" uses that distro.
   -- The ROSTER_APP_WSL_DISTRO env var wins over this.
   backend = "auto",
   -- The command that runs roster, for development: a command line or a list of words. The

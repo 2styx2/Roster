@@ -336,6 +336,22 @@ fn at(path: &[&str], message: impl Into<String>) -> Invalid {
 
 /// What the schema's types can't say: ranges, non-empty names, unique Folders.
 fn validate(c: &Config) -> Result<(), Invalid> {
+    // A Windows path for the KeePassXC files is right only for roster running natively on Windows.
+    if c.backend != BackendChoice::Local {
+        let kp = &c.vault.kp;
+        for (field, value) in [("database", &kp.database), ("key_file", &kp.key_file)] {
+            if let Some(hint) = value.as_deref().and_then(schema::windows_path) {
+                return Err(at(
+                    &["vault", "kp", field],
+                    format!(
+                        "{value:?} is a Windows path, but roster runs in WSL (or on Linux): {hint}. With \
+                         backend = \"local\" (roster on Windows itself) a Windows path is the one to give",
+                        value = value.as_deref().unwrap_or_default()
+                    ),
+                ));
+            }
+        }
+    }
     if !(11..=20).contains(&c.fonts.ui_size) {
         return Err(at(
             &["fonts", "ui_size"],
@@ -598,20 +614,32 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendPlan {
     pub command: Vec<String>,
-    /// The one WSL distro to use (Windows), or None to detect.
-    pub distro: Option<String>,
+    /// Where to look for it (detect.rs): init.lua's `backend`, or the one WSL distro the env var names.
+    pub choice: crate::detect::Choice,
 }
 
-/// The roster command and WSL distro: `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO` win
-/// (they're for development, and set by the user outside the Config), then `roster_command`
+impl BackendPlan {
+    /// The one WSL distro to use, if the plan names one.
+    pub fn distro(&self) -> Option<&str> {
+        match &self.choice {
+            crate::detect::Choice::Wsl(Some(d)) => Some(d),
+            _ => None,
+        }
+    }
+}
+
+/// The roster command and where to look for it: `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO`
+/// win (they're for development, and set by the user outside the Config), then `roster_command`
 /// and `backend` from init.lua, then detection. Blank env vars don't count. A `roster_command`
 /// that isn't roster itself is refused ([`RosterCommand::check`]); only the env var may wrap it.
+/// The plan is what the app compares after a `:source`: a different one restarts `roster serve`.
 pub fn backend_plan(
     config: &Config,
-    platform: crate::detect::Platform,
+    _platform: crate::detect::Platform,
     env_command: Option<&str>,
     env_distro: Option<&str>,
 ) -> Result<BackendPlan, String> {
+    use crate::detect::Choice;
     let env_command = env_command.filter(|v| !v.trim().is_empty());
     let command = match (env_command, &config.roster_command) {
         (None, Some(command)) => {
@@ -622,19 +650,15 @@ pub fn backend_plan(
         }
         (given, _) => crate::detect::roster_command(given),
     };
-    if platform == crate::detect::Platform::Windows && config.backend == BackendChoice::Local {
-        return Err(
-            "backend = \"local\" needs roster running natively on Windows, which comes with \
-                    ticket 19. Use \"auto\" or \"wsl:<distro>\" in init.lua for now."
-                .into(),
-        );
-    }
-    let distro = env_distro
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-        .or(config.backend.distro())
-        .map(String::from);
-    Ok(BackendPlan { command, distro })
+    let choice = match env_distro.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => Choice::Wsl(Some(d.to_string())),
+        None => match &config.backend {
+            BackendChoice::Auto => Choice::Auto,
+            BackendChoice::Local => Choice::Local,
+            BackendChoice::Wsl(d) => Choice::Wsl(d.clone()),
+        },
+    };
+    Ok(BackendPlan { command, choice })
 }
 
 /// Replaces `path` with `text` all at once: a temporary file in the same folder, given the old

@@ -1,6 +1,10 @@
 //! Finding the Backend: where roster lives and the argv that starts `roster serve` there.
 //!
-//! On Windows the default WSL distro is probed first, then every other distro that's already
+//! What's looked for is a [`Choice`]: the Config's `backend` (or a development env var). On
+//! Windows, `auto` looks for roster on Windows itself first ([`probe_windows`]: PATH with PATHEXT,
+//! plus `%USERPROFILE%\.local\bin`, where `uv tool install` puts it; no process is started), and
+//! takes it if it has an Inventory; else the WSL distros, as `wsl` does. `local` is only Windows'
+//! own roster. For WSL the default distro is probed first, then every other distro that's already
 //! Running (`wsl.exe -l -v`), until one has both roster and an Inventory. A stopped distro other
 //! than the default is never probed, because probing would boot it (see [`list_distros`]);
 //! `ROSTER_APP_WSL_DISTRO=<name>` picks one distro explicitly, starting it if needed. On Linux roster runs locally. The probe is one login-shell
@@ -30,6 +34,20 @@ impl Platform {
             Platform::Linux
         }
     }
+}
+
+/// Which Backend to look for: init.lua's `backend` (`auto`, `local`, `wsl`, `wsl:<distro>`), or
+/// [`DISTRO_VAR`], which names one distro.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Choice {
+    /// Linux: local. Windows: roster on Windows if it has an Inventory, else WSL, else whichever
+    /// has roster.
+    #[default]
+    Auto,
+    /// roster on this machine (on Windows, natively; ticket 19).
+    Local,
+    /// roster in WSL: in this distro, or found as Auto finds one.
+    Wsl(Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,9 +97,21 @@ pub struct Output {
     pub stderr: String,
 }
 
-/// Runs a short command to completion. The seam the detection tests script.
+/// Runs a short command to completion, and answers what finding native Windows roster reads
+/// (env vars, which files exist). The seam the detection tests script; by default nothing is set
+/// and no file exists.
 pub trait Runner {
     fn run(&self, argv: &[String], env: &[(&str, &str)]) -> std::io::Result<Output>;
+
+    /// An env var of the app's own process (`PATH`, `PATHEXT`, `USERPROFILE`, `APPDATA`, `ROSTER_CONFIG`).
+    fn var(&self, _name: &str) -> Option<String> {
+        None
+    }
+
+    /// Does this file exist?
+    fn is_file(&self, _path: &str) -> bool {
+        false
+    }
 }
 
 /// Runs commands for real (with no console window on Windows).
@@ -100,6 +130,14 @@ impl Runner for SystemRunner {
             stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
         })
+    }
+
+    fn var(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+    }
+
+    fn is_file(&self, path: &str) -> bool {
+        std::path::Path::new(path).is_file()
     }
 }
 
@@ -151,6 +189,85 @@ fn parse_probe(stdout: &str) -> Probe {
         }
     }
     p
+}
+
+/// `dir\name`, Windows style, whatever the platform the code runs on (the tests run on Linux).
+fn win_join(dir: &str, name: &str) -> String {
+    format!("{}\\{name}", dir.trim_end_matches(['\\', '/']))
+}
+
+/// `~` or a leading `~\` or `~/` as `home`, on Windows.
+fn win_home(arg: &str, home: Option<&str>) -> String {
+    match (home, arg.strip_prefix('~')) {
+        (Some(h), Some(rest)) if rest.is_empty() || rest.starts_with(['\\', '/']) => {
+            win_join(h, rest.trim_start_matches(['\\', '/']))
+                .trim_end_matches('\\')
+                .to_string()
+        }
+        _ => arg.to_string(),
+    }
+}
+
+/// Where `program` is on Windows: a path as given (with PATHEXT's extensions tried when it has
+/// none), or the first match on PATH, then in `%USERPROFILE%\.local\bin` (where `uv tool install`
+/// puts roster, a folder a GUI app's PATH may not have yet).
+fn which_windows(runner: &dyn Runner, program: &str, home: Option<&str>) -> Option<String> {
+    let exts: Vec<String> = runner
+        .var("PATHEXT")
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .map(String::from)
+        .collect();
+    let lower = program.to_ascii_lowercase();
+    let has_ext = exts.iter().any(|e| lower.ends_with(&e.to_ascii_lowercase()));
+    let tries = |base: &str| -> Option<String> {
+        if has_ext {
+            return runner.is_file(base).then(|| base.to_string());
+        }
+        // `roster.exe` as the file is named (Windows matches either case), else as PATHEXT says.
+        exts.iter()
+            .flat_map(|e| [format!("{base}{}", e.to_ascii_lowercase()), format!("{base}{e}")])
+            .find(|p| runner.is_file(p))
+    };
+    if program.contains(['\\', '/', ':']) {
+        return tries(program);
+    }
+    let mut dirs: Vec<String> = runner
+        .var("PATH")
+        .unwrap_or_default()
+        .split(';')
+        .filter(|d| !d.trim().is_empty())
+        .map(String::from)
+        .collect();
+    if let Some(h) = home {
+        dirs.push(win_join(h, ".local\\bin"));
+    }
+    dirs.iter().find_map(|d| tries(&win_join(d, program)))
+}
+
+/// roster on Windows itself (no WSL): found as [`which_windows`] says, and its Inventory where
+/// roster looks for it there (`ROSTER_CONFIG`, then `roster.yml` in the home folder (serve's
+/// working folder), `%APPDATA%\roster\`, then `~\infra\`). Nothing is run: a GUI app's own env
+/// is the user's.
+pub fn probe_windows(runner: &dyn Runner, program: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let home = runner.var("USERPROFILE");
+    let roster = which_windows(runner, &win_home(program, home.as_deref()), home.as_deref());
+    let mut places: Vec<String> = Vec::new();
+    if let Some(c) = runner.var("ROSTER_CONFIG") {
+        places.push(win_home(c.trim(), home.as_deref()));
+    }
+    if let Some(h) = &home {
+        places.push(win_join(h, "roster.yml"));
+    }
+    if let Some(a) = runner.var("APPDATA") {
+        places.push(win_join(&a, "roster\\roster.yml"));
+    }
+    if let Some(h) = &home {
+        places.push(win_join(h, "infra\\roster.yml"));
+    }
+    let inventory = places.into_iter().find(|p| runner.is_file(p));
+    (roster, inventory, home)
 }
 
 fn probe(runner: &dyn Runner, target: &Target, program: &str) -> Probe {
@@ -233,6 +350,22 @@ fn expand_home(arg: &str, home: Option<&str>) -> String {
     }
 }
 
+/// The Candidate for roster on Windows itself: its absolute path, the override's other words with
+/// `~` expanded, `-c <inventory>` and `serve`. No `env PATH=`: the app's PATH is the user's.
+fn windows_candidate(roster_cmd: &[String], p: &Probe) -> Candidate {
+    let mut argv = vec![p.roster.clone().unwrap_or_default()];
+    argv.extend(roster_cmd[1..].iter().map(|a| win_home(a, p.home.as_deref())));
+    if let Some(inv) = &p.inventory {
+        argv.extend(["-c".into(), inv.clone()]);
+    }
+    argv.push("serve".into());
+    Candidate {
+        serve_argv: argv,
+        target: Target::Local,
+        has_inventory: p.inventory.is_some(),
+    }
+}
+
 fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
     let mut argv = match &p.path {
         Some(path) => vec!["/usr/bin/env".into(), format!("PATH={path}")],
@@ -252,26 +385,84 @@ fn candidate(target: Target, roster_cmd: &[String], p: &Probe) -> Candidate {
 }
 
 /// Find the Backend for `roster_cmd` (see [`roster_command`]). On Windows, `distro` is the value of
-/// [`DISTRO_VAR`]: when it's set (not blank), only that distro is probed, and started if needed.
+/// [`DISTRO_VAR`]: when it's set (not blank), only that distro is probed, and started if needed;
+/// otherwise it's [`Choice::Auto`].
 pub fn detect(
     runner: &dyn Runner,
     platform: Platform,
     roster_cmd: &[String],
     distro: Option<&str>,
 ) -> Result<Candidate, BackendError> {
+    let choice = match distro.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => Choice::Wsl(Some(d.to_string())),
+        None => Choice::Auto,
+    };
+    detect_choice(runner, platform, roster_cmd, &choice)
+}
+
+/// Find the Backend `choice` asks for (see the module docs).
+pub fn detect_choice(
+    runner: &dyn Runner,
+    platform: Platform,
+    roster_cmd: &[String],
+    choice: &Choice,
+) -> Result<Candidate, BackendError> {
     let program = &roster_cmd[0];
-    let chosen = distro.map(str::trim).filter(|d| !d.is_empty());
+    let chosen = match choice {
+        Choice::Wsl(Some(d)) if !d.trim().is_empty() => Some(d.trim()),
+        _ => None,
+    };
+    // roster on Windows itself, unless WSL was asked for.
+    let mut fallback = None;
+    let native = platform == Platform::Windows && matches!(choice, Choice::Auto | Choice::Local);
+    if native {
+        let (roster, inventory, home) = probe_windows(runner, program);
+        if roster.is_some() {
+            let p = Probe {
+                roster,
+                inventory,
+                path: None,
+                home,
+            };
+            let c = windows_candidate(roster_cmd, &p);
+            if c.has_inventory || *choice == Choice::Local {
+                return Ok(c);
+            }
+            fallback = Some(c);
+        } else if *choice == Choice::Local {
+            return Err(BackendError::new(
+                ErrorKind::RosterMissing,
+                format!("`{program}` wasn't found on Windows (backend = \"local\" in init.lua)."),
+                "Install roster on Windows (`uv tool install .` in the roster repo, which puts it in \
+                 %USERPROFILE%\\.local\\bin), or set backend to \"auto\" or \"wsl:<distro>\" in init.lua.",
+            ));
+        }
+    }
     let mut stopped = Vec::new();
     let targets = match (platform, chosen) {
         (Platform::Linux, _) => vec![Target::Local],
         (Platform::Windows, Some(d)) => vec![Target::Wsl { distro: d.to_string() }],
-        (Platform::Windows, None) => {
-            let d = list_distros(runner)?;
-            stopped = d.stopped;
-            d.probe.into_iter().map(|distro| Target::Wsl { distro }).collect()
-        }
+        (Platform::Windows, None) => match list_distros(runner) {
+            Ok(d) => {
+                stopped = d.stopped;
+                d.probe.into_iter().map(|distro| Target::Wsl { distro }).collect()
+            }
+            // No WSL: roster on Windows without an Inventory is still a Backend (it says what's missing).
+            Err(e) => {
+                return match fallback {
+                    Some(c) => Ok(c),
+                    None if native => Err(BackendError {
+                        hint: format!(
+                            "{} Or install roster on Windows itself (`uv tool install .` in the roster repo).",
+                            e.hint
+                        ),
+                        ..e
+                    }),
+                    None => Err(e),
+                };
+            }
+        },
     };
-    let mut fallback = None;
     for t in &targets {
         let p = probe(runner, t, program);
         if p.roster.is_none() {
@@ -294,7 +485,10 @@ pub fn detect(
         };
         let mut where_ = match (platform, chosen) {
             (Platform::Linux, _) => "on this machine".to_string(),
-            (Platform::Windows, Some(d)) => format!("in WSL distro {d} (chosen with {DISTRO_VAR})"),
+            (Platform::Windows, Some(d)) => format!("in WSL distro {d} (chosen with {DISTRO_VAR} or backend)"),
+            (Platform::Windows, None) if native => {
+                format!("on Windows or in any WSL distro (searched: {})", names(&targets))
+            }
             (Platform::Windows, None) => format!("in any WSL distro (searched: {})", names(&targets)),
         };
         let mut hint = format!(

@@ -10,9 +10,7 @@ an error message is cut from it with the prompts (and their echoed answers) left
 person gave is scrubbed from it on top of that.
 """
 
-import fcntl
 import os
-import pty
 import re
 import select
 import shutil
@@ -20,11 +18,11 @@ import signal
 import struct
 import subprocess
 import tempfile
-import termios
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from ..common import WINDOWS
 from . import (
     PROVIDERS,
     AlreadyLoggedIn,
@@ -43,6 +41,14 @@ from . import (
     not_installed,
 )
 from .bitwarden import _bw, _bw_status_json, _bw_unlock
+
+if not WINDOWS:                         # a PTY is Linux's and macOS's; native Windows roster signs in with an API key
+    import fcntl
+    import pty
+    import termios
+
+NO_PTY = ("signing in with a password or SSO from the app needs a terminal roster can drive, which native Windows "
+          "roster doesn't have yet - run `roster bw login` in a terminal (or sign in with an API key), then unlock here")
 
 ANSWER_WAIT = 40            # s: bw's answer to a step (a login is a KDF and a few requests)
 SSO_URL_WAIT = 15           # s: for bw to start its callback server and hand over the link
@@ -101,6 +107,8 @@ class Pty:
     (where --raw puts the session key)."""
 
     def __init__(self, args, env):
+        if WINDOWS:
+            raise LoginError(NO_PTY)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 240, 0, 0))     # no wrapped prompts
         try:

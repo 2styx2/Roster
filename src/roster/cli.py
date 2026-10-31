@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from . import __version__
 from .claude import write_claude_files
-from .common import die, not_reviewed, say, ssh_config_file, tcp_ok
+from .common import die, not_reviewed, program_argv, run_instead, say, ssh_config_file, tcp_ok
 from .config import access_label, find_config, load_config, matches, selected
 from .discover import DEFAULT_SCAN_PORTS, cmd_discover
 from .example import EXAMPLE_CONFIG
@@ -351,7 +351,7 @@ def cmd_run(cfg, args):
     if args.sudo:
         return run_sudo(h, command)
     if h["enroll"]:
-        os.execvp("ssh", ["ssh", "-o", "BatchMode=yes", h["name"], command])
+        return run_instead(["ssh", "-o", "BatchMode=yes", h["name"], command])
     try:
         rc, out, err = password_exec(h, command, get_secret(h["ssh"]["auth"], h["group"]))
     except RuntimeError as e:
@@ -375,7 +375,7 @@ def run_sudo(h, command):
             "(set auth: to the vault item that holds the password)")
     wrapped = sudo_wrap(command)
     if h["enroll"]:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", h["name"], wrapped], input=secret + "\n",
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]), input=secret + "\n",
                            capture_output=True, text=True)
         rc, out, err = r.returncode, r.stdout, r.stderr
     else:
@@ -400,9 +400,9 @@ def cmd_revoke(cfg, args):
     script = "sh -c " + shlex.quote(remove_key_script(cfg["tag_re"]))
 
     def revoke(h):
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", h["name"], script],
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], script]),
                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
-        subprocess.run(["ssh", "-O", "exit", h["name"]], capture_output=True)  # drop cached connection
+        subprocess.run(program_argv(["ssh", "-O", "exit", h["name"]]), capture_output=True)  # drop cached connection
         return h, "ROSTER_OK" in r.stdout
 
     bad = 0
@@ -486,7 +486,9 @@ def cmd_bw(args):
     if "--nointeraction" not in argv:
         argv.append("--nointeraction")
     try:
-        return subprocess.run(["bw", *argv]).returncode
+        return subprocess.run(program_argv(["bw", *argv])).returncode
+    except ValueError as e:
+        die(str(e))
     except FileNotFoundError:
         die("bw (the Bitwarden CLI) isn't installed")
 

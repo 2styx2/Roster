@@ -21,7 +21,7 @@ import time
 
 from . import __version__, askpass, changes, diagnose, edit, providers
 from .claude import write_claude_files
-from .common import deadline, not_reviewed, ssh_config_file
+from .common import deadline, not_reviewed, ssh_config_file, ssh_path
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     CANT_WRITE,
@@ -245,15 +245,22 @@ def password_session(state, h, ssh):
     password. The Login is resolved now, in this process, so whatever is wrong with it (provider not set up,
     vault locked, item missing, several items, no password: errors.py 11-14, 30-35) is reported before ssh
     starts instead of as a failed login in the terminal. ssh's prompt then gets the value from memory."""
-    if state.askpass is None:
-        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
-                                   "need `roster serve`")
+    need_askpass(state)
     diagnose.check_login(h)
     known_key(h)
     token = state.askpass.mint(h, h["name"])
     return {"argv": [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
+
+
+def need_askpass(state, what="password sessions"):
+    """Refuse (22) a password Session this process can't give its password to: no askpass channel (roster used
+    in-process), or one whose helper isn't installed (Windows)."""
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, f"the askpass channel isn't open in this process - {what} need `roster serve`")
+    if state.askpass.problem:
+        raise RpcError(NO_ASKPASS, state.askpass.problem)
 
 
 def prompted(h):
@@ -267,9 +274,7 @@ def prompt_session(state, h, ssh, params):
     (39 until it's sent) and it goes to ssh through an askpass token, like a vault password. With save: true serve
     holds it for "Save to vault" (host.save_login) until that Session has logged in with it; that Session then
     never reuses a shared connection (ControlPath=none), so the login really is made with the typed password."""
-    if state.askpass is None:
-        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
-                                   "need `roster serve`")
+    need_askpass(state)
     diagnose.check_user(h)
     known_key(h)
     password = params.get("password")
@@ -578,6 +583,8 @@ def quick_prepare(state, params):
     if state.askpass is None:
         raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - Quick Connect needs "
                                    "`roster serve`")
+    if password is not None:
+        need_askpass(state, "Quick Connects with a password")
     label = quick_label(user, address, port)
     h = {"name": label, "ip": address, "ssh": {"port": port, "user": user}}
     key, recorded = diagnose.offered_key(h)
@@ -595,7 +602,7 @@ def quick_prepare(state, params):
         f.write(f"{alias} {key.get_name()} {key.get_base64()}\n")
     quick = {"user": user, "address": address, "port": port, "key_type": key.get_name(), "fingerprint": offered,
              "base64": key.get_base64()}        # what quick.save needs, kept only with a held password (T15)
-    argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(known)}", "-o", "GlobalKnownHostsFile=/dev/null",
+    argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(ssh_path(known))}", "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", f"HostKeyAlias={alias}", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none",
             "-o", "ConnectTimeout=10"]
     held = {}
@@ -1618,6 +1625,10 @@ def log_line(msg):
 
 
 def serve(config_arg):
+    # The app speaks UTF-8 JSON lines, whatever this box's locale (Windows' is often cp1252 for a pipe), and "\n"
+    # ends a line on Windows too. A password with an accent comes through as typed.
+    sys.stdin.reconfigure(encoding="utf-8", newline="\n")
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed

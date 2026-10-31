@@ -7,7 +7,7 @@ import os
 import shlex
 import subprocess
 
-from .common import die, known_hosts_file, say, ssh_config_file, ssh_dir
+from .common import WINDOWS, die, known_hosts_file, program_argv, say, ssh_config_file, ssh_dir, ssh_path
 from .providers import NO_PASSWORD, get_secret
 
 # ---------------------------------------------------------------- keys & known hosts
@@ -19,8 +19,8 @@ def ensure_key(cfg):
         say(f"key          {cfg['key']} (existing)")
         return
     cfg["key"].parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", cfg["tag"],
-                    "-f", str(cfg["key"])], check=True)
+    subprocess.run(program_argv(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", cfg["tag"],
+                                 "-f", str(cfg["key"])]), check=True)
     say(f"key          {cfg['key']} (created)")
 
 
@@ -103,7 +103,7 @@ def start_transport(sock, key_types, timeout=10):
 def in_ssh_config(name):
     """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
     ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or str(ours) not in main.read_text():
+    if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
         return False
     return f"Host {name}" in ours.read_text().splitlines()
 
@@ -120,7 +120,7 @@ def record_fingerprints(cfg, hosts):
 
     def scan(h):
         try:
-            r = subprocess.run(["ssh-keyscan", "-T", "5", "-p", str(h["ssh"]["port"]), h["ip"]],
+            r = subprocess.run(program_argv(["ssh-keyscan", "-T", "5", "-p", str(h["ssh"]["port"]), h["ip"]]),
                                capture_output=True, text=True, timeout=30)
             return h, [ln for ln in r.stdout.splitlines() if ln.strip() and not ln.startswith("#")]
         except subprocess.TimeoutExpired:
@@ -144,7 +144,7 @@ def record_fingerprints(cfg, hosts):
 # ---------------------------------------------------------------- ssh config
 
 def q(path):
-    return f'"{path}"'
+    return f'"{ssh_path(path)}"'
 
 
 def host_block(cfg, name, h):
@@ -156,10 +156,11 @@ def host_block(cfg, name, h):
            f"    UserKnownHostsFile {q(known_hosts_file())}",
            "    StrictHostKeyChecking accept-new",
            "    ConnectTimeout 10",
-           "    ServerAliveInterval 30",
-           "    ControlMaster auto",           # reuse one connection for many commands
-           f"    ControlPath {q(ssh_dir() / 'cm-%C')}",
-           "    ControlPersist 10m"]
+           "    ServerAliveInterval 30"]
+    if not WINDOWS:                         # Windows' OpenSSH can't share a connection (no Unix sockets)
+        out += ["    ControlMaster auto",     # reuse one connection for many commands
+                f"    ControlPath {q(ssh_dir() / 'cm-%C')}",
+                "    ControlPersist 10m"]
     # Offer only roster's key (key Hosts) or no key at all (password Hosts): an agent holding many keys
     # would otherwise use up the Host's MaxAuthTries before the password ("Too many authentication failures").
     if h["enroll"]:
@@ -201,7 +202,7 @@ def write_ssh_config(cfg):
 
     main = ssh_dir() / "config"
     text = main.read_text() if main.exists() else ""
-    if str(ssh_config_file()) not in text:
+    if ssh_path(ssh_config_file()) not in text:
         # Include must sit above any Host block, so prepend it
         main.write_text(f"Include {q(ssh_config_file())}\n\n{text}")
         os.chmod(main, 0o600)
@@ -213,8 +214,8 @@ def write_ssh_config(cfg):
 def ssh_ok(name, timeout=10):
     # ControlPath=none: never trust a cached connection, really log in with the key
     try:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ControlPath=none",
-                            "-o", f"ConnectTimeout={timeout}", name, "true"],
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", "-o", "ControlPath=none",
+                                         "-o", f"ConnectTimeout={timeout}", name, "true"]),
                            stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout + 20)
         return r.returncode == 0
     except subprocess.TimeoutExpired:

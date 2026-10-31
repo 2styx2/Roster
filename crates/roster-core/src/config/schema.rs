@@ -197,19 +197,14 @@ pub struct KeePassXc {
 }
 
 /// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
-/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to. roster
-/// serve runs on Linux (in WSL on Windows), so a Windows path (`C:\…`, `\\server\…`) is refused
-/// here, naming the path it most likely means there; roster serve would refuse it anyway, and
-/// with it the rest of init.lua's vault settings.
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to. A
+/// Windows path (`C:\…`, `\\server\…`) is taken here and checked once the whole Config is read
+/// (`validate` in mod.rs): it's right for native Windows roster (`backend = "local"`), and refused
+/// otherwise with the path it most likely means in WSL.
 fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let s = String::deserialize(d)?;
     let t = s.trim();
-    if let Some(hint) = windows_path(t) {
-        return Err(de::Error::custom(format!(
-            "{s:?} is a Windows path, but roster runs in WSL (or on Linux): {hint}"
-        )));
-    }
-    if t.starts_with('/') || t.starts_with('~') {
+    if t.starts_with('/') || t.starts_with('~') || windows_path(t).is_some() {
         return Ok(Some(t.to_string()));
     }
     Err(de::Error::custom(format!(
@@ -220,7 +215,7 @@ fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Er
 /// For a Windows path, what to give instead: its path inside WSL when that's clear (a drive is
 /// usually mounted at /mnt/<drive>; a `\\wsl$\<distro>\` share is the distro's own `/`). None for
 /// anything else.
-fn windows_path(t: &str) -> Option<String> {
+pub(crate) fn windows_path(t: &str) -> Option<String> {
     let b = t.as_bytes();
     if b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') {
         let rest = t[3..].replace('\\', "/");
