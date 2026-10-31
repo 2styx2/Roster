@@ -100,12 +100,18 @@ def start_transport(sock, key_types, timeout=10):
     return t
 
 
-def in_ssh_config(name):
-    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
+def ssh_config_hosts():
+    """The Hosts a plain `ssh NAME` reaches through roster's ssh config: the names of its Host blocks, or None when
+    it isn't written or ~/.ssh/config doesn't include it."""
     ours, main = ssh_config_file(), ssh_dir() / "config"
     if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
-        return False
-    return f"Host {name}" in ours.read_text().splitlines()
+        return None
+    return {line[5:] for line in ours.read_text().splitlines() if line.startswith("Host ")}
+
+
+def in_ssh_config(name):
+    """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
+    return name in (ssh_config_hosts() or ())
 
 
 def record_fingerprints(cfg, hosts):

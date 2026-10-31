@@ -168,8 +168,9 @@ def test_the_meshs_script_reaches_the_remote_sh_with_unix_newlines(as_windows, m
 
 
 def test_sudos_password_reaches_the_remote_sh_without_a_carriage_return(as_windows, monkeypatch, write_config):
-    from roster import cli
     from test_cli import SUDO_CFG
+
+    from roster import cli
     write_config(SUDO_CFG)
     monkeypatch.setenv("ROSTER_TEST_PW", "s3cret")
     seen = {}

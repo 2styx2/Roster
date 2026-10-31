@@ -8,10 +8,10 @@ import platform
 import shutil
 
 from . import __version__, changes, providers
-from .common import known_hosts_file, ssh_config_file, ssh_dir, ssh_path
+from .common import known_hosts_file, ssh_config_file
 from .errors import Problem
 from .providers import PROVIDERS
-from .sshops import hk_name, known_names
+from .sshops import hk_name, known_names, ssh_config_hosts
 
 # The sections, in order, with the name the CLI prints (the app has its own titles, by id).
 SECTIONS = {"roster": "roster", "inventory": "Inventory", "ssh": "ssh", "vault": "Vault", "askpass": "askpass",
@@ -113,13 +113,12 @@ def ssh(cfg):
     if cfg is None:
         return out
     hosts = [h for h in cfg["hosts"].values() if h["reviewed"]]
-    ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
+    ours, written = ssh_config_file(), ssh_config_hosts()
+    if written is None:
         out.append(check("ssh", "error", f"roster's ssh config ({ours}) isn't written, or ~/.ssh/config doesn't "
                                          "include it", "run `roster sync` (or `roster setup` on a new Box)", "E2"))
     else:
-        written = set(ours.read_text().splitlines())
-        missing = [h["name"] for h in hosts if f"Host {h['name']}" not in written]
+        missing = [h["name"] for h in hosts if h["name"] not in written]
         if missing:
             out.append(check("ssh", "warn", f"{count(len(missing), 'Host')} not in roster's ssh config yet: "
                                             f"{names(missing)}", "run `roster sync`", "E2"))
