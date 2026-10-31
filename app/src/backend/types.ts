@@ -156,6 +156,30 @@ export interface HostCheck {
   steps: CheckStep[];
 }
 
+/** The first `api_version` with `box.check`: `:check` with no Host (ticket 49). */
+export const BOX_CHECK_API_VERSION = 16;
+
+/** How a health check came out (`box.check`), as Neovim's `:checkhealth` says them. */
+export type HealthLevel = "ok" | "warn" | "error";
+
+/** One of `box.check`'s checks. `section` is `roster`, `inventory`, `ssh`, `vault`, `askpass` or
+ * `repo` (a newer roster may send others); `topic` is a `:help` topic (`E6`, `:publish`). */
+export interface HealthCheck {
+  section: string;
+  level: HealthLevel;
+  message: string;
+  fix?: string;
+  topic?: string;
+}
+
+/** `box.check`: this Box's health, every check local (nothing connects to a Host). */
+export interface BoxCheck {
+  checks: HealthCheck[];
+  ok: boolean;
+  roster_version: string;
+  api_version: number;
+}
+
 /** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
 export const EDIT_API_VERSION = 5;
 
@@ -728,6 +752,9 @@ export interface Backend {
   onLoggedIn(onLogin: (held: string) => void): () => void;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
+  /** `box.check` (API 16, ticket 49): this Box's health, a section at a time. Every check is
+   * local; nothing connects to a Host. */
+  checkBox(): Promise<BoxCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code
    * (71 Pending or other uncommitted changes, 72 diverged, 73 fetch failed, 70 not a git repo). */
   pullInventory(): Promise<PullResult>;

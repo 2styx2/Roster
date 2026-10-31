@@ -1580,7 +1580,7 @@ METHODS["vault.login"] = vault_login
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
              "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
-             "host.save_login": 45}
+             "host.save_login": 45, "box.check": 45}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 

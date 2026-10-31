@@ -73,7 +73,7 @@ def inventory(path, cfg, error):
     waiting = [h["name"] for h in hosts if not h["reviewed"]]
     if waiting:
         out.append(check("inventory", "warn", f"{count(len(waiting), 'Host')} wait for review: {names(waiting)}",
-                         "review each one (:review in the app), or set reviewed: true in roster.yml", "E3"))
+                         "review each one (`:review` in the app), or set reviewed: true in roster.yml", "E3"))
     no_user = [h["name"] for h in hosts if h["reviewed"] and h["ssh"]["user"] in PLACEHOLDER_USERS]
     if no_user:
         out.append(check("inventory", "warn", f"no SSH user for {names(no_user)}",
@@ -200,7 +200,7 @@ def repo(path):
     diff = changes.diff(path)
     if diff["count"] and diff["diff"]:
         out.append(check("repo", "warn", f"{count(diff['count'], 'Pending change')} to roster.yml, not "
-                                         "published yet", ":publish in the app sends them, :discard drops them",
+                                         "published yet", "`:publish` in the app sends them, `:discard` drops them",
                          ":publish"))
     others = [f for f in changes.dirty_files(r) if f != r.rel]
     if others:

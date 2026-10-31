@@ -27,7 +27,7 @@ Commands, keys, Themes, finders, Sidebar sections, the toolbar and these help pa
 
 ## When something's wrong
 
-A Session that can't open says why, where the problem lives (`roster.yml`, the vault, this Box, the network or the Host) and the fix. `:check HOST` runs the same diagnostics on demand, and [Connection errors](errors) lists every one.
+A Session that can't open says why, where the problem lives (`roster.yml`, the vault, this Box, the network or the Host) and the fix. `:check HOST` runs the same diagnostics on demand, and [Connection errors](errors) lists every one. `:check` alone checks this Box: `roster.yml`, ssh, the vault, `init.lua` and the font, each with its fix ([Health](health)).
 
 ## See also
 

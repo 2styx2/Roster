@@ -69,6 +69,7 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("changes.publish", 180),
     ("inventory.pull", 90),
     ("host.check", 90),
+    ("box.check", 90),
     ("host.verify_login", 90),
     ("vault.create_item", 90),
     ("quick.save", 90),

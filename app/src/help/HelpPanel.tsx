@@ -315,7 +315,7 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
 
 function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
   return (
-    <div data-tag={d.anchor} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
+    <div data-tag={d.anchor} data-tone={d.tone} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
       <dt>
         <span className="help-term">
           {/* The entry's own name isn't a link (to itself). */}

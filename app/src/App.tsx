@@ -25,6 +25,7 @@ import {
   UNREVIEW_API_VERSION,
   BackendStartError,
   CHECK_API_VERSION,
+  BOX_CHECK_API_VERSION,
   EDIT_API_VERSION,
   PUBLISH_API_VERSION,
   LIVE_API_VERSION,
@@ -91,7 +92,8 @@ import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
 import { isLeaderKey } from "./terminal/keys";
-import { fontInUse } from "./terminal/fonts";
+import { fontFound, fontInUse } from "./terminal/fonts";
+import { runHealth, type HealthContext, type HealthReport } from "./health/health";
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
@@ -267,6 +269,9 @@ export function App({
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [check, setCheck] = useState<CheckState | null>(null);
+  // `:check` with no Host (ticket 49): this Box's health, shown as `:help health`.
+  const [health, setHealth] = useState<HealthReport | null>(null);
+  const healthRun = useRef(0);
   /** `:config import-terminal`'s diff, while it's open (ticket 33). */
   const [importing, setImporting] = useState<{ preview: ImportPreview; problem: string | null; writing: boolean } | null>(null);
   const checkRun = useRef(0);
@@ -646,6 +651,7 @@ export function App({
   useEffect(() => registerHelp(registries, helpView), [registries, helpView]);
   const themeList = useSyncExternalStore(registries.themes.subscribe, registries.themes.list);
   const helpPages = useSyncExternalStore(registries.help.subscribe, registries.help.list);
+  const healthSections = useSyncExternalStore(registries.health.subscribe, registries.health.list);
   const hintsStored = hintsChoice.stored();
   const configPath = report?.path ?? null;
   const helpCtx = useMemo(
@@ -665,9 +671,10 @@ export function App({
           configPath,
           state: { theme: themeInEffect, hints: hintsStored },
           activeTheme: theme.id,
+          health: { sections: healthSections, report: health },
         },
       ),
-    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources],
+    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health],
   );
   helpView.setContext(() => helpCtx);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
@@ -836,6 +843,32 @@ export function App({
   };
 
   // What commands act on. Rebuilt each render, so it always sees the current state.
+  /** `:check` with no Host (ticket 49): every health section, shown as `:help health` (open at once,
+   * saying it's checking, then filled in). roster's own sections need `box.check` (API 16). */
+  const checkBox = () => {
+    const run = ++healthRun.current;
+    setHealth({ state: "running" });
+    helpView.open({ page: "health" });
+    const info = conn.state === "ready" ? conn.info : null;
+    const api = info?.inventory.api_version ?? 0;
+    const finish = (box: HealthContext["box"], boxProblem: string | null) => {
+      if (run !== healthRun.current) return;
+      const hctx: HealthContext = {
+        box,
+        boxProblem,
+        backend: info ? { name: info.backend, rosterVersion: info.inventory.roster_version, apiVersion: api } : null,
+        config: { path: report?.path ?? null, error: report?.error ?? null, warnings },
+        font: { families: terminalOptions.fonts, inUse: fontFound(terminalOptions.fonts, platform.fontInstalled ?? (() => null)) },
+      };
+      setHealth({ state: "done", at: new Date(), sections: runHealth(registries.health.list(), hctx) });
+    };
+    if (!info || api < BOX_CHECK_API_VERSION) return finish(null, null);
+    backend.checkBox().then(
+      (box) => finish(box, null),
+      (e: unknown) => finish(null, e instanceof Error ? e.message : String(e)),
+    );
+  };
+
   const ctx: CommandContext = {
     openPicker: () => {
       if (overlay === null) rememberFocus();
@@ -874,8 +907,8 @@ export function App({
       if (sessions.active !== null) tabs.reconnect(sessions.active);
     },
     check: (name) => {
-      const host = name ?? sessions.tabs.find((t) => t.id === sessions.active)?.host;
-      if (!host) return setMessage("check needs a Host name (no Session is open)");
+      if (name === null) return checkBox();
+      const host = name;
       if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
       const api = conn.state === "ready" ? conn.info.inventory.api_version : 0;
       if (api < CHECK_API_VERSION) {

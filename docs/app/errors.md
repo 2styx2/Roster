@@ -7,7 +7,7 @@ Every way opening a Session can fail must end in a **clean error**, never a hang
 - gives the exact fix;
 - keeps the raw message (ssh's stderr, or roster's message) one click away under "Details".
 
-Edits made by hand to `roster.yml` or the vault get the same treatment as anything made in the app. `roster check HOST` and `:check HOST` run the same diagnostics on demand.
+Edits made by hand to `roster.yml` or the vault get the same treatment as anything made in the app. `roster check HOST` and `:check HOST` run the same diagnostics on demand. `:check` with no Host (or `roster check --box`) checks this Box instead (see [This Box's health](#this-boxs-health)).
 
 | # | What happened | Typical cause | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
@@ -159,6 +159,19 @@ A Session to `user@address[:port]`, a box that isn't in the Inventory (decision 
 Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permission denied`. They now need their own messages.
 
 **What a Session's error is read from.** ssh's failures (rows 11-19, and roster askpass's `roster askpass: [CODE] …` line) can only come before the login. After it, the terminal shows the Host's output, where a nested `ssh` can print the same messages and anything can print a fake askpass line. So the app classifies only what the Session printed in its pre-auth window: the first 30 s or 8 KB, whichever comes first (`app/src/session/tabs.ts`). ssh doesn't report a successful login, and roster's ssh config has `ConnectTimeout 10`, so the window outlasts every pre-auth failure. A Session that ends with 255 after the window is row 20, and only ssh's own drop lines (`Timeout, server … not responding`, `closed by remote host`, `Connection reset`) pick its message.
+
+## This Box's health
+
+`:check` with no Host checks this Box rather than a Host, like Neovim's `:checkhealth`, and shows the result as a help page, [`health`](health). It opens at once, says it's checking, then fills in. Each section is a heading and each check a line: `OK`, `WARNING` or `ERROR`, what it found, the fix, and a link to the topic that explains it (a row of this catalog, `E6`, or a command). The page's links, `/`, `g O` and `:helpgrep` work as on any help page, and running `:check` again replaces it.
+
+| Section | What it checks | Where it runs |
+|---|---|---|
+| The app and roster serve | `roster serve` answers, through which Backend, its roster and API version; on Windows, that the WSL distro answers; a roster too old for some of the app's features | the app |
+| roster, Inventory, ssh, Vault, askpass, Infra repo | What `roster check --box` checks: `roster.yml` loads (its path, or the error and its line), Hosts waiting for review, `ssh` and roster's ssh config, this Box's key and known hosts, each vault CLI installed and logged in, the askpass channel, Pending changes and other uncommitted files | `roster serve` (`box.check`) |
+| init.lua | It loads (its path, or the error and its line), and each warning | the app |
+| Terminal font | One of `terminal.font`'s families is installed | the app |
+
+Every check is local: files, the `PATH`, each vault CLI's own status and the infra repo as this Box last fetched it. None logs in to a Host, scans one or fetches, so `:check` is safe to run any time, even where SSH is rate-limited. `:check HOST` is the one that connects. With a roster older than the app, the app's own sections still run and say roster's need a newer one.
 
 ## See also
 
