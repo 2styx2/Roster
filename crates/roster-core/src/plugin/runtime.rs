@@ -400,13 +400,14 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     roster.raw_set("themes", themes)?;
 
     // UI pieces the core draws: a Sidebar section, a status segment, a finder source, a help
-    // page. `set` adds or replaces one; `remove` takes it away.
+    // page, a `:check` section, a tutorial (`:tutor`). `set` adds or replaces one; `remove` takes it away.
     for (module, kind) in [
         ("sidebar", "section"),
         ("status", "status"),
         ("finders", "finder"),
         ("help", "help"),
         ("health", "health"),
+        ("tutor", "tutor"),
     ] {
         let t = lua.create_table()?;
         let what = format!("roster.{module}.set");

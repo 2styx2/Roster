@@ -10,6 +10,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **App**
 
+- `:tutor`, like Neovim's `:Tutor`: four short lessons you do rather than read, on a demo Inventory of made-up Hosts under a "Demo Inventory" banner, so nothing you try reaches your network. Each step ticks itself when you do it, and `:tutor` comes back where you left off; your own Sessions keep running behind it. Plugins can ship tutorials too (`roster.tutor.set`). See [the tutor](app/help.md#the-tutor).
 - Host details: `␣ i`, `:info HOST`, the ⓘ on a Host's row and `Ctrl+i` in the Picker show what `roster info HOST` shows (address, services, the Vault item each Login uses by name) in a side panel, and `:open SERVICE` opens a web service in your browser. See [`:info`](:info) and [`:details`](:details).
 - Sign out of the vault to use another account: `:vault signout`, or "Use a different account" on the lock screen. It asks first, naming the account. See [Signing out](app/errors.md#signing-out).
 - Help, redone the way Neovim's is: an index grouped as Getting started, Make it yours, Reference, Extending and What's new; [Getting started](app/start.md); `:helpgrep TEXT` searches every page; `g O` is a page's outline; `Ctrl+]` follows a link; the generated [Quick reference](quickref) and [Every topic](all) pages, [Recipes](app/recipes.md), [How far roster bends](app/extending.md), and the CLI's docs in help too ([The roster command](cli-reference.md)).

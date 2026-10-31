@@ -106,6 +106,10 @@ import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
 import { setFolded, usedHost } from "./state/appState";
 import { StateStore } from "./state/store";
+import { tutorCommand } from "./tutor/command";
+import { DemoBanner } from "./tutor/DemoBanner";
+import { demoBackend, demoPlatform } from "./tutor/demo";
+import { resumeAt, TutorProgress, tutorPage, type TutorEvent, type TutorialDef } from "./tutor/tutor";
 import { defaultAppearance, terminalTheme, type AppearanceOptions } from "./theme/theme";
 import { chosenAppearance, registerThemePicker, stateChoiceWins, ThemeChoice } from "./theme/picker";
 import { useTheme } from "./theme/useTheme";
@@ -138,6 +142,9 @@ type Overlay = "picker" | "quick" | { cmdline: string; caret?: number } | { find
 
 /** How long the hint on entering a mode stays. */
 const HINT_MS = 2000;
+
+const noSubscribe = () => () => {};
+const noSnapshot = () => undefined;
 
 const MODIFIERS = new Set(["Control", "Shift", "Alt", "Meta", "AltGraph", "CapsLock"]);
 
@@ -189,7 +196,77 @@ export interface AppProps {
   config?: ConfigReport | null;
 }
 
-export function App({
+/** What a workspace knows of `:tutor` (ticket 55): the progress (in the real State), and either
+ * how to start a tutorial (the real workspace) or the one running on the demo Inventory. */
+interface TutorLink {
+  progress: TutorProgress;
+  start?(tutorial: TutorialDef): void;
+  demo?: { tutorial: TutorialDef; leave(): void; switchTo(tutorial: TutorialDef): void };
+}
+
+interface WorkspaceProps extends AppProps {
+  /** The State, made by App so `:tutor`'s progress and the workspace share it. */
+  store?: StateStore;
+  tutor?: TutorLink;
+  /** Hidden behind the demo Inventory (`:tutor`): it keeps its Sessions, vault and State, but
+   * takes no keys and leaves the document's Theme to the demo. */
+  suspended?: boolean;
+}
+
+/** The app: your workspace, and while a tutorial runs (`:tutor`, ticket 55, decision Q76), the demo
+ * Inventory's in front of it. The workspace stays mounted behind, hidden and inert, so its
+ * Sessions keep running and its vault and State are never touched; leaving the demo throws the
+ * demo's workspace (its fake Backend, its State in memory) away and shows yours again. */
+export function App(props: AppProps) {
+  const [platform] = useState(() => props.platform ?? memoryPlatform());
+  const [store] = useState(() => new StateStore(platform));
+  const [progress] = useState(() => new TutorProgress(store));
+  // The tutorial asked for, and the demo it runs on once its fake Backend has loaded.
+  const [tutorial, setTutorial] = useState<TutorialDef | null>(null);
+  const [loaded, setLoaded] = useState<{ backend: Backend; platform: Platform } | null>(null);
+  useEffect(() => {
+    if (!tutorial || loaded) return;
+    let live = true;
+    void demoBackend().then((backend) => {
+      if (live) setLoaded({ backend, platform: demoPlatform(platform, (k) => store.get(k)) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [tutorial, loaded, platform, store]);
+  // Another tutorial while one runs: the same demo, the new tutorial.
+  const start = useCallback((def: TutorialDef) => setTutorial(def), []);
+  const leave = useCallback(() => {
+    setTutorial(null);
+    setLoaded(null);
+  }, []);
+  const demo = tutorial && loaded ? { tutorial, ...loaded } : null;
+  const real = useMemo(() => ({ progress, start }), [progress, start]);
+  const inDemo = useMemo(() => (tutorial ? { progress, demo: { tutorial, leave, switchTo: start } } : null), [tutorial, progress, leave, start]);
+  return (
+    <>
+      <div className="app-slot" hidden={demo !== null} inert={demo !== null}>
+        <Workspace {...props} platform={platform} store={store} tutor={real} suspended={demo !== null} />
+      </div>
+      {demo && inDemo && (
+        <div className="app-slot">
+          <Workspace
+            backend={demo.backend}
+            platform={demo.platform}
+            config={props.config ?? null}
+            tutor={inDemo}
+            {...(props.terminalView ? { terminalView: props.terminalView } : {})}
+            {...(props.clock ? { clock: props.clock } : {})}
+            {...(props.appVersion ? { appVersion: props.appVersion } : {})}
+            {...(props.appearance ? { appearance: props.appearance } : {})}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function Workspace({
   backend,
   options: optionsProp = defaultOptions,
   registries: given,
@@ -202,7 +279,10 @@ export function App({
   openAtStart,
   config: configProp = null,
   appVersion = APP_VERSION,
-}: AppProps) {
+  store: storeProp,
+  tutor,
+  suspended = false,
+}: WorkspaceProps) {
   const [registries] = useState(() => given ?? builtinRegistries());
   const [platform] = useState(() => platformProp ?? memoryPlatform());
 
@@ -315,7 +395,7 @@ export function App({
   }
   const [hint, setHint] = useState(false);
   const [message, setMessage] = useState("");
-  const [store] = useState(() => new StateStore(platform));
+  const [store] = useState(() => storeProp ?? new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
   // The Sidebar shown or hidden (issue #78): what the toggle chose is kept in the State, per mode,
   // unless init.lua sets `modes.<mode>.sidebar`, which wins.
@@ -341,7 +421,7 @@ export function App({
     [appearance, configTheme, stored, storedOver, preview],
   );
   const themeInEffect = stateChoiceWins({ configTheme, stored, storedOver }) ? stored : null;
-  const theme = useTheme(registries.themes, chosen);
+  const theme = useTheme(registries.themes, chosen, !suspended);
   useLayoutEffect(() => {
     themeChoice.setConfigTheme(configTheme, configThemeAt);
     themeChoice.setActive(theme.id);
@@ -353,8 +433,8 @@ export function App({
   hintsChoice.setConfig(configHints);
   const hintsShown = hintsChoice.shown();
   useLayoutEffect(() => {
-    document.documentElement.dataset.hints = hintsShown ? "on" : "off";
-  }, [hintsShown]);
+    if (!suspended) document.documentElement.dataset.hints = hintsShown ? "on" : "off";
+  }, [hintsShown, suspended]);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   // A new size in the Config is a new zoom reset point, and where the font goes now.
   const [sizeFrom, setSizeFrom] = useState(terminalOptions.fontSize);
@@ -378,6 +458,25 @@ export function App({
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const openPlugins = useRef(() => {});
   useEffect(() => registries.commands.register(pluginsCommand(plugins, () => openPlugins.current())), [registries, plugins]);
+  // `:tutor` (ticket 55): starts a tutorial on the demo Inventory, or, on it, opens the page again.
+  const openTutorial = useRef((def: TutorialDef) => void def);
+  useEffect(() => {
+    if (!tutor) return;
+    return registries.commands.register(
+      tutorCommand(registries.tutorials, {
+        start: (def) => (tutor.demo ? (def.id === tutor.demo.tutorial.id ? openTutorial.current(def) : tutor.demo.switchTo(def)) : tutor.start?.(def)),
+        quit: () => {
+          if (!tutor.demo) return false;
+          tutor.demo.leave();
+          return true;
+        },
+        reset: (def) => {
+          tutor.progress.reset(def.id);
+          if (tutor.demo?.tutorial.id === def.id) openTutorial.current(def);
+        },
+      }),
+    );
+  }, [registries, tutor]);
   // Packages (ticket 24): `:packages`, and a sync whenever init.lua's `packages` change.
   const [packagesOpen, setPackagesOpen] = useState(false);
   const openPackages = useRef(() => {});
@@ -386,6 +485,14 @@ export function App({
     tabs.setOutputTap((id, host, data) => plugins.output(id, host, data));
     return () => tabs.setOutputTap(null);
   }, [tabs, plugins]);
+  // `:tutor` (ticket 55): on the demo Inventory, what happens is fed to the tutorial running, whose
+  // steps tick themselves; what a step ticks is said once (the page shows it as a ✓).
+  const tutorRef = useRef(tutor);
+  tutorRef.current = tutor;
+  const tutorEvent = useCallback((name: string, data: TutorEvent["data"]) => {
+    const link = tutorRef.current;
+    if (link?.demo) link.progress.feed(link.demo.tutorial, { name, data });
+  }, []);
   // Sessions opening and ending, and the Session on screen, as Plugin events.
   const seenTabs = useRef(new Map<number, "live" | "ended">());
   useEffect(() => {
@@ -394,21 +501,27 @@ export function App({
     for (const t of sessions.tabs) {
       const ended = t.status.state === "ended" || t.status.state === "failed";
       now.set(t.id, ended ? "ended" : "live");
-      if (!ended && before.get(t.id) !== "live") void plugins.event("session_open", { session: t.id, host: t.host });
+      if (!ended && before.get(t.id) !== "live") {
+        void plugins.event("session_open", { session: t.id, host: t.host });
+        tutorEvent("session_open", { host: t.host });
+      }
       if (ended && before.get(t.id) === "live") {
         const code = t.status.state === "ended" ? t.status.exit.code : null;
         void plugins.event("session_exit", { session: t.id, host: t.host, code });
+        tutorEvent("session_exit", { host: t.host, code });
       }
     }
     for (const [id, was] of before) {
       if (!now.has(id) && was === "live") void plugins.event("session_exit", { session: id, host: null, code: null });
     }
     seenTabs.current = now;
-  }, [sessions.tabs, plugins]);
+  }, [sessions.tabs, plugins, tutorEvent]);
   const onScreenHost = sessions.tabs.find((t) => t.id === sessions.active)?.host ?? null;
   useEffect(() => {
-    if (onScreenHost) void plugins.event("host_selected", { host: onScreenHost });
-  }, [onScreenHost, plugins]);
+    if (!onScreenHost) return;
+    void plugins.event("host_selected", { host: onScreenHost });
+    tutorEvent("host_selected", { host: onScreenHost });
+  }, [onScreenHost, plugins, tutorEvent]);
   const saveTab = sessions.tabs.find((t) => t.id === saving) ?? null;
   const mainRef = useRef<HTMLElement>(null);
   const returnFocus = useRef<Element | null>(null);
@@ -750,6 +863,14 @@ export function App({
   const healthSections = useSyncExternalStore(registries.health.subscribe, registries.health.list);
   const hintsStored = hintsChoice.stored();
   const configPath = report?.path ?? null;
+  // `:tutor`'s progress: a tick re-renders the tutorial's page.
+  const tutorDone = useSyncExternalStore(tutor?.progress.subscribe ?? noSubscribe, tutor?.progress.snapshot ?? noSnapshot);
+  const running = tutor?.demo?.tutorial.id ?? null;
+  const tutorCtx = useMemo(() => {
+    void tutorDone;
+    const progress = tutor?.progress;
+    return progress ? { done: (id: string) => progress.done(id), running } : undefined;
+  }, [tutor?.progress, running, tutorDone]);
   const helpCtx = useMemo(
     () =>
       helpContext(
@@ -768,11 +889,18 @@ export function App({
           state: { theme: themeInEffect, hints: hintsStored },
           activeTheme: theme.id,
           health: { sections: healthSections, report: health },
+          ...(tutorCtx ? { tutor: tutorCtx } : {}),
         },
       ),
-    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health],
+    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health, tutorCtx],
   );
   helpView.setContext(() => helpCtx);
+  // Where help went, for `:tutor`'s steps: a page opened, Ctrl+O back, Ctrl+I forward.
+  useEffect(() => {
+    const at = helpAt.at;
+    if (at && helpAt.moved) tutorEvent(`help_${helpAt.moved}`, { page: at.page, anchor: at.anchor ?? null });
+  }, [helpAt, tutorEvent]);
+  const onHelpSearch = useCallback((page: string, query: string) => tutorEvent("help_search", { page, query }), [tutorEvent]);
   // `cmdline.help` (ticket 52): the command line to come back to when help closes, as it was.
   const backToLine = useRef<{ line: string; caret: number } | null>(null);
   // init.lua is what `:source` reloads (decision Q58); ticket 28 registers folders.yml and roster.yml.
@@ -853,6 +981,20 @@ export function App({
     setMessage(newsLine);
     setNewsLine(null);
   }, [unlockedOnce, newsLine]);
+
+  // On the demo Inventory: the tutorial running is the demo's too (a Plugin's isn't registered in
+  // the demo's registries), and once the demo is up its page opens where you left off.
+  const demoTutorial = tutor?.demo?.tutorial ?? null;
+  useEffect(() => {
+    if (demoTutorial && registries.tutorials.get(demoTutorial.id) !== demoTutorial) return registries.tutorials.register(demoTutorial);
+  }, [registries, demoTutorial]);
+  openTutorial.current = (def) => {
+    const anchor = tutor ? resumeAt(def, tutor.progress.done(def.id)) : undefined;
+    helpView.open({ page: tutorPage(def.id), ...(anchor ? { anchor } : {}) });
+  };
+  useEffect(() => {
+    if (unlockedOnce && demoTutorial) openTutorial.current(demoTutorial);
+  }, [unlockedOnce, demoTutorial]);
 
   // Closing the app ends every Session.
   useEffect(() => () => tabs.closeAll(), [tabs]);
@@ -1370,7 +1512,11 @@ export function App({
 
   function run(line: Line) {
     setMessage("");
-    runLine(commands, ctx, line);
+    const ran = runLine(commands, ctx, line);
+    if (ran) {
+      const arg = line.trim().split(/\s+/).slice(1).join(" ");
+      tutorEvent("command", { id: ran.id, arg: arg || null });
+    }
   }
   runRef.current = run;
   openPlugins.current = () => {
@@ -1438,11 +1584,17 @@ export function App({
   // locked, keys belong to the lock screen alone.
   const ready = conn.state === "ready" && !vault.locked;
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || suspended) return;
     const handler = (e: KeyboardEvent) => onKey(e);
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [ready]);
+  }, [ready, suspended]);
+  // Back from the demo Inventory: the keys come back here.
+  const wasSuspended = useRef(suspended);
+  useEffect(() => {
+    if (wasSuspended.current && !suspended) mainRef.current?.focus();
+    wasSuspended.current = suspended;
+  }, [suspended]);
 
   // The custom title bar (decision Q32) sits above every screen, the lock screen too, so the
   // window can always be moved and closed; it shows nothing but the mark. The view mode's layout
@@ -1480,6 +1632,7 @@ export function App({
             {toolbar("end")}
           </div>
         )}
+        {tutor?.demo && <DemoBanner tutorial={tutor.demo.tutorial} done={tutorCtx?.done(tutor.demo.tutorial.id) ?? null} onLeave={tutor.demo.leave} />}
         <div className="window-body">{content}</div>
         {toast}
         <PluginNotices notices={pluginSnap.notices} onClose={(id) => plugins.dismissNotice(id)} />
@@ -1990,7 +2143,16 @@ export function App({
           />
         )}
         {helpAt.at && (
-          <HelpPanel view={helpView} snapshot={helpAt} ctx={helpCtx} leader={options.leader} vim={options.vim} onFind={() => run("help")} onOutline={() => run("finder outline")} />
+          <HelpPanel
+            view={helpView}
+            snapshot={helpAt}
+            ctx={helpCtx}
+            leader={options.leader}
+            vim={options.vim}
+            onFind={() => run("help")}
+            onOutline={() => run("finder outline")}
+            onSearch={onHelpSearch}
+          />
         )}
       </div>
       {overlay !== null && typeof overlay === "object" && "cmdline" in overlay && (

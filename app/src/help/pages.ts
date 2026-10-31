@@ -43,6 +43,9 @@ export interface HelpContext {
   pages: readonly HelpPage[];
   /** `:help health`: the health sections, and the last `:check` with no Host (ticket 49). */
   health?: { sections: readonly HealthSection[]; report: HealthReport | null };
+  /** `:tutor` (ticket 55): the steps done, per tutorial, and the one running on the demo
+   * Inventory (null outside it). */
+  tutor?: { done(tutorial: string): ReadonlySet<string>; running: string | null };
 }
 
 export interface HelpPage extends Entry {
@@ -72,7 +75,7 @@ interface HelpRegistries {
 
 export function helpContext(
   r: HelpRegistries,
-  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme" | "health">,
+  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme" | "health" | "tutor">,
 ): HelpContext {
   return {
     ...live,
@@ -217,6 +220,9 @@ export function pageTexts(ctx: HelpContext): TextHit[] {
           break;
         case "defs":
           for (const d of b.items) push(`${plain(d.term)} ${plain(d.meta)} ${plain(d.body)} ${plain(d.more ?? [])}`, d.anchor ?? tag);
+          break;
+        case "step":
+          push(plain(b.text));
           break;
       }
     }
@@ -414,7 +420,7 @@ function findersPage(ctx: HelpContext): Block[] {
 }
 
 /** The keys bound to exactly `line` after the Leader. */
-function keysForLine(keymap: Keymap, line: string): string[] {
+export function keysForLine(keymap: Keymap, line: string): string[] {
   return Object.entries(keymap.leader)
     .filter(([, b]) => b.action === line)
     .map(([k]) => `␣ ${k}`);
@@ -513,9 +519,11 @@ function indexPage(ctx: HelpContext): Block[] {
   return [
     h(1, "roster help", "index"),
     p(
-      "New to roster? Start with ",
+      "New to roster? ",
+      link("tutor", [code(":tutor")]),
+      " teaches it by doing, on a demo Inventory; ",
       link("start", "Getting started"),
-      ". To follow a link, Tab to it and press Enter, or click it. Try it here: ",
+      " is the place to read. To follow a link, Tab to it and press Enter, or click it. Try it here: ",
       link("help#links", [code("links")]),
       ". ",
       keys("Ctrl+o"),
