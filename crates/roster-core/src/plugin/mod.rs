@@ -22,6 +22,7 @@
 //! or a Package's clone (ticket 24, [`crate::package`]), which loads through
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
+pub mod api;
 pub mod permission;
 mod runtime;
 
@@ -61,6 +62,9 @@ pub const BUNDLED: &[Bundled] = &[Bundled {
     manifest: include_str!("../../plugins/hosts/roster-plugin.lua"),
     init: include_str!("../../plugins/hosts/init.lua"),
 }];
+
+/// The keys a manifest may have (api.rs's `Manifest` documents each).
+pub const MANIFEST_FIELDS: &[&str] = &["name", "version", "description", "author", "api", "permissions"];
 
 /// The manifest's file name, in the Plugin's folder.
 pub const MANIFEST: &str = "roster-plugin.lua";
@@ -613,9 +617,10 @@ fn parse_manifest(v: &Json) -> Result<Manifest, String> {
         return Err("it must return a table: { name = …, version = …, permissions = { … } }".into());
     };
     for key in m.keys() {
-        if !["name", "version", "description", "author", "api", "permissions"].contains(&key.as_str()) {
+        if !MANIFEST_FIELDS.contains(&key.as_str()) {
             return Err(format!(
-                "{key}: not a manifest field (there's name, version, description, author, api, permissions)"
+                "{key}: not a manifest field (there's {})",
+                MANIFEST_FIELDS.join(", ")
             ));
         }
     }

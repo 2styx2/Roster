@@ -1,15 +1,22 @@
 -- pinned: a Sidebar section of the Hosts you pin with `:pin HOST`, a status segment with the
 -- count, a finder over them, and its own help page. It reads the Inventory (inventory.read) to
 -- show each Host's address and to refuse a name that isn't a Host.
+-- The ---@ comments are LuaCATS annotations for lua-language-server (../types/roster.lua).
 local roster = require("roster")
+---@type string[]
 local pins = {}
 
+-- The Host's address, or nil when no Host has that name: roster.inventory.host raises an error
+-- for an unknown name (code 2), so a name the user typed goes through pcall.
+---@param name string
+---@return string?
 local function address(name)
-  local host = roster.inventory.host(name)
-  return host and host.ip or nil
+  local ok, host = pcall(roster.inventory.host, name)
+  return ok and host.ip or nil
 end
 
 local function show()
+  ---@type roster.Row[], roster.FinderItem[]
   local rows, items = {}, {}
   for i, name in ipairs(pins) do
     rows[i] = {
@@ -33,6 +40,7 @@ end
 
 roster.commands.add("pin", {
   desc = "Pin a Host to the Sidebar",
+  ---@param a roster.CommandArgs
   run = function(a)
     local name = a.words[1]
     if not name or not address(name) then
