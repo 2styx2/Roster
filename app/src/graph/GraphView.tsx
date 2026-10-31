@@ -184,12 +184,12 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useMemo(() => places.layout(data), [places, data, moved]);
   const collapsed = useMemo(() => foldsFor(data, folds), [data, folds]);
-  // The filter: the Plugin's, until the user changes it; a new one from the Plugin replaces theirs.
-  const given = JSON.stringify(model.filter ?? {});
+  // The filter: the Plugin's, until the user changes it; one the Plugin sends again (a new object,
+  // even the same as before) replaces theirs.
   const [filter, setFilter] = useState<GraphFilter>(model.filter ?? {});
-  const [filterFrom, setFilterFrom] = useState(given);
-  if (filterFrom !== given) {
-    setFilterFrom(given);
+  const [filterFrom, setFilterFrom] = useState(model.filter);
+  if (filterFrom !== model.filter) {
+    setFilterFrom(model.filter);
     setFilter(model.filter ?? {});
   }
   const hiding = filtering(filter);

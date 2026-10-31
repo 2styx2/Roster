@@ -69,7 +69,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 16            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 18            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -1953,13 +1953,20 @@ def mesh_cut(state, params):
 def mesh_status(state, params):
     """No connections: who reaches whom, what's pending, and whether the Mesh is out of date on this Box.
 
-    Params: none
+    Params: `{grouped?: bool}` (API 18)
     Result: `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks
         for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the
-        Mesh since the last complete apply on this Box
+        Mesh since the last complete apply on this Box. With `grouped` (API 18, for a map such as the Topology
+        Plugin's), also `meshed: {group: [host]}`, each meshed group's Hosts that reach each other both ways (two or
+        more, in `roster.yml` order), and `links` leaves out the pairs those cover: 2,000 meshed Hosts are 2,000
+        names, not 98,000 Links
+    Errors: -32602
     Since: API 15
     """
-    return mesh.status(state.inventory())
+    grouped = (params or {}).get("grouped", False)
+    if not isinstance(grouped, bool):
+        raise RpcError(INVALID_PARAMS, "params.grouped must be true or false")
+    return mesh.status(state.inventory(), grouped=grouped)
 
 
 METHODS["mesh.plan"] = mesh_plan

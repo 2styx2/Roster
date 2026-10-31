@@ -39,7 +39,8 @@ def graph(cfg):
     goes through to reach the peer (a Link's `via:`, which wins over the same pair without one). A link from a
     password Host is kept with skip="password-source": roster can't write files on a Host it reaches only with a
     password.
-    visit: the Hosts roster logs in to (sources and key peers), in name order."""
+    visit: the Hosts roster logs in to (sources and key peers), in name order. meshed: {group: [hosts]}, each meshed
+    group's Hosts that reach each other (two or more), in roster.yml order."""
     hosts = cfg["hosts"]
     excluded = {}
 
@@ -56,9 +57,12 @@ def graph(cfg):
     by_group = {}
     for h in hosts.values():
         by_group.setdefault(h["group"], []).append(h)
-    for members in by_group.values():
+    groups = {}
+    for group, members in by_group.items():
         meshed = [h["name"] for h in members if h["mesh"] is not None and eligible(h) and h["mesh"]]
         pairs.update({(a, b): None for a in meshed for b in meshed if a != b})
+        if len(meshed) > 1:
+            groups[group] = meshed
 
     def expand(name):
         return [name] if name in hosts else [h["name"] for h in by_group.get(name, [])]
@@ -82,7 +86,8 @@ def graph(cfg):
     live = [x for x in links if "skip" not in x]
     sources = sorted({x["from"] for x in live})
     visit = sorted(set(sources) | {x["to"] for x in live if x["kind"] == "key"})
-    return {"links": links, "excluded": dict(sorted(excluded.items())), "sources": sources, "visit": visit}
+    return {"links": links, "excluded": dict(sorted(excluded.items())), "sources": sources, "visit": visit,
+            "meshed": groups}
 
 
 def reach(g):
@@ -646,14 +651,23 @@ def record(cfg, g, st, result, ex):
 
 # ---------------------------------------------------------------- status and drift
 
-def status(cfg):
+def status(cfg, grouped=False):
     """No connections: who reaches whom as roster.yml says, what's unfinished, and whether roster.yml changed the
-    Mesh since the last complete apply on this Box."""
+    Mesh since the last complete apply on this Box. grouped: each meshed group once, as meshed: {group: [hosts]},
+    and links only those it doesn't already cover (a pair in one meshed group without a via: hop), so a map
+    of 2,000 meshed Hosts is 2,000 names and not 98,000 Links."""
     g = graph(cfg)
     st = load_state()
-    return {"links": g["links"], "excluded": g["excluded"], "reach": reach(g), "members": g["visit"],
-            "pending": st["pending"], "cut_pending": st["cut"],
-            "out_of_date": bool(g["links"] or st["members"]) and st["applied"] != digest(cfg, g)}
+    links = g["links"]
+    out = {"links": links, "excluded": g["excluded"], "reach": reach(g), "members": g["visit"],
+           "pending": st["pending"], "cut_pending": st["cut"],
+           "out_of_date": bool(g["links"] or st["members"]) and st["applied"] != digest(cfg, g)}
+    if grouped:
+        group_of = {n: grp for grp, names in g["meshed"].items() for n in names}
+        out["links"] = [x for x in links if x.get("via") or group_of.get(x["from"]) is None
+                        or group_of.get(x["from"]) != group_of.get(x["to"])]
+        out["meshed"] = g["meshed"]
+    return out
 
 
 def drift(cfg):
