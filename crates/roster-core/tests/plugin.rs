@@ -178,9 +178,11 @@ fn a_function_without_its_permission_isnt_there() {
         &manifest("nosy", &["terminal.read"]),
         r#"
         local missing = {}
-        for _, name in ipairs({ "inventory", "sessions", "terminal", "serve", "network", "vault", "http", "io" }) do
+        for _, name in ipairs({ "inventory", "terminal", "serve", "network", "vault", "http", "io" }) do
           if roster[name] ~= nil then table.insert(missing, name) end
         end
+        -- Every Plugin may go to a Session (ticket 78); opening one needs sessions.open.
+        if roster.sessions.open ~= nil then table.insert(missing, "sessions.open") end
         roster.status.set("found", { text = table.concat(missing, ",") })
         "#,
     );

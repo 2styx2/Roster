@@ -122,8 +122,10 @@ struct Shared {
     budget: Cell<Budget>,
     handlers: RefCell<Handlers>,
     /// Whether the run is a call the user started (an action, a command, a finder item): only
-    /// then may the Plugin put text on the clipboard.
+    /// then may the Plugin put text on the clipboard, ask a question or run a command line.
     user_call: Cell<bool>,
+    /// The commands the Plugin added (`roster.commands.add`): `roster.cmd` may run them.
+    commands: RefCell<BTreeSet<String>>,
     /// Its HTTP client, with a `network:` grant (network.rs).
     net: Option<Net>,
     /// Where an answer goes: to the host, which runs it on this Plugin's thread.
@@ -188,6 +190,7 @@ impl Runtime {
             budget: Cell::new(Budget::default()),
             handlers: RefCell::default(),
             user_call: Cell::new(false),
+            commands: RefCell::default(),
             net,
             post,
             next_request: Cell::new(0),
@@ -532,6 +535,39 @@ fn check_id(what: &str, id: &str) -> mlua::Result<()> {
     }
 }
 
+/// Errors unless the run is a call the user started (an action, a command, a finder item).
+fn user_only(shared: &Shared, what: &str) -> mlua::Result<()> {
+    if shared.user_call.get() {
+        Ok(())
+    } else {
+        Err(mlua::Error::runtime(format!(
+            "{what}: only while the user runs one of your actions, commands or finder items"
+        )))
+    }
+}
+
+/// Whether a Plugin with `grants` may run roster's command `word` (api.rs's COMMANDS). Its own
+/// commands are the caller's to allow.
+pub(crate) fn command_allowed(word: &str, grants: &BTreeSet<Permission>) -> Result<(), String> {
+    let Some(rule) = super::api::COMMANDS.iter().find(|c| c.name == word) else {
+        return Err(format!(
+            ":{word} isn't one a Plugin may run (its own commands, and {})",
+            super::api::COMMANDS
+                .iter()
+                .map(|c| c.name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    match rule.needs {
+        super::api::Needs::Permission(p) if !Permission::parse(p).is_ok_and(|p| grants.contains(&p)) => {
+            Err(format!(":{word} needs the {p} permission"))
+        }
+        super::api::Needs::AnyServe => Err(format!(":{word} isn't one a Plugin may run")),
+        _ => Ok(()),
+    }
+}
+
 fn need(shared: &Shared, p: &Permission, what: &str) -> mlua::Result<()> {
     if shared.grants.contains(p) {
         Ok(())
@@ -674,10 +710,12 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                 "roster.commands.add: `run` must be a function or a command line",
             ));
         };
+        s.commands.borrow_mut().insert(name.clone());
         push(s, json!({ "op": "command", "name": name, "desc": desc, "run": run }))
     });
     func!(commands, "remove", |_lua, s, name: String| {
         check_id("roster.commands.remove", &name)?;
+        s.commands.borrow_mut().remove(&name);
         push(s, json!({ "op": "remove", "kind": "command", "id": name }))
     });
     roster.raw_set("commands", commands)?;
@@ -729,7 +767,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     roster.raw_set("themes", themes)?;
 
     // UI pieces the core draws: a Sidebar section, a status segment, a finder source, a help
-    // page, a `:check` section, a tutorial (`:tutor`). `set` adds or replaces one; `remove` takes it away.
+    // page, a `:check` section, a tutorial (`:tutor`), a toolbar control, a progress (ticket 78). `set` adds or replaces one; `remove` takes it away.
     for (module, kind) in [
         ("sidebar", "section"),
         ("status", "status"),
@@ -737,6 +775,8 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         ("help", "help"),
         ("health", "health"),
         ("tutor", "tutor"),
+        ("toolbar", "toolbar"),
+        ("progress", "progress"),
     ] {
         let t = lua.create_table()?;
         let what = format!("roster.{module}.set");
@@ -786,17 +826,39 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     let views = lua.create_table()?;
     func!(views, "set", |lua, s, (id, spec): (String, Table)| {
         check_id("roster.views.set", &id)?;
+        let actions = format!("view:{id}:actions");
+        drop_owners(lua, s, |k| k == actions)?;
         let spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
         push(s, json!({ "op": "view", "id": id, "spec": spec }))
     });
-    func!(views, "update", |_lua, s, (id, changes): (String, Table)| {
+    func!(views, "update", |lua, s, (id, changes): (String, Table)| {
         check_id("roster.views.update", &id)?;
-        let changes = plain(s, &format!("roster.views.update {id:?}"), &Value::Table(changes)).map_err(|e| {
+        // Plain data, but for the table's `actions` (ticket 78), whose functions replace the ones
+        // the set or an earlier update gave; `open` stays the set's.
+        let rest = lua.create_table()?;
+        let mut actions = None;
+        for pair in changes.pairs::<Value, Value>() {
+            let (k, v) = pair?;
+            if matches!(&k, Value::String(k) if k.as_bytes().as_ref() == b"actions") {
+                actions = Some(v);
+            } else {
+                rest.raw_set(k, v)?;
+            }
+        }
+        let mut changes = plain(s, &format!("roster.views.update {id:?}"), &Value::Table(rest)).map_err(|e| {
             mlua::Error::runtime(format!(
-                "{} (an update is plain data: functions go in roster.views.set)",
+                "{} (an update is plain data: functions go in roster.views.set, or a table's actions)",
                 lua::error_text(&e)
             ))
         })?;
+        if let Some(actions) = actions {
+            let actions = data(lua, s, "roster.views.update", &actions, &format!("view:{id}:actions"))?;
+            if let Json::Object(m) = &mut changes {
+                m.insert("actions".into(), actions);
+            } else {
+                changes = json!({ "actions": actions });
+            }
+        }
         push(s, json!({ "op": "view_update", "id": id, "changes": changes }))
     });
     func!(views, "open", |_lua, s, id: String| {
@@ -814,8 +876,8 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     });
     func!(views, "remove", |lua, s, id: String| {
         check_id("roster.views.remove", &id)?;
-        let owner = format!("view:{id}");
-        drop_owners(lua, s, |k| k == owner)?;
+        let (owner, actions) = (format!("view:{id}"), format!("view:{id}:actions"));
+        drop_owners(lua, s, |k| k == owner || k == actions)?;
         push(s, json!({ "op": "remove", "kind": "view", "id": id }))
     });
     roster.raw_set("views", views)?;
@@ -864,6 +926,41 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "copy", "text": text }))
     });
     roster.raw_set("clipboard", clipboard)?;
+
+    // A question the app draws and the user answers (ticket 78): `run` is called only when they
+    // confirm, `cancel` when they don't. Only in a call the user started, so a question never
+    // comes up on its own; the Plugin can't draw one itself or answer it.
+    func!(roster, "confirm", |lua, s, spec: Table| {
+        user_only(s, "roster.confirm")?;
+        let spec = data(lua, s, "roster.confirm", &Value::Table(spec), "confirm")?;
+        if spec.get("run").and_then(|r| r.get("handler")).is_none() {
+            return Err(mlua::Error::runtime(
+                "roster.confirm: `run` must be a function: what happens when the user confirms",
+            ));
+        }
+        push(s, json!({ "op": "confirm", "spec": spec }))
+    });
+
+    // A command line, as typed after `:` (ticket 78): the Plugin's own commands and the few of
+    // roster's that api.rs's COMMANDS lists, each only with the permission it needs there. Only
+    // in a call the user started.
+    func!(roster, "cmd", |_lua, s, line: mlua::LuaString| {
+        user_only(s, "roster.cmd")?;
+        let line = line.to_string_lossy();
+        let line = line.trim();
+        let Some(word) = line.split_whitespace().next() else {
+            return Err(mlua::Error::runtime(
+                "roster.cmd: which command? (a line such as \"finder alerts\")",
+            ));
+        };
+        if line.len() > 500 {
+            return Err(mlua::Error::runtime("roster.cmd: the line is over 500 characters"));
+        }
+        if !s.commands.borrow().contains(word) {
+            command_allowed(word, &s.grants).map_err(|m| mlua::Error::runtime(format!("roster.cmd: {m}")))?;
+        }
+        push(s, json!({ "op": "cmd", "line": line }))
+    });
 
     func!(
         roster,
@@ -978,14 +1075,25 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         }
         roster.raw_set("inventory", inventory)?;
     }
+    // Sessions: going to one (ticket 78) needs nothing but the user's call; opening one needs
+    // sessions.open.
+    let sessions = lua.create_table()?;
+    func!(
+        sessions,
+        "show",
+        |_lua, s, (session, line): (u64, Option<mlua::LuaString>)| {
+            user_only(s, "roster.sessions.show")?;
+            let line = line.map(|l| l.to_string_lossy());
+            push(s, json!({ "op": "session_show", "session": session, "line": line }))
+        }
+    );
     if g.contains(&Permission::SessionsOpen) {
-        let sessions = lua.create_table()?;
         func!(sessions, "open", |_lua, s, host: String| {
             need(s, &Permission::SessionsOpen, "roster.sessions.open")?;
             push(s, json!({ "op": "open", "host": host }))
         });
-        roster.raw_set("sessions", sessions)?;
     }
+    roster.raw_set("sessions", sessions)?;
     if g.contains(&Permission::TerminalWrite) {
         let terminal = lua.create_table()?;
         func!(terminal, "send", |_lua, s, (session, text): (u64, String)| {

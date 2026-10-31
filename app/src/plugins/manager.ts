@@ -28,17 +28,21 @@ import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
+import { lineRefused } from "./cmd";
 import { CommittedLines, type ScreenSize } from "./committed";
 import {
   MAX_TABLE_ROWS,
   parseFinderItems,
   parseHealthChecks,
   parseOp,
+  type PluginConfirm,
   type PluginContent,
   type PluginFinderItem,
   type PluginFloat,
   type PluginOp,
+  type PluginProgress,
   type PluginRow,
+  type PluginRowAction,
   type PluginView,
   type Run,
 } from "./ops";
@@ -59,6 +63,11 @@ export interface PluginUi {
   onScreen?(): { session: number; host: string | null } | null;
   /** Closes view `id` if it's the one open (`roster.views.close`). */
   closeView?(id: string): void;
+  /** Goes to Session `id` and, with `line`, finds that text up its scrollback
+   * (`roster.sessions.show`). False when there's no such Session. */
+  showSession?(id: number, line: string | null): boolean;
+  /** Opens a float's link (http or https, checked) in the browser. */
+  openUrl?(url: string): void;
 }
 
 /** What a Plugin's function is told about what ran it (api 3, `HandlerContext`). */
@@ -119,6 +128,12 @@ export interface Notice {
   text: string;
 }
 
+/** A Plugin's question, waiting for the user's answer (ticket 78). */
+export type PendingConfirm = PluginConfirm & { plugin: string; id: number };
+
+/** Something long a Plugin is doing (ticket 78). `stopping` once the user cancelled it. */
+export type RunningProgress = PluginProgress & { plugin: string; id: string; stopping: boolean };
+
 export interface Snapshot {
   plugins: readonly PluginStatus[];
   /** The Packages init.lua names, as the core last described them (`:packages`). */
@@ -126,6 +141,10 @@ export interface Snapshot {
   prompts: readonly Prompt[];
   notices: readonly Notice[];
   float: (PluginFloat & { plugin: string }) | null;
+  /** The question up, if any: one at a time, the latest asked. */
+  confirm: PendingConfirm | null;
+  /** Every progress, in the order they started. */
+  progress: readonly RunningProgress[];
   /** The Plugins and Packages the app starts with have loaded (or failed to), the first time:
    * until then a name init.lua gives one of their pieces can't be judged (ticket 79). */
   settled: boolean;
@@ -216,8 +235,11 @@ export class PluginManager {
   private prompts: Prompt[] = [];
   private notices: Notice[] = [];
   private float: Snapshot["float"] = null;
+  private confirm: PendingConfirm | null = null;
+  private confirmId = 0;
+  private readonly progress = new Map<string, RunningProgress>();
   private noticeId = 0;
-  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null, settled: false };
+  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null, confirm: null, progress: [], settled: false };
   private settled = false;
   private packages: PackageStatus[] = [];
   /** Packages whose install the user cancelled this run: not asked again until the next start. */
@@ -698,8 +720,7 @@ export class PluginManager {
       for (const d of l.disposers.values()) d();
       this.loaded.delete(name);
     }
-    for (const r of Object.values(this.registries)) (r as { unregisterSource(s: string): void }).unregisterSource(name);
-    if (this.float?.plugin === name) this.float = null;
+    this.forgetUi(name);
     if (tellCore) await this.backend.pluginUnload(name).catch(() => false);
   }
 
@@ -747,15 +768,83 @@ export class PluginManager {
         for (const d of l.disposers.values()) d();
         this.loaded.delete(name);
       }
-      for (const r of Object.values(this.registries)) (r as { unregisterSource(s: string): void }).unregisterSource(name);
-      if (this.float?.plugin === name) this.float = null;
+      this.forgetUi(name);
     }
     this.changed();
   }
 
-  /** The command line that runs `run` for `plugin`; a function hears `context` (what ran it). */
-  private line(plugin: string, run: Run, context: HandlerContext): string {
-    return "command" in run ? run.command : `plugins call ${plugin} ${run.handler} ${encodeURIComponent(JSON.stringify(context))}`;
+  /** Takes everything `name` put up away: its registry entries, float, question and progress. */
+  private forgetUi(name: string) {
+    for (const r of Object.values(this.registries)) (r as { unregisterSource(s: string): void }).unregisterSource(name);
+    if (this.float?.plugin === name) this.float = null;
+    if (this.confirm?.plugin === name) this.confirm = null;
+    for (const [id, p] of this.progress) if (p.plugin === name) this.progress.delete(id);
+  }
+
+  /** The command line that runs `run` for `plugin`. A Plugin's own line goes through
+   * `plugins run`, which checks it may (ticket 78): the label on a button says nothing about it.
+   * A function hears `context`, what ran it (api 3), carried URI-encoded so spaces can't change it. */
+  private line(plugin: string, run: Run, context: HandlerContext = {}): string {
+    return "command" in run
+      ? `plugins run ${plugin} ${run.command}`
+      : `plugins call ${plugin} ${run.handler} ${encodeURIComponent(JSON.stringify(context))}`;
+  }
+
+  /** Runs `line` for `plugin` if it may (cmd.ts), else says why. */
+  runLine(plugin: string, line: string) {
+    const l = this.loaded.get(plugin);
+    if (!l) return;
+    const refused = lineRefused(line, plugin, l.granted, (name) => this.registries.commands.get(name)?.source);
+    if (refused) return this.notify(plugin, "warn", `${plugin}: ${refused}`);
+    this.ui.run(line.trim());
+  }
+
+  /** Runs what `plugin` handed over: its function (with `context`, and the Session on screen
+   * when it may know it), or its line. */
+  private runFor(plugin: string, run: Run, context: HandlerContext = {}) {
+    if ("command" in run) this.runLine(plugin, run.command);
+    else void this.callWith(plugin, run.handler, context);
+  }
+
+  /** The user's answer to the question up: `run` on yes, `cancel` on no (ticket 78). */
+  answerConfirm(yes: boolean) {
+    const c = this.confirm;
+    if (!c) return;
+    this.confirm = null;
+    this.changed();
+    if (yes) this.runFor(c.plugin, c.run, { confirm: "yes" });
+    else if (c.cancel) this.runFor(c.plugin, c.cancel, { confirm: "no" });
+  }
+
+  /** `:cancel [ID]`: stops a progress through its Plugin's `cancel`. Says what happened. */
+  cancelProgress(id?: string): string {
+    const list = [...this.progress.values()];
+    const p = id ? this.progress.get(id) : list.filter((x) => x.cancel && !x.stopping).at(-1);
+    if (!p) return id ? `Nothing called ${id} is running: :cancel lists none` : "Nothing running can be cancelled";
+    if (!p.cancel) return `${p.title} can't be stopped`;
+    if (p.stopping) return `${p.title}: stopping already`;
+    this.progress.set(p.id, { ...p, stopping: true });
+    this.changed();
+    this.runFor(p.plugin, p.cancel, { progress: p.id });
+    return `Stopping ${p.title}`;
+  }
+
+  /** The ids `:cancel` completes: what can be stopped now. */
+  cancellable(): string[] {
+    return [...this.progress.values()].filter((p) => p.cancel && !p.stopping).map((p) => p.id);
+  }
+
+  /** A float's button, by its place (ticket 78). */
+  floatAction(index: number) {
+    const f = this.float;
+    const a = f?.actions[index];
+    if (f && a) this.runFor(f.plugin, a.run, { action: index + 1 });
+  }
+
+  /** A float's link: the address was checked when it came (http or https). */
+  openLink(index: number) {
+    const link = this.float?.links[index];
+    if (link) this.ui.openUrl?.(link.url);
   }
 
   private put(l: Loaded, key: string, dispose: () => void) {
@@ -790,8 +879,7 @@ export class PluginManager {
           label: (a) => (a ? `${op.desc || op.name} ${a}` : op.desc || op.name),
           run: (_ctx, arg) => {
             const args = (arg ?? "").trim();
-            if ("command" in run) this.ui.run(run.command);
-            else void this.callWith(plugin, run.handler, { args, words: args ? args.split(/\s+/) : [] } as unknown as HandlerContext);
+            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [] } as unknown as HandlerContext);
           },
         };
         return this.put(l, `command:${op.name}`, r.commands.register(def));
@@ -830,7 +918,8 @@ export class PluginManager {
       case "section": {
         if (this.taken(r.sidebar, op.id, plugin)) return refuse(`there's a Sidebar section named ${op.id} already`);
         const rows = op.rows.map((row) => this.row(plugin, op.id, row));
-        const section = { id: op.id, title: op.title, count: rows.length, rows, ...(op.empty ? { empty: op.empty } : {}) };
+        const actions = op.actions.map((a, i) => this.rowAction(plugin, a, { section: op.id, action: i + 1 }));
+        const section = { id: op.id, title: op.title, count: rows.length, rows, ...(op.empty ? { empty: op.empty } : {}), ...(actions.length ? { actions } : {}) };
         return this.put(l, `section:${op.id}`, r.sidebar.register({ id: op.id, source: plugin, order: op.order, build: () => section }));
       }
       case "status": {
@@ -951,6 +1040,43 @@ export class PluginManager {
         return this.ui.send(op.session, op.text);
       case "copy":
         return void this.ui.copy(op.text).catch(() => undefined);
+      case "confirm": {
+        // One question at a time: a newer one replaces it (another Plugin's hears its cancel).
+        const before = this.confirm;
+        this.confirm = { ...op.confirm, plugin, id: ++this.confirmId };
+        if (before && before.plugin !== plugin && before.cancel) this.runFor(before.plugin, before.cancel, { confirm: "no" });
+        return;
+      }
+      case "progress": {
+        const other = this.progress.get(op.id);
+        if (other && other.plugin !== plugin) return refuse(`there's a progress named ${op.id} already, from ${other.plugin}`);
+        // Setting it again after a cancel says it's still stopping until the Plugin says otherwise.
+        this.progress.set(op.id, { ...op.progress, plugin, id: op.id, stopping: false });
+        return;
+      }
+      case "toolbar": {
+        if (this.taken(r.toolbar, op.id, plugin)) return refuse(`there's a toolbar control named ${op.id} already`);
+        const c = op.control;
+        return this.put(
+          l,
+          `toolbar:${op.id}`,
+          r.toolbar.register({
+            id: op.id,
+            source: plugin,
+            label: () => c.label,
+            ...(c.icon ? { icon: c.icon } : {}),
+            ...(c.text || !c.icon ? { text: c.text ?? c.label } : {}),
+            command: this.line(plugin, c.run, { toolbar: op.id }),
+            side: "end",
+            byDefault: true,
+          }),
+        );
+      }
+      case "cmd":
+        return this.runLine(plugin, op.line);
+      case "session_show":
+        if (this.ui.showSession && !this.ui.showSession(op.session, op.line)) return refuse(`there's no Session ${op.session} now: it has ended`);
+        return;
       case "view": {
         if (this.taken(r.views, op.id, plugin)) return refuse(`there's a view named ${op.id} already`);
         (l.views ??= new Map()).set(op.id, op.view);
@@ -960,12 +1086,19 @@ export class PluginManager {
         const view = l.views?.get(op.id);
         if (!view) return refuse(`roster.views.update: there's no view ${op.id} (roster.views.set it first)`);
         const u = op.update;
-        if ((u.rows.length || u.remove.length) && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table for rows`);
+        const tableChange = u.rows.length > 0 || u.remove.length > 0 || u.columns !== undefined || u.sort !== undefined || u.actions !== undefined;
+        if (tableChange && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table to change`);
         let table = view.table;
         if (table && (u.rows.length || u.remove.length)) {
           const rows = mergeRows(table.rows, u.rows, u.remove);
           if (rows.length > MAX_TABLE_ROWS) return refuse(`roster.views.update ${op.id}: more than ${MAX_TABLE_ROWS.toLocaleString("en-US")} rows`);
           table = { ...table, rows };
+        }
+        if (table && (u.columns || u.sort || u.actions)) {
+          const columns = u.columns ?? table.columns;
+          const sort = u.sort ?? (table.sort && columns.some((c) => c.id === table?.sort?.by) ? table.sort : null);
+          if (sort && !columns.some((c) => c.id === sort.by)) return refuse(`roster.views.update ${op.id}: sort names no column (${sort.by})`);
+          table = { ...table, columns, sort, ...(u.actions ? { actions: u.actions } : {}) };
         }
         const next: PluginView = {
           ...view,
@@ -997,6 +1130,10 @@ export class PluginManager {
       }
       case "remove":
         if (op.kind === "view") l.views?.delete(op.id);
+        if (op.kind === "progress") {
+          if (this.progress.get(op.id)?.plugin === plugin) this.progress.delete(op.id);
+          return;
+        }
         if (op.kind === "details") {
           for (const key of [...l.disposers.keys()].filter((k) => k.startsWith(`details:${op.id}@`))) this.drop(l, key);
           return;
@@ -1027,9 +1164,8 @@ export class PluginManager {
    * the row: `{ row, host, view | section }`. */
   private content(plugin: string, where: { view?: string; section?: string; host?: string }, c: PluginContent): Content {
     const go = (run: Run) => (row: TableRow) => {
-      if ("command" in run) return this.ui.run(run.command);
       const host = row.host ?? where.host;
-      void this.call(plugin, run.handler, { row: row.id, ...(host ? { host } : {}), ...(where.view ? { view: where.view } : {}), ...(where.section ? { section: where.section } : {}) });
+      this.runFor(plugin, run, { row: row.id, ...(host ? { host } : {}), ...(where.view ? { view: where.view } : {}), ...(where.section ? { section: where.section } : {}) });
     };
     const t = c.table;
     // Without its own `open`, a row with a Host opens that Host, as a Sidebar row does.
@@ -1047,7 +1183,13 @@ export class PluginManager {
               sort: t.sort,
               ...(t.empty ? { empty: t.empty } : {}),
               ...(t.open ? { open: go(t.open) } : t.rows.some((row) => row.host) ? { open: openHost } : {}),
-              actions: t.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
+              actions: t.actions.map((a) => ({
+                label: a.label,
+                ...(a.key ? { key: a.key } : {}),
+                ...(a.icon ? { icon: a.icon } : {}),
+                ...(a.when ? { when: a.when } : {}),
+                run: go(a.run),
+              })),
             },
           }
         : {}),
@@ -1066,8 +1208,12 @@ export class PluginManager {
       ...(row.level !== undefined ? { level: row.level } : {}),
       ...(row.title ? { title: row.title } : {}),
       command: row.run ? this.line(plugin, row.run, { section, row: row.id }) : row.host ? `open ${row.host}` : "",
-      actions: row.actions.map((a, i) => ({ label: a.label, icon: a.icon, command: this.line(plugin, a.run, { section, row: row.id, action: i + 1 }) })),
+      actions: row.actions.map((a, i) => this.rowAction(plugin, a, { section, row: row.id, action: i + 1 })),
     };
+  }
+
+  private rowAction(plugin: string, a: PluginRowAction, context: HandlerContext) {
+    return { label: a.label, icon: a.icon, command: this.line(plugin, a.run, context) };
   }
 
   private notify(plugin: string, level: Notice["level"], text: string) {
@@ -1099,7 +1245,16 @@ export class PluginManager {
         uses: this.uses.get(name) ?? [],
       };
     });
-    this.snap = { plugins, packages: this.packages, prompts: this.prompts, notices: this.notices, float: this.float, settled: this.settled };
+    this.snap = {
+      plugins,
+      packages: this.packages,
+      prompts: this.prompts,
+      notices: this.notices,
+      float: this.float,
+      confirm: this.confirm,
+      progress: [...this.progress.values()],
+      settled: this.settled,
+    };
     for (const l of this.listeners) l();
   }
 }

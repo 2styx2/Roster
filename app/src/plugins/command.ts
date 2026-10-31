@@ -8,6 +8,7 @@
 //   plugins grant NAME PERM      gives one back
 //   plugins types PATH           writes the API's stubs (types/roster.lua) into a Plugin's folder
 //   plugins call NAME N CONTEXT  what a Plugin's row, action or finder item runs, and what it was (not for typing)
+//   plugins run NAME LINE        a command line a Plugin handed over, if it may run it (ticket 78)
 import type { CommandDef } from "../commands/table";
 import { matching } from "../commands/table";
 import { BUILTIN } from "../registry";
@@ -80,6 +81,12 @@ export function pluginsCommand(manager: PluginManager, openPanel: () => void): C
           if (!name || !Number.isInteger(handler)) return ctx.say(":plugins call NAME N runs what a Plugin handed over");
           return void manager.callWith(name, handler, callContext(text));
         }
+        case "run": {
+          const [name] = rest;
+          const line = text.replace(/^run\s+\S+\s*/, "");
+          if (!name || !line) return ctx.say(":plugins run NAME LINE runs a command line a Plugin handed over");
+          return manager.runLine(name, line);
+        }
         default:
           return ctx.say(`:plugins ${sub}? There's install, remove, reload, revoke, grant and types`);
       }
@@ -118,5 +125,22 @@ export function packagesCommand(manager: PluginManager, openPanel: () => void): 
           return ctx.say(`:packages ${sub}? There's update and clean`);
       }
     },
+  };
+}
+
+// `:cancel [ID]` (ticket 78): stops something long a Plugin is doing (`roster.progress`), through
+// its `cancel`; with no ID, the latest that can be stopped.
+export function cancelCommand(manager: PluginManager): CommandDef {
+  return {
+    id: "cancel",
+    source: BUILTIN,
+    area: "Plugins",
+    arg: "text",
+    optionalArg: true,
+    seldom: true,
+    label: (a) => (a ? `Stop ${a}` : "Stop what a Plugin is doing (the latest that can be stopped)"),
+    doc: "Stops something long a Plugin is doing, shown in the status bar ([plugins](plugins)): its scan, say. With no name, the latest that can be stopped. The Plugin says when it has stopped.",
+    complete: (arg) => matching(manager.cancellable(), arg),
+    run: (ctx, arg) => ctx.say(manager.cancelProgress((arg ?? "").trim() || undefined)),
   };
 }

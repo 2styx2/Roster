@@ -131,7 +131,7 @@ describe("running", () => {
     await manager.start();
     registries.commands.get("alerts")?.run({} as never, undefined);
     await new Promise((r) => setTimeout(r, 0));
-    expect(manager.snapshot().float).toEqual({ plugin: "recent-alerts", title: "Alerts", lines: ["esx-02: ERROR"] });
+    expect(manager.snapshot().float).toEqual({ plugin: "recent-alerts", title: "Alerts", lines: ["esx-02: ERROR"], actions: [], links: [] });
   });
 
   it("can't take a command, key or segment someone else has", async () => {

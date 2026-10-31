@@ -163,3 +163,65 @@ describe(":plugins types", () => {
     expect(said.at(-1)).toBe("Which Plugin folder? :plugins types PATH writes its types/roster.lua");
   });
 });
+
+// Ticket 78's handlers hear what ran them too: a section's and a float's buttons, a question's
+// answer, a progress's cancel and a toolbar control. `plugins call NAME N CONTEXT` and
+// `plugins run NAME LINE` both still parse.
+describe("ticket 78's handlers", () => {
+  const asker: FakePlugin = {
+    manifest: { name: "asker", version: "1", description: "", author: null, api: 3, permissions: ["terminal.read"] },
+    load(roster) {
+      const note = (c: Record<string, unknown>) => void heard.push(c);
+      roster.commands.add("asker", { run: () => roster.confirm({ title: "Sure?", run: note, cancel: note }) });
+      roster.sidebar.set("head", { rows: [], actions: [{ label: "Add", icon: "add", run: note }] });
+      roster.toolbar.set("bell", { label: "Bell", run: note });
+      roster.progress.set("sync", { title: "Syncing", cancel: note });
+      roster.commands.add("float", { run: () => roster.float.open({ title: "F", lines: ["a"], actions: [{ label: "One", run: note }, { label: "Two", run: note }] }) });
+    },
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("each gets its context, and the Session on screen", async () => {
+    const { manager, registries, run } = setup(asker);
+    await manager.start();
+    const head = registries.sidebar.get("head")!.build({} as never)!;
+    expect(await run(head.actions![0]!.command)).toEqual({ section: "head", action: 1, session: 7, session_host: "esx-02" });
+    expect(await run(registries.toolbar.get("bell")!.command)).toEqual({ toolbar: "bell", session: 7, session_host: "esx-02" });
+    manager.cancelProgress("sync");
+    await tick();
+    expect(heard.pop()).toEqual({ progress: "sync", session: 7, session_host: "esx-02" });
+    registries.commands.get("asker")!.run({} as CommandContext, "");
+    await tick();
+    manager.answerConfirm(true);
+    await tick();
+    expect(heard.pop()).toEqual({ confirm: "yes", session: 7, session_host: "esx-02" });
+    registries.commands.get("asker")!.run({} as CommandContext, "");
+    await tick();
+    manager.answerConfirm(false);
+    await tick();
+    expect(heard.pop()).toEqual({ confirm: "no", session: 7, session_host: "esx-02" });
+    registries.commands.get("float")!.run({} as CommandContext, "");
+    await tick();
+    manager.floatAction(1);
+    await tick();
+    expect(heard.pop()).toEqual({ action: 2, session: 7, session_host: "esx-02" });
+  });
+
+  it("`plugins run NAME LINE` still runs a line the Plugin may run, and `plugins call` with no context still calls", async () => {
+    const ran: string[] = [];
+    const backend = fakeBackend({ hosts: makeHosts(3), plugins: { "/p/ctx": asker } });
+    const registries = builtinRegistries();
+    const state: Record<string, unknown> = { [STATE_KEY]: [{ path: "/p/ctx", name: "asker", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
+    const manager = new PluginManager(backend, registries, store, { run: (l) => void ran.push(l), send: () => undefined, copy: async () => undefined });
+    await manager.start();
+    const command = pluginsCommand(manager, () => undefined);
+    command.run({ say: () => undefined } as unknown as CommandContext, "run asker finder hosts");
+    expect(ran).toEqual(["finder hosts"]);
+    const line = registries.toolbar.get("bell")!.command!;
+    const [, , name, n] = line.split(" ");
+    command.run({ say: () => undefined } as unknown as CommandContext, `call ${name} ${n}`);
+    await tick();
+    expect(heard.pop()).toEqual({});
+  });
+});

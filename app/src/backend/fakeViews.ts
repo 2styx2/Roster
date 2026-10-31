@@ -55,6 +55,7 @@ export function demoScanPlugin(worst = false, count = 600): FakePlugin {
             { label: "Keep", key: "a", icon: "add", run: (e: Record<string, unknown>) => roster.views.update("demo-scan", { rows: [{ id: e.row, cells: { address: e.row, title: "kept", ports: 0, state: "kept" } }] }) },
             { label: "Skip", key: "x", icon: "close", run: (e: Record<string, unknown>) => roster.views.update("demo-scan", { remove: [e.row] }) },
             { label: "Copy address", key: "c", icon: "copy", run: (e: Record<string, unknown>) => roster.clipboard.copy(String(e.row)) },
+            { label: "Cut", key: "u", when: { state: "changed" }, run: (e: Record<string, unknown>) => roster.notify(`would cut ${String(e.row)}`) },
           ],
         },
       });
@@ -64,6 +65,45 @@ export function demoScanPlugin(worst = false, count = 600): FakePlugin {
         table: { columns: [{ id: "from", label: "From", kind: "data" }, { id: "to", label: "To", kind: "data" }], rows: [], empty: "No Links." },
       });
       roster.keymap.set("leader", "y v", "view demo-scan");
+      // Ticket 78's pieces, to look at and break: a toolbar control, progress, a question (and its
+      // stronger form), a section's buttons, a float's buttons and links.
+      const long = worst ? " of 10.0.0.0/16 across every group, gently, with a title that goes on" : "";
+      roster.toolbar.set("demo-scan", { label: "Scan a network", text: worst ? "Scan the whole lab" : "Scan", icon: "map", run: "view demo-scan" });
+      roster.progress.set("demo-scan", { title: `Scanning 10.0.0.0/22${long}`, done: 384, total: 1024, cancel: () => roster.notify("stopping") });
+      roster.progress.set("demo-wait", { title: worst ? "Waiting for roster serve to answer a very long request" : "Waiting for the mesh" });
+      const ask = (danger: boolean) => () =>
+        roster.confirm({
+          title: worst ? "Cut storage-appliance-in-the-far-rack-with-a-long-name from the Mesh?" : "Cut esx-02 from the Mesh?",
+          text: worst ? "Its key is taken off 4,812 Hosts. ".repeat(10) : "Its key is taken off the 7 Hosts it can reach. They can't reach it until you apply the Mesh again.",
+          facts: [{ label: "reach", value: worst ? "4,812 Hosts across 37 groups" : "7 Hosts" }, { label: "host", value: "esx-02", data: true }],
+          action: "Cut",
+          danger,
+          ...(danger ? { typed: worst ? "storage-appliance-in-the-far-rack-with-a-long-name" : "esx-02" } : {}),
+          run: () => roster.notify("cut"),
+        });
+      roster.commands.add("demo-cut", { desc: "Ask before a Cut (the stronger form)", run: ask(true) });
+      roster.commands.add("demo-apply", { desc: "Ask before applying", run: ask(false) });
+      roster.commands.add("demo-float", {
+        desc: "A float with buttons and links",
+        run: () =>
+          roster.float.open({
+            title: "esx-02",
+            lines: worst ? Array.from({ length: 40 }, (_, i) => `ERROR ${"disk full ".repeat(i % 5)}${i}`) : ["ERROR disk full", "at 10:42"],
+            actions: [
+              { label: "Go to the line", key: "g", run: () => roster.notify("went") },
+              { label: worst ? "Dismiss this alert and every one like it" : "Dismiss", key: "d", run: () => roster.notify("dismissed") },
+            ],
+            links: [{ label: "Runbook", url: worst ? "https://a-very-long-wiki-host-name.example.com/runbooks/storage/disk-full-on-the-far-rack" : "https://wiki.example.com/disk-full" }],
+          }),
+      });
+      roster.sidebar.set("demo-alerts", {
+        title: "Recent alerts",
+        rows: [{ id: "a", label: "ERROR disk full", detail: "esx-02", host: "linux-1-000" }],
+        actions: [
+          { label: "Dismiss all", icon: "close", run: () => roster.notify("dismissed all") },
+          { label: "Show the alerts", icon: "info", run: "view demo-scan" },
+        ],
+      });
       for (const host of ["linux-1-000", "esxi-2-001", "nas-4-007"]) {
         roster.details.set("mesh", host, {
           title: "Mesh",
