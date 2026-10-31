@@ -3,7 +3,7 @@
 ```bash
 uv sync                  # creates .venv with dev tools
 uv run pytest            # no network or SSH server needed
-uv run ruff check src tests
+uv run ruff check src tests scripts
 uv build                 # wheel + sdist in dist/
 ```
 
@@ -28,6 +28,8 @@ src/roster/
   mesh.py           the Mesh: who reaches whom (mesh:, links:), plan/apply over ssh one Host at a time, cut, status,
                     drift for `roster check`; the sh it runs on Hosts (docs/mesh.md)
   diagnose.py       a Host's Login checked before ssh runs, `roster check HOST` / host.check's steps, host.verify_login, host.scan_key
+  health.py         this Box's health: `roster check --box` / box.check's sections (roster.yml, ssh, vault CLIs, askpass,
+                    the infra repo), every check local
   askpass.py        the askpass channel: serve's socket + one-time tokens, the `roster askpass` helper and the logged-in report (stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
                     keepassxc (a local .kdbx through keepassxc-cli);

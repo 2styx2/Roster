@@ -281,6 +281,41 @@ def cmd_check_host(args):
     return 0 if result["ok"] else 1
 
 
+def cmd_check_box(args):
+    """`roster check --box`: this Box's health, a section at a time (as serve's box.check). Nothing connects."""
+    from . import askpass, diagnose, health
+
+    path = cfg = error = None
+    try:
+        path = find_config(args.config)
+        cfg = load_config(path)
+        setup_providers(cfg)
+    except SystemExit as e:
+        error = str(e.code).removeprefix("error: ")
+    try:
+        with askpass.Channel(diagnose.askpass_lookup):
+            channel = (True, "the askpass channel opens on this Box")
+    except OSError as e:
+        channel = (False, f"the askpass channel can't open here: {e}")
+    checks = health.check_box(path, cfg, error, channel)
+    section = None
+    for c in checks:
+        if c["section"] != section:
+            say(("" if section is None else "\n") + health.SECTIONS.get(c["section"], c["section"]))
+            section = c["section"]
+        say(f"  {c['level']:<5}  {c['message']}")
+        if c.get("fix"):
+            say(f"         fix: {c['fix']}")
+        if c.get("topic"):
+            say(f"         help: {c['topic']}")
+    errors = sum(c["level"] == "error" for c in checks)
+    warnings = sum(c["level"] == "warn" for c in checks)
+    words = [f"{warnings} warning{'' if warnings == 1 else 's'}"] if warnings else []
+    words.append(f"{errors} error{'' if errors == 1 else 's'}" if errors else "no errors")
+    say("\n" + ", ".join(words))
+    return 1 if errors else 0
+
+
 def logins_label(h):
     """What a person can use on a host, short: 'ssh (key), web (admin), api'."""
     if not h["reviewed"]:
@@ -633,9 +668,12 @@ def build_parser():
     s.add_argument("--only", **only)
     s.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing remote")
     sub.add_parser("sync", help="rewrite ssh config and Claude files from roster.yml")
-    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step")
+    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step; "
+                       "with --box, this Box's health")
     s.add_argument("host", nargs="?", help="diagnose this one Host: inventory, ssh config, vault, DNS, port, "
                    "host key, login (one connection)")
+    s.add_argument("--box", action="store_true", help="check this Box instead, without connecting anywhere: "
+                   "roster.yml, ssh and its config, vault CLIs, askpass, the infra repo")
     s.add_argument("--only", **only)
     s = sub.add_parser("hosts", help="list hosts")
     s.add_argument("--only", **only)
@@ -717,6 +755,10 @@ def _main(argv=None):
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
+    if args.cmd == "check" and args.box:
+        if args.host or args.only:
+            build_parser().error("check --box takes no HOST or --only: it checks this Box, not its Hosts")
+        return cmd_check_box(args)
     if args.cmd == "check" and args.host:
         return cmd_check_host(args)
     if args.cmd == "serve":

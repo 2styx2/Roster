@@ -229,7 +229,7 @@ describe("Every mode keeps all of roster", () => {
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}:`);
-    await user.keyboard("check{Enter}");
+    await user.keyboard(`check ${h0}{Enter}`);
     expect(await screen.findByRole("region", { name: `Check ${h0}` })).toBeInTheDocument();
     await user.keyboard(`${LEADER}L`);
     await unlock(user);
