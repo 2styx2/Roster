@@ -75,4 +75,18 @@ describe("Packages", () => {
     expect(pk.lock["recent-alerts"]).toBe(fakeCommit(1));
     expect(screen.getByText("⚠ 1.0.0")).toBeInTheDocument();
   });
+
+  it("from a folder of a repo, the prompt and `:packages` show the folder (Q94)", async () => {
+    const pk = packages();
+    pk.named = [{ name: "recent-alerts", source: "someone/roster", dir: "plugins/recent-alerts", versions: pk.named[0]!.versions }];
+    const user = await ready(pk);
+    const prompt = await screen.findByRole("alertdialog", { name: "Install recent-alerts?" });
+    expect(prompt).toHaveTextContent("Unverified: from https://github.com/someone/roster.git, folder plugins/recent-alerts, at 1111111.");
+    await user.click(within(prompt).getByRole("button", { name: "Install" }));
+    await screen.findByText("⚠ 1.0.0");
+
+    await user.keyboard(`${LEADER}:packages{Enter}`);
+    const panel = await screen.findByRole("region", { name: "Packages" });
+    expect(within(panel).getByLabelText("recent-alerts, running")).toHaveTextContent("https://github.com/someone/roster.git, folder plugins/recent-alerts");
+  });
 });

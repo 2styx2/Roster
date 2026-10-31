@@ -135,6 +135,7 @@ fn spec(url: &str, config: Map<String, Value>) -> PackageSpec {
         tag: None,
         branch: None,
         commit: None,
+        dir: None,
         config,
     }
 }

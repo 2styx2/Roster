@@ -173,9 +173,20 @@ Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permiss
 | 77 | none (a warning) | A Host that was cut didn't confirm: down or not answering | Host / network | "CUT PENDING ON 1 HOST: nas-1" | `roster mesh cut HOST` again, or `roster mesh`, once it answers; until then that Host may still let the cut one in |
 | 78 | none (a warning) | A source has a `~/ROSTER.md` roster didn't write | Host | "orion-3: ~/ROSTER.md isn't roster's, so roster left it alone" | Move the file away and apply again |
 | 79 | none (drift) | `roster check` found a Host that doesn't hold what roster wrote: a key removed by hand, a file edited, an ESXi reboot that dropped `~/.ssh/config`'s `Include` | Host | "mesh drift: esx-02: write Include in ~/.ssh/config" | `roster mesh` puts it back |
-| 80 | none (a Link's status) | A Link has `via: HOST`, but its source has no Link to that Host (`no-via`) | `roster.yml` | "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })" | Add the Link it names, or take `via:` off; the Link is left out until then |
-| 81 | none (a Link's status) | A hop doesn't answer: the source can't reach its `via` Host's port, or the `via` Host can't reach the peer's | Network | "jump-1 can't reach 10.0.9.9:22 (orion-3's hop to db-9)" | Check routing and firewalls between the two it names, then apply again |
-| 82 | none (a Host's status) | A source's `mesh_dir:` can't be used there: on ESXi not on a datastore, its parent missing, not writable, or it holds files that aren't roster's | `roster.yml` / Host | "mesh_dir /opt/mesh isn't on a datastore (/vmfs/volumes/...)" | Point `mesh_dir:` at a directory of the Mesh's own (on ESXi, on a datastore); the Host stays pending until then |
+| 84 | none (a Link's status) | A Link has `via: HOST`, but its source has no Link to that Host (`no-via`) | `roster.yml` | "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })" | Add the Link it names, or take `via:` off; the Link is left out until then |
+| 85 | none (a Link's status) | A hop doesn't answer: the source can't reach its `via` Host's port, or the `via` Host can't reach the peer's | Network | "jump-1 can't reach 10.0.9.9:22 (orion-3's hop to db-9)" | Check routing and firewalls between the two it names, then apply again |
+| 86 | none (a Host's status) | A source's `mesh_dir:` can't be used there: on ESXi not on a datastore, its parent missing, not writable, or it holds files that aren't roster's | `roster.yml` / Host | "mesh_dir /opt/mesh isn't on a datastore (/vmfs/volumes/...)" | Point `mesh_dir:` at a directory of the Mesh's own (on ESXi, on a datastore); the Host stays pending until then |
+
+## Packages
+
+A Package's line in `init.lua` and its clone (see [Packages](../plugins.md#packages)). A line that doesn't load is init.lua's error, at its line (`packages.1.dir`), and nothing is fetched; a clone that can't be used is shown in `:packages`, and that Package doesn't load while the others do.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 80 | none (init.lua) | `dir` is a full path (`/etc`, `C:/…`, `\plugins`), uses `\` between folders, or is empty | init.lua | "dir = \"/etc\": a folder inside the repo, like \"plugins/topology\", not a full path" | Write the folder as the repo has it, `plugins/NAME`, with `/` |
+| 81 | none (init.lua) | `dir` has `..` or goes into `.git` | init.lua | "dir = \"../x\": \"..\" would leave the repo; name a folder inside it" | Name a folder inside the repo |
+| 82 | none (a Package's error) | The repo has no such folder at the commit it's at: a typo, or a version from before the Plugin was added | init.lua / the repo | "https://git.example.com/team/roster-extras.git at 1a2b3c4 has no folder plugins/alrets: check dir in init.lua" | Fix `dir`, or ask for a version that has it (`tag`, `branch`), then `:source` |
+| 83 | none (a Package's error) | `dir`, or a folder on the way to it, is a symlink that leads outside the clone | The repo | "dir = \"plugins/escape\" leads outside the Package's clone (through a symlink): roster won't load it" | Nothing in roster: a Plugin is only ever loaded from inside its repo. Tell the repo's author; an update that does this is refused and the Package stays where it was |
 
 ## This Box's health
 
