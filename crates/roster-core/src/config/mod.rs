@@ -11,7 +11,7 @@
 pub(crate) mod editor;
 pub mod folders;
 mod locate;
-mod lua;
+pub(crate) mod lua;
 pub mod schema;
 mod watch;
 
@@ -27,7 +27,7 @@ use std::time::Duration;
 /// The file the app runs.
 pub const FILE_NAME: &str = "init.lua";
 /// The version of the `roster` Lua table (`roster.api_version`), raised when it changes.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 
 /// What went wrong: where, and what. Shown as `init.lua:12: message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
