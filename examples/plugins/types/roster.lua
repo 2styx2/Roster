@@ -95,7 +95,7 @@
 --- A finder (`roster.finders.set`)
 ---@class roster.Finder
 ---@field title? string Its title and prompt; the id if left out.
----@field items? roster.FinderItem[]|fun(): roster.FinderItem[] What it finds in, at most 2,000; or a function that returns them, run each time the finder opens (until it answers, the finder says it's loading).
+---@field items? roster.FinderItem[]|fun(): roster.FinderItem[] What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.
 
 --- One thing a finder lists
 ---@class roster.FinderItem

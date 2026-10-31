@@ -54,10 +54,7 @@ roster.commands.add("alerts", {
 roster.keymap.set("leader", settings.leader or "w w", "finder alerts")
 
 -- Only with terminal.read: listening for an event it may not hear is an error.
-local function granted(p)
-  for _, g in ipairs(roster.plugin.permissions) do if g == p then return true end end
-end
-if granted("terminal.read") then
+if roster.has("terminal.read") then
   roster.on("terminal_output", function(e)
     for line in e.text:gmatch("[^\n]+") do
       if line:find("ERROR", 1, true) then
@@ -74,10 +71,11 @@ Some things it shows that every Plugin meets:
 
 - **Draw everything from your own state in one function.** Each `set` replaces what was there, so calling `show()` after any change keeps the section, finder, status and badges in step.
 - **Check `roster.plugin.config`**: anyone can write anything in init.lua. Name a bad setting in a notice and use the default.
-- **Ask only for what you need**, and keep working without it: check `roster.plugin.permissions`, and say what's missing (its section reads "Allow terminal.read in :plugins to see alerts.").
-- **`terminal_output` comes in batches**, so a line can be split across two of them: keep each Session's unfinished end until the rest arrives.
-- **Keys after the Leader that roster uses are refused** (`a` is Folders', `f` the Picker's; `:keys` lists them all), with a notice. Make yours a setting.
-- **Do things in a fixed order** (sort what comes from `pairs`), so the same state makes the same changes.
+- **Ask only for what you need**, and keep working without it: check with `roster.has("terminal.read")`, and say what's missing (its section reads "Allow terminal.read in :plugins to see alerts.").
+- **`terminal_output` comes as whole lines**, the way the terminal shows them once the Session moves past them; recent-alerts still keeps an unfinished end, which costs nothing.
+- **Keep what you show true with a timer**: its rows say "just now", then "4 min ago", and `roster.every(30000, show)` draws them again while there are alerts; it cancels the timer when there are none.
+- **Keys after the Leader that roster uses are refused** (`a` is Folders', `f` the Picker's; `:keys` lists them all), with a notice that names what has the key and a few free ones like it. Make yours a setting.
+- **The same state makes the same changes**: `pairs` visits keys in order (numbers, then text), so badges set from a table of Hosts come out in name order on every machine.
 
 `:plugins install ~/plugins/recent-alerts` installs it. To share it, push the folder to a git repo: others name it in `init.lua` as a [Package](#packages). A path is `~/…`, a full path, or a folder under the config folder (`plugins/pinned`).
 
@@ -135,7 +133,8 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 
 | Area | Functions | Permission |
 |---|---|---|
-| The Plugin and the app | [`roster.plugin`](plugin-api.md#rosterplugin), [`roster.api_version`](plugin-api.md#rosterapi_version), [`roster.os`](plugin-api.md#rosteros), [`roster.notify`](plugin-api.md#rosternotifytext-level), [`roster.on`](plugin-api.md#rosteronevent-listener) | none |
+| The Plugin and the app | [`roster.plugin`](plugin-api.md#rosterplugin), [`roster.api_version`](plugin-api.md#rosterapi_version), [`roster.os`](plugin-api.md#rosteros), [`roster.has`](plugin-api.md#rosterhaspermission), [`roster.notify`](plugin-api.md#rosternotifytext-level), [`roster.on`](plugin-api.md#rosteronevent-listener) | none |
+| Timers | [`roster.defer`](plugin-api.md#rosterdeferms-fn), [`roster.every`](plugin-api.md#rostereveryms-fn), [`roster.cancel`](plugin-api.md#rostercanceltimer) | none |
 | Commands and keys | [`roster.commands`](plugin-api.md#rostercommands), [`roster.keymap`](plugin-api.md#rosterkeymap) | none |
 | What the app draws for you | [`roster.sidebar`](plugin-api.md#rostersidebar), [`roster.status`](plugin-api.md#rosterstatus), [`roster.finders`](plugin-api.md#rosterfinders), [`roster.badges`](plugin-api.md#rosterbadges), [`roster.float`](plugin-api.md#rosterfloat), [`roster.themes`](plugin-api.md#rosterthemes) | none |
 | Help, health and tutorials | [`roster.help`](plugin-api.md#rosterhelp), [`roster.health`](plugin-api.md#rosterhealth), [`roster.tutor`](plugin-api.md#rostertutor) | none |
@@ -146,7 +145,13 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 
 Everywhere a Plugin hands the app something to run (a row, a button, a finder item, a status segment, a command), `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing. [Events](plugin-api.md#events) come through `roster.on`; a Quick Connect Session's `host` is `nil` in them, since it isn't on a Host: don't badge it or make a row go to it. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command).
 
-After the app resizes a Session (a panel, Focus, the window), the Session may print its screen again: ConPTY does on Windows, and full-screen programs redraw. The app keeps that repaint out of `terminal_output` for a second (lines it already sent you lately are left out; new ones still come), so a Plugin that counts lines doesn't count them twice.
+`terminal_output` is the lines a Session's terminal commits: the app runs each Session's output through a terminal of its own (never shown) and sends a line when the cursor moves past it, as it reads then. So there are no escape sequences, a progress bar arrives as it ended, and a wrapped line comes whole. A line drawn again with the same text in the same row isn't sent again: after the app resizes a Session (a panel, Focus, the window), ConPTY prints the whole screen again on Windows, and that isn't new output. What a full-screen program (`vim`, `top`, `less`) draws isn't sent at all.
+
+A finder's `items` can be a function: it runs in your Plugin each time the finder opens, so a list that's costly to build, or changes often, is built only when someone looks. Until it first answers, the finder says "Loading…".
+
+Timers (`roster.defer(ms, fn)` once, `roster.every(ms, fn)` again and again, `roster.cancel(timer)`) keep their clock in the app, which runs `fn` in your Plugin when it's time, on its own thread, like an action. A timer isn't something the user did, so it can't copy to the clipboard. Every timer ends with the Plugin: removing, reloading, revoking a permission (which reloads it) or its being stopped cancels them all.
+
+Lua can't tell an empty list from an empty table of fields: `{}` reaches the app as `{}`, and the app takes it as an empty list wherever it wants one (`rows = {}`).
 
 Text you hand the app (a label, a notice, a float's lines, a badge, what you copy) that isn't valid UTF-8, such as a line you cut in the middle of a character, is shown with `�` where it breaks; it isn't an error. A name that isn't (an id, a table key) is.
 
@@ -162,13 +167,14 @@ Your Plugin runs in its own Lua state, on its own thread, with the sandbox's lib
 
 - **32 MB** of memory;
 - **1 second** to run `init.lua`, and **a quarter of a second** for each call (a command, an action, an event). Time spent waiting for roster serve doesn't count. Running out can't be caught with `pcall`;
-- at most 1,000 UI changes in one call, and 2,000 rows in a section, items in a finder or lines in a float. Text is cut to 500 characters (a help page to 200,000).
+- at most 1,000 UI changes in one call, and 2,000 rows in a section, items in a finder or lines in a float. Text is cut to 500 characters (a help page to 200,000);
+- at most 100 timers waiting at once; a deferred function waits at least 50 ms, and a repeating one at least a second between runs, counted from when the last run ended. A timer's run has a call's budget, and an error in it counts like any other.
 
 An error shows a notice naming your Plugin with the file and line: `pinned: init.lua:12: attempt to index a nil value`. An error while loading stops the Plugin; so does a third error after that, and so does a call that doesn't answer within two seconds of its budget (a long pattern match, say). When it stops, everything it added goes away and the rest of the app carries on. `:plugins` says why, and `:plugins reload NAME` tries again.
 
 ## For roster's developers: how it's built
 
-The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
+The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N`. A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless. Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`).
 
 The API is declared once, in `crates/roster-core/src/plugin/api.rs` (decision Q89): each function, value, type and event with its parameters, returns, errors, permission and `Since`. `cargo run -p roster-core --example gen_plugin_api` writes [the reference](plugin-api.md), the stubs (`examples/plugins/types/roster.lua`) and the same as data (`crates/roster-core/tests/fixtures/plugin-api.json`, which the help's topics read). A change to the API isn't done until api.rs says it: `crates/roster-core/tests/plugin_api.rs` fails when the runtime has a function or value api.rs lacks (or the other way round) for any grants, or a generated file is stale; `app/src/plugins/api.test.ts` fails when `ops.ts` reads a field a type doesn't list; `tests/test_plugin_api.py` when a Host, group or service from roster serve has a field the Host type doesn't.
 

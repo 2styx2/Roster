@@ -103,6 +103,9 @@ export interface Snapshot {
   prompts: readonly Prompt[];
   notices: readonly Notice[];
   float: (PluginFloat & { plugin: string }) | null;
+  /** The Plugins and Packages the app starts with have loaded (or failed to), the first time:
+   * until then a name init.lua gives one of their pieces can't be judged (ticket 79). */
+  settled: boolean;
 }
 
 /** What the State store gives the manager. */
@@ -188,7 +191,8 @@ export class PluginManager {
   private notices: Notice[] = [];
   private float: Snapshot["float"] = null;
   private noticeId = 0;
-  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null };
+  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null, settled: false };
+  private settled = false;
   private packages: PackageStatus[] = [];
   /** Packages whose install the user cancelled this run: not asked again until the next start. */
   private readonly declined = new Set<string>();
@@ -276,7 +280,20 @@ export class PluginManager {
    * one init.lua no longer names stops. */
   syncPackages(): Promise<void> {
     return this.serially(async () => {
-      await this.start();
+      try {
+        await this.syncPackagesNow();
+      } finally {
+        if (!this.settled) {
+          this.settled = true;
+          this.changed();
+        }
+      }
+    });
+  }
+
+  private async syncPackagesNow(): Promise<void> {
+    await this.start();
+    {
       let statuses: PackageStatus[];
       try {
         statuses = await this.backend.packagesSync();
@@ -295,7 +312,7 @@ export class PluginManager {
         await this.syncPackage(p);
       }
       this.changed();
-    });
+    }
   }
 
   private async syncPackage(p: PackageStatus) {
@@ -915,7 +932,7 @@ export class PluginManager {
         uses: this.uses.get(name) ?? [],
       };
     });
-    this.snap = { plugins, packages: this.packages, prompts: this.prompts, notices: this.notices, float: this.float };
+    this.snap = { plugins, packages: this.packages, prompts: this.prompts, notices: this.notices, float: this.float, settled: this.settled };
     for (const l of this.listeners) l();
   }
 }

@@ -440,7 +440,7 @@ Nothing.
 **Refused by the app** (a warning notice, not an error)
 
 - a `context` other than the three (`keys go after the Leader or in the Sidebar …`).
-- keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them).
+- keys bound already, by roster, `init.lua` or another Plugin (`a` is Folders', `f` the Picker's; `:keys` lists them): the notice names what has them and up to three free ones like them (`␣ f is taken (by builtin: find). Free after the Leader: a, g, h`).
 - keys that would hide a binding, or be hidden by one (`"a z"` when `a` is bound).
 
 **Permission:** none · **Since:** api 2
@@ -1432,7 +1432,7 @@ A finder (`roster.finders.set`).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title` | `string` | no | Its title and prompt; the id if left out. |
-| `items` | [`FinderItem`](#finderitem)`[]\|fun(): `[`FinderItem`](#finderitem)`[]` | no | What it finds in, at most 2,000; or a function that returns them, run each time the finder opens (until it answers, the finder says it's loading). |
+| `items` | [`FinderItem`](#finderitem)`[]\|fun(): `[`FinderItem`](#finderitem)`[]` | no | What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again. |
 
 ### `FinderItem`
 
