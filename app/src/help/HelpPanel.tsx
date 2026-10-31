@@ -8,6 +8,7 @@
 // bindings themselves (`binding-keys`), so `ui.hints = false` never hides them.
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import "./doc.css";
 import { Announce } from "../ui/Announce";
 import { Keys } from "../ui/Keys";
 import type { HelpSnapshot, HelpView } from "./command";
@@ -26,8 +27,10 @@ export interface HelpPanelProps {
   onOutline(): void;
 }
 
-/** What inline rendering needs: the search, the Leader, and which code is a topic. */
-interface RenderEnv {
+/** What inline rendering needs: the search, the Leader, and which code is a topic. The docs
+ * website (src/docs-site, ticket 46) renders pages with this same renderer, giving it the last
+ * three to make topics real web addresses. */
+export interface RenderEnv {
   query: string;
   leader: string;
   tags: ReadonlySet<string>;
@@ -36,6 +39,14 @@ interface RenderEnv {
   open(tag: string): void;
   /** Inside a link already: a code span in it isn't linked again. */
   inLink?: boolean;
+  /** Where a topic link goes; `#help:TAG` in the app. */
+  href?(tag: string): string;
+  /** The element id of a topic on the page; the app gives none (it finds them by `data-tag`). */
+  id?(tag: string): string | undefined;
+  /** The page a topic link leads to, when that's another page (the PDF prints "→ page"). */
+  pageOf?(tag: string): string | undefined;
+  /** A file or web link's address; in the app they stay text, with where they go as a tooltip. */
+  outside?(href: string): string | undefined;
 }
 
 const Env = createContext<RenderEnv>({ query: "", leader: "", tags: new Set(), here: undefined, open: () => {} });
@@ -228,12 +239,27 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline 
   );
 }
 
+/** A page's blocks as the help panel draws them, for rendering outside the panel (the docs
+ * website renders this to static HTML). */
+export function HelpDoc({ blocks, env }: { blocks: readonly Block[]; env: RenderEnv }) {
+  return (
+    <Env value={env}>
+      <article className="help-doc">
+        {blocks.map((b, i) => (
+          <BlockView key={i} block={b} target={undefined} />
+        ))}
+      </article>
+    </Env>
+  );
+}
+
 function BlockView({ block: b, target }: { block: Block; target: string | undefined }) {
+  const env = useContext(Env);
   switch (b.t) {
     case "h": {
       const Tag = `h${b.level}` as const;
       return (
-        <Tag data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
+        <Tag id={env.id?.(b.anchor)} data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
           {/* A page's title names the page: nothing in it links back to it. */}
           {b.level === 1 ? (
             <NoLinks>
@@ -294,7 +320,7 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
               {b.rows.map((row, r) => {
                 const tag = b.anchors?.[r];
                 return (
-                  <tr key={r} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
+                  <tr key={r} id={tag ? env.id?.(tag) : undefined} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
                     {row.map((c, i) => (
                       <td key={i}>
                         <Inlines items={c} spaced="parts" />
@@ -319,8 +345,9 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
 }
 
 function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
+  const env = useContext(Env);
   return (
-    <div data-tag={d.anchor} data-tone={d.tone} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
+    <div id={d.anchor ? env.id?.(d.anchor) : undefined} data-tag={d.anchor} data-tone={d.tone} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
       <dt>
         <span className="help-term">
           {/* The entry's own name isn't a link (to itself). */}
@@ -396,8 +423,13 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     case "link": {
       const children = <Inlines items={item.children} />;
       const kind = linkKind(item.href);
-      // A file in the repo that isn't in help, or a web page: its text, with where it goes.
-      if (kind !== "topic") return <span title={item.href.replace(/^file:/, "")}>{children}</span>;
+      // A file in the repo that isn't in help, or a web page: its text, with where it goes (a link
+      // on the website).
+      if (kind !== "topic") {
+        const to = env.outside?.(item.href);
+        if (to) return <a className="help-link" href={to}>{children}</a>;
+        return <span title={item.href.replace(/^file:/, "")}>{children}</span>;
+      }
       return env.tags.has(item.href) ? <TopicLink tag={item.href}>{children}</TopicLink> : children;
     }
   }
@@ -430,7 +462,8 @@ function TopicLink({ tag, children }: { tag: string; children: ReactNode }) {
   return (
     <a
       className="help-link"
-      href={`#help:${tag}`}
+      href={env.href ? env.href(tag) : `#help:${tag}`}
+      data-page={env.pageOf?.(tag)}
       title={`:help ${tag}`}
       onClick={(e) => {
         e.preventDefault();

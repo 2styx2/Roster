@@ -4,7 +4,7 @@
 #                                the maintainer checks it and publishes it (docs/releasing.md)
 #   workflow_dispatch            the same builds, uploaded as workflow artifacts only: no Release, no tag
 #   pull_request touching this   the same builds, as a dry run, so a broken release pipeline shows up
-#   file or the version script   before a tag needs it
+#   file or the version script   before a tag needs it (docs.yml builds the docs PDF on every PR)
 #
 # One version for everything (scripts/bump-version.sh); a tag whose version differs from the files fails first.
 # No code signing yet: Windows SmartScreen and macOS Gatekeeper warn (docs/releasing.md says how to add it).
@@ -181,9 +181,37 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The docs as one PDF (ticket 46, ADR 0008): every :help page, printed by headless Chromium from the
+  # same pages the website shows. The website itself deploys from main (docs.yml).
+  docs:
+    name: Docs PDF
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - name: roster-docs PDF
+        working-directory: app
+        run: npm run docs -- --out ../docs-site --pdf "../out/roster-docs-$VERSION.pdf"
+      - run: ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-docs
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
   checksums:
     name: SHA256SUMS
-    needs: [version, cli, app]
+    needs: [version, cli, app, docs]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -240,6 +268,8 @@ jobs:
 
           **The CLI:** unpack \`roster-cli-$VERSION.tar.gz\` and run \`./install.sh\`, or \`uv tool install roster-$VERSION-py3-none-any.whl\`
           then \`roster man --install\`. Either way \`man roster\` works afterwards; \`roster.1\` is the page on its own, for packagers.
+
+          **The docs:** \`roster-docs-$VERSION.pdf\` is every \`:help\` page in one document; they're online at https://2styx2.github.io/roster/.
 
           These builds aren't code-signed yet: Windows SmartScreen asks "More info → Run anyway", and macOS needs
           right-click → Open the first time. Check downloads against \`SHA256SUMS\` (\`sha256sum -c SHA256SUMS --ignore-missing\`).

@@ -3,12 +3,18 @@
 // (or a placeholder's colour) to `--faint` must be one that draws only an icon; those are listed
 // here by selector, so a new text rule can't slip in.
 import { describe, expect, it } from "vitest";
+import logoCss from "./chrome/logo.css?raw";
+import helpDocCss from "./help/doc.css?raw";
 import signinCss from "./lock/signin.css?raw";
 import stylesCss from "./styles.css?raw";
+import keysCss from "./ui/keys.css?raw";
 
 const SHEETS: [string, string][] = [
   ["src/styles.css", stylesCss],
   ["src/lock/signin.css", signinCss],
+  ["src/ui/keys.css", keysCss],
+  ["src/help/doc.css", helpDocCss],
+  ["src/chrome/logo.css", logoCss],
 ];
 
 /** Selectors whose element holds only an icon (an SVG drawn in `currentColor`), never text. */
