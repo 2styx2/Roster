@@ -30,7 +30,10 @@ export type Block =
   | { t: "pre"; text: string; lang?: string }
   /** Entries like Neovim's option and command docs: the name on the left, what it is now on
    * the right, what it does below. */
-  | { t: "defs"; items: Def[] };
+  | { t: "defs"; items: Def[] }
+  /** A tutorial's step (`:tutor`, ticket 55): something to do, ticked when the app sees it done.
+   * As static text (the docs website, a PDF) it's a checklist line: `[ ]` or `[x]` and the text. */
+  | { t: "step"; id: string; text: Inline[]; done: boolean };
 
 export interface Def {
   /** The help topic that lands on this entry (`terminal.size`, `:connect`, `E13`). */

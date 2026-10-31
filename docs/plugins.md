@@ -87,7 +87,8 @@ No permission reaches a secret. The vault, a session's password, askpass and the
 | `roster.finders.set(id, { title, items })` | A finder: `:finder id`. Items are `{ label, detail, path, run }` |
 | `roster.help.set(topic, { title, summary, markdown })` | A help page, as Markdown: `:help topic`. It's listed under your Plugin's name |
 | `roster.health.set(id, { title, checks })` | A section of `:check` (this Box's health): checks are `{ level = "ok"\|"warn"\|"error", message, fix }`, as the Plugin last set them |
-| `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)`, `roster.health.remove(id)` | |
+| `roster.tutor.set(id, { title, summary, intro, lessons, outro })` | A tutorial: `:tutor id` runs it on the demo Inventory, and `:help tutor-id` is its page. `intro`, `outro` and each lesson's `text` are Markdown. A lesson is `{ title, text, steps }`; a step is `{ id, text, on }`, and `on` is the event that ticks it, or a list of them (below) |
+| `roster.sidebar.remove(id)`, `roster.status.remove(id)`, `roster.finders.remove(id)`, `roster.help.remove(id)`, `roster.health.remove(id)`, `roster.tutor.remove(id)` | |
 | `roster.badges.set(host, text)` | A badge on the Host's Inventory row (`"2 alerts"`); `nil` takes it off |
 | `roster.float.open({ title, lines })`, `roster.float.close()` | A floating window over the terminal; `Esc` closes it |
 | `roster.notify(text, level)` | A notice, `"info"` (the default), `"warn"` or `"error"`, naming your Plugin |
@@ -106,6 +107,29 @@ A Sidebar row is `{ id, label, detail, note, host, badge, count, level, title, r
 | `terminal_output` | `{ session, host, text }`: what a Session printed, as text without colours or escape sequences, a few times a second | `terminal.read` |
 
 Subscribing to an event your Plugin may not hear is an error. What you type into a Session is never an event.
+
+### A tutorial's steps
+
+A step's `on` is `{ event = NAME, field = value, … }`: it ticks when the app sends that event with each field equal to its value (ignoring case). `"*"` means the field is there, `""` that it isn't. These are the app's own events, sent only to the tutorial running, on the demo Inventory; they need no permission and your Plugin's code never sees them:
+
+| Event | Fields |
+|---|---|
+| `command` | `id` (the command, `theme`), `arg` (what followed it, `nord`): every command run, from a key, a button or the command line |
+| `session_open`, `session_exit`, `host_selected` | `host` |
+| `help_open`, `help_back`, `help_forward` | `page`, `anchor`: a help page opened, `Ctrl+o` back, `Ctrl+i` forward |
+| `help_search` | `page`, `query`: the page's search, as it's typed |
+
+```lua
+roster.tutor.set("pinned", {
+  title = "Pinned Hosts",
+  lessons = {
+    { title = "Find them", text = "Your pinned Hosts have their own finder.",
+      steps = { { id = "open", text = "Open it with `:finder pinned`", on = { event = "command", id = "finder", arg = "pinned" } } } },
+  },
+})
+```
+
+Your Plugin isn't loaded on the demo Inventory, so a step can wait for your command being run there but your command won't do anything there yet.
 
 ## Limits
 

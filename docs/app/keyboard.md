@@ -29,6 +29,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `help [TOPIC]` | Help, like Neovim's `:help` (ticket 37): with no topic, the topic finder; `:help terminal.size`, `:help :connect`, `:help E13` open a page at that entry. Tab completes topics. See [help.md](help.md) |
+| (no key) | `tutor [NAME]` | The tutorial, like Neovim's `:Tutor` (ticket 55): lessons whose steps tick themselves as you do them, on a demo Inventory of made-up Hosts, with your own Sessions kept behind it. It comes back where you left off. `:tutor quit` goes back to your Inventory, `:tutor reset` starts it over, `:tutor NAME` runs another tutorial (a Plugin's). See [help.md](help.md#the-tutor) |
 | `<leader> F1` | `lookup` | Help on what's selected, like Neovim's `K` (which `␣ K` can't be here): a Host's row in the Sidebar opens `:connect`, another row the command it runs, nothing selected the topic finder. In the Key bindings panel's filter, F1 opens help on the first binding's option ([help.md](help.md#help-from-where-you-are)) |
 | `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |

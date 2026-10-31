@@ -6,6 +6,8 @@ To follow a link here, Tab to it and press Enter, or click it. Try it on [links]
 
 ## New to roster
 
+`:tutor` is the quickest way in: a short tutorial, like Neovim's `:Tutor`, that you do rather than read, on a demo Inventory of made-up Hosts so nothing you try reaches your network. Its steps tick themselves as you do them, and it comes back where you left off. Or start here:
+
 - **Open a Host.** `␣ f` opens the Picker: type a few letters of a Host's name, address or group, then Enter. `␣ ]` and `␣ [` move between open Sessions.
 - **Run anything by name.** `␣ :` opens the command line, and Tab completes. Every key, button and menu runs a command you could type: [Commands](commands) lists them all.
 - **Learn the keys as you go.** Keycaps sit next to what they do. `␣ K` shows every binding, and [the quick reference](quickref) has the ones you'll use most on one page.

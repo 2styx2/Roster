@@ -94,6 +94,16 @@ What a guide in `docs/` needs so it reads well in `:help`, on GitHub, and stays 
 - **Notes for developers** stay out of the way: help leaves out a parenthetical that only names a ticket, a decision, an ADR or an issue, such as `(decision QNN)`, so they can stay in the Markdown for whoever reads it on GitHub. Anywhere else in a sentence, write it in words or leave it to `docs/app/decisions.md`; a test fails on one that would show in help.
 - **New guides** go in `guides.ts` with a part of the index, a title and a one-line summary.
 
+## The tutor
+
+`:tutor` is Neovim's `:Tutor`: lessons you do, not read. It opens [the tutor](tutor) on a **demo Inventory**, made-up Hosts (`demo-01` to `demo-06`) whose Sessions are pretend shells in the app, under a "Demo Inventory" banner, so nothing you try there reaches your network, your vault or your `roster.yml`. Your own workspace waits behind it, its Sessions still running; `:tutor quit` (or the banner's button) brings it back.
+
+The page starts with the lessons and how far along each is. Each lesson says what it teaches, then has steps, each a ring that fills with a ✓ when the app sees you do it: open the Picker, open a Session to `demo-01`, follow a link and come back with `Ctrl+o`, change the Theme, open `init.lua`. A step ticks from what the app does, wherever you do it, not from text you type. The keys shown are the ones bound now, so a key you moved in `init.lua` shows as yours.
+
+What's done is kept in the State, so `:tutor` comes back at the first lesson you haven't finished, and `:tutor reset` starts over. Nothing else from the demo is kept: a Theme picked there, its Sessions and its recent Hosts go when you leave. `:config` there opens your real `init.lua`, since that's what the lesson is about.
+
+Tutorials are a registry too (`registries.tutorials`), so a Plugin can ship one (`roster.tutor.set`, [plugins.md](../plugins.md)); `:tutor NAME` runs it and `:help tutor-NAME` shows its page.
+
 ## Plugins add pages
 
 Help pages are a registry (ADR 0006), like commands and Themes: `registries.help`. A page is an id (its topic), a title, a one-line summary, an order for the index and a function that returns its blocks: headings, paragraphs, lists, tables, code and entries, as plain data, never HTML. So a Plugin's page (`roster.help.set`, [plugins.md](../plugins.md)) looks like the built-in ones, gets its topics in the finder and in `:helpgrep`, and the index lists it under its source.

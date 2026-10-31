@@ -132,6 +132,14 @@ _Avoid_: diagnostics (that's `:check HOST`), doctor, status page
 A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:connect`, `E13`), a guide's heading (`config#the-sandbox`) or another name for one (`roster.yml`). The topic finder (`␣ ?`) lists them all, and `:help all` lists them A to Z.
 _Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
 
+**Demo Inventory**:
+The made-up Inventory `:tutor` runs on (`demo-01` to `demo-06`): the fake Backend the tests use, whose Sessions are pretend shells in the app, under a "Demo Inventory" banner. Nothing done there reaches a network, a vault, `roster.yml` or your State, except the tutorial's progress.
+_Avoid_: sandbox (that's `init.lua`'s), playground, test mode
+
+**Tutorial**:
+What `:tutor` runs: lessons with steps that tick themselves from what the app does (a command run, a Session opened, a help page followed), shown as a help page (`:help tutor`). roster ships one; Plugins can add more.
+_Avoid_: walkthrough, tour, onboarding
+
 **Plugin**:
 A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
