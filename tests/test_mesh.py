@@ -16,7 +16,7 @@ from roster.config import load_config
 pytestmark = posix_shell
 
 HOSTS = {"orion-2": "10.0.0.2", "orion-3": "10.0.0.3", "esx-02": "10.0.0.12", "sw-1": "10.0.0.20",
-         "nas-1": "10.0.0.30", "db-9": "10.0.9.9", "new-1": "10.0.0.40"}
+         "nas-1": "10.0.0.30", "db-9": "10.0.9.9", "new-1": "10.0.0.40", "jump-1": "10.0.5.1"}
 
 CONFIG = """\
 defaults:
@@ -163,12 +163,18 @@ def test_a_meshed_group_reaches_itself_both_ways_and_links_add_one_way_reach(net
     ("[{from: lab, to: nope}]", "entry 1: to: 'nope' isn't a Host or a group"),
     ("[{from: a1, to: a1}]", "entry 1 links 'a1' to itself"),
     ("[{from: a1}]", "entry 1 must be a mapping with from: and to:"),
-    ("[{from: a1, to: lab, via: x}]", "entry 1 must be a mapping"),
+    ("[{from: a1, to: lab, hop: x}]", "entry 1 must be a mapping"),
+    ("[{from: a1, to: a2, via: nope}]", "entry 1: via: 'nope' isn't a Host in roster.yml"),
+    ("[{from: a1, to: a2, via: lab}]", "entry 1: via: 'lab' is a group: a Link goes through one Host"),
+    ("[{from: a1, to: a2, via: a2}]", "entry 1: via: 'a2' is an end of the Link itself"),
+    ("[{from: a1, to: a3, via: a2}, {from: a1, to: a3, via: a4}]",
+     "entries 1 and 2 send a1 -> a3 through different Hosts (a2, a4)"),
     ("[{from: a1, to: lab, both: yes-please}]", "both: must be true or false"),
     ("{from: a1, to: lab}", "links: must be a list"),
 ])
 def test_bad_links_are_refused_with_a_clean_error(write_config, links, message):
-    p = write_config(f"defaults: {{user: u}}\ngroups:\n  lab: {{hosts: {{a1: 10.0.0.1, a2: 10.0.0.2}}}}\nlinks: {links}\n")
+    p = write_config("defaults: {user: u}\ngroups:\n  lab: {hosts: {a1: 10.0.0.1, a2: 10.0.0.2, a3: 10.0.0.3, a4: 10.0.0.4}}\n"
+                     f"links: {links}\n")
     with pytest.raises(SystemExit) as e:
         load_config(p)
     assert message in str(e.value)
@@ -242,6 +248,16 @@ def test_esxi_keeps_its_key_on_a_datastore_and_takes_keys_in_etc_ssh(net):
     assert "ssh -F /vmfs/volumes/5f0e-uuid/.roster-mesh/config <name>" in md
 
 
+def test_a_new_authorized_keys_on_esxi_gets_the_sticky_bit_so_it_survives_a_reboot(net):
+    net.cfg_path.write_text(CONFIG.replace("esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: ops }"))
+    mesh.run(net.cfg(), apply=True)
+    ak = net.host("esx-02") / "etc/ssh/keys-ops/authorized_keys"
+    assert "roster-mesh:orion-2" in ak.read_text()
+    assert ak.stat().st_mode & 0o7777 == 0o1600                      # as ESXi's own keys file is
+    root = net.host("esx-02") / "etc/ssh/keys-root/authorized_keys"
+    assert root.stat().st_mode & 0o1000 == 0                         # an existing file keeps its own mode
+
+
 def test_applying_twice_changes_nothing_and_says_already_in_the_mesh(net, capsys):
     mesh.run(net.cfg(), apply=True)
     before = net.snapshot()
@@ -263,6 +279,109 @@ def test_an_esxi_reboot_is_drift_that_check_reports_and_apply_repairs(net, capsy
     assert mesh.run(net.cfg())["already"]
 
 
+# ---------------------------------------------------------------- mesh_dir: where a source keeps its files (T58)
+
+def with_mesh_dir(net, path, host="esx-02"):
+    line = {"esx-02": "esx-02: { ip: 10.0.0.12, user: root }", "orion-2": "orion-2: 10.0.0.2"}[host]
+    new = line.replace(" }", f", mesh_dir: {path} }}") if "{" in line else f"{host}: {{ ip: 10.0.0.2, mesh_dir: {path} }}"
+    net.cfg_path.write_text(CONFIG.replace(line, new))
+
+
+def no_datastore(net):
+    """esx-02 has no datastore roster would pick: its only volume isn't a named one (no symlink to it)."""
+    (net.host("esx-02") / "vmfs/volumes/datastore1").unlink()
+
+
+def test_an_esxi_without_a_suitable_datastore_is_pending_without_mesh_dir(net):
+    no_datastore(net)
+    r = mesh.run(net.cfg(), apply=True)
+    assert "no datastore" in r["pending"]["esx-02"]
+
+
+def test_mesh_dir_puts_an_esxi_sources_files_where_it_says(net):
+    no_datastore(net)
+    with_mesh_dir(net, "/vmfs/volumes/5f0e-uuid/mesh")
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    d = "vmfs/volumes/5f0e-uuid/mesh"
+    assert (net.host("esx-02") / d / "id_ed25519").exists()
+    assert net.file("esx-02", "home/.ssh/config").splitlines()[1] == f"Include /{d}/config"
+    assert f"IdentityFile /{d}/id_ed25519" in net.file("esx-02", f"{d}/config")
+    assert f"ssh -F /{d}/config <name>" in net.file("esx-02", f"{d}/ROSTER.md")
+    assert any("roster-mesh:esx-02" in x for x in net.mesh_lines("orion-2"))
+    assert mesh.run(net.cfg())["already"]
+
+
+def test_mesh_dir_drift_is_reported_by_check(net, capsys):
+    no_datastore(net)
+    with_mesh_dir(net, "/vmfs/volumes/5f0e-uuid/mesh")
+    mesh.run(net.cfg(), apply=True)
+    (net.host("esx-02") / "vmfs/volumes/5f0e-uuid/mesh/config").write_text("edited by hand\n")
+    assert main(["check"]) == 1
+    assert "esx-02: write config" in capsys.readouterr().out
+
+
+def test_mesh_dir_works_on_linux_too_and_cascades_from_its_group(net):
+    d = net.host("orion-2") / "srv/mesh"
+    (net.host("orion-2") / "srv").mkdir()
+    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", f"    mesh: true\n    mesh_dir: {d}\n", 1).replace(
+        "esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: root, mesh_dir: null }"))
+    cfg = net.cfg()
+    assert cfg["mesh_dirs"]["orion-2"] == str(d) and "esx-02" not in cfg["mesh_dirs"]
+    assert mesh.run(cfg, apply=True)["pending"] == {}
+    assert (d / "id_ed25519").exists() and not (net.host("orion-2") / "home/.ssh/roster-mesh").exists()
+    assert f"Include {d}/config" in net.file("orion-2", "home/.ssh/config")
+
+
+@pytest.mark.parametrize("value, message", [
+    ("roster-mesh", "mesh_dir: must be an absolute path"),
+    ("'/vmfs/volumes/my store/m'", "mesh_dir: must be an absolute path"),
+    ("/", "mesh_dir: must be an absolute path"),
+    ("/vmfs/volumes/../etc", "mesh_dir: must be an absolute path"),
+])
+def test_a_bad_mesh_dir_is_refused_when_roster_yml_loads(write_config, value, message):
+    with pytest.raises(SystemExit) as e:
+        load_config(write_config(f"defaults: {{user: u}}\ngroups:\n  lab:\n    hosts:\n      a1: {{ip: 10.0.0.1, mesh_dir: {value}}}\n"))
+    assert message in str(e.value) and "a1" in str(e.value)
+
+
+def test_an_esxi_mesh_dir_off_a_datastore_is_refused_on_the_host(net):
+    with_mesh_dir(net, "/opt/mesh")
+    r = mesh.run(net.cfg(), apply=True)
+    assert "mesh_dir /opt/mesh isn't on a datastore" in r["pending"]["esx-02"]
+
+
+def test_a_mesh_dir_whose_parent_is_missing_is_refused_on_the_host(net):
+    with_mesh_dir(net, "/vmfs/volumes/nope/mesh")
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"]["esx-02"] == "mesh_dir /vmfs/volumes/nope/mesh: /vmfs/volumes/nope isn't there"
+
+
+def test_a_mesh_dir_holding_files_that_are_not_rosters_is_refused_and_left_alone(net):
+    d = net.host("orion-2") / "home/.ssh"
+    with_mesh_dir(net, str(d), host="orion-2")
+    (d / "id_ed25519").write_text("my own key\n")
+    before = net.snapshot()
+    r = mesh.run(net.cfg(), apply=True)
+    assert "holds a" in r["pending"]["orion-2"] and "isn't roster's" in r["pending"]["orion-2"]
+    assert (d / "id_ed25519").read_text() == "my own key\n"
+    assert net.file("orion-2", "home/.ssh/config") == before["orion-2/home/.ssh/config"].decode()
+    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", "").split("links:")[0]
+                            .replace("orion-2: 10.0.0.2", f"orion-2: {{ ip: 10.0.0.2, mesh_dir: {d} }}"))
+    mesh.cut(net.cfg(), "orion-2")                                    # removing never touches what isn't roster's
+    assert (d / "id_ed25519").read_text() == "my own key\n" and (d / "config").exists()
+
+
+def test_moving_to_a_mesh_dir_warns_about_the_old_one(net):
+    mesh.run(net.cfg(), apply=True)
+    no_datastore(net)
+    (net.host("esx-02") / "vmfs/volumes/data2").mkdir()
+    with_mesh_dir(net, "/vmfs/volumes/data2/mesh")
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert any(w.startswith("esx-02: /vmfs/volumes/5f0e-uuid/.roster-mesh holds an earlier Mesh key") for w in r["warnings"])
+
+
 def test_unreachable_links_are_reported_and_not_written(net, capsys):
     (net.host("orion-3") / "blocked").write_text("10.0.9.9:22\n")
     r = mesh.run(net.cfg(), apply=True)
@@ -271,6 +390,95 @@ def test_unreachable_links_are_reported_and_not_written(net, capsys):
     assert "Host db-9" not in net.file("orion-3", "home/.ssh/roster-mesh/config")
     assert not any("roster-mesh:orion-3" in x for x in net.mesh_lines("db-9"))
     assert any("roster-mesh:db-9" in x for x in net.mesh_lines("orion-3"))     # the other way works
+
+
+# ---------------------------------------------------------------- via: a Link through a jump Host (T57)
+
+VIA = CONFIG.replace("      db-9: 10.0.9.9\n", "      db-9: 10.0.9.9\n      jump-1: 10.0.5.1\n").replace(
+    "  - { from: orion-3, to: db-9, both: true }\n",
+    "  - { from: orion-3, to: jump-1 }\n  - { from: orion-3, to: db-9, via: jump-1 }\n")
+
+
+def test_a_link_via_a_jump_host_goes_through_it_end_to_end(net, capsys):
+    net.cfg_path.write_text(VIA)
+    (net.host("orion-3") / "blocked").write_text("10.0.9.9:22\n")       # orion-3 can't reach db-9 itself
+    assert main(["mesh", "--dry-run"]) == 0
+    assert "orion-3 -> db-9 via jump-1" in capsys.readouterr().out
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    link = next(x for x in r["links"] if (x["from"], x["to"]) == ("orion-3", "db-9"))
+    assert link["via"] == "jump-1" and link["status"] == "ok"
+    config = net.file("orion-3", "home/.ssh/roster-mesh/config")
+    assert "Host db-9\n    HostName 10.0.9.9\n    User admin\n    Port 22\n    ProxyJump jump-1\n" in config
+    assert "Host jump-1\n    HostName 10.0.5.1\n" in config and "ProxyJump" not in config.split("Host jump-1")[1]
+    assert net.mesh_lines("db-9") == [key_line_of(net, "orion-3", "10.0.5.1")]      # the address db-9 sees
+    assert net.mesh_lines("jump-1") == [key_line_of(net, "orion-3", "10.0.0.3")]
+    assert "| db-9 | admin@10.0.9.9:22 via jump-1 | key |" in net.file("orion-3", "home/ROSTER.md")
+    assert mesh.run(net.cfg())["already"]
+
+
+def test_via_goes_both_ways_and_wins_over_the_same_pair_without_it(net):
+    net.cfg_path.write_text(VIA.replace(", via: jump-1 }", ", via: jump-1, both: true }") + "  - { from: orion-2, to: orion-3, via: nas-1 }\n")
+    pairs = {(x["from"], x["to"]): x.get("via") for x in mesh.graph(net.cfg())["links"]}
+    assert pairs[("orion-3", "db-9")] == pairs[("db-9", "orion-3")] == "jump-1"
+    assert pairs[("orion-2", "orion-3")] == "nas-1"                  # lab's mesh: true gave it without a hop
+    assert pairs[("orion-3", "orion-2")] is None
+
+
+def test_the_hop_is_tested_from_the_jump_host(net):
+    net.cfg_path.write_text(VIA)
+    (net.host("jump-1") / "blocked").write_text("10.0.9.9:22\n")
+    r = mesh.run(net.cfg(), apply=True)
+    link = next(x for x in r["links"] if (x["from"], x["to"]) == ("orion-3", "db-9"))
+    assert link["status"] == "unreachable" and link["why"] == "jump-1 can't reach 10.0.9.9:22 (orion-3's hop to db-9)"
+    assert net.mesh_lines("db-9") == []
+    assert "Host db-9" not in net.file("orion-3", "home/.ssh/roster-mesh/config")
+
+
+def test_a_jump_host_the_source_does_not_reach_is_refused(net, capsys):
+    net.cfg_path.write_text(VIA.replace("  - { from: orion-3, to: jump-1 }\n", ""))
+    r = mesh.run(net.cfg(), apply=True)
+    link = next(x for x in r["links"] if (x["from"], x["to"]) == ("orion-3", "db-9"))
+    assert link["status"] == "no-via"
+    assert link["why"] == "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+    assert net.mesh_lines("db-9") == []
+    assert main(["check"]) == 1
+    assert "link orion-3 -> db-9: orion-3 has no Link to jump-1" in capsys.readouterr().out
+
+
+def test_a_down_jump_host_leaves_the_link_pending_and_keeps_its_key(net):
+    net.cfg_path.write_text(VIA)
+    mesh.run(net.cfg(), apply=True)
+    before = net.mesh_lines("db-9")
+    net.down("jump-1")
+    r = mesh.run(net.cfg(), apply=True)
+    link = next(x for x in r["links"] if (x["from"], x["to"]) == ("orion-3", "db-9"))
+    assert link["status"] == "pending" and "jump-1" in r["pending"]
+    assert net.mesh_lines("db-9") == before
+
+
+def test_removing_or_cutting_a_via_link_cleans_it_up(net):
+    net.cfg_path.write_text(VIA)
+    mesh.run(net.cfg(), apply=True)
+    net.cfg_path.write_text(VIA.replace("  - { from: orion-3, to: db-9, via: jump-1 }\n", ""))
+    r = mesh.run(net.cfg(), apply=True)
+    assert next(h for h in r["hosts"] if h["host"] == "db-9")["changes"] == ["remove key from orion-3"]
+    assert net.mesh_lines("db-9") == [] and "ProxyJump" not in net.file("orion-3", "home/.ssh/roster-mesh/config")
+    net.cfg_path.write_text(VIA)
+    mesh.run(net.cfg(), apply=True)
+    assert mesh.cut(net.cfg(), "orion-3")["pending"] == {}
+    assert net.mesh_lines("db-9") == [] and net.mesh_lines("jump-1") == []
+
+
+def test_moving_a_link_onto_a_jump_host_replaces_the_peers_key_line(net):
+    net.cfg_path.write_text(VIA.replace(", via: jump-1", ""))
+    mesh.run(net.cfg(), apply=True)
+    assert net.mesh_lines("db-9") == [key_line_of(net, "orion-3", "10.0.0.3")]
+    net.cfg_path.write_text(VIA)
+    assert mesh.status(net.cfg())["out_of_date"]
+    r = mesh.run(net.cfg(), apply=True)
+    assert next(h for h in r["hosts"] if h["host"] == "db-9")["changes"] == ["replace key from orion-3"]
+    assert net.mesh_lines("db-9") == [key_line_of(net, "orion-3", "10.0.5.1")]
 
 
 def test_a_peer_without_a_recorded_host_key_is_left_out(net, isolated):

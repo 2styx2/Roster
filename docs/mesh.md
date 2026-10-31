@@ -27,7 +27,25 @@ links:
   - { from: lab, to: nas-1, both: true }      # and nas-1 reaches the lab back
 ```
 
-A Link that names something that isn't a Host or a group, links a name to itself, or has a key other than `from`, `to` and `both` stops `roster.yml` from loading, with the entry's number in the message. A name that is both a Host's and a group's is refused too.
+A Link that names something that isn't a Host or a group, links a name to itself, or has a key other than `from`, `to`, `both` and `via` stops `roster.yml` from loading, with the entry's number in the message. A name that is both a Host's and a group's is refused too.
+
+### Through a jump Host
+
+A source that reaches a peer only through another Host (NAT, a bastion, another network) says so with `via:` on the Link:
+
+```yaml
+links:
+  - { from: orion-3, to: jump-1 }               # orion-3 reaches the jump Host itself
+  - { from: orion-3, to: db-9, via: jump-1 }    # and db-9 through it
+```
+
+The source's ssh config gets `ProxyJump jump-1` in db-9's block, so `ssh db-9` goes through jump-1, and db-9's `authorized_keys` line says `from="<jump-1's address>"`: the address db-9 actually sees. `from=` uses jump-1's `ip:` from `roster.yml`, so a jump Host with several addresses must have, in `roster.yml`, the one its peers see it from. `roster mesh --dry-run` shows the hop (`orion-3 -> db-9 via jump-1`), and the test runs through it: orion-3 tests jump-1's port, and jump-1 (roster logs in to it from this Box) tests db-9's.
+
+- `via:` names one Host, never a group, and not either end of the Link. Two entries that send the same pair through different Hosts stop `roster.yml` from loading. With `both: true` the way back goes through the same Host.
+- The source needs its own Link to the jump Host (`ProxyJump` logs in to it first). Without one, the Link is `no-via`, left out, and `roster check` fails: `orion-3 has no Link to jump-1, its hop to db-9`.
+- A `via:` Link wins over the same pair without a hop (from a meshed group, say). Where a group Link expands to the jump Host itself, that pair goes direct.
+- A jump Host that doesn't answer leaves the Link pending, with the source's key on the peer kept as it was. A password jump Host (`enroll: false`) works for ssh, which asks for its password, but roster can't log in to test the hop, so the Link shows as not tested.
+- Removing the Link, `via:` included, or a Cut, removes the peer's line as for any other Link. Adding or changing `via:` replaces the peer's line (its `from=` changes).
 
 Editing `roster.yml` from roster keeps `links:` in step: renaming a Host or a group (`host.rename`, `group.rename` in the app) renames it in `links:` too, and removing a Host or deleting a group takes out the `links:` entries that name it, line and all (the next `roster mesh` removes what they gave). An entry in a one-line list (`links: [{ from: a, to: b }]`) can't be taken out that way: the edit is refused and says so, and you take it out by hand.
 
@@ -67,7 +85,7 @@ from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster
 
 **Idempotent.** The Mesh comes from `roster.yml` only, so applying it again, from this Box or any other, changes nothing and says `already in the mesh`.
 
-**Links across networks are tested, not assumed.** A peer whose port the source can't reach is reported (`orion-3 can't reach 10.0.9.9:22`) and left out of that source's files and of the peer's `authorized_keys`. A peer whose host key this Box hasn't recorded is left out too (`roster setup --only PEER` records it). If the source has neither `nc` nor bash, the Link is written and shown as not tested. A source behind NAT reaches its peers from another address than the one in `roster.yml`; `from=` refuses it there, so keep such Links out until a `via:` hop exists. `from=` also holds the address as `roster.yml` writes it: a DNS name matches only where sshd has `UseDNS yes`, so give meshed Hosts their addresses.
+**Links across networks are tested, not assumed.** A peer whose port the source can't reach is reported (`orion-3 can't reach 10.0.9.9:22`) and left out of that source's files and of the peer's `authorized_keys`. A peer whose host key this Box hasn't recorded is left out too (`roster setup --only PEER` records it). If the source has neither `nc` nor bash, the Link is written and shown as not tested. A source behind NAT reaches its peers from another address than the one in `roster.yml`, which `from=` refuses: give such a Link a [`via:`](#through-a-jump-host) hop. `from=` also holds the address as `roster.yml` writes it: a DNS name matches only where sshd has `UseDNS yes`, so give meshed Hosts their addresses.
 
 **Down Hosts.** A Host that doesn't answer is *pending*: everything else is applied, its Sources' keys stay on their peers as they were, and the next `roster mesh` finishes it. `roster mesh` and `roster mesh status` list what's pending until then. From the app, an apply or a cut that runs out of time (serve's deadline for it) stops there rather than outlast the app's wait: the Hosts it didn't get to are pending, `out of time`, and the next run finishes them.
 
@@ -87,14 +105,22 @@ Every Host is confirmed. One that's down or doesn't answer gets a loud warning, 
 
 ## roster check
 
-`roster check` (without `--only`) also checks the Mesh, read-only: whatever a `roster mesh` would change is **drift**, something on a Host that isn't what roster wrote, and is listed per Host (`nas-1: add key from orion-2`). Links that don't work (unreachable, no recorded host key) and pending Hosts make it fail too.
+`roster check` (without `--only`) also checks the Mesh, read-only: whatever a `roster mesh` would change is **drift**, something on a Host that isn't what roster wrote, and is listed per Host (`nas-1: add key from orion-2`), in a [`mesh_dir:`](#esxi) too. Links that don't work (unreachable, no recorded host key, no Link to their hop) and pending Hosts make it fail too.
 
 ## ESXi
 
 ESXi works as a source and as a peer, with everything kept where it survives a reboot:
 
-- **As a peer**, keys go into `/etc/ssh/keys-USER/authorized_keys`, ESXi's own file, which it keeps across reboots. roster runs `/sbin/auto-backup.sh` after changing it, so it doesn't wait for the hourly backup.
+- **As a peer**, keys go into `/etc/ssh/keys-USER/authorized_keys`, ESXi's own file, which it keeps across reboots. roster runs `/sbin/auto-backup.sh` after changing it, so it doesn't wait for the hourly backup. ESXi keeps a file under `/etc` only if it has the sticky bit, so when roster makes that file (a user other than root, whose `keys-USER` has none yet) it gives it mode `1600`, as ESXi's own; a rewrite keeps the mode the file has.
 - **As a source**, ESXi's home and the rest of `/etc` are rebuilt from the boot image on every boot: a new file there doesn't survive. So the key, known hosts, config and `ROSTER.md` go in `.roster-mesh` on the first datastore (`/vmfs/volumes/<datastore>/.roster-mesh`, by its fixed id). The `Include` in `~/.ssh/config` is lost at a reboot: `ssh -F /vmfs/volumes/…/.roster-mesh/config PEER` always works, and `ROSTER.md` there says so. `roster check` reports the lost `Include` as drift, and `roster mesh` puts it back.
+
+**`mesh_dir:`.** A source with no datastore roster would pick (only unnamed volumes, none writable), or one where you want the files elsewhere, names the directory itself:
+
+```yaml
+      esx-02: { ip: 10.0.0.12, user: root, mesh_dir: /vmfs/volumes/datastore2/roster-mesh }
+```
+
+It cascades like `mesh:` (`defaults` → group → Host; `mesh_dir: null` on a Host goes back to roster's pick), and it works on Linux too, in place of `~/.ssh/roster-mesh`. It must be an absolute path of letters, digits and `. _ - /` (it goes into ssh's config as it is), or `roster.yml` doesn't load. On the Host, roster checks it before writing anything, and leaves the Host pending with the reason when: on ESXi it isn't on a datastore (`/vmfs/volumes/<datastore>/…`), its parent isn't there, roster can't write there, or it already holds a `config`, `known_hosts`, `ROSTER.md` or `id_ed25519` that isn't roster's (give the Mesh a directory of its own; roster never touches those files, not even to remove them). Without `mesh_dir:`, nothing changes. Moving a source to a `mesh_dir:` makes a new key there and replaces its line on every peer; the old directory isn't removed, and `roster mesh` warns about it until you delete it by hand.
 
 ## Appliances
 

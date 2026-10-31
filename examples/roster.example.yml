@@ -138,8 +138,13 @@ groups:
 #   mesh: true on a group (or defaults, or a host) lets its hosts ssh to each other with keys made on them;
 #   mesh: false opts out. links: add one-way reach across groups (both: true for two-way).
 #   Start small: try `roster mesh --dry-run` on two or three hosts first.
+#   via: HOST sends a link through a jump host (ProxyJump); the source needs its own link to that host.
+#   mesh_dir: /vmfs/volumes/DATASTORE/roster-mesh on a host (or group) says where a source keeps its Mesh files,
+#   for an ESXi host with no datastore roster would pick.
 # links:
 #   - { from: orion, to: net-sw-core-01 }
+#   - { from: orion, to: bastion }
+#   - { from: orion, to: far-db, via: bastion }
 
 # Things with a secret but no address to connect to. Each type has a fixed set of fields:
 #   every type   title, description, group (one of the groups above), user, auth
