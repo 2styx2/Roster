@@ -418,7 +418,24 @@ export interface ProviderStatus {
   /** For not-logged-in, when the app can sign the CLI in (`vault.login`, api 3): the ways in,
    * and the server the CLI is set to (null: Bitwarden's US cloud). */
   sign_in?: SignInInfo;
+  /** For locked and unlocked (API 14): the account the CLI is signed in to, when it says. */
+  account?: VaultAccount;
+  /** Whether `vault.logout` can sign this provider's CLI out (API 14; Bitwarden only). */
+  can_sign_out?: boolean;
 }
+
+/** The account a vault CLI is signed in to (API 14): `server` null is Bitwarden's US cloud. */
+export interface VaultAccount {
+  email: string;
+  server: string | null;
+}
+
+/** The first `api_version` with `vault.logout` and `vault.status`'s `account` (ticket 42). */
+export const SIGN_OUT_API_VERSION = 14;
+
+/** `vault.logout`: where the vault stands now (not-logged-in, with `sign_in`), and the account it
+ * signed out of (null when the CLI didn't name one). */
+export type SignedOut = ProviderStatus & { signed_out: VaultAccount | null };
 
 /** How the vault CLI can be signed in from the app (roster's docs/serve-api.md "Signing in: vault.login"). */
 export type SignInWay = "password" | "apikey" | "sso";
@@ -434,6 +451,8 @@ export interface VaultStatus {
   status: VaultStatusWord;
   message?: string;
   sign_in?: SignInInfo;
+  account?: VaultAccount;
+  can_sign_out?: boolean;
   /** Where "Save to vault" goes by default, as set (API 10): `from` "default" means the personal vault. */
   save_to?: { setting: SaveTo; from: "init.lua" | "roster.yml" | "default" };
   providers: ProviderStatus[];
@@ -492,6 +511,10 @@ export const VaultError = {
   cliMissing: 12,
   unsupported: 13,
   locked: 14,
+  /** `vault.logout` (API 14): the CLI isn't signed in, so there's no account to sign out of. */
+  alreadySignedOut: 15,
+  /** `vault.logout`: the CLI refused to log out (its words in the message); secrets were forgotten anyway. */
+  signOutFailed: 16,
 } as const;
 
 /** A terminal size in character cells. */
@@ -669,6 +692,9 @@ export interface Backend {
   signInAnswer(login: string, answer: SignInAnswer): Promise<SignInStep>;
   /** Stop the sign-in in progress (and forget what roster held for it). Never rejects. */
   signInCancel(): Promise<void>;
+  /** `vault.logout` (API 14, ticket 42): roster forgets every secret, then signs the vault CLI out.
+   * Rejects with BackendCallError (VaultError: 13 no account, 15 already signed out, 16 failed). */
+  signOut(): Promise<SignedOut>;
   /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password

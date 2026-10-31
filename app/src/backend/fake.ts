@@ -55,6 +55,8 @@ import {
   PublishError,
   SAVE_TO_VAULT_API_VERSION,
   SaveLoginError,
+  SIGN_OUT_API_VERSION,
+  type SignedOut,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
 import { formatQuickTarget } from "../quick/target";
@@ -454,6 +456,9 @@ export const fixtures: Record<string, FakeScenario> = {
   "sign-in-fido2": signingIn({ methods: ["webauthn"] }),
   "sign-in-sso": signingIn({ sso: "ok", ssoMs: 2500 }),
   "sign-in-eu": signingIn({ server: "https://vault.bitwarden.eu" }),
+  /** Ticket 42 (API 14): a locked Bitwarden signed in as you@example.com; "Use a different account"
+   * and `:vault signout` sign it out, and the sign-in form takes the same fake account. */
+  "sign-out": { hosts: makeHosts(12), apiVersion: SIGN_OUT_API_VERSION },
   "sign-in-rate-limited": signingIn({
     refuse: {
       code: SignInError.rateLimited,
@@ -804,14 +809,23 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         ? (scenario.vaultMessage ?? (kp ? KP_WORDS.missingCli : MISSING_CLI))
         : undefined;
   };
+  /** Ticket 42: signed out through `vault.logout`; the sign-in form then takes the fake account. */
+  let signedOut = false;
+  const accountApi = (scenario.apiVersion ?? 2) >= SIGN_OUT_API_VERSION;
+  const signInAccount = (): FakeAccount | undefined => scenario.signIn ?? (signedOut ? {} : undefined);
   const vaultStatus = (): VaultStatus => {
     const vault = vaultNow();
     const provider = vault === "unsupported" ? null : vaultName;
     const message = vaultMessage();
-    const signIn = vault === "not-logged-in" && scenario.signIn
-      ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: scenario.signIn.server ?? null } }
+    const account = signInAccount();
+    const signIn = vault === "not-logged-in" && account
+      ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: account.server ?? null } }
       : {};
-    const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn };
+    const who = accountApi && !kp && (vault === "locked" || vault === "unlocked")
+      ? { account: { email: FAKE_EMAIL, server: scenario.signIn?.server ?? null } }
+      : {};
+    const can = accountApi ? { can_sign_out: !kp && provider !== null } : {};
+    const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn, ...who, ...can };
     return { ...main, providers: provider ? [{ ...main, provider }] : [] };
   };
   // ---- vault.targets (ticket 35)
@@ -945,7 +959,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         "the Bitwarden CLI is already logged in on this box - unlock it instead (to sign in as someone else, run `bw logout` first)",
       );
     }
-    const account = scenario.signIn ?? {};
+    const account = signInAccount() ?? {};
     if (!["cloud", "eu"].includes(start.server) && !/^https?:\/\/[^\s/]+\S*$/.test(start.server)) {
       throw signInFailure(
         SignInError.badServer,
@@ -1103,6 +1117,40 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
           default: found?.id ?? null,
           from,
           problem: problem && { code: SaveToError.unknownTarget, message: problem.message, fix: "fix the setting the message names" },
+        };
+      }),
+    signOut: () =>
+      inOrder(async (): Promise<SignedOut> => {
+        await wait();
+        if (!accountApi) throw new BackendCallError("unknown method 'vault.logout'", -32601);
+        if (kp) {
+          throw new BackendCallError(
+            "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua",
+            VaultError.unsupported,
+          );
+        }
+        const was = vaultNow();
+        // serve forgets every secret first: askpass tokens, typed passwords held, session keys
+        holding.clear();
+        login = null;
+        if (was === "not-logged-in") {
+          throw new BackendCallError(
+            "the Bitwarden CLI isn't signed in on this box - there's no account to sign out of",
+            VaultError.alreadySignedOut,
+            { fix: "sign in from the lock screen" },
+          );
+        }
+        const signed_out = vaultStatus().account ?? null;
+        vaultWord = "not-logged-in";
+        signedOut = true;
+        const now = vaultStatus();
+        return {
+          provider: vaultName,
+          status: now.status,
+          ...(now.message ? { message: now.message } : {}),
+          ...(now.sign_in ? { sign_in: now.sign_in } : {}),
+          can_sign_out: true,
+          signed_out,
         };
       }),
     signIn: (start) => inOrder(() => signIn(start)),

@@ -12,9 +12,11 @@ from . import (
     ItemNotFound,
     NoField,
     NotLoggedIn,
+    NotSignedIn,
     ReadOnlyTarget,
     SecretError,
     SeveralItems,
+    SignOutFailed,
     TimedOut,
     UnknownTarget,
     VaultLocked,
@@ -121,11 +123,37 @@ def _bw_vault_status(ctx):
     return _bw_status(ctx) if shutil.which("bw") else "missing"
 
 
+def _bw_account(ctx):
+    """vault_account for bw: the status and {email, server} (server None: bitwarden.com) from one `bw status`."""
+    if not shutil.which("bw"):
+        return "missing", None
+    st = _bw_status_json(ctx)
+    status = st.get("status")
+    if status in ("locked", "unlocked") and st.get("userEmail"):
+        return status, {"email": st["userEmail"], "server": st.get("serverUrl")}
+    return status, None
+
+
+def _bw_forget(ctx):
+    os.environ.pop("BW_SESSION", None)
+
+
 def _bw_lock(ctx):
     try:
         _bw(ctx, "lock")
     finally:
-        os.environ.pop("BW_SESSION", None)
+        _bw_forget(ctx)
+
+
+def _bw_logout(ctx):
+    """`bw logout`: removes the account and the CLI's local copy of the vault (the server setting stays). The session
+    key goes first, so it's gone even if bw then fails."""
+    _bw_forget(ctx)
+    r = _bw(ctx, "logout")
+    if r.returncode != 0:
+        if "not logged in" in errtext(r).lower():
+            raise NotSignedIn("the Bitwarden CLI isn't signed in on this box - there's no account to sign out of")
+        raise SignOutFailed(f"`bw logout` failed: {errtext(r) or 'bw exited without saying why'}")
 
 
 def _bw_list(ctx, *search):
@@ -371,5 +399,6 @@ def _bw_delete(item_id, ctx):
         raise WriteFailed(f"Bitwarden didn't delete item {item_id}: {errtext(r)}")
 
 
-PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, status=_bw_vault_status, not_logged_in=NOT_LOGGED_IN,
+PROVIDERS["bw"].update(unlock=_bw_unlock, lock=_bw_lock, forget=_bw_forget, status=_bw_vault_status,
+                       account=_bw_account, logout=_bw_logout, not_logged_in=NOT_LOGGED_IN,
                        create=_bw_create, delete=_bw_delete, targets=_bw_targets, resolve=_bw_resolve)

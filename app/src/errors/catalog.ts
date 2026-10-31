@@ -306,8 +306,8 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     row: 28,
     codes: [54],
     where: ["this Box"],
-    fix: () => "Unlock with the master password instead. To switch account, run `bw logout` first.",
-    actions: [copy(() => "bw logout")],
+    fix: () => "Unlock with the master password instead. To use another account, pick Use a different account under the unlock form, or run :vault signout.",
+    actions: [],
   }),
   row("sign-in-expired", {
     row: 29,
@@ -453,6 +453,22 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     where: ["roster.yml"],
     fix: () => "Type the Host's password when the pane asks; tick Save to vault to keep it in the vault once it has logged in.",
     actions: [],
+  }),
+  // Signing the vault CLI out (`vault.logout`, ticket 42): docs/app/errors.md rows 71-72. roster
+  // forgets every secret before it runs the CLI's logout, so both leave nothing behind.
+  row("sign-out-already", {
+    row: 71,
+    codes: [15],
+    where: ["this Box"],
+    fix: () => "Sign in from the lock screen; the CLI was already signed out (elsewhere, or a moment ago).",
+    actions: [],
+  }),
+  row("sign-out-failed", {
+    row: 72,
+    codes: [16],
+    where: ["the vault", "this Box"],
+    fix: () => "See the details: the CLI's own words. `roster bw logout` in a terminal shows the same.",
+    actions: [copy(() => "roster bw logout")],
   }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {

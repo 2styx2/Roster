@@ -17,6 +17,8 @@ NOT_LOGGED_IN = 11          # the vault CLI isn't logged in on this box (row 6)
 CLI_MISSING = 12            # the vault CLI isn't installed (row 6)
 UNSUPPORTED = 13            # the provider has no master password, or no Host Login uses one
 VAULT_LOCKED = 14           # a secret was needed but the vault is locked (row 7)
+ALREADY_SIGNED_OUT = 15     # vault.logout: the CLI isn't signed in to an account, so there's none to sign out of
+SIGN_OUT_FAILED = 16        # vault.logout: the CLI refused to log out; every secret was forgotten anyway
 
 NOT_REVIEWED = 20           # session.*: the Host has reviewed: false (row 3)
 NOT_SET_UP = 21             # this box can't run `ssh NAME` yet: no ssh, or not in roster's ssh config (row 2)
@@ -113,12 +115,17 @@ class Problem(Exception):
 
 VAULT_ERRORS = {providers.WrongPassword: WRONG_PASSWORD, providers.NotLoggedIn: NOT_LOGGED_IN,
                 providers.CliMissing: CLI_MISSING, providers.Unsupported: UNSUPPORTED,
-                providers.VaultLocked: VAULT_LOCKED}
+                providers.VaultLocked: VAULT_LOCKED, providers.NotSignedIn: ALREADY_SIGNED_OUT,
+                providers.SignOutFailed: SIGN_OUT_FAILED}
+
+SIGN_OUT_FIXES = {ALREADY_SIGNED_OUT: "sign in from the lock screen",
+                  SIGN_OUT_FAILED: "see the message; `roster bw logout` in a terminal shows the same"}
 
 
 def vault_problem(e):
     """A provider's SecretError about the vault itself (locked, not logged in, ...) as a Problem."""
-    return Problem(VAULT_ERRORS.get(type(e), ROSTER_ERROR), str(e))
+    code = VAULT_ERRORS.get(type(e), ROSTER_ERROR)
+    return Problem(code, str(e), fix=SIGN_OUT_FIXES.get(code))
 
 
 def write_problem(e):

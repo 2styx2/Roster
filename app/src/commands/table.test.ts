@@ -26,6 +26,7 @@ function recorder(mode: ViewMode = "standard") {
     openCommandLine: (initial) => calls.push(initial ? `cmdline ${initial}` : "cmdline"),
     toggleKeys: () => calls.push("keys"),
     lock: () => calls.push("lock"),
+    vault: (a) => calls.push(`vault ${a}`),
     toTerminal: () => calls.push("terminal"),
     closePanel: () => calls.push("hidepanel"),
     list: (m) => calls.push(`list ${m}`),

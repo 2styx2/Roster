@@ -46,6 +46,14 @@ class Unsupported(SecretError):
     """The provider has no master password to unlock with."""
 
 
+class NotSignedIn(SecretError):
+    """vault.logout: the CLI isn't signed in to an account, so there's none to sign out of."""
+
+
+class SignOutFailed(SecretError):
+    """vault.logout: the CLI refused to log out; the message has its words."""
+
+
 class VaultLocked(SecretError):
     """The vault is locked and this process may not unlock it by itself (see MANUAL_UNLOCK)."""
 
@@ -163,6 +171,11 @@ PROVIDERS = {}            # name -> {"get": fn(spec, ctx) -> str, "help": str, "
                           #                              fn(ctx) -> that text)
                           #             "login": fn(ctx) -> a sign-in flow (vault.login; see bw_login.py)
                           #             "login_help": why this provider has no sign-in here, and what to do
+                          #             "account": fn(ctx) -> (status, {"email", "server"} | None): the status
+                          #                        and the account the CLI is signed in to, in one call
+                          #             "logout": fn(ctx), sign the CLI out (vault.logout); NotSignedIn if it isn't
+                          #             "forget": fn(ctx), the in-memory part of "lock" (drop a session key)
+                          #             "logout_help": why this provider has no account to sign out of, and what to do
                           #             "create": fn(item, ctx) -> {"id", "name"}, item = {name, username,
                           #                       password, uri}; refuses a name that exists (ItemExists)
                           #             "delete": fn(id, ctx), the undo of a create (Q43)
@@ -314,6 +327,32 @@ def status_message(name, status):
     return None
 
 
+def vault_account(name):
+    """(vault_status(name), the account its CLI is signed in to: {"email", "server"} or None), without prompting.
+    One CLI call where the provider can say both at once (bw status)."""
+    fn = _vault_op(name, "account")
+    if fn:
+        return fn(Ctx(name, None))
+    return vault_status(name), None
+
+
+def can_sign_out(name):
+    return bool(PROVIDERS.get(name, {}).get("logout"))
+
+
+def logout(name):
+    """Sign provider NAME's CLI out of its account (vault.logout). Every cached secret and NAME's state are forgotten
+    first, so nothing outlives the account even if the CLI then fails. Unsupported for a provider with no account."""
+    fn = _vault_op(name, "logout")
+    if not fn:
+        raise Unsupported(PROVIDERS[name].get("logout_help")
+                          or f"provider '{name}' has no account to sign out of - its Logins come from this box itself")
+    with _secret_lock:
+        _secrets.clear()
+        PROVIDER_STATE.pop(name, None)
+    fn(Ctx(name, None))
+
+
 def login(name):
     """A new sign-in flow for provider NAME (an object with start(params), answer(params) and close(), each
     step a dict; see bw_login.py). Unsupported when the provider signs in some other way."""
@@ -324,14 +363,15 @@ def login(name):
     return fn(Ctx(name, None))
 
 
-def lock(name):
-    """Forget every cached secret and NAME's state, then run the provider's own lock (if it has one).
-    Memory is cleared first, so it is forgotten even if the provider's lock then fails."""
+def lock(name, cli=True):
+    """Forget every cached secret and NAME's state, then run the provider's own lock (if it has one; with cli=False
+    only its in-memory part: "forget" if it has one, for a CLI about to log out anyway). Memory is cleared first,
+    so it is forgotten even if the provider's lock then fails."""
     _vault_op(name, "lock")
     with _secret_lock:
         _secrets.clear()
         PROVIDER_STATE.pop(name, None)
-        fn = PROVIDERS[name].get("lock")
+        fn = PROVIDERS[name].get("lock" if cli else "forget")
         if fn:
             fn(Ctx(name, None))
 
