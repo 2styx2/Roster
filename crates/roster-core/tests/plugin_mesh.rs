@@ -352,7 +352,10 @@ impl Run {
         let mut ops = reply.ops;
         let started = Instant::now();
         while self.host.requests(NAME) > 0 {
-            assert!(started.elapsed() < Duration::from_secs(5), "roster serve's answers didn't come");
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "roster serve's answers didn't come"
+            );
             std::thread::sleep(Duration::from_millis(2));
         }
         while let Ok(r) = self.replies.try_recv() {
@@ -979,7 +982,13 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
         };
         // The call's own ops, then each answer's: the stand-in replays both, in order.
         let answers = Value::Array(std::mem::take(&mut run.answers));
-        let own = ops.len() - answers.as_array().unwrap().iter().map(|a| a.as_array().unwrap().len()).sum::<usize>();
+        let own = ops.len()
+            - answers
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a.as_array().unwrap().len())
+                .sum::<usize>();
         let mut step = step.clone();
         step["ops"] = normal(&Value::Array(ops[..own].to_vec()));
         step["answers"] = answers;

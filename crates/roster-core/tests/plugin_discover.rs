@@ -13,9 +13,9 @@ use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
 use serde_json::{Map, Value, json};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::cell::RefCell;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -256,12 +256,17 @@ impl World {
         ok(&reply);
         let started = Instant::now();
         while self.host.requests(NAME) > 0 {
-            assert!(started.elapsed() < Duration::from_secs(5), "roster serve's answers didn't come");
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "roster serve's answers didn't come"
+            );
             std::thread::sleep(Duration::from_millis(2));
         }
         while let Ok(r) = self.replies.try_recv() {
             ok(&r);
-            self.answers.borrow_mut().push(Value::Array(r.ops.iter().map(normal).collect()));
+            self.answers
+                .borrow_mut()
+                .push(Value::Array(r.ops.iter().map(normal).collect()));
             reply.ops.extend(r.ops);
         }
         reply
@@ -434,7 +439,12 @@ fn behind_a_busy_roster_serve_the_question_comes_when_it_answers() {
     assert!(!has(&asked.ops, "confirm"));
     let again = w.host.call(NAME, command(&loaded.ops), words);
     ok(&again);
-    assert!(op(&again.ops, "notify")["text"].as_str().unwrap().contains("Still waiting"));
+    assert!(
+        op(&again.ops, "notify")["text"]
+            .as_str()
+            .unwrap()
+            .contains("Still waiting")
+    );
     std::thread::sleep(Duration::from_millis(2600));
     drop(publish);
     let answered = w.settled(asked);

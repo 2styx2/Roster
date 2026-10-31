@@ -512,7 +512,8 @@ fn a_plugin_waiting_for_a_slow_serve_isnt_given_up_on_and_the_others_keep_workin
     std::thread::sleep(Duration::from_millis(50));
     let started = Instant::now();
     assert_eq!(
-        host.call("quick2", handler(&quick_load.ops[0], "run"), json!({})).result,
+        host.call("quick2", handler(&quick_load.ops[0], "run"), json!({}))
+            .result,
         1
     );
     assert!(started.elapsed() < Duration::from_millis(500));

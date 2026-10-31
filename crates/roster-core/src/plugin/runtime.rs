@@ -734,20 +734,15 @@ fn request(
     s.next_request.set(id);
     let requests: Table = lua.named_registry_value(REQUESTS)?;
     let post = Arc::clone(post);
-    net.start(req, move |answer| post(id, Arrival::Http(answer))).map_err(fail)?;
+    net.start(req, move |answer| post(id, Arrival::Http(answer)))
+        .map_err(fail)?;
     s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     requests.raw_set(id, done)
 }
 
 /// Checks and starts `roster.serve.request`: roster serve is asked on a thread of its own, and
 /// `done` gets the answer later on the Plugin's thread. The same rules as `roster.serve.call`.
-fn serve_request(
-    lua: &Lua,
-    s: &Shared,
-    method: String,
-    params: Option<Value>,
-    done: Function,
-) -> mlua::Result<()> {
+fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, done: Function) -> mlua::Result<()> {
     let what = format!("roster.serve.request {method}");
     need(s, &Permission::Serve(method.clone()), "roster.serve.request")?;
     if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
@@ -1327,13 +1322,13 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             serve(lua, s, &format!("roster.serve.call {method}"), &method, params)
         });
         // The same call, without waiting (decision Q103): `done(result)` or `done(nil, why)`.
-        func!(
-            t,
-            "request",
-            |lua, s, (method, params, done): (String, Option<Value>, Function)| {
-                serve_request(lua, s, method, params, done)
-            }
-        );
+        func!(t, "request", |lua,
+                             s,
+                             (method, params, done): (
+            String,
+            Option<Value>,
+            Function
+        )| { serve_request(lua, s, method, params, done) });
         roster.raw_set("serve", t)?;
     }
     if g.iter().any(|p| matches!(p, Permission::Network(_))) {

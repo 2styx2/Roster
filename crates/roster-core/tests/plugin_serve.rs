@@ -197,17 +197,28 @@ end })
     );
     let publish = serve.busy(1500);
     let started = Instant::now();
-    let asked = host.call("waiter", command(&loaded.ops, "ask"), json!({ "args": "", "words": [] }));
+    let asked = host.call(
+        "waiter",
+        command(&loaded.ops, "ask"),
+        json!({ "args": "", "words": [] }),
+    );
     ok(&asked);
     assert_eq!(asked.result, "asked");
-    assert!(started.elapsed() < Duration::from_millis(200), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_millis(200),
+        "{:?}",
+        started.elapsed()
+    );
     publish.join().unwrap();
     let mut said = notices(&rx, 2);
     said.sort();
     // Login references that say how a secret is fetched come cut, as the sync call's do (Q92).
     assert_eq!(
         said,
-        ["failed: roster.serve.request mesh.status: no Mesh here (code 110)", "hosts: 1 cmd:"]
+        [
+            "failed: roster.serve.request mesh.status: no Mesh here (code 110)",
+            "hosts: 1 cmd:"
+        ]
     );
     settled(&host);
 }
@@ -286,14 +297,22 @@ end })
     ok(&fired);
     assert_eq!(fired.ops[0]["text"], "timer refused");
 
-    ok(&host.call("waiter", command(&loaded.ops, "scan"), json!({ "args": "", "words": [] })));
+    ok(&host.call(
+        "waiter",
+        command(&loaded.ops, "scan"),
+        json!({ "args": "", "words": [] }),
+    ));
     let first = rx.recv_timeout(Duration::from_secs(3)).unwrap();
     ok(&first);
     assert_eq!(first.ops[0]["op"], "confirm");
     assert_eq!(notices(&rx, 1), ["scan-1 didn't ask again"]);
     assert_eq!(serve.methods(), ["discover.status", "discover.start"]);
 
-    let polled = host.call("waiter", command(&loaded.ops, "poll"), json!({ "args": "", "words": [] }));
+    let polled = host.call(
+        "waiter",
+        command(&loaded.ops, "poll"),
+        json!({ "args": "", "words": [] }),
+    );
     let timer = polled.ops[0]["run"]["handler"].as_u64().unwrap();
     ok(&host.call("waiter", timer, json!({})));
     assert_eq!(notices(&rx, 1), ["timer didn't ask"]);

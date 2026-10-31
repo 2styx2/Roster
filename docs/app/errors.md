@@ -266,6 +266,17 @@ What a Plugin with a `network:SITE` permission gets back from `roster.http` (see
 | "no answer within 30 s" | The whole answer took longer than the request's `timeout` (at most 30 s; 10 s to connect) | The site / network | Retry later; the author can ask for less |
 | "the response is over 1048576 bytes" | The body is bigger than 1 MB | The site | The author asks for less (a page of results) |
 
+## A Plugin's roster serve requests
+
+What a Plugin's `roster.serve.request` can run into ([Asking roster serve](../plugins.md#asking-roster-serve)). roster serve answers one request at a time, so a request can wait behind the app's own Publish for a minute or two; that's never the Plugin's fault, and nothing is disabled for it. A method's own failure comes to `done` as `nil` and `roster.serve.request METHOD: MESSAGE (code N)`, with the codes in [serve-api.md](../serve-api.md).
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 108 | none (a Lua error) | A ninth request while 8 are still waiting for roster serve | The Plugin | "mesh: init.lua:57: roster.serve.request mesh.job: 8 requests are waiting for roster serve already: wait for one to answer" | The Plugin's to fix: one question out at a time (a poll skips its turn while the last is out) |
+| 109 | none (a Lua error) | `discover.start` or `discover.add` requested at load, on an event, from a timer, or in the answer to a request that wasn't itself made in the user's call | The Plugin | "discover: init.lua:12: roster.serve.request discover.start: only while the user runs one of your actions, commands or finder items" | The Plugin's to fix: request it from an action, a command or a question's answer |
+| 110 | none (a Plugin's notice) | A Mesh plan, apply or cut asked for again before roster serve answered the last (serve busy with a Publish, say) | The Mesh controls | "A Mesh plan is starting: wait for roster serve to answer." | Wait: the progress shows once serve answers |
+| 111 | none (a Plugin's notice) | `:discover RANGE` again before roster serve said how big the last range is | Discover | "Still waiting for roster serve to size the last range: a moment" | Wait: the question comes once serve answers |
+
 ## See also
 
 [The error catalog](errors) · [`roster check HOST`](../cli-reference.md#roster-check-host) · [The roster serve API](../serve-api.md)
