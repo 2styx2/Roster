@@ -203,7 +203,7 @@ pub(crate) fn set_api(lua: &Lua, roster: Table) -> mlua::Result<()> {
 }
 
 /// An error's own message, without mlua's wrapping and traceback.
-fn error_text(e: &mlua::Error) -> String {
+pub(crate) fn error_text(e: &mlua::Error) -> String {
     match e {
         mlua::Error::CallbackError { cause, .. } | mlua::Error::WithContext { cause, .. } => error_text(cause),
         mlua::Error::RuntimeError(m) | mlua::Error::SyntaxError { message: m, .. } => m.clone(),

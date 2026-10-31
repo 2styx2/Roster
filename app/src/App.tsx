@@ -96,6 +96,8 @@ import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
+import { ViewPanel } from "./view/ViewContent";
+import { registerViews, sectionsFor, ViewHost } from "./view/views";
 import { PackagesPanel, PluginFloatPanel, PluginNotices, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
 import { badgesByHost } from "./view/status";
 import { TerminalView, type TerminalEnv, type TerminalViewComponent } from "./terminal/TerminalView";
@@ -460,15 +462,23 @@ function Workspace({
   const runRef = useRef<(line: string) => void>(() => {});
   // The Session on screen, for a Plugin handler's context (api 3): read when a handler runs.
   const onScreenRef = useRef<{ session: number; host: string | null } | null>(null);
+  const [viewHost] = useState(() => new ViewHost());
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
         send: (id, text) => tabs.write(id, text),
         copy: (text) => platform.clipboard.writeText(text),
         onScreen: () => onScreenRef.current,
+        closeView: (id) => viewHost.close(id),
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  // Views (ticket 76): the one open, and each Host's sections from Plugins.
+  const viewAt = useSyncExternalStore(viewHost.subscribe, viewHost.snapshot);
+  useEffect(() => registerViews(registries, viewHost), [registries, viewHost]);
+  const viewList = useSyncExternalStore(registries.views.subscribe, registries.views.list);
+  const openView = viewAt.at === null ? undefined : viewList.find((v) => v.id === viewAt.at);
+  const detailsList = useSyncExternalStore(registries.details.subscribe, registries.details.list);
   const statusDefs = useSyncExternalStore(registries.status.subscribe, registries.status.list);
   const badgeList = useSyncExternalStore(registries.badges.subscribe, registries.badges.list);
   const hostBadges = useMemo(() => badgesByHost(badgeList), [badgeList]);
@@ -1312,6 +1322,7 @@ function Workspace({
     // The panel drawn last (help, Key bindings, beside :check) is the topmost.
     closePanel: () => {
       if (pluginSnap.float) return plugins.closeFloat();
+      if (openView) return viewHost.close();
       if (helpAt.at) return helpView.close();
       if (pluginsOpen) return closePlugins();
       if (packagesOpen) return closePackages();
@@ -1967,8 +1978,10 @@ function Workspace({
             onClose={() => setDetails(null)}
             cmdlineKeys={hintFor(keymap, "cmdline")}
             leader={options.leader}
+            sections={sectionsFor(detailsList, detailsHost.name)}
           />
         )}
+        {openView && <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} />}
         {importing && (
           <ImportPanel
             preview={importing.preview}

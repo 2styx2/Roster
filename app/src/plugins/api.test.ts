@@ -72,13 +72,43 @@ describe("the Plugin API reference and ops.ts agree", () => {
       }),
     },
     { op: "float", spec: typed("Float", { title: "F", lines: ["a"] }) },
+    {
+      op: "view",
+      id: "v",
+      spec: typed("View", {
+        title: "V",
+        place: "full",
+        text: "t",
+        facts: [typed("Fact", { label: "l", value: "v", data: true })],
+        table: typed("Table", {
+          columns: [typed("Column", { id: "a", label: "A", kind: "number", width: 6 })],
+          rows: [typed("TableRow", { id: "r", cells: { a: 1 }, host: "esx-02", tone: "muted" })],
+          sort: "a",
+          desc: true,
+          empty: "none",
+          open: { handler: 1 },
+          actions: [typed("TableAction", { label: "K", key: "x", icon: "add", run: { handler: 2 } })],
+        }),
+      }),
+    },
+    {
+      op: "view_update",
+      id: "v",
+      changes: typed("ViewUpdate", { title: "V", text: "t", facts: [], rows: [{ id: "r", cells: { a: 2 } }], remove: ["q"] }),
+    },
+    {
+      op: "details",
+      id: "d",
+      host: "esx-02",
+      spec: typed("DetailsSection", { title: "D", order: 1, text: "t", facts: [], table: { columns: [{ id: "a", label: "A" }] } }),
+    },
   ];
 
   it("ops.ts takes every op with every documented field", () => {
     for (const op of ops) expect(parseOp(op)).not.toHaveProperty("invalid");
   });
 
-  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float"])(
+  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction"])(
     "%s: ops.ts reads exactly the fields the reference lists",
     (type) => {
       for (const op of ops) parseOp(op);

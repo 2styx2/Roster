@@ -289,6 +289,21 @@ fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> m
     out.map_err(|e| convert_error(what, &e))
 }
 
+/// Drops the functions every owner `which` picks handed over (a view or a Host-details section
+/// taken away).
+fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua::Result<()> {
+    let handlers: Table = lua.named_registry_value(HANDLERS)?;
+    let mut h = shared.handlers.borrow_mut();
+    let owners: Vec<String> = h.owners.keys().filter(|k| which(k)).cloned().collect();
+    for owner in owners {
+        for id in h.owners.remove(&owner).unwrap_or_default() {
+            handlers.raw_set(id, Value::Nil)?;
+            h.count -= 1;
+        }
+    }
+    Ok(())
+}
+
 /// A Lua value as data for roster serve: no functions.
 fn plain(shared: &Shared, what: &str, v: &Value) -> mlua::Result<Json> {
     lua::to_json(v, &shared.budget).map_err(|e| convert_error(what, &e))
@@ -551,6 +566,72 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "float", "spec": null }))
     });
     roster.raw_set("float", float)?;
+
+    // Views (ticket 76): a side panel or a full view of text, facts and a table, which the app
+    // draws. Rows are plain data; a table's actions are functions that get the row. Opening one
+    // is the user's call (an action, a command, a finder item), never the Plugin's on its own.
+    let views = lua.create_table()?;
+    func!(views, "set", |lua, s, (id, spec): (String, Table)| {
+        check_id("roster.views.set", &id)?;
+        let spec = data(lua, s, "roster.views.set", &Value::Table(spec), &format!("view:{id}"))?;
+        push(s, json!({ "op": "view", "id": id, "spec": spec }))
+    });
+    func!(views, "update", |_lua, s, (id, changes): (String, Table)| {
+        check_id("roster.views.update", &id)?;
+        let changes = plain(s, &format!("roster.views.update {id:?}"), &Value::Table(changes)).map_err(|e| {
+            mlua::Error::runtime(format!(
+                "{} (an update is plain data: functions go in roster.views.set)",
+                lua::error_text(&e)
+            ))
+        })?;
+        push(s, json!({ "op": "view_update", "id": id, "changes": changes }))
+    });
+    func!(views, "open", |_lua, s, id: String| {
+        check_id("roster.views.open", &id)?;
+        if !s.user_call.get() {
+            return Err(mlua::Error::runtime(
+                "roster.views.open: only while the user runs one of your actions, commands or finder items",
+            ));
+        }
+        push(s, json!({ "op": "view_open", "id": id }))
+    });
+    func!(views, "close", |_lua, s, id: String| {
+        check_id("roster.views.close", &id)?;
+        push(s, json!({ "op": "view_close", "id": id }))
+    });
+    func!(views, "remove", |lua, s, id: String| {
+        check_id("roster.views.remove", &id)?;
+        let owner = format!("view:{id}");
+        drop_owners(lua, s, |k| k == owner)?;
+        push(s, json!({ "op": "remove", "kind": "view", "id": id }))
+    });
+    roster.raw_set("views", views)?;
+
+    // Sections of a Host's details (ticket 76), set per Host; nil takes one Host's away.
+    let details = lua.create_table()?;
+    func!(
+        details,
+        "set",
+        |lua, s, (id, host, spec): (String, String, Option<Table>)| {
+            check_id("roster.details.set", &id)?;
+            let owner = format!("details:{id}@{host}");
+            let spec = match spec {
+                Some(t) => data(lua, s, "roster.details.set", &Value::Table(t), &owner)?,
+                None => {
+                    drop_owners(lua, s, |k| k == owner)?;
+                    Json::Null
+                }
+            };
+            push(s, json!({ "op": "details", "id": id, "host": host, "spec": spec }))
+        }
+    );
+    func!(details, "remove", |lua, s, id: String| {
+        check_id("roster.details.remove", &id)?;
+        let prefix = format!("details:{id}@");
+        drop_owners(lua, s, |k| k.starts_with(&prefix))?;
+        push(s, json!({ "op": "remove", "kind": "details", "id": id }))
+    });
+    roster.raw_set("details", details)?;
 
     // The clipboard: only while the user runs one of the Plugin's actions, commands or finder
     // items, never on its own (at load, on an event), so it can't swap what you copied.
