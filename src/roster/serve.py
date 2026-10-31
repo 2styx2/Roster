@@ -93,7 +93,6 @@ class State:
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
-        self.quick = {}                     # quick.prepare's Quick Connects by id: where, and the key confirmed (T15)
         self.held = {}                      # typed passwords held for "Save to vault", by id: Held (T15, T16)
         # state.held is also changed on the askpass channel's threads (a login report), so it has a lock of its own:
         # never state.lock, which a long request holds for up to its deadline and would hold up askpass's answers.
@@ -594,8 +593,8 @@ def quick_prepare(state, params):
     fd = os.open(known, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(fd, "a") as f:
         f.write(f"{alias} {key.get_name()} {key.get_base64()}\n")
-    state.quick[qid] = {"user": user, "address": address, "port": port, "key_type": key.get_name(),
-                        "fingerprint": offered, "base64": key.get_base64()}
+    quick = {"user": user, "address": address, "port": port, "key_type": key.get_name(), "fingerprint": offered,
+             "base64": key.get_base64()}        # what quick.save needs, kept only with a held password (T15)
     argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(known)}", "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", f"HostKeyAlias={alias}", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none",
             "-o", "ConnectTimeout=10"]
@@ -609,7 +608,7 @@ def quick_prepare(state, params):
         typed = askpass.Typed(password)
         del password
         if save:
-            held = {"held": hold(state, qid, typed, "quick", label)}
+            held = {"held": hold(state, qid, typed, "quick", label, quick)}
             argv += state.askpass.login_options()
         token = state.askpass.mint(typed, label)
         env, auth = state.askpass.env(token), "password"
@@ -627,10 +626,13 @@ def quick_prepare(state, params):
 # without saving), by vault.lock, or HOLD_FOR after it was typed (the askpass channel's tick enforces it).
 
 HOLD_FOR = 600              # s: how long a typed password waits for its "Save to vault"
+HELD_LIMIT = 64             # typed passwords held at once; a new one beyond it forgets the oldest
 
 
 class Held:
-    """A typed password held for "Save to vault": what it's for, and whether its Session has logged in with it."""
+    """A typed password held for "Save to vault": what it's for (target: a Quick Connect's box and confirmed key, or a
+    Host Session's Host and Login), and whether its Session has logged in with it. Nothing else of the Session is
+    kept: it all goes with the Held."""
 
     __slots__ = ("typed", "kind", "label", "target", "until", "logged_in")
 
@@ -677,6 +679,8 @@ def hold(state, hid, typed, kind, label, target=None):
     typed.on_login = on_login
     with state.held_lock:
         prune_held(state)
+        while len(state.held) >= HELD_LIMIT:
+            forget_held(state, next(iter(state.held)))
         state.held[hid] = held
     return hid
 
@@ -772,7 +776,7 @@ def save_quick(state, params):
     save_to = save_to_param(params)
     held, password = logged_in_with(state, hid, "quick")
     provider = saving_provider(state, params)
-    q = state.quick[hid]
+    q = held.target
     fields = {"ip": q["address"], "user": q["user"], "port": q["port"], "auth": f"{provider}:{item}",
               "enroll": False, "reviewed": True}
     for f in ("title", "type", "description"):

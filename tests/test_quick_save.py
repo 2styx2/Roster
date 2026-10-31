@@ -297,3 +297,26 @@ def test_a_password_handed_to_ssh_goes_once_its_login_report_is_overdue(box, ssh
         spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
         log_in(spec, password="wrong")
         assert eventually(lambda: state.askpass.handed == {})
+
+
+def test_nothing_is_left_of_a_quick_connect_once_its_password_is_saved_or_was_never_held(box, sshd, vault, unknown,
+                                                                                        fakes):
+    state = unlocked(box)
+    with rpc.open_channel(state) as state.askpass:
+        for _ in range(3):
+            call(state, "quick.prepare", to(sshd))
+        spec = call(state, "quick.prepare", to(sshd, password=SECRET, save=True))["result"]
+        log_in(spec)
+        assert "result" in call(state, "quick.save", {"quick": spec["quick"], "name": "nas", "group": "lab"})
+        assert state.held == {} and not getattr(state, "quick", {})
+
+
+def test_serve_holds_at_most_held_limit_passwords(box, monkeypatch):
+    """The oldest goes first: a box that types passwords faster than it saves them can't grow serve's memory."""
+    state = rpc.State(str(box.yml))
+    monkeypatch.setattr(rpc, "HELD_LIMIT", 2)
+    typed = [askpass.Typed(f"pw{i}") for i in range(3)]
+    for i, t in enumerate(typed):
+        rpc.hold(state, f"q{i}", t, "quick", "root@box")
+    assert list(state.held) == ["q1", "q2"]
+    assert typed[0].password is None
