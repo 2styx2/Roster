@@ -25,7 +25,7 @@ Everything configurable says its name where it shows, so you can tell where to c
 
 - The Rust core runs the file with Lua 5.4 (mlua, built in). The file returns a table. Anything it leaves out keeps the built-in default.
 - The table is checked against a schema (`crates/roster-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`app/src/config/types.ts`). The frontend never runs Lua.
-- The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
+- The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins use the same registries ([plugins.md](../plugins.md)). Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
 - **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a `:source` does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
 - **`:source` reloads it (decision Q58).** Saving doesn't apply it by itself, as in Neovim: a half-written Config never takes effect mid-edit. The status bar says "init.lua changed" until you `:source` (`␣ S`).
 - **`auto_reload = true` reloads on every save** instead. The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second. Turning it on takes one `:source`, since the Config in effect decides.
@@ -46,12 +46,12 @@ The Lua code runs in the Rust core, which never holds a secret (docs/app/securit
 
 ## The `roster` table
 
-A global, and also `require("roster")`. It's kept small. It's the start of the Plugin API (ticket 23), which will add commands, hooks, Sidebar sections and finder sources under the same names.
+A global, and also `require("roster")`. It's kept small. A Plugin gets the same module with more in it: commands, Sidebar sections, finders, status segments, events ([plugins.md](../plugins.md)).
 
 | Name | What |
 |---|---|
 | `roster.os` | `"windows"`, `"linux"` or `"macos"`, for `if roster.os == "windows" then … end` |
-| `roster.api_version` | `1`. Raised when this table changes |
+| `roster.api_version` | `2`. Raised when this module changes (it went to 2 with Plugins; nothing in `init.lua`'s changed) |
 | `roster.keymap.set(context, keys, action)` | A key binding, as in `keys` below. `action` is a command line, or `false` to unbind |
 | `roster.themes.define(id, theme)` | A Theme, as in `themes` below |
 | `roster.set(name, value)` | Any option by its dotted name: `roster.set("terminal.size", "16pt")`. What `:config import-terminal` writes |
@@ -190,7 +190,7 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 
 ## Not in v1
 
-- Lua functions as actions or values. Hooks (`on_session_open`), custom `:` commands and finder sources come with Plugins (ticket 23).
+- Lua functions as actions or values in `init.lua`. Hooks, custom `:` commands and finder sources are for Plugins ([plugins.md](../plugins.md)).
 - A Settings screen (decision Q24).
 - Window size, recent Hosts and folded rows. Those are State, which the app keeps by itself.
 

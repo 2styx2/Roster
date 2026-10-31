@@ -864,4 +864,63 @@ export interface Backend {
   /** `host.review`: mark a Host reviewed (only that flag), as a Pending change; `reviewed: false`
    * (API 9) marks it unreviewed again, for a review made by mistake. */
   reviewHost(host: string, reviewed?: boolean): Promise<HostUpdate>;
+  /** Plugins (ticket 23, docs/plugins.md): the manifest of the Plugin folder at `path` (`~/…`,
+   * absolute, or under the config folder), for the permission prompt. Runs none of its code. */
+  pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
+  /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
+   * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
+  pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  /** Calls a function the Plugin handed over (`{handler}` in its ops). */
+  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
+  pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  /** Takes a Plugin out of the core. */
+  pluginUnload(plugin: string): Promise<boolean>;
 }
+
+/** A permission as the manifest asks for it, with what it allows and why it's risky (decision Q81). */
+export interface PluginPermission {
+  name: string;
+  summary: string;
+  risk: string | null;
+}
+
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description: string;
+  author: string | null;
+  /** The `roster.api_version` it was written for. */
+  api: number;
+  permissions: PluginPermission[];
+}
+
+/** An error in a Plugin: `recent-alerts: init.lua:12: message`. */
+export interface PluginErrorInfo {
+  plugin: string;
+  file: string | null;
+  line: number | null;
+  message: string;
+}
+
+/** What a Plugin answered: its function's result, the UI changes it asked for (untrusted data:
+ * plugins/ops.ts checks them), an error, and whether it's now disabled. */
+export interface PluginReply {
+  plugin: string;
+  result: unknown;
+  ops: unknown[];
+  error: PluginErrorInfo | null;
+  disabled: string | null;
+}
+
+/** The events a Plugin can listen for (roster-core's plugin::EVENTS). */
+export const PLUGIN_EVENTS = [
+  "lock",
+  "unlock",
+  "host_selected",
+  "session_open",
+  "session_exit",
+  "inventory_changed",
+  "terminal_output",
+] as const;
+export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

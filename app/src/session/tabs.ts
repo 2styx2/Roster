@@ -149,6 +149,8 @@ export class Tabs {
   private snap: TabsSnapshot = { tabs: [], active: null, previous: null };
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
+  /** Sees every Session's output as it arrives (Plugins with terminal.read, ticket 23). */
+  private outputTap: ((id: number, host: string, data: Uint8Array) => void) | null = null;
   private asksAboutKeys = true;
   private readonly now: () => number;
 
@@ -222,6 +224,12 @@ export class Tabs {
    * app shows the lock screen, then calls `resumeAfterUnlock`. */
   setVaultLockedHandler(handler: () => void) {
     this.onVaultLocked = handler;
+  }
+
+  /** Hands every Session's output to `tap` too (null stops it): what Plugins with terminal.read
+   * get. Only output: what's typed into a Session never goes there. */
+  setOutputTap(tap: ((id: number, host: string, data: Uint8Array) => void) | null) {
+    this.outputTap = tap;
   }
 
   /** Whether roster can be asked about a Host's key (API 11, ticket 36). Without it, roster's "no
@@ -423,6 +431,7 @@ export class Tabs {
           const text = this.keepTail(entry, data);
           this.scanForName(entry, text);
           this.output(entry, data);
+          this.outputTap?.(id, entry.tab.host, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
         },

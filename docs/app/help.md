@@ -96,7 +96,7 @@ What a guide in `docs/` needs so it reads well in `:help`, on GitHub, and stays 
 
 ## Plugins add pages
 
-Help pages are a registry (ADR 0006), like commands and Themes: `registries.help`. A page is an id (its topic), a title, a one-line summary, an order for the index and a function that returns its blocks: headings, paragraphs, lists, tables, code and entries, as plain data, never HTML. So a Plugin's page (ticket 23) looks like the built-in ones, gets its topics in the finder and in `:helpgrep`, and the index lists it under its source.
+Help pages are a registry (ADR 0006), like commands and Themes: `registries.help`. A page is an id (its topic), a title, a one-line summary, an order for the index and a function that returns its blocks: headings, paragraphs, lists, tables, code and entries, as plain data, never HTML. So a Plugin's page (`roster.help.set`, [plugins.md](../plugins.md)) looks like the built-in ones, gets its topics in the finder and in `:helpgrep`, and the index lists it under its source.
 
 ## See also
 
