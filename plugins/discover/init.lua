@@ -348,7 +348,7 @@ local function ask(targets)
   end
   if not ok and model.code(plan) == -32601 then
     roster.notify("Not scanned: the roster on this Box is too old to scan from the app (it needs roster "
-      .. "serve API 17). Update roster there, or run `roster discover` in a terminal.", "error")
+      .. "serve API 18). Update roster there, or run `roster discover` in a terminal.", "error")
     return
   elseif not ok then
     roster.notify("Not scanned: " .. model.message(plan), "error")
@@ -458,7 +458,7 @@ roster.health.set("discover", {
     end
     local ok, plan = pcall(call, "discover.plan", { targets = { "10.0.0.0/30" } })
     if not ok and model.code(plan) == -32601 then
-      return { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 17)",
+      return { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 18)",
         fix = "Update roster on this Box; `roster discover` in a terminal works meanwhile" } }
     elseif not ok then
       return { { level = "error", message = "roster serve didn't answer discover.plan: " .. model.message(plan) } }

@@ -1185,6 +1185,10 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 /* Its lines scroll and its buttons stay at the foot, however many lines it has (ticket 78). */
 .side-panel.plugin-float { display: flex; flex-direction: column; overflow: hidden; }
+/* A Plugin's question and float come over a full view (z-index 6) as well as the terminal: a Cut
+   asked from the Mesh controls' full view must be seen before it's typed (ticket 50). */
+.side-panel.plugin-confirm { position: relative; }
+.screen .side-panel.plugin-confirm, .screen .side-panel.plugin-float { z-index: 7; }
 .side-panel.plugin-float > header, .plugin-float-foot, .plugin-float > .panel-foot { flex: none; }
 .plugin-float-lines {
   flex: 0 1 auto; min-height: 0; overflow: auto;

@@ -28,7 +28,8 @@ pub enum Permission {
 
 /// The serve methods a Plugin may be granted by name: none of them touches a secret.
 pub const SERVE_METHODS: &[&str] = &["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"];
-/// The grantable methods that only read: every other one is flagged in the install prompt.
+/// The grantable methods that change nothing (read, or stop a Mesh job before its next Host): every
+/// other one is flagged in the install prompt.
 const READS: &[&str] = &[
     "inventory.info",
     "hosts.list",
@@ -36,6 +37,8 @@ const READS: &[&str] = &[
     "changes.diff",
     "mesh.status",
     "mesh.plan",
+    "mesh.job",
+    "mesh.stop",
     "discover.plan",
     "discover.status",
     "discover.stop",

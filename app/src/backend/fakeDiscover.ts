@@ -449,7 +449,7 @@ function load(roster: FakeRoster) {
     }
     if (!ok && codeOf(plan) === -32601) {
       roster.notify(
-        "Not scanned: the roster on this Box is too old to scan from the app (it needs roster serve API 17). Update roster there, or run `roster discover` in a terminal.",
+        "Not scanned: the roster on this Box is too old to scan from the app (it needs roster serve API 18). Update roster there, or run `roster discover` in a terminal.",
         "error",
       );
       return;
@@ -539,7 +539,7 @@ function load(roster: FakeRoster) {
         return [
           {
             level: "error",
-            message: "roster on this Box can't scan from the app (it needs roster serve API 17)",
+            message: "roster on this Box can't scan from the app (it needs roster serve API 18)",
             fix: "Update roster on this Box; `roster discover` in a terminal works meanwhile",
           },
         ];

@@ -94,6 +94,7 @@ describe("the error catalog", () => {
   it("gives the Mesh's code its row (docs/app/errors.md row 73, ticket 39)", () => {
     expect(rowFor(rows, 110)).toMatchObject({ row: 73, id: "mesh-not-a-source" });
     expect(rowFor(rows, 110).where).toContain("roster.yml");
+    expect(rowFor(rows, 111)).toMatchObject({ row: 93, id: "mesh-busy" });
   });
 
   it("puts git's own words from roster's data.details under Details", () => {

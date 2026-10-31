@@ -3,7 +3,7 @@
   "permissions": ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"],
   "serve_methods": ["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"],
   "serve_prefixes": ["mesh.", "discover."],
-  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan", "discover.plan", "discover.status", "discover.stop"],
+  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan", "mesh.job", "mesh.stop", "discover.plan", "discover.status", "discover.stop"],
   "serve_user_only": ["discover.start", "discover.add"],
   "serve": {
     "serve:discover.start": { "summary": "Scan a network you name, from this computer", "risk": "Can scan networks from this computer, once you've confirmed it: roster connects to every address in a range, on many ports. A network's security tools may take a scan for an attack, so scan only networks you may." },

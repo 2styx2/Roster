@@ -16,7 +16,7 @@ The scan runs in `roster serve` on the Box, never in the app or in this Plugin's
 | Floating window | A found address's details: its DNS name, the name it gets, the guessed type, hardware and OS when nmap found them, every open port with its product, and a link to its web page |
 | Status bar | The scan's progress, with a stop button (`:cancel scan` does the same) |
 | Notices | When the scan ends ("Scan done: 12 Hosts answered, 9 new"), and when Hosts were added |
-| `:check` | A **Discover** section: whether this Box's roster can scan (serve API 17), with nmap or the built-in scanner, and which permissions are missing. It asks `discover.plan`, which connects nowhere |
+| `:check` | A **Discover** section: whether this Box's roster can scan (serve API 18), with nmap or the built-in scanner, and which permissions are missing. It asks `discover.plan`, which connects nowhere |
 | Help | `:help discover` |
 
 A view holds 10,000 rows; a scan that finds more says so and keeps the first 10,000. Results live in memory: they're gone when the app restarts or `roster serve` does.
@@ -54,7 +54,7 @@ packages = {
 
 Then `:source`. The app clones roster's repo, loads the Plugin from `plugins/discover` and asks first, with every permission above. Allow pins the commit in `roster.lock`. Add `tag = "vX.Y.Z"` to stay on a release.
 
-It needs `roster serve` API 17 on the Box (a roster with `discover.*`). With an older one, a scan says to update roster, and `:check` says so too. A setting it can't use is named in a notice, and the default is used instead.
+It needs `roster serve` API 18 on the Box (a roster with `discover.*`). With an older one, a scan says to update roster, and `:check` says so too. A setting it can't use is named in a notice, and the default is used instead.
 
 ## How it's made
 

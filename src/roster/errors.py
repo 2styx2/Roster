@@ -106,6 +106,8 @@ WOULD_CHANGE = 103          # host.move / group.delete: the Host would come out 
 # The Mesh (ticket 39, decision Q63). roster.yml's mesh:/links: that don't load are 1, an unknown Host 2.
 NOT_A_SOURCE = 110          # mesh.plan / mesh.apply: rotate names a Host that isn't a Mesh source (has no Mesh key);
                             #   data.hosts
+MESH_BUSY = 111             # mesh.plan / mesh.apply / mesh.cut while a Mesh job (background: true) still runs;
+                            #   data.job, data.action
 
 # Discover in roster serve (ticket 44): a scan of a network, run in the background. A bad target is -32602.
 SCAN_RUNNING = 120          # discover.start: a scan is going already (one at a time); data.scan

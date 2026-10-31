@@ -442,6 +442,7 @@ export function fakePluginHost(
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
+    // As runtime.rs: `roster.serve` with any serve: grant, each call checked against its own.
     if ([...r.grants].some((g) => g.startsWith("serve:"))) {
       m.serve = {
         call: (method, params = {}) => {
@@ -450,8 +451,8 @@ export function fakePluginHost(
           try {
             return serve(method, params);
           } catch (e) {
-            if (e instanceof BackendCallError) throw new Error(`roster.serve.call ${method}: ${e.message} (code ${e.code})`, { cause: e });
-            throw e;
+            const text = e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e);
+            throw new Error(`roster.serve.call ${method}: ${text}`, { cause: e });
           }
         },
       };

@@ -68,7 +68,8 @@ import type { KeymapOverrides } from "../keymap";
 import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
 import { discoverPlugin, fakeDiscoverServe, hugeNet, smallNet, type FakeNet } from "./fakeDiscover";
 import { recentAlerts } from "./fakeRecentAlerts";
-import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
+import { MESH_OTHERS, MESH_PERMISSIONS, meshLab, meshPlugin, meshServe, type MeshWorld } from "./fakeMesh";
+import { described, fakePluginHost, type FakePlugin, type FakeServe } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
   HOST_KEY_CHANGED_OUTPUT,
@@ -179,11 +180,13 @@ export interface FakeScenario {
   logs?: Record<string, string[]>;
   /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
   plugins?: Record<string, FakePlugin>;
-  /** Ticket 44 (API 17): what a scan from roster serve finds (`discover.*`, for the discover Plugin).
-   * Without it, roster serve has no discover methods, as a roster older than API 17. */
+  /** Ticket 44 (API 18): what a scan from roster serve finds (`discover.*`, for the discover Plugin).
+   * Without it, roster serve has no discover methods, as a roster older than API 18. */
   discover?: FakeNet;
   /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
   packages?: FakePackages;
+  /** Ticket 50: roster serve's Mesh methods (API 17), for the Mesh controls Plugin. */
+  mesh?: MeshWorld;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -551,6 +554,11 @@ export const fixtures: Record<string, FakeScenario> = {
   discover: discoverCase(smallNet("host-03"), 64),
   /** discover's worst case: a /16 where 12,000 answer (`:discover 10.0.0.0/16`), long names and titles. */
   "discover-worst": discoverCase(hugeNet(), 22000),
+  /** Ticket 50: the Mesh controls (plugins/mesh) installed as a Package with every permission, on a
+   * meshed group of 4 Hosts that's out of date, with a no-via Link. `:mesh`, `:mesh plan`, `:info esx-02`. */
+  mesh: meshCase({ lab: 4, ticks: 3 }),
+  /** The same, worst case: 500 Hosts in the meshed group (249,501 Links), the long names among them. */
+  "mesh-worst": meshCase({ lab: 500, ticks: 3, name: (i) => (i % 97 === 5 ? `${LONG_NAME_OPEN}-${i}` : i % 89 === 7 ? `خادم-الإنتاج-${i}` : `lab-${String(i).padStart(3, "0")}`) }),
   /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
    * Sessions (default 12) whose shells print `&rate=R` log lines a second (default 100). */
   perf: perfCase(),
@@ -598,6 +606,19 @@ function recentAlertsCase(): FakeScenario {
   };
 }
 
+/** roster serve's answers to Plugins (`roster.serve.call`): the Mesh's and Discover's stand-ins,
+ * each only when the scenario has one, as an older roster has neither. */
+function pluginServe(scenario: FakeScenario): FakeServe | undefined {
+  const mesh = scenario.mesh ? meshServe(scenario.mesh) : undefined;
+  const discover = scenario.discover ? fakeDiscoverServe(scenario.discover) : undefined;
+  if (!mesh && !discover) return undefined;
+  return (method, params) => {
+    const serve = method.startsWith("mesh.") ? mesh : method.startsWith("discover.") ? discover : undefined;
+    if (!serve) throw new BackendCallError(`unknown method '${method}'`, -32601);
+    return serve(method, params);
+  };
+}
+
 /** `?fixture=discover` (ticket 44): plugins/discover installed as a Package from roster's repo
  * and granted, with roster serve answering discover.* from `found`, `step` addresses a poll. */
 function discoverCase(found: FakeNet["found"], step: number): FakeScenario {
@@ -605,15 +626,39 @@ function discoverCase(found: FakeNet["found"], step: number): FakeScenario {
   const permissions = discoverPlugin().manifest.permissions;
   return {
     hosts: makeHosts(12),
-    apiVersion: 17,
+    apiVersion: 18,
     vault: { status: "unsupported" },
     discover: { found, step },
     packages: {
-      named: [{ name: "discover", source: "https://github.com/2styx2/roster", config: { ranges: ["10.0.0.0/24"] }, versions: [{ commit, subject: "discover 1.0.0", plugin: discoverPlugin(), diff: "" }] }],
+      named: [{ name: "discover", source: "https://github.com/2styx2/roster", dir: "plugins/discover", config: { ranges: ["10.0.0.0/24"] }, versions: [{ commit, subject: "discover 1.0.0", plugin: discoverPlugin(), diff: "" }] }],
       lock: { discover: commit },
       clones: { discover: commit },
     },
     app: { state: { plugins: [{ path: "package:discover", name: "discover", granted: permissions, asked: permissions }] } },
+  };
+}
+
+/** `?fixture=mesh` (ticket 50): plugins/mesh installed from roster's repo with `dir`, granted
+ * everything it asks for, and a stand-in serve whose Mesh `world` describes. */
+function meshCase(world: MeshWorld): FakeScenario {
+  const commit = fakeCommit(5);
+  const lab = meshLab(world);
+  const names = [...lab, ...MESH_OTHERS];
+  const base = makeHosts(names.length);
+  const hosts: HostList = {
+    hosts: base.hosts.map((h, i) => ({ ...h, name: names[i] ?? h.name, group: i < lab.length ? "lab" : "far", reviewed: true })),
+    groups: { lab: { title: "Meshed: every Host reaches every other", description: "" }, far: { title: "Another network", description: "" } },
+  };
+  return {
+    hosts,
+    vault: { status: "unsupported" },
+    mesh: world,
+    packages: {
+      named: [{ name: "mesh", source: "https://github.com/2styx2/roster", dir: "plugins/mesh", versions: [{ commit, subject: "v0.3.0", plugin: meshPlugin(), diff: "" }] }],
+      lock: { mesh: commit },
+      clones: { mesh: commit },
+    },
+    app: { state: { plugins: [{ path: "package:mesh", name: "mesh", granted: MESH_PERMISSIONS, asked: MESH_PERMISSIONS }] } },
   };
 }
 
@@ -1844,7 +1889,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
-    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, scenario.discover ? fakeDiscoverServe(scenario.discover) : undefined),
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, pluginServe(scenario)),
     ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,

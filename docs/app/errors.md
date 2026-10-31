@@ -176,6 +176,7 @@ Cases 8–10 and 18 used to show only `roster askpass: …` followed by `Permiss
 | 84 | none (a Link's status) | A Link has `via: HOST`, but its source has no Link to that Host (`no-via`) | `roster.yml` | "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })" | Add the Link it names, or take `via:` off; the Link is left out until then |
 | 85 | none (a Link's status) | A hop doesn't answer: the source can't reach its `via` Host's port, or the `via` Host can't reach the peer's | Network | "jump-1 can't reach 10.0.9.9:22 (orion-3's hop to db-9)" | Check routing and firewalls between the two it names, then apply again |
 | 86 | none (a Host's status) | A source's `mesh_dir:` can't be used there: on ESXi not on a datastore, its parent missing, not writable, or it holds files that aren't roster's | `roster.yml` / Host | "mesh_dir /opt/mesh isn't on a datastore (/vmfs/volumes/...)" | Point `mesh_dir:` at a directory of the Mesh's own (on ESXi, on a datastore); the Host stays pending until then |
+| 93 | 111 | A Mesh plan, apply or cut while a Mesh job still runs (from the Mesh controls, say): two at once would fight over the Hosts | roster | "a Mesh apply is still running (job 4): wait for it, or stop it" | Wait for the job (its progress is in the status bar), or stop it with `:cancel mesh`; then run it again |
 
 ## Packages
 
@@ -214,14 +215,14 @@ Scanning a network from the app with the first-party [discover](../../plugins/di
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
-| 93 | -32602 | A range that isn't an IP address or network (`:discover esx-02`, `10.0.0.0/33`) | What you typed | "'esx-02' isn't an IP address or network (e.g. 10.0.0.0/24)" | Name a network or an address |
-| 94 | 121 | More than 65,536 addresses (over 4,096, the question asks you to type the range first) | What you typed | "that's 131,070 addresses; a scan visits at most 65,536" | Scan a smaller range, a /16 at most |
-| 95 | 120 | A scan is going already (one at a time, per `roster serve`) | This Box | "a scan of 10.0.0.0/24 is going already" | Wait for it, or `:discover stop` |
-| 96 | none (the scan's `error`) | nmap failed: not allowed, a bad option, killed | This Box | "The scan of 10.0.0.0/24 failed: nmap failed: …" | See nmap's words; `roster discover` in a terminal shows the same |
-| 97 | 122 | `roster serve` restarted during a scan (its scans don't outlive it) | This Box | "The scan of 10.0.0.0/24 failed: no scan 'scan-1' here" | Scan again |
-| 98 | 123 | An address can't be added: the scan didn't find it, or it's in the Inventory or added already | The Inventory | "Nothing was added: 10.0.0.5: in the Inventory already" | Keep only the new ones |
-| 99 | 70, 74, 100 | Adding: `roster.yml` isn't in a git repo, the result wouldn't load, or the `group` setting names a group that's there | `roster.yml` / init.lua | "Nothing was added: … isn't in a git repo, so it can't have Pending changes" | As for any Pending change; name a new group in the `group` setting |
-| 100 | -32601 | The Box's roster is older than serve API 17: it has no `discover.*` | This Box | "Not scanned: the roster on this Box is too old to scan from the app" | Update roster on the Box; `roster discover` works meanwhile |
+| 94 | -32602 | A range that isn't an IP address or network (`:discover esx-02`, `10.0.0.0/33`) | What you typed | "'esx-02' isn't an IP address or network (e.g. 10.0.0.0/24)" | Name a network or an address |
+| 95 | 121 | More than 65,536 addresses (over 4,096, the question asks you to type the range first) | What you typed | "that's 131,070 addresses; a scan visits at most 65,536" | Scan a smaller range, a /16 at most |
+| 96 | 120 | A scan is going already (one at a time, per `roster serve`) | This Box | "a scan of 10.0.0.0/24 is going already" | Wait for it, or `:discover stop` |
+| 97 | none (the scan's `error`) | nmap failed: not allowed, a bad option, killed | This Box | "The scan of 10.0.0.0/24 failed: nmap failed: …" | See nmap's words; `roster discover` in a terminal shows the same |
+| 98 | 122 | `roster serve` restarted during a scan (its scans don't outlive it) | This Box | "The scan of 10.0.0.0/24 failed: no scan 'scan-1' here" | Scan again |
+| 99 | 123 | An address can't be added: the scan didn't find it, or it's in the Inventory or added already | The Inventory | "Nothing was added: 10.0.0.5: in the Inventory already" | Keep only the new ones |
+| 100 | 70, 74, 100 | Adding: `roster.yml` isn't in a git repo, the result wouldn't load, or the `group` setting names a group that's there | `roster.yml` / init.lua | "Nothing was added: … isn't in a git repo, so it can't have Pending changes" | As for any Pending change; name a new group in the `group` setting |
+| 101 | -32601 | The Box's roster is older than serve API 18: it has no `discover.*` | This Box | "Not scanned: the roster on this Box is too old to scan from the app" | Update roster on the Box; `roster discover` works meanwhile |
 
 ## This Box's health
 
