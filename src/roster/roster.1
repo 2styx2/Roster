@@ -218,7 +218,7 @@ how long to wait for the answer (default: 30)
 .PP
 \fBroster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [{cut,status}] [HOST]\fR
 .PP
-Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change. See The Mesh
+Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. A Link's \fBvia: HOST\fR goes through a jump Host (\fBProxyJump\fR), tested through it. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change. See The Mesh
 .TP
 \fBACTION\fR
 cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)
@@ -295,7 +295,7 @@ What Claude reads, written next to \fBroster.yml\fR by \fBsetup\fR and \fBsync\f
 \fB~/.config/roster/mesh.json\fR
 What \fBroster mesh\fR couldn't finish (pending Hosts, cuts pending) and when it last applied, on this box
 .TP
-\fB~/.ssh/roster\-mesh/\fR, \fB~/ROSTER.md\fR (on Hosts)
+\fB~/.ssh/roster\-mesh/\fR (or the Host's \fBmesh_dir:\fR; on ESXi, \fB\&.roster\-mesh\fR on a datastore), \fB~/ROSTER.md\fR (on Hosts)
 A Mesh source's key, known hosts, ssh config and its peers for Claude, written by \fBroster mesh\fR (The Mesh)
 .TP
 \fB$XDG_RUNTIME_DIR/roster/\fR
