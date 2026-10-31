@@ -54,7 +54,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## Signing out
 
-"Use a different account" on the lock screen and `:vault signout` sign the vault CLI out through roster's `vault.logout` (roster's docs/serve-api.md "Signing out"), after asking "Sign out of you@example.com on this Box?". roster forgets every secret it holds first (askpass tokens, typed passwords held for "Save to vault", session keys), then runs `bw logout`, so a failure here never leaves a secret behind. The lock screen shows the message in place of the question; Esc goes back to the unlock form.
+"Use a different account" on the lock screen and `:vault signout` sign the vault CLI out through roster's `vault.logout` (roster's docs/serve-api.md "Signing out"), after asking "Sign out of you@example.com on this Box?". roster forgets every secret it holds first (askpass tokens, typed passwords held for "Save to vault", session keys), then runs `bw logout`, so a failure here never leaves a secret behind. The lock screen shows the message in place of the question; Esc goes back to the unlock form. After `:vault signout` the app locks and shows the message above the unlock form, with "Use a different account" still there to try again.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|

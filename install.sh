@@ -135,6 +135,7 @@ pkg_install() {                 # pkg_install name... with the box's package man
 
 mkdir -p "$(dirname "$LOG")"
 (( DRY )) || : > "$LOG"
+USER_PATH=$PATH                 # the PATH this shell had, before the lines below add to it for this run
 export PATH="$HOME/.local/bin:$PATH"
 [[ -n $PREFIX ]] && export PATH="$PREFIX/bin:$PATH"
 
@@ -195,19 +196,25 @@ else
 fi
 if have roster && ! ask "roster $(roster --version 2>/dev/null | awk '{print $NF}') is installed. Reinstall from $src?" Y; then
     skip "kept the installed roster"
-# The man page goes next to the command, PREFIX/share/man/man1 beside PREFIX/bin: man finds it from PATH.
+    bindir=${PREFIX:+$PREFIX/bin}; bindir=${bindir:-$(dirname "$(command -v roster)")}
 elif bindir=${PREFIX:+$PREFIX/bin}; bindir=${bindir:-$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")}
      step "install roster (uv tool install) into $bindir" \
         env "UV_TOOL_BIN_DIR=$bindir" uv tool install --force --quiet "$src"; then
-    page="$(dirname "$bindir")/share/man/man1/roster.1"
-    step "install the man page (man roster)" sh -c 'mkdir -p "$(dirname "$1")" && cp "$2" "$1"' _ \
-        "$page" "$src/src/roster/roster.1" || warn "no man page; roster man shows it"
     done_stage
-    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) warn "add ~/.local/bin to PATH (stage 6 does it)";; esac
-    [[ -n $PREFIX ]] && warn "add $PREFIX/bin to PATH yourself"
 else
     fail_stage; exit 1
 fi
+# The man page goes next to the command, PREFIX/share/man/man1 beside PREFIX/bin: man finds it from PATH. Kept or
+# reinstalled, so a roster from before the man page gets it too.
+page="$(dirname "$bindir")/share/man/man1/roster.1"
+step "install the man page (man roster)" sh -c 'mkdir -p "$(dirname "$1")" && cp "$2" "$1"' _ \
+    "$page" "$src/src/roster/roster.1" || warn "no man page; roster man shows it"
+case ":$USER_PATH:" in
+    *":$bindir:"*) ;;
+    *":${bindir%/}/:"*) ;;
+    *) if [[ $bindir == "$HOME/.local/bin" ]]; then warn "add ~/.local/bin to PATH (stage 6 does it)"
+       else warn "add $bindir to PATH yourself"; fi ;;
+esac
 
 # 4. Bitwarden CLI
 stage 4

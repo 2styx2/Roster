@@ -3,17 +3,20 @@
 //! only http and https, with a host, nothing a shell or ShellExecute could read as anything else,
 //! and never a user or password in it (a secret never travels in a URL).
 
-/// The URL if it's one to hand the default browser, else why not.
+/// The URL if it's one to hand the default browser, else why not. The frontend's `webUrl`
+/// (app/src/details/details.ts) is the same rule, tested on the same table
+/// (tests/fixtures/web-urls.json): printable ASCII only, no `"` or `\`, `http://` or `https://`
+/// exactly as written (lowercase, both slashes), no user or password, a host, and a port of
+/// 1 to 65535 if there's a colon.
 pub fn checked_url(url: &str) -> Result<&str, String> {
     let refuse = |why: &str| Err(format!("won't open {url:?}: {why}"));
-    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return refuse("it has spaces or control characters in it");
+    if url.chars().any(|c| !c.is_ascii_graphic()) {
+        return refuse("it has spaces, control characters or non-ASCII characters in it");
     }
-    let rest = if let Some(r) = url.strip_prefix("https://") {
-        r
-    } else if let Some(r) = url.strip_prefix("http://") {
-        r
-    } else {
+    if url.contains(['"', '\\']) {
+        return refuse("it has characters a URL never needs");
+    }
+    let Some(rest) = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")) else {
         return refuse("only http and https URLs open in the browser");
     };
     // The authority ends at the first /, ? or #.
@@ -21,21 +24,30 @@ pub fn checked_url(url: &str) -> Result<&str, String> {
     if authority.contains('@') {
         return refuse("it has a user or password in it");
     }
-    let host = authority.rsplit_once(':').map_or(authority, |(h, port)| {
-        // An IPv6 literal's colons are inside its brackets.
-        if h.starts_with('[') && !h.ends_with(']') {
-            authority
-        } else if port.chars().all(|c| c.is_ascii_digit()) {
-            h
-        } else {
-            authority
+    let (host, port) = if let Some(inner) = authority.strip_prefix('[') {
+        // An IPv6 literal: its colons are inside its brackets.
+        match inner.split_once(']') {
+            Some((host, "")) => (host, None),
+            Some((host, after)) => match after.strip_prefix(':') {
+                Some(port) => (host, Some(port)),
+                None => return refuse("it has no host"),
+            },
+            None => return refuse("it has no host"),
         }
-    });
-    if host.is_empty() || host == "[]" {
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
+    };
+    if host.is_empty() {
         return refuse("it has no host");
     }
-    if url.starts_with('-') || url.contains('"') {
-        return refuse("it has characters a URL never needs");
+    if let Some(port) = port {
+        let digits = !port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit());
+        if !digits || port.parse::<u32>().map_or(true, |p| p == 0 || p > 65535) {
+            return refuse("its port isn't a number from 1 to 65535");
+        }
     }
     Ok(url)
 }
@@ -77,6 +89,26 @@ fn spawn(program: &str, url: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::checked_url;
+
+    /// The table the frontend's `webUrl` runs too (app/src/details/details.test.ts).
+    fn cases(kind: &str) -> Vec<String> {
+        let table: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/web-urls.json")).unwrap();
+        serde_json::from_value(table[kind].clone()).unwrap()
+    }
+
+    #[test]
+    fn agrees_with_the_frontend() {
+        for url in cases("open") {
+            assert_eq!(checked_url(&url), Ok(url.as_str()), "{url:?} should open");
+        }
+        for url in cases("refuse") {
+            assert!(checked_url(&url).is_err(), "{url:?} should be refused");
+        }
+        for url in cases("login") {
+            let err = checked_url(&url).unwrap_err();
+            assert!(err.contains("user or password"), "{url:?}: {err}");
+        }
+    }
 
     #[test]
     fn takes_http_and_https_urls() {
