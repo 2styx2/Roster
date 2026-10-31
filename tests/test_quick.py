@@ -118,7 +118,9 @@ def test_a_fingerprint_the_user_wasnt_shown_is_refused(app, sshd, unknown, isola
     err = app.call("quick.prepare", to(sshd, fingerprint=shown, password=SECRET))["error"]
     assert err["code"] == 23
     assert err["message"] == f"root@127.0.0.1:{sshd.port}'s host key changed while roster was asking - not connecting"
-    assert err["data"]["asked"] == shown and err["data"]["offered"] == fingerprint(sshd.key) and err["data"]["fix"]
+    assert err["data"]["asked"] == shown and err["data"]["offered"] == fingerprint(sshd.key)
+    assert err["data"]["fix"] == ("don't trust it blindly: compare the new fingerprint with the box's console or "
+                                  "owner, then Quick Connect again to see it")
     assert known_hosts(isolated).read_text() == ""
 
 

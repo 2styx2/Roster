@@ -499,24 +499,36 @@ def host_trust_key(state, params):
     36, decision Q60). It fetches the key again first and records it only if the Host still offers exactly that
     fingerprint (else 23); a key that differs from one already recorded is never trusted here (43, Q44)."""
     h = known_host(state, params)
-    asked = params.get("fingerprint")
-    if not isinstance(asked, str) or not asked.startswith("SHA256:"):
-        raise RpcError(INVALID_PARAMS, "params.fingerprint must be the SHA256:... fingerprint the user was shown")
+    asked = asked_fingerprint(params)
     key, recorded = diagnose.offered_key(h)
     if recorded == "changed":
         raise diagnose.changed_key(h, recorded_host_keys(h), key)
-    offered = fingerprint(key)
-    if offered != asked:
-        raise RpcError(HOST_KEY_CHANGED_WHILE_ASKED,
-                       f"{h['name']}'s host key changed while roster was asking - nothing was recorded",
-                       {"asked": asked, "offered": offered},
-                       fix="don't trust it blindly: compare the new fingerprint with the Host's console or owner, "
-                           "then open the Session again to see it",
-                       details=f"asked about {asked}; now offered {key.get_name()} {offered}")
+    offered = still_offered(asked, key, h["name"], "nothing was recorded", "Host", "open the Session again")
     if recorded == "none":
         record_host_key(h, key.get_name(), key.get_base64())
     return {"host": h["name"], "address": h["ip"], "port": h["ssh"]["port"], "key_type": key.get_name(),
             "fingerprint": offered, "recorded": recorded == "none"}
+
+
+def asked_fingerprint(params):
+    """params.fingerprint: the key the user was shown (host.scan_key) and answered about."""
+    asked = params.get("fingerprint")
+    if not isinstance(asked, str) or not asked.startswith("SHA256:"):
+        raise RpcError(INVALID_PARAMS, "params.fingerprint must be the SHA256:... fingerprint the user was shown")
+    return asked
+
+
+def still_offered(asked, key, label, outcome, who, again):
+    """KEY's fingerprint, if it's still the one the user was asked about (ASKED); else 23: LABEL's key changed while
+    roster was asking, so OUTCOME (nothing recorded or started); the fix names the WHO to ask and how to ask AGAIN."""
+    offered = fingerprint(key)
+    if offered != asked:
+        raise RpcError(HOST_KEY_CHANGED_WHILE_ASKED, f"{label}'s host key changed while roster was asking - {outcome}",
+                       {"asked": asked, "offered": offered},
+                       fix=f"don't trust it blindly: compare the new fingerprint with the {who}'s console or owner, "
+                           f"then {again} to see it",
+                       details=f"asked about {asked}; now offered {key.get_name()} {offered}")
+    return offered
 
 
 # ---------------------------------------------------------------- Quick Connect (ticket 14)
@@ -552,9 +564,7 @@ def quick_prepare(state, params):
     changed since the user was asked (23) or differs from one roster recorded for the address (43), and 40-42 when
     it can't get there; nothing is kept on any error."""
     user, address, port = quick_target(params)
-    asked = params.get("fingerprint")
-    if not isinstance(asked, str) or not asked.startswith("SHA256:"):
-        raise RpcError(INVALID_PARAMS, "params.fingerprint must be the SHA256:... fingerprint the user was shown")
+    asked = asked_fingerprint(params)
     password = params.get("password")
     if password is not None and (not isinstance(password, str) or not password):
         raise RpcError(INVALID_PARAMS, "params.password must be a non-empty string, or left out to log in with "
@@ -576,14 +586,7 @@ def quick_prepare(state, params):
         p.data["fix"] = ("don't accept it blindly: compare the new fingerprint with the box's console or owner. If "
                          "the change is expected (reinstall), delete its line in ~/.ssh/roster_known_hosts")
         raise p
-    offered = fingerprint(key)
-    if offered != asked:
-        raise RpcError(HOST_KEY_CHANGED_WHILE_ASKED,
-                       f"{label}'s host key changed while roster was asking - not connecting",
-                       {"asked": asked, "offered": offered},
-                       fix="don't trust it blindly: compare the new fingerprint with the box's console or owner, "
-                           "then Quick Connect again to see it",
-                       details=f"asked about {asked}; now offered {key.get_name()} {offered}")
+    offered = still_offered(asked, key, label, "not connecting", "box", "Quick Connect again")
     qid = secrets.token_hex(8)
     alias = f"roster-quick-{qid}"
     known = state.askpass.known_hosts
@@ -734,6 +737,32 @@ def vault_forget_typed(state, params):
     return {"forgotten": forget_held(state, hid)}
 
 
+def holding_a_secret(what, method, state, params):
+    """Run a method that handles a password: an unexpected exception becomes 'WHAT failed: <its type>', so the
+    generic handler never logs text that might hold the password."""
+    try:
+        return method(state, params)
+    except (RpcError, SystemExit):
+        raise
+    except Exception as e:
+        raise RpcError(INTERNAL_ERROR, f"{what} failed: {type(e).__name__}") from None
+
+
+def save_held(state, repo, hid, password, item, change, what):
+    """Q43's order, once a held password's Session logged in with it: the Vault item (ITEM: make_item's other
+    arguments), then CHANGE(path) -> (old_text, new_text) written as a Pending change, the item taken back out if that
+    fails (WHAT: what then wasn't done); then the password is forgotten. Returns (the item, the backup's path)."""
+    made = make_item(password=password, **item)
+    try:                                        # until roster.yml is written, any failure takes the item back out
+        old_text, new_text = change(repo.path)
+        backup = repo.backup(old_text)
+        edit.replace_file(repo.path, new_text)
+    except BaseException as e:
+        raise take_back(made, write_failed(what, repo.path, e)) from None
+    forget_held(state, hid)
+    return made, backup
+
+
 def make_item(provider, item, password, user, address, port, save_to):
     """The Vault item for a password that just logged in: the user in its username field, ssh://address[:port] in
     its URI field. Raises the write_problem (60-65, 14) when the vault refuses."""
@@ -758,12 +787,7 @@ def quick_save(state, params):
     the box as the Host NAME in GROUP (reviewed, enroll: false, its Login that item) as a Pending change, then the
     host key the user confirmed for the Session recorded for it. The item is taken back out if the Host can't be
     written. The password is forgotten once it's saved."""
-    try:
-        return save_quick(state, params)
-    except (RpcError, SystemExit):
-        raise
-    except Exception as e:                      # never let the generic handler log text that might hold the password
-        raise RpcError(INTERNAL_ERROR, f"saving the Quick Connect failed: {type(e).__name__}") from None
+    return holding_a_secret("saving the Quick Connect", save_quick, state, params)
 
 
 def save_quick(state, params):
@@ -786,14 +810,10 @@ def save_quick(state, params):
     state.fresh()
     repo = changes.Repo(state.path)
     _, _, h = edit.added(repo.path, group, name, fields)      # a dry run: the name and group, before the vault
-    made = make_item(provider, item, password, q["user"], q["address"], q["port"], save_to)
-    try:                                        # until the Host is written, any failure takes the item back out
-        old_text, new_text, _ = edit.added(repo.path, group, name, fields)
-        backup = repo.backup(old_text)
-        edit.replace_file(repo.path, new_text)
-    except BaseException as e:
-        raise take_back(made, write_failed(name, repo.path, e)) from None
-    forget_held(state, hid)
+    made, backup = save_held(state, repo, hid, password,
+                             {"provider": provider, "item": item, "user": q["user"], "address": q["address"],
+                              "port": q["port"], "save_to": save_to},
+                             lambda path: edit.added(path, group, name, fields)[:2], f"{name} wasn't added")
     warnings = []
     try:                                        # the key the user confirmed for this Session, never a fresh scan
         record_host_key(h, q["key_type"], q["base64"])
@@ -810,12 +830,7 @@ def host_save_login(state, params):
     item `<host> ssh`, then the Host's Login pointed at it, as a Pending change (comments and every other byte kept).
     The item is taken back out if the Host can't be changed. Refused (75) if the Host's address, user, port or Login
     changed since that Session logged in: it would save a password for a login nobody tested."""
-    try:
-        return save_login(state, params)
-    except (RpcError, SystemExit):
-        raise
-    except Exception as e:                      # never let the generic handler log text that might hold the password
-        raise RpcError(INTERNAL_ERROR, f"saving the Login failed: {type(e).__name__}") from None
+    return holding_a_secret("saving the Login", save_login, state, params)
 
 
 def save_login(state, params):
@@ -833,18 +848,10 @@ def save_login(state, params):
     wanted = {"auth": f"{provider}:{item}"}
     repo = changes.Repo(state.path)
     edit.edited(repo.path, name, wanted)        # a dry run: the edit must be possible before the vault is touched
-    made = make_item(provider, item, password, h["ssh"]["user"], h["ip"], h["ssh"]["port"], save_to)
-    try:                                        # until the Login is written, any failure takes the item back out
-        old_text, new_text, _ = edit.edited(repo.path, name, wanted)
-        backup = repo.backup(old_text)
-        edit.replace_file(repo.path, new_text)
-    except BaseException as e:
-        problem = e if isinstance(e, Problem) else Problem(
-            ROSTER_ERROR, f"{name}'s Login wasn't changed: "
-                          + (die_message(e) if isinstance(e, SystemExit) else
-                             f"couldn't write {repo.path} ({failure_text(e)})"))
-        raise take_back(made, problem) from None
-    forget_held(state, hid)
+    made, backup = save_held(state, repo, hid, password,
+                             {"provider": provider, "item": item, "user": h["ssh"]["user"], "address": h["ip"],
+                              "port": h["ssh"]["port"], "save_to": save_to},
+                             lambda path: edit.edited(path, name, wanted)[:2], f"{name}'s Login wasn't changed")
     state.reload()
     return {"changed": True, "host": state.inventory()["hosts"][name], "backup": str(backup), "item": made,
             "warnings": []}
@@ -868,12 +875,7 @@ def host_add(state, params):
     a password typed into the form) it's a verified add (Q43): the test login first; then, for a typed password,
     the Vault item; then the Host. Nothing is written when the test login fails, and the item is taken back out
     when writing the Host fails. Without a Login the Host goes in unreviewed, as discover adds them."""
-    try:
-        return add_host(state, params)
-    except (RpcError, SystemExit):
-        raise
-    except Exception as e:                      # never let the generic handler log text that might hold the password
-        raise RpcError(INTERNAL_ERROR, f"adding the Host failed: {type(e).__name__}") from None
+    return holding_a_secret("adding the Host", add_host, state, params)
 
 
 def add_host(state, params):
@@ -916,7 +918,7 @@ def add_host(state, params):
         backup = repo.backup(old_text)
         edit.replace_file(repo.path, new_text)
     except BaseException as e:
-        raise take_back(made, write_failed(name, repo.path, e)) from None
+        raise take_back(made, write_failed(f"{name} wasn't added", repo.path, e)) from None
     warnings = []                               # the Host is in roster.yml now: what follows can't un-add it
     if verify and verify.get("host_key"):
         k = verify["host_key"]
@@ -937,13 +939,14 @@ def failure_text(e):
     return type(e).__name__
 
 
-def write_failed(name, path, e):
-    """Writing the Host failed: as a Problem (a Problem or a die() keeps its own words)."""
+def write_failed(what, path, e):
+    """Writing roster.yml failed, so WHAT ("nas wasn't added"): as a Problem (a Problem or a die() keeps its own
+    words)."""
     if isinstance(e, Problem):
         return e
     if isinstance(e, SystemExit):
-        return Problem(ROSTER_ERROR, f"{name} wasn't added: {die_message(e)}")
-    return Problem(ROSTER_ERROR, f"{name} wasn't added: couldn't write {path} ({failure_text(e)})")
+        return Problem(ROSTER_ERROR, f"{what}: {die_message(e)}")
+    return Problem(ROSTER_ERROR, f"{what}: couldn't write {path} ({failure_text(e)})")
 
 
 def verify_failed(name, verify):

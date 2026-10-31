@@ -140,6 +140,7 @@ def test_a_failure_updating_the_host_takes_the_new_item_back_out(prompted, sshd,
         monkeypatch.setattr(edit, "replace_file", lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left")))
         r = call("host.save_login", {"held": spec["held"]})
     err = r["error"]
+    assert err["message"].startswith("pve's Login wasn't changed: couldn't write ")
     assert "No space left" in err["message"] and "the vault item 'pve ssh' was taken back out" in err["message"]
     nothing_written(prompted, vault)
     assert SECRET not in json.dumps(r)
