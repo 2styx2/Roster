@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from roster import askpass, providers
+from roster import askpass, errors, providers
 from roster import serve as rpc
 
 INVENTORY = """\
@@ -177,3 +177,55 @@ def test_every_secret_is_forgotten_before_the_cli_logs_out(bw, isolated, monkeyp
     assert r["result"]["status"] == "not-logged-in"
     assert seen == {"tokens": {}, "handed": {}, "held": {}, "typed": None, "session": None, "cached": {},
                     "unlocked": set(), "login": None}
+
+
+# ---- the cost: each bw call takes about a second
+
+def test_logout_asks_bw_status_once(bw, serve):
+    s = serve()
+    before = len(bw_calls(bw))
+    r = s.call("vault.logout")["result"]
+    assert r["status"] == "not-logged-in" and r["sign_in"]["server"] is None
+    during = [c[0] for c in bw_calls(bw)[before:]]
+    assert during.count("status") == 1 and during.count("logout") == 1
+    no_secrets(s, bw)
+
+
+def test_logout_names_a_self_hosted_server_without_asking_again(bw, serve):
+    bw["state"].write_text(json.dumps({"logged_in": True, "server": "https://vault.example.com", "email": EMAIL}))
+    s = serve()
+    r = s.call("vault.logout")["result"]
+    assert r["sign_in"]["server"] == "https://vault.example.com"
+    assert r["signed_out"] == {"email": EMAIL, "server": "https://vault.example.com"}
+    no_secrets(s, bw)
+
+
+def test_providers_without_an_account_are_refused_without_trying_to_log_out(bw, isolated, monkeypatch):
+    state = rpc.State(str(isolated["work"] / "roster.yml"))
+    tried = []
+    monkeypatch.setattr(providers, "logout", lambda name: tried.append(name))
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "vault.logout", "params": {"provider": "kp"}}))
+    err = r["error"]
+    assert err["code"] == 13 and "vault.kp.database in init.lua" in err["message"]
+    assert tried == []
+
+
+# ---- the shared error mapping says nothing only the app could act on
+
+@pytest.mark.parametrize("error", [providers.NotSignedIn("not signed in"), providers.SignOutFailed("`bw logout` failed")])
+def test_vault_problem_keeps_app_advice_out(error):
+    """errors.vault_problem is the CLI's too (diagnose.py): the lock screen's fix is serve's to add."""
+    problem = errors.vault_problem(error)
+    assert "lock screen" not in str(problem.fix or "")
+
+
+def test_a_failed_logout_carries_the_apps_fix(bw, isolated, monkeypatch):
+    state = rpc.State(str(isolated["work"] / "roster.yml"))
+
+    def refuse(ctx):
+        raise providers.SignOutFailed("`bw logout` failed: the server said no")
+
+    monkeypatch.setitem(providers.PROVIDERS["bw"], "logout", refuse)
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "vault.logout", "params": {}}))
+    assert r["error"]["code"] == 16
+    assert r["error"]["data"]["fix"] == "see the message; `roster bw logout` in a terminal shows the same"

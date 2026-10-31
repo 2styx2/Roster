@@ -4,6 +4,7 @@
 // A Login is shown as roster shows it: the user and the vault reference (`bw:esx-02 ssh`, the
 // Vault item's name). roster never sends a secret, and nothing here asks for one.
 import type { Host, HostList } from "../backend/types";
+import { parseQuickTarget } from "../quick/target";
 
 /** One line of the panel: roster info's label and value. `data`: something you could paste into
  * a shell (an address, a reference), so it's set in Iosevka. */
@@ -70,18 +71,39 @@ export function shownUrl(url: string): string {
   return url.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#@:]*):[^/?#@]*@/i, "$1:•••@");
 }
 
-/** The URL if it's one to hand the default browser: http or https, a host, nothing odd in it,
- * and no user or password in it (never pass a secret in a URL). Else null. */
+/** The URL if it's one to hand the default browser, else null. The same rule as the core's
+ * `checked_url` (crates/roster-core/src/browser.rs), which checks it again before the OS gets it,
+ * tested on the same table (crates/roster-core/tests/fixtures/web-urls.json), so a link shown here
+ * always opens: printable ASCII only, no `"` or `\`, `http://` or `https://` exactly as written
+ * (lowercase, both slashes), no user or password (never pass a secret in a URL), a host, and a
+ * port of 1 to 65535 if there's a colon. No URL parser: a browser's would quietly fix what the
+ * core refuses. */
 export function webUrl(url: string | null | undefined): string | null {
-  // Whitespace or a control character: not a URL roster would write (config.py refuses them).
-  if (!url || [...url].some((c) => /\s/.test(c) || c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f)) return null;
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return null;
+  if (!url || !/^[\x21-\x7e]+$/.test(url) || /["\\]/.test(url)) return null;
+  const scheme = url.startsWith("https://") ? "https://" : url.startsWith("http://") ? "http://" : null;
+  if (!scheme) return null;
+  // The authority ends at the first /, ? or #.
+  const authority = url.slice(scheme.length).split(/[/?#]/, 1)[0] ?? "";
+  if (authority.includes("@")) return null;
+  let host: string;
+  let port: string | null = null;
+  if (authority.startsWith("[")) {
+    // An IPv6 literal: its colons are inside its brackets.
+    const close = authority.indexOf("]");
+    if (close < 0) return null;
+    host = authority.slice(1, close);
+    const after = authority.slice(close + 1);
+    if (after !== "") {
+      if (!after.startsWith(":")) return null;
+      port = after.slice(1);
+    }
+  } else {
+    const colon = authority.indexOf(":");
+    host = colon < 0 ? authority : authority.slice(0, colon);
+    if (colon >= 0) port = authority.slice(colon + 1);
   }
-  if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.hostname || u.username || u.password) return null;
+  if (!host) return null;
+  if (port !== null && (!/^[0-9]{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535)) return null;
   return url;
 }
 
@@ -97,12 +119,22 @@ export type OpenTarget =
   | { kind: "web"; host: string; service: string; url: string }
   | { kind: "error"; message: string };
 
-/** What `:open ARG` means (decision Q71): a Host's name opens the Host (or goes to its Session), as
- * it always has; `HOST SERVICE` opens that Host's web service; a service's name alone opens it on
- * `current` (the Host details' Host, else the selected one). A Host's name wins over a service. */
-export function resolveOpen(arg: string, hosts: ReadonlyMap<string, Host>, current: string | null): OpenTarget {
+/** What `:open ARG` means (decision Q71): what opened before still does, first: a Host's name
+ * opens the Host (or goes to its Session), an open Session's host (`sessions`: a Quick Connect's
+ * `user@address`, a Host since gone from the Inventory) goes to that Session, and a Quick Connect
+ * address connects to it. Only then is it a service: `HOST SERVICE` opens that Host's web
+ * service; a service's name alone opens it on `current` (the Host details' Host, else the selected
+ * one). So a Host's name wins over a service. */
+export function resolveOpen(
+  arg: string,
+  hosts: ReadonlyMap<string, Host>,
+  current: string | null,
+  sessions: readonly string[] = [],
+): OpenTarget {
   const [first = "", second] = arg.trim().split(/\s+/);
-  if (second === undefined && hosts.has(first)) return { kind: "host", host: first };
+  if (second === undefined && (hosts.has(first) || sessions.includes(first) || parseQuickTarget(first))) {
+    return { kind: "host", host: first };
+  }
   const host = second === undefined ? current : first;
   const name = second ?? first;
   const h = host === null ? undefined : hosts.get(host);
