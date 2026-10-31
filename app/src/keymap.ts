@@ -85,6 +85,8 @@ export interface Options {
   statusBar: { visible: boolean };
   /** Lock after this many minutes without input (docs/app/security.md). */
   idleLockMinutes: number;
+  /** A form pulls the infra repo (in the background) once the last pull is older (decision Q88); 0: every time. */
+  pullFreshMinutes: number;
   /** The view mode at start (decision Q36): `default_mode` in init.lua. */
   defaultMode: ViewMode;
   /** Focus mode: the tmux-style session bar, off by default (decision Q36). */
@@ -98,6 +100,7 @@ export const defaultOptions: Options = {
   sessions: "sidebar",
   statusBar: { visible: true },
   idleLockMinutes: 15,
+  pullFreshMinutes: 5,
   defaultMode: "standard",
   focus: { sessionbar: false },
 };

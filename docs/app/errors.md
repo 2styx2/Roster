@@ -77,7 +77,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## Editing the Inventory
 
-`:edit HOST` pulls the infra repo first (fast-forward only), then writes the edit into `roster.yml` through roster's `host.update` as a Pending change. A change to the address, port, user or Login first passes `host.verify_login` (decision Q43): one connection, one login attempt, and the host key compared with the recorded one (for the new address, or the Host's current one if it moved), never accepted. A Host that moved gets that key recorded for its new address once the edit is written. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step. A failed pull keeps the form shut.
+`:edit HOST` opens at once and pulls the infra repo (fast-forward only) in the background when the last pull is older than `pull_fresh_minutes` ([config.md](config.md)); Save waits for that pull, then writes the edit into `roster.yml` through roster's `host.update` as a Pending change. A change to the address, port, user or Login first passes `host.verify_login` (decision Q43): one connection, one login attempt, and the host key compared with the recorded one (for the new address, or the Host's current one if it moved), never accepted. A Host that moved gets that key recorded for its new address once the edit is written. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step. A failed pull (rows 39-41) keeps the form open with what you typed and blocks the save, with Try again; Save tries the pull again too.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
@@ -90,7 +90,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 
 ## Adding a Host
 
-`:host add` (Leader `+`) pulls first, like `:edit`, then adds the Host through roster's `host.add` as a Pending change. A Host with a Login is a verified add (decision Q43): the address's host key is scanned (`host.scan_key`) and shown for the user to confirm, then one test login runs, then a typed password is saved to the vault (rows 34-36), then the Host is written; if writing the Host fails, the new Vault item is taken back out. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step, and nothing is written. A key the user doesn't trust, or one that differs from the recorded key (row 13), ends it there, with no login tried. A Host without a Login goes in unreviewed, with no network at all.
+`:host add` (Leader `+`) pulls like `:edit` (in the background, and the add waits for it), then adds the Host through roster's `host.add` as a Pending change. A Host with a Login is a verified add (decision Q43): the address's host key is scanned (`host.scan_key`) and shown for the user to confirm, then one test login runs, then a typed password is saved to the vault (rows 34-36), then the Host is written; if writing the Host fails, the new Vault item is taken back out. A failed test login shows its steps like `:check`, with rows 4-17 for the failing step, and nothing is written. A key the user doesn't trust, or one that differs from the recorded key (row 13), ends it there, with no login tried. A Host without a Login goes in unreviewed, with no network at all.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|

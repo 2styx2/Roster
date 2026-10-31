@@ -36,7 +36,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
 | (no key) | `vault signout` | Sign the vault CLI out, to sign in to a different account (ticket 42). It asks first, naming the account ("Sign out of you@example.com on this Box?"; Enter signs out, Esc keeps it), then locks and shows the full sign-in form. The lock screen's "Use a different account" does the same. KeePassXC, `pass`, `env` and `cmd` have no account: the command says why. Needs API 14 |
-| `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
+| `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). It opens at once; when the last pull of the infra repo is older than `pull_fresh_minutes` it pulls in the background, and Save waits for it (a pull that changed the Host updates the fields you hadn't touched and says so; a pull that fails blocks the save). Enter saves, Esc closes |
 | `<leader> +`, `<leader> n` | `host add [GROUP]` | Add a Host (ticket 11), in GROUP or the cursor's group (also the `+` always shown on the Inventory heading, which starts in the cursor's group, and the `+` on a group heading). On a roster too old to add Hosts (API 6) the Inventory's `+` stays and says so, in its tooltip and when clicked: the form tests a Login first (host key confirmed, one login), then saves; Enter adds, Esc closes |
 | `<leader> D` | `host remove [HOST]` | Remove the Host under the cursor from `roster.yml` (ticket 28), after a question that names it; its vault item stays. Also the × on its row |
 | `<leader> R` | `host rename [HOST [NEW]]` | Rename a Host; what's left out, the command line asks for. Also the ✎ on its row |
@@ -106,6 +106,8 @@ The command line completes like bash or zsh, and like Neovim's wildmenu. The can
 Typing anything also accepts the candidate. A click on one accepts it too.
 
 With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
+
+A row's buttons (ⓘ, ✎, ×, ✓ and the rest) show on the selected row only: the row you last clicked, or in App mode the cursor row, so j/k move them. Hovering a row shows none of them, and its address stays in view. The Inventory heading's + (Add a Host) is always there.
 
 ## View modes
 
