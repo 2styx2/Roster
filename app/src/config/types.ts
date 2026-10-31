@@ -139,6 +139,8 @@ export interface PackageSpec {
   tag: string | null;
   branch: string | null;
   commit: string | null;
+  /** The folder in the repo that holds the Plugin (`plugins/topology`); null for the repo's top (Q94). */
+  dir: string | null;
   /** Handed to the Package as `roster.plugin.config`. */
   config: Record<string, unknown>;
 }

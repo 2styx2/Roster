@@ -900,6 +900,8 @@ export interface PackageStatus {
   source: string;
   /** The git URL that means. */
   url: string;
+  /** The folder in the repo the Plugin loads from (`plugins/topology`); null for the repo's top (Q94). */
+  dir: string | null;
   /** `tag v1.0.0`, `branch main`, `commit 1a2b3c4` or `default branch`. */
   wants: string;
   /** The commit its clone is at. */
