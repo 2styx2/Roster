@@ -82,6 +82,8 @@ import { BUILTIN } from "./registry";
 import { SessionPanes, TabStrip } from "./session/Sessions";
 import { parseQuickTarget, type QuickTarget } from "./quick/target";
 import { SavePanel } from "./quick/SavePanel";
+import { HostDetails } from "./details/HostDetails";
+import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
@@ -274,6 +276,8 @@ export function App({
   const [adding, setAdding] = useState<{ group: string } | null>(null);
   // Ticket 15: "Save to vault" for a Session's typed password, once it logged in (the tab's id).
   const [saving, setSaving] = useState<number | null>(null);
+  // Ticket 18: the Host details panel's Host (closed: null).
+  const [details, setDetails] = useState<string | null>(null);
   // Ticket 28: removing a Host asks first.
   const [confirming, setConfirming] = useState<{ host: string; group: string } | null>(null);
   const [keyState, setKeyState] = useState<KeyState>(terminalMode);
@@ -849,10 +853,14 @@ export function App({
       if (!to) return setMessage(`${text} isn't a Quick Connect address: type user@address, or user@address:port`);
       tabs.openQuick(to);
     },
-    open: (name) => {
-      const tab = sessions.tabs.find((t) => t.host === name);
+    // A Host, or a web service in the default browser (ticket 18, decision Q71).
+    open: (arg) => {
+      const to = resolveOpen(arg, hostByName, details ?? ctx.selectedHost());
+      if (to.kind === "error") return setMessage(to.message);
+      if (to.kind === "web") return openWeb(to.host, to.service, to.url);
+      const tab = sessions.tabs.find((t) => t.host === to.host);
       if (tab) tabs.select(tab.id);
-      else ctx.connect(name);
+      else ctx.connect(to.host);
     },
     reconnect: () => {
       if (sessions.active !== null) tabs.reconnect(sessions.active);
@@ -925,8 +933,9 @@ export function App({
       if (changesView) return closeChanges();
       if (check) {
         checkRun.current++;
-        setCheck(null);
+        return setCheck(null);
       }
+      if (details !== null) setDetails(null);
     },
     list: (move) => {
       if (move !== "choose") return setCursor(moveCursor(rows, cursor, move));
@@ -983,6 +992,13 @@ export function App({
             `Terminal ${font} ${size}, ${terminalOptions.renderer === "dom" ? "DOM" : "WebGL"}`,
         );
       }
+    },
+    details: (name) => {
+      if (name === null && details !== null && hostByName.has(details)) return setDetails(null);
+      const host = name ?? ctx.selectedHost();
+      if (!host) return setMessage("No Host selected: pick one in the Sidebar or open its Session, or use :info HOST");
+      if (!hostByName.has(host)) return setMessage(`No Host named ${host}`);
+      setDetails(host);
     },
     edit: (name) => {
       const host = name ?? ctx.selectedHost();
@@ -1161,6 +1177,18 @@ export function App({
     return `Couldn't change the Inventory: ${e.message}${fix}`;
   }
 
+  /** Hands a web service's URL to the default browser (ticket 18): http or https only, checked
+   * here and again in the Tauri shell. */
+  function openWeb(host: string, service: string, url: string) {
+    const checked = webUrl(url);
+    if (!checked) return setMessage(`${host}'s ${service} has no http or https URL to open`);
+    if (!platform.openUrl) return setMessage(`There's no browser to hand ${checked} to here`);
+    platform.openUrl(checked).then(
+      () => setMessage(`Opened ${host}'s ${service} in the browser: ${checked}`),
+      (e: unknown) => setMessage(`Couldn't open ${checked}: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }
+
   function run(line: Line) {
     setMessage("");
     runLine(commands, ctx, line);
@@ -1228,7 +1256,8 @@ export function App({
   );
   // The toolbar (decision Q65): in the title bar once the app is ready and unlocked (the lock
   // screen shows nothing but the mark), else a bar of its own at the top.
-  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown, quickConnect: quickConnects };
+  const detailsHost = details === null ? undefined : hostByName.get(details);
+  const toolbarCtx: ToolbarContext = { pendingCount, sidebarShown, quickConnect: quickConnects, detailsShown: detailsHost !== undefined };
   const toolbarControls =
     ready && isShown(layout, "toolbar") ? shownControls(toolbarDefs, layout.controls, toolbarCtx) : [];
   const toolbar = (side: "start" | "end") => (
@@ -1475,6 +1504,16 @@ export function App({
             />
           )}
         </main>
+        {detailsHost && conn.hosts && (
+          <HostDetails
+            host={detailsHost}
+            groups={conn.hosts.groups}
+            onOpen={(service, url) => openWeb(detailsHost.name, service, url)}
+            onClose={() => setDetails(null)}
+            cmdlineKeys={hintFor(keymap, "cmdline")}
+            leader={options.leader}
+          />
+        )}
         {importing && (
           <ImportPanel
             preview={importing.preview}
@@ -1701,6 +1740,10 @@ export function App({
               foldIds: rows.filter((r) => r.foldable).map((r) => r.id),
               sessions: sessions.tabs.map((t) => t.host),
               groupNames,
+              webServices: (name) => {
+                const h = hostByName.get(name ?? details ?? ctx.selectedHost() ?? "");
+                return h ? webServices(h) : [];
+              },
             })
           }
           describe={(candidate) => {
@@ -1769,6 +1812,10 @@ export function App({
           onOpen={(host, how) => {
             closeOverlay();
             run(`${how?.here ? "here" : "connect"} ${host.name}`);
+          }}
+          onInfo={(host: Host) => {
+            closeOverlay();
+            run(`info ${host.name}`);
           }}
           {...(canAdd
             ? {

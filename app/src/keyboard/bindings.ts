@@ -37,6 +37,7 @@ const LOCAL: Record<string, { area: string; label: string }> = {
   "picker.choose": { area: "Picker", label: "Open the Host" },
   "picker.chooseHere": { area: "Picker", label: "Open it in this tab, if its Session has ended" },
   "picker.review": { area: "Picker", label: "Mark an unreviewed Host reviewed" },
+  "picker.info": { area: "Picker", label: "Show the Host's details" },
   "picker.close": { area: "Picker", label: "Close the Picker" },
   "cmdline.next": { area: "Command line", label: "Next completion (first fills in what they share)" },
   "cmdline.prev": { area: "Command line", label: "Previous completion" },

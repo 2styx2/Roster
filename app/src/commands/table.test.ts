@@ -39,6 +39,7 @@ function recorder(mode: ViewMode = "standard") {
     setViewMode: (m) => calls.push(`mode ${m ?? "other"}`),
     openFinder: (id) => calls.push(`finder ${id}`),
     showInfo: () => calls.push("info"),
+    details: (h) => calls.push(`details ${h ?? "toggle"}`),
     edit: (h) => calls.push(`edit ${h ?? "selected"}`),
     showChanges: (then) => calls.push(then ? `changes ${then}` : "changes"),
     pull: () => calls.push("pull"),
@@ -140,6 +141,20 @@ describe("runLine", () => {
     expect(completeIn(registry, "host remove or", hosts, more)).toEqual(["host remove orion3"]);
     expect(completeIn(registry, "group delete lab ", hosts, more)).toEqual(["group delete lab net"]);
     expect(completeIn(registry, "group ", hosts, more)).toEqual(["group new ", "group rename ", "group delete "]);
+  });
+
+  it("runs :info alone as the app's info, :info HOST as Host details, :details as its toggle (ticket 18)", () => {
+    const { ctx, calls } = recorder();
+    for (const line of ["info", "info esxi-02", "details"]) runLine(ctx, line);
+    expect(calls).toEqual(["info", "details esxi-02", "details toggle"]);
+    expect(complete("info esx", hosts)).toEqual(["info esxi-01", "info esxi-02"]);
+    expect(describeLine("info esxi-02")).toEqual({ area: "Hosts", label: "Show esxi-02's details" });
+  });
+
+  it("runs :open with a Host, a web service, or both; the app works out which (ticket 18)", () => {
+    const { ctx, calls } = recorder();
+    for (const line of ["open esxi-02", "open web", "open esxi-02 admin"]) runLine(ctx, line);
+    expect(calls).toEqual(["open esxi-02", "open web", "open esxi-02 admin"]);
   });
 
   it("runs :check for a Host, or for the current Session's Host with no argument", () => {
@@ -245,6 +260,17 @@ describe("complete", () => {
     expect(complete("connect esx", hosts)).toEqual(["connect esxi-01", "connect esxi-02"]);
     expect(complete("connect hub", hosts)).toEqual(["connect hub2", "connect lab-hub2"]);
     expect(complete("connect ", hosts)).toHaveLength(hosts.length);
+  });
+
+  it("completes :open with the current Host's web services first, then Host names, then HOST's services (ticket 18)", () => {
+    const services = (h: string | null) => (h === null ? ["web", "admin"] : h === "esxi-02" ? ["web", "ui"] : []);
+    const more = { foldIds: [], sessions: [], webServices: services };
+    expect(completeIn(registry, "open ", hosts, more).slice(0, 3)).toEqual(["open web", "open admin", "open esxi-01"]);
+    expect(completeIn(registry, "open e", hosts, more)).toEqual(["open esxi-01", "open esxi-02", "open web", "open net-sw-core-01"]);
+    expect(completeIn(registry, "open esxi-02 ", hosts, more)).toEqual(["open esxi-02 web", "open esxi-02 ui"]);
+    expect(completeIn(registry, "open esxi-02 u", hosts, more)).toEqual(["open esxi-02 ui"]);
+    // Without what the app knows, Host names, as before.
+    expect(complete("open hub", hosts)).toEqual(["open hub2", "open lab-hub2"]);
   });
 
   it("offers nothing for other arguments", () => {

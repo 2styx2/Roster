@@ -190,13 +190,12 @@ export function hostRow(host: Host, id: string, level: number): SidebarRow {
     host: host.name,
     dot: hostDot(host),
     detail: host.ip,
-    ...(host.reviewed
-      ? {}
-      : {
-          badge: "unreviewed",
-          title: "Not reviewed yet: can't be opened",
-          actions: [{ label: `Mark ${host.name} reviewed`, icon: "review" as const, command: `review ${host.name}` }],
-        }),
+    // Its details (ticket 18) first, on every Host row: what roster info shows.
+    actions: [
+      { label: `Show ${host.name}'s details`, icon: "info" as const, command: `info ${host.name}` },
+      ...(host.reviewed ? [] : [{ label: `Mark ${host.name} reviewed`, icon: "review" as const, command: `review ${host.name}` }]),
+    ],
+    ...(host.reviewed ? {} : { badge: "unreviewed", title: "Not reviewed yet: can't be opened" }),
     level,
     command: `open ${host.name}`,
     drag: host.name,

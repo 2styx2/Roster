@@ -19,6 +19,7 @@ export type PickerAction =
   | "picker.choose"
   | "picker.chooseHere"
   | "picker.review"
+  | "picker.info"
   | "picker.close";
 
 /** The command line's own keys (ticket 34): cycle through the completions, accept one, run the
@@ -117,6 +118,8 @@ export const defaultBindings: KeymapTables = {
     S: "source",
     L: "lock",
     E: "edit",
+    // Host details for the selected Host (ticket 18).
+    i: "details",
     "+": "host add",
     // The Live Inventory (ticket 28): on the Host or group under the cursor, or the Session's Host.
     n: "host add",
@@ -151,6 +154,7 @@ export const defaultBindings: KeymapTables = {
     "Shift+Tab": "picker.prev",
     Enter: "picker.choose",
     "Ctrl+r": "picker.review",
+    "Ctrl+i": "picker.info",
     Escape: "picker.close",
     ...terminalKeys.picker,
   },

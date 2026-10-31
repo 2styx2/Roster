@@ -1031,7 +1031,7 @@ impl<'de> Deserialize<'de> for StatusBarPiece {
 }
 
 /// The toolbar (decision Q65): `true`, `false`, or its controls in order (`{ "add", "find" }`,
-/// ids from the app's toolbar registry: "sidebar", "find", "quick", "add", "changes", "publish", and the
+/// ids from the app's toolbar registry: "sidebar", "find", "quick", "add", "changes", "publish", "details", and the
 /// ones not shown by default, "cmdline", "keys", "help", "lock", "mode"); null: the default set.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ToolbarPiece {

@@ -30,6 +30,8 @@ export interface MemoryPlatform extends Platform {
   foldersFile(): string | null;
   /** Saves folders.yml as an editor would: the watcher hears of it. */
   editFolders(text: string): void;
+  /** The URLs handed to the default browser, in order. */
+  urlsOpened(): string[];
 }
 
 /** What the core writes the first time (roster-core config/editor.rs starter): commented out. */
@@ -61,6 +63,7 @@ export function memoryPlatform(
   let full = false;
   let file = start.configFile ?? null;
   const opened: string[] = [];
+  const urls: string[] = [];
   let openError: string | null = null;
   let importError: string | null = null;
   const imported: Previewed[] = [];
@@ -160,6 +163,10 @@ export function memoryPlatform(
     },
     configFile: () => file,
     opened: () => [...opened],
+    async openUrl(url) {
+      urls.push(url);
+    },
+    urlsOpened: () => [...urls],
     imported: () => [...imported],
     failImport(message) {
       importError = message;

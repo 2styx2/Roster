@@ -34,6 +34,10 @@ export function browserPlatform(): Platform {
       watchMaximized: () => () => {},
       watchGeometry: () => () => {},
     },
+    // A new tab, with no way back to this page.
+    async openUrl(url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    },
     // The browser allows it only from a key or click; Focus works without it.
     async setFullscreen(on) {
       try {
