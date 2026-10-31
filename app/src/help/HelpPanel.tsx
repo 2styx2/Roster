@@ -8,10 +8,13 @@
 // bindings themselves (`binding-keys`), so `ui.hints = false` never hides them.
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import "./doc.css";
+import { Announce } from "../ui/Announce";
 import { Keys } from "../ui/Keys";
+import { highlight, shellCommand } from "./highlight";
 import type { HelpSnapshot, HelpView } from "./command";
 import type { Block, Def, Inline } from "./doc";
-import { linkTarget, pageBody, topics, type HelpContext } from "./pages";
+import { linkKind, pageBody, topics, type HelpContext } from "./pages";
 
 export interface HelpPanelProps {
   view: HelpView;
@@ -21,10 +24,16 @@ export interface HelpPanelProps {
   vim: boolean;
   /** Opens the topic finder. */
   onFind(): void;
+  /** Opens the outline of the page shown (`g O`). */
+  onOutline(): void;
+  /** The page's search changed (`:tutor` waits for some, ticket 55). */
+  onSearch?(page: string, query: string): void;
 }
 
-/** What inline rendering needs: the search, the Leader, and which code is a topic. */
-interface RenderEnv {
+/** What inline rendering needs: the search, the Leader, and which code is a topic. The docs
+ * website (src/docs-site, ticket 46) renders pages with this same renderer, giving it the last
+ * three to make topics real web addresses. */
+export interface RenderEnv {
   query: string;
   leader: string;
   tags: ReadonlySet<string>;
@@ -33,13 +42,21 @@ interface RenderEnv {
   open(tag: string): void;
   /** Inside a link already: a code span in it isn't linked again. */
   inLink?: boolean;
+  /** Where a topic link goes; `#help:TAG` in the app. */
+  href?(tag: string): string;
+  /** The element id of a topic on the page; the app gives none (it finds them by `data-tag`). */
+  id?(tag: string): string | undefined;
+  /** The page a topic link leads to, when that's another page (the PDF prints "→ page"). */
+  pageOf?(tag: string): string | undefined;
+  /** A file or web link's address; in the app they stay text, with where they go as a tooltip. */
+  outside?(href: string): string | undefined;
 }
 
 const Env = createContext<RenderEnv>({ query: "", leader: "", tags: new Set(), here: undefined, open: () => {} });
 
 const LINE = 40;
 
-export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPanelProps) {
+export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline, onSearch }: HelpPanelProps) {
   const at = snapshot.at;
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -48,6 +65,15 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
   const [hit, setHit] = useState(0);
   const [hits, setHits] = useState(0);
   const pending = useRef<string | null>(null);
+  // A place that came with a search (`:helpgrep`, `:help TOPIC /TEXT`) puts it in the search field
+  // (searchSeq), and its first match from the anchor on becomes the current one (placedSeq).
+  const [searchSeq, setSearchSeq] = useState(-1);
+  const [placedSeq, setPlacedSeq] = useState(-1);
+  if (at?.search && searchSeq !== snapshot.seq) {
+    setSearchSeq(snapshot.seq);
+    setQuery(at.search);
+    setHit(0);
+  }
 
   const page = ctx.pages.find((p) => p.id === at?.page);
   const blocks = useMemo(() => (at ? pageBody(ctx, at.page) : []), [ctx, at]);
@@ -78,13 +104,21 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
 
   // The matches, after each render of a search: count them and mark the current one.
   useLayoutEffect(() => {
-    const marks = scrollRef.current?.querySelectorAll("mark.help-hit") ?? [];
+    const marks = [...(scrollRef.current?.querySelectorAll("mark.help-hit") ?? [])];
+    if (searchSeq === snapshot.seq && placedSeq !== snapshot.seq && marks.length && query === at?.search) {
+      setPlacedSeq(snapshot.seq);
+      const anchor = at?.anchor;
+      const from = anchor ? scrollRef.current?.querySelector(`[data-tag="${CSS.escape(anchor)}"]`) : null;
+      const first = from ? marks.findIndex((m) => from.contains(m) || !!(from.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING)) : 0;
+      if (first > 0) return setHit(first);
+    }
     setHits(marks.length);
     const current = marks.length ? ((hit % marks.length) + marks.length) % marks.length : 0;
     marks.forEach((m, i) => m.classList.toggle("current", i === current));
     marks[current]?.scrollIntoView?.({ block: "center" });
-  }, [hit, query, blocks]);
+  }, [hit, query, blocks, at, searchSeq, placedSeq, snapshot.seq]);
 
+  const count = query ? (hits ? `${(((hit % hits) + hits) % hits) + 1} of ${hits}` : "No matches") : "";
   const step = (by: number) => setHit((h) => (hits ? (((h + by) % hits) + hits) % hits : 0));
 
   function onKeyDown(e: KeyboardEvent<HTMLElement>) {
@@ -108,7 +142,13 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
     const seq = pending.current;
     pending.current = null;
     let handled = true;
-    if (k === "Escape" || (k === "q" && !ctrl)) view.close();
+    if (seq === "g" && k === "O") onOutline();
+    else if (k === "Escape" || (k === "q" && !ctrl)) view.close();
+    else if (ctrl && k === "]") {
+      // Neovim's Ctrl+]: follow the link you're on (Enter does too).
+      const on = document.activeElement;
+      if (on instanceof HTMLElement && on.matches(".help-link")) on.click();
+    }
     else if (ctrl && k === "o") view.goBack();
     else if (ctrl && k === "i") view.goForward();
     else if (e.altKey && k === "ArrowLeft") view.goBack();
@@ -119,16 +159,18 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
     else if (k === "/") {
       setSearching(true);
       setHit(0);
-      requestAnimationFrame(() => searchRef.current?.select());
+      // At once, never a frame later (a key typed in that frame would be replaced). A field already there holds
+      // the last search: select it so typing replaces it. A new one is empty, and the effect below focuses it.
       searchRef.current?.focus();
+      searchRef.current?.select();
     } else if (k === "n" && query) step(1);
     else if (k === "N" && query) step(-1);
     else if (k === "?") onFind();
     else if (vim && k === "j") by(LINE);
     else if (vim && k === "k") by(-LINE);
     else if (vim && k === "G" && scroller) scroller.scrollTop = scroller.scrollHeight;
-    else if (vim && k === "g") {
-      if (seq === "g" && scroller) scroller.scrollTop = 0;
+    else if (k === "g") {
+      if (seq === "g" && vim && scroller) scroller.scrollTop = 0;
       else pending.current = "g";
     } else handled = false;
     if (handled) {
@@ -136,6 +178,11 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
       e.stopPropagation();
     }
   }
+
+  const searchedPage = at?.page;
+  useEffect(() => {
+    if (searchedPage && query) onSearch?.(searchedPage, query);
+  }, [searchedPage, query, onSearch]);
 
   // Focus on the search field as it appears.
   useEffect(() => {
@@ -146,7 +193,7 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
   return (
     <aside className="help-panel" aria-label="Help" onKeyDown={onKeyDown}>
       <header>
-        <p className="help-where">
+        <p className="help-where" title={`:help ${at.anchor ?? at.page}`}>
           <span className="help-prompt">:help</span> {at.anchor ?? at.page}
         </p>
         <span className="help-nav">
@@ -156,7 +203,10 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
           <button type="button" className="icon-button" aria-label="Forward" title="Forward (Ctrl+I)" disabled={!snapshot.canForward} onClick={() => view.goForward()}>
             ›
           </button>
-          <button type="button" className="help-find" onClick={onFind}>
+          <button type="button" className="help-find" title="This page's headings (g O)" onClick={onOutline}>
+            Outline
+          </button>
+          <button type="button" className="help-find" title="Find a topic (?)" onClick={onFind}>
             Topics
           </button>
           <button type="button" className="icon-button" aria-label="Close help" onClick={() => view.close()}>
@@ -177,12 +227,15 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
               setHit(0);
             }}
           />
-          <span className="help-count" aria-live="polite">
-            {query ? (hits ? `${(((hit % hits) + hits) % hits) + 1} of ${hits}` : "No matches") : ""}
+          <span className="help-count" aria-hidden="true">
+            {count}
           </span>
         </div>
       ) : null}
-      <div className="help-scroll" ref={scrollRef} tabIndex={0} aria-label={page?.title ?? at.page}>
+      {/* Mounted, empty, for as long as help is open, so the count is heard when a search
+          (`:helpgrep`, `:help TOPIC /TEXT`) arrives with the page (ticket 54). */}
+      <Announce text={count} delay={150} />
+      <div className="help-scroll" ref={scrollRef} tabIndex={0} role="region" aria-label={page?.title ?? at.page}>
         <Env value={env}>
           <article className="help-doc">
             {page ? blocks.map((b, i) => <BlockView key={i} block={b} target={at.anchor} />) : <p>No help page named {at.page}.</p>}
@@ -190,19 +243,41 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
         </Env>
       </div>
       <p className="panel-foot key-hint">
-        <Keys keys="/" /> search <Keys keys="Tab" /> links <Keys keys="Ctrl+o" /> back <Keys keys="?" /> topics <Keys keys="Esc" /> close
+        <Keys keys="/" /> search <Keys keys="Tab" /> links <Keys keys="Ctrl+o" /> back <Keys keys="g O" /> outline <Keys keys="?" /> topics <Keys keys="Esc" /> close
       </p>
     </aside>
   );
 }
 
+/** A page's blocks as the help panel draws them, for rendering outside the panel (the docs
+ * website renders this to static HTML). */
+export function HelpDoc({ blocks, env }: { blocks: readonly Block[]; env: RenderEnv }) {
+  return (
+    <Env value={env}>
+      <article className="help-doc">
+        {blocks.map((b, i) => (
+          <BlockView key={i} block={b} target={undefined} />
+        ))}
+      </article>
+    </Env>
+  );
+}
+
 function BlockView({ block: b, target }: { block: Block; target: string | undefined }) {
+  const env = useContext(Env);
   switch (b.t) {
     case "h": {
       const Tag = `h${b.level}` as const;
       return (
-        <Tag data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
-          <Inlines items={b.text} />
+        <Tag id={env.id?.(b.anchor)} data-tag={b.anchor} className={target === b.anchor ? "help-target" : undefined}>
+          {/* A page's title names the page: nothing in it links back to it. */}
+          {b.level === 1 ? (
+            <NoLinks>
+              <Inlines items={b.text} />
+            </NoLinks>
+          ) : (
+            <Inlines items={b.text} />
+          )}
         </Tag>
       );
     }
@@ -232,9 +307,9 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
     }
     case "pre":
       return (
-        <pre>
+        <pre data-lang={b.lang}>
           <code>
-            <Highlighted text={b.text} />
+            <Code text={b.text} lang={b.lang} />
           </code>
         </pre>
       );
@@ -255,10 +330,10 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
               {b.rows.map((row, r) => {
                 const tag = b.anchors?.[r];
                 return (
-                  <tr key={r} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
+                  <tr key={r} id={tag ? env.id?.(tag) : undefined} data-tag={tag} className={tag && tag === target ? "help-target" : undefined}>
                     {row.map((c, i) => (
                       <td key={i}>
-                        <Inlines items={c} spaced />
+                        <Inlines items={c} spaced="parts" />
                       </td>
                     ))}
                   </tr>
@@ -267,6 +342,22 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
             </tbody>
           </table>
         </div>
+      );
+    case "step":
+      // A node, as the Sidebar's are: a ring while it's to do, filled with a ✓ once the app saw
+      // it done. The change is the one motion help has (taste: motion that confirms).
+      return (
+        <p className="help-step" data-done={b.done ? "" : undefined}>
+          <span className="help-step-node" aria-hidden="true">
+            <svg viewBox="0 0 12 12" focusable="false">
+              <path d="M3.2 6.3 5.1 8.1 8.8 4.2" />
+            </svg>
+          </span>
+          <span className="visually-hidden">{b.done ? "Done: " : "To do: "}</span>
+          <span className="help-step-text">
+            <Inlines items={b.text} />
+          </span>
+        </p>
       );
     case "defs":
       return (
@@ -280,8 +371,9 @@ function BlockView({ block: b, target }: { block: Block; target: string | undefi
 }
 
 function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
+  const env = useContext(Env);
   return (
-    <div data-tag={d.anchor} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
+    <div id={d.anchor ? env.id?.(d.anchor) : undefined} data-tag={d.anchor} data-tone={d.tone} className={d.anchor && d.anchor === target ? "help-def help-target" : "help-def"}>
       <dt>
         <span className="help-term">
           {/* The entry's own name isn't a link (to itself). */}
@@ -291,24 +383,31 @@ function DefView({ def: d, target }: { def: Def; target: string | undefined }) {
         </span>
         {d.meta.length > 0 && (
           <span className="help-meta">
-            <Inlines items={d.meta} spaced />
+            <Inlines items={d.meta} spaced="all" />
           </span>
         )}
       </dt>
       <dd>
         <Inlines items={d.body} />
       </dd>
+      {d.more && (
+        <dd className="help-def-more">
+          <Inlines items={d.more} />
+        </dd>
+      )}
     </div>
   );
 }
 
-/** Inline content; `spaced` puts a gap between parts (a cell's keycaps, a def's meta). */
-function Inlines({ items, spaced = false }: { items: readonly Inline[]; spaced?: boolean }) {
+/** Inline content. `spaced="all"` puts a gap between every part (a def's meta: separate facts);
+ * `"parts"` only between keycaps and code side by side (a cell's `␣ f` `␣ F`), so words next to
+ * them keep their own spacing. */
+function Inlines({ items, spaced }: { items: readonly Inline[]; spaced?: "all" | "parts" }) {
   return (
     <>
       {items.map((it, i) => (
         <Fragment key={i}>
-          {spaced && i > 0 ? " " : null}
+          {i > 0 && (spaced === "all" || (spaced === "parts" && it.t !== "text" && items[i - 1]?.t !== "text")) ? " " : null}
           <InlineView item={it} />
         </Fragment>
       ))}
@@ -322,11 +421,21 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     case "text":
       return <Highlighted text={item.text} />;
     case "code": {
-      // `␣ K` in a guide is a key sequence: keycaps, like everywhere else.
-      if (/^␣( \S+)+$/.test(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
+      // `␣ K`, `Ctrl+o` or `Esc` in a guide is a key: keycaps, like everywhere else.
+      if (isKeys(item.text)) return <Keys keys={item.text} leader={env.leader} className="binding-keys" />;
       // A code span naming a topic links to it: `:connect`, `terminal.size`, `init.lua`.
       const tag = codeTopic(item.text, env.tags);
-      const el = (
+      // A `:command` reads as one; a shell line (`roster sync --dry-run`) is coloured as in a block.
+      const shell = shellCommand(item.text);
+      const el = item.text.startsWith(":") ? (
+        <code className="help-cmd">
+          <Highlighted text={item.text} />
+        </code>
+      ) : shell ? (
+        <code className="help-shell">
+          <Code text={item.text} lang="sh" />
+        </code>
+      ) : (
         <code>
           <Highlighted text={item.text} />
         </code>
@@ -348,21 +457,42 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     case "keys":
       return <Keys keys={item.keys} leader={env.leader} className="binding-keys" />;
     case "link": {
-      const to = linkTarget(item.href);
       const children = <Inlines items={item.children} />;
-      return to ? <TopicLink tag={to}>{children}</TopicLink> : children;
+      const kind = linkKind(item.href);
+      // A file in the repo that isn't in help, or a web page: its text, with where it goes (a link
+      // on the website).
+      if (kind !== "topic") {
+        const to = env.outside?.(item.href);
+        if (to) return <a className="help-link" href={to}>{children}</a>;
+        return (
+          <span className="help-file" title={item.href.replace(/^file:/, "")}>
+            {children}
+          </span>
+        );
+      }
+      return env.tags.has(item.href) ? <TopicLink tag={item.href}>{children}</TopicLink> : children;
     }
   }
 }
+
+/** Keymap notation: `␣`, `␣ K`, `Ctrl+o`, `Ctrl+Shift+c`, `Esc`, `Tab`, `F11`, `g O`. */
+const isKeys = (code: string): boolean =>
+  /^␣( \S+)*$/.test(code) ||
+  /^(?:(?:Ctrl|Alt|Shift|Meta|Cmd)\+)+\S+$/.test(code) ||
+  /^(?:Esc|Tab|Enter|Shift\+Tab|F\d{1,2})$/.test(code) ||
+  /^g [gO]$/.test(code);
 
 function NoLinks({ children }: { children: ReactNode }) {
   const env = useContext(Env);
   return <Env value={{ ...env, inLink: true }}>{children}</Env>;
 }
 
-/** The topic a code span names, if it's one: itself, or a command line's command (`:help options`). */
+/** The topic a code span names, if it's one: itself, what `:help TOPIC` opens, or a command
+ * line's command (`:source init.lua`). */
 function codeTopic(code: string, tags: ReadonlySet<string>): string | null {
   if (tags.has(code)) return code;
+  const asked = /^:help (\S+)$/.exec(code)?.[1];
+  if (asked && tags.has(asked)) return asked;
   const cmd = /^:(\S+)/.exec(code)?.[1];
   return cmd && tags.has(`:${cmd}`) ? `:${cmd}` : null;
 }
@@ -372,7 +502,8 @@ function TopicLink({ tag, children }: { tag: string; children: ReactNode }) {
   return (
     <a
       className="help-link"
-      href={`#help:${tag}`}
+      href={env.href ? env.href(tag) : `#help:${tag}`}
+      data-page={env.pageOf?.(tag)}
       title={`:help ${tag}`}
       onClick={(e) => {
         e.preventDefault();
@@ -382,6 +513,41 @@ function TopicLink({ tag, children }: { tag: string; children: ReactNode }) {
       <Env value={{ ...env, inLink: true }}>{children}</Env>
     </a>
   );
+}
+
+/** Code coloured by its language (highlight.ts), with the search's matches marked. A match is one
+ * `<mark>` around the coloured runs it covers, so the panel counts it once. */
+function Code({ text, lang }: { text: string; lang: string | undefined }) {
+  const { query } = useContext(Env);
+  const tokens = useMemo(() => highlight(text, lang), [text, lang]);
+  if (tokens.length === 1 && !tokens[0]?.kind) return <Highlighted text={text} />;
+  // Each run with where it starts, so a match's range can take the slices it covers.
+  const starts: number[] = [];
+  tokens.reduce((at, t) => (starts.push(at), at + t.text.length), 0);
+  const slice = (from: number, to: number): ReactNode[] =>
+    tokens.flatMap((t, k) => {
+      const a = Math.max(from, starts[k] as number);
+      const b = Math.min(to, (starts[k] as number) + t.text.length);
+      if (a >= b) return [];
+      const part = t.text.slice(a - (starts[k] as number), b - (starts[k] as number));
+      return [t.kind ? <span key={`${k}-${a}`} className={`hl-${t.kind}`}>{part}</span> : part];
+    });
+  if (!query) return <>{slice(0, text.length)}</>;
+  const parts: ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  let from = 0;
+  for (let i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, i + q.length)) {
+    parts.push(...slice(from, i));
+    parts.push(
+      <mark key={`m${i}`} className="help-hit">
+        {slice(i, i + q.length)}
+      </mark>,
+    );
+    from = i + q.length;
+  }
+  parts.push(...slice(from, text.length));
+  return <>{parts}</>;
 }
 
 /** Text with the search's matches marked. */

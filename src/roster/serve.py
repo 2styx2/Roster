@@ -5,7 +5,10 @@ hands a password Session's ssh its password.
 It answers with the Host, group and resource objects load_config already builds - no new schema.
 Logins come back as references (bw:ITEM), never as values. Requests are handled one at a time.
 
-Add a method by writing a function (state, params) -> result and listing it in METHODS.
+Add a method by writing a function (state, params) -> result and listing it in METHODS. Its docstring's
+`Params:`, `Result:`, `Errors:` and `Since:` fields are its row in docs/serve-api.md: name it in one of that
+doc's `<!-- BEGIN generated:methods ... -->` markers and run `uv run python scripts/gen-serve-api.py`
+(scripts/gen-serve-api.py has the format; tests/test_serve_api_doc.py fails until the doc matches).
 """
 
 import hashlib
@@ -19,11 +22,12 @@ import sys
 import threading
 import time
 
-from . import __version__, askpass, changes, diagnose, edit, providers
+from . import __version__, askpass, changes, diagnose, edit, health, mesh, providers
 from .claude import write_claude_files
-from .common import deadline, not_reviewed, ssh_config_file
+from .common import deadline, not_reviewed, ssh_config_file, ssh_path
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
+    ALREADY_SIGNED_OUT,
     CANT_WRITE,
     CLI_MISSING,
     GROUP_NOT_EMPTY,
@@ -37,6 +41,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     NAME_TAKEN,
     NO_ASKPASS,
     NO_SIGN_IN,
+    NOT_A_SOURCE,
     NOT_CREATED_HERE,
     NOT_LOGGED_IN,
     NOT_REVIEWED,
@@ -46,6 +51,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     PASSWORD_NEEDED,
     READ_ONLY_TARGET,
     ROSTER_ERROR,
+    SIGN_OUT_FAILED,
     UNKNOWN_GROUP,
     UNKNOWN_HOST,
     UNKNOWN_TARGET,
@@ -63,7 +69,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 13            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 16            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -164,19 +170,38 @@ def broken(state):
 # ---------------------------------------------------------------- methods
 
 def inventory_info(state, params):
+    """Which roster.yml, on which box, and which roster and serve API answer: the app's first call.
+
+    Params: none
+    Result: `{path, box, host_count, providers: [names], roster_version, api_version}`
+    Since: API 1
+    """
     cfg = state.inventory()
     return {"path": str(cfg["path"]), "box": cfg["box"], "host_count": len(cfg["hosts"]),
             "providers": sorted(PROVIDERS), **versions()}
 
 
 def hosts_list(state, params):
-    """Every Host and group. While roster.yml doesn't load (an outside edit), the last good ones, and `error`."""
+    """Every Host and group. While roster.yml doesn't load (an outside edit), the last good ones, and `error`.
+
+    Params: none
+    Result: `{hosts: [Host, ...], groups: {name: {title, description}}, error}`, hosts in `roster.yml` order.
+        `error` (API 8) is `null`, or why `roster.yml` as it is now doesn't load while these are the last good
+        ones
+    Since: API 1
+    """
     cfg = state.inventory()
     return {"hosts": list(cfg["hosts"].values()), "groups": cfg["groups"], "error": broken(state)}
 
 
 def host_get(state, params):
-    """One Host by its exact name (the app picks from hosts.list; no fuzzy matching here)."""
+    """One Host by its exact name (the app picks from hosts.list; no fuzzy matching here).
+
+    Params: `{name}` (exact Host name)
+    Result: one Host
+    Errors: 2
+    Since: API 1
+    """
     name = text_param(params, "name")
     h = state.inventory()["hosts"].get(name)
     if h is None:
@@ -198,7 +223,22 @@ def session_prepare(state, params):
     It uses the ssh-config alias `roster setup`/`sync` writes (Host NAME), so the key, user, port,
     known_hosts and connection sharing all come from the config, as `roster run` does, except that ssh checks the
     host key strictly: a Host with no recorded key is refused with 44 before anything connects, so the app can
-    ask (ticket 36: host.scan_key, then host.trust_key)."""
+    ask (ticket 36: host.scan_key, then host.trust_key).
+
+    Params: `{host}` (exact Host name)
+    Result: key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes",
+        NAME], env: {}, host: NAME, auth: "key"}`; password-only: `{argv: [/abs/path/ssh, "-o",
+        "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o",
+        "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE:
+        "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}`
+    Errors: 2, 20, 21, 22, 30, 11, 12, 14, 31-35, 39, 44
+    Since: API 1
+    Params: `{host, password, save?}` (an `auth: prompt` Host)
+    Result: a password Session whose askpass token holds the typed `password`; with `save: true`, also `held`,
+        the logged-in script as `LocalCommand` and `-o ControlPath=none` (below)
+    Errors: -32602, 22, 61, 44
+    Since: API 13
+    """
     name = text_param(params, "host")
     h = state.inventory()["hosts"].get(name)
     if h is None:
@@ -245,15 +285,22 @@ def password_session(state, h, ssh):
     password. The Login is resolved now, in this process, so whatever is wrong with it (provider not set up,
     vault locked, item missing, several items, no password: errors.py 11-14, 30-35) is reported before ssh
     starts instead of as a failed login in the terminal. ssh's prompt then gets the value from memory."""
-    if state.askpass is None:
-        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
-                                   "need `roster serve`")
+    need_askpass(state)
     diagnose.check_login(h)
     known_key(h)
     token = state.askpass.mint(h, h["name"])
     return {"argv": [ssh, *STRICT, "-o", "NumberOfPasswordPrompts=1",
                      "-o", "PreferredAuthentications=password,keyboard-interactive", h["name"]],
             "env": state.askpass.env(token), "host": h["name"], "auth": "password"}
+
+
+def need_askpass(state, what="password sessions"):
+    """Refuse (22) a password Session this process can't give its password to: no askpass channel (roster used
+    in-process), or one whose helper isn't installed (Windows)."""
+    if state.askpass is None:
+        raise RpcError(NO_ASKPASS, f"the askpass channel isn't open in this process - {what} need `roster serve`")
+    if state.askpass.problem:
+        raise RpcError(NO_ASKPASS, state.askpass.problem)
 
 
 def prompted(h):
@@ -267,9 +314,7 @@ def prompt_session(state, h, ssh, params):
     (39 until it's sent) and it goes to ssh through an askpass token, like a vault password. With save: true serve
     holds it for "Save to vault" (host.save_login) until that Session has logged in with it; that Session then
     never reuses a shared connection (ControlPath=none), so the login really is made with the typed password."""
-    if state.askpass is None:
-        raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - password sessions "
-                                   "need `roster serve`")
+    need_askpass(state)
     diagnose.check_user(h)
     known_key(h)
     password = params.get("password")
@@ -302,13 +347,40 @@ askpass_lookup = diagnose.askpass_lookup
 
 def host_check(state, params):
     """`roster check HOST` for the app: the diagnostic steps in order, stopping at the first failure (see
-    diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel."""
+    diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel.
+
+    Params: `{host}` (exact Host name)
+    Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`
+    Errors: -32602
+    Since: API 2
+    """
     name = text_param(params, "host")
     return diagnose.check_host(name, state.inventory, state.askpass)
 
 
+def box_check(state, params):
+    """`roster check --box` for the app (ticket 49): this Box's health, every check local (health.check_box). It reads
+    roster.yml as it is now (without applying it: that's the watcher's or :source's to do), so a file that doesn't
+    load is an error even while the app shows the last good Inventory.
+
+    Params: none
+    Result: `{checks: [{section, level, message, fix?, topic?}, ...], ok, roster_version, api_version}`
+    Since: API 16
+    """
+    error = state.error
+    if state.path is not None and error is None:
+        try:
+            load_config(state.path)
+        except SystemExit as e:
+            error = die_message(e)
+    with state.lock:
+        checks = health.check_box(state.path, state.cfg, error, health.askpass_state(state.askpass), API_VERSION)
+    return {"checks": checks, "ok": not any(c["level"] == "error" for c in checks), **versions()}
+
+
 METHODS = {
     "inventory.info": inventory_info,
+    "box.check": box_check,
     "hosts.list": hosts_list,
     "host.get": host_get,
     "session.prepare": session_prepare,
@@ -329,7 +401,16 @@ def inventory_path(state):
 
 
 def inventory_pull(state, params):
-    """Fast-forward the infra repo before an edit (changes.pull), then load roster.yml again."""
+    """Fast-forward the infra repo before an edit (changes.pull), then load roster.yml again.
+
+    Params: none
+    Result: `{updated, upstream, commits, ahead, from?, to?, message?}`: the repo fast-forwarded to its upstream
+        (`upstream: null` when the branch has none: nothing to pull). Refuses uncommitted changes (`71`,
+        `data.files`) and a diverged branch (`72`, `data.ahead`/`behind`); a failed fetch is `73`. Never merges,
+        rebases or stashes
+    Errors: 70-73
+    Since: API 5
+    """
     result = changes.pull(inventory_path(state))
     state.reload()
     return result
@@ -365,7 +446,14 @@ def login_key(h):
 
 def host_verify_login(state, params):
     """A test login to the Host as params.changes would leave it (diagnose.verify_login): exactly one attempt.
-    Success lets host.update make exactly that change for the next VERIFIED_FOR seconds."""
+    Success lets host.update make exactly that change for the next VERIFIED_FOR seconds.
+
+    Params: `{host, changes}`
+    Result: `{host, ok, steps}` like `host.check`, with steps `user`, `provider`, `vault-item`, `dns`, `tcp`,
+        `host-key`, `auth`, run against the Host as `changes` would leave it
+    Errors: 2
+    Since: API 5
+    """
     h, new, _ = edited_host(state, params)
     result = diagnose.verify_login(new, state.cfg["key"], previous=h)
     if result["ok"]:
@@ -375,7 +463,14 @@ def host_verify_login(state, params):
 
 def host_update(state, params):
     """Edit one Host in roster.yml, keeping everything else byte for byte (edit.edited), as a Pending change.
-    A change to its address, user or Login needs a host.verify_login of exactly those values first."""
+    A change to its address, user or Login needs a host.verify_login of exactly those values first.
+
+    Params: `{host, changes}`
+    Result: `{changed, host, backup, warnings}`: the edit written into `roster.yml`, `host` as it loads now,
+        `backup` the file as it was, `warnings` what failed after the write (recording a moved Host's key)
+    Errors: 2, 70, 74, 75
+    Since: API 5
+    """
     h, new, wanted = edited_host(state, params)
     if not wanted:
         return {"changed": False, "host": h, "backup": None}
@@ -404,10 +499,27 @@ def host_update(state, params):
 
 
 def changes_diff(state, params):
+    """The Pending changes: roster.yml's uncommitted diff, by Host and group, and what Publish would commit.
+
+    Params: none
+    Result: `{path, repo, diff, hosts: [{host, change: changed|added|removed, fields}], groups: [{group,
+        change}], count, message, last_commit}`: git's diff of `roster.yml` against the last commit, the commit
+        message `changes.publish` would write, and `last_commit: {commit, subject, upstream, pushed}` (the
+        branch's last commit, and whether its upstream has it as this box last fetched)
+    Errors: 70
+    Since: API 5
+    """
     return changes.diff(inventory_path(state))
 
 
 def changes_discard(state, params):
+    """Throw the Pending changes away: roster.yml back as the last commit has it, then load it again.
+
+    Params: none
+    Result: `{discarded, backup}`: `roster.yml` back as the last commit has it (index and working tree)
+    Errors: 70
+    Since: API 5
+    """
     result = changes.discard(inventory_path(state))
     state.reload()
     return result
@@ -415,7 +527,14 @@ def changes_discard(state, params):
 
 def changes_publish(state, params):
     """Commit and push the Pending changes (changes.publish), then `roster sync`, so this Box's ssh config
-    follows what it just published. A failed sync doesn't undo the Publish: it's reported in result.sync."""
+    follows what it just published. A failed sync doesn't undo the Publish: it's reported in result.sync.
+
+    Params: `{message?}`
+    Result: `{commit, upstream, message, hosts, groups: [{group, change}], pulled, sync: {ok, error?, fix?}}`:
+        commits `roster.yml` alone and pushes it to the branch's upstream, then runs `roster sync`
+    Errors: 1, 70, 73, 90-96
+    Since: API 7
+    """
     message = params.get("message")
     if message is not None and not isinstance(message, str):
         raise RpcError(INVALID_PARAMS, "params.message must be a string")
@@ -473,7 +592,20 @@ def typed_login(state, params, name):
 
 def host_scan_key(state, params):
     """The host key at an address, to show the user before host.add's first login there (diagnose.scan_key).
-    With params.host instead, a Host's (its address and port): the key a Session asks about (ticket 36)."""
+    With params.host instead, a Host's (its address and port): the key a Session asks about (ticket 36).
+
+    Params: `{host}` (exact Host name)
+    Result: `{host, address, port, key_type, fingerprint, recorded: none|match|changed}`: as the `{address,
+        port?}` form, for the Host's address and port
+    Errors: 2, 40-42
+    Since: API 11
+    Params: `{address, port?}`
+    Result: `{address, port, key_type, fingerprint, recorded: none|match|changed}`: the host key the address
+        offers, and how it compares with the one in `~/.ssh/roster_known_hosts`. One connection, key exchange
+        only: never logs in, never records anything
+    Errors: 40-42
+    Since: API 6
+    """
     if "host" in params:
         h = known_host(state, params)
         return {"host": h["name"], "address": h["ip"], "port": h["ssh"]["port"], **diagnose.scan_key(h)}
@@ -497,7 +629,15 @@ def known_host(state, params):
 def host_trust_key(state, params):
     """Record the host key the user was shown (host.scan_key {host}) and trusted, so the Session can open (ticket
     36, decision Q60). It fetches the key again first and records it only if the Host still offers exactly that
-    fingerprint (else 23); a key that differs from one already recorded is never trusted here (43, Q44)."""
+    fingerprint (else 23); a key that differs from one already recorded is never trusted here (43, Q44).
+
+    Params: `{host, fingerprint}` (`SHA256:...`, the one the user was shown)
+    Result: `{host, address, port, key_type, fingerprint, recorded}`: `recorded: true` when it added the key,
+        `false` when that key was already recorded. `43` a different key is recorded, `23` the Host offers
+        another key now; nothing is recorded on any error
+    Errors: 43, 23, 40-42
+    Since: API 11
+    """
     h = known_host(state, params)
     asked = asked_fingerprint(params)
     key, recorded = diagnose.offered_key(h)
@@ -562,7 +702,22 @@ def quick_prepare(state, params):
     against the one the user was shown (params.fingerprint, from host.scan_key). With params.password the Session
     logs in with it, through an askpass token; without, with this box's own keys (BatchMode). Refuses a key that
     changed since the user was asked (23) or differs from one roster recorded for the address (43), and 40-42 when
-    it can't get there; nothing is kept on any error."""
+    it can't get there; nothing is kept on any error.
+
+    Params: `{user, address, port?: 22, fingerprint, password?, save?}`
+    Result: `{argv, env, host, auth, quick, user, address, port, key_type, fingerprint, held?}`: `argv` is
+        `[/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=<serve's own file>", "-o",
+        "GlobalKnownHostsFile=/dev/null", "-o", "HostKeyAlias=roster-quick-<quick>", "-o", "UpdateHostKeys=no",
+        "-o", "ControlPath=none", "-o", "ConnectTimeout=10", ...auth options, "-p", PORT, "-l", USER, "--",
+        ADDRESS]`; with a password, `auth: "password"`, the password options and the askpass `env` of a password
+        Session; without, `auth: "key"`, `BatchMode=yes` and `env: {}`. `host` is `user@address` (`:port` when
+        it isn't 22). `quick` is serve's id for this Quick Connect. `-32602` bad params (a user or address ssh
+        could read as an option, no `SHA256:` fingerprint, an empty password, `save` without a password), `61`
+        `save` with a provider that can't save, `43` the key differs from one roster recorded for the address,
+        `23` it isn't the one the user was shown
+    Errors: -32602, 61, 40-42, 43, 23, 21, 22
+    Since: API 12
+    """
     user, address, port = quick_target(params)
     asked = asked_fingerprint(params)
     password = params.get("password")
@@ -578,6 +733,8 @@ def quick_prepare(state, params):
     if state.askpass is None:
         raise RpcError(NO_ASKPASS, "the askpass channel isn't open in this process - Quick Connect needs "
                                    "`roster serve`")
+    if password is not None:
+        need_askpass(state, "Quick Connects with a password")
     label = quick_label(user, address, port)
     h = {"name": label, "ip": address, "ssh": {"port": port, "user": user}}
     key, recorded = diagnose.offered_key(h)
@@ -595,7 +752,7 @@ def quick_prepare(state, params):
         f.write(f"{alias} {key.get_name()} {key.get_base64()}\n")
     quick = {"user": user, "address": address, "port": port, "key_type": key.get_name(), "fingerprint": offered,
              "base64": key.get_base64()}        # what quick.save needs, kept only with a held password (T15)
-    argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(known)}", "-o", "GlobalKnownHostsFile=/dev/null",
+    argv = [ssh, *STRICT, "-o", f"UserKnownHostsFile={ssh_value(ssh_path(known))}", "-o", "GlobalKnownHostsFile=/dev/null",
             "-o", f"HostKeyAlias={alias}", "-o", "UpdateHostKeys=no", "-o", "ControlPath=none",
             "-o", "ConnectTimeout=10"]
     held = {}
@@ -737,7 +894,13 @@ def forget_held(state, hid=None):
 
 def vault_forget_typed(state, params):
     """Forget the typed password held for a Session's "Save to vault" (the Session ended, or the offer was turned
-    down). Never fails."""
+    down). Never fails.
+
+    Params: `{held}`
+    Result: `{forgotten}`: `serve` forgets the typed password it held (the Session ended without saving, or the
+        offer was turned down). Never fails
+    Since: API 13
+    """
     hid = text_param(params, "held")
     return {"forgotten": forget_held(state, hid)}
 
@@ -791,7 +954,17 @@ def quick_save(state, params):
     """Save a Quick Connect that logged in (ticket 15, Q43): its typed password as the Vault item `<name> ssh`, then
     the box as the Host NAME in GROUP (reviewed, enroll: false, its Login that item) as a Pending change, then the
     host key the user confirmed for the Session recorded for it. The item is taken back out if the Host can't be
-    written. The password is forgotten once it's saved."""
+    written. The password is forgotten once it's saved.
+
+    Params: `{quick, name, group, item?, title?, provider?, save_to?}`
+    Result: `{added: true, host, backup, item, warnings}`, like `host.add`'s: the Vault item `item` (default
+        `<name> ssh`), with the user in its username field and `ssh://address[:port]` in its URI field, then the
+        Host `name` in `group` with `ip`, `user`, `port`, `auth: "<provider>:<item>"`, `reviewed: true` and
+        `enroll: false`, as a Pending change, then the host key the user confirmed for the Session recorded for
+        it in `~/.ssh/roster_known_hosts` (never a fresh scan; a failure there is a `warning`)
+    Errors: 80, 81, 74, 60-62, 64, 65, 14, 66, 67
+    Since: API 13
+    """
     return holding_a_secret("saving the Quick Connect", save_quick, state, params)
 
 
@@ -834,7 +1007,17 @@ def host_save_login(state, params):
     """Save an `auth: prompt` Host's typed password once its Session logged in with it (ticket 16, Q43): the Vault
     item `<host> ssh`, then the Host's Login pointed at it, as a Pending change (comments and every other byte kept).
     The item is taken back out if the Host can't be changed. Refused (75) if the Host's address, user, port or Login
-    changed since that Session logged in: it would save a password for a login nobody tested."""
+    changed since that Session logged in: it would save a password for a login nobody tested.
+
+    Params: `{held, item?, provider?, save_to?}`
+    Result: `{changed: true, host, backup, item, warnings}`: the Vault item `item` (default `<host> ssh`, the
+        user and `ssh://address[:port]` in it), then the Host's Login set to `<provider>:<item>` as a Pending
+        change, written like `host.update` (comments and every other byte kept; an inherited `auth: prompt` gets
+        an `auth:` of the Host's own). The item is taken back out if the Host can't be changed. `75` if the
+        Host's address, user, port or Login changed since that Session logged in
+    Errors: 75, 66, 67, 60-65, 14
+    Since: API 13
+    """
     return holding_a_secret("saving the Login", save_login, state, params)
 
 
@@ -879,7 +1062,16 @@ def host_add(state, params):
     """Add a Host to roster.yml as a Pending change (edit.added). With a Login (an existing vault item in auth, or
     a password typed into the form) it's a verified add (Q43): the test login first; then, for a typed password,
     the Vault item; then the Host. Nothing is written when the test login fails, and the item is taken back out
-    when writing the Host fails. Without a Login the Host goes in unreviewed, as discover adds them."""
+    when writing the Host fails. Without a Login the Host goes in unreviewed, as discover adds them.
+
+    Params: `{name, group, address, user?, port?, type?, title?, description?, enroll?, auth? | password +
+        item?, host_key?, provider?, save_to?}`
+    Result: `{added: true, host, backup, verify, item, warnings}`: `host` as `roster.yml` has it now, `verify`
+        the test login (`{host, ok, steps}`, or `null` without a Login), `item` the Vault item it made
+        (`{provider, id, name, target}`, or `null`)
+    Errors: 80, 81, 74, 61, 11, 12, 14, 30-35, 40-48, 60, 62, 64, 65
+    Since: API 6
+    """
     return holding_a_secret("adding the Host", add_host, state, params)
 
 
@@ -980,7 +1172,16 @@ def take_back(made, e):
 
 def host_review(state, params):
     """Mark a Host reviewed (reviewed: true on the Host itself, nothing else changes), as a Pending change.
-    With reviewed: false (API 9), mark it unreviewed again: a review made by mistake has a way back."""
+    With reviewed: false (API 9), mark it unreviewed again: a review made by mistake has a way back.
+
+    Params: `{host, reviewed?}`
+    Result: `{changed, host, backup}`: `reviewed: true` set on that Host and nothing else (`changed: false` if
+        it already was). `reviewed: false` (API 9) un-reviews it, for a review made by mistake: where the Host's
+        own `reviewed: true` sits over an unreviewed group or defaults, its line is taken out again, so the text
+        goes back to what it was
+    Errors: 2, 70, 74
+    Since: API 6
+    """
     name = text_param(params, "host")
     wanted = params.get("reviewed", True)
     if not isinstance(wanted, bool):
@@ -1026,7 +1227,14 @@ def live_repo(state):
 
 def host_remove(state, params):
     """Take a Host out of roster.yml (its entry's lines), as a Pending change. Never touches the vault: its vault
-    item, if any, stays where it is."""
+    item, if any, stays where it is.
+
+    Params: `{host}`
+    Result: `{removed, group, backup}`: the Host's entry taken out, and every `links:` entry that names it.
+        Its group stays, even empty. **Never touches the vault**: its vault item, if any, stays
+    Errors: 1, 2, 70, 74
+    Since: API 8
+    """
     name = name_param(params, "host")
     repo = live_repo(state)
     old_text, new_text, h = edit.removed(repo.path, name)
@@ -1035,7 +1243,14 @@ def host_remove(state, params):
 
 
 def host_rename(state, params):
-    """Rename a Host (its key in roster.yml, nothing else), as a Pending change. Its vault item keeps its name."""
+    """Rename a Host (its key in roster.yml, nothing else), as a Pending change. Its vault item keeps its name.
+
+    Params: `{host, to}`
+    Result: `{changed, host, backup}`: only its key changes, and its name in `links:`. Its vault item keeps its
+        name. `100` if `to` is taken
+    Errors: 1, 2, 70, 74, 80, 100
+    Since: API 8
+    """
     name, to = name_param(params, "host"), name_param(params, "to")
     repo = live_repo(state)
     old_text, new_text, h = edit.renamed(repo.path, name, to)
@@ -1047,7 +1262,17 @@ def host_rename(state, params):
 
 def host_move(state, params):
     """Move a Host to the end of another group, as a Pending change. What it inherited from its old group and
-    wouldn't from the new one is written on the Host, so it stays the same Host (`pinned` names those fields)."""
+    wouldn't from the new one is written on the Host, so it stays the same Host (`pinned` names those fields).
+
+    Params: `{host, group}`
+    Result: `{changed, host, pinned, backup}`: its lines cut and added at the end of `group`'s `hosts:`,
+        re-indented. What it inherited from its old group (user, port, Login, `enroll`, `reviewed`, `mesh`,
+        `type`, …) and wouldn't from the new one is written on the Host (`pinned` names those fields), so it stays
+        the same Host; a Host with no `mesh:` anywhere takes the new group's. `101` no such group, `103` if it
+        would still come out different
+    Errors: 1, 2, 70, 74, 101, 103
+    Since: API 8
+    """
     name, group = name_param(params, "host"), name_param(params, "group")
     repo = live_repo(state)
     old_text, new_text, h, pinned = edit.moved(repo.path, name, group)
@@ -1058,7 +1283,13 @@ def host_move(state, params):
 
 
 def group_new(state, params):
-    """Add an empty group after the last one (`NAME:` with `hosts: {}`), as a Pending change."""
+    """Add an empty group after the last one (`NAME:` with `hosts: {}`), as a Pending change.
+
+    Params: `{name, title?}`
+    Result: `{group, backup}`: `NAME:` with `hosts: {}` (and its `title:`) after the last group. `100` if taken
+    Errors: 1, 70, 74, 80, 100
+    Since: API 8
+    """
     name = name_param(params, "name")
     title = params.get("title") or ""
     if not isinstance(title, str) or "\n" in title:
@@ -1070,7 +1301,14 @@ def group_new(state, params):
 
 
 def group_rename(state, params):
-    """Rename a group (its key in roster.yml); its Hosts go with it. A Pending change."""
+    """Rename a group (its key in roster.yml); its Hosts go with it. A Pending change.
+
+    Params: `{group, to}`
+    Result: `{changed, group, backup}`: only its key changes, and its name in `links:`; its Hosts follow. `100`
+        if taken
+    Errors: 1, 70, 74, 80, 100, 101
+    Since: API 8
+    """
     group, to = name_param(params, "group"), name_param(params, "to")
     repo = live_repo(state)
     old_text, new_text = edit.group_renamed(repo.path, group, to)
@@ -1082,7 +1320,15 @@ def group_rename(state, params):
 
 def group_delete(state, params):
     """Delete a group. One that still has Hosts is refused (102, data.hosts) unless `to` names the group they move
-    to first (as host.move moves them). A Pending change."""
+    to first (as host.move moves them). A Pending change.
+
+    Params: `{group, to?}`
+    Result: `{deleted, moved, to, backup}`: the group's entry taken out, and every `links:` entry that names
+        it. A group that still has Hosts is refused
+        (`102`, `data.hosts`) unless `to` names the group they move to first (as `host.move` moves them)
+    Errors: 1, 70, 74, 101-103
+    Since: API 8
+    """
     group = name_param(params, "group")
     to = params.get("to")
     if to is not None:
@@ -1097,7 +1343,12 @@ def group_delete(state, params):
 
 def inventory_reload(state, params):
     """`:source` for roster.yml: load it again now. A file that doesn't load keeps the last good Inventory, and
-    `error` says why ({message, path, line?, fix}); `changed`: the file differs from what was loaded before."""
+    `error` says why ({message, path, line?, fix}); `changed`: the file differs from what was loaded before.
+
+    Params: none
+    Result: `{changed, host_count, error}`: `:source` for `roster.yml`, read again now
+    Since: API 8
+    """
     before = state.digest
     state.reload()
     cfg = state.inventory()
@@ -1161,7 +1412,13 @@ class Watcher(threading.Thread):
 
 def inventory_watch(state, params):
     """Start watching roster.yml for outside edits (once), and say whether to apply them (auto, the Config's
-    auto_reload) or only report them. Without a notification channel (in-process use) it can't watch."""
+    auto_reload) or only report them. Without a notification channel (in-process use) it can't watch.
+
+    Params: `{auto}`
+    Result: `{watching, auto, path?}`: start noticing outside edits of `roster.yml`; `auto` (the app's
+        `auto_reload`) applies them
+    Since: API 8
+    """
     auto = params.get("auto", False)
     if not isinstance(auto, bool):
         raise RpcError(INVALID_PARAMS, "params.auto must be true or false")
@@ -1206,27 +1463,28 @@ STATUS_WORDS = {"unauthenticated": "not-logged-in", "missing": "missing-cli"}   
 secret_error = vault_problem          # a provider's SecretError as the error to answer with (safe to show)
 
 
-def referenced_providers(cfg):
-    """Providers the Inventory's Host Logins use (ssh and services), most used first, known ones only."""
-    counts = {}
-    for h in cfg["hosts"].values():
-        for login in (h["ssh"], h["login"], *h["services"].values()):
-            name = str(login.get("auth") or "").partition(":")[0].strip()
-            if name and name not in providers.NO_PASSWORD and name in PROVIDERS:
-                counts[name] = counts.get(name, 0) + 1
-    return sorted(counts, key=lambda n: (-counts[n], n))
+referenced_providers = health.referenced_providers
 
 
 def provider_status(name):
     try:
-        status = providers.vault_status(name)
+        status, account = providers.vault_account(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
-    result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name)}
+    return status_result(name, status, account)
+
+
+def status_result(name, status, account, server=providers.ASK):
+    """vault.status's answer for provider NAME from what its CLI said. SERVER: the server it's set to, when that's
+    already known (vault.logout: a second `bw status` costs a second), else login_info asks."""
+    result = {"provider": name, "status": STATUS_WORDS.get(status, status), "can_write": providers.can_write(name),
+              "can_sign_out": providers.can_sign_out(name)}
+    if account:
+        result["account"] = account
     message = providers.status_message(name, status)
     if status == "unauthenticated" and PROVIDERS[name].get("login_info"):
         try:
-            result["sign_in"] = PROVIDERS[name]["login_info"](providers.Ctx(name, None))
+            result["sign_in"] = PROVIDERS[name]["login_info"](providers.Ctx(name, None), server)
         except providers.SecretError:
             pass
     return result | ({"message": message} if message else {})
@@ -1238,11 +1496,17 @@ def main_vault(names):
 
 
 def vault_status(state, params):
-    """The vault to unlock (main_vault) and where every provider the Inventory uses stands."""
+    """The vault to unlock (main_vault) and where every provider the Inventory uses stands.
+
+    Params: none
+    Result: `{provider, status, message?, sign_in?, account?, can_sign_out, save_to?, providers: [{provider,
+        status, message?, sign_in?, account?, can_sign_out}, ...]}`
+    Since: API 1
+    """
     names = referenced_providers(state.inventory())
     lockable = main_vault(names)
     main = provider_status(lockable) if lockable else {"provider": None, "status": "unsupported",
-                                                       "can_write": False}
+                                                       "can_write": False, "can_sign_out": False}
     others = [main if n == main["provider"] else provider_status(n) for n in sorted(names)]
     if main["can_write"]:                       # where "Save to vault" goes by default (ticket 35), as set
         main = {**main, "save_to": providers.default_target(lockable)}
@@ -1271,7 +1535,13 @@ def vault_provider(state, params):
 
 def vault_unlock(state, params):
     """Unlock with the master password. It goes to the provider through an environment variable; the
-    session key stays in this process's memory and is never written to the bw-session file."""
+    session key stays in this process's memory and is never written to the bw-session file.
+
+    Params: `{password, provider?}`
+    Result: `{provider, status: "unlocked"}`
+    Errors: 10-13
+    Since: API 1
+    """
     password = text_param(params, "password")
     name = vault_provider(state, params)
     try:
@@ -1298,23 +1568,75 @@ ON_VAULT_LOCK.append(forget_held)
 
 def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
-    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails."""
+    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails.
+
+    Params: none
+    Result: `{locked: [names]}`. Never fails
+    Since: API 1
+    """
+    names = forget_everything(state)
+    return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+
+
+def forget_everything(state, signing_out=None):
+    """vault.lock's work: end a sign-in, run every ON_VAULT_LOCK hook, and lock every provider (SIGNING_OUT's only
+    in memory: its CLI is about to log out). Returns the providers it locked."""
     names = set(state.unlocked) | (set(referenced_providers(state.cfg)) if state.cfg else set())
     end_sign_in(state)
     for forget in ON_VAULT_LOCK:
         forget(state)
-    for name in sorted(names):
+    for name in sorted(names | ({signing_out} if signing_out else set())):
         try:
-            providers.lock(name)
+            providers.lock(name, cli=name != signing_out)
         except providers.SecretError as e:
             print(f"serve: warning: locking {name}: {e}", file=sys.stderr, flush=True)
     state.unlocked.clear()
-    return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+    return names
+
+
+def vault_logout(state, params):
+    """Sign the vault CLI out of its account, so another can sign in (ticket 42). Everything vault.lock forgets is
+    forgotten first (askpass tokens, held typed passwords, session keys, a sign-in in progress), then the CLI logs
+    out. Answers with where the vault stands now: not-logged-in, with the ways to sign in again.
+
+    Params: `{provider?}`
+    Result: `{provider, status: "not-logged-in", message?, sign_in, can_write, can_sign_out, signed_out: {email,
+        server} | null}`
+    Errors: 13, 15, 16
+    Since: API 14
+    """
+    name = vault_provider(state, params)
+    if not providers.can_sign_out(name):
+        raise secret_error(providers.no_account(name))
+    try:
+        _, account = providers.vault_account(name)
+    except providers.SecretError as e:
+        raise secret_error(e) from None
+    forget_everything(state, signing_out=name)
+    try:
+        providers.logout(name)
+    except providers.SecretError as e:
+        raise sign_out_error(e) from None
+    # Signed out: no second `bw status` to say so (each bw call takes about a second). The server stays set.
+    return {**status_result(name, "unauthenticated", None, server=(account or {}).get("server", providers.ASK)),
+            "signed_out": account}
+
+
+SIGN_OUT_FIXES = {ALREADY_SIGNED_OUT: "sign in from the lock screen",
+                  SIGN_OUT_FAILED: "see the message; `roster bw logout` in a terminal shows the same"}
+
+
+def sign_out_error(e):
+    """A failed `bw logout` as vault.logout's error, with the app's fix (the CLI's vault_problem has none)."""
+    problem = secret_error(e)
+    fix = SIGN_OUT_FIXES.get(problem.code)
+    return Problem(problem.code, problem.message, problem.data, fix=fix) if fix else problem
 
 
 METHODS["vault.status"] = vault_status
 METHODS["vault.unlock"] = vault_unlock
 METHODS["vault.lock"] = vault_lock
+METHODS["vault.logout"] = vault_logout
 
 
 # ---------------------------------------------------------------- vault.configure: this Box's settings (ticket 41)
@@ -1376,7 +1698,13 @@ def vault_configure(state, params):
     """This Box's vault settings from the app's init.lua, replacing the last ones (a key left out is roster.yml's
     again). A KeePassXC database or key file that changed forgets the master password held for the old one:
     `locked` names the providers that were unlocked and now aren't; `refused` the settings left out because roster
-    can't use their value."""
+    can't use their value.
+
+    Params: `{save_to?, kp?: {database?, key_file?}}`
+    Result: `{configured: true, locked: [names], refused: [{setting, message}]}`
+    Errors: -32602
+    Since: API 10
+    """
     box, refused = box_settings(params)
     locked = providers.configure_box(box)
     state.unlocked.difference_update(locked)
@@ -1392,7 +1720,13 @@ METHODS["vault.configure"] = vault_configure
 
 def vault_create_item(state, params):
     """Create a login Vault item: name, username, password, and the address in its URI field. Refuses a name
-    that's already there (code 60). The password goes to the provider on stdin; it's never answered back."""
+    that's already there (code 60). The password goes to the provider on stdin; it's never answered back.
+
+    Params: `{name, password, username?, uri?, provider?, save_to?}`
+    Result: `{provider, id, name, target}`
+    Errors: 14, 60-62, 64, 65
+    Since: API 4
+    """
     name, password = text_param(params, "name"), text_param(params, "password")
     extra = {k: params.get(k) or "" for k in ("username", "uri")}
     if not all(isinstance(v, str) for v in extra.values()):
@@ -1410,7 +1744,13 @@ def vault_create_item(state, params):
 
 
 def vault_undo_create(state, params):
-    """Delete an item vault.create_item made in this serve (Q43's undo). Bitwarden moves it to the trash."""
+    """Delete an item vault.create_item made in this serve (Q43's undo). Bitwarden moves it to the trash.
+
+    Params: `{id}` (from `vault.create_item`)
+    Result: `{provider, id}`
+    Errors: 14, 62, 63
+    Since: API 4
+    """
     item_id = text_param(params, "id")
     provider = state.created.get(item_id)
     if provider is None:
@@ -1428,7 +1768,14 @@ def vault_targets(state, params):
     """Where "Save to vault" can put an item (ticket 35): the personal vault and every collection of the organizations
     you're in (Bitwarden), or the top level and every group (KeePassXC), and the default. A default that doesn't
     resolve doesn't fail the list: `default` is null and `problem` says why (code 64 or 65, its message names the
-    setting). Needs the vault unlocked (14)."""
+    setting). Needs the vault unlocked (14).
+
+    Params: `{provider?}`
+    Result: `{provider, targets: [{id, kind, label, organization?, collection?, save_to}], default, from,
+        problem}`
+    Errors: 14
+    Since: API 10
+    """
     provider = vault_provider(state, params)
     try:
         found = providers.save_targets(provider)
@@ -1486,7 +1833,28 @@ def sign_in_step(state, login, fn):
 def vault_login(state, params):
     """Sign the vault CLI in on this box, a step at a time (docs/serve-api.md "Signing in: vault.login").
     action "start" (the default) begins a new one, "answer" answers the current step, "cancel" stops it.
-    Secrets arrive as values, go to the CLI through env vars or its own prompts, and are never echoed."""
+    Secrets arrive as values, go to the CLI through env vars or its own prompts, and are never echoed.
+
+    Params: `{action: "start", method: "password", email, password, server?, provider?}`
+    Result: the first step
+    Errors: 10, 12, 13, 51-54, 57, 59
+    Since: API 3
+    Params: `{action: "start", method: "apikey", client_id, client_secret, server?}`
+    Result: `master_password`
+    Errors: 12, 13, 52-54, 57-59
+    Since: API 3
+    Params: `{action: "start", method: "sso", identifier?, server?}`
+    Result: `sso`
+    Errors: 12, 13, 51, 53, 54, 56, 57, 59
+    Since: API 3
+    Params: `{action: "answer", login, ...the step's answer}`
+    Result: the next step
+    Errors: 10, 50-53, 55, 56, 59
+    Since: API 3
+    Params: `{action: "cancel"}`
+    Result: `{cancelled: true | false}`
+    Since: API 3
+    """
     action = params.get("action", "start")
     if action == "cancel":
         cancelled = state.login is not None
@@ -1528,6 +1896,78 @@ def vault_login(state, params):
 METHODS["vault.login"] = vault_login
 
 
+# ---------------------------------------------------------------- the Mesh (ticket 39, decision Q63)
+# Host-to-Host access set up from this Box (mesh.py). The app's controls for it are a first-party Plugin (T50).
+
+def rotate_param(params):
+    v = params.get("rotate", [])
+    if not isinstance(v, list) or not all(isinstance(x, str) and x for x in v):
+        raise RpcError(INVALID_PARAMS, "params.rotate must be a list of Host names")
+    return v
+
+
+def mesh_plan(state, params):
+    """The Mesh roster.yml asks for against what the Hosts hold now: read-only, one connection at a time.
+
+    Params: `{rotate?: [host]}`
+    Result: a Mesh result with `applied: false`: what `mesh.apply` would do. Changes nothing anywhere
+    Errors: 1, 110
+    Since: API 15
+    """
+    return mesh.run(state.fresh(), rotate=rotate_param(params))
+
+
+def mesh_apply(state, params):
+    """Make the Mesh what roster.yml says, one connection at a time; Hosts that don't answer stay pending.
+
+    Params: `{rotate?: [host]}`
+    Result: a Mesh result with `applied: true`; `rotate` replaces those sources' keys everywhere
+    Errors: 1, 110
+    Since: API 15
+    """
+    return mesh.run(state.fresh(), apply=True, rotate=rotate_param(params))
+
+
+def mesh_cut(state, params):
+    """Take a Host out of the Mesh now, on every Host at once (mesh.cut), then write mesh: false for it as a
+    Pending change (mesh.write_cut). `pending`: Hosts that didn't confirm, warned about until they're done.
+
+    Params: `{host}`
+    Result: `{host, confirmed: [host], pending: {host: why}, change}`: HOST's key off every peer and every peer's
+        off HOST, at once. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true,
+        backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when
+        it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened)
+    Errors: 1, 2
+    Since: API 15
+    """
+    name = text_param(params, "host")
+    cfg = state.fresh()
+    if name not in cfg["hosts"]:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    result = mesh.cut(cfg, name, cfg["workers"])
+    result["change"] = mesh.write_cut(cfg, name)
+    state.reload()
+    return result
+
+
+def mesh_status(state, params):
+    """No connections: who reaches whom, what's pending, and whether the Mesh is out of date on this Box.
+
+    Params: none
+    Result: `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks
+        for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the
+        Mesh since the last complete apply on this Box
+    Since: API 15
+    """
+    return mesh.status(state.inventory())
+
+
+METHODS["mesh.plan"] = mesh_plan
+METHODS["mesh.apply"] = mesh_apply
+METHODS["mesh.cut"] = mesh_cut
+METHODS["mesh.status"] = mesh_status
+
+
 # ---------------------------------------------------------------- the loop
 
 # Each long method's overall deadline (s). The app waits longer for each (app/src-tauri/src/lib.rs CALL_SECS),
@@ -1537,7 +1977,7 @@ METHODS["vault.login"] = vault_login
 # always answers before the app gives up, and the answer says what happened. Other methods: the app's 60 s.
 DEADLINES = {"host.add": 100, "changes.publish": 110, "inventory.pull": 45, "host.check": 45,
              "host.verify_login": 45, "vault.create_item": 45, "quick.save": 45,
-             "host.save_login": 45}
+             "host.save_login": 45, "box.check": 45, "mesh.plan": 240, "mesh.apply": 240, "mesh.cut": 60}
 AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 
@@ -1585,6 +2025,10 @@ def log_line(msg):
 
 
 def serve(config_arg):
+    # The app speaks UTF-8 JSON lines, whatever this box's locale (Windows' is often cp1252 for a pipe), and "\n"
+    # ends a line on Windows too. A password with an accent comes through as typed.
+    sys.stdin.reconfigure(encoding="utf-8", newline="\n")
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed

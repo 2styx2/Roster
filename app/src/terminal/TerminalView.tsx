@@ -18,6 +18,7 @@ import { deviceAdvance, lineHeightFor, roundedCellSpacing } from "./fonts";
 import type { TerminalOptions, TerminalTheme, ZoomAction } from "./options";
 import { SearchBar, type SearchResults } from "./SearchBar";
 import { holdWhileHidden, type OutputGate } from "./hold";
+import { showRenderer, type RendererInUse, type RendererMemo } from "./renderer";
 
 /** What every terminal shares: options, keys and the machine's services. One object, so the
  * Session list only passes it through. */
@@ -37,6 +38,8 @@ export interface TerminalEnv {
   /** The view mode and the pieces around the terminal: when it changes, the terminal fits
    * itself again and tells the Session (Focus mode, ticket 22). */
   layout: string;
+  /** The visible terminal's renderer, each time it's shown or the renderer changes (`:info`). */
+  onRenderer(renderer: RendererInUse): void;
 }
 
 export interface TerminalViewProps {
@@ -120,8 +123,8 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
     t.loadAddon(f);
     t.loadAddon(s);
     t.open(host);
-    // data-renderer says which one it got (for `:info` later, and devtools now). WebGL comes
-    // and goes with `active` (below).
+    // data-renderer says which one it got (devtools; `:info` hears it through env.onRenderer).
+    // WebGL comes and goes with `active` (below).
     host.dataset.renderer = "dom";
 
     const copy = () => copySelection(t, cb.current.env.clipboard);
@@ -230,31 +233,38 @@ export function TerminalView({ active, leader, attach, onData, onResize, env }: 
   // The WebGL renderer only while the terminal is on screen. A browser keeps about 16 WebGL
   // contexts and drops the oldest past that, so 50 open Sessions each holding one left blank,
   // lost canvases behind (ticket 27). A hidden terminal draws nothing, so it gives its context
-  // back and the DOM renderer keeps its state; showing it again takes a fresh one.
-  const noWebgl = useRef(false);
+  // back and the DOM renderer keeps its state; showing it again takes a fresh one. Where WebGL
+  // can't start (WebKitGTK, WSLg, a VM: ticket 20) or its context is lost, the DOM renderer draws
+  // (renderer.ts), and the visible terminal tells the app which one it has, for `:info`.
+  const memo = useRef<RendererMemo>({ noWebgl: false });
   const renderer = env.options.renderer;
   useEffect(() => {
     const t = term.current;
     const host = el.current;
-    // `renderer = "dom"` (ticket 33): the browser's own text rendering, closer to ClearType.
-    if (!active || !t || !host || noWebgl.current || renderer === "dom") return;
-    let webgl: WebglAddon | null = null;
-    const drop = () => {
-      webgl?.dispose();
-      webgl = null;
+    if (!active || !t || !host) return;
+    const load = (onLoss: () => void) => {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(onLoss);
+      try {
+        t.loadAddon(webgl);
+      } catch (e) {
+        try {
+          webgl.dispose();
+        } catch {
+          // half-loaded: nothing more to give back
+        }
+        throw e;
+      }
+      return webgl;
+    };
+    const hide = showRenderer(renderer, memo.current, load, (r) => {
+      host.dataset.renderer = r;
+      cb.current.env.onRenderer(r);
+    });
+    return () => {
+      hide();
       host.dataset.renderer = "dom";
     };
-    try {
-      webgl = new WebglAddon();
-      webgl.onContextLoss(drop);
-      t.loadAddon(webgl);
-      host.dataset.renderer = "webgl";
-    } catch {
-      // no WebGL2: the DOM renderer it is, for good
-      noWebgl.current = true;
-      webgl = null;
-    }
-    return drop;
   }, [active, renderer]);
 
   // ConPTY sits between us and the shell on Windows (WSL included); xterm adapts its reflow to

@@ -4,6 +4,7 @@ import { builtinCommandRegistry, type CommandRegistry } from "./commands/table";
 import { builtinErrorRegistry, type ErrorRegistry } from "./errors/catalog";
 import { finderCommand } from "./finder/command";
 import { builtinHelpRegistry, type HelpRegistry } from "./help/pages";
+import { builtinHealthRegistry, type HealthRegistry } from "./health/health";
 import { folderRegistry, type FolderRegistry } from "./folders/folders";
 import { builtinFinderRegistry, type FinderRegistry } from "./finder/sources";
 import { reloaderRegistry, sourceCommands, type ReloaderRegistry } from "./config/source";
@@ -12,6 +13,9 @@ import { builtinSidebarRegistry, type SidebarRegistry } from "./sidebar/sections
 import { builtinToolbarRegistry, type ToolbarRegistry } from "./chrome/toolbar";
 import type { ThemeRegistry } from "./theme/theme";
 import { builtinThemeRegistry } from "./theme/themes";
+import { Registry } from "./registry";
+import { builtinTutorRegistry, syncTutorPages, type TutorRegistry } from "./tutor/tutor";
+import type { BadgeEntry, BadgeRegistry, StatusRegistry, StatusSegmentDef } from "./view/status";
 
 export interface Registries {
   commands: CommandRegistry;
@@ -32,6 +36,14 @@ export interface Registries {
   toolbar: ToolbarRegistry;
   /** `:help`'s pages (ticket 37): generated from the registries above, plus the guides. */
   help: HelpRegistry;
+  /** Status bar segments Plugins add (ticket 23), the built-in Host count among them. */
+  status: StatusRegistry;
+  /** Badges Plugins put on Host rows (ticket 23). */
+  badges: BadgeRegistry;
+  /** `:check`'s sections with no Host (ticket 49): roster's, the app's, and what Plugins add. */
+  health: HealthRegistry;
+  /** `:tutor`'s tutorials (ticket 55): roster's own, and what Plugins add. Each is a help page. */
+  tutorials: TutorRegistry;
 }
 
 export function builtinRegistries(): Registries {
@@ -40,6 +52,10 @@ export function builtinRegistries(): Registries {
   commands.register(finderCommand(finders));
   const reloaders = reloaderRegistry();
   for (const c of sourceCommands(reloaders)) commands.register(c);
+  const help = builtinHelpRegistry();
+  const tutorials = builtinTutorRegistry();
+  // Each tutorial is a help page, for as long as the registries live.
+  syncTutorPages(tutorials, help);
   return {
     commands,
     keymap: builtinKeymap(),
@@ -50,6 +66,10 @@ export function builtinRegistries(): Registries {
     folders: folderRegistry(),
     reloaders,
     toolbar: builtinToolbarRegistry(),
-    help: builtinHelpRegistry(),
+    help,
+    status: new Registry<StatusSegmentDef>(),
+    badges: new Registry<BadgeEntry>(),
+    health: builtinHealthRegistry(),
+    tutorials,
   };
 }

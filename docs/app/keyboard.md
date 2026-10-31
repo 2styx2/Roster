@@ -7,13 +7,15 @@ Keyboard first, with vim keys and full mouse support. Every binding lives in one
 - **Terminal mode:** every key goes to the shell, including Esc, Ctrl+C and Ctrl+W. Only the **Leader** (Ctrl+Space by default), the keymap's `global` keys (F11) and its `terminal` keys (copy, paste, find, zoom; below) are caught. Ctrl+C is caught only while text is selected, as in Windows Terminal.
 - **App mode:** after the Leader, or whenever the Picker, a panel or the command line has focus. Vim bindings apply. Esc goes back to the terminal you came from.
 
+The same keys on Windows and Linux: Ctrl, never a Windows-only key. While an input method (IBus or Fcitx on Linux, the Windows IME) is composing, its keys are its own: the Enter that commits a word doesn't also choose a Picker row or run a binding. Some input methods take Ctrl+Space to switch languages (Fcitx does by default) and the app never sees it; set another Leader in `init.lua` (`leader = "ctrl+b"`, [config.md](config.md)) or change the input method's switch key.
+
 ## How keys become actions
 
 Every action is a command in one command table (`app/src/commands/table.ts`), named as the `:` command line names it. The keymap maps a key, or a sequence such as `d d`, to a command line (`session 1`, `close`), so a binding, a typed `:` command and a button (the Sidebar's rows, the tab strip) all run the same command. View modes (ticket 22) only change how commands are shown. Commands, bindings and Sidebar sections are registries (ADR 0006): each entry carries its source (`builtin`, `init.lua`, or a Plugin), which the Key bindings panel shows.
 
 After the Leader you're in App mode until Esc, or until a command that isn't list movement runs: `␣ ]` switches and hands the keys straight back to the new Session's terminal, while `␣ j` / `␣ k` move the Sidebar's cursor and stay in App mode until Enter (switch) or Esc. An unbound key in App mode is swallowed, never sent to the shell. The Picker, the command line and the bindings filter take their own keys.
 
-## Default bindings (ticket 07)
+## Default bindings
 
 | Keys | Command | Action |
 |---|---|---|
@@ -29,9 +31,12 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | `<leader> s` | `statusbar` | Show or hide the status bar, and say the option that keeps it |
 | `<leader> :` | `cmdline` | Command line, with Tab completion for commands and their arguments (see below) |
 | `<leader> ?` | `help [TOPIC]` | Help, like Neovim's `:help` (ticket 37): with no topic, the topic finder; `:help terminal.size`, `:help :connect`, `:help E13` open a page at that entry. Tab completes topics. See [help.md](help.md) |
+| (no key) | `tutor [NAME]` | The tutorial, like Neovim's `:Tutor` (ticket 55): lessons whose steps tick themselves as you do them, on a demo Inventory of made-up Hosts, with your own Sessions kept behind it. It comes back where you left off. `:tutor quit` goes back to your Inventory, `:tutor reset` starts it over, `:tutor NAME` runs another tutorial (a Plugin's). See [help.md](help.md#the-tutor) |
+| `<leader> F1` | `lookup` | Help on what's selected, like Neovim's `K` (which `␣ K` can't be here): a Host's row in the Sidebar opens `:connect`, another row the command it runs, nothing selected the topic finder. In the Key bindings panel's filter, F1 opens help on the first binding's option ([help.md](help.md#help-from-where-you-are)) |
 | `<leader> K` | `keys` | Key bindings panel: the resolved keymap, grouped, with each binding's source and its option in `init.lua` (`keys.leader`), filterable |
 | `<leader> L` | `lock` | Lock |
-| `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). Enter saves, Esc closes |
+| (no key) | `vault signout` | Sign the vault CLI out, to sign in to a different account (ticket 42). It asks first, naming the account ("Sign out of you@example.com on this Box?"; Enter signs out, Esc keeps it), then locks and shows the full sign-in form. The lock screen's "Use a different account" does the same. KeePassXC, `pass`, `env` and `cmd` have no account: the command says why. Needs API 14 |
+| `<leader> E` | `edit [HOST]` | Edit the Host under the cursor, or the current Session's (ticket 10). It opens at once; when the last pull of the infra repo is older than `pull_fresh_minutes` it pulls in the background, and Save waits for it (a pull that changed the Host updates the fields you hadn't touched and says so; a pull that fails blocks the save). Enter saves, Esc closes |
 | `<leader> +`, `<leader> n` | `host add [GROUP]` | Add a Host (ticket 11), in GROUP or the cursor's group (also the `+` always shown on the Inventory heading, which starts in the cursor's group, and the `+` on a group heading). On a roster too old to add Hosts (API 6) the Inventory's `+` stays and says so, in its tooltip and when clicked: the form tests a Login first (host key confirmed, one login), then saves; Enter adds, Esc closes |
 | `<leader> D` | `host remove [HOST]` | Remove the Host under the cursor from `roster.yml` (ticket 28), after a question that names it; its vault item stays. Also the × on its row |
 | `<leader> R` | `host rename [HOST [NEW]]` | Rename a Host; what's left out, the command line asks for. Also the ✎ on its row |
@@ -44,23 +49,30 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | F11 (any mode, no Leader) | `focus` | Focus on or off |
 | `<leader> b` | `finder sessions` | Find a Session (the Finder over the `sessions` source) |
 | — | `finder SOURCE` | The Finder over a finder source: `sessions`, `hosts`, `tree` (Folders and Inventory), `folders`, `inventory`. Enter runs the item's command, Esc closes; the Picker's keys move |
-| Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`) if one is open |
+| Esc (App mode) | `terminal` | Back to the terminal, closing the topmost side panel (Key bindings, `:check`, then Host details) if one is open |
 | — | `hidepanel` | Close the topmost side panel (bind it in `init.lua`) |
 | — | `hints [on\|off\|toggle]` | Show or hide every keycap hint (no word: toggle). The choice is kept in the State unless `init.lua` sets `ui.hints`, which wins ([config.md](config.md)). Hidden hints only go out of sight: every binding still works |
-| — | `info` | Say the Backend, the Box and the Inventory's path whole (the status bar cuts them) |
+| — | `info` | Alone: say the Backend, the Box and the Inventory's path whole (the status bar cuts them), the roster command, the terminal font and size, the renderer the terminal on screen draws with (`WebGL`, `DOM`, `DOM (no WebGL here)` when no WebGL context could be made, `DOM (WebGL context lost)`), and once the Picker has opened, how long it took (`Picker opened in 12 ms`: from the key to the frame it's drawn in) |
+| — | `info HOST` | Host details (ticket 18, decision Q71): a side panel opposite the Sidebar with what `roster info HOST` shows (address, type, product, description, services, the Vault item each Login uses by name, enrolled and reviewed). Tab completes Host names. Also the ⓘ on every Host row in the tree, the ⓘ on a Picker row, and Ctrl+I in the Picker. In Focus it floats over the terminal, like the Sidebar. Esc (App mode) closes it with the other side panels |
+| `<leader> i` | `details` | Show or hide Host details for the selected Host (the Sidebar's cursor, else the Session on screen); also the Host details toggle by the window's buttons (toolbar id `details`), pressed while they show |
 | `<leader> S` | `source [PATH]` (`so`) | Reload the Config now, Neovim-style: `init.lua` and its modules; with PATH, only the file that owns it. Saving doesn't reload unless `auto_reload = true` (decision Q58) |
-| — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is (ticket 32, [config.md](config.md)) |
+| — | `plugins [install PATH\|remove NAME\|reload NAME\|revoke NAME PERM\|grant NAME PERM]` | The Plugins: with no word, the panel (each Plugin, whether it runs, its permissions as switches, what it did lately); `install` asks first, naming every permission ([plugins.md](../plugins.md)). The prompt opens with the keys on Cancel (Keep, Not now), so a stray `Enter` never installs: `Shift+Tab` `Enter` installs or allows, `Esc` declines |
+| — | `packages [update\|clean]` | The Packages `init.lua` names: with no word, the panel (each one's commit, what `init.lua` asks for, whether it runs); `update` fetches and shows each new commit with its diff and any new permission before applying it (Esc keeps the old version); `clean` removes the ones `init.lua` no longer names ([plugins.md](../plugins.md#packages)) |
+| — | `config [reload\|path]` | Open `init.lua` (made from the commented-out example the first time, never overwritten), read it again, or say where it is ([config.md](config.md)) |
 | In the Sidebar (App mode): `j`/`k`, `g g`/`G`, arrows, Home/End, Enter | `down` `up` `top` `bottom` `choose` | Move, jump, choose: a Session switches, a Host opens (or goes to its Session), a group, Folder or heading folds and you stay in the Sidebar. `j`/`k`/`g g`/`G` only with vim on |
 | In the Sidebar: `h` / `l`, ← / → | `fold` / `unfold` | Fold the row (or go to its parent); unfold it (or go to its first child). `h`/`l` only with vim on |
 | — | `fold ID` / `unfold ID` / `togglefold ID` | Fold a row or section by id: `section:sessions`, `section:folders`, `section:inventory`, `group:subnet-42`, `folder:Lab ESXi`. A click on a heading, group or Folder runs `togglefold`. What's folded is kept in State |
-| — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs) |
+| — | `open HOST` | Go to HOST's open Session, or open one (what a Host row in the tree runs). Also takes an open Session's name (a Quick Connect's `user@address`, or a Host no longer in the Inventory) and a Quick Connect address, `user@address[:port]`, which it connects to |
+| — | `open SERVICE`, `open HOST SERVICE` | Open a web service (http or https) in the default browser (ticket 18): SERVICE of the Host in Host details (else the selected Host), or of HOST. A Host's name, an open Session's or a Quick Connect address wins over a service of the same name. Tab completes the current Host's web services first, then Host names, then HOST's services. Also each service's Open button in Host details |
 | `<leader> a` | `folder add` | Add the Host under the cursor (or on screen) to a Folder: opens the command line at `folder add HOST ` for the Folder's name (Tab completes; a new name creates the Folder) |
 | `<leader> A` | `folder remove` | Remove the Host under the cursor from its Folder |
 | — | `folder new NAME`, `folder rename NAME NEW`, `folder delete NAME`, `folder add HOST NAME`, `folder remove HOST NAME` | Folders (GLOSSARY), kept in State. Names may have spaces; quote one (`"Lab ESXi"`) only where it would be ambiguous. Without a name, `new` and `rename` open the command line for it |
 | In the Picker: Ctrl+N/P, arrow keys | — | Move (they also work with vim off) |
 | In the Picker and every finder: Tab / Shift+Tab | `picker.next` / `picker.prev` | Next / previous result, wrapping. Before you've moved, Tab first fills the query with what the matching names share (`es` → `esxi-0` when `esxi-01` and `esxi-02` match), as a shell does |
+| In the Picker: Ctrl+I | `picker.info` | The selected Host's details (closes the Picker) |
+| In the Picker and every finder: F1 | `picker.help` | Help on the selected result: a Host opens `:connect`, a Theme its entry (`themes#nord`), a help topic itself, anything else the command Enter runs ([help.md](help.md#help-from-where-you-are)) |
 | In the Picker: `j`/`k` | — | Move, once you've moved with Ctrl+N/P or an arrow. Until then letters go to the query, and any other letter goes back to it |
-| Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (ticket 08; the keymap's `terminal` table; see "Copy and paste" below) |
+| Terminal: Ctrl+Shift+C/V, Ctrl+Insert / Shift+Insert, Ctrl+C with a selection, select to copy, right-click; Ctrl+Shift+F; Ctrl+= / Ctrl+- / Ctrl+0 | — | Clipboard, find, zoom (the keymap's `terminal` table; see "Copy and paste" below) |
 
 ## Copy and paste
 
@@ -78,9 +90,9 @@ Ctrl+V is the shell's (`quoted-insert`, Vim's block selection). To paste with it
 
 In every text field (the lock screen, the command line, the Picker and finders, the bindings filter, the add and edit forms) the usual editing keys belong to the field: Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+Insert / Shift+Insert, Ctrl+A, Ctrl+Z / Ctrl+Shift+Z. The keymap never takes them there, and right-click shows the WebView's own Cut / Copy / Paste menu. The release build reads and writes the clipboard through Tauri's clipboard plugin (`clipboard-manager:allow-read-text` and `allow-write-text` in `app/src-tauri/capabilities/default.json`), since WebView2 won't let the page read it.
 
-## Completion in the command line (ticket 34)
+## Completion in the command line
 
-The command line completes like bash or zsh, and like Neovim's wildmenu. The candidates for what's typed show in a list above the line: command names (with what each does and its key), then each command's arguments: Hosts (`connect`, `open`, `edit`, `check`, `review`), Folders (`folder add HOST `), Themes, finder sources, view modes, `:config`'s subcommands, `:source`'s files, the Sidebar's rows for `fold` (`group:subnet-42`, `folder:Lab`, `section:sessions`) and the open Sessions' numbers for `session` and `close`. They come from each command's `complete` hook and the registries, so a command from the Config or a Plugin completes the same way.
+The command line completes like bash or zsh, and like Neovim's wildmenu. The candidates for what's typed show in a list above the line: command names (with what each does and its key), then each command's arguments: Hosts (`connect`, `open`, `edit`, `check`, `review`), Folders (`folder add HOST `), Themes, finder sources, view modes, `:config`'s and `:vault`'s subcommands, `:source`'s files, the Sidebar's rows for `fold` (`group:subnet-42`, `folder:Lab`, `section:sessions`) and the open Sessions' numbers for `session` and `close`. They come from each command's `complete` hook and the registries, so a command from the Config or a Plugin completes the same way.
 
 | Keys (`keys.cmdline`) | Action | What it does |
 |---|---|---|
@@ -89,22 +101,29 @@ The command line completes like bash or zsh, and like Neovim's wildmenu. The can
 | Ctrl+Y | `cmdline.accept` | Accept the candidate in the line; the list then shows the next argument's |
 | Enter | `cmdline.run` | Run the line. On a command that still needs its argument (`connect `) it only accepts it |
 | Esc | `cmdline.cancel` | Cancel the completion, back to what you typed; a second Esc closes the line |
+| Ctrl+], F1 | `cmdline.help` | Help on the command you're typing (`:conn` → `:help :connect`; nothing typed: the Commands page). Esc in help brings the line back as it was, the cursor too ([help.md](help.md#help-from-where-you-are)) |
 
 Typing anything also accepts the candidate. A click on one accepts it too.
 
 With the mouse: click a Host to open it (or go to its Session), drag it onto a Folder (or the Folders heading) to add it, and drag it out of a Folder onto any other part of the Sidebar to remove it. Folder rows have rename (✎) and delete (×) buttons, and the Folders heading has + for a new one.
 
-## View modes (ticket 22)
+A row's buttons (ⓘ, ✎, ×, ✓ and the rest) show on the selected row only: the row you last clicked, or in App mode the cursor row, so j/k move them. Hovering a row shows none of them, and its address stays in view. The Inventory heading's + (Add a Host) is always there.
 
-Standard and Focus (decision Q36) differ only in their layout (decision Q39, `app/src/view/layout.ts`); every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
+## View modes
+
+Standard and Focus (decision Q36) differ only in their layout; every command works in both. In Focus the window is fullscreen with only the terminal, and keys that act on Standard's pieces reach the same things another way:
 
 | Keys | In Standard | In Focus |
 |---|---|---|
 | `<leader> e` (`sidebar`) | Show or hide the Sidebar | Show or hide the Sidebar, over the terminal (issue #54) |
 | `<leader> t` (`finder tree`) | The tree finder: Folders and the Inventory, with paths | The same |
 | `<leader> s` (`statusbar`) | Show or hide the status bar | Show or hide the session bar (`[box] 1:esxi-02* 2:orion3-`, off by default; option `focus.sessionbar = "top" \| "bottom" \| false`) |
-| `<leader> ?`, `<leader> K`, `<leader> :`, `:check` | Panels beside the terminal | The same panels, over the terminal |
+| `<leader> ?`, `<leader> K`, `<leader> :`, `:check HOST`, `:check` (help) | Panels beside the terminal | The same panels, over the terminal |
 
 A hint shows for about 2 s on entering Focus. The session bar's numbers are what `<leader> N` takes; `*` is the Session on screen and `-` the one before it, which the Session finder selects first.
 
 The platform's usual habits apply: ⌘ on macOS, Ctrl on Windows and Linux. Form fields stay ordinary text inputs in v1.
+
+## See also
+
+[Quick reference](quickref) · [Key bindings](keys) · [Recipes](recipes.md) · [Your init.lua](config.md)

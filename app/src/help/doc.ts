@@ -30,7 +30,10 @@ export type Block =
   | { t: "pre"; text: string; lang?: string }
   /** Entries like Neovim's option and command docs: the name on the left, what it is now on
    * the right, what it does below. */
-  | { t: "defs"; items: Def[] };
+  | { t: "defs"; items: Def[] }
+  /** A tutorial's step (`:tutor`, ticket 55): something to do, ticked when the app sees it done.
+   * As static text (the docs website, a PDF) it's a checklist line: `[ ]` or `[x]` and the text. */
+  | { t: "step"; id: string; text: Inline[]; done: boolean };
 
 export interface Def {
   /** The help topic that lands on this entry (`terminal.size`, `:connect`, `E13`). */
@@ -39,6 +42,10 @@ export interface Def {
   /** Right of the term: the value in effect, the keys, where it came from. */
   meta: Inline[];
   body: Inline[];
+  /** How it came out, for an entry that's a check (`:help health`): drawn in the warn or error colour. */
+  tone?: "ok" | "warn" | "error";
+  /** A paragraph of its own under `body`: a command's `doc`. */
+  more?: Inline[];
 }
 
 export const text = (s: string): Inline => ({ t: "text", text: s });
@@ -78,4 +85,23 @@ export function plain(inlines: readonly Inline[]): string {
       }
     })
     .join("");
+}
+
+/** Every link's href in a page's blocks, in order: what the docs lint (lint.test.ts) and the
+ * docs website's build (src/docs-site) check. */
+export function blockLinks(blocks: readonly Block[]): string[] {
+  const out: string[] = [];
+  const walk = (inlines: readonly Inline[]) => {
+    for (const i of inlines) {
+      if (i.t === "link") out.push(i.href);
+      if (i.t === "link" || i.t === "strong" || i.t === "em") walk(i.children);
+    }
+  };
+  for (const b of blocks) {
+    if (b.t === "h" || b.t === "p" || b.t === "quote") walk(b.text);
+    else if (b.t === "list") b.items.forEach(walk);
+    else if (b.t === "table") [b.head, ...b.rows].forEach((row) => row.forEach(walk));
+    else if (b.t === "defs") b.items.forEach((d) => [d.term, d.meta, d.body, d.more ?? []].forEach(walk));
+  }
+  return out;
 }

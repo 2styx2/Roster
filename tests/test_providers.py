@@ -3,8 +3,10 @@ import os
 import shutil
 
 import pytest
+from conftest import WINDOWS, posix_shell
 
 from roster import providers
+from roster.common import user_config_dir
 from roster.providers import SecretError, get_secret, setup_providers
 
 
@@ -19,6 +21,7 @@ def test_env_provider(monkeypatch):
         get_secret("env:NOPE_NOT_SET", "g")
 
 
+@posix_shell
 def test_cmd_provider_and_no_password_sources():
     assert get_secret("cmd:printf 'abc\\n'", "g") == "abc"
     assert get_secret("agent", "g") is None
@@ -37,6 +40,7 @@ def test_prompt_without_terminal_fails_cleanly():
         get_secret("prompt", "g")
 
 
+@posix_shell
 def test_template_provider(isolated):
     setup_providers(cfg_with(isolated, {"kv": {"command": "printf '%s' secret-{item}-{field}",
                                                "default_field": "password"}}))
@@ -45,6 +49,7 @@ def test_template_provider(isolated):
     assert providers.PROVIDERS["kv"]["kind"] == "roster.yml"
 
 
+@posix_shell
 def test_template_provider_quotes_input(isolated):
     setup_providers(cfg_with(isolated, {"echo": {"command": "printf '%s' {item}"}}))
     assert get_secret("echo:a b; rm -rf /tmp/nothing", "g") == "a b; rm -rf /tmp/nothing"
@@ -56,6 +61,7 @@ def test_bad_template_is_reported(isolated):
         get_secret("bad:x", "g")
 
 
+@posix_shell                    # the stand-in pass is a shell script
 def test_plugin_from_providers_folder(isolated, fakes):
     from conftest import EXAMPLES
     plugdir = isolated["work"] / "providers"
@@ -69,9 +75,10 @@ def test_plugin_from_providers_folder(isolated, fakes):
         get_secret("pass:infra/missing", "g")
 
 
+@posix_shell
 def test_plugin_in_user_config_dir(isolated, fakes):
     from conftest import EXAMPLES
-    plugdir = isolated["home"] / ".config" / "roster" / "providers"
+    plugdir = user_config_dir() / "providers"
     plugdir.mkdir(parents=True)
     shutil.copy(EXAMPLES / "providers" / "pass_store.py", plugdir)
     setup_providers(cfg_with(isolated))
@@ -206,6 +213,7 @@ def test_onepassword_service_account_skips_signin(isolated, fakes, monkeypatch):
     assert get_secret("op:op://Infra/Orion servers/password", "g") == "pw-deploy"
 
 
+@posix_shell
 def test_secret_values_are_cached_per_run(monkeypatch, tmp_path):
     counter = tmp_path / "n"
     ref = f"cmd:echo x >> {counter}; printf v"
@@ -215,7 +223,7 @@ def test_secret_values_are_cached_per_run(monkeypatch, tmp_path):
 
 
 def _session_file(isolated, text, mode=0o600):
-    f = isolated["home"] / ".config" / "roster" / "bw-session"
+    f = user_config_dir() / "bw-session"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(text)
     f.chmod(mode)
@@ -227,6 +235,7 @@ def test_bw_session_file_unlocks_without_terminal(isolated, fakes):
     assert get_secret("bw:Network gear", "g") == "pw-netops"
 
 
+@pytest.mark.skipif(WINDOWS, reason="Windows keeps it private with the profile folder's ACL, not a mode")
 def test_bw_session_file_readable_by_others_is_ignored(isolated, fakes, capsys):
     _session_file(isolated, "fake-session-key\n", mode=0o644)
     with pytest.raises(SecretError, match="locked"):

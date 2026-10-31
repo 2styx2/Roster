@@ -10,7 +10,7 @@ import signal
 import subprocess
 from pathlib import Path
 
-from .common import time_left
+from .common import WINDOWS, kill_tree, time_left
 from .edit import load_text, read_text, write_text
 from .errors import (
     COMMIT_FAILED,
@@ -32,7 +32,7 @@ from .errors import (
 GIT_TIMEOUT = 60            # s: a fetch over a slow link; nothing here waits on a person
 PUSH_TIMEOUT = 60           # s: the push; past it roster checks whether the push got there anyway
 CHECK_TIMEOUT = 15          # s: that check (a fetch), even past serve's deadline
-HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mac", "web",
+HOST_VIEW = ("group", "ip", "title", "description", "type", "product", "enroll", "reviewed", "mesh", "mac", "web",
              "services")
 
 
@@ -62,10 +62,14 @@ def git(repo, *args, timeout=GIT_TIMEOUT, floor=1):
 
 
 def kill_group(p):
-    try:
-        os.killpg(p.pid, signal.SIGKILL)
-    except OSError:
-        p.kill()
+    """Kill git and whatever it started (ssh, a credential helper): its process group, which Windows doesn't have."""
+    if WINDOWS:                         # no process groups: taskkill the tree
+        kill_tree(p)
+    else:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            p.kill()
     try:
         p.communicate(timeout=5)
     except subprocess.TimeoutExpired:

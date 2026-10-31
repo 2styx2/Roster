@@ -8,10 +8,10 @@
 //! Config, so a typo while editing never takes the app's keys or colours away. [`watch`] calls
 //! back when a `.lua` file in the dir changes, for live reload.
 
-mod editor;
+pub(crate) mod editor;
 pub mod folders;
 mod locate;
-mod lua;
+pub(crate) mod lua;
 pub mod schema;
 mod watch;
 
@@ -27,7 +27,7 @@ use std::time::Duration;
 /// The file the app runs.
 pub const FILE_NAME: &str = "init.lua";
 /// The version of the `roster` Lua table (`roster.api_version`), raised when it changes.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 
 /// What went wrong: where, and what. Shown as `init.lua:12: message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -193,6 +193,11 @@ pub fn returned_table(dir: &Path, source: &str) -> Result<serde_json::Value, Con
 
 /// The Config `source` gives as `dir`'s init.lua, without reading the file.
 pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, ConfigError> {
+    load_source_renaming(dir, source, env, DEPRECATED_OPTIONS)
+}
+
+/// [`load_source`], with `renamed` as the deprecated options (tests pass their own).
+pub fn load_source_renaming(dir: &Path, source: &str, env: &Env, renamed: &[Renamed]) -> Result<Config, ConfigError> {
     let source = source.to_string();
     let out = lua::run(dir, &source, env).map_err(|e| place(e, &source, &[]))?;
 
@@ -201,6 +206,9 @@ pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, Config
     for entry in &out.api {
         set_if_absent(&mut value, &entry.path, entry.value.clone());
     }
+    // A deprecated option moves to its new name (which wins when both are set), before the schema
+    // check would call it unknown.
+    let used = rename_deprecated(&mut value, renamed);
     let api_lines: Vec<(Vec<String>, Location)> = out
         .api
         .iter()
@@ -243,7 +251,56 @@ pub fn load_source(dir: &Path, source: &str, env: &Env) -> Result<Config, Config
     }
     config.set = set_paths(&value);
     config.lines = lines(&config, &source, &api_lines);
+    for r in used {
+        let path: Vec<String> = r.old.split('.').map(str::to_string).collect();
+        if let Some(line) = locate::line_of(&source, &path) {
+            config.lines.insert(
+                r.old.to_string(),
+                Location {
+                    file: FILE_NAME.into(),
+                    line,
+                },
+            );
+        }
+        config.deprecated.push(DeprecatedUse {
+            old: r.old.into(),
+            new: r.new.into(),
+            topic: format!("deprecated#{}", anchor(r.old)),
+        });
+    }
     Ok(config)
+}
+
+/// Moves each deprecated option `value` sets to its new name, unless that's set too; returns the
+/// ones it set.
+fn rename_deprecated(value: &mut serde_json::Value, renamed: &[Renamed]) -> Vec<Renamed> {
+    let mut used = Vec::new();
+    for r in renamed {
+        let path: Vec<&str> = r.old.split('.').collect();
+        let Some((last, parents)) = path.split_last() else {
+            continue;
+        };
+        let parent: String = parents.iter().map(|k| format!("/{k}")).collect();
+        let taken = value
+            .pointer_mut(&parent)
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|m| m.remove(*last));
+        if let Some(v) = taken {
+            let new: Vec<String> = r.new.split('.').map(str::to_string).collect();
+            set_if_absent(value, &new, v);
+            used.push(*r);
+        }
+    }
+    used
+}
+
+/// A docs/deprecated.md row's anchor for an old name, as the app's help makes it (doc.ts `slug`):
+/// lower case, only letters, digits, `_` and `-`.
+fn anchor(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .collect()
 }
 
 /// Every value's path in what the file returned (with its `roster.*` calls), sorted: a table is
@@ -336,6 +393,22 @@ fn at(path: &[&str], message: impl Into<String>) -> Invalid {
 
 /// What the schema's types can't say: ranges, non-empty names, unique Folders.
 fn validate(c: &Config) -> Result<(), Invalid> {
+    // A Windows path for the KeePassXC files is right only for roster running natively on Windows.
+    if c.backend != BackendChoice::Local {
+        let kp = &c.vault.kp;
+        for (field, value) in [("database", &kp.database), ("key_file", &kp.key_file)] {
+            if let Some(hint) = value.as_deref().and_then(schema::windows_path) {
+                return Err(at(
+                    &["vault", "kp", field],
+                    format!(
+                        "{value:?} is a Windows path, but roster runs in WSL (or on Linux): {hint}. With \
+                         backend = \"local\" (roster on Windows itself) a Windows path is the one to give",
+                        value = value.as_deref().unwrap_or_default()
+                    ),
+                ));
+            }
+        }
+    }
     if !(11..=20).contains(&c.fonts.ui_size) {
         return Err(at(
             &["fonts", "ui_size"],
@@ -385,6 +458,12 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             format!("{} is out of range (1 to 1440)", c.idle_lock_minutes),
         ));
     }
+    if c.pull_fresh_minutes > 1440 {
+        return Err(at(
+            &["pull_fresh_minutes"],
+            format!("{} is out of range (0 to 1440)", c.pull_fresh_minutes),
+        ));
+    }
     for (path, v) in [
         (&["leader"][..], &c.leader),
         (&["theme"][..], &c.theme),
@@ -405,6 +484,7 @@ fn validate(c: &Config) -> Result<(), Invalid> {
     if let Some(command) = &c.roster_command {
         command.check().map_err(|m| at(&["roster_command"], m))?;
     }
+    crate::package::check_specs(&c.packages)?;
     let mut seen = std::collections::HashSet::new();
     for (i, f) in c.folders.iter().enumerate() {
         let n = (i + 1).to_string();
@@ -598,20 +678,32 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendPlan {
     pub command: Vec<String>,
-    /// The one WSL distro to use (Windows), or None to detect.
-    pub distro: Option<String>,
+    /// Where to look for it (detect.rs): init.lua's `backend`, or the one WSL distro the env var names.
+    pub choice: crate::detect::Choice,
 }
 
-/// The roster command and WSL distro: `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO` win
-/// (they're for development, and set by the user outside the Config), then `roster_command`
+impl BackendPlan {
+    /// The one WSL distro to use, if the plan names one.
+    pub fn distro(&self) -> Option<&str> {
+        match &self.choice {
+            crate::detect::Choice::Wsl(Some(d)) => Some(d),
+            _ => None,
+        }
+    }
+}
+
+/// The roster command and where to look for it: `ROSTER_APP_ROSTER` and `ROSTER_APP_WSL_DISTRO`
+/// win (they're for development, and set by the user outside the Config), then `roster_command`
 /// and `backend` from init.lua, then detection. Blank env vars don't count. A `roster_command`
 /// that isn't roster itself is refused ([`RosterCommand::check`]); only the env var may wrap it.
+/// The plan is what the app compares after a `:source`: a different one restarts `roster serve`.
 pub fn backend_plan(
     config: &Config,
-    platform: crate::detect::Platform,
+    _platform: crate::detect::Platform,
     env_command: Option<&str>,
     env_distro: Option<&str>,
 ) -> Result<BackendPlan, String> {
+    use crate::detect::Choice;
     let env_command = env_command.filter(|v| !v.trim().is_empty());
     let command = match (env_command, &config.roster_command) {
         (None, Some(command)) => {
@@ -622,19 +714,15 @@ pub fn backend_plan(
         }
         (given, _) => crate::detect::roster_command(given),
     };
-    if platform == crate::detect::Platform::Windows && config.backend == BackendChoice::Local {
-        return Err(
-            "backend = \"local\" needs roster running natively on Windows, which comes with \
-                    ticket 19. Use \"auto\" or \"wsl:<distro>\" in init.lua for now."
-                .into(),
-        );
-    }
-    let distro = env_distro
-        .map(str::trim)
-        .filter(|d| !d.is_empty())
-        .or(config.backend.distro())
-        .map(String::from);
-    Ok(BackendPlan { command, distro })
+    let choice = match env_distro.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => Choice::Wsl(Some(d.to_string())),
+        None => match &config.backend {
+            BackendChoice::Auto => Choice::Auto,
+            BackendChoice::Local => Choice::Local,
+            BackendChoice::Wsl(d) => Choice::Wsl(d.clone()),
+        },
+    };
+    Ok(BackendPlan { command, choice })
 }
 
 /// Replaces `path` with `text` all at once: a temporary file in the same folder, given the old

@@ -56,6 +56,14 @@ _Avoid_: VPN, tailnet, fleet
 A one-way (or `both`) permission in the Inventory for one Host or group to reach another across groups or networks.
 _Avoid_: route, peering
 
+**Password peer**:
+A Host in the Mesh that takes no key (`enroll: false`, appliances): its peers' ssh asks the person for its password, and roster never copies one to a Host.
+_Avoid_: password host (that's how the Box logs in to it), appliance
+
+**Cut**:
+Taking one Host out of the Mesh at once, on every Host in parallel (`roster mesh cut HOST`), without waiting for a Publish; it leaves `mesh: false` for that Host as a Pending change.
+_Avoid_: revoke (that removes the Box's own key), ban
+
 ## The app
 
 The desktop app's own words, on top of the ones above (which mean the same thing in the app).
@@ -84,6 +92,10 @@ _Avoid_: normal mode, command mode
 The state where the vault is forgotten and every Session's content is hidden. The vault master password ends it.
 _Avoid_: logout, sleep
 
+**Sign out**:
+Signing the vault CLI out of its account on this Box (`vault.logout`), so a different account can sign in. Everything the Lock forgets is forgotten first, and the CLI's local copy of the vault goes too. Only for a provider with accounts (Bitwarden).
+_Avoid_: logout (for the Lock), switch user
+
 **Config**:
 The user's `init.lua`: code that sets fonts, colors, keys and options, layered over the built-in defaults.
 _Avoid_: settings, preferences, profile
@@ -95,6 +107,10 @@ _Avoid_: settings, cache
 **Sidebar**:
 The left pane listing open Sessions, the user's Folders and the Inventory tree. It's the default way to see and switch Sessions.
 _Avoid_: tab strip, session manager, explorer
+
+**Host details**:
+The side panel, opposite the Sidebar, that shows what `roster info HOST` shows: address, type, product, description, services, the Vault item each Login uses (by name), enrolled and reviewed. A **web service** is one of a Host's services with an http or https URL; the panel and `:open SERVICE` open it in the default browser.
+_Avoid_: inspector, properties, host info (`:info` alone is the app's own info)
 
 **Folder**:
 A personal grouping of Hosts in the Sidebar (for example "Lab ESXi"), kept on this Box and never in the Inventory.
@@ -108,12 +124,32 @@ _Avoid_: skin, colour scheme
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
 
+**Health**:
+How this Box stands for roster, as `:check` with no Host (or `roster check --box`) finds it: a section at a time (`roster.yml`, ssh, the vault, askpass, the infra repo, `init.lua`, the font), each check OK, WARNING or ERROR with its fix. Every check is local; checking one Host is `:check HOST`.
+_Avoid_: diagnostics (that's `:check HOST`), doctor, status page
+
+**Help topic**:
+A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:connect`, `E13`), a guide's heading (`config#the-sandbox`) or another name for one (`roster.yml`). The topic finder (`␣ ?`) lists them all, and `:help all` lists them A to Z.
+_Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
+
+**Demo Inventory**:
+The made-up Inventory `:tutor` runs on (`demo-01` to `demo-06`): the fake Backend the tests use, whose Sessions are pretend shells in the app, under a "Demo Inventory" banner. Nothing done there reaches a network, a vault, `roster.yml` or your State, except the tutorial's progress.
+_Avoid_: sandbox (that's `init.lua`'s), playground, test mode
+
+**Tutorial**:
+What `:tutor` runs: lessons with steps that tick themselves from what the app does (a command run, a Session opened, a help page followed), shown as a help page (`:help tutor`). roster ships one; Plugins can add more.
+_Avoid_: walkthrough, tour, onboarding
+
 **Plugin**:
-Lua code that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, event hooks). It never sees secrets.
+A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
 
+**Permission**:
+What a Plugin may do beyond adding its own UI (`inventory.read`, `terminal.read`, `serve:<method>`, …): asked for in its manifest, granted at install, revoked in `:plugins`. None reaches a secret.
+_Avoid_: scope, capability, right
+
 **Package**:
-A Plugin fetched from a git repo, named in the Config and pinned to a commit in the lock file.
+A Plugin fetched from a git repo, named in the Config (`packages`) and pinned to a commit in the lock file, `roster.lock`, next to `init.lua`.
 _Avoid_: bundle, module
 
 **Provider**:

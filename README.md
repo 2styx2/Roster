@@ -113,6 +113,7 @@ Requires Python 3.10+, the OpenSSH client, [uv](https://docs.astral.sh/uv/), and
 ```bash
 uv tool install git+https://github.com/2styx2/roster      # from the repo
 uv tool install ./roster-<version>-py3-none-any.whl       # or the wheel from a Release
+roster man --install                                      # the man page, next to the roster command
 roster --help
 ```
 
@@ -124,7 +125,9 @@ git clone https://github.com/2styx2/roster.git && cd roster
 ./install.sh --dry-run    # show what it would do, change nothing
 ```
 
-A Release also has `roster-cli-<version>.tar.gz`: unpack it and run `./install.sh` inside, no git needed. Setting up another box, step by step: [docs/new-box.md](docs/new-box.md).
+A Release also has `roster-cli-<version>.tar.gz`: unpack it and run `./install.sh` inside, no git needed. `install.sh --prefix DIR` puts the command in `DIR/bin` instead of `~/.local/bin`.
+
+After installing, either way, `man roster` shows the manual: the man page goes to `PREFIX/share/man/man1/roster.1`, next to `PREFIX/bin/roster`, where `man` looks. Setting up another box, step by step: [docs/new-box.md](docs/new-box.md).
 
 ## Quick start
 
@@ -150,8 +153,15 @@ Point `ROSTER_CONFIG` at the file (`export ROSTER_CONFIG="$HOME/infra/roster.yml
 
 ## Documentation
 
+Start at **[docs/README.md](docs/README.md)**, the index of every doc. In the app, the same docs are inside it: `:help start` is where to begin, and `␣ ?` finds any topic.
+
+**Docs: [on the web](https://2styx2.github.io/roster/) · [PDF](https://2styx2.github.io/roster/roster-docs.pdf).** The same pages as `:help`, made from the same source; each Release carries the PDF too.
+
 | Doc | For |
 |---|---|
+| [docs/README.md](docs/README.md) | Every doc, grouped: getting started, making it yours, reference, extending, working on roster |
+| [docs/app/start.md](docs/app/start.md) | New to the app: open a Host, find any command, make it yours |
+| [docs/app/recipes.md](docs/app/recipes.md), [docs/app/extending.md](docs/app/extending.md) | `init.lua` snippets to paste, and how far roster bends (the registries) |
 | [docs/cli-reference.md](docs/cli-reference.md) | `roster.yml`, resources, password providers, `discover`, every command, how Claude uses it |
 | [docs/new-box.md](docs/new-box.md) | Setting up roster on another box (a teammate's machine, a jump host, a Claude box) |
 | [docs/adding-hosts.md](docs/adding-hosts.md) | Adding a network or host, wiring it to vault items, testing the logins |

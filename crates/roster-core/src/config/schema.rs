@@ -33,6 +33,9 @@ pub struct Config {
     pub leader: String,
     pub vim: bool,
     pub idle_lock_minutes: u32,
+    /// How old the last pull of the infra repo may be before a form pulls again, in the background
+    /// (decision Q88); 0 pulls every time.
+    pub pull_fresh_minutes: u32,
     /// The view mode at start: "standard" or "focus" (decision Q36).
     pub default_mode: ViewMode,
     /// Open Sessions listed in the Sidebar, or in a tab strip.
@@ -56,6 +59,11 @@ pub struct Config {
     pub auto_reload: bool,
     /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
     pub vault: Vault,
+    /// Packages: Plugins from git repos, pinned in `roster.lock` (ticket 24, decision Q83). In
+    /// Lua, `{ "owner/repo", tag = "v1.0.0", config = { … } }` or a plain `"owner/repo"`; the
+    /// first item becomes `source` (config/lua.rs).
+    #[serde(deserialize_with = "list")]
+    pub packages: Vec<PackageSpec>,
     /// Where each value came from in the file, for warnings the frontend raises (an unknown
     /// command in `keys`). Filled in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
@@ -66,6 +74,32 @@ pub struct Config {
     /// in after the schema check; never read from Lua.
     #[serde(skip_deserializing)]
     pub set: Vec<String>,
+    /// The deprecated options the file set (ticket 48), each applied under its new name; the
+    /// frontend warns about each one, at `lines[old]`. Never read from Lua.
+    #[serde(skip_deserializing)]
+    pub deprecated: Vec<DeprecatedUse>,
+}
+
+/// An `init.lua` option that was renamed: docs/deprecated.md's "init.lua options" rows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Renamed {
+    /// Its Lua path, `terminal.font_size`.
+    pub old: &'static str,
+    pub new: &'static str,
+}
+
+/// Every renamed option, still applied under its new name with a warning until it's removed
+/// (CONTRIBUTING.md, "Docs"; docs/deprecated.md says when). None yet.
+pub const DEPRECATED_OPTIONS: &[Renamed] = &[];
+
+/// A deprecated option the file set, for the frontend's warning.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeprecatedUse {
+    pub old: String,
+    pub new: String,
+    /// Its row in `:help deprecated`: `deprecated#terminalfont_size`.
+    pub topic: String,
 }
 
 impl Default for Config {
@@ -82,6 +116,7 @@ impl Default for Config {
             leader: "Ctrl+Space".into(),
             vim: true,
             idle_lock_minutes: 15,
+            pull_fresh_minutes: 5,
             default_mode: ViewMode::Standard,
             sessions: SessionsIn::Sidebar,
             keys: Keys::default(),
@@ -92,8 +127,10 @@ impl Default for Config {
             editor: Editor::Os,
             auto_reload: false,
             vault: Vault::default(),
+            packages: Vec::new(),
             lines: BTreeMap::new(),
             set: Vec::new(),
+            deprecated: Vec::new(),
         }
     }
 }
@@ -197,19 +234,14 @@ pub struct KeePassXc {
 }
 
 /// A path on the Box roster runs on: absolute or `~/…`, since init.lua may be on another machine
-/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to. roster
-/// serve runs on Linux (in WSL on Windows), so a Windows path (`C:\…`, `\\server\…`) is refused
-/// here, naming the path it most likely means there; roster serve would refuse it anyway, and
-/// with it the rest of init.lua's vault settings.
+/// (Windows, with roster in WSL) and a relative path would have nothing to be relative to. A
+/// Windows path (`C:\…`, `\\server\…`) is taken here and checked once the whole Config is read
+/// (`validate` in mod.rs): it's right for native Windows roster (`backend = "local"`), and refused
+/// otherwise with the path it most likely means in WSL.
 fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
     let s = String::deserialize(d)?;
     let t = s.trim();
-    if let Some(hint) = windows_path(t) {
-        return Err(de::Error::custom(format!(
-            "{s:?} is a Windows path, but roster runs in WSL (or on Linux): {hint}"
-        )));
-    }
-    if t.starts_with('/') || t.starts_with('~') {
+    if t.starts_with('/') || t.starts_with('~') || windows_path(t).is_some() {
         return Ok(Some(t.to_string()));
     }
     Err(de::Error::custom(format!(
@@ -220,7 +252,7 @@ fn backend_path<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Er
 /// For a Windows path, what to give instead: its path inside WSL when that's clear (a drive is
 /// usually mounted at /mnt/<drive>; a `\\wsl$\<distro>\` share is the distro's own `/`). None for
 /// anything else.
-fn windows_path(t: &str) -> Option<String> {
+pub(crate) fn windows_path(t: &str) -> Option<String> {
     let b = t.as_bytes();
     if b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/') {
         let rest = t[3..].replace('\\', "/");
@@ -479,7 +511,8 @@ colors!(
     ThemeColors {
         accent, accent_text, accent_ink, tone, bg, chrome, sidebar, panel, raised, raised_line,
         hover, line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop,
-        shadow,
+        shadow, syntax_keyword, syntax_string, syntax_number, syntax_comment, syntax_function,
+        syntax_punctuation, syntax_key, syntax_command,
     }
 );
 
@@ -1031,7 +1064,7 @@ impl<'de> Deserialize<'de> for StatusBarPiece {
 }
 
 /// The toolbar (decision Q65): `true`, `false`, or its controls in order (`{ "add", "find" }`,
-/// ids from the app's toolbar registry: "sidebar", "find", "quick", "add", "changes", "publish", and the
+/// ids from the app's toolbar registry: "sidebar", "find", "quick", "add", "changes", "publish", "details", and the
 /// ones not shown by default, "cmdline", "keys", "help", "lock", "mode"); null: the default set.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct ToolbarPiece {
@@ -1079,6 +1112,29 @@ pub struct FolderDef {
     pub name: String,
     #[serde(default, deserialize_with = "list")]
     pub hosts: Vec<String>,
+}
+
+/// A Package named in `init.lua` (ticket 24): where its git repo is, which version, and the
+/// settings it's handed. At most one of `tag`, `branch` and `commit`; none means the repo's
+/// default branch. Checked by [`crate::package::check_spec`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackageSpec {
+    /// `"owner/repo"` (on GitHub) or a full git URL (`https://…`, `ssh://…`, `git@host:path`,
+    /// `file://…` or a full path to a repo on this machine).
+    pub source: String,
+    /// The Package's name (its folder and its key in `roster.lock`); the repo's name by default.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub commit: Option<String>,
+    /// Settings handed to the Package as `roster.plugin.config` (a table; never a function).
+    #[serde(default)]
+    pub config: serde_json::Map<String, serde_json::Value>,
 }
 
 /// `roster_command = "uv run --project ~/work/roster roster"` (split on spaces) or a list.

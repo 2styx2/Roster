@@ -4,7 +4,7 @@ Decisions: ADR 0001 (`roster serve`), ADR 0002 (system ssh and askpass), ADR 000
 
 ## Processes
 
-```
+```text
 ┌──────────────── roster app (Tauri) ──────────────────┐
 │  Frontend (React + TS, xterm.js)                     │
 │     │  one typed client: backend calls, Session I/O  │
@@ -51,7 +51,7 @@ JSON-RPC 2.0, one JSON object per line on stdin/stdout. Logging goes to stderr. 
 3. The core starts that command in a PTY (ConPTY on Windows), wrapped in `wsl.exe -d <distro> --` on the WSL backend.
 4. If `ssh` asks for a password, it runs `roster askpass`. The helper sends the token over serve's private socket and prints the password. It refuses every other kind of prompt, such as host-key questions.
 
-The askpass socket is the one deliberate exception to stdio-only. If it grows beyond that, write a new ADR.
+The askpass socket (on native Windows, a named pipe only the user can open) is the one deliberate exception to stdio-only. If it grows beyond that, write a new ADR.
 
 
 ## How a Quick Connect connects (ticket 14)
@@ -60,14 +60,14 @@ The askpass socket is the one deliberate exception to stdio-only. If it grows be
 2. The tab asks first: `host.scan_key {address, port}` fetches the key (key exchange only), and the connect card shows its type and fingerprint with a masked password field. A key that differs from one roster recorded for the address is refused (43), never asked about. Cancel (Esc) connects nothing.
 3. Enter sends the confirmed fingerprint and the password (or none: this Box's keys) through the core's `quick_session_open` to `quick.prepare`. serve fetches the key again (23 if it's not the one shown), writes it under a one-off alias to its own known-hosts file, mints an askpass token for the password, and returns `ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<serve's file> -o HostKeyAlias=roster-quick-<id> … -p PORT -l USER -- ADDRESS`. Then the PTY starts as in step 3 above.
 4. The result's `quick` id stays on the tab. A reconnect asks again, key and password; nothing about the box is kept between Sessions.
-5. With "Save to vault" ticked (ticket 15, API 13), `quick.prepare` gets `save: true`: serve holds the password under `held` and ssh gets a `LocalCommand` that tells serve once it has logged in. serve's `session.logged_in` notification reaches the frontend through the `roster-notification` event; the tab then offers the save, and `:save` (or the offer's button) opens the side panel, which pulls first and calls `quick.save` with the id, the Host's name, its group and the Save to choice. The tab tells serve to forget the password (`vault.forget_typed`) when its Session ends unsaved or the offer is turned down (decision Q68). A Host whose Login is `auth: prompt` (ticket 16) goes the same way: `session.prepare` answers 39, the connect card asks for the password (with the same tick), `session.prepare {host, password, save}` opens the Session, and the save is `host.save_login`, which points the Host's Login at the new item.
+5. With "Save to vault" ticked (ticket 15, API 13), `quick.prepare` gets `save: true`: serve holds the password under `held` and ssh gets a `LocalCommand` that tells serve once it has logged in. serve's `session.logged_in` notification reaches the frontend through the `roster-notification` event; the tab then offers the save, and `:save` (or the offer's button) opens the side panel, which pulls in the background when the last pull is stale (decision Q88), waits for that pull on Save, and calls `quick.save` with the id, the Host's name, its group and the Save to choice. The tab tells serve to forget the password (`vault.forget_typed`) when its Session ends unsaved or the offer is turned down (decision Q68). A Host whose Login is `auth: prompt` (ticket 16) goes the same way: `session.prepare` answers 39, the connect card asks for the password (with the same tick), `session.prepare {host, password, save}` opens the Session, and the save is `host.save_login`, which points the Host's Login at the new item.
 
 ## Backends
 
 | Mode | App runs on | roster and ssh run on |
 |---|---|---|
 | WSL: <distro> | Windows | the WSL distro (auto-detected when roster and `~/infra` are there) |
-| Local | Windows | Windows (iteration 6: roster ported, built-in OpenSSH, named-pipe askpass) |
+| Local | Windows | Windows itself: roster installed with `uv tool install`, Windows' built-in OpenSSH, askpass over a named pipe (ticket 19) |
 | Local | Linux (X11, Wayland, WSLg) | Linux |
 
 ## Config (`init.lua`)

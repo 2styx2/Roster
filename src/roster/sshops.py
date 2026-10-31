@@ -7,7 +7,7 @@ import os
 import shlex
 import subprocess
 
-from .common import die, known_hosts_file, say, ssh_config_file, ssh_dir
+from .common import WINDOWS, die, known_hosts_file, program_argv, say, ssh_config_file, ssh_dir, ssh_path
 from .providers import NO_PASSWORD, get_secret
 
 # ---------------------------------------------------------------- keys & known hosts
@@ -19,8 +19,8 @@ def ensure_key(cfg):
         say(f"key          {cfg['key']} (existing)")
         return
     cfg["key"].parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", cfg["tag"],
-                    "-f", str(cfg["key"])], check=True)
+    subprocess.run(program_argv(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", cfg["tag"],
+                                 "-f", str(cfg["key"])]), check=True)
     say(f"key          {cfg['key']} (created)")
 
 
@@ -100,12 +100,18 @@ def start_transport(sock, key_types, timeout=10):
     return t
 
 
+def ssh_config_hosts():
+    """The Hosts a plain `ssh NAME` reaches through roster's ssh config: the names of its Host blocks, or None when
+    it isn't written or ~/.ssh/config doesn't include it."""
+    ours, main = ssh_config_file(), ssh_dir() / "config"
+    if not ours.is_file() or not main.is_file() or ssh_path(ours) not in main.read_text():
+        return None
+    return {line[5:] for line in ours.read_text().splitlines() if line.startswith("Host ")}
+
+
 def in_ssh_config(name):
     """Will a plain `ssh NAME` use the Host block roster wrote? (its file has it, and ~/.ssh/config includes it)"""
-    ours, main = ssh_config_file(), ssh_dir() / "config"
-    if not ours.is_file() or not main.is_file() or str(ours) not in main.read_text():
-        return False
-    return f"Host {name}" in ours.read_text().splitlines()
+    return name in (ssh_config_hosts() or ())
 
 
 def record_fingerprints(cfg, hosts):
@@ -120,7 +126,7 @@ def record_fingerprints(cfg, hosts):
 
     def scan(h):
         try:
-            r = subprocess.run(["ssh-keyscan", "-T", "5", "-p", str(h["ssh"]["port"]), h["ip"]],
+            r = subprocess.run(program_argv(["ssh-keyscan", "-T", "5", "-p", str(h["ssh"]["port"]), h["ip"]]),
                                capture_output=True, text=True, timeout=30)
             return h, [ln for ln in r.stdout.splitlines() if ln.strip() and not ln.startswith("#")]
         except subprocess.TimeoutExpired:
@@ -144,7 +150,7 @@ def record_fingerprints(cfg, hosts):
 # ---------------------------------------------------------------- ssh config
 
 def q(path):
-    return f'"{path}"'
+    return f'"{ssh_path(path)}"'
 
 
 def host_block(cfg, name, h):
@@ -156,10 +162,11 @@ def host_block(cfg, name, h):
            f"    UserKnownHostsFile {q(known_hosts_file())}",
            "    StrictHostKeyChecking accept-new",
            "    ConnectTimeout 10",
-           "    ServerAliveInterval 30",
-           "    ControlMaster auto",           # reuse one connection for many commands
-           f"    ControlPath {q(ssh_dir() / 'cm-%C')}",
-           "    ControlPersist 10m"]
+           "    ServerAliveInterval 30"]
+    if not WINDOWS:                         # Windows' OpenSSH can't share a connection (no Unix sockets)
+        out += ["    ControlMaster auto",     # reuse one connection for many commands
+                f"    ControlPath {q(ssh_dir() / 'cm-%C')}",
+                "    ControlPersist 10m"]
     # Offer only roster's key (key Hosts) or no key at all (password Hosts): an agent holding many keys
     # would otherwise use up the Host's MaxAuthTries before the password ("Too many authentication failures").
     if h["enroll"]:
@@ -201,7 +208,7 @@ def write_ssh_config(cfg):
 
     main = ssh_dir() / "config"
     text = main.read_text() if main.exists() else ""
-    if str(ssh_config_file()) not in text:
+    if ssh_path(ssh_config_file()) not in text:
         # Include must sit above any Host block, so prepend it
         main.write_text(f"Include {q(ssh_config_file())}\n\n{text}")
         os.chmod(main, 0o600)
@@ -213,8 +220,8 @@ def write_ssh_config(cfg):
 def ssh_ok(name, timeout=10):
     # ControlPath=none: never trust a cached connection, really log in with the key
     try:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ControlPath=none",
-                            "-o", f"ConnectTimeout={timeout}", name, "true"],
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", "-o", "ControlPath=none",
+                                         "-o", f"ConnectTimeout={timeout}", name, "true"]),
                            stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout + 20)
         return r.returncode == 0
     except subprocess.TimeoutExpired:
@@ -260,19 +267,31 @@ def password_exec(h, command, password, timeout=15, stdin=None):
         c.close()
 
 
+# Both rewrite authorized_keys as a new file next to it, then mv it into place: a run cut short leaves the old file
+# whole (rewritten in place, it could be left empty and lock everyone out). cp -p first keeps its mode and owner.
+# The new file is a new inode: on an SELinux-enforcing Host it may lack the old one's label (ssh_home_t) and sshd
+# would refuse it. So the old file's context is copied (chcon --reference) before the mv, and restorecon sets the
+# policy's after it. Both only where they exist, and never fatal (ESXi's busybox, macOS, Alpine have neither).
+REPLACE_AK = ("f=~/.ssh/authorized_keys; [ -L \"$f\" ] && f=$(readlink -f \"$f\"); "
+              "rm -f \"$f.roster\"; cp -p \"$f\" \"$f.roster\"; ")
+KEEP_LABEL = ("{ command -v chcon >/dev/null 2>&1 && chcon --reference=\"$f\" \"$f.roster\" 2>/dev/null; } "
+              "|| true; ")
+RELABEL = "{ command -v restorecon >/dev/null 2>&1 && restorecon -F \"$f\" 2>/dev/null; } || true; "
+
+
 def add_key_script(pub, tag_re):
     # Drops any older key from this same box, appends the current one. Safe to re-run.
-    return ("set -e; umask 077; mkdir -p ~/.ssh; f=~/.ssh/authorized_keys; touch \"$f\"; "
+    return ("set -e; umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; " + REPLACE_AK +
             f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
             f"printf '%s\\n' {shlex.quote(pub)} >> \"$f.roster\"; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; "
-            "chmod 700 ~/.ssh; chmod 600 \"$f\"; echo ROSTER_OK")
+            "chmod 600 \"$f.roster\"; " + KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL +
+            "chmod 700 ~/.ssh; echo ROSTER_OK")
 
 
 def remove_key_script(tag_re):
-    return ("set -e; f=~/.ssh/authorized_keys; [ -f \"$f\" ] || { echo ROSTER_OK; exit 0; }; "
-            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; "
-            "cat \"$f.roster\" > \"$f\"; rm -f \"$f.roster\"; echo ROSTER_OK")
+    return ("set -e; [ -f ~/.ssh/authorized_keys ] || { echo ROSTER_OK; exit 0; }; " + REPLACE_AK +
+            f"grep -v -E -- {shlex.quote(tag_re)} \"$f\" > \"$f.roster\" || true; " +
+            KEEP_LABEL + "mv -f \"$f.roster\" \"$f\"; " + RELABEL + "echo ROSTER_OK")
 
 
 def enroll(h, pub, tag_re):

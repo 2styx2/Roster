@@ -4,6 +4,7 @@ The stand-in keepassxc-cli (tests/fakes) keeps its "database" as JSON at the .kd
 import json
 
 import pytest
+from conftest import WINDOWS
 
 from roster import providers
 from roster.providers import SecretError, get_secret, setup_providers
@@ -116,7 +117,7 @@ def test_status_tells_a_missing_cli_from_a_box_without_a_database(fakes, isolate
     assert "add  providers: {kp: {database:" in providers.status_message("kp", "unauthenticated")
     setup_providers({"path": isolated["work"] / "roster.yml", "providers": {"kp": {"database": "~/gone.kdbx"}}})
     assert providers.vault_status("kp") == "unauthenticated"
-    assert f"{isolated['home']}/gone.kdbx isn't there" in providers.status_message("kp", "unauthenticated")
+    assert f"{isolated['home'] / 'gone.kdbx'} isn't there" in providers.status_message("kp", "unauthenticated")
     with pytest.raises(providers.NotLoggedIn, match="isn't there"):
         providers.unlock("kp", MASTER)
     monkeypatch.setenv("PATH", str(tmp_path))
@@ -215,7 +216,7 @@ def test_serve_locks_unlocks_and_saves_to_keepassxc_like_bitwarden(serve, write_
     monkeypatch.setenv("FAKE_ARGV_LOG", str(tmp_path / "argv.log"))
     write_config(KP_INVENTORY)
     s = serve()
-    locked = {"provider": "kp", "status": "locked", "can_write": True}
+    locked = {"provider": "kp", "status": "locked", "can_write": True, "can_sign_out": False}
     assert s.call("vault.status")["result"] == {**locked, "save_to": {"setting": "personal", "from": "default"},
                                                "providers": [locked]}
     assert s.call("vault.create_item", {"name": "box ssh", "password": NEW_PW})["error"]["code"] == 14
@@ -285,7 +286,7 @@ def test_a_missing_database_or_key_file_from_init_lua_says_to_fix_init_lua(fakes
     setup_providers({"path": isolated["work"] / "roster.yml", "providers": {"kp": {"database": "roster.kdbx"}}})
     providers.configure_box({"kp": {"database": "~/gone.kdbx"}})
     msg = providers.status_message("kp", providers.vault_status("kp"))
-    assert f"{isolated['home']}/gone.kdbx isn't there" in msg and "vault.kp.database in init.lua" in msg
+    assert f"{isolated['home'] / 'gone.kdbx'} isn't there" in msg and "vault.kp.database in init.lua" in msg
     db = make_db(tmp_path / "k.kdbx", [{"path": "esx ssh", "Password": "pw-esx"}], key="key-bytes")
     providers.configure_box({"kp": {"database": str(db), "key_file": str(tmp_path / "nope.key")}})
     with pytest.raises(providers.NotLoggedIn, match="vault.kp.key_file in init.lua"):
@@ -318,7 +319,8 @@ def test_serve_takes_the_database_from_init_lua(serve, write_config, fakes, isol
         assert NEW_PW not in where and MASTER not in where
 
 
-@pytest.mark.parametrize("value", ["roster.kdbx", "", 7, "C:\\Users\\you\\roster.kdbx"])
+@pytest.mark.parametrize("value", ["roster.kdbx", "", 7, pytest.param(
+    "C:\\Users\\you\\roster.kdbx", marks=pytest.mark.skipif(WINDOWS, reason="the right kind of path for roster on Windows"))])
 def test_serve_refuses_only_the_path_it_cant_use_and_takes_the_rest(serve, write_config, fakes, tmp_path, value):
     """A path that isn't absolute or ~/... (relative to what, on which box?) is left out, as if init.lua didn't set
     it, and named in `refused`; the other settings still apply."""

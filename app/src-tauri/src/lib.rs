@@ -4,7 +4,9 @@
 
 use roster_core::backend::{Backend, BackendInfo, QuickTarget};
 use roster_core::config::{self, Config, Loader, Report};
-use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect};
+use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detect_choice};
+use roster_core::package::{self, Packages};
+use roster_core::plugin::{self, Permission, PluginHost};
 use roster_core::rpc::{CallError, Notify};
 use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
 use roster_core::slot::Slot;
@@ -35,12 +37,7 @@ impl BackendState {
                         "Fix it in init.lua (docs/app/config.md), then Retry.",
                     )
                 })?;
-            let candidate = detect(
-                &SystemRunner,
-                Platform::current(),
-                &plan.command,
-                plan.distro.as_deref(),
-            )?;
+            let candidate = detect_choice(&SystemRunner, Platform::current(), &plan.command, &plan.choice)?;
             Backend::start_with(&candidate, Some(notify))
         })?;
         Ok(backend.info.clone())
@@ -89,6 +86,7 @@ async fn backend_connect(
 /// The Config (`init.lua`, roster-core config/): None when there's no config dir. roster-core's
 /// Loader runs Lua outside the locks its readers take, so nothing here waits on Lua except
 /// on a blocking thread.
+#[derive(Clone)]
 struct ConfigState(Option<Arc<Loader>>);
 
 /// The Config as the app starts with it, and the error if init.lua couldn't be used. Waits for
@@ -100,6 +98,13 @@ async fn config_load(config: tauri::State<'_, ConfigState>) -> Result<Option<Rep
         return Ok(None);
     };
     blocking(move || Ok(loader.settled_report())).await
+}
+
+/// A Host's web service in the default browser (ticket 18): only an http or https URL with no user
+/// or password in it (roster-core browser.rs checks it again; the frontend checked it first).
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    blocking(move || roster_core::browser::open_url(&url)).await
 }
 
 /// What `:config` did: the file's path, and whether it was just made (ticket 32).
@@ -293,6 +298,14 @@ async fn vault_lock(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "vault.lock", json!({})).await
 }
 
+/// Sign the vault CLI out (`vault.logout`, API 14, ticket 42): serve forgets every secret first,
+/// then runs `bw logout`. No params and nothing secret in the answer: the account's email and
+/// server, and the ways to sign in again.
+#[tauri::command]
+async fn vault_logout(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "vault.logout", json!({})).await
+}
+
 /// This Box's vault settings from init.lua (`vault.configure`, API 10; tickets 35 and 41): paths
 /// and choices only, never a secret. Sent at start and after every `:source`.
 #[tauri::command]
@@ -314,6 +327,13 @@ async fn vault_targets(state: tauri::State<'_, Arc<BackendState>>) -> Result<Val
 #[tauri::command]
 async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
     call(&state, "host.check", json!({ "host": host })).await
+}
+
+/// This Box's health (`box.check`, api 16, ticket 49): roster.yml, ssh, the vault CLIs, askpass and the
+/// infra repo, each ok, warn or error with its fix. Every check is local: nothing connects to a Host.
+#[tauri::command]
+async fn box_check(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value, CallError> {
+    call(&state, "box.check", json!({})).await
 }
 
 /// Fast-forward the infra repo before an edit (`inventory.pull`, api 4, ticket 10). A fetch can take
@@ -482,6 +502,196 @@ async fn host_review(
         json!({ "host": host })
     };
     call(&state, "host.review", params).await
+}
+
+/// Plugins reach `roster serve` through the running Backend, for the methods their permissions
+/// name (roster-core's plugin module checks them; none touches a secret).
+struct PluginServe(Arc<BackendState>);
+
+impl plugin::Serve for PluginServe {
+    fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        let backend = self.0.get().map_err(|e| e.to_string())?;
+        backend.call(method, params).map_err(|e| e.to_string())
+    }
+}
+
+/// The folder a Plugin path means (decision Q82): `~/…`, absolute, or under the config dir.
+fn plugin_dir(config: &ConfigState, path: &str) -> Result<std::path::PathBuf, String> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from);
+    plugin::resolve_dir(path, config_dir(config).ok().as_deref(), home.as_deref())
+}
+
+/// Where a Plugin path leads: `builtin:NAME` (built in), `package:NAME` (a Package's clone, with
+/// its settings from init.lua; only one init.lua names), or a folder. The path given back is the
+/// one the frontend keeps.
+fn plugin_source(
+    config: &ConfigState,
+    packages: &PackagesState,
+    path: &str,
+) -> Result<(plugin::Source, Value, String), String> {
+    if let Some(name) = path.strip_prefix("builtin:") {
+        return Ok((plugin::Source::Bundled(name.to_string()), Value::Null, path.to_string()));
+    }
+    if let Some(name) = path.strip_prefix("package:") {
+        let (dir, settings) = packages_of(packages)?.loadable(&package_specs(config), name)?;
+        return Ok((plugin::Source::Dir(dir), settings, path.to_string()));
+    }
+    let dir = plugin_dir(config, path)?;
+    let shown = dir.display().to_string();
+    Ok((plugin::Source::Dir(dir), Value::Null, shown))
+}
+
+/// `:plugins install PATH`, step 1: the manifest, for the permission prompt. Runs none of its code.
+#[tauri::command]
+async fn plugin_manifest(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+    path: String,
+) -> Result<Value, String> {
+    let (config, packages) = (config.inner().clone(), packages.inner().clone());
+    blocking(move || {
+        let (source, _, shown) = plugin_source(&config, &packages, &path)?;
+        let plugin::Source::Dir(dir) = source else {
+            return Err(format!("{path} is built into roster"));
+        };
+        let m = plugin::read_manifest(&dir).map_err(|e| e.to_string())?;
+        Ok(json!({ "manifest": m, "dir": shown }))
+    })
+    .await
+}
+
+/// Loads (or reloads) a Plugin with the permissions the user granted.
+#[tauri::command]
+async fn plugin_load(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    path: String,
+    grants: Vec<String>,
+) -> Result<Value, String> {
+    let grants: Vec<Permission> = grants.iter().filter_map(|g| Permission::parse(g).ok()).collect();
+    let host = Arc::clone(&plugins);
+    let (config, packages) = (config.inner().clone(), packages.inner().clone());
+    blocking(move || {
+        let (source, settings, shown) = plugin_source(&config, &packages, &path)?;
+        let (manifest, reply) = host.load_with(&source, &grants, &settings).map_err(|e| e.to_string())?;
+        Ok(json!({ "manifest": manifest, "dir": shown, "reply": reply }))
+    })
+    .await
+}
+
+/// Packages (ticket 24): the clones in the app's data dir and `roster.lock` next to init.lua.
+/// None when there's no config dir.
+#[derive(Clone)]
+struct PackagesState(Option<Arc<Packages>>);
+
+fn packages_of(state: &PackagesState) -> Result<Arc<Packages>, String> {
+    state
+        .0
+        .clone()
+        .ok_or_else(|| "Packages need a config folder for roster.lock, and there's none".into())
+}
+
+/// The Packages init.lua names now (the last good Config). Waits for a reload in progress.
+fn package_specs(config: &ConfigState) -> Vec<roster_core::config::PackageSpec> {
+    config
+        .0
+        .as_ref()
+        .map(|l| l.settled().packages.clone())
+        .unwrap_or_default()
+}
+
+/// Clones what init.lua names and isn't cloned yet, and checks out what roster.lock pins.
+#[tauri::command]
+async fn packages_sync(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+) -> Result<Vec<package::Status>, String> {
+    let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
+    blocking(move || Ok(packages.sync(&package_specs(&config)))).await
+}
+
+/// Pins a Package in roster.lock: the user allowed its install prompt.
+#[tauri::command]
+async fn packages_pin(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+    name: String,
+) -> Result<package::Status, String> {
+    let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
+    blocking(move || packages.pin(&package_specs(&config), &name)).await
+}
+
+/// Removes a Package's clone: its install prompt was cancelled.
+#[tauri::command]
+async fn packages_discard(packages: tauri::State<'_, PackagesState>, name: String) -> Result<(), String> {
+    let packages = packages_of(&packages)?;
+    blocking(move || packages.discard(&name)).await
+}
+
+/// Removes a Package's clone and its roster.lock entry (`:plugins remove`).
+#[tauri::command]
+async fn packages_remove(packages: tauri::State<'_, PackagesState>, name: String) -> Result<(), String> {
+    let packages = packages_of(&packages)?;
+    blocking(move || packages.remove(&name)).await
+}
+
+/// `:packages update`, step 1: fetches, and describes each new commit. Changes nothing.
+#[tauri::command]
+async fn packages_check(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+) -> Result<Vec<package::Checked>, String> {
+    let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
+    blocking(move || Ok(packages.check(&package_specs(&config)))).await
+}
+
+/// `:packages update`, step 2: moves a Package to the commit the user saw and allowed.
+#[tauri::command]
+async fn packages_apply(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+    name: String,
+    commit: String,
+) -> Result<package::Status, String> {
+    let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
+    blocking(move || packages.apply(&package_specs(&config), &name, &commit)).await
+}
+
+/// `:packages clean`: removes the Packages init.lua no longer names; gives their names.
+#[tauri::command]
+async fn packages_clean(
+    config: tauri::State<'_, ConfigState>,
+    packages: tauri::State<'_, PackagesState>,
+) -> Result<Vec<String>, String> {
+    let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
+    blocking(move || packages.clean(&package_specs(&config))).await
+}
+
+#[tauri::command]
+async fn plugin_call(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    plugin: String,
+    handler: u64,
+    args: Value,
+) -> Result<plugin::Reply, ()> {
+    let host = Arc::clone(&plugins);
+    blocking(move || Ok(host.call(&plugin, handler, args))).await
+}
+
+#[tauri::command]
+async fn plugin_event(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    name: String,
+    payload: Value,
+) -> Result<Vec<plugin::Reply>, ()> {
+    let host = Arc::clone(&plugins);
+    blocking(move || Ok(host.event(plugin::Event { name, payload }))).await
+}
+
+#[tauri::command]
+fn plugin_unload(plugins: tauri::State<'_, Arc<PluginHost>>, plugin: String) -> bool {
+    plugins.unload(&plugin)
 }
 
 fn session_error(e: SessionError) -> CallError {
@@ -734,13 +944,27 @@ pub fn run() {
         Arc::new(Loader::new(&dir))
     });
     let setup_loader = loader.clone();
+    let backend = Arc::new(BackendState::default());
+    let plugins = Arc::new(PluginHost::new(
+        Arc::new(PluginServe(Arc::clone(&backend))),
+        plugin::Limits::default(),
+    ));
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
-        .manage(Arc::new(BackendState::default()))
+        .manage(backend)
+        .manage(plugins)
         .manage(Arc::clone(&sessions))
         .manage(ConfigState(loader))
         .setup(move |app| {
             migrate_state(app.handle());
+            // Packages' clones go in the app's own data dir (next to the State), the lock next
+            // to init.lua.
+            let data = roster_core::env::state_dir().or_else(|| tauri::Manager::path(app).app_local_data_dir().ok());
+            let packages = match (data, setup_loader.as_ref()) {
+                (Some(data), Some(loader)) => Some(Arc::new(Packages::new(&data, loader.dir()))),
+                _ => None,
+            };
+            tauri::Manager::manage(app, PackagesState(packages));
             // The watcher lives as long as the app.
             if let Some(w) = setup_loader.as_ref().and_then(|l| start_config(app, l)) {
                 tauri::Manager::manage(app, Mutex::new(w));
@@ -754,9 +978,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             backend_connect,
+            open_url,
             hosts_list,
             host_get,
             host_check,
+            box_check,
             inventory_pull,
             host_verify_login,
             host_update,
@@ -784,13 +1010,26 @@ pub fn run() {
             vault_unlock,
             vault_login,
             vault_lock,
+            vault_logout,
             vault_configure,
             vault_targets,
             config_load,
             config_open,
             config_reload,
             config_import_preview,
-            config_import_apply
+            config_import_apply,
+            plugin_manifest,
+            plugin_load,
+            plugin_call,
+            plugin_event,
+            plugin_unload,
+            packages_sync,
+            packages_pin,
+            packages_discard,
+            packages_remove,
+            packages_check,
+            packages_apply,
+            packages_clean
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

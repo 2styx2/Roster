@@ -4,8 +4,10 @@
 #   ./install.sh               interactive
 #   ./install.sh --yes         accept every default (stages that need a person, like `bw login`, are skipped)
 #   ./install.sh --dry-run     show what would happen, change nothing
+#   ./install.sh --prefix DIR  put the roster command in DIR/bin and its man page in DIR/share/man/man1
+#                              (default: uv's tool bin dir, ~/.local/bin, so ~/.local/share/man/man1); or PREFIX=DIR
 #
-# Stages: prerequisites, uv, roster, Bitwarden CLI, the roster config folder, making roster work from
+# Stages: prerequisites, uv, roster (with its man page, so `man roster` works), Bitwarden CLI, the roster config folder, making roster work from
 # any directory, unlocking the vault, `roster setup`, and auto-updates from cron.
 # Output of each step goes to ~/.cache/roster/install.log; it is shown only when a step fails.
 set -uo pipefail
@@ -16,15 +18,19 @@ LOG="$HOME/.cache/roster/install.log"
 SESSION_FILE="$HOME/.config/roster/bw-session"
 MARK="# roster: ROSTER_CONFIG"           # marks the line we add to shell startup files
 
-YES=0 DRY=0
-for a in "$@"; do
-    case "$a" in
+YES=0 DRY=0 PREFIX=${PREFIX:-}
+while (( $# )); do
+    case "$1" in
         -y|--yes) YES=1 ;;
         -n|--dry-run) DRY=1 ;;
-        -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) echo "unknown option: $a (try --help)" >&2; exit 2 ;;
+        --prefix) [[ -n ${2:-} ]] || { echo "--prefix needs a directory" >&2; exit 2; }; PREFIX=$2; shift ;;
+        --prefix=*) PREFIX=${1#--prefix=} ;;
+        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
     esac
+    shift
 done
+PREFIX=${PREFIX/#\~/$HOME}
 
 # ---- look
 
@@ -129,7 +135,9 @@ pkg_install() {                 # pkg_install name... with the box's package man
 
 mkdir -p "$(dirname "$LOG")"
 (( DRY )) || : > "$LOG"
+USER_PATH=$PATH                 # the PATH this shell had, before the lines below add to it for this run
 export PATH="$HOME/.local/bin:$PATH"
+[[ -n $PREFIX ]] && export PATH="$PREFIX/bin:$PATH"
 
 printf '\n%sroster installer%s\n' "$B" "$N"
 info "Give this box (and Claude on it) access to every host in roster.yml. Passwords stay in the vault."
@@ -188,12 +196,25 @@ else
 fi
 if have roster && ! ask "roster $(roster --version 2>/dev/null | awk '{print $NF}') is installed. Reinstall from $src?" Y; then
     skip "kept the installed roster"
-elif step "install roster (uv tool install)" uv tool install --force --quiet "$src"; then
+    bindir=${PREFIX:+$PREFIX/bin}; bindir=${bindir:-$(dirname "$(command -v roster)")}
+elif bindir=${PREFIX:+$PREFIX/bin}; bindir=${bindir:-$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")}
+     step "install roster (uv tool install) into $bindir" \
+        env "UV_TOOL_BIN_DIR=$bindir" uv tool install --force --quiet "$src"; then
     done_stage
-    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) warn "add ~/.local/bin to PATH (stage 6 does it)";; esac
 else
     fail_stage; exit 1
 fi
+# The man page goes next to the command, PREFIX/share/man/man1 beside PREFIX/bin: man finds it from PATH. Kept or
+# reinstalled, so a roster from before the man page gets it too.
+page="$(dirname "$bindir")/share/man/man1/roster.1"
+step "install the man page (man roster)" sh -c 'mkdir -p "$(dirname "$1")" && cp "$2" "$1"' _ \
+    "$page" "$src/src/roster/roster.1" || warn "no man page; roster man shows it"
+case ":$USER_PATH:" in
+    *":$bindir:"*) ;;
+    *":${bindir%/}/:"*) ;;
+    *) if [[ $bindir == "$HOME/.local/bin" ]]; then warn "add ~/.local/bin to PATH (stage 6 does it)"
+       else warn "add $bindir to PATH yourself"; fi ;;
+esac
 
 # 4. Bitwarden CLI
 stage 4

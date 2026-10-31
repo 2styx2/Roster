@@ -5,6 +5,8 @@
 // neutral that reads on light and dark taskbars (assets/logo-icon.svg and the logo-icon-small*.svg cuts,
 // rendered by app/scripts/icons.mjs; decision Q59).
 
+import "./logo.css";
+
 interface Cut {
   viewBox: string;
   /** The orbit, open where the Host sits. */

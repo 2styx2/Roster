@@ -8,6 +8,9 @@ import {
   type Backend,
   type BackendInfo,
   type BackendProblem,
+  type BoxCheck,
+  BOX_CHECK_API_VERSION,
+  type HealthCheck,
   type CallErrorData,
   CHECK_STEPS,
   EditError,
@@ -40,6 +43,7 @@ import {
   type SaveTargets,
   type SaveTo,
   SaveToError,
+  type Service,
   type SessionAuth,
   type SessionEvents,
   type SessionHandle,
@@ -54,8 +58,12 @@ import {
   PublishError,
   SAVE_TO_VAULT_API_VERSION,
   SaveLoginError,
+  SIGN_OUT_API_VERSION,
+  type SignedOut,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
+import { fakePackageHost, type FakePackages } from "./fakePackages";
+import { described, fakePluginHost, type FakePlugin } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
   HOST_KEY_CHANGED_OUTPUT,
@@ -98,10 +106,17 @@ export interface FakeScenario {
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
   checks?: Record<string, HostCheck>;
+  /** `box.check`'s checks (default: HEALTHY_BOX, every one ok). */
+  boxChecks?: HealthCheck[];
   /** `inventory.info`'s api_version (default 2; editing needs 5). */
   apiVersion?: number;
   /** Ticket 10: `inventory.pull` refuses with this (62 diverged, 63 offline…). */
   pullRefusal?: Refusal;
+  /** Decision Q88: how long `inventory.pull` takes, in ms (else `delay`). */
+  pullDelay?: number;
+  /** Decision Q88: someone published meanwhile. The next pull brings `commits` commits that
+   * change these Hosts' fields, once. */
+  pullBrings?: { commits: number; changes: Record<string, HostChanges> };
   /** Per Host: what `host.verify_login` answers (default: every step ok). */
   verifyResults?: Record<string, HostCheck>;
   /** Ticket 36: Hosts whose host key roster hasn't recorded: `session.prepare` refuses with 44 until
@@ -152,6 +167,13 @@ export interface FakeScenario {
   /** Every Session's shell prints a busy log at this many lines a second once it has logged in, like
    * app/scripts/perf/serve.py's: the perf fixture (docs/app/performance.md). */
   stream?: number;
+  /** Each Session repaints its screen when resized, as ConPTY does on Windows (ticket 73): home,
+   * its last rows again, each cleared to its end. */
+  repaints?: boolean;
+  /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
+  plugins?: Record<string, FakePlugin>;
+  /** Packages (ticket 24): what init.lua names, the repos' versions and roster.lock. */
+  packages?: FakePackages;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -207,6 +229,40 @@ export function passingCheck(host: Host): HostCheck {
   };
 }
 
+/** `box.check` on a Box with nothing wrong. */
+export const HEALTHY_BOX: readonly HealthCheck[] = [
+  { section: "roster", level: "ok", message: "roster 0.1.0, serve API 16, Python 3.12.7" },
+  { section: "inventory", level: "ok", message: "roster.yml loads: /home/you/infra/roster.yml (12 Hosts, 3 groups)" },
+  { section: "ssh", level: "ok", message: "ssh found: /usr/bin/ssh" },
+  { section: "ssh", level: "ok", message: "roster's ssh config has every Host: /home/you/.ssh/config.d/roster" },
+  { section: "ssh", level: "ok", message: "roster's known hosts has every Host's key: /home/you/.ssh/roster_known_hosts" },
+  { section: "vault", level: "ok", message: "bw (12 Logins): logged in as you@example.com, locked; it asks for the master password when a Login needs it" },
+  { section: "askpass", level: "ok", message: "the askpass channel is open" },
+  { section: "repo", level: "ok", message: "clean: /home/you/infra" },
+];
+
+/** `box.check` with a vault CLI that isn't logged in, a Host since the last sync, and Pending changes. */
+export const UNHEALTHY_BOX: readonly HealthCheck[] = [
+  ...HEALTHY_BOX.slice(0, 3),
+  { section: "ssh", level: "warn", message: "1 Host not in roster's ssh config yet: nas-01", fix: "run `roster sync`", topic: "E2" },
+  HEALTHY_BOX[4] as HealthCheck,
+  {
+    section: "vault",
+    level: "error",
+    message: "bw (12 Logins): Bitwarden CLI isn't logged in on this box - run `bw login` once",
+    fix: "sign in from the app's lock screen, or in a terminal",
+    topic: "E6",
+  },
+  HEALTHY_BOX[6] as HealthCheck,
+  {
+    section: "repo",
+    level: "warn",
+    message: "2 Pending changes to roster.yml, not published yet",
+    fix: "`:publish` in the app sends them, `:discard` drops them",
+    topic: ":publish",
+  },
+];
+
 /** ssh failing: its message in the PTY, then exit 255 (as a refused port or a changed key do). */
 function failingSession(id: number, auth: SessionAuth, output: string, events: SessionEvents): SessionHandle {
   setTimeout(() => {
@@ -249,6 +305,41 @@ export function withPromptHost(list: HostList): HostList {
 const TYPES = ["linux", "esxi", "proxmox", "switch", "router", "windows", "printer", "nas"];
 const PRODUCTS = ["", "", "ALPHA", "HUB", "BRAVO", "UniFi"];
 
+/** A service as roster resolves it (Host details, ticket 18): the Host's default Login unless
+ * `own` gives it one of its own. */
+export function service(ip: string, port: number, scheme: "http" | "https" | null, login: Host["login"], own?: { user: string; auth: string }): Service {
+  const url = scheme ? `${scheme}://${ip}${port === (scheme === "https" ? 443 : 80) ? "" : `:${port}`}` : null;
+  return {
+    port,
+    url,
+    scheme,
+    user: own?.user ?? login?.user ?? null,
+    auth: own?.auth ?? login?.auth ?? null,
+    verify: true,
+    login: "basic",
+    override: own !== undefined,
+  };
+}
+
+/** Made-up services by type, as a discover scan and a team would give them: none on a plain
+ * Linux box, a web UI on most others, and a NAS with a web UI, an admin UI of its own and SMB. */
+function servicesFor(type: string, name: string, ip: string): Pick<Host, "services" | "login" | "web"> {
+  const login = { user: "admin", auth: `bw:${name} web` };
+  const svc = (port: number, scheme: "http" | "https" | null, own?: { user: string; auth: string }) => service(ip, port, scheme, login, own);
+  const services: Record<string, Service> =
+    type === "esxi" || type === "router" || type === "switch"
+      ? { web: svc(443, "https") }
+      : type === "proxmox"
+        ? { web: svc(8006, "https") }
+        : type === "printer"
+          ? { web: svc(80, "http") }
+          : type === "nas"
+            ? { web: svc(443, "https"), admin: svc(5001, "https", { user: "nasadmin", auth: `bw:${name} admin` }), smb: svc(445, null) }
+            : {};
+  const web = services.web?.url ?? null;
+  return { services, login: Object.keys(services).length ? login : { user: null, auth: null }, web };
+}
+
 /** `n` made-up Hosts across a few subnets; every seventh one unreviewed (like a discover scan). */
 export function makeHosts(n: number): HostList {
   const hosts: Host[] = Array.from({ length: n }, (_, i) => {
@@ -265,7 +356,7 @@ export function makeHosts(n: number): HostList {
       reviewed: i % 7 !== 3,
       enroll: i % 3 !== 0,
       ssh: { user: "admin", port: 22, auth: i % 3 === 0 ? `bw:${type}-${i} ssh` : "key" },
-      web: null,
+      ...servicesFor(type, `${type}-${subnet}-${String(i).padStart(3, "0")}`, `10.19.${subnet}.${(i % 250) + 2}`),
     };
   });
   const groups = Object.fromEntries(
@@ -418,6 +509,11 @@ export const fixtures: Record<string, FakeScenario> = {
   "sign-in-fido2": signingIn({ methods: ["webauthn"] }),
   "sign-in-sso": signingIn({ sso: "ok", ssoMs: 2500 }),
   "sign-in-eu": signingIn({ server: "https://vault.bitwarden.eu" }),
+  /** Ticket 42 (API 14): a locked Bitwarden signed in as you@example.com; "Use a different account"
+   * and `:vault signout` sign it out, and the sign-in form takes the same fake account. */
+  "sign-out": { hosts: makeHosts(12), apiVersion: SIGN_OUT_API_VERSION },
+  /** Ticket 49 (API 16): `:check` with no Host shows this Box's health, with an error and two warnings. */
+  health: { hosts: makeHosts(12), apiVersion: BOX_CHECK_API_VERSION, boxChecks: [...UNHEALTHY_BOX] },
   "sign-in-rate-limited": signingIn({
     refuse: {
       code: SignInError.rateLimited,
@@ -508,6 +604,9 @@ function streamLog(rate: number, write: (text: string) => void): ReturnType<type
   }, 50);
 }
 
+/** The logged-in fake Sessions a test can make print (`FakeBackend.print`). */
+type Printers = Set<{ host: string; say(text: string): void }>;
+
 /** A pretend shell: a banner and a prompt, echoes what you type (Esc as `^[`), `exit` ends it. */
 function fakeSession(
   id: number,
@@ -516,14 +615,37 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
-  extra: { onLogin?: () => void; title?: string; stream?: number | undefined } = {},
+  extra: { onLogin?: () => void; title?: string; stream?: number | undefined; printers?: Printers; repaints?: boolean | undefined } = {},
 ): SessionHandle {
+  // What it printed, without escapes, for a ConPTY-style repaint.
+  let screen = "";
+  const out = (bytes: Uint8Array) => {
+    // eslint-disable-next-line no-control-regex
+    if (extra.repaints) screen = (screen + new TextDecoder().decode(bytes).replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r/g, "")).slice(-8000);
+    events.output(bytes);
+  };
+  const repaint = (s: TermSize) => {
+    const rows = screen.split("\n").slice(-s.rows);
+    events.output(encode(`\x1b[?25l\x1b[H${rows.map((r) => `${r}\x1b[K`).join("\r\n")}\x1b[?25h`));
+  };
   let line = "";
   let ended = false;
   let streaming: ReturnType<typeof setInterval> | undefined;
+  // Whether the cursor sits right after the prompt: what the box prints then (a log, `wall`)
+  // starts on a line of its own, and the prompt comes back after it, as in a real shell.
+  let atPrompt = false;
+  const printer = {
+    host,
+    say: (text: string) => {
+      out(encode(atPrompt ? `\r\n${text}` : text));
+      atPrompt = text.endsWith("\n");
+      if (atPrompt) out(encode(prompt));
+    },
+  };
   const end = (code: number | null, closed: boolean) => {
     if (ended) return;
     ended = true;
+    extra.printers?.delete(printer);
     clearInterval(streaming);
     setTimeout(() => events.exit({ code, closed }), 0);
   };
@@ -531,15 +653,17 @@ function fakeSession(
   // Like ssh, nothing is printed until the Host answers (the login takes `loginMs`).
   let loggedIn = false;
   let resized: TermSize | null = null;
-  const sayResized = (s: TermSize) => events.output(encode(`[resized to ${s.cols}x${s.rows}]`));
+  const sayResized = (s: TermSize) => out(encode(`[resized to ${s.cols}x${s.rows}]`));
   setTimeout(() => {
     loggedIn = true;
     extra.onLogin?.();
     // A shell that names its box in the window title, as most Linux prompts do (OSC 0).
-    if (extra.title) events.output(encode(`\x1b]0;${extra.title}\x07`));
-    events.output(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    if (extra.title) out(encode(`\x1b]0;${extra.title}\x07`));
+    out(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${prompt}`));
+    atPrompt = true;
     if (resized && !ended) sayResized(resized);
-    if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => events.output(encode(text)));
+    if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => out(encode(text)));
+    if (!ended) extra.printers?.add(printer);
   }, loginMs);
   return {
     id,
@@ -548,19 +672,22 @@ function fakeSession(
       if (ended) throw new BackendCallError(`session ${id} isn't open`);
       for (const ch of data) {
         if (ch === "\r") {
-          events.output(encode("\r\n"));
+          out(encode("\r\n"));
           if (line.trim() === "exit") return end(0, false);
           line = "";
-          events.output(encode(prompt));
+          out(encode(prompt));
+          atPrompt = true;
         } else {
           line += ch;
-          events.output(encode(ch === "\x1b" ? "^[" : ch));
+          atPrompt = false;
+          out(encode(ch === "\x1b" ? "^[" : ch));
         }
       }
     },
     async resize(s) {
       if (ended) return;
-      if (loggedIn) sayResized(s);
+      if (loggedIn && extra.repaints) repaint(s);
+      else if (loggedIn) sayResized(s);
       else resized = s;
     },
     async close() {
@@ -681,16 +808,23 @@ export interface FakeBackend extends Backend {
   held(): string[];
   quickSaves(): QuickSaveParams[];
   forgotten(): string[];
+  /** Every logged-in Session to `host` prints `text`, as its server would (ticket 56: scripted
+   * output for the Plugins that read the terminal). Gives how many printed it. */
+  print(host: string, text: string): number;
 }
 
 const NAME = /^[A-Za-z0-9._-]+$/;
 
 export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let failures = 0;
+  const printers: Printers = new Set();
+  const { plugin: packagePlugin, ...packageHost } = fakePackageHost(scenario.packages ?? { named: [], lock: {} }, described);
   // ---- the Inventory as committed, and as edited on this Box (ticket 10)
   let committed = scenario.hosts.hosts;
   let hosts = committed.map((h) => (scenario.pending?.[h.name] ? withFields(h, scenario.pending[h.name] ?? {}) : h));
   const verified = new Set<string>();
+  /** `pullBrings` came in already. */
+  let pulledIn = false;
   const loginKey = (name: string, f: HostFields) => JSON.stringify([name, f.ip, f.user, f.port, f.auth]);
   let groups = scenario.hosts.groups;
   let committedGroups = groups;
@@ -768,14 +902,23 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         ? (scenario.vaultMessage ?? (kp ? KP_WORDS.missingCli : MISSING_CLI))
         : undefined;
   };
+  /** Ticket 42: signed out through `vault.logout`; the sign-in form then takes the fake account. */
+  let signedOut = false;
+  const accountApi = (scenario.apiVersion ?? 2) >= SIGN_OUT_API_VERSION;
+  const signInAccount = (): FakeAccount | undefined => scenario.signIn ?? (signedOut ? {} : undefined);
   const vaultStatus = (): VaultStatus => {
     const vault = vaultNow();
     const provider = vault === "unsupported" ? null : vaultName;
     const message = vaultMessage();
-    const signIn = vault === "not-logged-in" && scenario.signIn
-      ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: scenario.signIn.server ?? null } }
+    const account = signInAccount();
+    const signIn = vault === "not-logged-in" && account
+      ? { sign_in: { methods: ["password", "apikey", "sso"] as SignInStart["method"][], server: account.server ?? null } }
       : {};
-    const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn };
+    const who = accountApi && !kp && (vault === "locked" || vault === "unlocked")
+      ? { account: { email: FAKE_EMAIL, server: scenario.signIn?.server ?? null } }
+      : {};
+    const can = accountApi ? { can_sign_out: !kp && provider !== null } : {};
+    const main = { provider, status: vault, ...(message ? { message } : {}), ...signIn, ...who, ...can };
     return { ...main, providers: provider ? [{ ...main, provider }] : [] };
   };
   // ---- vault.targets (ticket 35)
@@ -909,7 +1052,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         "the Bitwarden CLI is already logged in on this box - unlock it instead (to sign in as someone else, run `bw logout` first)",
       );
     }
-    const account = scenario.signIn ?? {};
+    const account = signInAccount() ?? {};
     if (!["cloud", "eu"].includes(start.server) && !/^https?:\/\/[^\s/]+\S*$/.test(start.server)) {
       throw signInFailure(
         SignInError.badServer,
@@ -1069,6 +1212,40 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
           problem: problem && { code: SaveToError.unknownTarget, message: problem.message, fix: "fix the setting the message names" },
         };
       }),
+    signOut: () =>
+      inOrder(async (): Promise<SignedOut> => {
+        await wait();
+        if (!accountApi) throw new BackendCallError("unknown method 'vault.logout'", -32601);
+        if (kp) {
+          throw new BackendCallError(
+            "KeePassXC has no account to sign out of: it opens a local database file. To use another one, change vault.kp.database in init.lua",
+            VaultError.unsupported,
+          );
+        }
+        const was = vaultNow();
+        // serve forgets every secret first: askpass tokens, typed passwords held, session keys
+        holding.clear();
+        login = null;
+        if (was === "not-logged-in") {
+          throw new BackendCallError(
+            "the Bitwarden CLI isn't signed in on this box - there's no account to sign out of",
+            VaultError.alreadySignedOut,
+            { fix: "sign in from the lock screen" },
+          );
+        }
+        const signed_out = vaultStatus().account ?? null;
+        vaultWord = "not-logged-in";
+        signedOut = true;
+        const now = vaultStatus();
+        return {
+          provider: vaultName,
+          status: now.status,
+          ...(now.message ? { message: now.message } : {}),
+          ...(now.sign_in ? { sign_in: now.sign_in } : {}),
+          can_sign_out: true,
+          signed_out,
+        };
+      }),
     signIn: (start) => inOrder(() => signIn(start)),
     signInAnswer: (id, answer) => inOrder(() => signInAnswer(id, answer)),
     signInCancel: () =>
@@ -1112,7 +1289,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         }
         const handle =
           typed.password === FAKE_HOST_PASSWORD
-            ? fakeSession(id, host, auth, size, events, scenario.loginMs, held ? { onLogin: () => loggedIn(held) } : {})
+            ? fakeSession(id, host, auth, size, events, scenario.loginMs, held ? { onLogin: () => loggedIn(held), printers } : { printers })
             : failingSession(id, auth, `${h.ssh.user}@${h.ip}: Permission denied (publickey,password).\r\n`, events);
         return { ...handle, ...(held ? { held } : {}) };
       }
@@ -1129,7 +1306,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream });
+      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream, printers, repaints: scenario.repaints });
     },
     async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));
@@ -1275,6 +1452,11 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       loginWatchers.add(onLogin);
       return () => loginWatchers.delete(onLogin);
     },
+    async checkBox(): Promise<BoxCheck> {
+      await wait();
+      const checks = scenario.boxChecks ?? [...HEALTHY_BOX];
+      return { checks, ok: !checks.some((c) => c.level === "error"), roster_version: "0.1.0", api_version: scenario.apiVersion ?? 2 };
+    },
     async checkHost(host) {
       await wait();
       const given = scenario.checks?.[host];
@@ -1291,13 +1473,21 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       return passingCheck(h);
     },
     async pullInventory() {
-      await wait();
+      await new Promise((r) => setTimeout(r, scenario.pullDelay ?? scenario.delay ?? 0));
       if (scenario.pullRefusal) throw refuse(scenario.pullRefusal);
       if (pending().count > 0) {
         throw new BackendCallError("roster.yml has Pending changes, so roster won't pull over them", EditError.dirty, {
           files: ["roster.yml"],
           fix: "Publish or discard the Pending changes first",
         });
+      }
+      const brings = scenario.pullBrings;
+      if (brings && !pulledIn) {
+        pulledIn = true;
+        const change = (h: Host) => (brings.changes[h.name] ? withFields(h, brings.changes[h.name] ?? {}) : h);
+        committed = committed.map(change);
+        hosts = hosts.map(change);
+        return { updated: true, upstream: "origin/main", commits: brings.commits, ahead: 0 };
       }
       return { updated: false, upstream: "origin/main", commits: 0, ahead: 0 };
     },
@@ -1575,6 +1765,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const change: InventoryChanged = watchAuto ? { applied: true, error: broken } : { applied: false, error: null };
       for (const w of changeWatchers) w(change);
     },
+    ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin),
+    ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,
     adds: () => added,
@@ -1582,5 +1774,10 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     held: () => [...heldIds],
     quickSaves: () => [...saves],
     forgotten: () => [...forgets],
+    print(host, text) {
+      const to = [...printers].filter((p) => p.host === host);
+      for (const p of to) p.say(text);
+      return to.length;
+    },
   };
 }

@@ -8,7 +8,7 @@ One repo, two halves: the Python CLI at the root (`src/roster/`, `tests/`) and t
 - How hosts, logins and vault items are named and added: `docs/adding-hosts.md`; setting up a box: `docs/new-box.md`.
 - The live inventory is the infra repo's `roster.yml` (`~/infra`), not this repo; `examples/` holds the template.
 - Vault: `roster bw <bw args>` runs the Bitwarden CLI with this box's session file, e.g. `roster bw list items --search proxmox`.
-- Checks (same as CI): `uv run ruff check src tests` and `uv run pytest`. Tests use the stand-in CLIs in `tests/fakes/`.
+- Checks (same as CI): `uv run ruff check src tests scripts app/scripts` and `uv run pytest`. Tests use the stand-in CLIs in `tests/fakes/`.
 
 ## The app
 
@@ -26,6 +26,7 @@ One repo, two halves: the Python CLI at the root (`src/roster/`, `tests/`) and t
 
 - Branch model: `CONTRIBUTING.md`. Work only on Work branches (`feat/NN-slug` after the ticket, `fix/…`, `docs/…`, `chore/…`) cut from `dev`. Changes land through a GitHub pull request to `dev` (`gh pr create --base dev`); the maintainer reviews and merges. Never push to `dev` or `main` directly.
 - Commits and pull requests carry no `Co-Authored-By` trailer and no Claude/AI attribution line.
+- **Docs ship with the change, in the same pull request** (CONTRIBUTING.md "Docs"): a command, option, error, serve method, CLI command or concept isn't done until its row or page exists and `:help` can answer a question about it. The model is Neovim's docs (one source for `:help` and, later, the website and PDF).
 - **The repo is public.** Never write a real host name, network range, company or product name, email or secret into code, tests, fixtures, docs, commits, issues or PRs. Use made-up examples (`10.0.0.5`, `esx-02`, `appliance`). Every team's `roster.yml` stays private (Q62). The owner's clone has a pre-push check that refuses such pushes; don't work around it.
 
 ## Agent skills

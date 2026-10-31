@@ -6,11 +6,20 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Host, HostList } from "../backend/types";
 import { chordOf, defaultKeymap, type Keymap, type KeyTable, type PickerAction } from "../keymap";
+import { Announce } from "../ui/Announce";
 import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { prefixFill } from "../ui/completion";
 import { searchHosts } from "./match";
 import { formatQuickTarget, parseQuickTarget, type QuickTarget } from "../quick/target";
+
+/** An i in a ring: a Host's details (ticket 18). */
+export const InfoGlyph = () => (
+  <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 7.25v3.5M8 5.25v.01" />
+  </svg>
+);
 
 /** Rows actually rendered; the rest are counted. Keeps every keystroke cheap. */
 const MAX_ROWS = 200;
@@ -32,13 +41,17 @@ export interface PickerProps {
   onQuick?: (to: QuickTarget) => void;
   /** Opened for Quick Connect (the toolbar's control): the field says what to type. */
   quickFirst?: boolean;
+  /** Shows the Host's details (ticket 18): a row's info control, or Ctrl+I. */
+  onInfo?: (host: Host) => void;
+  /** `picker.help` (F1): help on the selected row, a topic (ticket 52). */
+  onHelp?: (topic: string) => void;
 }
 
 /** The first key bound to `action`, for the footer's hints. */
 const keyFor = (table: KeyTable<PickerAction>, action: PickerAction) =>
   Object.entries(table).find(([, b]) => b.action === action)?.[0] ?? null;
 
-export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose, onQuick, quickFirst = false }: PickerProps) {
+export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onReview, onClose, onQuick, quickFirst = false, onInfo, onHelp }: PickerProps) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const [inList, setInList] = useState(false);
@@ -125,12 +138,22 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
         else if (host) setNotice(onReview ? `${host.name} is already reviewed.` : "");
         break;
       }
+      case "picker.info": {
+        const host = hostAt(current);
+        if (host && onInfo) onInfo(host);
+        break;
+      }
+      case "picker.help":
+        // A Host opens with :connect; the Quick Connect row is :quick (ticket 52).
+        onHelp?.(hostAt(current) ? ":connect" : ":quick");
+        break;
       case "picker.close":
         onClose();
         break;
     }
   }
 
+  const info = keyFor(keymap.picker, "picker.info");
   const activeId = current < rowCount ? `${listId}-${current}` : undefined;
   const move = [keyFor(keymap.picker, "picker.up"), keyFor(keymap.picker, "picker.down")].filter((k) => k !== null).join(" ");
   const hints: [string | null, string][] = [
@@ -224,6 +247,21 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
                   unreviewed
                 </span>
               )}
+              {onInfo && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="picker-info"
+                  aria-label={`Show ${host.name}'s details`}
+                  title={info ? `Show ${host.name}'s details (${info})` : `Show ${host.name}'s details`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onInfo(host);
+                  }}
+                >
+                  <InfoGlyph />
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -238,7 +276,9 @@ export function Picker({ hosts, recent, vim, keymap = defaultKeymap, onOpen, onR
           <span role="status" title={notice || undefined}>
             {notice}
           </span>
-          <span className="picker-count">
+          {/* The count, said once typing pauses (ticket 54); the one beside it is only seen. */}
+          <Announce text={results.length ? countOf(results.length, "Host") : query.trim() ? "No Hosts match" : ""} />
+          <span className="picker-count" aria-hidden="true">
             {results.length > shown.length
               ? `${formatCount(shown.length)} of ${countOf(results.length, "Host")}`
               : countOf(results.length, "Host")}

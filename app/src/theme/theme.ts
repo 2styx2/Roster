@@ -53,6 +53,23 @@ export interface ThemeColors {
   backdrop: string;
   /** The shadow under floating surfaces. */
   shadow: string;
+  /** Code in help pages and the docs website (ticket 71, decision Q90): a code block's and a
+   * command line's colours. Each is code text, so 4.5:1 on every surface, and none is the accent
+   * (taste.md: the accent means live). A Theme of your own that leaves them out gets its base's. */
+  /** `local`, `function`, `true`; a shell command's `--option`; a TOML `[table]`. */
+  syntaxKeyword: string;
+  syntaxString: string;
+  syntaxNumber: string;
+  /** Comments: the quiet part of an example. */
+  syntaxComment: string;
+  /** A function call's name (`roster.keys.set`). */
+  syntaxFunction: string;
+  /** Brackets, `=`, `:`, `|`, a prompt's `$`. */
+  syntaxPunctuation: string;
+  /** A table, YAML, JSON or TOML key; a shell variable. */
+  syntaxKey: string;
+  /** The command a shell line runs (`roster`, `git`) and a `:command` in prose: drawn at 500. */
+  syntaxCommand: string;
 }
 
 /** The terminal's own colours, apart from the 16 ANSI ones. */

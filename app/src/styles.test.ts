@@ -3,12 +3,18 @@
 // (or a placeholder's colour) to `--faint` must be one that draws only an icon; those are listed
 // here by selector, so a new text rule can't slip in.
 import { describe, expect, it } from "vitest";
+import logoCss from "./chrome/logo.css?raw";
+import helpDocCss from "./help/doc.css?raw";
 import signinCss from "./lock/signin.css?raw";
 import stylesCss from "./styles.css?raw";
+import keysCss from "./ui/keys.css?raw";
 
 const SHEETS: [string, string][] = [
   ["src/styles.css", stylesCss],
   ["src/lock/signin.css", signinCss],
+  ["src/ui/keys.css", keysCss],
+  ["src/help/doc.css", helpDocCss],
+  ["src/chrome/logo.css", logoCss],
 ];
 
 /** Selectors whose element holds only an icon (an SVG drawn in `currentColor`), never text. */
@@ -125,5 +131,58 @@ describe("what sits over a terminal (issue #78, item 6)", () => {
   it("keeps xterm's layers inside the terminal's own stacking context", () => {
     const wrap = rules(stylesCss).find(([selector]) => selector === ".term-wrap");
     expect(wrap?.[1]).toMatch(/(^|;)\s*isolation\s*:\s*isolate/);
+  });
+});
+
+// WebKitGTK (the Linux build, ticket 20) may not know `scrollbar-width` or `scrollbar-color`, so the
+// scrollbars would come out wide and in GTK's colours. ::-webkit-scrollbar says the same for it;
+// Chromium (WebView2) ignores those rules wherever the standard properties are set.
+describe("scrollbars on WebKitGTK (ticket 20)", () => {
+  const all = rules(stylesCss);
+  const webkit = (part: string) => all.filter(([sel]) => sel.includes(`::-webkit-scrollbar${part}`));
+
+  it("are thin and take the Theme's colours, as scrollbar-width and scrollbar-color ask", () => {
+    expect(webkit("").some(([, body]) => /width:\s*\d+px/.test(body) && /height:\s*\d+px/.test(body))).toBe(true);
+    expect(webkit("-thumb").some(([, body]) => body.includes("var(--raised-line)"))).toBe(true);
+  });
+
+  it("are hidden wherever scrollbar-width: none hides them", () => {
+    const hidden = all.filter(([, body]) => /scrollbar-width:\s*none/.test(body)).map(([sel]) => sel);
+    expect(hidden.length).toBeGreaterThan(0);
+    for (const sel of hidden) {
+      expect(
+        webkit("").some(([s, body]) => s.includes(`${sel}::-webkit-scrollbar`) && /display:\s*none/.test(body)),
+        `${sel}::-webkit-scrollbar { display: none }`,
+      ).toBe(true);
+    }
+  });
+});
+
+describe("the Sidebar's row buttons (decision Q88)", () => {
+  it("show on the selected row, and no hover rule reveals them or hides a row's address", () => {
+    const all = rules(stylesCss);
+    const hover = all.filter(([sel]) => sel.includes(":hover") && /\.sb-(row|heading)/.test(sel));
+    for (const [sel] of hover) expect(sel, sel).not.toMatch(/\.sb-(action|detail|num|badge)/);
+    expect(all.some(([sel, body]) => sel.includes(".sb-row.selected .sb-action") && /display:\s*grid/.test(body))).toBe(true);
+    expect(all.some(([sel]) => /\.sb-row\.raised \.sb-action/.test(sel))).toBe(false);
+  });
+});
+
+describe("Plugins' UI (ticket 73)", () => {
+  const body = (selector: string) =>
+    rules(stylesCss)
+      .filter(([s, , at]) => at.length === 0 && s.split(",").some((x) => x.trim() === selector))
+      .map(([, b]) => b)
+      .join(";");
+
+  it("a Plugin's float lies over the terminal in every layout, so opening it never resizes a Session", () => {
+    expect(body(".side-panel.plugin-float")).toMatch(/position\s*:\s*absolute/);
+  });
+
+  it("a Plugin's badge is a chip with tabular digits, cut when long, and never the accent", () => {
+    const tag = body(".sb-tag");
+    expect(tag).toMatch(/font-variant-numeric\s*:\s*tabular-nums/);
+    expect(tag).toMatch(/text-overflow\s*:\s*ellipsis/);
+    expect(tag).not.toMatch(/--accent/);
   });
 });

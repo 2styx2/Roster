@@ -162,3 +162,7 @@ Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com
 ## Things that aren't hosts
 
 A Wi-Fi network, a vendor portal or an API key goes under `resources:` instead of a group. It gets a fixed set of fields per type (`wifi`, `account`, `secret`) and an `auth:` vault reference, just like a host. See [Resources](cli-reference.md#resources-secrets-with-no-address) in the CLI reference. Check it with `roster auth-check --only <name>` and `roster info <name>`.
+
+## See also
+
+[Set up a Box](new-box.md) · [The roster command](cli-reference.md#rosteryml) · [Connection errors](app/errors.md)

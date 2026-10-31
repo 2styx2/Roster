@@ -42,6 +42,10 @@ export interface FinderSourceDef extends Entry {
   title: string;
   /** Before the query, as in the prototype ("Sessions ›"). */
   prompt: string;
+  /** Its items are prose (help's outline, `:helpgrep`): they read in Inter, not Iosevka. */
+  prose?: boolean;
+  /** What an empty list says before anything's typed (default "Nothing here yet."). */
+  empty?: string;
   items(ctx: FinderContext): FinderItem[];
   /** The matches for `query`, best first; by default searchItems over `items`. */
   search?(ctx: FinderContext, query: string): FinderItem[];
@@ -55,6 +59,9 @@ export interface FinderSourceDef extends Entry {
   /** A line for the footer while the Finder is open ("set in init.lua"), for the item under
    * the cursor (undefined when nothing matches). */
   note?(item: FinderItem | undefined): string | undefined;
+  /** The help topic for an item (F1, `picker.help`): `themes#nord`. Without it, the topic is the
+   * command Enter would run (`:session`), or a `help TOPIC` command's topic. */
+  help?(item: FinderItem): string | undefined;
 }
 
 export type FinderRegistry = Registry<FinderSourceDef>;

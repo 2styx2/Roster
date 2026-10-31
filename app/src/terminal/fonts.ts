@@ -26,10 +26,14 @@ export function terminalFontStack(families: readonly string[]): string {
   return out.join(", ");
 }
 
+/** The first bundled or installed family in the list, or null when there's none (`:check`). */
+export function fontFound(families: readonly string[], probe: FontProbe): string | null {
+  return families.find((f) => BUNDLED.includes(f) || probe(f) === true) ?? null;
+}
+
 /** The family the terminal draws with: the first bundled or installed one in the list. */
 export function fontInUse(families: readonly string[], probe: FontProbe): string {
-  const found = families.find((f) => BUNDLED.includes(f) || probe(f) === true);
-  return found ?? "Cascadia Mono, Consolas or monospace";
+  return fontFound(families, probe) ?? "Cascadia Mono, Consolas or monospace";
 }
 
 /** A probe that draws a test string in `"family", monospace` and in `"family", serif`: an installed

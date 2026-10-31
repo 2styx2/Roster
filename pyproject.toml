@@ -1,6 +1,6 @@
 [project]
 name = "roster"
-version = "0.1.0"
+version = "0.2.0"
 description = "Give a box - and Claude running on it - access to every host on your network, from one YAML file."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,10 @@ dependencies = [
 
 [project.scripts]
 roster = "roster.cli:main"
+# ssh's askpass helpers on Windows, where ssh runs only a program as SSH_ASKPASS (roster/askpass.py); Linux and
+# macOS use a script serve writes, and these do nothing when ssh didn't start them
+roster-askpass = "roster.askpass:main"
+roster-askpass-login = "roster.askpass:logged_in_main"
 
 [dependency-groups]
 dev = [
@@ -26,6 +30,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/roster"]
+
+# roster(1) also lands in PREFIX/share/man/man1 when pip or uv installs the wheel into a prefix, next to
+# PREFIX/bin/roster, so man finds it. `uv tool install` keeps it in the tool's venv: `roster man --install`.
+[tool.hatch.build.targets.wheel.shared-data]
+"src/roster/roster.1" = "share/man/man1/roster.1"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

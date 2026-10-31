@@ -23,6 +23,7 @@
     "colors": {},
     "darkTheme": "roster-dark",
     "defaultMode": "standard",
+    "deprecated": [],
     "editor": "os",
     "folders": [],
     "fonts": {
@@ -81,6 +82,8 @@
         }
       }
     },
+    "packages": [],
+    "pullFreshMinutes": 5,
     "rosterCommand": null,
     "sessions": "sidebar",
     "set": [],
@@ -164,7 +167,15 @@
     "danger",
     "danger_text",
     "backdrop",
-    "shadow"
+    "shadow",
+    "syntax_keyword",
+    "syntax_string",
+    "syntax_number",
+    "syntax_comment",
+    "syntax_function",
+    "syntax_punctuation",
+    "syntax_key",
+    "syntax_command"
   ],
   "themeTerminal": [
     "background",

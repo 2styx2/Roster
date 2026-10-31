@@ -1,7 +1,7 @@
 // The Markdown that docs/app is written in, read into help blocks (doc.ts), so the guides render
 // in the app's own type instead of as HTML. Only what those files use: headings, paragraphs,
-// lists, tables, fenced code, quotes, and inline code, bold, italics and links. Anything else
-// stays as its text, never as markup.
+// lists, tables, fenced code, quotes, and inline code, bold, italics and links (a line that is an
+// HTML comment is left out). Anything else stays as its text, never as markup.
 import { slug, type Block, type Inline } from "./doc";
 
 export function parseMarkdown(source: string): Block[] {
@@ -17,12 +17,19 @@ export function parseMarkdown(source: string): Block[] {
   let i = 0;
   const at = (k: number) => lines[k] ?? "";
   const blank = (s: string) => s.trim() === "";
+  const comment = (s: string) => /^\s*<!--.*-->\s*$/.test(s);
   // A table starts at a pipe row only when a separator row (|---|) follows it.
   const tableAt = (k: number) => at(k).trimStart().startsWith("|") && /^\s*\|?\s*:?-+/.test(at(k + 1));
 
   while (i < lines.length) {
     const line = at(i);
     if (blank(line)) {
+      i++;
+      continue;
+    }
+    // An HTML comment on a line of its own (serve-api.md's generated-table markers) isn't shown,
+    // as on GitHub.
+    if (comment(line)) {
       i++;
       continue;
     }
@@ -80,7 +87,7 @@ export function parseMarkdown(source: string): Block[] {
     while (i < lines.length) {
       const l = at(i);
       // The first line always belongs to the paragraph, so the parser always moves on.
-      if (para.length && (blank(l) || /^(#{1,4}\s|\s*```|\s*~~~|>)/.test(l) || tableAt(i) || item.test(l))) break;
+      if (para.length && (blank(l) || comment(l) || /^(#{1,4}\s|\s*```|\s*~~~|>)/.test(l) || tableAt(i) || item.test(l))) break;
       para.push(l.trim());
       i++;
     }
@@ -170,4 +177,41 @@ export function inline(s: string): Inline[] {
   }
   flush();
   return out;
+}
+
+/** One note for the people building roster: a ticket, a decision, an ADR or an issue. */
+const DEV_REF =
+  /^(?:see |amends |from )?(?:tickets? \d+(?:(?:, | and |-)\d+)*|decisions? Q\d+(?:(?:, | and )Q\d+)*|Q\d+|ADR \d{4}|issues? #\d+|#\d+|T\d+)$/i;
+
+/** The guides without their notes for developers: a parenthetical that only names tickets,
+ * decisions (`Q58`), ADRs or issues goes, and one that mixes them with words keeps the words
+ * (`(rows 60-63, ticket 36)` → `(rows 60-63)`). Headings, code and fenced code are left alone,
+ * so anchors stay GitHub's; docs/app/decisions.md is where the history lives. */
+export function withoutDevNotes(source: string): string {
+  let fenced = false;
+  return source
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+      if (fenced || /^\s*(```|~~~)/.test(line) || /^#{1,4}\s/.test(line)) return line;
+      // Code spans are kept whole: split them out, strip the rest, put them back.
+      return line
+        .split(/(`[^`]*`)/)
+        .map((part, k) => (k % 2 ? part : part.replace(/ ?\(([^()]*)\)/g, (whole, inner: string) => dropRefs(whole, inner))))
+        .join("");
+    })
+    .join("\n");
+}
+
+function dropRefs(whole: string, inner: string): string {
+  const parts = inner.split(/([;,]\s*)/);
+  const kept: string[] = [];
+  for (let k = 0; k < parts.length; k += 2) {
+    const part = (parts[k] as string).trim();
+    if (!DEV_REF.test(part)) kept.push(part);
+  }
+  if (kept.length === parts.length / 2 + 0.5) return whole;
+  if (kept.length === 0) return "";
+  const sep = parts[1]?.startsWith(";") && kept.length > 1 ? "; " : ", ";
+  return `${whole.startsWith(" ") ? " " : ""}(${kept.join(sep)})`;
 }

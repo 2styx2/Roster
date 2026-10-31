@@ -57,6 +57,9 @@ return {
   --   accent, accent_text, accent_ink, tone, bg, chrome, sidebar, panel, raised, raised_line,
   --   hover, line, line_strong, text, muted, faint, warn, error, danger, danger_text, backdrop,
   --   shadow
+  -- and code's colours in help and the docs website:
+  --   syntax_keyword, syntax_string, syntax_number, syntax_comment, syntax_function,
+  --   syntax_punctuation, syntax_key, syntax_command
   -- e.g. colors = { accent = "#e0803a" }
   colors = {},
 
@@ -113,9 +116,9 @@ return {
   -- what you'd type after `:` ("close", "session 1", "finder sessions"); false unbinds a default.
   -- Contexts: leader (after the Leader), list and list_vim (the Sidebar), picker and picker_vim
   -- (Tab / Shift+Tab: picker.next / picker.prev), cmdline (the `:` line: cmdline.next,
-  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel), terminal (before the shell sees the key: terminal.copy, terminal.copyIfSelected, terminal.paste, terminal.search,
+  -- cmdline.prev, cmdline.accept, cmdline.run, cmdline.cancel, cmdline.help), terminal (before the shell sees the key: terminal.copy, terminal.copyIfSelected, terminal.paste, terminal.search,
   -- terminal.zoomIn, …), global (everywhere, no Leader; keep it to keys a shell doesn't use).
-  -- The Key bindings panel (Leader ?) lists every binding and where it comes from.
+  -- The Key bindings panel (Leader K) lists every binding and where it comes from.
   keys = {
     leader = {
       -- t = "next",          -- Leader t: the next Session
@@ -184,8 +187,21 @@ return {
     },
   },
 
+  -- Packages -------------------------------------------------------------------------------------
+  -- Plugins from git repos, as lazy.nvim does it: fetched into the app's data folder, asked about
+  -- before they run, and pinned in roster.lock next to this file (keep it with your dotfiles).
+  -- :packages lists them, :packages update shows what's new first, :packages clean removes the
+  -- ones taken out of here. config is the settings a Package reads (roster.plugin.config).
+  packages = {
+    -- { "someone/recent-alerts", tag = "v1.0.0", config = { patterns = { "ERROR", "panic" } } },
+    -- "https://git.example.com/team/roster-extras.git",
+  },
+
   -- Other ----------------------------------------------------------------------------------------
   idle_lock_minutes = 15, -- lock after this many minutes without input (1 to 1440)
+  -- A form that writes roster.yml (:edit, :host add, Save to vault) opens at once and pulls the
+  -- infra repo in the background when the last pull is older than this; 0 pulls every time.
+  pull_fresh_minutes = 5,
 
   -- What :config opens this file with: "os" (the app Windows or your desktop opens .lua files
   -- with; Notepad if there's none), or "wsl" ($EDITOR inside the Backend's WSL distro, vi if
@@ -196,9 +212,10 @@ return {
   -- (Leader S) reloads, and the status bar says when a save isn't applied yet.
   auto_reload = false,
 
-  -- Which roster runs (read when the backend starts: Retry, or restart the app, after changing).
-  -- "auto" detects it: on Windows, the default WSL distro, then running ones. "wsl:<distro>"
-  -- uses that distro. ("local", native Windows roster, comes with ticket 19.)
+  -- Which roster runs. Changing it and reloading (:source) starts roster serve again.
+  -- "auto" detects it: on Windows, roster on Windows itself if it has an Inventory, else the
+  -- default WSL distro, then running ones. "local" is roster on this machine (on Windows, the
+  -- one installed on Windows). "wsl" is WSL's; "wsl:<distro>" uses that distro.
   -- The ROSTER_APP_WSL_DISTRO env var wins over this.
   backend = "auto",
   -- The command that runs roster, for development: a command line or a list of words. The

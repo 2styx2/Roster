@@ -20,6 +20,26 @@ export interface Host {
   /** Service entries roster left out of the Host because it can't use them (a bad port, url or
    * `login:` type in roster.yml); the rest of the Host loads. Absent from rosters before it. */
   problems?: ServiceProblem[];
+  /** The Host's services by name (Host details, ticket 18). roster has always sent them; older
+   * fixtures leave them out. */
+  services?: Record<string, Service>;
+  /** The Host's default Login for its services (`login:` in roster.yml). */
+  login?: { user: string | null; auth: string | null };
+  mac?: string | null;
+}
+
+/** One of a Host's services, as roster resolves it. `auth` is a vault reference such as
+ * `bw:esx-02 web` (the Vault item's name), never a secret. `url` is set for http and https ones. */
+export interface Service {
+  port: number;
+  url: string | null;
+  scheme: string | null;
+  user: string | null;
+  auth: string | null;
+  verify: boolean;
+  login: string;
+  /** The service has a Login of its own; false: it uses the Host's default. */
+  override: boolean;
 }
 
 /** One service entry roster left out: `message` names the service, `fix` says what to change. */
@@ -134,6 +154,30 @@ export interface HostCheck {
   host: string;
   ok: boolean;
   steps: CheckStep[];
+}
+
+/** The first `api_version` with `box.check`: `:check` with no Host (ticket 49). */
+export const BOX_CHECK_API_VERSION = 16;
+
+/** How a health check came out (`box.check`), as Neovim's `:checkhealth` says them. */
+export type HealthLevel = "ok" | "warn" | "error";
+
+/** One of `box.check`'s checks. `section` is `roster`, `inventory`, `ssh`, `vault`, `askpass` or
+ * `repo` (a newer roster may send others); `topic` is a `:help` topic (`E6`, `:publish`). */
+export interface HealthCheck {
+  section: string;
+  level: HealthLevel;
+  message: string;
+  fix?: string;
+  topic?: string;
+}
+
+/** `box.check`: this Box's health, every check local (nothing connects to a Host). */
+export interface BoxCheck {
+  checks: HealthCheck[];
+  ok: boolean;
+  roster_version: string;
+  api_version: number;
 }
 
 /** The first `api_version` with `inventory.pull`, `host.verify_login`, `host.update` and `changes.*` (ticket 10). */
@@ -398,7 +442,84 @@ export interface ProviderStatus {
   /** For not-logged-in, when the app can sign the CLI in (`vault.login`, api 3): the ways in,
    * and the server the CLI is set to (null: Bitwarden's US cloud). */
   sign_in?: SignInInfo;
+  /** For locked and unlocked (API 14): the account the CLI is signed in to, when it says. */
+  account?: VaultAccount;
+  /** Whether `vault.logout` can sign this provider's CLI out (API 14; Bitwarden only). */
+  can_sign_out?: boolean;
 }
+
+/** The account a vault CLI is signed in to (API 14): `server` null is Bitwarden's US cloud. */
+export interface VaultAccount {
+  email: string;
+  server: string | null;
+}
+
+/** The first `api_version` with `vault.logout` and `vault.status`'s `account` (ticket 42). */
+export const SIGN_OUT_API_VERSION = 14;
+
+/** The first `api_version` with the Mesh's methods (ticket 39): `mesh.plan`, `mesh.apply`,
+ * `mesh.cut`, `mesh.status`, and a Host's `mesh`. The app's controls for them are T50's Plugin. */
+export const MESH_API_VERSION = 15;
+
+/** roster's code for the Mesh (ticket 39): `rotate` names a Host that isn't a Mesh source. */
+export const MeshError = { notASource: 110 } as const;
+
+/** One Link of the Mesh: `from` reaches `to` (as `to`'s own user). `status` only in a plan or apply. */
+export interface MeshLink {
+  from: string;
+  to: string;
+  /** `password`: the peer takes no key, so ssh asks the person. */
+  kind: "key" | "password";
+  status?: "ok" | "untested" | "unreachable" | "no-host-key" | "pending" | "skipped";
+  why?: string;
+  skip?: "password-source";
+}
+
+/** What `mesh.plan` or `mesh.apply` found or did on one Host. */
+export interface MeshHost {
+  host: string;
+  status: "same" | "would-change" | "changed" | "pending";
+  /** Short phrases: "make key", "add key from orion-2", "write ssh config", ... */
+  changes: string[];
+  error?: string;
+}
+
+/** `mesh.plan` (`applied: false`) and `mesh.apply`. */
+export interface MeshResult {
+  applied: boolean;
+  links: MeshLink[];
+  hosts: MeshHost[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  pending: Record<string, string>;
+  /** Nothing to change and nothing pending: "already in the mesh". */
+  already: boolean;
+  warnings: string[];
+  cut_pending: Record<string, string[]>;
+}
+
+/** `mesh.cut`: confirmed Hosts, the ones that didn't answer, and the `mesh: false` Pending change. */
+export interface MeshCut {
+  host: string;
+  confirmed: string[];
+  pending: Record<string, string>;
+  change: { written: boolean; backup?: string | null; note?: string; error?: string; fix?: string };
+}
+
+/** `mesh.status`: no connections. */
+export interface MeshStatus {
+  links: MeshLink[];
+  excluded: Record<string, string>;
+  reach: Record<string, number>;
+  members: string[];
+  pending: Record<string, string>;
+  cut_pending: Record<string, string[]>;
+  out_of_date: boolean;
+}
+
+/** `vault.logout`: where the vault stands now (not-logged-in, with `sign_in`), and the account it
+ * signed out of (null when the CLI didn't name one). */
+export type SignedOut = ProviderStatus & { signed_out: VaultAccount | null };
 
 /** How the vault CLI can be signed in from the app (roster's docs/serve-api.md "Signing in: vault.login"). */
 export type SignInWay = "password" | "apikey" | "sso";
@@ -414,6 +535,8 @@ export interface VaultStatus {
   status: VaultStatusWord;
   message?: string;
   sign_in?: SignInInfo;
+  account?: VaultAccount;
+  can_sign_out?: boolean;
   /** Where "Save to vault" goes by default, as set (API 10): `from` "default" means the personal vault. */
   save_to?: { setting: SaveTo; from: "init.lua" | "roster.yml" | "default" };
   providers: ProviderStatus[];
@@ -472,6 +595,10 @@ export const VaultError = {
   cliMissing: 12,
   unsupported: 13,
   locked: 14,
+  /** `vault.logout` (API 14): the CLI isn't signed in, so there's no account to sign out of. */
+  alreadySignedOut: 15,
+  /** `vault.logout`: the CLI refused to log out (its words in the message); secrets were forgotten anyway. */
+  signOutFailed: 16,
 } as const;
 
 /** A terminal size in character cells. */
@@ -649,6 +776,9 @@ export interface Backend {
   signInAnswer(login: string, answer: SignInAnswer): Promise<SignInStep>;
   /** Stop the sign-in in progress (and forget what roster held for it). Never rejects. */
   signInCancel(): Promise<void>;
+  /** `vault.logout` (API 14, ticket 42): roster forgets every secret, then signs the vault CLI out.
+   * Rejects with BackendCallError (VaultError: 13 no account, 15 already signed out, 16 failed). */
+  signOut(): Promise<SignedOut>;
   /** Open a Session to a Host in a PTY of `size`. Rejects with BackendCallError (a
    * `SessionRefusal` code) when roster won't open it; a failed login is ssh's own output.
    * Every call asks roster afresh (`session.prepare` right before the spawn), so a password
@@ -682,6 +812,9 @@ export interface Backend {
   onLoggedIn(onLogin: (held: string) => void): () => void;
   /** `host.check`: roster's diagnostics for one Host (at most one connection and one login). */
   checkHost(host: string): Promise<HostCheck>;
+  /** `box.check` (API 16, ticket 49): this Box's health, a section at a time. Every check is
+   * local; nothing connects to a Host. */
+  checkBox(): Promise<BoxCheck>;
   /** `inventory.pull`: fast-forward the infra repo before an edit. Rejects with an EditError code
    * (71 Pending or other uncommitted changes, 72 diverged, 73 fetch failed, 70 not a git repo). */
   pullInventory(): Promise<PullResult>;
@@ -731,4 +864,119 @@ export interface Backend {
   /** `host.review`: mark a Host reviewed (only that flag), as a Pending change; `reviewed: false`
    * (API 9) marks it unreviewed again, for a review made by mistake. */
   reviewHost(host: string, reviewed?: boolean): Promise<HostUpdate>;
+  /** Plugins (ticket 23, docs/plugins.md): the manifest of the Plugin folder at `path` (`~/…`,
+   * absolute, or under the config folder), for the permission prompt. Runs none of its code. */
+  pluginManifest(path: string): Promise<{ manifest: PluginManifest; dir: string }>;
+  /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
+   * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
+  pluginLoad(path: string, grants: readonly string[]): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
+  /** Calls a function the Plugin handed over (`{handler}` in its ops). */
+  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
+  pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  /** Takes a Plugin out of the core. */
+  pluginUnload(plugin: string): Promise<boolean>;
+  /** Packages (ticket 24, docs/plugins.md): clones what init.lua names and isn't cloned yet, and
+   * checks out what roster.lock pins. A Package loads as the Plugin `package:NAME`. */
+  packagesSync(): Promise<PackageStatus[]>;
+  /** Pins a Package's commit in roster.lock: the user allowed its install prompt. */
+  packagesPin(name: string): Promise<PackageStatus>;
+  /** Removes a Package's clone, the lock as it is: its install prompt was cancelled. */
+  packagesDiscard(name: string): Promise<void>;
+  /** Removes a Package's clone and its roster.lock entry (`:plugins remove`). */
+  packagesRemove(name: string): Promise<void>;
+  /** `:packages update`, step 1: fetches and describes each new commit. Changes nothing. */
+  packagesCheck(): Promise<PackageChecked[]>;
+  /** Step 2: moves a Package to a commit the user saw and allowed, and pins it. */
+  packagesApply(name: string, commit: string): Promise<PackageStatus>;
+  /** `:packages clean`: removes what init.lua no longer names; gives their names. */
+  packagesClean(): Promise<string[]>;
 }
+
+/** A Package as roster-core's `package::Status` describes it. */
+export interface PackageStatus {
+  name: string;
+  /** As init.lua writes it (`owner/repo`). */
+  source: string;
+  /** The git URL that means. */
+  url: string;
+  /** `tag v1.0.0`, `branch main`, `commit 1a2b3c4` or `default branch`. */
+  wants: string;
+  /** The commit its clone is at. */
+  commit: string | null;
+  /** The commit roster.lock pins. */
+  locked: string | null;
+  /** Installed: the lock pins the commit the clone is at. */
+  pinned: boolean;
+  /** init.lua's settings for it (`roster.plugin.config`). */
+  config: Record<string, unknown>;
+  note: string | null;
+  error: string | null;
+}
+
+/** A newer commit, shown before it's applied. */
+export interface PackageUpdate {
+  from: string;
+  to: string;
+  /** `1a2b3c4 Subject`, newest first. */
+  log: string[];
+  stat: string;
+  diff: string;
+  truncated: boolean;
+  manifest: PluginManifest | null;
+  manifestError: string | null;
+}
+
+/** One Package's answer to `packagesCheck`: an update, an error, or neither (up to date). */
+export interface PackageChecked {
+  name: string;
+  update: PackageUpdate | null;
+  error: string | null;
+}
+
+/** A permission as the manifest asks for it, with what it allows and why it's risky (decision Q81). */
+export interface PluginPermission {
+  name: string;
+  summary: string;
+  risk: string | null;
+}
+
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description: string;
+  author: string | null;
+  /** The `roster.api_version` it was written for. */
+  api: number;
+  permissions: PluginPermission[];
+}
+
+/** An error in a Plugin: `recent-alerts: init.lua:12: message`. */
+export interface PluginErrorInfo {
+  plugin: string;
+  file: string | null;
+  line: number | null;
+  message: string;
+}
+
+/** What a Plugin answered: its function's result, the UI changes it asked for (untrusted data:
+ * plugins/ops.ts checks them), an error, and whether it's now disabled. */
+export interface PluginReply {
+  plugin: string;
+  result: unknown;
+  ops: unknown[];
+  error: PluginErrorInfo | null;
+  disabled: string | null;
+}
+
+/** The events a Plugin can listen for (roster-core's plugin::EVENTS). */
+export const PLUGIN_EVENTS = [
+  "lock",
+  "unlock",
+  "host_selected",
+  "session_open",
+  "session_exit",
+  "inventory_changed",
+  "terminal_output",
+] as const;
+export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

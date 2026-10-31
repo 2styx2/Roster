@@ -7,7 +7,7 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Windows | `%APPDATA%\roster\init.lua` |
 | Linux | `$XDG_CONFIG_HOME/roster/init.lua`, else `~/.config/roster/init.lua` (the folder roster itself may also keep a `roster.yml` in) |
 
-## `:config` (ticket 32)
+## `:config`
 
 | Command | What it does |
 |---|---|
@@ -25,7 +25,7 @@ Everything configurable says its name where it shows, so you can tell where to c
 
 - The Rust core runs the file with Lua 5.4 (mlua, built in). The file returns a table. Anything it leaves out keeps the built-in default.
 - The table is checked against a schema (`crates/roster-core/src/config/schema.rs`, the source of truth) and sent to the frontend as one typed object (`app/src/config/types.ts`). The frontend never runs Lua.
-- The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins (ticket 23) will use the same registries. Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
+- The frontend applies it **through the registries** (ADR 0006), with source `init.lua`. Plugins use the same registries ([plugins.md](../plugins.md)). Key bindings, Themes and Folders are registry entries. Everything else becomes the app's options (`app/src/config/apply.ts`).
 - **Startup doesn't wait on it for long.** The window shows after at most 0.3 s; a Config that takes longer applies when it's done, the same way a `:source` does. Starting the backend waits for it, so `roster_command` and `backend` are always the file's.
 - **`:source` reloads it (decision Q58).** Saving doesn't apply it by itself, as in Neovim: a half-written Config never takes effect mid-edit. The status bar says "init.lua changed" until you `:source` (`␣ S`).
 - **`auto_reload = true` reloads on every save** instead. The core watches the folder, so editors that save by renaming a temp file over it work too. Any `.lua` file in the folder counts, including the modules it `require`s. If `init.lua`, a module or `lua/` is a symlink (stow, chezmoi), saving the file it points to counts too. Events that keep coming (a sync tool) still reload within half a second. Turning it on takes one `:source`, since the Config in effect decides.
@@ -46,12 +46,12 @@ The Lua code runs in the Rust core, which never holds a secret (docs/app/securit
 
 ## The `roster` table
 
-A global, and also `require("roster")`. It's kept small. It's the start of the Plugin API (ticket 23), which will add commands, hooks, Sidebar sections and finder sources under the same names.
+A global, and also `require("roster")`. It's kept small. A Plugin gets the same module with more in it: commands, Sidebar sections, finders, status segments, events ([plugins.md](../plugins.md)).
 
 | Name | What |
 |---|---|
 | `roster.os` | `"windows"`, `"linux"` or `"macos"`, for `if roster.os == "windows" then … end` |
-| `roster.api_version` | `1`. Raised when this table changes |
+| `roster.api_version` | `2`. Raised when this module changes (it went to 2 with Plugins; nothing in `init.lua`'s changed) |
 | `roster.keymap.set(context, keys, action)` | A key binding, as in `keys` below. `action` is a command line, or `false` to unbind |
 | `roster.themes.define(id, theme)` | A Theme, as in `themes` below |
 | `roster.set(name, value)` | Any option by its dotted name: `roster.set("terminal.size", "16pt")`. What `:config import-terminal` writes |
@@ -73,7 +73,7 @@ Names are snake_case in Lua. The frontend's object is camelCase (`bold_weight` �
 
 The bundled Themes are `roster-dark`, `roster-light`, `gruvbox`, `nord`, `catppuccin-mocha` and `tokyo-night` ([themes.md](themes.md)). `"auto"` leaves the Theme to the `:theme` picker, whose choice is kept in the State. A `theme` that names one is used until `:theme` chooses another: like Neovim's `:colorscheme`, that choice applies at once and stays, at start-up and on `:source`, until the file's `theme` changes to a different value, when the file wins again (decision Q69). Deleting the line unpins it.
 
-UI tokens (`colors`, `themes.*.colors`): `accent`, `accent_text`, `accent_ink`, `tone`, `bg`, `chrome`, `sidebar`, `panel`, `raised`, `raised_line`, `hover`, `line`, `line_strong`, `text`, `muted`, `faint`, `warn`, `error`, `danger`, `danger_text`, `backdrop`, `shadow`. `app/src/theme/theme.ts` says what each one colours.
+UI tokens (`colors`, `themes.*.colors`): `accent`, `accent_text`, `accent_ink`, `tone`, `bg`, `chrome`, `sidebar`, `panel`, `raised`, `raised_line`, `hover`, `line`, `line_strong`, `text`, `muted`, `faint`, `warn`, `error`, `danger`, `danger_text`, `backdrop`, `shadow`, and for code in help and the docs website `syntax_keyword`, `syntax_string`, `syntax_number`, `syntax_comment`, `syntax_function`, `syntax_punctuation`, `syntax_key`, `syntax_command` ([Code's colours](themes.md#codes-colours)). `app/src/theme/theme.ts` says what each one colours.
 
 Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `cursor_accent`, `selection_background`, `search_match`, `search_active_match`. ANSI colours (`themes.*.ansi`): `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `bright_` versions of each. `terminal.colors` takes both sets.
 
@@ -83,7 +83,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 |---|---|---|
 | `fonts.ui` | `"Inter"` | A family name, or a CSS font stack (anything with a comma is used as it is). A name gets the usual fallbacks |
 | `fonts.mono` | `"Iosevka"` | The wordmark and code-like UI text |
-| `fonts.ui_size` | `15` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it, and so does the Sidebar's width; nothing goes under 11 px. The terminal has its own `terminal.size`. 15 since decision Q61 (was 14) |
+| `fonts.ui_size` | `15` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it, and so does the Sidebar's width; nothing goes under 11 px. The terminal has its own `terminal.size`. |
 | `ui.hints` | unset | `false` hides every keycap hint: the status bar's, empty states', panels' and the Picker's footers, the command line's shortcut column, the Sidebar's Find button. The bindings work as before, and the keys stay in what a screen reader says. Unset, `:hints on\|off\|toggle` decides and the State keeps its choice; set, it wins. The Key bindings panel (`␣ K`) and `:help` always show the keys: they're what they list |
 | `terminal.font` | `{ "Iosevka Nerd Font", "Iosevka Term", "Iosevka" }` | Families, most wanted first: the first one installed is used (installed fonts are matched by name; the CSP's `font-src` doesn't restrict them). The bundled Iosevka (no Nerd Font glyphs) is always there. A name, a CSS stack, or a list. `:info` says which one is in use |
 | `terminal.size` | `"13pt"` | 13 pt is 17.33 px, a step above Windows Terminal's own 12 pt (decision Q61). A number is px; `"16pt"` is points, converted as Windows Terminal does (× 96/72, so 16 pt is 21.33 px, and the display scale applies to both the same way); `"21px"` works too. 6 to 72 px. Zoom keys move it a px at a time, and Ctrl+0 comes back to it |
@@ -107,9 +107,9 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `vim` | `true` | j/k/h/l/gg/G in lists and the Picker |
 | `keys` | `{}` | Per context, `key = action`. The action is a command line, exactly what you'd type after `:` (`"close"`, `"session 1"`, `"finder sessions"`). `false` unbinds a default. Sequences are chords separated by spaces: `["d d"]` |
 
-Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (the Picker and every finder; actions `picker.down`, `picker.up`, `picker.next` (Tab: first fills the query with what the matching names share, then the next result, wrapping), `picker.prev` (Shift+Tab), `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.close`), `cmdline` (the `:` command line, ticket 34: `cmdline.next` (Tab, Ctrl+N), `cmdline.prev` (Shift+Tab, Ctrl+P), `cmdline.accept` (Ctrl+Y), `cmdline.run` (Enter), `cmdline.cancel` (Esc)), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.copyIfSelected` (Ctrl+C: copies only while something is selected), `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ K`) lists every binding with its source: `builtin` or `init.lua`.
+Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (the Picker and every finder; actions `picker.down`, `picker.up`, `picker.next` (Tab: first fills the query with what the matching names share, then the next result, wrapping), `picker.prev` (Shift+Tab), `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.info` (Ctrl+I: the Host's details, ticket 18), `picker.help` (F1: help on the selected result, ticket 52), `picker.close`), `cmdline` (the `:` command line: `cmdline.next` (Tab, Ctrl+N), `cmdline.prev` (Shift+Tab, Ctrl+P), `cmdline.accept` (Ctrl+Y), `cmdline.run` (Enter), `cmdline.cancel` (Esc), `cmdline.help` (Ctrl+], F1: help on the command typed, ticket 52)), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.copyIfSelected` (Ctrl+C: copies only while something is selected), `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ K`) lists every binding with its source: `builtin` or `init.lua`.
 
-### Layout (decisions Q36, Q39)
+### Layout
 
 | Option | Default | |
 |---|---|---|
@@ -126,13 +126,13 @@ The pieces of a mode:
 | `sessionbar` | `false`, `"bottom"` or `"top"`: the thin tmux-style bar of open Sessions | `false` | `false` |
 | `statusbar` | `false`, `true`, or segments in order: `"backend"`, `"box"`, `"hosts"`, `"path"`, `"changes"` (the Pending changes count, shown only when there are some), `"hints"`, `"mode"`. `hints` and `mode` sit on the right | `true` | `false` |
 | `fullscreen` | `true` / `false`: OS fullscreen | `false` | `true` |
-| `toolbar` | `false`, `true`, or controls in order: `"sidebar"` (the Sidebar's toggle, at the left), `"find"`, `"quick"` (Quick Connect, shown only with a roster that has it, API 12), `"add"` (Add Host), `"changes"` (with the Pending changes count), `"publish"` (shown only while there are Pending changes), and `"cmdline"`, `"keys"`, `"help"` (`:help`'s topic finder), `"lock"`, `"mode"`, which aren't in the default set. In the title bar; a bar of its own when the mode has none (decision Q65) | `true` (sidebar, find, quick, add, changes, publish) | `false` |
+| `toolbar` | `false`, `true`, or controls in order: `"sidebar"` (the Sidebar's toggle, at the left), `"find"`, `"quick"` (Quick Connect, shown only with a roster that has it, API 12), `"add"` (Add Host), `"changes"` (with the Pending changes count), `"publish"` (shown only while there are Pending changes), `"details"` (Host details for the selected Host, ticket 18, by the window's buttons), and `"cmdline"`, `"keys"`, `"help"` (`:help`'s topic finder), `"lock"`, `"mode"`, which aren't in the default set. In the title bar; a bar of its own when the mode has none (decision Q65) | `true` (sidebar, find, quick, add, changes, publish, details) | `false` |
 
 `␣ e` (or the Sidebar button at the left of the title bar) shows or hides the Sidebar, in Standard and in Focus (over the terminal there), and the State keeps that per mode, unless `init.lua` sets that mode's `sidebar`, which wins at the next start or `:source` (issue #54). `␣ s` shows or hides the mode's bar (the status bar in Standard, the session bar in Focus). `␣ t` finds in the Sidebar's tree. A reload that changes `modes` resets what `␣ s` toggled. A reload that changes anything else keeps it.
 
-The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. Decision Q36's earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
+The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. The earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
 
-### Folders (decision Q46)
+### Folders
 
 | Option | Default | |
 |---|---|---|
@@ -155,7 +155,7 @@ Lab ESXi:
 Night shift: []
 ```
 
-The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from before ticket 28) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
+The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from older versions) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
 
 ### The vault
 
@@ -171,25 +171,46 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 | Option | Default | |
 |---|---|---|
 | `vault.save_to` | unset | Where "Save to vault" puts a new password by default (ticket 35): `"personal"`, `{ organization = …, collection = … }` (Bitwarden, names or ids) or `{ group = … }` (KeePassXC). Wins over `roster.yml`'s `providers: <name>: save_to:` (the team's default). The add form's **Save to** starts on it, says where it's set, and can pick another place for one Host. A name that isn't there shows in the form as roster's message naming `vault.save_to in init.lua` |
-| `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. A Windows path (`C:\Users\…`, `\\server\…`) is an error that names the WSL path it most likely means (`/mnt/c/Users/…`; a `\\wsl$\<distro>\…` share is that distro's own `/…`). Changing it on `:source` locks the app, since the master password was for the old database |
-| `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box, as `database` (never a Windows path). Wins over `providers: kp: key_file:` |
+| `vault.kp.database` | unset | KeePassXC's `.kdbx` (ticket 41). Wins over `providers: kp: database:`. A path on the Box roster runs on (inside WSL for a WSL Backend): absolute, or starting with `~`. With `backend = "local"` on Windows that's a Windows path (`C:\Users\you\roster.kdbx`); with any other `backend`, a Windows path (`C:\Users\…`, `\\server\…`) is an error that names the WSL path it most likely means (`/mnt/c/Users/…`; a `\\wsl$\<distro>\…` share is that distro's own `/…`). Changing it on `:source` locks the app, since the master password was for the old database |
+| `vault.kp.key_file` | unset | A key file used with that database's master password, on the same Box, as `database` (a Windows path only with `backend = "local"`). Wins over `providers: kp: key_file:` |
+
+### Packages
+
+```lua
+packages = {
+  { "someone/recent-alerts", tag = "v1.2.0", config = { patterns = { "ERROR", "panic" } } },
+  "someone/pinned",
+  { "https://git.example.com/team/roster-extras.git", branch = "main" },
+},
+```
+
+Plugins fetched from git repos, the way lazy.nvim fetches Neovim's ([plugins.md](../plugins.md#packages)). The app clones each one into its own data folder, asks before it runs one (the same prompt as `:plugins install`, with the repo shown as an unverified source), and pins the commit in `roster.lock`, next to `init.lua`, so the lock can go into your dotfiles with it. Nothing is fetched that isn't named here. Changing the list, or a Package's `config`, takes effect on `:source`.
+
+| Option | Default | |
+|---|---|---|
+| `packages` | `{}` | Each one `{ SOURCE, tag = …, config = { … } }`, or just `SOURCE`. SOURCE is `"owner/repo"` (on GitHub) or a git URL: `https://…`, `ssh://…`, `git@host:path`, `file://…`, or a full path to a repo on this machine (plain `http://` and `git://` are refused: anyone on the way could change them). At most one of `tag`, `branch` or `commit`; none means the repo's default branch. `name = "…"` names it (its folder and its line in `roster.lock`) when the repo's name won't do. `config` is a table of settings the Package reads as `roster.plugin.config`; it can't be a function, since a Package runs in a Lua state of its own (decision Q83) |
 
 ### Other
 
 | Option | Default | |
 |---|---|---|
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
+| `pull_fresh_minutes` | `5` | How old the last pull of the infra repo may be before a form (`:edit`, `:host add`, Save to vault) pulls again, 0 to 1440; `0` pulls every time. The form opens at once either way and pulls in the background; its Save waits for that pull, and a pull that fails blocks the save, never the form (decision Q88). Not over Pending changes: those were pulled before the first one |
 | `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config, of `folders.yml`, and of `roster.yml` (roster's watcher; the Sidebar follows within a second). Off: `:source` reloads (decision Q58), and the status bar says which file changed |
 | `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app the desktop opens `.lua` files with; on Windows, the app registered to *edit* `.lua` files, else Notepad, and never the one that *opens* them, which with Lua installed is the interpreter and would run the file), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
-| `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
+| `backend` | `"auto"` | Which roster the app runs. `"local"`: roster on this machine (on Windows, roster installed on Windows itself, with Windows' own OpenSSH). `"wsl"`: roster in WSL, in the first distro that has it; `"wsl:<distro>"`: in that distro. `"auto"`: on Windows, roster on Windows if it finds an Inventory there, else WSL's, else whichever has roster at all; on Linux, roster always runs locally. Changing it and reloading (`:source`) starts `roster serve` again on the new Backend |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
 
 **Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/app/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_APP_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
 
-`backend` and `roster_command` are read when the backend starts. After changing them, use Retry on the error screen or restart the app. The env vars still win, for development: `ROSTER_APP_ROSTER` over `roster_command`, and `ROSTER_APP_WSL_DISTRO` over `backend = "wsl:<distro>"`.
+`backend` and `roster_command` are read when the backend starts. A reload (`:source`, or a save with `auto_reload`) that changes either one starts `roster serve` again, with the new one: the vault locks (the new serve has never been unlocked), and open Sessions keep running where they started. On the error screen, Retry does the same. The env vars still win, for development: `ROSTER_APP_ROSTER` over `roster_command`, and `ROSTER_APP_WSL_DISTRO` over `backend = "wsl:<distro>"`.
 
 ## Not in v1
 
-- Lua functions as actions or values. Hooks (`on_session_open`), custom `:` commands and finder sources come with Plugins (ticket 23).
+- Lua functions as actions or values in `init.lua`. Hooks, custom `:` commands and finder sources are for Plugins ([plugins.md](../plugins.md)).
 - A Settings screen (decision Q24).
 - Window size, recent Hosts and folded rows. Those are State, which the app keeps by itself.
+
+## See also
+
+[Recipes](recipes.md) · [Options](options) · [Keyboard](keyboard.md) · [Themes](themes.md) · [How far roster bends](extending.md)

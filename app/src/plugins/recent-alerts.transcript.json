@@ -1,0 +1,960 @@
+{
+  "about": "What examples/plugins/recent-alerts does in a scripted run, recorded by crates/roster-core/tests/recent_alerts.rs (ROSTER_UPDATE_TRANSCRIPT=1 cargo test rewrites it). The fake Backend's stand-in replays it (recentAlerts.test.ts).",
+  "steps": [
+    {
+      "config": {
+        "leader": "w a",
+        "patterns": [
+          "ERROR",
+          "panic"
+        ]
+      },
+      "do": "load",
+      "grants": [
+        "terminal.read"
+      ],
+      "ops": [
+        {
+          "desc": "Recent alerts: :alerts shows them, :alerts clear dismisses them all",
+          "name": "alerts",
+          "op": "command",
+          "run": "fn"
+        },
+        {
+          "action": "finder alerts",
+          "context": "leader",
+          "keys": "w a",
+          "op": "key"
+        },
+        {
+          "id": "recent-alerts",
+          "op": "help",
+          "spec": {
+            "markdown": "# Recent alerts\n\nWatches what your Sessions print and lists the lines with ERROR or panic in the **Recent alerts** section of the Sidebar, newest first, each with its Host and time.\n\n- `:alerts` shows them all; `:alerts clear` dismisses them all.\n- `␣ w a` finds one (`:finder alerts`); the status bar's `⚠` count opens the same finder.\n- On a row: Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it.\n\nIt keeps the last 100 alerts, in memory only: they're gone when the app restarts.\n\nIt needs **terminal.read**, which lets it see everything your Sessions print. Revoke it in `:plugins` and it stops at once.",
+            "summary": "Lines your Sessions print that look like trouble",
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "kind": "status",
+          "op": "remove"
+        }
+      ]
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "HH:MM:SS",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 1",
+            "title": "1 recent alert"
+          }
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "1"
+        },
+        {
+          "level": "warn",
+          "op": "notify",
+          "text": "esx-02: ERROR: disk /dev/sda1 full"
+        }
+      ],
+      "payload": {
+        "host": "esx-02",
+        "session": 1,
+        "text": "booting\nERROR: disk /dev/sda1 full\nok\n"
+      }
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss kernel panic - not syncing",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: kernel panic - not syncing"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "HH:MM:SS",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "run": "fn"
+              },
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 2",
+            "title": "2 recent alerts"
+          }
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": "1"
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "1"
+        },
+        {
+          "level": "warn",
+          "op": "notify",
+          "text": "appliance: kernel panic - not syncing"
+        }
+      ],
+      "payload": {
+        "host": "appliance",
+        "session": 2,
+        "text": "kernel panic - not syncing\nER"
+      }
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR again",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "3",
+                "label": "ERROR again",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: ERROR again"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss kernel panic - not syncing",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: kernel panic - not syncing"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "HH:MM:SS",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "3",
+                "label": "ERROR again",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "run": "fn"
+              },
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 3",
+            "title": "3 recent alerts"
+          }
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": "2"
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "1"
+        }
+      ],
+      "payload": {
+        "host": "appliance",
+        "session": 2,
+        "text": "ROR again\n"
+      }
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [],
+      "payload": {
+        "host": "esx-02",
+        "session": 1,
+        "text": "all good\n"
+      }
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [],
+      "payload": {
+        "host": "esx-02",
+        "session": 1,
+        "text": "esx-02$ grep ERROR /var/log/syslog\n"
+      }
+    },
+    {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR on a box",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "Quick Connect",
+                "id": "4",
+                "label": "ERROR on a box",
+                "note": "HH:MM:SS",
+                "title": "Quick Connect at HH:MM:SS: ERROR on a box"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR again",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "3",
+                "label": "ERROR again",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: ERROR again"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss kernel panic - not syncing",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: kernel panic - not syncing"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "HH:MM:SS",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "Quick Connect · HH:MM:SS",
+                "id": "4",
+                "label": "ERROR on a box",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "3",
+                "label": "ERROR again",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "run": "fn"
+              },
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 4",
+            "title": "4 recent alerts"
+          }
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": "2"
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "1"
+        },
+        {
+          "level": "warn",
+          "op": "notify",
+          "text": "Quick Connect: ERROR on a box"
+        }
+      ],
+      "payload": {
+        "host": null,
+        "session": 3,
+        "text": "ERROR on a box\n"
+      }
+    },
+    {
+      "do": "action",
+      "label": "Details of ERROR on a box",
+      "ops": [
+        {
+          "op": "float",
+          "spec": {
+            "lines": [
+              "Host     none (Quick Connect)",
+              "Session  3",
+              "At       YYYY-MM-DD HH:MM:SS",
+              "Matched  ERROR",
+              "",
+              "› ERROR on a box"
+            ],
+            "title": "Alert in a Quick Connect Session"
+          }
+        }
+      ]
+    },
+    {
+      "do": "action",
+      "label": "Details of ERROR: disk /dev/sda1 full",
+      "ops": [
+        {
+          "op": "float",
+          "spec": {
+            "lines": [
+              "Host     esx-02",
+              "Session  1",
+              "At       YYYY-MM-DD HH:MM:SS",
+              "Matched  ERROR",
+              "",
+              "  booting",
+              "› ERROR: disk /dev/sda1 full"
+            ],
+            "title": "Alert on esx-02"
+          }
+        }
+      ]
+    },
+    {
+      "do": "action",
+      "label": "Copy ERROR again",
+      "ops": [
+        {
+          "op": "copy",
+          "text": "ERROR again"
+        },
+        {
+          "level": "info",
+          "op": "notify",
+          "text": "Copied the line from appliance"
+        }
+      ]
+    },
+    {
+      "do": "action",
+      "label": "Dismiss kernel panic - not syncing",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR on a box",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "Quick Connect",
+                "id": "4",
+                "label": "ERROR on a box",
+                "note": "HH:MM:SS",
+                "title": "Quick Connect at HH:MM:SS: ERROR on a box"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR again",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "3",
+                "label": "ERROR again",
+                "note": "HH:MM:SS",
+                "title": "appliance at HH:MM:SS: ERROR again"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "HH:MM:SS",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "Quick Connect · HH:MM:SS",
+                "id": "4",
+                "label": "ERROR on a box",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "3",
+                "label": "ERROR again",
+                "run": "fn"
+              },
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 3",
+            "title": "3 recent alerts"
+          }
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": "1"
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "1"
+        }
+      ]
+    },
+    {
+      "args": "",
+      "do": "command",
+      "name": "alerts",
+      "ops": [
+        {
+          "op": "float",
+          "spec": {
+            "lines": [
+              "HH:MM:SS  Quick Connect  ERROR on a box",
+              "HH:MM:SS  appliance  ERROR again",
+              "HH:MM:SS  esx-02  ERROR: disk /dev/sda1 full"
+            ],
+            "title": "Recent alerts"
+          }
+        }
+      ]
+    },
+    {
+      "do": "finder",
+      "id": "alerts",
+      "label": "ERROR again",
+      "ops": [
+        {
+          "op": "float",
+          "spec": {
+            "lines": [
+              "Host     appliance",
+              "Session  2",
+              "At       YYYY-MM-DD HH:MM:SS",
+              "Matched  ERROR",
+              "",
+              "  kernel panic - not syncing",
+              "› ERROR again"
+            ],
+            "title": "Alert on appliance"
+          }
+        }
+      ]
+    },
+    {
+      "args": "nonsense",
+      "do": "command",
+      "name": "alerts",
+      "ops": [
+        {
+          "level": "warn",
+          "op": "notify",
+          "text": ":alerts shows the alerts, :alerts clear dismisses them all"
+        }
+      ]
+    },
+    {
+      "args": "clear",
+      "do": "command",
+      "name": "alerts",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "kind": "status",
+          "op": "remove"
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": null
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": null
+        },
+        {
+          "level": "info",
+          "op": "notify",
+          "text": "Dismissed 3 alerts"
+        }
+      ]
+    },
+    {
+      "do": "event",
+      "name": "session_exit",
+      "ops": [],
+      "payload": {
+        "code": 0,
+        "host": "appliance",
+        "session": 2
+      }
+    },
+    {
+      "config": {
+        "leader": "w a",
+        "patterns": [
+          "ERROR",
+          "panic"
+        ]
+      },
+      "do": "load",
+      "grants": [],
+      "ops": [
+        {
+          "desc": "Recent alerts: :alerts shows them, :alerts clear dismisses them all",
+          "name": "alerts",
+          "op": "command",
+          "run": "fn"
+        },
+        {
+          "action": "finder alerts",
+          "context": "leader",
+          "keys": "w a",
+          "op": "key"
+        },
+        {
+          "id": "recent-alerts",
+          "op": "help",
+          "spec": {
+            "markdown": "# Recent alerts\n\nWatches what your Sessions print and lists the lines with ERROR or panic in the **Recent alerts** section of the Sidebar, newest first, each with its Host and time.\n\n- `:alerts` shows them all; `:alerts clear` dismisses them all.\n- `␣ w a` finds one (`:finder alerts`); the status bar's `⚠` count opens the same finder.\n- On a row: Enter goes to the Host's Session; the buttons show the details, copy the line or dismiss it.\n\nIt keeps the last 100 alerts, in memory only: they're gone when the app restarts.\n\nIt needs **terminal.read**, which lets it see everything your Sessions print. Revoke it in `:plugins` and it stops at once.",
+            "summary": "Lines your Sessions print that look like trouble",
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "Allow terminal.read in :plugins to see alerts.",
+            "order": 200,
+            "rows": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "kind": "status",
+          "op": "remove"
+        }
+      ]
+    }
+  ]
+}

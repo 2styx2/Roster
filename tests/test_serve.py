@@ -25,7 +25,7 @@ def test_inventory_info(serve, isolated):
     assert info["path"] == str(example.resolve())
     assert info["box"] and info["host_count"] == 5
     assert {"bw", "op", "env", "prompt"} <= set(info["providers"])
-    assert info["roster_version"] == __version__ and info["api_version"] == 13
+    assert info["roster_version"] == __version__ and info["api_version"] == 16
     assert s.close() == (0, "", "")
 
 
@@ -101,6 +101,22 @@ def test_host_get(serve, write_config):
     assert s.close()[0] == 0
 
 
+def test_host_get_has_everything_roster_info_shows(serve, write_config, capsys):
+    """The app's Host details (ticket 18) draw `roster info HOST` from host.get alone: every field and every
+    service's port, url and Login (the vault reference, never a value) is in the result."""
+    write_config(INVENTORY)
+    esx = serve().call("host.get", {"name": "esx"})["result"]
+    assert main(["info", "esx"]) == 0
+    info = capsys.readouterr().out
+    assert f"{esx['ssh']['user']}@{esx['ip']}:{esx['ssh']['port']}" in info
+    assert f"password: roster run {esx['name']} -- CMD" in info and esx["reviewed"] and not esx["enroll"]
+    assert f"{esx['ssh']['user']}, auth {esx['ssh']['auth']}" in info
+    assert f"{esx['login']['user']}, auth {esx['login']['auth']} (default for services)" in info
+    admin = esx["services"]["admin"]
+    assert admin["override"] and f"{admin['url']}  {admin['user']}, auth {admin['auth']} (own login)" in info
+    assert str(admin["port"]) in info and esx["group"] in info and esx["type"] in info
+
+
 def test_bad_requests_get_errors_and_the_server_keeps_going(serve, write_config):
     write_config(INVENTORY)
     s = serve()
@@ -133,7 +149,7 @@ def test_an_inventory_that_doesnt_load_is_an_error_not_an_exit(serve, write_conf
     err = s.call("inventory.info")["error"]
     assert err["code"] == 1
     assert err["message"] == "host 'box' has no user (set it on the host, its group, or defaults)"
-    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 13,
+    assert err["data"] == {"path": str(path), "roster_version": __version__, "api_version": 16,
                            "fix": f"fix {path}, or run `roster init` if there's none yet"}
     assert s.call("hosts.list")["error"]["code"] == 1
     assert s.call("host.get", {"name": "box"})["error"]["code"] == 1
@@ -158,11 +174,11 @@ def test_vault_status_names_the_inventorys_vault(serve, write_config, fakes):
     """bw is what the Host Logins use; env and prompt (the unreviewed group's default) can't be locked."""
     write_config(INVENTORY)
     assert serve().call("vault.status")["result"] == {
-        "provider": "bw", "status": "locked", "can_write": True,
+        "provider": "bw", "status": "locked", "can_write": True, "can_sign_out": True,       # vault.logout (T42)
         "save_to": {"setting": "personal", "from": "default"},             # where "Save to vault" goes (ticket 35)
-        "providers": [{"provider": "bw", "status": "locked", "can_write": True},
-                      {"provider": "env", "status": "unsupported", "can_write": False},
-                      {"provider": "prompt", "status": "unsupported", "can_write": False}]}
+        "providers": [{"provider": "bw", "status": "locked", "can_write": True, "can_sign_out": True},
+                      {"provider": "env", "status": "unsupported", "can_write": False, "can_sign_out": False},
+                      {"provider": "prompt", "status": "unsupported", "can_write": False, "can_sign_out": False}]}
 
 
 def test_vault_unlock_wrong_then_right_password_never_echoes_either(serve, write_config, fakes):
@@ -240,8 +256,9 @@ def test_vault_unlock_of_a_provider_without_master_password(serve, write_config,
     write_config("groups:\n  lab:\n    user: ops\n    auth: env:PW\n    hosts:\n      box: {ip: 10.0.0.5}\n")
     s = serve()
     assert s.call("vault.status")["result"] == {"provider": None, "status": "unsupported", "can_write": False,
+                                                "can_sign_out": False,
                                                 "providers": [{"provider": "env", "status": "unsupported",
-                                                               "can_write": False}]}
+                                                               "can_write": False, "can_sign_out": False}]}
     assert s.call("vault.unlock", {"password": "x"})["error"]["code"] == 13
 
 
@@ -508,6 +525,7 @@ def test_a_wrong_token_gets_nothing(serve, write_config, capsys, fakes):
     assert run_askpass(spec).stdout == PASSWORD + "\n"           # a guess doesn't spend the real one
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a named pipe on Windows: test_windows.py")
 def test_the_askpass_socket_is_the_users_alone_and_goes_away(serve, write_config, capsys, fakes, isolated):
     run = isolated["home"].parent / "run"
     run.mkdir(mode=0o700)                                        # $XDG_RUNTIME_DIR, as systemd/WSL make it

@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import __version__
+from . import __version__, mesh
 from .claude import write_claude_files
-from .common import die, not_reviewed, say, ssh_config_file, tcp_ok
+from .common import die, not_reviewed, program_argv, run_instead, say, ssh_config_file, tcp_ok
 from .config import access_label, find_config, load_config, matches, selected
 from .discover import DEFAULT_SCAN_PORTS, cmd_discover
 from .example import EXAMPLE_CONFIG
@@ -93,6 +93,12 @@ def cmd_setup(cfg, args):
                     say(f"  FAIL  {h['name']}: {e}")
 
     write_claude_files(cfg)
+    if mesh.graph(cfg)["links"]:
+        if args.only:
+            say("mesh         not applied with --only (it covers the whole Mesh): run `roster mesh`")
+        else:
+            say("mesh         applying the Mesh for meshed groups and links (one Host at a time)...")
+            failed.update({n: f"mesh: {why}" for n, why in mesh_apply(cfg).items()})
     ready = len(key_hosts) - len(todo) + installed
     say()
     say(f"done         {ready} key hosts ready, {len(pw_hosts)} password-only hosts, {len(failed)} failed")
@@ -107,7 +113,112 @@ def cmd_sync(cfg, args):
     write_ssh_config(cfg)
     write_claude_files(cfg)
     say("note: new hosts still need `roster setup` (it only touches hosts that aren't ready)")
+    if mesh.status(cfg)["out_of_date"]:
+        say("mesh out of date: roster.yml changed the Mesh since its last apply here - run `roster mesh`")
     return 0
+
+
+# ---------------------------------------------------------------- the Mesh (ticket 39, decision Q63)
+
+LINK_WORDS = {"ok": "ok", "untested": "ok (port not tested: no nc or bash there)", "unreachable": "UNREACHABLE",
+              "no-host-key": "NO HOST KEY", "pending": "pending", "skipped": "skipped"}
+
+
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def show_mesh(r, drift=False):
+    """A plan or an apply as text: the links, what changes where, what's left out, what's unfinished."""
+    links = r["links"]
+    if not drift:
+        say(f"links        {plural(len(links), 'link')} "
+            f"({sum(x['kind'] == 'key' for x in links)} key, {sum(x['kind'] == 'password' for x in links)} password)")
+        width = max((len(x["from"]) + len(x["to"]) for x in links), default=0) + 4
+        for x in links:
+            word = LINK_WORDS[x["status"]]
+            why = f" - {x['why']}" if x.get("why") and x["status"] != "untested" else ""
+            note = " (ssh asks the person for the password)" if x["kind"] == "password" and x["status"] == "ok" else ""
+            say(f"  {x['from'] + ' -> ' + x['to']:<{width}} {x['kind']:<9}{word}{note}{why}")
+    else:
+        for x in links:
+            if x["status"] in ("unreachable", "no-host-key"):
+                say(f"  link {x['from']} -> {x['to']}: {x['why']}")
+    changed = [h for h in r["hosts"] if h["changes"]]
+    if changed:
+        say("mesh drift (on the Hosts, not what roster wrote):" if drift else
+            "changes" if r["applied"] else "would change")
+        for h in changed:
+            say(f"  {h['host']}: {', '.join(h['changes'])}")
+    if r["excluded"] and not drift:
+        say("left out: " + ", ".join(f"{n} ({why})" for n, why in r["excluded"].items()))
+    for w in r["warnings"]:
+        say(f"warning: {w}")
+    if r["pending"]:
+        say(f"pending on {plural(len(r['pending']), 'Host')} (finished by the next `roster mesh` once they answer):")
+        for n, why in r["pending"].items():
+            say(f"  {n}: {why}")
+    warn_cut(r.get("cut_pending") or {})
+
+
+def warn_cut(cut):
+    for host, peers in cut.items():
+        print(f"WARNING: CUT PENDING ON {plural(len(peers), 'HOST').upper()}: {', '.join(peers)} - {host}'s cut isn't "
+              "finished there; `roster mesh cut " + host + "` again, or `roster mesh`, once they answer",
+              file=sys.stderr, flush=True)
+        say(f"cut pending on {plural(len(peers), 'Host')} for {host}: {', '.join(peers)}")
+
+
+def mesh_apply(cfg):
+    r = mesh.run(cfg, apply=True, say=say)
+    show_mesh(r)
+    return r["pending"]
+
+
+def cmd_mesh(cfg, args):
+    from .errors import Problem
+    if args.action == "status":
+        st = mesh.status(cfg)
+        for n in st["members"]:
+            say(f"  {n:<16} can reach {plural(st['reach'].get(n, 0), 'Host')}")
+        if st["pending"]:
+            say(f"pending on {plural(len(st['pending']), 'Host')}: {', '.join(st['pending'])}")
+        warn_cut(st["cut_pending"])
+        say("mesh out of date: run `roster mesh`" if st["out_of_date"] else "mesh up to date")
+        return 0
+    if args.action == "cut":
+        if not args.target:
+            die("usage: roster mesh cut HOST")
+        if args.target not in cfg["hosts"]:
+            die(f"unknown host {args.target!r} (see `roster hosts`)")
+        if not args.yes:
+            ans = input(f"Cut {args.target} out of the Mesh now, on every Host at once? [y/N] ")
+            if ans.strip().lower() != "y":
+                return 1
+        r = mesh.cut(cfg, args.target, cfg["workers"])
+        change = mesh.write_cut(cfg, args.target)
+        say(f"cut {args.target}: confirmed on {', '.join(r['confirmed']) or 'no Host'}")
+        if change.get("written"):
+            say(f"roster.yml   mesh: false for {args.target}, a Pending change (publish it so the cut stays)")
+        say(f"note: {change['note']}") if change.get("note") else None
+        if change.get("error"):
+            say(f"warning: mesh: false not written: {change['error']} - {change['fix']}")
+        for n, why in r["pending"].items():
+            say(f"  not confirmed  {n}: {why}")
+        warn_cut({args.target: sorted(r["pending"])} if r["pending"] else {})
+        return 1 if r["pending"] or change.get("error") else 0
+    if args.target:
+        die(f"unexpected {args.target!r}: roster mesh [--dry-run] [--rotate HOST], or roster mesh cut HOST")
+    try:
+        r = mesh.run(cfg, apply=not args.dry_run, rotate=args.rotate or (), say=say)
+    except Problem as e:
+        die(e.message)
+    show_mesh(r)
+    if args.dry_run:
+        say("dry run: nothing was changed")
+    elif r["already"]:
+        say("already in the mesh: nothing to change")
+    return 1 if r["pending"] else 0
 
 
 def cmd_check(cfg, args):
@@ -129,6 +240,14 @@ def cmd_check(cfg, args):
             say(f"{h['name']:<{width}}  {line}")
     say(f"\n{len(hosts) - bad}/{len(hosts)} hosts fully reachable"
         + ("" if all(h["enroll"] for h in hosts) else "  (password-only hosts: ssh = port open)"))
+    drift = mesh.drift(cfg) if not args.only else None
+    if drift is not None:
+        say()
+        show_mesh(drift, drift=True)
+        bad += bool(drift["pending"] or any(h["changes"] for h in drift["hosts"])
+                    or any(x["status"] in ("unreachable", "no-host-key") for x in drift["links"]))
+        if drift["already"]:
+            say("mesh         every Host holds what roster wrote")
     return 1 if bad else 0
 
 
@@ -160,6 +279,41 @@ def cmd_check_host(args):
         for line in (s.get("details") or "").splitlines():
             say(f"     {'':<{width}}  | {line}")
     return 0 if result["ok"] else 1
+
+
+def cmd_check_box(args):
+    """`roster check --box`: this Box's health, a section at a time (as serve's box.check). Nothing connects."""
+    from . import askpass, diagnose, health
+
+    path = cfg = error = None
+    try:
+        path = find_config(args.config)
+        cfg = load_config(path)
+        setup_providers(cfg)
+    except SystemExit as e:
+        error = str(e.code).removeprefix("error: ")
+    try:
+        with askpass.Channel(diagnose.askpass_lookup) as ch:
+            channel = health.askpass_state(ch)
+    except OSError as e:
+        channel = health.askpass_state(None, e)
+    checks = health.check_box(path, cfg, error, channel)
+    section = None
+    for c in checks:
+        if c["section"] != section:
+            say(("" if section is None else "\n") + health.SECTIONS.get(c["section"], c["section"]))
+            section = c["section"]
+        say(f"  {c['level']:<5}  {c['message']}")
+        if c.get("fix"):
+            say(f"         fix: {c['fix']}")
+        if c.get("topic"):
+            say(f"         help: {c['topic']}")
+    errors = sum(c["level"] == "error" for c in checks)
+    warnings = sum(c["level"] == "warn" for c in checks)
+    words = [f"{warnings} warning{'' if warnings == 1 else 's'}"] if warnings else []
+    words.append(f"{errors} error{'' if errors == 1 else 's'}" if errors else "no errors")
+    say("\n" + ", ".join(words))
+    return 1 if errors else 0
 
 
 def logins_label(h):
@@ -351,7 +505,7 @@ def cmd_run(cfg, args):
     if args.sudo:
         return run_sudo(h, command)
     if h["enroll"]:
-        os.execvp("ssh", ["ssh", "-o", "BatchMode=yes", h["name"], command])
+        return run_instead(["ssh", "-o", "BatchMode=yes", h["name"], command])
     try:
         rc, out, err = password_exec(h, command, get_secret(h["ssh"]["auth"], h["group"]))
     except RuntimeError as e:
@@ -375,9 +529,10 @@ def run_sudo(h, command):
             "(set auth: to the vault item that holds the password)")
     wrapped = sudo_wrap(command)
     if h["enroll"]:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", h["name"], wrapped], input=secret + "\n",
-                           capture_output=True, text=True)
-        rc, out, err = r.returncode, r.stdout, r.stderr
+        # bytes: text mode on Windows would send "password\r\n", and sudo would take the "\r" as part of it
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], wrapped]),
+                           input=(secret + "\n").encode(), capture_output=True)
+        rc, out, err = r.returncode, r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
     else:
         try:
             rc, out, err = password_exec(h, wrapped, secret, stdin=secret + "\n")
@@ -400,9 +555,9 @@ def cmd_revoke(cfg, args):
     script = "sh -c " + shlex.quote(remove_key_script(cfg["tag_re"]))
 
     def revoke(h):
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", h["name"], script],
+        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", h["name"], script]),
                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
-        subprocess.run(["ssh", "-O", "exit", h["name"]], capture_output=True)  # drop cached connection
+        subprocess.run(program_argv(["ssh", "-O", "exit", h["name"]]), capture_output=True)  # drop cached connection
         return h, "ROSTER_OK" in r.stdout
 
     bad = 0
@@ -486,7 +641,9 @@ def cmd_bw(args):
     if "--nointeraction" not in argv:
         argv.append("--nointeraction")
     try:
-        return subprocess.run(["bw", *argv]).returncode
+        return subprocess.run(program_argv(["bw", *argv])).returncode
+    except ValueError as e:
+        die(str(e))
     except FileNotFoundError:
         die("bw (the Bitwarden CLI) isn't installed")
 
@@ -501,70 +658,92 @@ def main(argv=None):
         os._exit(0)
 
 
-def _main(argv=None):
+def build_parser():
+    """Every command and option. The man page (roster.manpage) is generated from this too."""
     p = argparse.ArgumentParser(prog="roster",
                                 description="Give this box (and Claude) access to the hosts in roster.yml.")
     p.add_argument("--version", action="version", version=f"roster {__version__}")
-    p.add_argument("-c", "--config", help="path to roster.yml (default: ./roster.yml, then ~/.config/roster/)")
+    p.add_argument("-c", "--config", metavar="PATH", help="path to roster.yml (default: ./roster.yml, then ~/.config/roster/)")
     sub = p.add_subparsers(dest="cmd", required=True)
+    only = {"metavar": "LIST", "help": "only these hosts, groups, types or products (comma-separated)"}
     sub.add_parser("init", help="write an example roster.yml")
     s = sub.add_parser("setup", help="one-time setup of this box")
-    s.add_argument("--only")
+    s.add_argument("--only", **only)
     s.add_argument("--dry-run", action="store_true", help="show what would happen, change nothing remote")
     sub.add_parser("sync", help="rewrite ssh config and Claude files from roster.yml")
-    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step")
+    s = sub.add_parser("check", help="test reachability; with HOST, why a Session to it would fail, step by step; "
+                       "with --box, this Box's health")
     s.add_argument("host", nargs="?", help="diagnose this one Host: inventory, ssh config, vault, DNS, port, "
                    "host key, login (one connection)")
-    s.add_argument("--only")
+    s.add_argument("--box", action="store_true", help="check this Box instead, without connecting anywhere: "
+                   "roster.yml, ssh and its config, vault CLIs, askpass, the infra repo")
+    s.add_argument("--only", **only)
     s = sub.add_parser("hosts", help="list hosts")
-    s.add_argument("--only")
-    s.add_argument("--find", help="search name, title, description, type, product, group, ip")
+    s.add_argument("--only", **only)
+    s.add_argument("--find", metavar="TEXT", help="search name, title, description, type, product, group, ip")
     s.add_argument("--all", action="store_true", help="include unreviewed (scanned) hosts")
     s.add_argument("--long", action="store_true", help="full table: type, product, web URL, description")
     s = sub.add_parser("resources", help="list Wi-Fi networks, accounts and secrets that aren't hosts")
-    s.add_argument("--only", help="resource names, types or groups")
-    s.add_argument("--find", help="search every field")
+    s.add_argument("--only", metavar="LIST", help="resource names, types or groups")
+    s.add_argument("--find", metavar="TEXT", help="search every field")
     s = sub.add_parser("reveal", help="print a resource's secret (e.g. a Wi-Fi password) - for people, not Claude")
-    s.add_argument("name")
+    s.add_argument("name", help="the resource")
     s.add_argument("--wifi", action="store_true", help="print a WIFI:... string for a QR code instead")
     s = sub.add_parser("info", help="show everything about one host or resource")
-    s.add_argument("host", nargs="+")
+    s.add_argument("host", nargs="+", metavar="NAME", help="a host or resource; fuzzy words work")
     s = sub.add_parser("run", help="run a command on a host")
     s.add_argument("--sudo", action="store_true",
                    help="run it as root with sudo; roster gives sudo the login's password (never shown)")
-    s.add_argument("host")
-    s.add_argument("command", nargs=argparse.REMAINDER)
+    s.add_argument("host", help="the host to run it on")
+    s.add_argument("command", nargs=argparse.REMAINDER, help="the command, after --")
     s = sub.add_parser("discover", help="scan networks (nmap if installed) and add what's found to roster.yml")
     s.add_argument("targets", nargs="+", metavar="CIDR", help="e.g. 10.0.1.0/24 (several allowed)")
     s.add_argument("--write", action="store_true", help="add new hosts to roster.yml (default: preview only)")
-    s.add_argument("--group", help="group name for new hosts (default: discovered-YYYYMMDD)")
+    s.add_argument("--group", metavar="NAME", help="group name for new hosts (default: discovered-YYYYMMDD)")
     s.add_argument("--ports", default=DEFAULT_SCAN_PORTS, help="TCP ports to scan (default: common server, "
                    "web, database, remote-admin and network-gear ports)")
-    s.add_argument("--top-ports", type=int, help="nmap only: scan nmap's N most common ports instead")
+    s.add_argument("--top-ports", type=int, metavar="N", help="nmap only: scan nmap's N most common ports instead")
     s.add_argument("--no-ping", action="store_true", help="nmap only: scan hosts that don't answer ping (slower)")
     s.add_argument("--os", action="store_true", help="nmap only: OS detection (needs sudo)")
     s.add_argument("--builtin", action="store_true", help="use the built-in scanner even if nmap is installed")
-    s.add_argument("--timeout", type=float, default=0.5, help="built-in scanner connect timeout (s)")
+    s.add_argument("--timeout", type=float, default=0.5, metavar="SECONDS",
+                   help="built-in scanner connect timeout (default: 0.5)")
     s.add_argument("--force", action="store_true", help="allow scanning more than 4096 addresses")
     s = sub.add_parser("bw", help="run the Bitwarden CLI with this box's vault session (bw-session file)")
-    s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS")
+    s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS", help="arguments for bw")
     sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
     s = sub.add_parser("auth-check", help="test each group's password source, print nothing secret")
-    s.add_argument("--only")
+    s.add_argument("--only", **only)
     s = sub.add_parser("web", help="HTTP request to a host's web service, logged in with its stored credentials")
     s.add_argument("request", nargs="+", metavar="HOST [SERVICE] METHOD PATH",
                    help="e.g. esxi GET /folder  or  orion3 https GET /api/status")
-    s.add_argument("-d", "--data", help="request body (@FILE reads a file)")
-    s.add_argument("-H", "--header", action="append", help="extra header 'Name: value' (repeatable)")
+    s.add_argument("-d", "--data", metavar="BODY", help="request body (@FILE reads a file)")
+    s.add_argument("-H", "--header", action="append", metavar="HEADER", help="extra header 'Name: value' (repeatable)")
     s.add_argument("-k", "--insecure", action="store_true", help="don't verify the TLS certificate")
-    s.add_argument("--timeout", type=float, default=30)
+    s.add_argument("--timeout", type=float, default=30, metavar="SECONDS",
+                   help="how long to wait for the answer (default: 30)")
+    s = sub.add_parser("mesh", help="set up Host-to-Host access (mesh: and links: in roster.yml), one Host at a time")
+    s.add_argument("action", nargs="?", choices=["cut", "status"],
+                   help="cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)")
+    s.add_argument("target", nargs="?", metavar="HOST", help="with cut: the Host to cut out")
+    s.add_argument("--dry-run", action="store_true", help="show the plan; change nothing on any Host")
+    s.add_argument("--rotate", action="append", metavar="HOST", help="replace HOST's Mesh key (repeatable)")
+    s.add_argument("-y", "--yes", action="store_true", help="with cut: don't ask first")
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
-    s.add_argument("--only")
-    s.add_argument("-y", "--yes", action="store_true")
+    s.add_argument("--only", **only)
+    s.add_argument("-y", "--yes", action="store_true", help="don't ask first")
     sub.add_parser("serve", help="JSON-RPC API on stdin/stdout for the desktop app (see docs/serve-api.md)")
     s = sub.add_parser("askpass", help="SSH_ASKPASS helper for a `roster serve` password Session (ssh runs it)")
-    s.add_argument("prompt", nargs="?", default="")
-    args = p.parse_args(argv)
+    s.add_argument("prompt", nargs="?", default="", help="the prompt ssh shows")
+    s = sub.add_parser("man", help="show the roster(1) man page, or install it where `man roster` finds it")
+    s.add_argument("--install", action="store_true",
+                   help="copy it to PREFIX/share/man/man1/, next to PREFIX/bin/roster (~/.local for uv tool install)")
+    s.add_argument("--prefix", metavar="DIR", help="with --install: install into DIR/share/man/man1/ instead")
+    return p
+
+
+def _main(argv=None):
+    args = build_parser().parse_args(argv)
 
     if args.cmd == "askpass":
         from .askpass import main as askpass_main
@@ -572,10 +751,17 @@ def _main(argv=None):
 
     if args.cmd == "init":
         return cmd_init(args)
+    if args.cmd == "man":
+        from .manpage import cmd_man
+        return cmd_man(args)
     if args.cmd == "discover":
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
+    if args.cmd == "check" and args.box:
+        if args.host or args.only:
+            build_parser().error("check --box takes no HOST or --only: it checks this Box, not its Hosts")
+        return cmd_check_box(args)
     if args.cmd == "check" and args.host:
         return cmd_check_host(args)
     if args.cmd == "serve":
@@ -591,4 +777,5 @@ def _main(argv=None):
     cfg = load_config(find_config(args.config))
     setup_providers(cfg)
     return {"setup": cmd_setup, "sync": cmd_sync, "check": cmd_check, "hosts": cmd_hosts, "info": cmd_info,
-            "run": cmd_run, "revoke": cmd_revoke, "resources": cmd_resources, "reveal": cmd_reveal, "auth-check": cmd_auth_check, "web": cmd_web}[args.cmd](cfg, args)
+            "run": cmd_run, "revoke": cmd_revoke, "resources": cmd_resources, "reveal": cmd_reveal, "auth-check": cmd_auth_check, "web": cmd_web,
+            "mesh": cmd_mesh}[args.cmd](cfg, args)

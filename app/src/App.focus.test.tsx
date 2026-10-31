@@ -183,7 +183,8 @@ describe("Finders in Focus", () => {
     const unreviewed = hosts.hosts.find((h) => !h.reviewed)!.name;
     await user.keyboard(`${LEADER}m${LEADER}t`);
     await user.keyboard(`${unreviewed}{Enter}`);
-    expect(within(finder()).getByRole("status")).toHaveTextContent(/isn't reviewed/);
+    // The notice, beside the hidden count that a screen reader hears.
+    expect(within(finder()).getAllByRole("status").map((s) => s.textContent).join(" ")).toMatch(/isn't reviewed/);
   });
 });
 
@@ -228,7 +229,7 @@ describe("Every mode keeps all of roster", () => {
     expect(screen.getByRole("complementary", { name: "Key bindings" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}:`);
-    await user.keyboard("check{Enter}");
+    await user.keyboard(`check ${h0}{Enter}`);
     expect(await screen.findByRole("region", { name: `Check ${h0}` })).toBeInTheDocument();
     await user.keyboard(`${LEADER}L`);
     await unlock(user);

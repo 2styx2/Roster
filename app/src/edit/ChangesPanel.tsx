@@ -42,7 +42,7 @@ export interface ChangesPanelProps {
 const FIELD_LABEL: Record<string, string> = { ip: "address", auth: "Login" };
 
 /** One diff line's kind, for its colour and its sign in words. */
-function kindOf(line: string): "add" | "del" | "hunk" | "meta" | "same" {
+export function kindOf(line: string): "add" | "del" | "hunk" | "meta" | "same" {
   if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) return "meta";
   if (line.startsWith("@@")) return "hunk";
   if (line.startsWith("+")) return "add";
@@ -50,7 +50,7 @@ function kindOf(line: string): "add" | "del" | "hunk" | "meta" | "same" {
   return "same";
 }
 
-const SIGN_WORD = { add: "added: ", del: "removed: " } as const;
+export const SIGN_WORD = { add: "added: ", del: "removed: " } as const;
 
 /** The short hash git shows. */
 const short = (commit: string) => commit.slice(0, 7);

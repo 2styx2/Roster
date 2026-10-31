@@ -10,9 +10,7 @@ an error message is cut from it with the prompts (and their echoed answers) left
 person gave is scrubbed from it on top of that.
 """
 
-import fcntl
 import os
-import pty
 import re
 import select
 import shutil
@@ -20,12 +18,13 @@ import signal
 import struct
 import subprocess
 import tempfile
-import termios
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from ..common import WINDOWS
 from . import (
+    ASK,
     PROVIDERS,
     AlreadyLoggedIn,
     ApiKeyRejected,
@@ -43,6 +42,14 @@ from . import (
     not_installed,
 )
 from .bitwarden import _bw, _bw_status_json, _bw_unlock
+
+if not WINDOWS:                         # a PTY is Linux's and macOS's; native Windows roster signs in with an API key
+    import fcntl
+    import pty
+    import termios
+
+NO_PTY = ("signing in with a password or SSO from the app needs a terminal roster can drive, which native Windows "
+          "roster doesn't have yet - run `roster bw login` in a terminal (or sign in with an API key), then unlock here")
 
 ANSWER_WAIT = 40            # s: bw's answer to a step (a login is a KDF and a few requests)
 SSO_URL_WAIT = 15           # s: for bw to start its callback server and hand over the link
@@ -101,6 +108,8 @@ class Pty:
     (where --raw puts the session key)."""
 
     def __init__(self, args, env):
+        if WINDOWS:
+            raise LoginError(NO_PTY)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 240, 0, 0))     # no wrapped prompts
         try:
@@ -258,7 +267,7 @@ class BwLogin:
         if status.get("status") != "unauthenticated":
             who = f" as {status['userEmail']}" if status.get("userEmail") else ""
             raise AlreadyLoggedIn(f"the Bitwarden CLI is already logged in on this box{who} - unlock it instead "
-                                  "(to sign in as someone else, run `bw logout` first)")
+                                  "(to sign in as someone else, sign out first: 'Use a different account' in the app, or `roster bw logout`)")
         self.server = status.get("serverUrl") or CLOUD
         if params.get("server"):
             self.set_server(server_url(params["server"]))
@@ -493,7 +502,7 @@ class BwLogin:
             return ApiKeyRejected("Bitwarden didn't accept that API key (client_id or client_secret)")
         if "already logged in" in low:
             return AlreadyLoggedIn("the Bitwarden CLI is already logged in on this box - unlock it instead "
-                                   "(to sign in as someone else, run `bw logout` first)")
+                                   "(to sign in as someone else, sign out first: 'Use a different account' in the app, or `roster bw logout`)")
         if after in (CODE, NEW_DEVICE):
             return CodeRejected("Bitwarden didn't accept that code (wrong or expired)")
         if "invalid master password" in low or "username or password is incorrect" in low:
@@ -505,9 +514,12 @@ class BwLogin:
 
 
 
-def login_info(ctx):
-    """vault.status's `sign_in` for a logged-out bw: the ways in, and the server it's set to (None: bitwarden.com)."""
-    return {"methods": ["password", "apikey", "sso"], "server": _bw_status_json(ctx).get("serverUrl")}
+def login_info(ctx, server=ASK):
+    """vault.status's `sign_in` for a logged-out bw: the ways in, and the server it's set to (None: bitwarden.com).
+    SERVER, when the caller knows it already (vault.logout, from the `bw status` before it), saves asking bw again."""
+    if server is ASK:
+        server = _bw_status_json(ctx).get("serverUrl")
+    return {"methods": ["password", "apikey", "sso"], "server": server}
 
 
 PROVIDERS["bw"].update(login=BwLogin, login_info=login_info)

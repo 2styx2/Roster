@@ -8,7 +8,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { chordOf, type Keymap } from "../keymap";
 import { finderResults, type FinderContext, type FinderItem, type FinderSourceDef } from "./sources";
 import { prefixFill } from "../ui/completion";
-import { formatCount } from "../ui/format";
+import { Announce } from "../ui/Announce";
+import { countOf, formatCount } from "../ui/format";
 import { Keys } from "../ui/Keys";
 import { StateDot } from "../ui/StateDot";
 
@@ -23,12 +24,16 @@ export interface FinderProps {
   ctx: FinderContext;
   keymap: Keymap;
   vim: boolean;
+  /** What the query starts as (`:helpgrep TEXT`). */
+  initialQuery?: string;
   onChoose(item: FinderItem): void;
   onClose(): void;
+  /** `picker.help` (F1): help on the selected item (ticket 52). */
+  onHelp?(item: FinderItem): void;
 }
 
-export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderProps) {
-  const [query, setQuery] = useState("");
+export function Finder({ source, ctx, keymap, vim, initialQuery = "", onChoose, onClose, onHelp }: FinderProps) {
+  const [query, setQuery] = useState(initialQuery);
   const [moved, setMoved] = useState<number | null>(null);
   const [inList, setInList] = useState(false);
   const [notice, setNotice] = useState("");
@@ -94,6 +99,11 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
       case "picker.close":
         onClose();
         break;
+      case "picker.help": {
+        const item = shown[current];
+        if (item) onHelp?.(item);
+        break;
+      }
     }
   }
 
@@ -101,7 +111,7 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
 
   return (
     <div className="picker-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="picker finder" role="dialog" aria-label={source.title}>
+      <div className={`picker finder${source.prose ? " prose" : ""}`} role="dialog" aria-label={source.title}>
         <div className="finder-query">
           <span className="finder-prompt">{source.prompt} ›</span>
           <input
@@ -122,7 +132,7 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
             }}
             onKeyDown={onKeyDown}
           />
-          <span className="finder-count">
+          <span className="finder-count" aria-hidden="true">
             {results.items.length > shown.length
               ? `${formatCount(shown.length)} of ${formatCount(results.items.length)}`
               : formatCount(results.items.length)}
@@ -162,11 +172,13 @@ export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderPr
                   {item.path}
                 </span>
               )}
-              <span className="finder-detail">{item.detail}</span>
+              {item.detail && <span className="finder-detail">{item.detail}</span>}
             </li>
           ))}
         </ul>
-        {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : "Nothing here yet."}</p>}
+        {/* How many results the query left, said once typing pauses (the count above is only seen). */}
+        <Announce text={results.items.length ? countOf(results.items.length, "result") : query ? "No matches" : ""} />
+        {shown.length === 0 && <p className="picker-empty">{query ? `Nothing matches “${query}”.` : (source.empty ?? "Nothing here yet.")}</p>}
         <div className="picker-footer">
           <span role="status" title={notice || source.note?.(shown[current]) || undefined}>
             {notice || source.note?.(shown[current])}

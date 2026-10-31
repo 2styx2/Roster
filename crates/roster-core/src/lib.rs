@@ -2,12 +2,15 @@
 //! running Sessions in PTYs.
 
 pub mod backend;
+pub mod browser;
 pub mod config;
 pub mod detect;
 pub mod env;
 pub mod error;
 pub mod migrate;
+pub mod package;
 pub mod platform;
+pub mod plugin;
 pub mod rpc;
 pub mod session;
 pub mod slot;

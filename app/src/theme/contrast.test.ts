@@ -24,6 +24,18 @@ describe("contrast", () => {
 
 const SURFACES = ["bg", "chrome", "sidebar", "panel", "raised", "hover"] as const;
 const TEXT_TOKENS = ["text", "muted", "warn", "error", "accentInk"] as const;
+const SYNTAX_TOKENS = [
+  "syntaxKeyword",
+  "syntaxString",
+  "syntaxNumber",
+  "syntaxComment",
+  "syntaxFunction",
+  "syntaxPunctuation",
+  "syntaxKey",
+  "syntaxCommand",
+] as const;
+/** The syntax colours that carry a hue; comments, punctuation and commands are the Theme's greys. */
+const SYNTAX_HUES = ["syntaxKeyword", "syntaxString", "syntaxNumber", "syntaxFunction", "syntaxKey"] as const;
 
 describe.each(bundledThemes.map((t) => [t.id, t] as const))("Theme %s", (_id, t) => {
   const c = t.colors;
@@ -46,6 +58,15 @@ describe.each(bundledThemes.map((t) => [t.id, t] as const))("Theme %s", (_id, t)
   it("the close button's glyph is at least 3:1 on danger", () => {
     expect(contrast(c.dangerText, c.danger)).toBeGreaterThanOrEqual(3);
   });
+  // Code (ticket 71, decision Q90): every syntax colour is code text, so 4.5:1 on every surface
+  // code sits on, and the coloured ones never read as the accent (taste.md: the accent means live).
+  const syntaxPairs = SYNTAX_TOKENS.flatMap((token) => SURFACES.map((surface) => [token, surface] as const));
+  it.each(syntaxPairs)("code's %s colour is at least 4.5:1 on %s", (token, surface) => {
+    expect(contrast(c[token], c[surface])).toBeGreaterThanOrEqual(4.5);
+  });
+  it.each(SYNTAX_HUES)("code's %s colour isn't the accent", (token) => {
+    expect(deltaE(c[token], c.accent)).toBeGreaterThanOrEqual(8);
+  });
   it("terminal text is at least 4.5:1 on the terminal background", () => {
     expect(contrast(t.terminal.foreground, t.terminal.background)).toBeGreaterThanOrEqual(4.5);
   });
@@ -57,6 +78,9 @@ describe.each(bundledThemes.map((t) => [t.id, t] as const))("Theme %s", (_id, t)
 describe.each([rosterDark, rosterLight].map((t) => [t.id, t] as const))("Theme %s semantics", (_id, t) => {
   const c = t.colors;
   it.each(["warn", "error", "danger"] as const)("%s is at least 12 apart from the accent", (token) => {
+    expect(deltaE(c[token], c.accent)).toBeGreaterThanOrEqual(12);
+  });
+  it.each(SYNTAX_TOKENS)("code's %s colour is at least 12 apart from the accent (nothing apricot in code)", (token) => {
     expect(deltaE(c[token], c.accent)).toBeGreaterThanOrEqual(12);
   });
   it("warn and error are well apart", () => {

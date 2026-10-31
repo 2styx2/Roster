@@ -47,10 +47,12 @@ describe("The Sidebar as a tree (M4)", () => {
     const terminal = document.activeElement;
     await user.keyboard(LEADER);
     expect(tree()).toHaveFocus();
+    // It starts on the row that was clicked, the selected one (decision Q88): the Inventory's.
     expect(active()).toHaveAccessibleName(/^linux-1-000/);
+    expect(active()).toHaveAttribute("aria-level", "3");
     expect(active()).toHaveAttribute("aria-selected", "true");
     await user.keyboard("j");
-    expect(active()).toHaveAccessibleName(/^Folders/);
+    expect(active()).toHaveAccessibleName(/^router-1-004/);
     // Esc goes back to the terminal, focus too.
     await user.keyboard("{Escape}");
     expect(tree()).not.toHaveAttribute("aria-activedescendant");

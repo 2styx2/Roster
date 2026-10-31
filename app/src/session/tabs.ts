@@ -94,6 +94,12 @@ const LATE_LIMIT = 4 * 1024;
 type Sink = (data: Uint8Array) => void;
 
 /** What a tab's terminal is wired to; the same object for the tab's whole life. */
+/** Where Plugins hear the Sessions (setOutputTap): their output, and each resize sent to one. */
+export interface OutputTap {
+  output(id: number, host: string | null, data: Uint8Array): void;
+  resized(id: number): void;
+}
+
 export interface TerminalWiring {
   attach(sink: Sink): () => void;
   onData(data: string): void;
@@ -149,6 +155,8 @@ export class Tabs {
   private snap: TabsSnapshot = { tabs: [], active: null, previous: null };
   private readonly listeners = new Set<() => void>();
   private onVaultLocked: () => void = () => {};
+  /** Sees every Session's output as it arrives (Plugins with terminal.read, ticket 23). */
+  private outputTap: OutputTap | null = null;
   private asksAboutKeys = true;
   private readonly now: () => number;
 
@@ -222,6 +230,13 @@ export class Tabs {
    * app shows the lock screen, then calls `resumeAfterUnlock`. */
   setVaultLockedHandler(handler: () => void) {
     this.onVaultLocked = handler;
+  }
+
+  /** Hands every Session's output to `tap` too (null stops it): what Plugins with terminal.read
+   * get. Only output: what's typed into a Session never goes there. It also hears each resize
+   * sent to a Session, after which the Session may print its screen again (ticket 73). */
+  setOutputTap(tap: OutputTap | null) {
+    this.outputTap = tap;
   }
 
   /** Whether roster can be asked about a Host's key (API 11, ticket 36). Without it, roster's "no
@@ -423,6 +438,8 @@ export class Tabs {
           const text = this.keepTail(entry, data);
           this.scanForName(entry, text);
           this.output(entry, data);
+          // A Quick Connect Session isn't on a Host of the Inventory: no Host to name.
+          this.outputTap?.output(id, entry.tab.quick ? null : entry.tab.host, data);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
           if (entry.tab !== before) this.changed();
         },
@@ -707,6 +724,7 @@ export class Tabs {
     const { size, sentSize, session } = entry;
     if (!session || (size.cols === sentSize.cols && size.rows === sentSize.rows)) return;
     entry.sentSize = { ...size };
+    this.outputTap?.resized(entry.tab.id);
     void session.resize(size).catch(() => {});
   }
 }

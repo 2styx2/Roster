@@ -69,11 +69,15 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("changes.publish", 180),
     ("inventory.pull", 90),
     ("host.check", 90),
+    ("box.check", 90),
     ("host.verify_login", 90),
     ("vault.create_item", 90),
     ("quick.save", 90),
     ("host.save_login", 90),
     ("vault.login", 100),
+    ("mesh.plan", 300),
+    ("mesh.apply", 300),
+    ("mesh.cut", 120),
 ];
 
 /// How long the app waits for `method` (see [`CALL_SECS`]).
@@ -112,6 +116,11 @@ impl Backend {
         let shown = c.serve_argv.join(" ");
         let mut cmd = Command::new(&c.serve_argv[0]);
         cmd.args(&c.serve_argv[1..]);
+        if c.target == Target::Local && cfg!(windows) {
+            // Native Windows roster: Python's UTF-8 mode, so roster.yml, the vault CLI's output and
+            // every file roster writes are UTF-8 whatever the Windows code page is.
+            cmd.env("PYTHONUTF8", "1");
+        }
         let client = RpcClient::spawn_with(cmd, notify).map_err(|e| {
             BackendError::new(
                 ErrorKind::Failed,

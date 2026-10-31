@@ -19,11 +19,13 @@ export type PickerAction =
   | "picker.choose"
   | "picker.chooseHere"
   | "picker.review"
+  | "picker.info"
+  | "picker.help"
   | "picker.close";
 
 /** The command line's own keys (ticket 34): cycle through the completions, accept one, run the
- * line, cancel. */
-export type CmdlineAction = "cmdline.next" | "cmdline.prev" | "cmdline.accept" | "cmdline.run" | "cmdline.cancel";
+ * line, cancel; and help on the command being typed (ticket 52). */
+export type CmdlineAction = "cmdline.next" | "cmdline.prev" | "cmdline.accept" | "cmdline.run" | "cmdline.cancel" | "cmdline.help";
 
 /** Anything a key can be bound to: a command line, or a Picker or terminal action. */
 export type Action = string;
@@ -83,6 +85,8 @@ export interface Options {
   statusBar: { visible: boolean };
   /** Lock after this many minutes without input (docs/app/security.md). */
   idleLockMinutes: number;
+  /** A form pulls the infra repo (in the background) once the last pull is older (decision Q88); 0: every time. */
+  pullFreshMinutes: number;
   /** The view mode at start (decision Q36): `default_mode` in init.lua. */
   defaultMode: ViewMode;
   /** Focus mode: the tmux-style session bar, off by default (decision Q36). */
@@ -96,6 +100,7 @@ export const defaultOptions: Options = {
   sessions: "sidebar",
   statusBar: { visible: true },
   idleLockMinutes: 15,
+  pullFreshMinutes: 5,
   defaultMode: "standard",
   focus: { sessionbar: false },
 };
@@ -117,6 +122,10 @@ export const defaultBindings: KeymapTables = {
     S: "source",
     L: "lock",
     E: "edit",
+    // Host details for the selected Host (ticket 18).
+    i: "details",
+    // Help on what's selected (ticket 52): Neovim's K, which ␣ K (Key bindings) can't be here.
+    F1: "lookup",
     "+": "host add",
     // The Live Inventory (ticket 28): on the Host or group under the cursor, or the Session's Host.
     n: "host add",
@@ -151,6 +160,8 @@ export const defaultBindings: KeymapTables = {
     "Shift+Tab": "picker.prev",
     Enter: "picker.choose",
     "Ctrl+r": "picker.review",
+    "Ctrl+i": "picker.info",
+    F1: "picker.help",
     Escape: "picker.close",
     ...terminalKeys.picker,
   },
@@ -163,6 +174,9 @@ export const defaultBindings: KeymapTables = {
     "Ctrl+y": "cmdline.accept",
     Enter: "cmdline.run",
     Escape: "cmdline.cancel",
+    // Help on the command being typed (ticket 52), as Ctrl+] follows a tag in Neovim.
+    "Ctrl+]": "cmdline.help",
+    F1: "cmdline.help",
   },
   terminal: terminalKeys.terminal,
   global: { F11: "focus" },
@@ -227,10 +241,18 @@ export interface KeyLike {
   altKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
+  /** Part of an IME composition (IBus, Fcitx, the Windows IME). */
+  isComposing?: boolean;
+  /** 229 while an IME handles the key; WebKit sends the key that commits a composition after
+   * compositionend, so only this says so there. */
+  keyCode?: number;
+  /** React's key events leave isComposing out; the DOM event under them has it. */
+  nativeEvent?: { isComposing?: boolean };
 }
 
-/** The keymap name of a key event. */
+/** The keymap name of a key event; "" (no chord, so no binding) for a key the IME is using. */
 export function chordOf(e: KeyLike): string {
+  if (e.isComposing || e.nativeEvent?.isComposing || e.keyCode === 229) return "";
   const key = e.key === " " ? "Space" : e.key;
   const printable = key.length === 1;
   const withMods = e.ctrlKey || e.altKey || e.metaKey;

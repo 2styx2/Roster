@@ -1,11 +1,14 @@
 import os
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
+from conftest import posix_shell
 
 import roster.cli as cli
 from roster.cli import main
+from roster.common import user_config_dir
 from roster.sshops import sudo_wrap
 
 
@@ -122,6 +125,7 @@ SUDO_CFG = ("groups:\n  g:\n    user: ops\n    auth: env:ROSTER_TEST_PW\n    hos
             "      new-host: { ip: 10.0.0.8, reviewed: false }\n")
 
 
+@posix_shell
 def test_sudo_wrap_keeps_password_away_from_the_command(tmp_path):
     fake = tmp_path / "sudo"        # stand-in sudo that, like a NOPASSWD rule, never reads stdin
     fake.write_text('#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done; shift; exec "$@"\n')
@@ -155,10 +159,11 @@ def test_run_sudo_key_host(capsys, write_config, monkeypatch):
 
     def fake_run(argv, input=None, **kw):
         seen.update(argv=argv, input=input)
-        return subprocess.CompletedProcess(argv, 0, "root\n", "")
+        return subprocess.CompletedProcess(argv, 0, b"root\n", b"")
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
     assert main(["run", "--sudo", "key-host", "--", "whoami"]) == 0
-    assert seen["argv"][:4] == ["ssh", "-o", "BatchMode=yes", "key-host"] and seen["input"] == "s3cret\n"
+    assert Path(seen["argv"][0]).stem == "ssh"          # found on PATH: C:\\Windows\\...\\ssh.exe on Windows
+    assert seen["argv"][1:4] == ["-o", "BatchMode=yes", "key-host"] and seen["input"] == b"s3cret\n"
     assert "sudo -S" in seen["argv"][4] and capsys.readouterr().out == "root\n"
 
 
@@ -183,7 +188,7 @@ def test_run_hints_at_sudo_flag(capsys, write_config, monkeypatch):
 
 
 def _bw_session_file(isolated, text="fake-session-key\n"):
-    f = isolated["home"] / ".config" / "roster" / "bw-session"
+    f = user_config_dir() / "bw-session"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(text)
     f.chmod(0o600)

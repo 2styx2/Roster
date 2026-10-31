@@ -40,7 +40,7 @@ def current(h):
     """The editable fields of a loaded Host, as the edit form shows them, and its flags."""
     return {"title": h["title"], "description": h["description"], "type": h["type"], "ip": h["ip"],
             "user": h["ssh"]["user"], "port": h["ssh"]["port"], "auth": h["ssh"]["auth"],
-            "enroll": h["enroll"], "reviewed": h["reviewed"]}
+            "enroll": h["enroll"], "reviewed": h["reviewed"], "mesh": h["mesh"]}
 
 
 def check_value(field, v):
@@ -285,7 +285,7 @@ def load_text(path, text):
 
 def same_except(before, after, name):
     """Nothing but Host NAME changed between two loaded configs."""
-    keep = ("hosts", "groups", "resources", "box", "providers")
+    keep = ("hosts", "groups", "resources", "box", "providers", "links")
     hb = {k: v for k, v in before["hosts"].items() if k != name}
     ha = {k: v for k, v in after["hosts"].items() if k != name}
     return hb == ha and list(before["hosts"]) == list(after["hosts"]) and \
@@ -356,7 +356,7 @@ def inherited(text, group):
     layers = [{}, {k: v for k, v in g.items() if k not in GROUP_ONLY}, raw.get("defaults") or {}]
     ssh = resolve_ssh("new", layers)
     out = {k: ssh[k] for k in SSH_KEYS} | {k: bool(first(layers, k, True)) for k in FLAGS}
-    return out | {k: oneline(first(layers, k, "")) for k in TEXT}
+    return out | {k: oneline(first(layers, k, "")) for k in TEXT} | {"mesh": first(layers, "mesh")}
 
 
 def last_value(node):
@@ -469,6 +469,50 @@ def groups_node(text):
     if not isinstance(groups, yaml.MappingNode) or groups.flow_style or not groups.value:
         raise refuse("roster.yml's groups: isn't a block of groups")
     return groups
+
+
+# ---------------------------------------------------------------- the Mesh's links: naming a Host or group
+
+def link_ends(text, name):
+    """[(the links: item, its from:/to: value nodes that are NAME)] for each item of roster.yml's links: naming NAME."""
+    root = yaml.compose(text)
+    _, links = child(root, "links") if isinstance(root, yaml.MappingNode) else (None, None)
+    out = []
+    for item in links.value if isinstance(links, yaml.SequenceNode) else []:
+        ends = [v for k, v in (item.value if isinstance(item, yaml.MappingNode) else [])
+                if isinstance(k, yaml.ScalarNode) and k.value in ("from", "to") and isinstance(v, yaml.ScalarNode)
+                and v.value == name]
+        if ends:
+            out.append((item, ends))
+    return out
+
+
+def rename_in_links(t, text, name, to):
+    """Every from:/to: in links: that names NAME now names TO (its text only)."""
+    for _, ends in link_ends(text, name):
+        for v in ends:
+            set_scalar(t, v, to)
+
+
+def drop_links(t, text, name):
+    """The links: items naming NAME taken out, line and all (a Host or group that's gone links nothing; Q63: the
+    next `roster mesh` removes what they gave). Refused when an item doesn't have its own `- ` lines."""
+    for item, _ in link_ends(text, name):
+        start = t.line_start(item.start_mark.index)
+        if t.text[start:item.start_mark.index].strip() != "-":
+            raise refuse(f"links: names {name} at line {item.start_mark.line + 1}, in a list roster can't take an "
+                         "entry out of: take it out of links: by hand first")
+        end = t.text.find("\n", t.line_end(last_value(item).end_mark.index))
+        t.replace(start, len(t.text) if end < 0 else end + 1, "")
+
+
+def links_without(links, name):
+    return [x for x in links if name not in (x["from"], x["to"])]
+
+
+def links_renamed(links, name, to):
+    return [{**x, "from": to if x["from"] == name else x["from"], "to": to if x["to"] == name else x["to"]}
+            for x in links]
 
 
 def group_entry(groups, group):
@@ -602,11 +646,12 @@ def removed(path, name):
     _, key, node, _ = host_entry(groups_node(text), name)
     start, end = entry_span(t, key, node)
     t.replace(start, end, "")
+    drop_links(t, text, name)
     new_text = t.result()
     after = load_text(path, new_text)
     if after["hosts"] != without(before["hosts"], name) or list(after["hosts"]) != [n for n in before["hosts"]
                                                                                     if n != name] \
-            or not others_same(before, after, hosts=False):
+            or after["links"] != links_without(before["links"], name) or not others_same(before, after, hosts=False):
         raise refuse("the result loads differently than asked")
     return text, new_text, h
 
@@ -627,12 +672,14 @@ def renamed(path, name, to):
     t = Text(text)
     _, key, _, _ = host_entry(groups_node(text), name)
     set_scalar(t, key, to)
+    rename_in_links(t, text, name, to)
     new_text = t.result()
     after = load_text(path, new_text)
     want = [to if n == name else n for n in before["hosts"]]
     h = after["hosts"].get(to)
     if list(after["hosts"]) != want or h != {**before["hosts"][name], "name": to} or \
-            without(after["hosts"], to) != without(before["hosts"], name) or not others_same(before, after, hosts=False):
+            without(after["hosts"], to) != without(before["hosts"], name) or \
+            after["links"] != links_renamed(before["links"], name, to) or not others_same(before, after, hosts=False):
         raise refuse("the result loads differently than asked (a resource may name the Host)")
     return text, new_text, h
 
@@ -658,7 +705,9 @@ def own_keys(text, group, name):
     return set(map(str, h)) | set(map(str, h.get("ssh") or {}) if isinstance(h.get("ssh"), dict) else ())
 
 
-PINNED = ("user", "port", "auth", "enroll", "reviewed", *TEXT)       # what a move writes on the Host to keep it
+# What a move writes on the Host to keep it. A Host with no mesh: anywhere has nothing to keep: it takes the Mesh
+# setting of the group it moves to, as any new member would (decision Q77).
+PINNED = ("user", "port", "auth", "enroll", "reviewed", "mesh", *TEXT)
 
 
 def pinned_move(text, was_host, name, group):
@@ -668,7 +717,8 @@ def pinned_move(text, was_host, name, group):
     old = current(was_host)
     was, will = inherited(text, was_host["group"]), inherited(text, group)
     own = own_keys(text, was_host["group"], name)
-    pin = {k: old[k] for k in PINNED if was[k] != will[k] and old[k] != will[k] and k not in own}
+    pin = {k: old[k] for k in PINNED if was[k] != will[k] and old[k] != will[k] and k not in own
+           and not (k == "mesh" and old[k] is None)}
     new_text = move_text(text, name, group)
     if pin:
         new_text = edit_text(new_text, name, pin, drop_empty=False)
@@ -679,8 +729,9 @@ def check_moved(before, after, names, group):
     """Each of Hosts NAMES came out in AFTER as it was in BEFORE but for its group, or Problem(WOULD_CHANGE)."""
     for name in names:
         h = after["hosts"].get(name)
-        differs = sorted(k for k in before["hosts"][name]
-                         if k != "group" and (h or {}).get(k) != before["hosts"][name][k])
+        was = before["hosts"][name]
+        differs = sorted(k for k in was if k != "group" and (h or {}).get(k) != was[k]
+                         and not (k == "mesh" and was[k] is None))
         if h is None or h["group"] != group or differs:
             raise Problem(WOULD_CHANGE, f"{name} would come out different in group {group} ({', '.join(differs)} it "
                                         "inherits there) - nothing was written", {"host": name, "fields": differs},
@@ -744,11 +795,13 @@ def group_renamed(path, group, to):
         raise p
     t = Text(text)
     set_scalar(t, gk, to)
+    rename_in_links(t, text, group, to)
     new_text = t.result()
     after = load_text(path, new_text)
     hosts = {n: {**h, "group": to} if h["group"] == group else h for n, h in before["hosts"].items()}
     groups = {to if g == group else g: v for g, v in before["groups"].items()}
     if after["hosts"] != hosts or after["groups"] != groups or list(after["groups"]) != list(groups) or \
+            after["links"] != links_renamed(before["links"], group, to) or \
             not others_same(before, after, hosts=False, groups=False):
         raise refuse("the result loads differently than asked (a resource may name the group)")
     return text, new_text
@@ -778,11 +831,13 @@ def group_deleted(path, group, to=None):
     t = Text(new_text)
     start, end = entry_span(t, gk, g)
     t.replace(start, end, "")
+    drop_links(t, new_text, group)
     new_text = t.result()
     after = load_text(path, new_text)
     check_moved(before, after, members, to)
     hosts = {n: {**h, "group": to} if h["group"] == group else h for n, h in before["hosts"].items()}
     if after["hosts"] != hosts or after["groups"] != without(before["groups"], group) or \
+            after["links"] != links_without(before["links"], group) or \
             not others_same(before, after, hosts=False, groups=False):
         raise refuse("the result loads differently than asked")
     return text, new_text, members

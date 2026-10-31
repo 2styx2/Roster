@@ -196,10 +196,9 @@ describe(":check HOST", () => {
     await waitFor(() => expect(panel).toHaveTextContent(/Recorded.*SHA256:OLDold.*Offered.*SHA256:NEWnew/));
   });
 
-  it("says all is well when every step passes, and checks the current Session's Host with no argument", async () => {
+  it("says all is well when every step passes", async () => {
     const { user } = await ready();
-    await command(user, `connect ${keyHost}`);
-    await command(user, "check");
+    await command(user, `check ${keyHost}`);
     const panel = await screen.findByRole("region", { name: `Check ${keyHost}` });
     expect(await within(panel).findByText(/All checks passed/)).toBeInTheDocument();
     await user.click(within(panel).getByRole("button", { name: /close/i }));

@@ -2,12 +2,14 @@
 // (ticket 23) registers its own page the same way the built-ins do. Most built-in pages are
 // generated each time they're shown from the live registries (the command table, the keymap,
 // Themes, finder sources, the error catalog) and the Config in effect, so they can't go stale; the
-// guides are docs/app's Markdown, bundled at build time (guides.ts).
+// guides are docs/'s Markdown, bundled at build time (guides.ts). The index groups the pages the
+// way Neovim's help.txt does (ticket 43, decision Q73): Getting started, Make it yours, Reference,
+// Extending.
 //
 // A topic is what `:help TOPIC` takes and the topic finder lists: a page (`options`), an entry on
 // one (`terminal.size`, `:connect`, `E13`, `themes#nord`) or a guide's heading (`config#the-sandbox`).
 import { bindingRows } from "../keyboard/bindings";
-import type { Commands, CommandDef } from "../commands/table";
+import { describeLine, type Commands, type CommandDef } from "../commands/table";
 import type { Config } from "../config/types";
 import type { ErrorRow } from "../errors/catalog";
 import type { Problem } from "../errors/classify";
@@ -15,9 +17,10 @@ import { searchItems, type FinderSourceDef } from "../finder/sources";
 import type { Keymap, Options } from "../keymap";
 import { BUILTIN, Registry, type Entry, type Source } from "../registry";
 import type { Theme } from "../theme/theme";
-import { code, h, keys, link, p, plain, text, type Block, type Inline } from "./doc";
-import { configMarkdown, guides } from "./guides";
-import { inline, parseMarkdown } from "./markdown";
+import { healthSummary, type HealthReport, type HealthSection } from "../health/health";
+import { code, h, keys, link, p, plain, slug, text, type Block, type Inline } from "./doc";
+import { configMarkdown, guideLink, guides, PARTS, type Guide } from "./guides";
+import { inline, parseMarkdown, withoutDevNotes } from "./markdown";
 import { luaValue, optionDocs, optionSource, optionValue, type StateChoices } from "./options";
 
 /** Everything a page is generated from, read when it's shown. */
@@ -38,6 +41,11 @@ export interface HelpContext {
   errors: readonly ErrorRow[];
   /** Every help page, the Plugins' too. */
   pages: readonly HelpPage[];
+  /** `:help health`: the health sections, and the last `:check` with no Host (ticket 49). */
+  health?: { sections: readonly HealthSection[]; report: HealthReport | null };
+  /** `:tutor` (ticket 55): the steps done, per tutorial, and the one running on the demo
+   * Inventory (null outside it). */
+  tutor?: { done(tutorial: string): ReadonlySet<string>; running: string | null };
 }
 
 export interface HelpPage extends Entry {
@@ -46,6 +54,9 @@ export interface HelpPage extends Entry {
   summary: string;
   /** Lower comes first in the index. The built-ins use 0–100. */
   order: number;
+  /** The index's group: "Getting started", "Make it yours", "Reference", "Extending" or "What's new". A page
+   * without one (a Plugin's) is listed under its source. */
+  part?: string;
   /** Other names that find it or a place on it (`init.lua` → `config`), as tag → topic. */
   aliases?: Record<string, string>;
   body(ctx: HelpContext): Block[];
@@ -64,7 +75,7 @@ interface HelpRegistries {
 
 export function helpContext(
   r: HelpRegistries,
-  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme">,
+  live: Pick<HelpContext, "keymap" | "options" | "config" | "configPath" | "state" | "activeTheme" | "health" | "tutor">,
 ): HelpContext {
   return {
     ...live,
@@ -88,6 +99,8 @@ export interface Topic {
   label: string;
   /** The page's title, for an entry on it. */
   path?: string;
+  /** A page, a heading on one, an entry (an option, a command, an error…), or another name. */
+  kind: "page" | "heading" | "entry" | "alias";
 }
 
 /** A page's blocks; an unknown page gives none. */
@@ -95,36 +108,48 @@ export function pageBody(ctx: HelpContext, id: string): Block[] {
   return ctx.pages.find((pg) => pg.id === id)?.body(ctx) ?? [];
 }
 
-/** Every topic: each page, then what's on it. Tags are unique (the first wins). */
-export function topics(ctx: HelpContext): Topic[] {
+/** Every topic: each page, then what's on it, then the aliases. Tags are unique, ignoring case:
+ * the first wins, and the others are `clashes` (lint.test.ts fails CI on any). */
+export function topicIndex(ctx: HelpContext): { topics: Topic[]; clashes: Topic[] } {
   const out: Topic[] = [];
+  const clashes: Topic[] = [];
   const seen = new Set<string>();
   const add = (t: Topic) => {
-    if (seen.has(t.tag.toLowerCase())) return;
+    if (seen.has(t.tag.toLowerCase())) return void clashes.push(t);
     seen.add(t.tag.toLowerCase());
     out.push(t);
   };
-  for (const pg of ctx.pages) add({ tag: pg.id, page: pg.id, label: pg.title });
+  for (const pg of ctx.pages) add({ tag: pg.id, page: pg.id, label: pg.title, kind: "page" });
   for (const pg of ctx.pages) {
     for (const b of pg.body(ctx)) {
       if (b.t === "h" && b.level > 1) {
-        add({ tag: `${pg.id}#${b.anchor}`, page: pg.id, anchor: `${pg.id}#${b.anchor}`, label: plain(b.text), path: pg.title });
+        const tag = headingTag(pg.id, b.anchor);
+        add({ tag, page: pg.id, anchor: tag, label: plain(b.text), path: pg.title, kind: "heading" });
       } else if (b.t === "defs") {
         for (const d of b.items) {
-          if (d.anchor) add({ tag: d.anchor, page: pg.id, anchor: d.anchor, label: d.anchor, path: plain(d.body).slice(0, 80) || pg.title });
+          if (d.anchor) add({ tag: d.anchor, page: pg.id, anchor: d.anchor, label: d.anchor, path: plain(d.body).slice(0, 80) || pg.title, kind: "entry" });
         }
       } else if (b.t === "table" && b.anchors) {
-        for (const a of b.anchors) if (a) add({ tag: a, page: pg.id, anchor: a, label: a, path: pg.title });
+        for (const a of b.anchors) if (a) add({ tag: a, page: pg.id, anchor: a, label: a, path: pg.title, kind: "entry" });
       }
     }
   }
   for (const pg of ctx.pages) {
     for (const [alias, to] of Object.entries(pg.aliases ?? {})) {
       const target = out.find((t) => t.tag === to);
-      if (target) add({ ...target, tag: alias, label: alias, path: target.label });
+      if (target) add({ ...target, tag: alias, label: alias, path: target.label, kind: "alias" });
+      else clashes.push({ tag: alias, page: pg.id, label: `${alias} → ${to}, which isn't a topic`, kind: "alias" });
     }
   }
-  return out;
+  return { topics: out, clashes };
+}
+
+/** A heading's topic: its anchor, which a page may write whole (`commands#hosts`) or as a slug. */
+export const headingTag = (page: string, anchor: string): string => (anchor.includes("#") ? anchor : `${page}#${anchor}`);
+
+/** Every topic (topicIndex's). */
+export function topics(ctx: HelpContext): Topic[] {
+  return topicIndex(ctx).topics;
 }
 
 /** The topic `:help QUERY` opens: a tag (any case), else `:QUERY` (a command), else the best
@@ -141,14 +166,68 @@ export function findTopic(ctx: HelpContext, query: string): Topic | undefined {
   return best ? all.find((t) => t.tag === best.id) : undefined;
 }
 
-/** Where a link goes: a topic, or a guide's Markdown file (`keyboard.md#two-modes`); null when
- * it's neither (a file that isn't bundled). */
-export function linkTarget(href: string): string | null {
-  const m = /^(?:\.\/)?([\w-]+\.md)(?:#(.*))?$/.exec(href);
-  if (!m) return /[/:]\/|\.\w+$|\//.test(href) && !href.startsWith(":") ? null : href;
-  const guide = guides.find((g) => g.file === m[1]);
-  if (!guide) return null;
-  return m[2] ? `${guide.id}#${m[2]}` : guide.id;
+/** Where a link goes: a topic (the help panel opens it), a file in the repo that isn't bundled
+ * (`file:examples/init.lua`), or a web address. Guides' links are already topics (guideLink). */
+export function linkKind(href: string): "topic" | "file" | "web" {
+  if (href.startsWith("file:")) return "file";
+  if (/^[a-z]+:/i.test(href) && !href.startsWith(":")) return "web";
+  return "topic";
+}
+
+/** A block's searchable text, with the topic of the place it's in: its own entry, else the
+ * heading above it, else the page. What `:helpgrep` searches. */
+export interface TextHit {
+  page: string;
+  /** The topic to open: an entry, a heading or the page. */
+  tag: string;
+  /** Where it is, for the finder: "Your init.lua › The sandbox". */
+  where: string;
+  text: string;
+  /** A heading's own text: `:helpgrep` lists these first. */
+  heading?: boolean;
+}
+
+export function pageTexts(ctx: HelpContext): TextHit[] {
+  const out: TextHit[] = [];
+  for (const pg of ctx.pages) {
+    let tag = pg.id;
+    let where = pg.title;
+    const push = (text: string, at = tag, place = where, heading = false) => {
+      const t = text.replace(/\s+/g, " ").trim();
+      if (t) out.push({ page: pg.id, tag: at, where: place, text: t, ...(heading ? { heading } : {}) });
+    };
+    for (const b of pg.body(ctx)) {
+      switch (b.t) {
+        case "h":
+          if (b.level > 1) {
+            tag = headingTag(pg.id, b.anchor);
+            where = `${pg.title} › ${plain(b.text)}`;
+          }
+          push(plain(b.text), tag, where, true);
+          break;
+        case "p":
+        case "quote":
+          push(plain(b.text));
+          break;
+        case "list":
+          for (const item of b.items) push(plain(item));
+          break;
+        case "pre":
+          for (const line of b.text.split("\n")) push(line);
+          break;
+        case "table":
+          b.rows.forEach((row, r) => push(row.map(plain).join(" · "), b.anchors?.[r] ?? tag));
+          break;
+        case "defs":
+          for (const d of b.items) push(`${plain(d.term)} ${plain(d.meta)} ${plain(d.body)} ${plain(d.more ?? [])}`, d.anchor ?? tag);
+          break;
+        case "step":
+          push(plain(b.text));
+          break;
+      }
+    }
+  }
+  return out;
 }
 
 // ---------- The built-in pages ----------
@@ -198,6 +277,7 @@ function commandsPage(ctx: HelpContext): Block[] {
           term: [code(`:${c.id}${argOf(c)}`)],
           meta: [...keysFor(ctx.keymap, c.id).map(keys), ...(c.source === BUILTIN ? [] : [sourceText(c.source)])],
           body: [text(c.label())],
+          ...(c.doc ? { more: inline(withoutDevNotes(c.doc)) } : {}),
         })),
       },
     ]),
@@ -233,7 +313,7 @@ function keysPage(ctx: HelpContext): Block[] {
 }
 
 function optionsPage(ctx: HelpContext): Block[] {
-  const docs = optionDocs(configMarkdown);
+  const docs = optionDocs(withoutDevNotes(configMarkdown));
   const bySection = new Map<string, typeof docs>();
   for (const d of docs) bySection.set(d.section, [...(bySection.get(d.section) ?? []), d]);
   const where = (name: string): Inline[] => {
@@ -277,10 +357,12 @@ function optionsPage(ctx: HelpContext): Block[] {
       {
         t: "defs",
         items: list.map((d) => ({
-          anchor: d.name,
+          // An option named like a page (`keys`, `themes`) is `'keys'`, as Neovim writes options:
+          // `:help keys` is the page.
+          anchor: ctx.pages.some((pg) => pg.id === d.name) ? `'${d.name}'` : d.name,
           term: [code(d.name)],
           meta: [code(valueOf(d.name)), ...where(d.name)],
-          body: [...d.about, ...(d.about.length ? [text(". ")] : []), text("Default: "), ...d.default],
+          body: [...fixLinks(configGuide, d.about), ...(d.about.length ? [text(". ")] : []), text("Default: "), ...fixLinks(configGuide, d.default)],
         })),
       },
     ]),
@@ -338,7 +420,7 @@ function findersPage(ctx: HelpContext): Block[] {
 }
 
 /** The keys bound to exactly `line` after the Leader. */
-function keysForLine(keymap: Keymap, line: string): string[] {
+export function keysForLine(keymap: Keymap, line: string): string[] {
   return Object.entries(keymap.leader)
     .filter(([, b]) => b.action === line)
     .map(([k]) => `␣ ${k}`);
@@ -367,13 +449,87 @@ function errorsPage(ctx: HelpContext): Block[] {
   ];
 }
 
+const LEVEL_WORD = { ok: "OK", warn: "WARNING", error: "ERROR" } as const;
+
+/** `:help health` (ticket 49): the last `:check` with no Host, a section at a time, each check OK,
+ * WARNING or ERROR with its fix and the topic that explains it. The headings are the registered
+ * sections, so `health#vault` is a topic before anything has run. */
+function healthPage(ctx: HelpContext): Block[] {
+  const report = ctx.health?.report ?? null;
+  const intro = p(
+    "This Box's health, like Neovim's ",
+    code(":checkhealth"),
+    ": how the app reaches roster, ",
+    code("roster.yml"),
+    ", ssh, the vault, askpass, the infra repo, ",
+    link("config", "init.lua"),
+    " and the terminal font. ",
+    link(":check", [code(":check")]),
+    " runs every check again, and ",
+    code("roster check --box"),
+    " runs roster's in a terminal. Every check is local: none connects to a Host. ",
+    code(":check HOST"),
+    " is the one that does.",
+  );
+  const status: Block =
+    report === null
+      ? p("Not checked yet: ", code(":check"), " runs the checks.")
+      : report.state === "running"
+        ? p("Checking this Box…")
+        : p(`Checked at ${report.at.toLocaleTimeString()}: ${healthSummary(report.sections)}.`);
+  const done = report?.state === "done" ? report.sections : null;
+  const sections = done ?? [...(ctx.health?.sections ?? [])].sort((a, b) => a.order - b.order).map((s) => ({ id: s.id, title: s.title, source: s.source, checks: [] }));
+  return [
+    h(1, "Health", "health"),
+    intro,
+    status,
+    ...sections.flatMap((s): Block[] => [
+      { t: "h", level: 2, text: [text(s.title), ...(s.source === BUILTIN ? [] : [text(` (${s.source})`)])], anchor: `health#${s.id}` },
+      ...(done === null
+        ? []
+        : s.checks.length === 0
+          ? [p("Nothing to check here.")]
+          : [
+              {
+                t: "defs" as const,
+                items: s.checks.map((c) => ({
+                  tone: c.level,
+                  term: [code(LEVEL_WORD[c.level])],
+                  meta: [],
+                  body: [
+                    ...inline(c.message),
+                    ...(c.fix ? [text(". Fix: "), ...inline(c.fix)] : []),
+                    ...(c.topic ? [text(". See "), link(c.topic, [code(c.topic)])] : []),
+                  ],
+                })),
+              },
+            ]),
+    ]),
+  ];
+}
+
 function indexPage(ctx: HelpContext): Block[] {
+  const listed = ctx.pages.filter((pg) => pg.id !== "index");
+  const groups = new Map<string, HelpPage[]>();
+  for (const part of PARTS) groups.set(part, []);
+  for (const pg of listed) {
+    const group = pg.part ?? (pg.source === BUILTIN ? "Reference" : `From ${pg.source}`);
+    groups.set(group, [...(groups.get(group) ?? []), pg]);
+  }
   return [
     h(1, "roster help", "index"),
     p(
-      "Built-in docs, like Neovim's ",
-      code(":help"),
+      "New to roster? ",
+      link("tutor", [code(":tutor")]),
+      " teaches it by doing, on a demo Inventory; ",
+      link("start", "Getting started"),
+      " is the place to read. To follow a link, Tab to it and press Enter, or click it. Try it here: ",
+      link("help#links", [code("links")]),
       ". ",
+      keys("Ctrl+o"),
+      " comes back.",
+    ),
+    p(
       code(":help TOPIC"),
       " opens a page or an entry on one (",
       link("terminal.size", [code("terminal.size")]),
@@ -383,106 +539,219 @@ function indexPage(ctx: HelpContext): Block[] {
       link("E13", [code("E13")]),
       "); ",
       keys("␣ ?"),
-      " or ",
-      code(":help"),
-      " alone finds a topic. The pages that list commands, keys, options, Themes, finders and errors are made from what the app has now, so they always match it.",
+      " finds a topic and ",
+      code(":helpgrep TEXT"),
+      " searches every page. The pages that list commands, keys, options, Themes, finders and errors are made from what the app has now, so they always match it.",
     ),
-    {
-      t: "defs",
-      items: ctx.pages
-        .filter((pg) => pg.id !== "index")
-        .map((pg) => ({
-          term: [link(pg.id, [code(pg.id)])],
-          meta: pg.source === BUILTIN ? [] : [sourceText(pg.source)],
-          body: [text(pg.summary)],
-        })),
-    },
+    ...[...groups].flatMap(([group, pages]): Block[] =>
+      pages.length
+        ? [
+            h(2, group, `index#${group.toLowerCase().replace(/\s+/g, "-")}`),
+            {
+              t: "defs",
+              items: pages.map((pg) => ({
+                term: [link(pg.id, [code(pg.id)])],
+                meta: pg.source === BUILTIN ? [] : [sourceText(pg.source)],
+                body: [text(pg.summary)],
+              })),
+            },
+          ]
+        : [],
+    ),
     h(2, "Moving around", "index#moving-around"),
+    helpKeysTable(),
+  ];
+}
+
+/** Help's own keys, on the index and the quick reference. */
+function helpKeysTable(): Block {
+  return {
+    t: "table",
+    head: [[text("Keys")], [text("What it does")]],
+    rows: [
+      [[keys("Tab"), keys("↵")], [text("Next link, follow it ("), keys("Ctrl+]"), text(" follows it too)")]],
+      [[keys("Ctrl+o"), keys("Ctrl+i")], [text("Back, forward")]],
+      [[keys("j"), keys("k"), keys("↓"), keys("↑")], [text("Scroll (j and k with vim keys on)")]],
+      [[keys("Ctrl+d"), keys("Ctrl+u")], [text("Half a page down, up")]],
+      [[keys("g g"), keys("G")], [text("Top, bottom")]],
+      [[keys("g O")], [text("The outline: this page's headings and entries")]],
+      [[keys("/"), keys("n"), keys("N")], [text("Search this page; next, previous match")]],
+      [[keys("?")], [text("Find a topic")]],
+      [[code(":helpgrep TEXT")], [text("Search every page")]],
+      [[keys("Esc")], [text("Close help, back where you were")]],
+    ],
+  };
+}
+
+/** The quick reference: the commands you'll use most, by area, with their keys now. */
+const QUICKREF: readonly (readonly [string, readonly string[]])[] = [
+  ["Hosts", ["find", "connect", "quick", "check", "edit", "host add", "review"]],
+  ["Sessions", ["next", "prev", "session", "close", "reconnect", "finder sessions"]],
+  ["View", ["sidebar", "statusbar", "mode", "focus", "finder tree"]],
+  ["Pending changes", ["changes", "publish", "discard"]],
+  ["Make it yours", ["config", "source", "theme", "hints", "keys"]],
+  ["Help", ["help", "helpgrep"]],
+];
+
+/** The keys bound to `line`, or to it with an argument (`session` → `␣ 1` … `␣ 9`). */
+function keysForCommandLine(keymap: Keymap, line: string): string[] {
+  const hit = (action: string) => action === line || action.startsWith(`${line} `);
+  return [
+    ...Object.entries(keymap.leader)
+      .filter(([k, b]) => hit(b.action) && k !== "Escape")
+      .map(([k]) => `␣ ${k}`),
+    ...Object.entries(keymap.global)
+      .filter(([, b]) => hit(b.action))
+      .map(([k]) => k),
+  ];
+}
+
+function quickrefPage(ctx: HelpContext): Block[] {
+  return [
+    h(1, "Quick reference", "quickref"),
+    p(
+      "The commands you'll use most, with the keys they have now. ",
+      keys("␣"),
+      " is the Leader (",
+      code(ctx.options.leader),
+      "). Every command is in ",
+      link("commands", "Commands"),
+      " and every key in ",
+      link("keys", "Key bindings"),
+      ".",
+    ),
+    ...QUICKREF.flatMap(([area, lines]): Block[] => {
+      const rows = lines.flatMap((line): Inline[][][] => {
+        const id = line.split(" ")[0] as string;
+        const c = ctx.commands.get(id);
+        if (!c) return [];
+        const bound = keysForCommandLine(ctx.keymap, line);
+        const shown = bound.length > 3 ? [keys(bound[0] as string), text("…"), keys(bound[bound.length - 1] as string)] : bound.map(keys);
+        const arg = line === id ? argOf(c) : "";
+        const label = line === id ? c.label() : describeLine(ctx.commands, line).label;
+        return [[shown, [link(`:${id}`, [code(`:${line}${arg}`)])], [text(label)]]];
+      });
+      return rows.length
+        ? [h(2, area, `quickref#${area.toLowerCase().replace(/\s+/g, "-")}`), { t: "table", head: [[text("Keys")], [text("Command")], [text("What it does")]], rows }]
+        : [];
+    }),
+    h(2, "In help", "quickref#in-help"),
+    helpKeysTable(),
+  ];
+}
+
+/** Every topic in one list, by kind, A to Z: Neovim's index.txt, for when you'd rather read
+ * than search. */
+function allPage(ctx: HelpContext): Block[] {
+  const all = topicIndex({ ...ctx, pages: ctx.pages.filter((pg) => pg.id !== "all") }).topics;
+  const sorted = (list: Topic[]) => [...list].sort((a, b) => a.tag.localeCompare(b.tag, "en", { numeric: true }));
+  const pageTitle = (id: string) => ctx.pages.find((pg) => pg.id === id)?.title ?? id;
+  const entries = all.filter((t) => t.kind === "entry");
+  const kinds: [string, string, Topic[]][] = [
+    ["Pages", "pages", all.filter((t) => t.kind === "page")],
+    ["Commands", "commands", entries.filter((t) => t.page === "commands")],
+    ["Options", "options", entries.filter((t) => t.page === "options")],
+    ["Errors", "errors", entries.filter((t) => t.page === "errors")],
+    ["Themes and finders", "themes-and-finders", entries.filter((t) => t.page === "themes" || t.page === "finders")],
+    ["Other entries", "other-entries", entries.filter((t) => !["commands", "options", "errors", "themes", "finders"].includes(t.page))],
+    ["Other names", "other-names", all.filter((t) => t.kind === "alias")],
+  ];
+  const keyRows = bindingRows(ctx.keymap, ctx.options, ctx.commands);
+  return [
+    h(1, "Every topic", "all"),
+    p(
+      "Every page, command, key, option and error, A to Z, each a link. Guide sections are in each page's outline (",
+      keys("g O"),
+      "), and ",
+      code(":helpgrep TEXT"),
+      " searches all of the text.",
+    ),
+    ...kinds.flatMap(([title, slug, list]): Block[] =>
+      list.length
+        ? [
+            h(2, title, `all#${slug}`),
+            {
+              t: "table",
+              head: [[text("Topic")], [text("What")]],
+              rows: sorted(list).map((t) => [
+                [link(t.tag, [code(t.tag)])],
+                [text(t.anchor ? (t.path && t.path !== pageTitle(t.page) ? t.path : pageTitle(t.page)) : t.label)],
+              ]),
+            },
+          ]
+        : [],
+    ),
+    h(2, "Keys", "all#keys"),
     {
       t: "table",
-      head: [[text("Keys")], [text("What it does")]],
-      rows: [
-        [[keys("j"), keys("k"), keys("↓"), keys("↑")], [text("Scroll (j and k with vim keys on)")]],
-        [[keys("Ctrl+d"), keys("Ctrl+u")], [text("Half a page down, up")]],
-        [[keys("g g"), keys("G")], [text("Top, bottom")]],
-        [[keys("Tab"), keys("↵")], [text("Next link, follow it")]],
-        [[keys("Ctrl+o"), keys("Ctrl+i")], [text("Back, forward")]],
-        [[keys("/"), keys("n"), keys("N")], [text("Search this page; next, previous match")]],
-        [[keys("?")], [text("Find a topic")]],
-        [[keys("Esc")], [text("Close help, back where you were")]],
-      ],
+      head: [[text("Keys")], [text("What it does")], [text("Where")]],
+      rows: keyRows.map((r) => [r.keys.map(keys), [text(r.label)], [text(r.area)]]),
     },
   ];
 }
 
 const guideCache = new Map<string, Block[]>();
+const configGuide = guides.find((g) => g.id === "config") as Guide;
 
-/** A guide's blocks, its anchors made topics (`config#the-sandbox`) and its links help links. */
-function guideBlocks(id: string, markdown: string): Block[] {
-  const cached = guideCache.get(id);
+/** A guide's inlines with its links made help links (guideLink). */
+function fixLinks(guide: Guide, inlines: readonly Inline[]): Inline[] {
+  return inlines.map((i): Inline => {
+    if (i.t === "link") return { ...i, href: guideLink(guide, i.href), children: fixLinks(guide, i.children) };
+    if (i.t === "strong" || i.t === "em") return { ...i, children: fixLinks(guide, i.children) };
+    return i;
+  });
+}
+
+/** A guide's blocks: its notes for developers left out, its anchors made topics
+ * (`config#the-sandbox`) and its links help links (guideLink). */
+function guideBlocks(guide: Guide): Block[] {
+  const cached = guideCache.get(guide.id);
   if (cached) return cached;
-  const fix = (inlines: Inline[]): Inline[] =>
-    inlines.flatMap((i): Inline[] => {
-      if (i.t === "link") {
-        const to = linkTarget(i.href.startsWith("#") ? `${guides.find((g) => g.id === id)?.file}${i.href}` : i.href);
-        return to ? [{ ...i, href: to, children: fix(i.children) }] : fix(i.children);
-      }
-      if (i.t === "strong" || i.t === "em") return [{ ...i, children: fix(i.children) }];
-      return [i];
-    });
-  const blocks = parseMarkdown(markdown).map((b): Block => {
+  const fix = (inlines: Inline[]) => fixLinks(guide, inlines);
+  const blocks = parseMarkdown(withoutDevNotes(guide.markdown)).map((b): Block => {
     switch (b.t) {
       case "h":
-        return { ...b, text: fix(b.text) };
+        return { ...b, text: fix(b.text), anchor: `${guide.id}#${b.anchor}` };
       case "p":
       case "quote":
         return { ...b, text: fix(b.text) };
       case "list":
         return { ...b, items: b.items.map(fix) };
-      case "table":
-        return { ...b, head: b.head.map(fix), rows: b.rows.map((r) => r.map(fix)) };
+      case "table": {
+        const anchors = guide.rowTopics ? b.rows.map((r) => (slug(plain(r[0] ?? [])) ? `${guide.id}#${slug(plain(r[0] ?? []))}` : undefined)) : undefined;
+        return { ...b, head: b.head.map(fix), rows: b.rows.map((r) => r.map(fix)), ...(anchors ? { anchors } : {}) };
+      }
       default:
         return b;
     }
   });
-  guideCache.set(id, blocks);
+  guideCache.set(guide.id, blocks);
   return blocks;
 }
 
-const page = (id: string, order: number, title: string, summary: string, body: (ctx: HelpContext) => Block[], aliases?: Record<string, string>): HelpPage => ({
+const page = (id: string, order: number, part: string, title: string, summary: string, body: (ctx: HelpContext) => Block[], aliases?: Record<string, string>): HelpPage => ({
   id,
   source: BUILTIN,
   order,
+  part,
   title,
   summary,
   body,
   ...(aliases ? { aliases } : {}),
 });
 
-const SUMMARIES: Record<string, string> = {
-  config: "How init.lua works: where it lives, :config and :source, errors, the sandbox, the roster table, folders.yml",
-  keyboard: "The Leader, Terminal mode and App mode, the default bindings, copy and paste, completion, view modes",
-  "themes-guide": "The bundled Themes, their colour tokens, and making your own",
-  "errors-guide": "Every connection error: what happened, the cause, where it lives, the fix",
-  help: "This help: topics, links, search, and how a Plugin adds a page",
-};
-
-const ALIASES: Record<string, Record<string, string>> = {
-  config: { "init.lua": "config", "folders.yml": "config#foldersyml", sandbox: "config#the-sandbox" },
-  keyboard: { leader: "keyboard#two-modes" },
-};
-
 export const builtinHelpPages: readonly HelpPage[] = [
-  page("index", 0, "roster help", "Where to start", indexPage),
-  page("commands", 10, "Commands", "Every command, with its keys and where it comes from", commandsPage),
-  page("keys", 11, "Key bindings", "The keymap in effect, with each binding's option and source", keysPage),
-  page("options", 12, "Options", "Every init.lua option, its value now and where it was set", optionsPage),
-  page("themes", 13, "Themes", "The registered Themes, and the one in use", themesPage),
-  page("finders", 14, "Finders", "The finder sources: Sessions, Hosts, the tree, Themes, help topics…", findersPage),
-  page("errors", 15, "Connection errors", "The error catalog: where each problem lives and its fix", errorsPage),
-  ...guides.map((g, k) =>
-    page(g.id, 50 + k, g.title, SUMMARIES[g.id] ?? g.title, () => guideBlocks(g.id, g.markdown), ALIASES[g.id]),
-  ),
+  page("index", 0, "Getting started", "roster help", "Where to start", indexPage),
+  page("quickref", 40, "Reference", "Quick reference", "The commands you'll use most, with their keys now", quickrefPage, { qr: "quickref", cheatsheet: "quickref" }),
+  page("commands", 50, "Reference", "Commands", "Every command, with its keys and where it comes from", commandsPage),
+  page("keys", 51, "Reference", "Key bindings", "The keymap in effect, with each binding's option and source", keysPage),
+  page("options", 52, "Reference", "Options", "Every init.lua option, its value now and where it was set", optionsPage),
+  page("themes", 53, "Reference", "Themes", "The registered Themes, and the one in use", themesPage),
+  page("finders", 54, "Reference", "Finders", "The finder sources: Sessions, Hosts, the tree, Themes, help topics…", findersPage),
+  page("errors", 60, "Reference", "Connection errors", "The error catalog: where each problem lives and its fix", errorsPage),
+  page("health", 61, "Reference", "Health", "This Box's health: the last :check with no Host, with each fix", healthPage, { checkhealth: "health" }),
+  page("all", 90, "Reference", "Every topic", "Every page, command, key, option and error, A to Z", allPage, { "help-index": "all" }),
+  ...guides.map((g) => page(g.id, g.order, g.part, g.title, g.summary, () => guideBlocks(g), g.aliases)),
 ];
 
 export function builtinHelpRegistry(): HelpRegistry {

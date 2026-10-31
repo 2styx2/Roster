@@ -77,7 +77,7 @@ export function optionValue(config: Config, name: string): unknown {
 }
 
 /** Every value's Lua path in the Config (a table's values; a list is one value), apart from what
- * the core adds about the file (`lines`, `set`). */
+ * the core adds about the file (`lines`, `set`, `deprecated`). */
 export function leafPaths(config: Config): string[] {
   const out: string[] = [];
   const walk = (v: unknown, path: string[]) => {
@@ -85,7 +85,7 @@ export function leafPaths(config: Config): string[] {
       for (const [k, child] of Object.entries(v)) walk(child, [...path, snake(k)]);
     } else out.push(path.join("."));
   };
-  for (const [k, v] of Object.entries(config)) if (k !== "lines" && k !== "set") walk(v, [snake(k)]);
+  for (const [k, v] of Object.entries(config)) if (!["lines", "set", "deprecated"].includes(k)) walk(v, [snake(k)]);
   return out;
 }
 

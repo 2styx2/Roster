@@ -23,7 +23,7 @@ use serde_json::{Map, Number, Value as Json};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// What the API calls registered, by schema path (`keys.leader.x`), with where they were made.
 pub(crate) struct ApiEntry {
@@ -80,41 +80,15 @@ pub(crate) fn run(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, Conf
 }
 
 fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigError> {
-    let lua = Lua::new_with(
-        StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::OS,
-        LuaOptions::new(),
-    )
-    .map_err(internal)?;
-    lua.set_memory_limit(env.limits.memory).map_err(internal)?;
-    // Running out of time is final: once the deadline has passed, every hook call errors again,
-    // and `pcall` / `xpcall` (sandbox) re-raise it, so no Lua code can catch it and carry on.
-    let budget = env.limits.time;
-    let deadline = Instant::now() + budget;
-    let timed_out: Rc<RefCell<Option<String>>> = Rc::default();
-    let expired = Rc::clone(&timed_out);
-    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
-        if Instant::now() < deadline {
-            return Ok(VmState::Continue);
-        }
-        let message = expired
-            .borrow_mut()
-            .get_or_insert_with(|| {
-                let (file, line) = user_frame(lua, debug);
-                format!(
-                    "{file}:{line}: took longer than {} ms to run (an endless loop?)",
-                    budget.as_millis()
-                )
-            })
-            .clone();
-        Err(mlua::Error::runtime(message))
-    })
-    .map_err(internal)?;
+    let (lua, clock) = sandboxed(env.limits.memory, Some(dir), FILE_NAME.into()).map_err(internal)?;
+    clock.start(env.limits.time);
 
     let api = Rc::new(RefCell::new(Vec::new()));
     // One budget for everything the run hands over as Config data: the copy is made outside
     // Lua's memory and time limits, and shared subtables are copied once per use.
     let budget = Rc::new(Cell::new(Budget::default()));
-    sandbox(&lua, dir, env, Rc::clone(&api), timed_out, Rc::clone(&budget)).map_err(internal)?;
+    let roster = roster_api(&lua, env, Rc::clone(&api), Rc::clone(&budget)).map_err(internal)?;
+    set_api(&lua, roster).map_err(internal)?;
 
     let value: Value = lua
         .load(source)
@@ -122,6 +96,16 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
         .set_mode(ChunkMode::Text)
         .eval()
         .map_err(|e| from_lua_error(&e))?;
+    if let Value::Table(t) = &value {
+        let packages: Value = t.raw_get("packages").map_err(|e| from_lua_error(&e))?;
+        let normal = packages_table(&lua, packages).map_err(|(path, message)| ConfigError {
+            file: FILE_NAME.into(),
+            line: None,
+            message: located_message(&path, &message),
+            path,
+        })?;
+        t.raw_set("packages", normal).map_err(|e| from_lua_error(&e))?;
+    }
     let value = match value {
         Value::Nil => Json::Object(Map::new()),
         Value::Table(_) => to_json(&value, &budget).map_err(|e| ConfigError {
@@ -141,6 +125,82 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
     Ok(RunOutput { value, api })
 }
 
+/// The run time a sandboxed Lua has left: a deadline checked every 1000 instructions. Plugins
+/// (ticket 23) start it again for each call into them; the Config starts it once.
+pub(crate) struct Clock {
+    deadline: Cell<Instant>,
+    budget: Cell<Duration>,
+    /// Set once the deadline has passed: from then on `pcall` and `xpcall` raise it again.
+    timed_out: RefCell<Option<String>>,
+}
+
+impl Clock {
+    /// A new run of at most `budget`.
+    pub(crate) fn start(&self, budget: Duration) {
+        self.budget.set(budget);
+        self.deadline.set(Instant::now() + budget);
+        *self.timed_out.borrow_mut() = None;
+    }
+
+    /// Gives back time the run spent waiting outside Lua (a call to roster serve).
+    pub(crate) fn extend(&self, by: Duration) {
+        self.deadline.set(self.deadline.get() + by);
+    }
+}
+
+/// A Lua 5.4 state with the sandbox (docs/app/config.md, "The sandbox"): the safe libraries
+/// only, `require` from `root` only, a memory limit, and run time kept by the [`Clock`]. `print`
+/// goes to stderr after `label`. The caller adds the `roster` table with [`set_api`].
+pub(crate) fn sandboxed(memory: usize, root: Option<&Path>, label: String) -> mlua::Result<(Lua, Rc<Clock>)> {
+    let lua = Lua::new_with(
+        StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::OS,
+        LuaOptions::new(),
+    )?;
+    lua.set_memory_limit(memory)?;
+    let clock = Rc::new(Clock {
+        deadline: Cell::new(Instant::now()),
+        budget: Cell::new(Duration::ZERO),
+        timed_out: RefCell::default(),
+    });
+    // Running out of time is final: once the deadline has passed, every hook call errors again,
+    // and `pcall` / `xpcall` (sandbox) re-raise it, so no Lua code can catch it and carry on.
+    let hook_clock = Rc::clone(&clock);
+    lua.set_hook(HookTriggers::new().every_nth_instruction(1000), move |lua, debug| {
+        if Instant::now() < hook_clock.deadline.get() {
+            return Ok(VmState::Continue);
+        }
+        let message = hook_clock
+            .timed_out
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let (file, line) = user_frame(lua, debug);
+                format!(
+                    "{file}:{line}: took longer than {} ms to run (an endless loop?)",
+                    hook_clock.budget.get().as_millis()
+                )
+            })
+            .clone();
+        Err(mlua::Error::runtime(message))
+    })?;
+    sandbox(&lua, root, Rc::clone(&clock), label)?;
+    Ok((lua, clock))
+}
+
+/// Makes `roster` the global and what `require("roster")` returns.
+pub(crate) fn set_api(lua: &Lua, roster: Table) -> mlua::Result<()> {
+    lua.set_named_registry_value(API, roster.clone())?;
+    lua.globals().raw_set("roster", roster)
+}
+
+/// An error's own message, without mlua's wrapping and traceback.
+fn error_text(e: &mlua::Error) -> String {
+    match e {
+        mlua::Error::CallbackError { cause, .. } | mlua::Error::WithContext { cause, .. } => error_text(cause),
+        mlua::Error::RuntimeError(m) | mlua::Error::SyntaxError { message: m, .. } => m.clone(),
+        other => other.to_string(),
+    }
+}
+
 /// Where the Config's own code is: the running function if it's from a `.lua` file, else the
 /// nearest caller that is (the deadline can strike inside the sandbox's own wrappers).
 fn user_frame(lua: &Lua, debug: &mlua::debug::Debug) -> (String, i64) {
@@ -158,15 +218,8 @@ fn internal(e: mlua::Error) -> ConfigError {
     ConfigError::new(None, format!("couldn't start Lua: {e}"))
 }
 
-/// Takes away what a Config must not have, and adds `require` and `roster`.
-fn sandbox(
-    lua: &Lua,
-    dir: &Path,
-    env: &Env,
-    api: Rc<RefCell<Vec<ApiEntry>>>,
-    timed_out: Rc<RefCell<Option<String>>>,
-    budget: Rc<Cell<Budget>>,
-) -> mlua::Result<()> {
+/// Takes away what a Config must not have, and adds `require`.
+fn sandbox(lua: &Lua, dir: Option<&Path>, clock: Rc<Clock>, label: String) -> mlua::Result<()> {
     let g = lua.globals();
     for name in ["dofile", "loadfile", "collectgarbage"] {
         g.raw_set(name, Value::Nil)?;
@@ -190,20 +243,31 @@ fn sandbox(
     .set_name("=sandbox")
     .exec()?;
     // `pcall` and `xpcall` can't swallow running out of time: once it has, they raise it again.
-    let still_in_time = lua.create_function(move |_, ()| match &*timed_out.borrow() {
+    let still_in_time = lua.create_function(move |_, ()| match &*clock.timed_out.borrow() {
         Some(message) => Err(mlua::Error::runtime(message.clone())),
         None => Ok(()),
     })?;
+    // An error raised by a `roster.*` function reaches `pcall` as its message, a string, like
+    // any Lua error.
+    let plain = lua.create_function(|lua, e: Value| match e {
+        Value::Error(e) => Ok(Value::String(lua.create_string(error_text(&e))?)),
+        other => Ok(other),
+    })?;
     lua.load(
-        r##"local raw_pcall, raw_xpcall, still_in_time = pcall, xpcall, ...
-        local function after(...) still_in_time() return ... end
+        r##"local raw_pcall, raw_xpcall, still_in_time, plain = pcall, xpcall, ...
+        local select = select
+        local function after(ok, ...)
+          still_in_time()
+          if ok then return ok, ... end
+          return ok, plain((...)), select(2, ...)
+        end
         pcall = function(...) return after(raw_pcall(...)) end
         xpcall = function(f, handler, ...)
-          return after(raw_xpcall(f, function(e) still_in_time() return handler(e) end, ...))
+          return after(raw_xpcall(f, function(e) still_in_time() return handler(plain(e)) end, ...))
         end"##,
     )
     .set_name("=sandbox")
-    .call::<()>(still_in_time)?;
+    .call::<()>((still_in_time, plain))?;
     // Patterns and string.rep run as one C call each, which the instruction hook can't stop:
     // keep their sizes to what a Config needs. The watchdog (run) covers what's left.
     lua.load(
@@ -235,24 +299,28 @@ fn sandbox(
     // print goes to the core's stderr (the `tauri dev` console), never to a file.
     g.raw_set(
         "print",
-        lua.create_function(|_, args: mlua::Variadic<Value>| {
+        lua.create_function(move |_, args: mlua::Variadic<Value>| {
             let words: Vec<String> = args
                 .iter()
                 .map(|v| v.to_string().unwrap_or_else(|_| "?".into()))
                 .collect();
-            eprintln!("init.lua: {}", words.join("\t"));
+            eprintln!("{label}: {}", words.join("\t"));
             Ok(())
         })?,
     )?;
 
-    let roster = roster_api(lua, env, api, budget)?;
-    lua.set_named_registry_value(API, roster.clone())?;
     lua.set_named_registry_value(LOADED, lua.create_table()?)?;
-    g.raw_set("roster", roster)?;
-    let root = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    // No folder (a Plugin's manifest, a built-in Plugin): only `require("roster")`.
+    let root = dir.map(|d| d.canonicalize().unwrap_or_else(|_| d.to_path_buf()));
     g.raw_set(
         "require",
-        lua.create_function(move |lua, name: String| require(lua, &root, &name))?,
+        lua.create_function(move |lua, name: String| match &root {
+            Some(root) => require(lua, root, &name),
+            None if name == "roster" => lua.named_registry_value(API),
+            None => Err(mlua::Error::runtime(format!(
+                "require {name:?}: there's no folder to load it from"
+            ))),
+        })?,
     )?;
     Ok(())
 }
@@ -317,6 +385,11 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
                     "roster.set: {name:?} isn't an option name like \"terminal.size\""
                 )));
             }
+            let value = if name == "packages" {
+                packages_table(lua, value).map_err(|(p, m)| mlua::Error::runtime(located_message(&p, &m)))?
+            } else {
+                value
+            };
             let value =
                 to_json(&value, &left).map_err(|e| mlua::Error::runtime(located_message(&e.path, &e.message)))?;
             entries.borrow_mut().push(ApiEntry {
@@ -330,8 +403,85 @@ fn roster_api(lua: &Lua, env: &Env, api: Rc<RefCell<Vec<ApiEntry>>>, budget: Rc<
     Ok(roster)
 }
 
+/// `packages` as the schema takes it (ticket 24): each entry written the lazy.nvim way,
+/// `{ "owner/repo", tag = … }` or a plain `"owner/repo"`, becomes `{ source = "owner/repo",
+/// tag = … }`. Anything else is left for the schema to report. A `config` that's a function is
+/// refused here, with a reason: init.lua and each Package run in Lua states of their own, and a
+/// function can't move between them (decision Q83).
+fn packages_table(lua: &Lua, packages: Value) -> Result<Value, (Vec<String>, String)> {
+    let Value::Table(list) = packages else {
+        return Ok(packages);
+    };
+    let at = |i: usize, key: Option<&str>| {
+        let mut p = vec!["packages".to_string(), i.to_string()];
+        p.extend(key.map(str::to_string));
+        p
+    };
+    let internal = |e: mlua::Error| (vec!["packages".to_string()], e.to_string());
+    let out = lua.create_table().map_err(internal)?;
+    let len = list.raw_len();
+    for i in 1..=len {
+        let entry: Value = list.raw_get(i).map_err(internal)?;
+        let normal = match entry {
+            Value::String(source) => {
+                let t = lua.create_table().map_err(internal)?;
+                t.raw_set("source", source).map_err(internal)?;
+                Value::Table(t)
+            }
+            Value::Table(spec) => {
+                if matches!(spec.raw_get::<Value>("config").map_err(internal)?, Value::Function(_)) {
+                    return Err((
+                        at(i, Some("config")),
+                        "a table of the Package's settings, not a function: a Package runs in a Lua \
+                         state of its own, so a function from init.lua can't run there (it reads them \
+                         as roster.plugin.config)"
+                            .into(),
+                    ));
+                }
+                let first: Value = spec.raw_get(1).map_err(internal)?;
+                if first.is_nil() {
+                    Value::Table(spec)
+                } else {
+                    if spec.raw_len() > 1 {
+                        return Err((
+                            at(i, None),
+                            "one source per Package: { \"owner/repo\", tag = … }".into(),
+                        ));
+                    }
+                    let t = lua.create_table().map_err(internal)?;
+                    for pair in spec.pairs::<Value, Value>() {
+                        let (k, v) = pair.map_err(internal)?;
+                        if !matches!(k, Value::Integer(1)) {
+                            t.raw_set(k, v).map_err(internal)?;
+                        }
+                    }
+                    if !t.raw_get::<Value>("source").map_err(internal)?.is_nil() {
+                        return Err((
+                            at(i, Some("source")),
+                            "give the source once: first, or as source =".into(),
+                        ));
+                    }
+                    t.raw_set("source", first).map_err(internal)?;
+                    Value::Table(t)
+                }
+            }
+            other => other,
+        };
+        out.raw_set(i, normal).map_err(internal)?;
+    }
+    // Keys past the list part (a gap, a name) stay, so the schema reports them as it would.
+    for pair in list.pairs::<Value, Value>() {
+        let (k, v) = pair.map_err(internal)?;
+        let in_list = matches!(k, Value::Integer(n) if n >= 1 && (n as usize) <= len);
+        if !in_list {
+            out.raw_set(k, v).map_err(internal)?;
+        }
+    }
+    Ok(Value::Table(out))
+}
+
 /// Where the Lua code that called a Rust function is.
-fn caller(lua: &Lua) -> Option<Location> {
+pub(crate) fn caller(lua: &Lua) -> Option<Location> {
     lua.inspect_stack(1, |d| {
         let file = d.source().short_src.map(|s| s.to_string())?;
         let line = u32::try_from(d.current_line()?).ok()?;
@@ -409,7 +559,7 @@ fn require(lua: &Lua, root: &Path, name: &str) -> mlua::Result<Value> {
 /// How much Config data one run may hand over: far more than any Config needs, and small
 /// enough that copying it out of Lua is quick.
 #[derive(Clone, Copy)]
-struct Budget {
+pub(crate) struct Budget {
     values: usize,
     bytes: usize,
 }
@@ -432,8 +582,18 @@ const TOO_BIG: &str =
 /// A Lua value as Config data. Tables become lists (keys 1..n) or objects (string keys); an
 /// empty table is an empty object (the schema takes it as an empty list where it wants one).
 /// A table used in several places is copied for each; the run's [`Budget`] bounds the total.
-fn to_json(v: &Value, budget: &Cell<Budget>) -> Result<Json, ConvertError> {
-    convert(v, &mut Vec::new(), &mut Vec::new(), budget)
+pub(crate) fn to_json(v: &Value, budget: &Cell<Budget>) -> Result<Json, ConvertError> {
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget, &mut None, false)
+}
+
+/// What a Lua function in the data becomes: Plugins (ticket 23) keep it and send its handle.
+pub(crate) type OnFunction<'a> = Option<&'a mut dyn FnMut(&mlua::Function) -> Result<Json, String>>;
+
+/// [`to_json`], with `functions` deciding what a Lua function becomes, for text to show: a string
+/// value that isn't UTF-8 (a line cut in the middle of a character) gets U+FFFD where it breaks
+/// instead of failing the whole conversion (decision Q87). A key that isn't UTF-8 is still refused.
+pub(crate) fn to_json_with(v: &Value, budget: &Cell<Budget>, functions: &mut OnFunction) -> Result<Json, ConvertError> {
+    convert(v, &mut Vec::new(), &mut Vec::new(), budget, functions, true)
 }
 
 fn convert(
@@ -441,6 +601,8 @@ fn convert(
     path: &mut Vec<String>,
     within: &mut Vec<*const std::ffi::c_void>,
     budget: &Cell<Budget>,
+    functions: &mut OnFunction,
+    lossy: bool,
 ) -> Result<Json, ConvertError> {
     let fail = |path: &[String], message: String| ConvertError {
         path: path.to_vec(),
@@ -477,6 +639,7 @@ fn convert(
                     .ok_or_else(|| fail(path, format!("{n} isn't a usable number")))?
             }
         }
+        Value::String(s) if lossy => Json::String(s.to_string_lossy()),
         Value::String(s) => Json::String(
             s.to_str()
                 .map_err(|_| fail(path, "a string that isn't UTF-8".into()))?
@@ -503,7 +666,7 @@ fn convert(
                             .to_string();
                         spend(path, key.len())?;
                         path.push(key.clone());
-                        let j = convert(&val, path, within, budget)?;
+                        let j = convert(&val, path, within, budget, functions, lossy)?;
                         path.pop();
                         obj.insert(key, j);
                     }
@@ -527,7 +690,7 @@ fn convert(
                 for i in 1..=len {
                     path.push(i.to_string());
                     let val: Value = t.raw_get(i).map_err(|e| fail(path, e.to_string()))?;
-                    out.push(convert(&val, path, within, budget)?);
+                    out.push(convert(&val, path, within, budget, functions, lossy)?);
                     path.pop();
                 }
                 within.pop();
@@ -536,6 +699,10 @@ fn convert(
                 within.pop();
                 Json::Object(obj)
             }
+        }
+        Value::Function(f) if functions.is_some() => {
+            let on = functions.as_mut().expect("checked");
+            on(f).map_err(|m| fail(path, m))?
         }
         Value::Function(_) => {
             return Err(fail(

@@ -6,7 +6,7 @@
 # FAKE_BW_WRITE_FAIL=TEXT: create and delete fail with TEXT on stderr (e.g. a server or policy refusal).
 # Signing in (`bw login`, vault.login) - prompts like bw's inquirer ones, on stderr, answers read from stdin:
 # FAKE_BW_STATE=FILE: {"logged_in": bool, "server": url|null, "email": ...}, kept across calls (overrides
-#   FAKE_BW_LOGGED_OUT once it exists).
+#   FAKE_BW_LOGGED_OUT once it exists). `bw logout` logs out (keeping the server), as bw does.
 # FAKE_BW_ACCOUNT=JSON: the account to sign in to - email, password, methods (authenticator, email, yubikey,
 #   webauthn, duo), codes {method: code}, new_device + new_device_code, rate_limited, unreachable,
 #   client_id + client_secret, sso ("ok", "fail", "hang", "tde").
@@ -143,6 +143,9 @@ if a[0] == "login":
     logged_in(email)
     print(SESSION); sys.exit()
 if logged_out: print("You are not logged in.", file=sys.stderr); sys.exit(1)
+if a[0] == "logout":
+    state.update(logged_in=False, email=None); save()
+    print("You have logged out."); sys.exit()
 if a[0] == "unlock":
     pw = os.environ.get(a[a.index("--passwordenv") + 1])
     if pw == "hunter2": print(SESSION); sys.exit()

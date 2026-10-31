@@ -12,15 +12,16 @@ export default defineConfig({
     strictPort: true,
     watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/target/**"] },
     // src/config/fixture.ts imports the Rust core's defaults fixture from ../crates, and the help
-    // pages (src/help/guides.ts) bundle the guides from ../docs/app.
-    fs: { allow: [".", "../crates/roster-core/tests/fixtures", "../docs/app"] },
+    // pages (src/help/guides.ts) bundle the guides from ../docs and the Plugin API's stubs.
+    fs: { allow: [".", "../crates/roster-core/tests/fixtures", "../docs", "../examples/plugins/types"] },
   },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     // App.worst.test.tsx reads styles.css (`?raw`) for the rules that cut text off, and
-    // styles.test.ts reads both stylesheets to keep `--faint` out of text.
-    css: { include: [/src\/styles\.css/, /src\/lock\/signin\.css/] },
+    // styles.test.ts reads every stylesheet to keep `--faint` out of text. Keycaps, the mark and
+    // the help page have their own sheets, which the docs website uses too (src/docs-site).
+    css: { include: [/src\/styles\.css/, /src\/lock\/signin\.css/, /src\/ui\/keys\.css/, /src\/chrome\/logo\.css/, /src\/help\/doc\.css/] },
   },
 });

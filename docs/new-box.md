@@ -12,11 +12,11 @@ You need three things:
 
 ## 1. Prerequisites
 
-- Linux, macOS or WSL with Python 3.10 or newer
-- The OpenSSH client (`ssh`, `ssh-keygen`, `ssh-keyscan`)
+- Linux, macOS or WSL with Python 3.10 or newer; or Windows itself (see [On Windows](cli-reference.md#on-windows))
+- The OpenSSH client (`ssh`, `ssh-keygen`, `ssh-keyscan`); on Windows, the one built in (Settings, Optional features, OpenSSH Client)
 - [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Your password manager's CLI:
-  - Bitwarden: `npm install -g @bitwarden/cli`, or the standalone binary from https://bitwarden.com/help/cli/
+  - Bitwarden: `npm install -g @bitwarden/cli`, or the standalone binary from https://bitwarden.com/help/cli/ (on Windows the standalone `bw.exe` is better: npm's `bw.cmd` is a batch file, which roster passes nothing unusual to)
   - 1Password: https://developer.1password.com/docs/cli/get-started/
 - Network access to the subnets in `roster.yml`
 - Optional: `nmap`, if this box will run `roster discover`
@@ -27,7 +27,9 @@ You need three things:
 git clone git@github.com:2styx2/roster.git
 cd roster
 uv tool install .          # puts `roster` in ~/.local/bin
+roster man --install       # puts its man page in ~/.local/share/man/man1, next to it
 roster --help              # if not found: export PATH="$HOME/.local/bin:$PATH"
+man roster                 # the manual
 ```
 
 No git access on that box? Use `git archive --format=zip -o roster.zip HEAD` on a box that has it, copy the zip over, unzip it, and run `uv tool install .` inside.
@@ -133,3 +135,7 @@ roster revoke              # removes this box's key from every host
 ```
 
 Then delete `~/.ssh/roster_ed25519*`, `~/.ssh/config.d/roster` and `~/.config/roster/bw-session`.
+
+## See also
+
+[Add your Hosts](adding-hosts.md) · [The roster command](cli-reference.md) · [Getting started with the app](app/start.md)

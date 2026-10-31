@@ -140,6 +140,18 @@ fn the_ui_text_size_is_read_and_kept_in_range() {
 }
 
 #[test]
+fn pull_fresh_minutes_defaults_to_five_and_takes_zero_to_a_day() {
+    // Decision Q88: a form pulls the infra repo in the background once the last pull is older.
+    assert_eq!(Config::default().pull_fresh_minutes, 5);
+    let dir = with_init("pullfresh", "return { pull_fresh_minutes = 0 }\n");
+    assert_eq!(config::load(&dir).unwrap().pull_fresh_minutes, 0);
+    let dir = with_init("pullfresh-range", "return {\n  pull_fresh_minutes = 2000,\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("pull_fresh_minutes"), "{e}");
+}
+
+#[test]
 fn returning_something_other_than_a_table_is_an_error() {
     let dir = with_init("notable", "return 42\n");
     assert!(config::load(&dir).unwrap_err().message.contains("must return a table"));
@@ -530,7 +542,7 @@ fn the_defaults_fixture_is_current() {
 #[test]
 fn the_env_vars_win_over_the_configs_backend_and_roster_command() {
     use config::{BackendChoice, RosterCommand, backend_plan};
-    use roster_core::detect::Platform;
+    use roster_core::detect::{Choice, Platform};
     let c = Config {
         roster_command: Some(RosterCommand(vec!["uv".into(), "run".into(), "roster".into()])),
         backend: BackendChoice::Wsl(Some("Ubuntu".into())),
@@ -538,28 +550,64 @@ fn the_env_vars_win_over_the_configs_backend_and_roster_command() {
     };
     let plan = backend_plan(&c, Platform::Windows, None, None).unwrap();
     assert_eq!(plan.command, ["uv", "run", "roster"]);
-    assert_eq!(plan.distro.as_deref(), Some("Ubuntu"));
+    assert_eq!(plan.distro(), Some("Ubuntu"));
 
     let plan = backend_plan(&c, Platform::Windows, Some("roster-dev serve-stack"), Some("Debian")).unwrap();
     assert_eq!(plan.command, ["roster-dev", "serve-stack"]);
-    assert_eq!(plan.distro.as_deref(), Some("Debian"));
+    assert_eq!(plan.distro(), Some("Debian"));
 
     // Blank env vars don't count.
     let plan = backend_plan(&Config::default(), Platform::Windows, Some("  "), Some("")).unwrap();
     assert_eq!(plan.command, ["roster"]);
-    assert_eq!(plan.distro, None);
+    assert_eq!(plan.distro(), None);
+    assert_eq!(plan.choice, Choice::Auto);
 
-    // Native Windows roster is ticket 19.
+    // Native Windows roster (ticket 19): `local` is a plan of its own on both platforms, and the
+    // distro env var still wins over it (development).
     let local = Config {
         backend: BackendChoice::Local,
         ..Config::default()
     };
-    assert!(
-        backend_plan(&local, Platform::Windows, None, None)
-            .unwrap_err()
-            .contains("ticket 19")
+    assert_eq!(
+        backend_plan(&local, Platform::Windows, None, None).unwrap().choice,
+        Choice::Local
     );
-    assert!(backend_plan(&local, Platform::Linux, None, None).is_ok());
+    assert_eq!(
+        backend_plan(&local, Platform::Linux, None, None).unwrap().choice,
+        Choice::Local
+    );
+    assert_eq!(
+        backend_plan(&local, Platform::Windows, None, Some("Debian"))
+            .unwrap()
+            .choice,
+        Choice::Wsl(Some("Debian".into()))
+    );
+    let any_wsl = Config {
+        backend: BackendChoice::Wsl(None),
+        ..Config::default()
+    };
+    assert_eq!(
+        backend_plan(&any_wsl, Platform::Windows, None, None).unwrap().choice,
+        Choice::Wsl(None)
+    );
+}
+
+/// Changing `backend` in init.lua is a different plan, both ways, so the app restarts serve on
+/// `:source` (ticket 19); a reload that keeps it is the same plan, so serve keeps running.
+#[test]
+fn switching_backend_changes_the_plan_both_ways() {
+    use config::{BackendChoice, backend_plan};
+    use roster_core::detect::Platform;
+    let with = |b: BackendChoice| Config {
+        backend: b,
+        ..Config::default()
+    };
+    let plan = |b| backend_plan(&with(b), Platform::Windows, None, None).unwrap();
+    let wsl = plan(BackendChoice::Wsl(Some("Ubuntu".into())));
+    let local = plan(BackendChoice::Local);
+    assert_ne!(wsl, local);
+    assert_ne!(local, plan(BackendChoice::Wsl(Some("Ubuntu".into()))));
+    assert_eq!(local, plan(BackendChoice::Local));
 }
 
 /// examples/init.lua documents every option with its default value, so loading it gives the
@@ -1211,6 +1259,23 @@ fn a_windows_path_for_the_keepassxc_database_is_refused_with_its_wsl_path() {
     );
 }
 
+/// With roster on Windows itself (`backend = "local"`, ticket 19) a Windows path is the right one;
+/// the same path with another backend is still refused.
+#[test]
+fn a_windows_path_is_taken_with_the_local_backend() {
+    let lua =
+        "return {\n  backend = \"local\",\n  vault = { kp = { database = [[C:\\Users\\you\\roster.kdbx]] } },\n}\n";
+    let c = config::load(&with_init("vault-local", lua)).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(c.vault.kp.database.as_deref(), Some(r"C:\Users\you\roster.kdbx"));
+    let wsl = lua.replace("\"local\"", "\"wsl\"");
+    let e = config::load(&with_init("vault-wsl", &wsl)).unwrap_err();
+    assert!(
+        e.message.contains("vault.kp.database") && e.message.contains("backend = \"local\""),
+        "{e}"
+    );
+    assert_eq!(e.line, Some(3), "{e}");
+}
+
 /// Ticket 35: where "Save to vault" puts new Vault items on this Box: "personal", an
 /// organization's collection (Bitwarden) or a group (KeePassXC). It wins over roster.yml's.
 #[test]
@@ -1254,4 +1319,37 @@ fn save_to_is_personal_a_collection_or_a_group() {
         assert_eq!(e.line, Some(2), "{e}");
         assert!(e.message.contains("vault.save_to"), "{name}: {e}");
     }
+}
+
+/// A renamed option (ticket 48) still applies under its new name, and the Config says so, with
+/// its line, so the frontend can warn and link `:help deprecated#…`. The new name wins when the
+/// file sets both.
+#[test]
+fn a_deprecated_option_applies_under_its_new_name_and_is_named() {
+    let renamed = [config::Renamed {
+        old: "terminal.font_size",
+        new: "terminal.size",
+    }];
+    let dir = temp_dir("deprecated-option");
+    let lua = "return {\n  terminal = {\n    font_size = \"15px\",\n  },\n}\n";
+    let c = config::load_source_renaming(&dir, lua, &config::Env::default(), &renamed).unwrap();
+    assert_eq!(c.terminal.size, config::FontSize::Px(15.0));
+    assert_eq!(
+        c.deprecated,
+        [config::DeprecatedUse {
+            old: "terminal.font_size".into(),
+            new: "terminal.size".into(),
+            topic: "deprecated#terminalfont_size".into(),
+        }]
+    );
+    assert_eq!(c.lines.get("terminal.font_size").map(|l| l.line), Some(3));
+    assert!(c.set.contains(&"terminal.size".to_string()));
+
+    let both = "return { terminal = { font_size = \"15px\", size = \"20px\" } }";
+    let c = config::load_source_renaming(&dir, both, &config::Env::default(), &renamed).unwrap();
+    assert_eq!(c.terminal.size, config::FontSize::Px(20.0));
+    assert_eq!(c.deprecated.len(), 1);
+
+    // Without the rename, the old name is just unknown.
+    assert!(config::load_source(&dir, lua, &config::Env::default()).is_err());
 }

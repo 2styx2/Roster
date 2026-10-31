@@ -1,9 +1,9 @@
 # Themes
 
-A Theme (GLOSSARY) is a named set of colour tokens: 22 UI tokens, the terminal's own colours and,
-optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
+A Theme (GLOSSARY) is a named set of colour tokens: 22 UI tokens, 8 syntax tokens for code in help
+and the docs website, the terminal's own colours and, optionally, its 16 ANSI colours. `app/src/theme/theme.ts` says what each token colours,
 `app/src/theme/themes.ts` holds the bundled ones, and [config.md](config.md) shows how `init.lua`
-picks, changes or defines one. Decisions Q37, Q51, Q57 (which replaced Q29's jade and Q50's values) and Q69.
+picks, changes or defines one.
 
 ## Choosing one: `:theme`
 
@@ -78,7 +78,7 @@ Search matches `blue0`, the active one `orange`, as the Neovim theme does.
 | Tokyo Night | `hover` | `#1f2335` | storm's `bg_dark`: night has no step between `bg` and `bg_highlight` |
 | all four | `backdrop`, `shadow` | translucent black (Catppuccin: `crust`) | overlays, not colours |
 
-### Roster dark and light (decision Q57)
+### Roster dark and light
 
 **Apricot flare** on **Ink** and **Paper**, with **Sea glass** as the second tone:
 
@@ -120,6 +120,45 @@ Paper would vanish on the light taskbar (1.10:1) and Ink on the dark one (1.17:1
 accent serves both. The marks inside the app (title bar, lock screen, empty states) keep drawing
 from the Theme's `text` and `accent` (`app/src/chrome/Logo.tsx`).
 
+## Code's colours
+
+Code blocks and command lines in `:help`, on the docs website and in its PDF are coloured from eight
+syntax tokens (decision Q90). The languages are Lua, shell (`sh`, `bash`), YAML, JSON and TOML; a
+block tagged `text` (output, a folder tree) stays plain. Every fenced block in `docs/` names its
+language, and the docs lint fails one that doesn't.
+
+| Token | Colours | Roster dark | Roster light |
+|---|---|---|---|
+| `syntax_keyword` | `local`, `function`, `true`; a shell `--option`; a TOML `[table]` | `#c3a6f6` | `#6b3fb8` |
+| `syntax_string` | strings, and YAML's plain values | `#a8d38f` | `#1f6b3a` |
+| `syntax_number` | numbers | `#e4a7d4` | `#8a2f86` |
+| `syntax_comment` | comments | `#98989a` | `#5a5b5c` |
+| `syntax_function` | a call's name (`roster.keys.set`) | `#8fbcf7` | `#1e56a8` |
+| `syntax_punctuation` | brackets, `=`, `:`, `\|`, a prompt's `$` | `#a5a6a8` | `#4f5052` |
+| `syntax_key` | a table, YAML, JSON or TOML key; a shell `$VARIABLE` | `#b8c8e6` | `#3c5a80` |
+| `syntax_command` | the command a shell line runs (`roster`, `git`), and a `:command` in a sentence, at weight 500 | `#e8e8ea` | `#1e1f20` |
+
+- **Never the accent.** The apricot means live (taste.md), so no syntax token is apricot: in
+  Roster dark and light every one is at least 12 (OKLab ΔE ×100) from the accent, and in every
+  bundled Theme each coloured one (keyword, string, number, function, key) is at least 8 from it.
+  Comments, punctuation and commands are the Theme's greys and text.
+- **Every one is text,** so each reads at 4.5:1 on every surface text sits on, like `muted`.
+- **The ports keep their source's syntax colours** (gruvbox.vim's, Nord's, Catppuccin's style
+  guide, tokyonight.nvim's) where those pass, lifted toward white like the UI tokens where they
+  don't. Where the source draws code in its own accent, another of its colours stands in: Nord's
+  functions (`nord8`) are `nord6`, Catppuccin's keywords (`mauve`) are `pink`, Tokyo Night's
+  functions (`blue`) are `cyan`. Nord's keys are `nord4`, since its `nord7` is too near the frost
+  accent, and its yellow is `warn`.
+- **A Theme of your own** (`themes.ID.colors`) or `colors` can set any of them
+  (`colors = { syntax_keyword = "#c792ea" }`); one it leaves out comes from its base.
+- **On paper** the PDF uses Roster light's hues taken darker, each at least 7:1 on white, with
+  keywords and commands bold and comments the lightest grey, so a greyscale printer keeps them apart
+  (`PRINT_SYNTAX`, `app/src/docs-site/site.tsx`).
+
+The contrast test checks all of it (below). Screenshots, made with Playwright against the built site
+and the Vite dev server's fixtures: [the site, dark](design/docs-site/site-dark.png), [light](design/docs-site/site-light.png),
+and `:help` in [Roster dark](design/docs-site/help-roster-dark.png) and [Roster light](design/docs-site/help-roster-light.png).
+
 ## The contrast test
 
 `app/src/theme/contrast.test.ts` measures WCAG 2 ratios for every bundled Theme (tickets 30 and 29):
@@ -132,7 +171,8 @@ from the Theme's `text` and `accent` (`app/src/chrome/Logo.tsx`).
 - the accent's button text (`accent_text` on `accent`) at least **4.5:1**;
 - the close button's glyph (`danger_text` on `danger`) at least **3:1** (4.5:1 in Roster dark and
   light, where `warn`, `error` and `danger` must also be at least 12 from the accent);
-- terminal foreground at least **4.5:1** on the terminal background.
+- terminal foreground at least **4.5:1** on the terminal background;
+- every syntax token at least **4.5:1** on every surface, and clear of the accent ([Code's colours](#codes-colours)).
 
 The values above that were lifted are the nearest ones (mixed toward white, so the hue stays)
 that pass. Lowest ratio of `muted` (the weakest text token in most Themes):
@@ -168,3 +208,7 @@ fixture data: in `app/`, `npm run dev -- --port 5179`, open
 | Nord | ![](design/themes/nord-standard.png) | ![](design/themes/nord-picker.png) |
 | Catppuccin Mocha | ![](design/themes/catppuccin-mocha-standard.png) | ![](design/themes/catppuccin-mocha-picker.png) |
 | Tokyo Night | ![](design/themes/tokyo-night-standard.png) | ![](design/themes/tokyo-night-picker.png) |
+
+## See also
+
+[Your init.lua](config.md#themes-and-colours) · [Themes in effect](themes) · [Recipes](recipes.md)

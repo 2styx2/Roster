@@ -1,9 +1,10 @@
 # roster CI: both halves of the repo on every pull request and on pushes to main/dev and tags.
-#   CLI  (repo root): ruff, pytest on every supported Python, build the wheel.
+#   CLI  (repo root): ruff, pytest on every supported Python and on Windows, build the wheel.
 #        Tests need no network, SSH server or password manager (stand-in bw/op/pass/ssh in tests/fakes).
 #   App  (app/, crates/roster-core, app/src-tauri): tsc + ESLint + Vitest; rustfmt, clippy and
 #        cargo test on Linux (with the WebKitGTK/D-Bus dev packages, so clippy covers the Tauri
-#        crate too); a release build of the Windows app.
+#        crate too); release builds of the Windows and Linux apps; lua-language-server over the
+#        example Plugins, against the Plugin API's generated stubs.
 name: CI
 
 on:
@@ -40,7 +41,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen --python python3.12
-      - run: uv run --python python3.12 ruff check src tests
+      - run: uv run --python python3.12 ruff check src tests scripts app/scripts
       # One version across pyproject.toml, package.json, tauri.conf.json, the Cargo.tomls and the lock files.
       - run: scripts/bump-version.sh --check
 
@@ -72,10 +73,36 @@ jobs:
           path: report.xml
           retention-days: 7
 
+  # roster natively on Windows (ticket 19): the same suite with Windows' Python, OpenSSH and named pipes. Tests that
+  # run a POSIX shell script on the machine (the remote half of a command, stand-in Hosts) skip themselves there.
+  cli-test-windows:
+    name: CLI tests (Windows)
+    runs-on: windows-latest
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: uv run pytest --junitxml=report.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-report-windows
+          path: report.xml
+          retention-days: 7
+
   cli-build:
     name: CLI build (wheel + sdist)
     runs-on: ubuntu-latest
-    needs: [cli-lint, cli-test]
+    needs: [cli-lint, cli-test, cli-test-windows]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -107,6 +134,25 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npm run check
+
+  plugin-types:
+    name: Plugin types (lua-language-server)
+    runs-on: ubuntu-latest
+    env:
+      LUALS_VERSION: "3.19.2"
+      LUALS_SHA256: 93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947
+    steps:
+      - uses: actions/checkout@v4
+      # The example Plugins, type-checked against the generated stubs (examples/plugins/types/roster.lua,
+      # ticket 70): a pinned release, checked against its digest.
+      - name: Install lua-language-server
+        run: |
+          mkdir -p "$RUNNER_TEMP/luals"
+          curl -fsSL -o "$RUNNER_TEMP/luals.tar.gz" \
+            "https://github.com/LuaLS/lua-language-server/releases/download/$LUALS_VERSION/lua-language-server-$LUALS_VERSION-linux-x64.tar.gz"
+          echo "$LUALS_SHA256  $RUNNER_TEMP/luals.tar.gz" | sha256sum --check
+          tar xzf "$RUNNER_TEMP/luals.tar.gz" -C "$RUNNER_TEMP/luals"
+      - run: '"$RUNNER_TEMP/luals/bin/lua-language-server" --check examples/plugins --checklevel=Hint'
 
   app-rust:
     name: App Rust (fmt, clippy, cargo test)
@@ -152,4 +198,35 @@ jobs:
         with:
           name: roster-app-windows
           path: target/release/roster-app.exe
+          retention-days: 14
+
+  # The Linux app (WebKitGTK 4.1), so a Linux break shows up before a release, and a binary to try under
+  # WSLg or on a Linux VM: app/scripts/linux-run.sh fetch (docs/app/dev/linux.md). Ubuntu 22.04, as the
+  # release build: its glibc runs on newer distros.
+  app-linux:
+    name: App Linux release build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Tauri system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libdbus-1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev pkg-config build-essential
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+        working-directory: app
+      - run: npm run tauri build -- --no-bundle
+        working-directory: app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roster-app-linux
+          path: target/release/roster-app
           retention-days: 14

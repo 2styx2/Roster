@@ -95,6 +95,8 @@ export interface Config {
   leader: string;
   vim: boolean;
   idleLockMinutes: number;
+  /** `pull_fresh_minutes` (decision Q88). */
+  pullFreshMinutes: number;
   defaultMode: ViewMode;
   sessions: "sidebar" | "tabs";
   keys: ConfigKey[];
@@ -109,11 +111,36 @@ export interface Config {
   /** This Box's own vault settings, sent to roster (`vault.configure`) at start and on every
    * `:source`; they win over roster.yml's. Paths on the Backend's Box, never a secret. */
   vault: VaultConfig;
+  /** Packages: Plugins from git repos (ticket 24); the core clones and pins them, the frontend
+   * only shows them. */
+  packages: PackageSpec[];
   /** Where key bindings ("keys.leader.x"), Themes ("themes.mine") and Folders were set. */
   lines: Record<string, ConfigLocation>;
   /** The options the file set, as Lua paths down to each value (`terminal.size`), sorted:
    * `:help options` says these came from init.lua (ticket 37). */
   set: string[];
+  /** The deprecated options the file set (ticket 48), applied under their new names: each is
+   * warned about at `lines[old]`, with its row in `:help deprecated`. */
+  deprecated: DeprecatedUse[];
+}
+
+/** A deprecated option init.lua set (roster-core schema.rs `DeprecatedUse`). */
+export interface DeprecatedUse {
+  old: string;
+  new: string;
+  /** Its row in help: `deprecated#terminalfont_size`. */
+  topic: string;
+}
+
+/** A Package as init.lua names it: `{ "owner/repo", tag = … }` arrives as `source` and the rest. */
+export interface PackageSpec {
+  source: string;
+  name: string | null;
+  tag: string | null;
+  branch: string | null;
+  commit: string | null;
+  /** Handed to the Package as `roster.plugin.config`. */
+  config: Record<string, unknown>;
 }
 
 /** init.lua's `vault` table (tickets 35, 41). */
