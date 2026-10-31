@@ -1,28 +1,190 @@
-// The hand-written guides, bundled from docs/app at build time (ticket 37). The Markdown in
-// docs/app is the one copy: Vite reads it as text (`?raw`) when the app is built, so a guide in
-// the app is always the docs of the commit it was built from, and there's nothing to copy by
-// hand. options.ts reads config.md's option tables the same way, and help.test.ts fails CI when
-// an option in the core's schema isn't in them (or one in them isn't in the schema).
+// The hand-written guides, bundled from docs/ at build time. The Markdown in docs/ is the one
+// copy: Vite reads it as text (`?raw`) when the app is built, so a guide in the app is always the
+// docs of the commit it was built from, and there's nothing to copy by hand. options.ts reads
+// config.md's option tables the same way, and options.test.ts fails CI when an option in the
+// core's schema isn't in them (or one in them isn't in the schema). lint.test.ts fails CI on a
+// link in any of them that goes nowhere.
 import config from "../../../docs/app/config.md?raw";
 import errors from "../../../docs/app/errors.md?raw";
+import extending from "../../../docs/app/extending.md?raw";
 import help from "../../../docs/app/help.md?raw";
 import keyboard from "../../../docs/app/keyboard.md?raw";
+import recipes from "../../../docs/app/recipes.md?raw";
+import start from "../../../docs/app/start.md?raw";
 import themes from "../../../docs/app/themes.md?raw";
+import addingHosts from "../../../docs/adding-hosts.md?raw";
+import cli from "../../../docs/cli-reference.md?raw";
+import newBox from "../../../docs/new-box.md?raw";
+import serveApi from "../../../docs/serve-api.md?raw";
+
+/** Where a page sits on the index, in this order (Neovim's help.txt groups its files the same way). */
+export const PARTS = ["Getting started", "Make it yours", "Reference", "Extending"] as const;
+export type Part = (typeof PARTS)[number];
 
 export interface Guide {
   /** The help topic, and what `[…](<file>)` links in the other guides go to. */
   id: string;
-  file: string;
+  /** From the repo's root: `docs/app/config.md`. Relative links resolve against it. */
+  path: string;
   title: string;
+  /** One line, for the index and the topic finder. */
+  summary: string;
+  part: Part;
+  /** Lower comes first on the index, within its part. */
+  order: number;
+  /** Other names for it or a place on it (`init.lua` → `config`), as tag → topic. */
+  aliases?: Record<string, string>;
   markdown: string;
 }
 
 export const guides: readonly Guide[] = [
-  { id: "help", file: "help.md", title: "Help: :help", markdown: help },
-  { id: "config", file: "config.md", title: "The Config: init.lua", markdown: config },
-  { id: "keyboard", file: "keyboard.md", title: "Keyboard", markdown: keyboard },
-  { id: "themes-guide", file: "themes.md", title: "Themes: the bundled ones and their tokens", markdown: themes },
-  { id: "errors-guide", file: "errors.md", title: "Connection errors: every way a Session can fail", markdown: errors },
+  {
+    id: "start",
+    path: "docs/app/start.md",
+    title: "Getting started with roster",
+    summary: "New to roster? Start here: open a Host, find any command, make it yours",
+    part: "Getting started",
+    order: 1,
+    aliases: { intro: "start", "new-to-roster": "start", "coming-from": "start#coming-from-another-tool" },
+    markdown: start,
+  },
+  {
+    id: "help",
+    path: "docs/app/help.md",
+    title: "Using help",
+    summary: "Topics, links, back and forward, the outline, searching one page or all of them",
+    part: "Getting started",
+    order: 2,
+    aliases: { links: "help#links", helpgrep: "help#searching-every-page", outline: "help#the-outline" },
+    markdown: help,
+  },
+  {
+    id: "new-box",
+    path: "docs/new-box.md",
+    title: "Set up a Box",
+    summary: "Install roster on a machine, unlock the vault, run setup, and test it",
+    part: "Getting started",
+    order: 3,
+    markdown: newBox,
+  },
+  {
+    id: "adding-hosts",
+    path: "docs/adding-hosts.md",
+    title: "Add your Hosts",
+    summary: "Scan a network, put its logins in the vault, fill in roster.yml, test every login",
+    part: "Getting started",
+    order: 4,
+    markdown: addingHosts,
+  },
+  {
+    id: "config",
+    path: "docs/app/config.md",
+    title: "Your init.lua",
+    summary: "Where the Config lives, :config and :source, errors, the sandbox, the roster table, folders.yml",
+    part: "Make it yours",
+    order: 20,
+    aliases: { "init.lua": "config", "folders.yml": "config#foldersyml", sandbox: "config#the-sandbox", layout: "config#layout" },
+    markdown: config,
+  },
+  {
+    id: "recipes",
+    path: "docs/app/recipes.md",
+    title: "Recipes",
+    summary: "Short init.lua snippets to paste: the Leader, keys, Themes, fonts, layout, modules",
+    part: "Make it yours",
+    order: 21,
+    markdown: recipes,
+  },
+  {
+    id: "keyboard",
+    path: "docs/app/keyboard.md",
+    title: "Keyboard",
+    summary: "The Leader, Terminal mode and App mode, the default bindings, copy and paste, completion, view modes",
+    part: "Make it yours",
+    order: 22,
+    aliases: { "two-modes": "keyboard#two-modes" },
+    markdown: keyboard,
+  },
+  {
+    id: "themes-guide",
+    path: "docs/app/themes.md",
+    title: "Themes: the bundled ones and their tokens",
+    summary: "The bundled Themes, their colour tokens, and making your own",
+    part: "Make it yours",
+    order: 23,
+    markdown: themes,
+  },
+  {
+    id: "errors-guide",
+    path: "docs/app/errors.md",
+    title: "Connection errors: every way a Session can fail",
+    summary: "Every connection error: what happened, the cause, where it lives, the fix",
+    part: "Reference",
+    order: 61,
+    markdown: errors,
+  },
+  {
+    id: "cli",
+    path: "docs/cli-reference.md",
+    title: "The roster command",
+    summary: "The CLI: roster.yml, resources, password providers, discover, every roster command",
+    part: "Reference",
+    order: 70,
+    aliases: {
+      "roster.yml": "cli#rosteryml",
+      "roster check": "cli#roster-check-host",
+      providers: "cli#password-providers",
+      discover: "cli#discover",
+      resources: "cli#resources-secrets-with-no-address",
+    },
+    markdown: cli,
+  },
+  {
+    id: "serve-api",
+    path: "docs/serve-api.md",
+    title: "The roster serve API",
+    summary: "The JSON-RPC API the app talks to roster through, and its error codes",
+    part: "Reference",
+    order: 71,
+    aliases: { "roster serve": "serve-api" },
+    markdown: serveApi,
+  },
+  {
+    id: "extending",
+    path: "docs/app/extending.md",
+    title: "How far roster bends",
+    summary: "The registries init.lua and Plugins add to, and what Plugins and Packages will do",
+    part: "Extending",
+    order: 80,
+    aliases: { plugins: "extending#plugins-and-packages-not-yet", registries: "extending#the-registries" },
+    markdown: extending,
+  },
 ];
 
 export const configMarkdown = config;
+
+/** A path from the repo's root, `.` and `..` resolved: `docs/app/../serve-api.md` → `docs/serve-api.md`. */
+export function repoPath(from: string, href: string): string {
+  const out = from.split("/").slice(0, -1);
+  for (const seg of href.split("/")) {
+    if (seg === "..") out.pop();
+    else if (seg !== "." && seg !== "") out.push(seg);
+  }
+  return out.join("/");
+}
+
+const FILE = /\.(md|lua|ya?ml|json|toml|sh|py|ts|tsx|rs|txt)$/;
+
+/** Where a guide's link goes: another guide's topic (`keyboard`, `keyboard#two-modes`), a file in
+ * the repo that isn't bundled (`file:examples/init.lua`), a web address as it is, or, for
+ * anything else, the href itself as a help topic (`:connect`, `options`, `terminal.size`). */
+export function guideLink(from: Guide, href: string): string {
+  if (/^[a-z]+:/i.test(href) && !href.startsWith(":")) return href;
+  if (href.startsWith("#")) return `${from.id}${href}`;
+  const [file = "", anchor] = href.split("#", 2) as [string, string | undefined];
+  if (!file.includes("/") && !FILE.test(file)) return href;
+  const path = repoPath(from.path, file);
+  const guide = guides.find((g) => g.path === path);
+  if (!guide) return `file:${path}${anchor ? `#${anchor}` : ""}`;
+  return anchor ? `${guide.id}#${anchor}` : guide.id;
+}

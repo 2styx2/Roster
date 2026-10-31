@@ -11,7 +11,7 @@ import { CloseGlyph } from "../ui/CloseGlyph";
 import { Keys } from "../ui/Keys";
 import type { HelpSnapshot, HelpView } from "./command";
 import type { Block, Def, Inline } from "./doc";
-import { linkTarget, pageBody, topics, type HelpContext } from "./pages";
+import { linkKind, pageBody, topics, type HelpContext } from "./pages";
 
 export interface HelpPanelProps {
   view: HelpView;
@@ -21,6 +21,8 @@ export interface HelpPanelProps {
   vim: boolean;
   /** Opens the topic finder. */
   onFind(): void;
+  /** Opens the outline of the page shown (`g O`). */
+  onOutline(): void;
 }
 
 /** What inline rendering needs: the search, the Leader, and which code is a topic. */
@@ -39,7 +41,7 @@ const Env = createContext<RenderEnv>({ query: "", leader: "", tags: new Set(), h
 
 const LINE = 40;
 
-export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPanelProps) {
+export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind, onOutline }: HelpPanelProps) {
   const at = snapshot.at;
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -48,6 +50,15 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
   const [hit, setHit] = useState(0);
   const [hits, setHits] = useState(0);
   const pending = useRef<string | null>(null);
+  // A place that came with a search (`:helpgrep`, `:help TOPIC /TEXT`) puts it in the search field
+  // (searchSeq), and its first match from the anchor on becomes the current one (placedSeq).
+  const [searchSeq, setSearchSeq] = useState(-1);
+  const [placedSeq, setPlacedSeq] = useState(-1);
+  if (at?.search && searchSeq !== snapshot.seq) {
+    setSearchSeq(snapshot.seq);
+    setQuery(at.search);
+    setHit(0);
+  }
 
   const page = ctx.pages.find((p) => p.id === at?.page);
   const blocks = useMemo(() => (at ? pageBody(ctx, at.page) : []), [ctx, at]);
@@ -78,12 +89,19 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
 
   // The matches, after each render of a search: count them and mark the current one.
   useLayoutEffect(() => {
-    const marks = scrollRef.current?.querySelectorAll("mark.help-hit") ?? [];
+    const marks = [...(scrollRef.current?.querySelectorAll("mark.help-hit") ?? [])];
+    if (searchSeq === snapshot.seq && placedSeq !== snapshot.seq && marks.length && query === at?.search) {
+      setPlacedSeq(snapshot.seq);
+      const anchor = at?.anchor;
+      const from = anchor ? scrollRef.current?.querySelector(`[data-tag="${CSS.escape(anchor)}"]`) : null;
+      const first = from ? marks.findIndex((m) => from.contains(m) || !!(from.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING)) : 0;
+      if (first > 0) return setHit(first);
+    }
     setHits(marks.length);
     const current = marks.length ? ((hit % marks.length) + marks.length) % marks.length : 0;
     marks.forEach((m, i) => m.classList.toggle("current", i === current));
     marks[current]?.scrollIntoView?.({ block: "center" });
-  }, [hit, query, blocks]);
+  }, [hit, query, blocks, at, searchSeq, placedSeq, snapshot.seq]);
 
   const step = (by: number) => setHit((h) => (hits ? (((h + by) % hits) + hits) % hits : 0));
 
@@ -108,7 +126,13 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
     const seq = pending.current;
     pending.current = null;
     let handled = true;
-    if (k === "Escape" || (k === "q" && !ctrl)) view.close();
+    if (seq === "g" && k === "O") onOutline();
+    else if (k === "Escape" || (k === "q" && !ctrl)) view.close();
+    else if (ctrl && k === "]") {
+      // Neovim's Ctrl+]: follow the link you're on (Enter does too).
+      const on = document.activeElement;
+      if (on instanceof HTMLElement && on.matches(".help-link")) on.click();
+    }
     else if (ctrl && k === "o") view.goBack();
     else if (ctrl && k === "i") view.goForward();
     else if (e.altKey && k === "ArrowLeft") view.goBack();
@@ -127,8 +151,8 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
     else if (vim && k === "j") by(LINE);
     else if (vim && k === "k") by(-LINE);
     else if (vim && k === "G" && scroller) scroller.scrollTop = scroller.scrollHeight;
-    else if (vim && k === "g") {
-      if (seq === "g" && scroller) scroller.scrollTop = 0;
+    else if (k === "g") {
+      if (seq === "g" && vim && scroller) scroller.scrollTop = 0;
       else pending.current = "g";
     } else handled = false;
     if (handled) {
@@ -156,7 +180,10 @@ export function HelpPanel({ view, snapshot, ctx, leader, vim, onFind }: HelpPane
           <button type="button" className="icon-button" aria-label="Forward" title="Forward (Ctrl+I)" disabled={!snapshot.canForward} onClick={() => view.goForward()}>
             ›
           </button>
-          <button type="button" className="help-find" onClick={onFind}>
+          <button type="button" className="help-find" title="This page's headings (g O)" onClick={onOutline}>
+            Outline
+          </button>
+          <button type="button" className="help-find" title="Find a topic (?)" onClick={onFind}>
             Topics
           </button>
           <button type="button" className="icon-button" aria-label="Close help" onClick={() => view.close()}>
@@ -348,9 +375,11 @@ function InlineView({ item }: { item: Inline }): ReactNode {
     case "keys":
       return <Keys keys={item.keys} leader={env.leader} className="binding-keys" />;
     case "link": {
-      const to = linkTarget(item.href);
       const children = <Inlines items={item.children} />;
-      return to ? <TopicLink tag={to}>{children}</TopicLink> : children;
+      const kind = linkKind(item.href);
+      // A file in the repo that isn't in help, or a web page: its text, with where it goes.
+      if (kind !== "topic") return <span title={item.href.replace(/^file:/, "")}>{children}</span>;
+      return env.tags.has(item.href) ? <TopicLink tag={item.href}>{children}</TopicLink> : children;
     }
   }
 }
@@ -360,9 +389,12 @@ function NoLinks({ children }: { children: ReactNode }) {
   return <Env value={{ ...env, inLink: true }}>{children}</Env>;
 }
 
-/** The topic a code span names, if it's one: itself, or a command line's command (`:help options`). */
+/** The topic a code span names, if it's one: itself, what `:help TOPIC` opens, or a command
+ * line's command (`:source init.lua`). */
 function codeTopic(code: string, tags: ReadonlySet<string>): string | null {
   if (tags.has(code)) return code;
+  const asked = /^:help (\S+)$/.exec(code)?.[1];
+  if (asked && tags.has(asked)) return asked;
   const cmd = /^:(\S+)/.exec(code)?.[1];
   return cmd && tags.has(`:${cmd}`) ? `:${cmd}` : null;
 }

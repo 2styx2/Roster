@@ -23,12 +23,14 @@ export interface FinderProps {
   ctx: FinderContext;
   keymap: Keymap;
   vim: boolean;
+  /** What the query starts as (`:helpgrep TEXT`). */
+  initialQuery?: string;
   onChoose(item: FinderItem): void;
   onClose(): void;
 }
 
-export function Finder({ source, ctx, keymap, vim, onChoose, onClose }: FinderProps) {
-  const [query, setQuery] = useState("");
+export function Finder({ source, ctx, keymap, vim, initialQuery = "", onChoose, onClose }: FinderProps) {
+  const [query, setQuery] = useState(initialQuery);
   const [moved, setMoved] = useState<number | null>(null);
   const [inList, setInList] = useState(false);
   const [notice, setNotice] = useState("");

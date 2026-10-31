@@ -335,7 +335,7 @@ The Bitwarden CLI holds one account at a time, so signing in to another one mean
 
 ## Saving to the vault: `vault.create_item`
 
-"Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. Decision Q43's order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
+"Save to vault" (the add-Host form, Quick Connect) creates the Vault item a new Login points at. The order is: verify the login, create the Vault item, then add the Pending change. If that last step fails, `vault.undo_create` takes the item back out, so nothing stray is left.
 
 | Method | Params | Result |
 |---|---|---|

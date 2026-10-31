@@ -7,7 +7,7 @@ The roster app is configured by one Lua file, the way WezTerm and Neovim are (AD
 | Windows | `%APPDATA%\roster\init.lua` |
 | Linux | `$XDG_CONFIG_HOME/roster/init.lua`, else `~/.config/roster/init.lua` (the folder roster itself may also keep a `roster.yml` in) |
 
-## `:config` (ticket 32)
+## `:config`
 
 | Command | What it does |
 |---|---|
@@ -83,7 +83,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 |---|---|---|
 | `fonts.ui` | `"Inter"` | A family name, or a CSS font stack (anything with a comma is used as it is). A name gets the usual fallbacks |
 | `fonts.mono` | `"Iosevka"` | The wordmark and code-like UI text |
-| `fonts.ui_size` | `15` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it, and so does the Sidebar's width; nothing goes under 11 px. The terminal has its own `terminal.size`. 15 since decision Q61 (was 14) |
+| `fonts.ui_size` | `15` | The UI's text size in px, 11 to 20: Sidebar rows, the Picker, panels. The smaller steps (headings, addresses, counts, the status bar) and the row height follow it, and so does the Sidebar's width; nothing goes under 11 px. The terminal has its own `terminal.size`. |
 | `ui.hints` | unset | `false` hides every keycap hint: the status bar's, empty states', panels' and the Picker's footers, the command line's shortcut column, the Sidebar's Find button. The bindings work as before, and the keys stay in what a screen reader says. Unset, `:hints on\|off\|toggle` decides and the State keeps its choice; set, it wins. The Key bindings panel (`␣ K`) and `:help` always show the keys: they're what they list |
 | `terminal.font` | `{ "Iosevka Nerd Font", "Iosevka Term", "Iosevka" }` | Families, most wanted first: the first one installed is used (installed fonts are matched by name; the CSP's `font-src` doesn't restrict them). The bundled Iosevka (no Nerd Font glyphs) is always there. A name, a CSS stack, or a list. `:info` says which one is in use |
 | `terminal.size` | `"13pt"` | 13 pt is 17.33 px, a step above Windows Terminal's own 12 pt (decision Q61). A number is px; `"16pt"` is points, converted as Windows Terminal does (× 96/72, so 16 pt is 21.33 px, and the display scale applies to both the same way); `"21px"` works too. 6 to 72 px. Zoom keys move it a px at a time, and Ctrl+0 comes back to it |
@@ -107,9 +107,9 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `vim` | `true` | j/k/h/l/gg/G in lists and the Picker |
 | `keys` | `{}` | Per context, `key = action`. The action is a command line, exactly what you'd type after `:` (`"close"`, `"session 1"`, `"finder sessions"`). `false` unbinds a default. Sequences are chords separated by spaces: `["d d"]` |
 
-Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (the Picker and every finder; actions `picker.down`, `picker.up`, `picker.next` (Tab: first fills the query with what the matching names share, then the next result, wrapping), `picker.prev` (Shift+Tab), `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.info` (Ctrl+I: the Host's details, ticket 18), `picker.close`), `cmdline` (the `:` command line, ticket 34: `cmdline.next` (Tab, Ctrl+N), `cmdline.prev` (Shift+Tab, Ctrl+P), `cmdline.accept` (Ctrl+Y), `cmdline.run` (Enter), `cmdline.cancel` (Esc)), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.copyIfSelected` (Ctrl+C: copies only while something is selected), `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ K`) lists every binding with its source: `builtin` or `init.lua`.
+Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `picker` and `picker_vim` (the Picker and every finder; actions `picker.down`, `picker.up`, `picker.next` (Tab: first fills the query with what the matching names share, then the next result, wrapping), `picker.prev` (Shift+Tab), `picker.choose`, `picker.chooseHere`, `picker.review` (Ctrl+R: mark an unreviewed Host reviewed), `picker.info` (Ctrl+I: the Host's details, ticket 18), `picker.close`), `cmdline` (the `:` command line: `cmdline.next` (Tab, Ctrl+N), `cmdline.prev` (Shift+Tab, Ctrl+P), `cmdline.accept` (Ctrl+Y), `cmdline.run` (Enter), `cmdline.cancel` (Esc)), `terminal` (before the shell sees the key: `terminal.copy`, `terminal.copyIfSelected` (Ctrl+C: copies only while something is selected), `terminal.paste`, `terminal.search`, `terminal.zoomIn`, `terminal.zoomOut`, `terminal.zoomReset`, …), and `global` (everywhere with no Leader, like F11; keep it to keys a shell doesn't use). The Key bindings panel (`␣ K`) lists every binding with its source: `builtin` or `init.lua`.
 
-### Layout (decisions Q36, Q39)
+### Layout
 
 | Option | Default | |
 |---|---|---|
@@ -130,9 +130,9 @@ The pieces of a mode:
 
 `␣ e` (or the Sidebar button at the left of the title bar) shows or hides the Sidebar, in Standard and in Focus (over the terminal there), and the State keeps that per mode, unless `init.lua` sets that mode's `sidebar`, which wins at the next start or `:source` (issue #54). `␣ s` shows or hides the mode's bar (the status bar in Standard, the session bar in Focus). `␣ t` finds in the Sidebar's tree. A reload that changes `modes` resets what `␣ s` toggled. A reload that changes anything else keeps it.
 
-The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. Decision Q36's earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
+The option names in the app are `Options.defaultMode` ← `default_mode`, `Options.focus.sessionbar` ← `modes.focus.sessionbar` (`"top"`, `"bottom"` or `false`), `Options.sidebar` ← `modes.standard.sidebar`, and `Options.statusBar` ← `modes.standard.statusbar`. The earlier `focus.status_line = true` is now `modes.focus.sessionbar = "bottom"`.
 
-### Folders (decision Q46)
+### Folders
 
 | Option | Default | |
 |---|---|---|
@@ -155,7 +155,7 @@ Lab ESXi:
 Night shift: []
 ```
 
-The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from before ticket 28) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
+The app writes it on every Folder change, keeping your comments and the order of what it didn't touch. An edit you make yourself applies on `:source` (the status bar says "folders.yml changed"), or at once with `auto_reload = true`. A file that doesn't parse keeps the last good Folders and says the line (`folders.yml:3 has an error …`). The first time the app finds no `folders.yml`, it writes the Folders the State held (from older versions) into a new one, once, and takes them out of the State. Folders never go into `roster.yml` or to `roster serve`.
 
 ### The vault
 
@@ -181,7 +181,7 @@ This Box's own vault settings. They win over `roster.yml`'s `providers:` (the te
 | `idle_lock_minutes` | `15` | Lock after this many minutes without input, 1 to 1440 |
 | `auto_reload` | `false` | Reload on every save of a `.lua` file of the Config, of `folders.yml`, and of `roster.yml` (roster's watcher; the Sidebar follows within a second). Off: `:source` reloads (decision Q58), and the status bar says which file changed |
 | `editor` | `"os"` | What `:config` opens `init.lua` with: `"os"` (the app the desktop opens `.lua` files with; on Windows, the app registered to *edit* `.lua` files, else Notepad, and never the one that *opens* them, which with Lua installed is the interpreter and would run the file), or `"wsl"` (`$EDITOR` inside the Backend's WSL distro, `vi` if it's unset, in a console window of its own; Windows only). It's a choice, not a command line: like `roster_command`, a Config can't name a program of its own to run |
-| `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster is ticket 19; on Linux, roster always runs locally) |
+| `backend` | `"auto"` | `"auto"`, `"wsl"`, `"wsl:<distro>"`, or `"local"` (native Windows roster isn't there yet; on Linux, roster always runs locally) |
 | `roster_command` | `"roster"` | The command that runs roster, for development: a command line (split on spaces) or a list of words. It must be roster itself: `"roster"`, a path ending in `/roster`, or `"uv run --project <dir> roster"` (`uv run` takes only `--project`, `--directory`, `--frozen`, `--locked`, `--offline`, `--no-sync` and `-q`). Anything else is an error; see below |
 
 **Why `roster_command` is limited.** The program it names gets the master password, two-step codes and the API key's secret on its stdin. A Config is code that may come from dotfiles or, later, Packages, so it can't put another program in front of them (docs/app/security.md). For a wrapper (a script that sets something up, then runs roster), set the `ROSTER_APP_ROSTER` env var yourself, outside the Config: it takes any command. `:info` and the status bar's path tooltip show the command in use.
