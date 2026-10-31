@@ -21,7 +21,7 @@ Then `docs/plugins.md` for the narrative (manifest, permissions, limits) and `ex
 
 ## File structure
 
-```
+```text
 /
 ├── GLOSSARY.md
 ├── docs/

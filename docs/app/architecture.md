@@ -4,7 +4,7 @@ Decisions: ADR 0001 (`roster serve`), ADR 0002 (system ssh and askpass), ADR 000
 
 ## Processes
 
-```
+```text
 ┌──────────────── roster app (Tauri) ──────────────────┐
 │  Frontend (React + TS, xterm.js)                     │
 │     │  one typed client: backend calls, Session I/O  │

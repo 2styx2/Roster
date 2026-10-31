@@ -2,7 +2,7 @@
 
 ## Rust: logic in a crate with no tauri dependency
 
-```
+```text
 roster/                      # the repo root is the Cargo workspace
   Cargo.toml                 # [workspace] resolver="3", members=["app/src-tauri","crates/roster-core"],
                              #   default-members=["crates/roster-core"]

@@ -272,7 +272,7 @@ Runs the same diagnostics as the app's `:check HOST` (`host.check` below), in th
 
 Key Hosts skip `provider` and `vault-item`. Nothing touches the network once a local step has failed, and a whole check makes at most one TCP connection (port and host key) and one login, so it's safe to run against the 10.19.x rate limiter. It prints one line per step (`ok`, `FAIL` with the code, `skip`), then the fix and ssh's own message under a failure, and exits 1 if a step failed. It never prints a password.
 
-```
+```text
 ok   inventory   root@10.0.0.6:22 (password login)
 ok   ssh-config  Host esx
 ok   provider    bw is ready
@@ -295,7 +295,7 @@ This Box's health, like Neovim's `:checkhealth`: the same checks as the app's `:
 | askpass | The askpass channel (the private socket password Sessions get their password through) opens on this Box |
 | Infra repo | `roster.yml` is in a git repo, and whether it has Pending changes, other uncommitted files, or commits the upstream doesn't have (as last fetched) |
 
-```
+```text
 ssh
   ok     ssh found: /usr/bin/ssh
   warn   1 Host not in roster's ssh config yet: nas
@@ -358,7 +358,7 @@ roster also runs on Windows itself, without WSL, so the roster app works for tea
 
 ## Examples
 
-```
+```sh
 roster init                              # write a commented roster.yml to start from
 roster setup --dry-run                   # which hosts would get this box's key
 roster hosts --find esx                  # search names, titles, types, addresses
