@@ -178,6 +178,11 @@ pub const COMMANDS: &[CommandRule] = &[
         doc: "Goes to the previous Session.",
     },
     CommandRule {
+        name: "check",
+        needs: Needs::Permission("serve:host.check"),
+        doc: "Runs roster's diagnostics for a Host and shows them, as `:check HOST` does: `check esx-02`. It connects to the Host, as `host.check` does.",
+    },
+    CommandRule {
         name: "open",
         needs: Needs::Permission("sessions.open"),
         doc: "Opens a Host: its Session, or a new one.",
@@ -1125,7 +1130,7 @@ pub const FUNCTIONS: &[Function] = &[
             "a view with that id from elsewhere",
             "a field of the wrong kind (`roster.views.set discover table row 2: id must be text`): the whole view is dropped",
             "an action key the table uses itself (`j`, `k`, `g`, `G`, `s`, `S`, `/`, `?`, `q`) or one used twice",
-            "a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view",
+            "a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `f` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view",
         ],
         needs: Needs::Nothing,
         since: 3,
@@ -2561,6 +2566,11 @@ pub const TYPES: &[Type] = &[
             ),
             o("remove_edges", "string[]", "The ids of a graph's edges to take away."),
             o(
+                "filter",
+                "GraphFilter",
+                "A graph's new filter, in place of the one it has and the user's (`{}` shows everything).",
+            ),
+            o(
                 "columns",
                 "Column[]",
                 "New columns, all of them; the rows keep their cells.",
@@ -2813,7 +2823,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "Graph",
         summary: "A graph: nodes, edges and clusters as plain data, and what a node can do",
-        doc: "The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, however many hops away, with the counts. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.",
+        doc: "The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, `f` goes to the filter (a cluster, kind or state to show, hiding the rest; `Esc` clears a search, then the filter, then closes the view), and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, with the counts: however many hops away, or only one with `reach = \"direct\"`. Hiding nodes doesn't change what they reach: the counts are the whole graph's. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.",
         alias: "",
         fields: &[
             o(
@@ -2823,6 +2833,16 @@ pub const TYPES: &[Type] = &[
             ),
             o("edges", "GraphEdge[]", "Its edges (at most 10,000)."),
             o("clusters", "GraphCluster[]", "Its clusters, in order (at most 500)."),
+            o(
+                "reach",
+                "GraphReach",
+                "How far a node's reach goes, for the counts and what selecting it lights up: `\"all\"` (the default) every hop, `\"direct\"` one.",
+            ),
+            o(
+                "filter",
+                "GraphFilter",
+                "What it shows to begin with; the rest is hidden until the user changes it (`f`).",
+            ),
             o(
                 "open",
                 "NodeRun",
@@ -2975,6 +2995,46 @@ pub const TYPES: &[Type] = &[
                 "How it starts: collapsed (`true`) or open (`false`). Left out, it collapses when the graph has more than 300 nodes. The user's own choice is kept and wins.",
             ),
         ],
+        open: false,
+    },
+    Type {
+        name: "GraphReach",
+        summary: "How far a graph's reach goes",
+        doc: "`\"all\"`: however many hops away, as a key on a Host reaches what that Host's own keys reach. `\"direct\"`: one hop, a node's own edges, its cluster's and its cluster's mesh.",
+        alias: "\"all\"|\"direct\"",
+        fields: &[],
+        open: false,
+    },
+    Type {
+        name: "GraphFilter",
+        summary: "What a graph shows: the rest is hidden",
+        doc: "A node shows when it's in one of the `clusters`, of one of the `kinds` and in one of the `states`, for each that's given; leave one out (or empty) for all. Edges with a hidden end and clusters with no node left are hidden too. The user picks one cluster, kind or state at a time in the graph's filter (`f`); a filter that names several shows as \"N clusters\" there.",
+        alias: "",
+        fields: &[
+            o(
+                "clusters",
+                "string[]",
+                "Cluster ids: only their nodes show (at most 500).",
+            ),
+            o(
+                "kinds",
+                "string[]",
+                "Kinds (a node's `kind`): only nodes of these show (at most 500).",
+            ),
+            o(
+                "states",
+                "FilterState[]",
+                "A node's `state` or `mark`: only nodes live, down, or marked warn or error show.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "FilterState",
+        summary: "A state a graph's filter keeps",
+        doc: "A node's `state` (`\"live\"`, `\"down\"`) or `mark` (`\"warn\"`, `\"error\"`).",
+        alias: "\"live\"|\"down\"|\"warn\"|\"error\"",
+        fields: &[],
         open: false,
     },
     Type {

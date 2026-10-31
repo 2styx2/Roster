@@ -1,7 +1,7 @@
 // A view's graph as a Plugin sends it (ticket 77, decision Q99), checked: nodes, edges and clusters
 // are plain data; `open` and `actions` are the graph's, and a function there gets the node. Kept
 // apart from ops.ts, which calls it for `roster.views.set` and `roster.views.update`.
-import type { EdgeDir, EdgeStyle, EdgeTone, GraphCluster, GraphData, GraphEdge, GraphNode, Mark, NodeShape, NodeState } from "../graph/model";
+import type { EdgeDir, EdgeStyle, EdgeTone, FilterState, GraphCluster, GraphData, GraphEdge, GraphFilter, GraphNode, Mark, NodeShape, NodeState, Reach } from "../graph/model";
 import type { RowAction } from "../sidebar/Sidebar";
 import type { PluginTableAction, Run } from "./ops";
 
@@ -12,9 +12,9 @@ export const MAX_CLUSTERS = 500;
 const MAX_ACTIONS = 8;
 const MAX_TEXT = 500;
 
-/** Keys the graph uses itself: moving, panning, zoom, search, clusters, the list, and kept ones;
- * and `s` `S`, which sort its node list (a table). */
-export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "s", "S", "/", "?", "q", "+", "-", "=", "0"] as const;
+/** Keys the graph uses itself: moving, panning, zoom, search, its filter, clusters, the list, and
+ * kept ones; and `s` `S`, which sort its node list (a table). */
+export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "f", "s", "S", "/", "?", "q", "+", "-", "=", "0"] as const;
 
 export const SHAPES: readonly NodeShape[] = ["dot", "ring", "dashed", "hollow", "square"];
 const STATES: readonly NodeState[] = ["live", "down"];
@@ -22,10 +22,17 @@ const MARKS: readonly Mark[] = ["warn", "error"];
 const DIRS: readonly EdgeDir[] = ["one", "both"];
 const STYLES: readonly EdgeStyle[] = ["solid", "dashed", "dotted"];
 const EDGE_TONES: readonly EdgeTone[] = ["live", "muted", "warn", "error"];
+const REACHES: readonly Reach[] = ["all", "direct"];
+const FILTER_STATES: readonly FilterState[] = ["live", "down", "warn", "error"];
+const MAX_FILTER = 500;
 const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
 
 export interface PluginGraph {
   data: GraphData;
+  /** How far "reaches" goes; `all` if left out. */
+  reach?: Reach;
+  /** What it shows to begin with; the user changes it with `f`. */
+  filter?: GraphFilter;
   /** `Enter` (or a double click) on a node. */
   open?: Run;
   actions: PluginTableAction[];
@@ -37,6 +44,8 @@ export interface PluginGraphUpdate {
   edges: GraphEdge[];
   clusters: GraphCluster[];
   removeEdges: string[];
+  /** A new filter (`{}` shows everything). */
+  filter?: GraphFilter;
 }
 
 export class GraphInvalid extends Error {}
@@ -132,6 +141,27 @@ function cluster(v: unknown, i: number, what: string): GraphCluster {
   });
 }
 
+function filterOf(o: Obj, what: string): GraphFilter | undefined {
+  if (!given(o, "filter")) return undefined;
+  const at = `${what} filter`;
+  // An empty Lua table can come as an empty list: it's an empty filter.
+  const v = Array.isArray(o.filter) && o.filter.length === 0 ? {} : o.filter;
+  if (!isObj(v)) throw new GraphInvalid(`${at} must be a table`);
+  const words = (key: "clusters" | "kinds" | "states") =>
+    list(v, key, at, MAX_FILTER).map((x, i) => {
+      if (typeof x !== "string") throw new GraphInvalid(`${at} ${key} ${i + 1} must be text`);
+      return x;
+    });
+  const states = words("states").map((x, i) => {
+    const s = FILTER_STATES.find((y) => y === x);
+    if (!s) throw new GraphInvalid(`${at} states ${i + 1} must be ${FILTER_STATES.map((y) => `"${y}"`).join(", ")}`);
+    return s;
+  });
+  const clusters = words("clusters");
+  const kinds = words("kinds");
+  return defined<GraphFilter>({ clusters: clusters.length ? clusters : undefined, kinds: kinds.length ? kinds : undefined, states: states.length ? states : undefined });
+}
+
 function unique(ids: readonly string[], what: string, noun = "id") {
   const seen = new Set<string>();
   for (const id of ids) {
@@ -171,15 +201,22 @@ export function parseGraph(v: unknown, what: string): PluginGraph {
     }
     return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon: oneOf(a, "icon", where, ICONS), when: undefined, run: run(a.run, where) });
   });
-  return defined<PluginGraph>({ data: parts(v, at), open: given(v, "open") ? run(v.open, `${at} open`) : undefined, actions });
+  return defined<PluginGraph>({
+    data: parts(v, at),
+    reach: oneOf(v, "reach", at, REACHES),
+    filter: filterOf(v, at),
+    open: given(v, "open") ? run(v.open, `${at} open`) : undefined,
+    actions,
+  });
 }
 
 /** The graph part of `roster.views.update ID`'s changes, or undefined when it has none. */
 export function parseGraphUpdate(c: Obj, what: string): PluginGraphUpdate | undefined {
-  if (!["nodes", "edges", "clusters", "remove_edges"].some((k) => given(c, k))) return undefined;
+  if (!["nodes", "edges", "clusters", "remove_edges", "filter"].some((k) => given(c, k))) return undefined;
   const removeEdges = list(c, "remove_edges", what, MAX_EDGES).map((r, i) => {
     if (typeof r !== "string") throw new GraphInvalid(`${what}: remove_edges ${i + 1} must be an edge's id`);
     return r;
   });
-  return { ...parts(c, what), removeEdges };
+  const filter = filterOf(c, what);
+  return { ...parts(c, what), removeEdges, ...(filter ? { filter } : {}) };
 }

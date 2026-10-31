@@ -1,0 +1,399 @@
+-- topology: the Topology view, a first-party Plugin (plugins/README.md, decisions Q81 and Q94).
+-- A full view with a graph: this Box, every Host by Inventory group, the Mesh's reach and Links,
+-- live Sessions in the accent, and what's down, out of date or being cut. Selecting a Host lights
+-- up what it can reach and what can reach it, with the counts (Q63's visible risk). Built only on
+-- the public Plugin API, like anyone's.
+--
+-- Settings come from init.lua, where you name it as a Package:
+--   packages = { { "https://github.com/2styx2/roster", dir = "plugins/topology", config = { leader = "T" } } }
+local roster = require("roster")
+local build = require("topology.build")
+
+local settings, problems = build.settings(roster.plugin.config)
+for _, p in ipairs(problems) do
+  roster.notify(p .. "; using the default", "warn")
+end
+
+-- What it was granted. Without any of it, it still loads and says what's missing.
+local reads = roster.has("inventory.read")
+local can_mesh = roster.has("serve:mesh.status")
+local can_check = roster.has("serve:host.check")
+local can_cut = roster.has("serve:mesh.cut")
+local can_job = roster.has("serve:mesh.job")
+
+local VIEW = "topology"
+local live = {} -- Host -> { [session] = true }
+local down = {} -- Host -> why it's down (its Session failed to connect, or a Check)
+local ended = {} -- Host -> true: its last Session ended
+local mesh, mesh_error -- mesh.status's last answer, or why there's none
+local s -- build.structure's
+local sent -- what the view has: id -> sig, per nodes, edges and clusters (nil before it's set)
+local sent_text
+local detailed = {} -- Host -> the sig of its reach section in its details
+local queued = {} -- Hosts whose reach section is still to send (at most 400 a call)
+local flushing = false
+local filtered = false -- the view's filter is one :topology GROUP set
+
+-- Asks roster serve without waiting (roster.serve.request): `done(result)` or `done(nil, why)`
+-- comes later, as a call of its own, so a busy serve (a Publish, a long Mesh run) never holds up
+-- this Plugin or the app.
+---@param done fun(result: any, why: string?)
+local function ask(method, params, done)
+  local sent_ok, err = pcall(roster.serve.request, method, params or {}, function(r, why) done(r, why) end)
+  if not sent_ok then done(nil, tostring(err)) end
+end
+
+-- serve's words without the call's name in front.
+local function clean(why) return (tostring(why):gsub("^.-roster%.serve%.request [%w._]+: ", "")) end
+
+-- The Hosts and groups, read again only when the app says they changed (inventory_changed): at
+-- 2,000 Hosts each read is most of a call's time.
+local inventory_error -- why the Hosts couldn't be read, if they couldn't
+local hosts, groups -- nil until read
+local function read_inventory()
+  hosts, groups, inventory_error = {}, {}, nil
+  if not reads then return end
+  local ok, h = pcall(roster.inventory.hosts)
+  local ok2, g = pcall(roster.inventory.groups)
+  if ok and ok2 then
+    hosts, groups = h, g
+  else
+    inventory_error = tostring(ok and g or h)
+  end
+end
+
+local function restructure()
+  if not hosts then read_inventory() end
+  s = build.structure(hosts, groups, mesh)
+end
+
+-- The reach sections in Hosts' details, a few hundred a call so a big Inventory stays inside the
+-- host's limit of UI changes per call.
+local function flush()
+  flushing = false
+  local n = 0
+  while #queued > 0 and n < 400 do
+    local name = table.remove(queued, 1)
+    roster.details.set("topology", name, s.hosts[name] and build.details(s, name) or nil)
+    n = n + 1
+  end
+  if #queued > 0 then
+    flushing = true
+    roster.defer(50, flush)
+  end
+end
+
+local function details()
+  local now = {}
+  for _, name in ipairs(s.order) do
+    local d = build.details(s, name)
+    if d then now[name] = build.details_sig(d) end
+  end
+  for name, sig in pairs(now) do
+    if detailed[name] ~= sig then queued[#queued + 1] = name end
+  end
+  for name in pairs(detailed) do
+    if not now[name] then queued[#queued + 1] = name end
+  end
+  detailed = now
+  if not flushing then flush() end
+end
+
+-- What a node does, below: the graph's actions call them.
+local check, cut
+
+-- Draws the view from the state above: the whole graph the first time, then only what changed.
+local function draw()
+  local g = build.graph(s, live, down, ended)
+  local text = build.text(s, { reads = reads, mesh = can_mesh, error = mesh_error, inventory_error = inventory_error })
+  if not sent then
+    local actions = {
+      { label = "Details", key = "i", icon = "info", run = function(e) if e.host then roster.cmd("info " .. e.host) end end },
+    }
+    if can_check then actions[#actions + 1] = { label = "Check", key = "c", icon = "review", run = function(e) check(e) end } end
+    if can_cut and can_job then actions[#actions + 1] = { label = "Cut", key = "x", icon = "close", run = function(e) cut(e) end } end
+    roster.views.set(VIEW, {
+      title = "Topology",
+      place = "full",
+      text = text,
+      graph = {
+        clusters = g.clusters,
+        nodes = g.nodes,
+        edges = g.edges,
+        -- Every hop: a Mesh key on a Host reaches what that Host's own keys reach (decision Q102).
+        reach = "all",
+        actions = actions,
+      },
+    })
+    sent = {
+      nodes = select(3, build.diff(nil, g.nodes)),
+      edges = select(3, build.diff(nil, g.edges)),
+      clusters = select(3, build.diff(nil, g.clusters)),
+    }
+    sent_text = text
+  else
+    local nodes, nodes_gone
+    local edges, edges_gone
+    local clusters, clusters_gone
+    clusters, clusters_gone, sent.clusters = build.diff(sent.clusters, g.clusters)
+    nodes, nodes_gone, sent.nodes = build.diff(sent.nodes, g.nodes)
+    edges, edges_gone, sent.edges = build.diff(sent.edges, g.edges)
+    local changes = {}
+    if #clusters > 0 then changes.clusters = clusters end
+    if #nodes > 0 then changes.nodes = nodes end
+    if #edges > 0 then changes.edges = edges end
+    local remove = {}
+    for _, id in ipairs(nodes_gone) do remove[#remove + 1] = id end
+    for _, id in ipairs(clusters_gone) do remove[#remove + 1] = id end
+    table.sort(remove)
+    table.sort(edges_gone)
+    if #remove > 0 then changes.remove = remove end
+    if #edges_gone > 0 then changes.remove_edges = edges_gone end
+    if text ~= sent_text then
+      changes.text = text
+      sent_text = text
+    end
+    if next(changes) then roster.views.update(VIEW, changes) end
+  end
+  details()
+end
+
+-- Draws what it has now, then asks for the Mesh and draws again when serve answers. One question
+-- at a time: a refresh while one waits asks again once it's answered.
+local asking, again = false, false
+local function refresh()
+  if not can_mesh then
+    mesh, mesh_error = nil, nil
+    restructure()
+    return draw()
+  end
+  if asking then
+    again = true
+    return
+  end
+  asking = true
+  ask("mesh.status", { grouped = true }, function(r, why)
+    asking = false
+    if type(r) == "table" then
+      mesh, mesh_error = r, nil
+    else
+      mesh, mesh_error = nil, clean(why or "roster serve said nothing about the Mesh")
+    end
+    restructure()
+    draw()
+    if again then
+      again = false
+      refresh()
+    end
+  end)
+end
+
+-- ------------------------------------------------------------------- what a node does
+
+function check(e)
+  if not e.host then return roster.notify("That's this Box: pick a Host to check.") end
+  -- The app's own :check HOST: its diagnostics panel shows each step. (It takes seconds; a
+  -- Plugin's call may take two at most, so the app runs it, not this Plugin.)
+  roster.cmd("check " .. e.host)
+end
+
+-- A cut runs as a job of roster serve's (serve API 17), so it doesn't hold this Plugin's call while
+-- every Host answers; a timer asks how it's going once a second, and stops when it's over.
+local cutting -- { job, host, timer }
+
+local function cut_done(host, r)
+  local waiting = 0
+  for _ in pairs(r.pending or {}) do waiting = waiting + 1 end
+  if waiting > 0 then
+    roster.notify("Cut " .. host .. ": cut pending on " .. build.plural(waiting, "Host") .. " that didn't answer.", "warn")
+  else
+    roster.notify("Cut " .. host .. " from " .. build.plural(#(r.confirmed or {}), "Host") .. ".")
+  end
+end
+
+local function cut_over()
+  if cutting and cutting.timer then roster.cancel(cutting.timer) end
+  cutting = nil
+  roster.progress.remove("topology-cut")
+  refresh()
+end
+
+local function cut_poll()
+  if not cutting or cutting.polling then return end
+  cutting.polling = true
+  ask("mesh.job", { job = cutting.job }, function(j)
+    if not cutting then return end
+    cutting.polling = false
+    if type(j) ~= "table" then
+      roster.notify("Cut " .. cutting.host .. ": roster serve lost track of it; :topology shows where the Mesh is now.", "warn")
+      return cut_over()
+    end
+    if j.state == "running" then
+      roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = j.done or 0, total = j.total or 0 })
+      return
+    end
+    if j.state == "done" then
+      cut_done(cutting.host, j.result or {})
+    else
+      roster.notify("Cut " .. cutting.host .. ": " .. tostring(j.error and j.error.message or "it failed"), "error")
+    end
+    cut_over()
+  end)
+end
+
+function cut(e)
+  if not e.host then return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.") end
+  local h = e.host
+  local m = mesh or {}
+  if not (s.involved[h] or (m.cut_pending or {})[h]) then
+    return roster.notify(h .. " isn't in the Mesh: there's nothing to cut.")
+  end
+  roster.confirm({
+    title = "Cut " .. h .. " from the Mesh?",
+    text = "Its key comes off every Host it reaches, and every peer's key comes off it, at once. This Box keeps its own access, so you can look into it.\n\nroster writes `mesh: false` for "
+      .. h
+      .. " as a Pending change, so the cut lasts after the next Publish.",
+    facts = {
+      { label = "Reaches now", value = build.plural(s.out[h] or 0, "Host") .. " directly" },
+      { label = "Reached by", value = build.plural(s["in"][h] or 0, "Host") .. " directly" },
+    },
+    action = "Cut",
+    danger = true,
+    typed = h,
+    run = function()
+      if cutting then return roster.notify("A cut of " .. cutting.host .. " is still going: wait for it to finish.", "warn") end
+      cutting = { host = h }
+      ask("mesh.cut", { host = h, background = true }, function(r, why)
+        if type(r) == "table" and r.job then
+          cutting.job = r.job
+          roster.progress.set("topology-cut", { title = "Cutting " .. h .. " from the Mesh", done = 0, total = r.total or 0 })
+          cutting.timer = roster.every(1000, cut_poll)
+          return
+        end
+        cutting = nil
+        if type(r) == "table" then
+          -- A roster serve before jobs (API 17) answers when it's over.
+          cut_done(h, r)
+        else
+          roster.notify("Cut " .. h .. ": " .. clean(why), "error")
+        end
+        refresh()
+      end)
+    end,
+  })
+end
+
+-- ------------------------------------------------------------------- commands, keys, help
+
+roster.commands.add("topology", {
+  desc = "The Topology view: this Box, your Hosts by group and the Mesh; :topology GROUP shows one group",
+  run = function(a)
+    -- Before the first look has drawn the view: draw what there is (the Mesh follows).
+    if not sent then
+      restructure()
+      draw()
+    end
+    local word = a.words[1]
+    if word then
+      local ids = build.group_clusters(s, word)
+      if #ids == 0 then return roster.notify("There's no group " .. word .. " on the map.", "warn") end
+      roster.views.update(VIEW, { filter = { clusters = ids } })
+      filtered = true
+    elseif filtered then
+      roster.views.update(VIEW, { filter = {} })
+      filtered = false
+    end
+    roster.views.open(VIEW)
+  end,
+})
+roster.keymap.set("leader", settings.leader, "topology")
+
+roster.help.set("topology", {
+  title = "Topology",
+  summary = "The map: this Box, your Hosts by group, the Mesh, and who can reach whom",
+  markdown = table.concat({
+    "# Topology",
+    "",
+    "A map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ "
+      .. settings.leader
+      .. "`; Esc goes back.",
+    "",
+    "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.",
+    "- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.",
+    "- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.",
+    "- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.",
+    "",
+    "Select a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.",
+    "",
+    "Keys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).",
+    "",
+    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
+  }, "\n"),
+})
+
+roster.health.set("topology", {
+  title = "Topology",
+  check = function()
+    local out = {}
+    if not reads then
+      out[#out + 1] = { level = "warn", message = "inventory.read isn't granted, so the map has no Hosts", fix = "allow it in :plugins" }
+    end
+    if not can_mesh then
+      out[#out + 1] = { level = "warn", message = "serve:mesh.status isn't granted, so the map has no Mesh", fix = "allow it in :plugins" }
+      return out
+    end
+    -- What it last heard from roster serve (a :check doesn't wait for serve).
+    if mesh_error then
+      out[#out + 1] = {
+        level = "warn",
+        message = "Mesh status isn't available: " .. mesh_error,
+        fix = "update roster on this Box (the Mesh came with serve API 15)",
+      }
+    elseif not mesh then
+      out[#out + 1] = { level = "warn", message = "Mesh status hasn't come yet", fix = "run :check again in a moment" }
+    else
+      out[#out + 1] = {
+        level = "ok",
+        message = "Mesh status available: " .. build.plural(#(mesh.members or {}), "Host") .. " roster visits",
+      }
+      if mesh.out_of_date then
+        out[#out + 1] = { level = "warn", message = "The Mesh is out of date", fix = "apply it: roster mesh" }
+      end
+    end
+    return out
+  end,
+})
+
+-- ------------------------------------------------------------------- events and the clock
+
+if reads then
+  roster.on("session_open", function(e)
+    if not e.host then return end -- a Quick Connect Session isn't on a Host
+    live[e.host] = live[e.host] or {}
+    live[e.host][e.session] = true
+    down[e.host], ended[e.host] = nil, nil
+    draw()
+  end)
+  roster.on("session_exit", function(e)
+    if not e.host then return end
+    if live[e.host] then live[e.host][e.session] = nil end
+    if not live[e.host] or next(live[e.host]) == nil then
+      live[e.host] = nil
+      ended[e.host] = true
+      -- ssh's 255: it never got in (the network, the host key, the login).
+      if e.code == 255 then down[e.host] = "ssh failed" end
+    end
+    draw()
+  end)
+  roster.on("inventory_changed", function()
+    hosts = nil
+    refresh()
+  end)
+end
+-- The Mesh changes when someone applies or cuts it, here or on another Box: look again now and then.
+-- mesh.status never connects anywhere, so it's cheap.
+if can_mesh then roster.every(settings.refresh * 1000, refresh) end
+
+-- The first look is deferred: nothing calls roster serve while the Plugin loads, so a busy serve
+-- can't hold up the app's start.
+roster.defer(50, refresh)

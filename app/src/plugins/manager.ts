@@ -1160,7 +1160,7 @@ export class PluginManager {
           const data = mergeGraph(graph.data, { ...g, remove: u.remove });
           const over = graphOver(data);
           if (over) return refuse(`roster.views.update ${op.id}: more than ${over}`);
-          graph = { ...graph, data };
+          graph = { ...graph, data, ...(g.filter ? { filter: g.filter } : {}) };
         }
         let table = view.table;
         if (table && (u.rows.length || u.remove.length)) {
@@ -1284,6 +1284,8 @@ export class PluginManager {
     };
     return {
       data: g.data,
+      ...(g.reach ? { reach: g.reach } : {}),
+      ...(g.filter ? { filter: g.filter } : {}),
       ...(g.open ? { open: go(g.open) } : g.data.nodes.some((n) => n.host) ? { open: openHost } : {}),
       actions: g.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
     };
