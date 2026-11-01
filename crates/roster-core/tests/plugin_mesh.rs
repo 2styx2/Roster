@@ -646,12 +646,17 @@ fn it_shows_each_hosts_reach_out_of_date_and_no_via() {
     // Each Host's details: its reach, as the Mesh shows the risk.
     let d = run.last(|o| o["op"] == "details" && o["host"] == "orion-3");
     assert_eq!(d["spec"]["facts"][0]["value"], "can reach 3 Hosts");
+    // Its rows are its Links: the Host itself is the facts and the Cut on the heading (#176),
+    // which `x` runs from anywhere in the section.
     assert_eq!(
-        d["spec"]["table"]["rows"][1]["cells"]["link"],
+        d["spec"]["table"]["rows"][0]["cells"]["link"],
         "orion-3 → db-9 via jump-1"
     );
+    assert_eq!(d["spec"]["actions"][0]["key"], "x");
+    assert!(d["spec"]["table"]["actions"].as_array().is_none_or(|a| a.is_empty()));
     let sw = run.last(|o| o["op"] == "details" && o["host"] == "sw-1");
     assert!(sw["spec"]["table"].is_null(), "a Host kept out has nothing to cut");
+    assert!(sw["spec"]["actions"].is_null(), "nor a Cut on its heading");
 }
 
 #[test]

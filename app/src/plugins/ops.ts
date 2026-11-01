@@ -6,7 +6,7 @@ import type { ThemeDef } from "../config/types";
 import type { RowAction } from "../sidebar/Sidebar";
 import { TUTOR_EVENTS, type StepMatch } from "../tutor/tutor";
 import type { ColumnKind, Sort, TableColumn, TableRow, Tone } from "../ui/table";
-import { GraphInvalid, parseGraph, parseGraphUpdate, type PluginGraph, type PluginGraphUpdate } from "./graphOps";
+import { GRAPH_KEYS, GraphInvalid, parseGraph, parseGraphUpdate, type PluginGraph, type PluginGraphUpdate } from "./graphOps";
 
 /** What choosing something runs: a function the Plugin handed over, or a command line. */
 export type Run = { handler: number } | { command: string };
@@ -15,6 +15,8 @@ export interface PluginRowAction {
   label: string;
   icon: RowAction["icon"];
   run: Run;
+  /** A view's or Host-details section's heading button only (api 4, #176): its key. */
+  key?: string;
 }
 
 export interface PluginRow {
@@ -309,6 +311,28 @@ function headActions(spec: Obj, what: string): PluginRowAction[] {
   return actions;
 }
 
+/** A view's or section's heading buttons with their keys (api 4, #176): one character each, used
+ * once, none the table's or graph's own keys (either may come later through an update) and none
+ * of its actions' keys (`taken`). */
+function keyedHeadActions(spec: Obj, what: string, taken: readonly string[]): PluginRowAction[] {
+  const raw = list(spec, "actions", what);
+  const seen = new Set(taken);
+  return headActions(spec, what).map((a, j) => {
+    const where = `${what} action ${j + 1}`;
+    const key = optStr(raw[j] as Obj, "key", where, 8);
+    if (key === undefined) return a;
+    if ([...key].length !== 1 || key.trim() === "") throw new Invalid(`${where}: key must be one character`);
+    const reserved = headReserved();
+    if (reserved.includes(key)) throw new Invalid(`${where}: the table or graph uses ${key} itself (${reserved.join(" ")})`);
+    if (seen.has(key)) throw new Invalid(`${where}: key ${key} is used twice`);
+    seen.add(key);
+    return { ...a, key };
+  });
+}
+
+/** What a heading button's key can't be: a table's keys and a graph's. */
+const headReserved = (): readonly string[] => [...new Set<string>([...TABLE_KEYS, ...GRAPH_KEYS])];
+
 /** An http or https address, or why it can't be one. */
 function webUrl(text: string, what: string): string {
   if (text.length > MAX_URL) throw new Invalid(`${what}: url is over ${MAX_URL} characters`);
@@ -543,13 +567,16 @@ function table(v: unknown, what: string): PluginTable {
   });
 }
 
-/** The text, facts and table a view or a Host-details section holds. */
-function content(spec: Obj, what: string): PluginContent {
+/** The text, facts and table a view or a Host-details section holds; `taken`, keys a graph's
+ * actions use. */
+function content(spec: Obj, what: string, taken: readonly string[] = []): PluginContent {
+  const t = spec.table === undefined || spec.table === null ? undefined : table(spec.table, what);
+  const actionKeys = [...taken, ...(t?.actions ?? []).flatMap((a) => (a.key ? [a.key] : []))];
   return defined<PluginContent>({
-    actions: headActions(spec, what),
+    actions: keyedHeadActions(spec, what, actionKeys),
     text: optStr(spec, "text", what, MAX_VIEW_TEXT),
     facts: facts(spec, what),
-    table: spec.table === undefined || spec.table === null ? undefined : table(spec.table, what),
+    table: t,
   });
 }
 
@@ -737,7 +764,8 @@ function parse(raw: unknown): PluginOp {
       if (place !== "panel" && place !== "full") throw new Invalid(`${what}: place must be "panel" or "full"`);
       const graph = spec.graph === undefined || spec.graph === null ? undefined : parseGraph(spec.graph, what);
       if (graph && spec.table !== undefined && spec.table !== null) throw new Invalid(`${what}: a view has a table or a graph, not both`);
-      return { op: "view", id, view: { title: optStr(spec, "title", what) ?? id, place, ...content(spec, what), ...(graph ? { graph } : {}) } };
+      const graphKeys = (graph?.actions ?? []).flatMap((a) => (a.key ? [a.key] : []));
+      return { op: "view", id, view: { title: optStr(spec, "title", what) ?? id, place, ...content(spec, what, graphKeys), ...(graph ? { graph } : {}) } };
     }
     case "view_update": {
       const what = `roster.views.update ${id}`;

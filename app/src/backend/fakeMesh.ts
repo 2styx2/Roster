@@ -536,7 +536,7 @@ function load(roster: FakeRoster) {
     }
     const members = new Set(st.members ?? []);
     for (const h of names) {
-      const [what, tone] = words.state(h, st);
+      const [what] = words.state(h, st);
       const section: Obj = {
         title: "Mesh",
         facts: [
@@ -546,7 +546,8 @@ function load(roster: FakeRoster) {
         ],
       };
       if (members.has(h)) {
-        const rows: Obj[] = [{ id: "host", cells: { link: "this Host", status: what, member: "yes" }, tone }];
+        // The Host itself is the facts and the Cut on the heading; the rows are its Links (#176).
+        const rows: Obj[] = [];
         for (const [i, x] of (mine.get(h) ?? []).entries()) {
           rows.push({
             id: `l${i + 1}`,
@@ -554,21 +555,22 @@ function load(roster: FakeRoster) {
             tone: x.status && words.LEFT_OUT[x.status] ? "error" : undefined,
           });
         }
-        section.text = rows.length === 1 ? "Every Link of this Host works as roster.yml asks." : "The Links worth a look: a hop (via) or a problem.";
-        section.table = {
-          columns: [
-            { id: "link", label: "Link", kind: "data" },
-            { id: "status", label: "Status" },
-          ],
-          rows,
-          open: (e: Obj) => {
-            const i = index(e.row);
-            const x = i === undefined ? undefined : (mine.get(e.host as string) ?? [])[i - 1];
-            if (x) explain(x);
-          },
-          actions: [{ label: "Cut", key: "x", icon: "cut", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) }],
-        };
-        section.actions = [{ label: `Cut ${h} from the Mesh`, icon: "cut", run: (e: Obj) => cut(e.host as string) }];
+        section.text = rows.length === 0 ? "Every Link of this Host works as roster.yml asks." : "The Links worth a look: a hop (via) or a problem.";
+        if (rows.length > 0) {
+          section.table = {
+            columns: [
+              { id: "link", label: "Link", kind: "data" },
+              { id: "status", label: "Status" },
+            ],
+            rows,
+            open: (e: Obj) => {
+              const i = index(e.row);
+              const x = i === undefined ? undefined : (mine.get(e.host as string) ?? [])[i - 1];
+              if (x) explain(x);
+            },
+          };
+        }
+        section.actions = [{ label: `Cut ${h} from the Mesh`, key: "x", icon: "cut", run: (e: Obj) => cut(e.host as string) }];
       }
       roster.details.set("mesh", h, section);
       state.detailed.add(h);

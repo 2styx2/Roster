@@ -555,6 +555,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -574,17 +575,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -598,14 +588,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -629,6 +611,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -647,41 +630,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -694,6 +642,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -712,41 +661,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -759,6 +673,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -777,41 +692,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -824,6 +704,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -843,17 +724,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -867,14 +737,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -1286,6 +1148,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -1305,17 +1168,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -1329,14 +1181,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -1360,6 +1204,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -1378,41 +1223,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -1425,6 +1235,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -1443,41 +1254,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -1490,6 +1266,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -1508,41 +1285,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -1555,6 +1297,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -1574,17 +1317,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -1598,14 +1330,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -2055,6 +1779,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -2074,17 +1799,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -2098,14 +1812,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -2129,6 +1835,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -2147,41 +1854,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -2194,6 +1866,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -2212,41 +1885,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -2259,6 +1897,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -2277,41 +1916,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -2324,6 +1928,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -2343,17 +1948,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -2367,14 +1961,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -2756,6 +2342,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -2775,17 +2362,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -2799,14 +2375,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -2830,6 +2398,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -2848,41 +2417,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -2895,6 +2429,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -2913,41 +2448,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -2960,6 +2460,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -2978,41 +2479,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -3025,6 +2491,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -3044,17 +2511,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -3068,14 +2524,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -3530,6 +2978,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -3549,17 +2998,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -3573,14 +3011,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -3604,6 +3034,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -3622,41 +3053,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -3669,6 +3065,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -3688,17 +3085,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -3712,14 +3098,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -3743,6 +3121,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -3762,17 +3141,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -3786,14 +3154,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -3817,6 +3177,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -3836,17 +3197,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -3860,14 +3210,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -4476,6 +3818,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -4495,17 +3838,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -4519,14 +3851,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -4550,6 +3874,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -4568,41 +3893,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -4615,6 +3905,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -4634,17 +3925,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -4658,14 +3938,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -4689,6 +3961,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -4708,17 +3981,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -4732,14 +3994,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -4763,6 +4017,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -4782,17 +4037,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -4806,14 +4050,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -5233,6 +4469,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -5252,17 +4489,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -5276,14 +4502,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -5307,6 +4525,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -5325,41 +4544,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -5372,6 +4556,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -5390,41 +4575,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -5437,6 +4587,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -5455,41 +4606,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -5502,6 +4618,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -5521,17 +4638,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -5545,14 +4651,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -6106,6 +5204,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -6125,17 +5224,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -6149,14 +5237,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -6180,6 +5260,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -6198,41 +5279,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -6245,6 +5291,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -6263,41 +5310,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -6310,6 +5322,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -6328,41 +5341,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -6375,6 +5353,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -6394,17 +5373,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -6418,14 +5386,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -6875,6 +5835,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -6894,17 +5855,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -6918,14 +5868,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -6949,6 +5891,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -6967,41 +5910,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7014,6 +5922,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -7032,42 +5941,6 @@
                   "value": "still holds orion-2's key (cut pending)"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "still holds orion-2's key (cut pending)"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7080,6 +5953,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -7098,42 +5972,6 @@
                   "value": "cut, pending on 1 Host"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "cut, pending on 1 Host"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7146,6 +5984,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -7165,17 +6004,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -7189,14 +6017,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -7653,6 +6473,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -7672,17 +6493,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -7696,14 +6506,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -7727,6 +6529,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -7745,41 +6548,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7792,6 +6560,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -7810,42 +6579,6 @@
                   "value": "still holds orion-2's key (cut pending)"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "still holds orion-2's key (cut pending)"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7858,6 +6591,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -7876,42 +6610,6 @@
                   "value": "cut, pending on 1 Host"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "cut, pending on 1 Host"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -7924,6 +6622,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -7943,17 +6642,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -7967,14 +6655,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -8437,6 +7117,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -8456,17 +7137,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -8480,14 +7150,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -8511,6 +7173,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -8529,41 +7192,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -8576,6 +7204,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -8594,42 +7223,6 @@
                   "value": "still holds orion-2's key (cut pending)"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "still holds orion-2's key (cut pending)"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -8642,6 +7235,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -8660,42 +7254,6 @@
                   "value": "cut, pending on 1 Host"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "cut, pending on 1 Host"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -8708,6 +7266,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -8727,17 +7286,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -8751,14 +7299,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -9158,6 +7698,7 @@
             "actions": [
               {
                 "icon": "cut",
+                "key": "x",
                 "label": "Cut db-9 from the Mesh",
                 "run": "fn"
               }
@@ -9177,17 +7718,6 @@
               }
             ],
             "table": {
-              "actions": [
-                {
-                  "icon": "cut",
-                  "key": "x",
-                  "label": "Cut",
-                  "run": "fn",
-                  "when": {
-                    "member": "yes"
-                  }
-                }
-              ],
               "columns": [
                 {
                   "id": "link",
@@ -9201,14 +7731,6 @@
               ],
               "open": "fn",
               "rows": [
-                {
-                  "cells": {
-                    "link": "this Host",
-                    "member": "yes",
-                    "status": "in the Mesh"
-                  },
-                  "id": "host"
-                },
                 {
                   "cells": {
                     "link": "orion-3 → db-9 via jump-1",
@@ -9232,6 +7754,7 @@
             "actions": [
               {
                 "icon": "cut",
+                "key": "x",
                 "label": "Cut esx-02 from the Mesh",
                 "run": "fn"
               }
@@ -9250,41 +7773,6 @@
                 "value": "in the Mesh"
               }
             ],
-            "table": {
-              "actions": [
-                {
-                  "icon": "cut",
-                  "key": "x",
-                  "label": "Cut",
-                  "run": "fn",
-                  "when": {
-                    "member": "yes"
-                  }
-                }
-              ],
-              "columns": [
-                {
-                  "id": "link",
-                  "kind": "data",
-                  "label": "Link"
-                },
-                {
-                  "id": "status",
-                  "label": "Status"
-                }
-              ],
-              "open": "fn",
-              "rows": [
-                {
-                  "cells": {
-                    "link": "this Host",
-                    "member": "yes",
-                    "status": "in the Mesh"
-                  },
-                  "id": "host"
-                }
-              ]
-            },
             "text": "Every Link of this Host works as roster.yml asks.",
             "title": "Mesh"
           }
@@ -9297,6 +7785,7 @@
             "actions": [
               {
                 "icon": "cut",
+                "key": "x",
                 "label": "Cut nas-1 from the Mesh",
                 "run": "fn"
               }
@@ -9315,42 +7804,6 @@
                 "value": "still holds orion-2's key (cut pending)"
               }
             ],
-            "table": {
-              "actions": [
-                {
-                  "icon": "cut",
-                  "key": "x",
-                  "label": "Cut",
-                  "run": "fn",
-                  "when": {
-                    "member": "yes"
-                  }
-                }
-              ],
-              "columns": [
-                {
-                  "id": "link",
-                  "kind": "data",
-                  "label": "Link"
-                },
-                {
-                  "id": "status",
-                  "label": "Status"
-                }
-              ],
-              "open": "fn",
-              "rows": [
-                {
-                  "cells": {
-                    "link": "this Host",
-                    "member": "yes",
-                    "status": "still holds orion-2's key (cut pending)"
-                  },
-                  "id": "host",
-                  "tone": "warn"
-                }
-              ]
-            },
             "text": "Every Link of this Host works as roster.yml asks.",
             "title": "Mesh"
           }
@@ -9363,6 +7816,7 @@
             "actions": [
               {
                 "icon": "cut",
+                "key": "x",
                 "label": "Cut orion-2 from the Mesh",
                 "run": "fn"
               }
@@ -9381,42 +7835,6 @@
                 "value": "cut, pending on 1 Host"
               }
             ],
-            "table": {
-              "actions": [
-                {
-                  "icon": "cut",
-                  "key": "x",
-                  "label": "Cut",
-                  "run": "fn",
-                  "when": {
-                    "member": "yes"
-                  }
-                }
-              ],
-              "columns": [
-                {
-                  "id": "link",
-                  "kind": "data",
-                  "label": "Link"
-                },
-                {
-                  "id": "status",
-                  "label": "Status"
-                }
-              ],
-              "open": "fn",
-              "rows": [
-                {
-                  "cells": {
-                    "link": "this Host",
-                    "member": "yes",
-                    "status": "cut, pending on 1 Host"
-                  },
-                  "id": "host",
-                  "tone": "warn"
-                }
-              ]
-            },
             "text": "Every Link of this Host works as roster.yml asks.",
             "title": "Mesh"
           }
@@ -9429,6 +7847,7 @@
             "actions": [
               {
                 "icon": "cut",
+                "key": "x",
                 "label": "Cut orion-3 from the Mesh",
                 "run": "fn"
               }
@@ -9448,17 +7867,6 @@
               }
             ],
             "table": {
-              "actions": [
-                {
-                  "icon": "cut",
-                  "key": "x",
-                  "label": "Cut",
-                  "run": "fn",
-                  "when": {
-                    "member": "yes"
-                  }
-                }
-              ],
               "columns": [
                 {
                   "id": "link",
@@ -9472,14 +7880,6 @@
               ],
               "open": "fn",
               "rows": [
-                {
-                  "cells": {
-                    "link": "this Host",
-                    "member": "yes",
-                    "status": "in the Mesh"
-                  },
-                  "id": "host"
-                },
                 {
                   "cells": {
                     "link": "orion-3 → db-9 via jump-1",
@@ -9931,6 +8331,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -9950,17 +8351,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -9974,14 +8364,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -10005,6 +8387,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -10023,41 +8406,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -10070,6 +8418,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -10089,17 +8438,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -10113,15 +8451,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "still holds orion-2's key (cut pending)"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -10145,6 +8474,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -10164,17 +8494,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -10188,15 +8507,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "cut, pending on 1 Host"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  },
                   {
                     "cells": {
                       "link": "orion-2 → nas-1",
@@ -10220,6 +8530,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -10239,17 +8550,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -10263,14 +8563,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -11041,6 +9333,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut db-9 from the Mesh",
                   "run": "fn"
                 }
@@ -11060,17 +9353,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -11084,14 +9366,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",
@@ -11115,6 +9389,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut esx-02 from the Mesh",
                   "run": "fn"
                 }
@@ -11133,41 +9408,6 @@
                   "value": "in the Mesh"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -11180,6 +9420,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut nas-1 from the Mesh",
                   "run": "fn"
                 }
@@ -11198,42 +9439,6 @@
                   "value": "still holds orion-2's key (cut pending)"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "still holds orion-2's key (cut pending)"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -11246,6 +9451,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-2 from the Mesh",
                   "run": "fn"
                 }
@@ -11264,42 +9470,6 @@
                   "value": "cut, pending on 1 Host"
                 }
               ],
-              "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
-                "columns": [
-                  {
-                    "id": "link",
-                    "kind": "data",
-                    "label": "Link"
-                  },
-                  {
-                    "id": "status",
-                    "label": "Status"
-                  }
-                ],
-                "open": "fn",
-                "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "cut, pending on 1 Host"
-                    },
-                    "id": "host",
-                    "tone": "warn"
-                  }
-                ]
-              },
               "text": "Every Link of this Host works as roster.yml asks.",
               "title": "Mesh"
             }
@@ -11312,6 +9482,7 @@
               "actions": [
                 {
                   "icon": "cut",
+                  "key": "x",
                   "label": "Cut orion-3 from the Mesh",
                   "run": "fn"
                 }
@@ -11331,17 +9502,6 @@
                 }
               ],
               "table": {
-                "actions": [
-                  {
-                    "icon": "cut",
-                    "key": "x",
-                    "label": "Cut",
-                    "run": "fn",
-                    "when": {
-                      "member": "yes"
-                    }
-                  }
-                ],
                 "columns": [
                   {
                     "id": "link",
@@ -11355,14 +9515,6 @@
                 ],
                 "open": "fn",
                 "rows": [
-                  {
-                    "cells": {
-                      "link": "this Host",
-                      "member": "yes",
-                      "status": "in the Mesh"
-                    },
-                    "id": "host"
-                  },
                   {
                     "cells": {
                       "link": "orion-3 → db-9 via jump-1",

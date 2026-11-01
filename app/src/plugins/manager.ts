@@ -1456,7 +1456,7 @@ export class PluginManager {
       if (row.host) this.ui.run(`open ${row.host}`);
     };
     // A heading's button gets the view or section (and its Host): `{ view }`, `{ section, host }`.
-    const head = c.actions.map((a) => ({ label: a.label, icon: a.icon, run: () => this.runFor(plugin, a.run, { ...where }) }));
+    const head = c.actions.map((a) => ({ label: a.label, icon: a.icon, ...(a.key ? { key: a.key } : {}), run: () => this.runFor(plugin, a.run, { ...where }) }));
     return {
       ...(head.length ? { actions: head } : {}),
       ...(c.text ? { text: c.text } : {}),
