@@ -200,6 +200,42 @@ def test_dry_run_shows_the_plan_and_changes_nothing(net, capsys):
     assert "dry run: nothing was changed" in out
 
 
+def test_dry_run_json_is_mesh_plans_result(net, capsys):
+    """`roster mesh --dry-run --json` (T107): mesh.plan's Mesh result with `version`, and nothing else on stdout."""
+    before = net.snapshot()
+    assert main(["mesh", "--dry-run", "--json"]) == 0
+    out, err = capsys.readouterr()
+    assert net.snapshot() == before and err == ""
+    doc = json.loads(out)
+    assert doc["version"] == 1 and doc["applied"] is False
+    assert doc == {"version": 1, **mesh.run(net.cfg(), apply=False)}
+    rows = {h["host"]: h for h in doc["hosts"]}
+    assert rows["orion-2"]["status"] == "would-change" and "make key" in rows["orion-2"]["changes"]
+    assert doc["pending"] == {}
+
+
+def test_dry_run_json_exits_1_with_a_host_pending(net, capsys):
+    net.down("nas-1")
+    assert main(["mesh", "--dry-run", "--json"]) == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert list(doc["pending"]) == ["nas-1"]
+
+
+def test_dry_run_json_refusal_is_the_json_error(net, capsys):
+    assert main(["mesh", "--dry-run", "--rotate", "nas-1", "--json"]) == 1
+    out, err = capsys.readouterr()
+    error = json.loads(err)["error"]
+    assert out == "" and error["code"] == 110 and "nas-1" in error["message"] and error["fix"]
+
+
+def test_mesh_json_needs_status_or_dry_run(net, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["mesh", "--json"])
+    out, err = capsys.readouterr()
+    assert e.value.code == 2 and out == ""
+    assert "--dry-run" in json.loads(err)["error"]["message"]
+
+
 def test_one_connection_at_a_time(net):
     mesh.run(net.cfg(), apply=True)
     log = [x for x in net.connections() if not x.startswith("down")]
