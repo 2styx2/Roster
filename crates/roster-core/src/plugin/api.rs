@@ -518,7 +518,7 @@ pub const FUNCTIONS: &[Function] = &[
             "A command line, as typed after `:` (`\"finder alerts\"`).",
         )],
         summary: "Runs a command line",
-        doc: "It runs after the call returns, as if the user typed it. Only while the user runs one of your actions, commands or finder items, and only your own commands and the few of roster's in [Command lines a Plugin may run](#command-lines-a-plugin-may-run), each with the permission it needs there: never `:plugins`, `:packages`, `:publish` or anything else that changes what's installed, granted or written.",
+        doc: "It runs after the call returns, as if the user typed it. Only while the user runs one of your actions, commands or finder items, and only your own commands and the few of roster's in [Command lines a Plugin may run](#command-lines-a-plugin-may-run), each with the permission it needs there: never `:plugins`, `:packages`, `:publish` or anything else that changes what's installed, granted or written. One of your commands it runs is the user's call carried one hop, as a [`roster.serve.request`](#rosterserverequestmethod-params-done)'s answer is: it may copy, ask or answer on the message line, but a `roster.cmd` or a request made in it (or in such an answer) doesn't carry the call further, so the command that line names runs as the app's call and can't.",
         returns: ("", ""),
         errors: &[
             (

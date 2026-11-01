@@ -92,6 +92,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Only what you chose counts as your call: a finder's items as it opens, a `:check` section's lines and a question's cancel when another Plugin's question replaced it can no longer copy, ask, run a command line or call those methods, so another Plugin opening a finder can't lend them your call.
 - `cmd:` and `env:` Login references are now cut from roster serve's error messages to a Plugin too, not only its answers.
 - `roster.cmd` holds a command named after one of roster's (`open`, `check`, `plugins`, …) to roster's rule even if the Plugin added a command of that name.
+- A Plugin can no longer keep your call alive by running its own commands through `roster.cmd` one after another: the command `roster.cmd` runs from your call is still your call (one hop, as a `roster.serve.request`'s answer is), but a `roster.cmd` or request made in it isn't, so the next command can't copy, ask, run a command line or act on the network. Folders' drag and drop still works. See [Plugins](plugins.md#asking-progress-the-toolbar-and-going-places).
 
 ### Fixed
 

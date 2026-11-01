@@ -682,13 +682,18 @@ async fn plugin_call(
     handler: u64,
     args: Value,
     user: Option<bool>,
+    carried: Option<bool>,
 ) -> Result<plugin::Reply, ()> {
     let host = Arc::clone(&plugins);
     // `user: false`: the app runs it on its own (a finder's items, a `:check`, a timer, a
-    // question's cancel because another took its place), never the user's call.
+    // question's cancel because another took its place, a command a carried run's `roster.cmd`
+    // named), never the user's call. `carried`: the Plugin's own command its `roster.cmd` ran from
+    // the user's call, that call carried one hop (issue #183).
     blocking(move || {
         Ok(if user == Some(false) {
             host.call_by_app(&plugin, handler, args)
+        } else if carried == Some(true) {
+            host.call_carried(&plugin, handler, args)
         } else {
             host.call(&plugin, handler, args)
         })

@@ -6,7 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
-import { BackendCallError, type Host, type PluginEventName, type PluginManifest, type PluginReply } from "./types";
+import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
 type Spec = Record<string, unknown>;
@@ -342,7 +342,7 @@ export function fakePluginHost(
   pluginForget(plugin: string): Promise<boolean>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
-  pluginCall(plugin: string, handler: number, args: unknown, user?: boolean): Promise<PluginReply>;
+  pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   pluginUnload(plugin: string): Promise<boolean>;
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
@@ -368,7 +368,8 @@ export function fakePluginHost(
   let ops: unknown[] = [];
   /** Whether the run is a call the user started: only then may a Plugin copy. */
   let userCall = false;
-  /** Whether the run is an answer carrying the user's call: a request made in it doesn't carry it. */
+  /** Whether the run carries the user's call one hop (a request's answer, or a command `roster.cmd`
+   * ran): a request or a command line made in it doesn't carry it further (issue #183). */
   let carried = false;
   const replyWatchers = new Set<(reply: PluginReply) => void>();
 
@@ -506,7 +507,7 @@ export function fakePluginHost(
           if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
           if (rule.permission && !r.grants.has(rule.permission)) throw new Error(`roster.cmd: :${word} needs the ${rule.permission} permission`);
         }
-        push({ op: "cmd", line: line.trim() });
+        push(carried ? { op: "cmd", line: line.trim(), user: false } : { op: "cmd", line: line.trim() });
       },
       progress: piece("progress"),
       toolbar: piece("toolbar"),
@@ -657,11 +658,12 @@ export function fakePluginHost(
         r.timers.delete(handler);
         r.handlers.delete(handler);
       }
-      userCall = user && timer === undefined && !quiet.has(handler);
+      userCall = user !== false && timer === undefined && !quiet.has(handler);
+      carried = userCall && user === "carried";
       try {
         return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
       } finally {
-        userCall = false;
+        [userCall, carried] = [false, false];
       }
     },
     async pluginEvent(name, payload) {

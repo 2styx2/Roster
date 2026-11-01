@@ -233,8 +233,8 @@ pub struct Status {
 
 enum Job {
     Load(String),
-    /// A handler, its arguments, and whether the user chose it.
-    Call(u64, Json, bool),
+    /// A handler, its arguments, and whose call it is.
+    Call(u64, Json, runtime::By),
     Event(Event),
     /// A `roster.http` or `roster.serve.request` answer, for the function waiting for it.
     Answer(u64, runtime::Arrival),
@@ -440,24 +440,33 @@ impl PluginHost {
     /// control, a key, a question's answer). A timer's run, a command's `complete`, a finder's
     /// `items` and a `:check` section's `check` are never the user's call, whoever runs them.
     pub fn call(&self, plugin: &str, handler: u64, args: Json) -> Reply {
-        self.call_as(plugin, handler, args, true)
+        self.call_as(plugin, handler, args, runtime::By::User)
+    }
+
+    /// [`PluginHost::call`] for a Plugin's own command that its `roster.cmd` ran from the user's
+    /// call (a `cmd` op without `"user": false`): the user's call carried one hop (decision Q98,
+    /// issue #183). It may copy, ask or echo, but a `roster.cmd` or a `roster.serve.request` made
+    /// in it doesn't carry the call further: the line's op says `"user": false`, and the app runs
+    /// what it names of the Plugin's with [`PluginHost::call_by_app`].
+    pub fn call_carried(&self, plugin: &str, handler: u64, args: Json) -> Reply {
+        self.call_as(plugin, handler, args, runtime::By::Carried)
     }
 
     /// [`PluginHost::call`] for what the app runs on its own, not the user's choice (another
     /// Plugin's question took this one's place and its `cancel` runs): never the user's call, so
     /// it can't copy, ask, run a command line or act on the network or the Inventory.
     pub fn call_by_app(&self, plugin: &str, handler: u64, args: Json) -> Reply {
-        self.call_as(plugin, handler, args, false)
+        self.call_as(plugin, handler, args, runtime::By::App)
     }
 
-    fn call_as(&self, plugin: &str, handler: u64, args: Json, user: bool) -> Reply {
+    fn call_as(&self, plugin: &str, handler: u64, args: Json, by: runtime::By) -> Reply {
         let wall = self.limits.call + self.limits.grace;
         let Some((sender, serving)) = self.sender(plugin) else {
             let why = self.why_not(plugin);
             return Reply::failed(plugin, PluginError::new(plugin, None, None, why), None);
         };
         let start = Instant::now();
-        let answer = send(&sender, Job::Call(handler, args, user)).and_then(|rx| wait(&rx, start, wall, &serving));
+        let answer = send(&sender, Job::Call(handler, args, by)).and_then(|rx| wait(&rx, start, wall, &serving));
         self.settle(plugin, answer)
     }
 
@@ -589,7 +598,7 @@ impl PluginHost {
                         },
                         Ok(rt) => match job {
                             Job::Load(source) => rt.load(&source, limits.load),
-                            Job::Call(handler, args, user) => rt.call(handler, &args, user),
+                            Job::Call(handler, args, by) => rt.call(handler, &args, by),
                             Job::Answer(id, answer) => rt.answer(id, answer),
                             Job::Event(event) => {
                                 if runtime::may_hear(&event.name, rt.grants()).is_ok() {

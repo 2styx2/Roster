@@ -462,3 +462,144 @@ roster.commands.add("once", { run = function() return roster.serve.call("mesh.st
     ok(&once);
     assert_eq!(once.result, true);
 }
+
+/// What only the user's call may do, tried in turn, Mesh Cut among them (issue #183).
+const USER_ONLY_THINGS: &str = r#"
+local function tried()
+  local said = {}
+  local function try(name, f, ...)
+    local ok = pcall(f, ...)
+    said[#said + 1] = name .. (ok and " ok" or " refused")
+  end
+  try("copy", roster.clipboard.copy, "10.0.0.5")
+  try("confirm", roster.confirm, { title = "Sure?", run = function() end })
+  try("scan", roster.serve.request, "discover.start", {}, function() end)
+  try("cut", roster.serve.request, "mesh.cut", {}, function() end)
+  return table.concat(said, ", ")
+end
+"#;
+
+const ALLOWED: &str = "copy ok, confirm ok, scan ok, cut ok";
+const REFUSED: &str = "copy refused, confirm refused, scan refused, cut refused";
+
+/// Runs a `cmd` op's line as the app does: the Plugin's own command it names runs as the user's
+/// call carried one hop, or as the app's call when the op says it wasn't made in the user's own
+/// call (`"user": false`). None when `ops` run none of the Plugin's commands in `own`.
+fn follow(host: &PluginHost, loaded: &[Value], ops: &[Value], own: &[&str]) -> Option<Reply> {
+    let cmd = ops
+        .iter()
+        .find(|o| o["op"] == "cmd" && own.contains(&o["line"].as_str().unwrap_or("")))?;
+    let run = command(loaded, cmd["line"].as_str().unwrap());
+    Some(if cmd["user"] == false {
+        host.call_by_app("guarded", run, ARGS())
+    } else {
+        host.call_carried("guarded", run, ARGS())
+    })
+}
+
+/// Issue #183: a command `roster.cmd` ran from the user's call is that call carried one hop
+/// (Folders' drop runs `folder add` so and answers with `roster.echo`), but a `roster.cmd` made in
+/// it isn't, so a Plugin can't keep the user's call alive by chaining its own commands.
+#[test]
+fn a_chain_of_a_plugins_own_commands_carries_the_users_call_one_hop() {
+    let serve = Arc::new(Recorded::default());
+    let (host, _rx) = listening(&serve, Limits::default());
+    let init = format!(
+        r#"{USER_ONLY_THINGS}
+local function link(name, next)
+  roster.commands.add(name, {{ run = function()
+    roster.notify(name .. ": " .. tried())
+    local ok, err = pcall(roster.cmd, next)
+    if not ok then roster.notify(name .. ": " .. tostring(err)) end
+  end }})
+end
+link("a", "b")
+link("b", "c")
+link("c", "a")
+"#
+    );
+    let loaded = load(&host, "chain", &["serve:discover.start", "serve:mesh.cut"], &init);
+    let mut said = Vec::new();
+    let mut r = host.call("guarded", command(&loaded.ops, "a"), ARGS());
+    for _ in 0..5 {
+        ok(&r);
+        said.extend(notices(&r.ops));
+        match follow(&host, &loaded.ops, &r.ops, &["a", "b", "c"]) {
+            Some(next) => r = next,
+            None => break,
+        }
+    }
+    assert_eq!(
+        said,
+        [
+            format!("a: {ALLOWED}"),
+            format!("b: {ALLOWED}"),
+            format!("c: {REFUSED}"),
+            "c: roster.cmd: only while the user runs one of your actions, commands or finder items".to_string(),
+        ]
+    );
+}
+
+/// The replies the Plugin sends on its own, until `want` of them or 3 s.
+fn replies(rx: &Receiver<Reply>, want: usize) -> Vec<Reply> {
+    let mut out = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while out.len() < want {
+        let Ok(r) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) else {
+            break;
+        };
+        ok(&r);
+        out.push(r);
+    }
+    out
+}
+
+/// One hop in all, whichever way: a request's answer carrying the user's call can run a command
+/// line, but the Plugin's own command it names isn't the user's call; and a request made in a
+/// command `roster.cmd` ran doesn't carry the call to its answer.
+#[test]
+fn a_request_and_a_command_line_together_carry_the_users_call_one_hop() {
+    let serve = Arc::new(Recorded::default());
+    let (host, rx) = listening(&serve, Limits::default());
+    let init = format!(
+        r#"{USER_ONLY_THINGS}
+roster.commands.add("ask", {{ run = function()
+  roster.serve.request("mesh.status", {{}}, function()
+    roster.notify("answer: " .. tried())
+    pcall(roster.cmd, "next")
+  end)
+end }})
+roster.commands.add("next", {{ run = function() roster.notify("next: " .. tried()) end }})
+"#
+    );
+    let loaded = load(
+        &host,
+        "hops",
+        &["serve:mesh.status", "serve:discover.start", "serve:mesh.cut"],
+        &init,
+    );
+    let asked = host.call("guarded", command(&loaded.ops, "ask"), ARGS());
+    ok(&asked);
+    let answered = replies(&rx, 1);
+    assert_eq!(notices(&answered[0].ops), [format!("answer: {ALLOWED}")]);
+    assert_eq!(
+        op(&answered[0].ops, "cmd"),
+        &json!({ "op": "cmd", "line": "next", "user": false })
+    );
+    let next = follow(&host, &loaded.ops, &answered[0].ops, &["next"]).unwrap();
+    ok(&next);
+    assert_eq!(notices(&next.ops), [format!("next: {REFUSED}")]);
+    // Made in the user's own call, the line carries no mark: its command is the call carried.
+    let direct = host.call("guarded", command(&loaded.ops, "next"), ARGS());
+    assert_eq!(notices(&direct.ops), [format!("next: {ALLOWED}")]);
+    // A command roster.cmd ran is the hop: its request's answer isn't the user's call.
+    let carried = host.call_carried("guarded", command(&loaded.ops, "ask"), ARGS());
+    ok(&carried);
+    let answered = replies(&rx, 1);
+    assert_eq!(notices(&answered[0].ops), [format!("answer: {REFUSED}")]);
+    assert!(
+        answered[0].ops.iter().all(|o| o["op"] != "cmd"),
+        "{:?}",
+        answered[0].ops
+    );
+}

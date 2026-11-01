@@ -322,11 +322,25 @@ fn a_dropped_host_goes_into_the_folder() {
         drop,
         json!({ "section": "folders", "row": "Lab", "dropped": "esx-02" }),
     );
-    assert_eq!(op(&r, "cmd")[0]["line"], "folder add esx-02 Lab");
+    // Made in the user's own call (the drop), the line carries no mark (issue #183): the app
+    // runs `:folder` as that call carried one hop, so it may answer on the message line.
+    assert_eq!(
+        op(&r, "cmd")[0],
+        &json!({ "op": "cmd", "line": "folder add esx-02 Lab" })
+    );
     // On the section: the command line asks which Folder.
     let drop = section_drop;
     let r = h.call("folders", drop, json!({ "section": "folders", "dropped": "esx-02" }));
     assert_eq!(op(&r, "cmdline")[0]["text"], "folder add esx-02 ");
+    let folder_cmd = op(&first, "command")
+        .into_iter()
+        .find(|o| o["name"] == "folder")
+        .unwrap()["run"]["handler"]
+        .as_u64()
+        .unwrap();
+    let added = h.call_carried("folders", folder_cmd, args("add esx-02 Lab"));
+    assert_eq!(echoed(&added), "Added esx-02 to Lab");
+    assert_eq!(saved(&d), json!([{ "name": "Lab", "hosts": ["esx-02"] }]));
 }
 
 #[test]
