@@ -302,6 +302,8 @@ export class PluginManager {
   /** Each Session's lines as its terminal commits them (committed.ts), for terminal.read. */
   private readonly screens = new Map<number, { host: string | null; lines: CommittedLines; done: Promise<void> }>();
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The flush running, if any: the next waits for it (a Session's events stay in order). */
+  private flushing: Promise<void> = Promise.resolve();
   private started = false;
   /** What each built-in Plugin was last loaded with, so a change reloads it (`reloadBuiltin`). */
   private readonly builtinConfig = new Map<string, string>();
@@ -726,9 +728,19 @@ export class PluginManager {
     this.apply(reply);
   }
 
-  /** Tells the Plugins that listen. */
+  /** Tells the Plugins that listen. A Session that ended sends what it had first. */
   async event(name: PluginEventName, payload: Record<string, unknown> = {}): Promise<void> {
-    if (name === "session_exit" && typeof payload.session === "number") this.sessionGone(payload.session);
+    if (name === "session_exit" && typeof payload.session === "number") {
+      const session = payload.session;
+      const flushed = this.flushing.then(() => this.flushSession(session));
+      this.flushing = flushed.catch(() => {});
+      await flushed.catch(() => {});
+      this.sessionGone(session);
+    }
+    return this.send(name, payload);
+  }
+
+  private async send(name: PluginEventName, payload: Record<string, unknown>): Promise<void> {
     if (this.loaded.size === 0) return;
     const replies = await this.backend.pluginEvent(name, payload).catch(() => []);
     for (const r of replies) {
@@ -765,39 +777,35 @@ export class PluginManager {
     this.outputTimer ??= setTimeout(() => void this.flushOutput(), OUTPUT_EVERY_MS);
   }
 
-  /** The user typed into Session `session` (only that, never what): a running command's lines
-   * from here on aren't vouched for by its shell's marks (ticket 94). In order with its output. */
-  typed(session: number) {
-    const s = this.screens.get(session);
-    if (!s) return;
-    const { lines } = s;
-    s.done = s.done.then(() => lines.typed());
-  }
-
-  /** Sends the lines committed so far (tests call it rather than wait). */
-  async flushOutput(): Promise<void> {
+  /** Sends the lines committed so far (tests call it rather than wait). Flushes run one after
+   * another, so a Session's events never interleave. */
+  flushOutput(): Promise<void> {
     if (this.outputTimer) clearTimeout(this.outputTimer);
     this.outputTimer = null;
-    const screens = [...this.screens.entries()];
-    await Promise.all(screens.map(([, s]) => s.done));
-    // Each Session's output, one event per run of lines the marks vouch for alike, then the
-    // commands that ended in it (ticket 94: a marked shell's).
-    const sends = screens.map(async ([session, s]) => {
-      const runs = s.lines.takeRuns();
-      const done = s.lines.takeDone();
-      // Too much at once: the last whole lines that fit, in all the runs together.
-      let room = OUTPUT_MAX;
-      const kept: OutputRun[] = [];
-      for (let i = runs.length - 1; i >= 0 && room > 0; i--) {
-        const r = runs[i] as OutputRun;
-        const text = lastLines(r.text, room);
-        if (text) kept.unshift({ text, marks: r.marks });
-        room -= r.text.length;
-      }
-      for (const r of kept) await this.event("terminal_output", { session, host: s.host, text: r.text, marks: r.marks });
-      for (const d of done) await this.event("command_done", { session, host: s.host, ...d });
-    });
-    await Promise.all(sends);
+    const run = this.flushing.then(() => Promise.all([...this.screens.keys()].map((id) => this.flushSession(id)))).then(() => {});
+    this.flushing = run.catch(() => {});
+    return run;
+  }
+
+  /** Sends what Session `session` committed: each run of lines of one kind as a
+   * `terminal_output`, then the commands that ended in it (ticket 94: a marked shell's). */
+  private async flushSession(session: number): Promise<void> {
+    const s = this.screens.get(session);
+    if (!s) return;
+    await s.done;
+    const runs = s.lines.takeRuns();
+    const done = s.lines.takeDone();
+    // Too much at once: the last whole lines that fit, in all the runs together.
+    let room = OUTPUT_MAX;
+    const kept: OutputRun[] = [];
+    for (let i = runs.length - 1; i >= 0 && room > 0; i--) {
+      const r = runs[i] as OutputRun;
+      const text = lastLines(r.text, room);
+      if (text) kept.unshift({ text, kind: r.kind });
+      room -= r.text.length;
+    }
+    for (const r of kept) await this.send("terminal_output", { session, host: s.host, text: r.text, kind: r.kind });
+    for (const d of done) await this.send("command_done", { session, host: s.host, ...d });
   }
 
   /** A Session that ended takes its terminal with it. */

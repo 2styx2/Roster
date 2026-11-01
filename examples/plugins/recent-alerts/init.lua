@@ -243,10 +243,11 @@ if reads then
     local fresh = {}
     for _, raw in ipairs(lines) do
       local whole = raw:gsub("^%s+", ""):gsub("%s+$", "")
-      -- Matched on the whole line, shown cut. Where a shell's OSC 133 marks vouch for the lines
-      -- (`e.marks`), they're a command's output; elsewhere a line that looks like your own command
-      -- echoed after a prompt isn't one (a guess).
-      local echoed = not e.marks and match.prompt(whole)
+      -- Matched on the whole line, shown cut. A shell's OSC 133 marks may say a line is its prompt
+      -- or what was typed at it (`e.kind`): never an alert. Otherwise, a line that looks like your
+      -- own command echoed after a prompt isn't one (a guess: an ssh in a command's output may be
+      -- echoing you).
+      local echoed = e.kind == "prompt" or e.kind == "input" or match.prompt(whole)
       local pattern = whole ~= "" and not echoed and match.first(whole, settings.patterns)
       local line = match.tidy(whole)
       if pattern then

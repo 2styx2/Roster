@@ -3714,7 +3714,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "TerminalOutputEvent",
         summary: "`terminal_output`'s payload",
-        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints, unless the shell writes OSC 133 marks (`marks`).",
+        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints (a shell with OSC 133 marks labels that line `kind = \"input\"`).",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),
@@ -3725,9 +3725,9 @@ pub const TYPES: &[Type] = &[
                 "The lines it finished since the last one, each ending in `\\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.",
             ),
             o(
-                "marks",
-                "boolean",
-                "`true` when the Session's shell writes OSC 133 marks and every line in `text` is a command's output as they place it: no prompt, no command line (that comes in `command_done`, once it runs), and nothing typed into the Session since the command started (a running `ssh` or nested shell may echo what you type, which the marks can't tell apart). `false` (or `nil` before api 4) otherwise: a shell without marks, a prompt's other lines, or a command you typed into; then the shell's echo of what you typed may be in `text` like any output. One batch with lines of both kinds comes as two events, in order.",
+                "kind",
+                "string",
+                "What the Session's shell's OSC 133 marks say these lines are (since api 4): `\"prompt\"` (a few lines after its prompt starts), `\"input\"` (the line typed at the prompt: the shell's echo of your command), `\"output\"` (what a command printed), or `nil` (no marks, or nothing they say). All the lines in `text` are of one kind; a batch of several kinds comes as several events, in order. A hint, not a guarantee: the marks come from the Host and anything it prints can forge them, and an `\"output\"` line may be an `ssh` or nested shell echoing what you type. Every line is sent whatever its kind.",
             ),
         ],
         open: false,
@@ -3735,7 +3735,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "CommandDoneEvent",
         summary: "`command_done`'s payload",
-        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. Never what's typed: the command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased never comes, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't. A command a nested shell with marks took over (`ssh` to a Host with integration) has none: its end can't be told from the nested shell's; the nested shell's own commands do.",
+        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. The command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased is never one, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't be. The marks come from the Host, so this is its word: a hint. A command a nested shell with marks took over (`ssh` to a Host with integration) has none, since its end can't be told from the nested shell's; nor does `exit` or `logout`, since a shell that exits sends no end mark for it.",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),

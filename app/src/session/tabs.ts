@@ -97,8 +97,6 @@ type Sink = (data: Uint8Array) => void;
 /** Where Plugins hear the Sessions (setOutputTap): their output, with the size its PTY has. */
 export interface OutputTap {
   output(id: number, host: string | null, data: Uint8Array, size: TermSize): void;
-  /** Something was typed into the Session: only that it was, never what (ticket 94). */
-  typed?(id: number): void;
 }
 
 export interface TerminalWiring {
@@ -708,7 +706,6 @@ export class Tabs {
   write(id: number, data: string) {
     const entry = this.find(id);
     if (!entry) return;
-    this.outputTap?.typed?.(id);
     if (entry.session) void entry.session.write(data).catch(() => {});
     else if (entry.tab.status.state === "connecting") entry.pending.push(data);
   }

@@ -560,7 +560,7 @@ function Workspace({
   useEffect(() => registries.commands.register(packagesCommand(plugins, () => openPackages.current())), [registries, plugins]);
   useEffect(() => registries.commands.register(cancelCommand(plugins)), [registries, plugins]);
   useEffect(() => {
-    tabs.setOutputTap({ output: (id, host, data, size) => plugins.output(id, host, data, size), typed: (id) => plugins.typed(id) });
+    tabs.setOutputTap({ output: (id, host, data, size) => plugins.output(id, host, data, size) });
     return () => tabs.setOutputTap(null);
   }, [tabs, plugins]);
   // `:tutor` (ticket 55): on the demo Inventory, what happens is fed to the tutorial running, whose

@@ -99,8 +99,8 @@ end
 -- Whether `line` looks like a shell prompt and what was typed after it ("esx-02$ grep ERROR …",
 -- "root@esx-02:~# …", "[admin@appliance logs]$ …", "$ …", "PS C:\logs> …"): the shell's echo of
 -- your own command, not something the server said. A guess: a log line that happens to start the
--- same way is skipped too. Only for a shell without OSC 133 marks: with them, roster leaves the
--- prompt and the command line out of terminal_output itself (the event's `marks`).
+-- same way is skipped too. A line a shell's OSC 133 marks call "prompt" or "input" (the event's
+-- `kind`) is skipped whatever it looks like.
 function M.prompt(line)
   return line:find("^%S+[%$#] ") ~= nil
     or line:find("^%[[^%]]*%][%$#] ") ~= nil

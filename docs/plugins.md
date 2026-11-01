@@ -272,7 +272,7 @@ A tutorial (`roster.tutor.set`) runs on the demo Inventory, where your Plugin is
 
 A shell can say where its prompt, the command line and each command's output start, and how the command ended, with **OSC 133** marks: escape sequences it prints, which terminals such as VS Code's, WezTerm and Windows Terminal read too. roster reads them from what the Session prints (never shown, never sent as text) and, for a Session whose shell writes them, it:
 
-- leaves the command line typed at each prompt out of `terminal_output`, and says which lines the marks vouch for: `marks` is `true` for a command's output, until you type into the running command (a `ssh` or a nested shell may be echoing you then, and the marks can't tell). A Plugin needn't guess which line is your own command echoed back where `marks` is `true` (recent-alerts guesses only where it isn't);
+- says what each line of `terminal_output` is, as the marks put it: `kind` is `"prompt"` (a few lines after the prompt starts), `"input"` (the line typed at the prompt, the shell's echo of your command), `"output"` (what a command printed), or `nil` (no marks, or nothing they say). Lines of one kind come together, so a batch with several kinds is several events, in order. **Every line is still sent**: the marks only label lines, and a Plugin filters if it wants (recent-alerts skips `prompt` and `input` lines);
 - sends [`command_done`](plugin-api.md#commanddoneevent) (`terminal.read`, since api 4) when a command ends, after the `terminal_output` with its last lines: `{ session, host, command, output, code }`, the command line as the shell showed it, what it printed (its last 16 KB) and its exit code. So a Plugin can react to a finished command (`code ~= 0`, a deploy that printed `done`) without cutting the output into commands itself.
 
 ```lua
@@ -283,11 +283,13 @@ roster.on("command_done", function(e)
 end)
 ```
 
-**It never carries what you type.** The command line is read off the screen when the shell runs it (the `C` mark), so a line you erase, or give up with Ctrl-C, never reaches a Plugin, and anything typed at the prompt before then (a password pasted by mistake and deleted) isn't in `terminal_output` either. What the screen doesn't show (a password at a `sudo` or `ssh` prompt, which doesn't echo) can't be in either event. A shell without marks is read as before: its echo of each command is in `terminal_output`, and there's no `command_done`.
+**The marks are a hint, not a guarantee.** They come from the Host, in its output, so anything the Host prints can forge or lose them (a `cat` of a file with them in it, a shell that marks prompts but never says a command ran). So roster never holds back or drops a line for them, and `kind` is advice: an `"output"` line may be an `ssh` or a nested shell echoing what you type into it, which the outer shell's marks can't tell apart. A shell without marks is read as before: no `kind`, and no `command_done`.
 
-**roster only reads.** It never writes to a Session for this: no hooks put into a Host's shell, no keystrokes or escape sequences sent. You turn marks on in the shell on the Host (its own rc file, below), the way you'd set its prompt. The marks come from the Host, as its output does, so a Host can mislabel only its own output; it can't make roster send what you typed. **What's typed at a prompt is held back until the command runs**, and held rows can't swallow output: more than 20 rows held at one prompt, or dropped from prompts given up since the last command ran, and roster stops believing the marks, sends what it holds and everything after as it would with no marks, until a prompt is followed by a `C` again. So a shell that marks prompts but never says `C` loses at most 20 rows, once. (A Host can always keep output from Plugins another way, by drawing it on the alternate screen or rewriting a line before its line feed.)
+**What's typed.** `command` is read off the screen when the shell runs the command (the `C` mark), so a line you erase, or give up with Ctrl-C, is never a `command_done`. What the screen doesn't show (a password at a `sudo` or `ssh` prompt, which doesn't echo) is in neither event. A shell's echo of what you type is in `terminal_output` as it always was, now labelled `"input"`.
 
-A nested shell with marks (`ssh` from a marked shell to a Host with integration) takes over: its commands come as `command_done`, and the `ssh` itself gets none, since its end can't be told from the nested shell's.
+**roster only reads.** It never writes to a Session for this: no hooks put into a Host's shell, no keystrokes or escape sequences sent. You turn marks on in the shell on the Host (its own rc file, below), the way you'd set its prompt.
+
+**When there's no `command_done`.** A nested shell with marks (`ssh` from a marked shell to a Host with integration) takes over: its commands come as `command_done`, and the `ssh` itself gets none, since its end can't be told from the nested shell's. Nor does `exit` or `logout`: a shell that exits sends no end mark for it, so the one that follows is another shell's. A `D` with no `C` (an empty line, Ctrl-C) isn't a command.
 
 **Setting it up.** Put the snippet for the Host's shell at the **end** of its rc file (after a theme or framework sets the prompt), then open a new Session. A prompt tool or framework that writes OSC 133 marks already needs nothing. If `command` comes as `nil`, the shell isn't sending the `B` mark.
 
@@ -318,16 +320,19 @@ fish, in `~/.config/fish/config.fish` (fish 4 writes some of these marks itself;
 
 ```fish
 if status is-interactive
-    functions -c fish_prompt __osc133_prompt
+    function __osc133_prompt --on-event fish_prompt
+        printf '\e]133;A\a'
+    end
+    functions -c fish_prompt __osc133_fish_prompt
     function fish_prompt
-        __osc133_prompt
+        __osc133_fish_prompt
         printf '\e]133;B\a'
     end
     function __osc133_run --on-event fish_preexec
         printf '\e]133;C\a'
     end
     function __osc133_done --on-event fish_postexec
-        printf '\e]133;D;%s\a\e]133;A\a' $status
+        printf '\e]133;D;%s\a' $status
     end
 end
 ```

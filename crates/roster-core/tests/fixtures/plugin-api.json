@@ -3270,9 +3270,9 @@
           "type": "string"
         },
         {
-          "name": "marks",
+          "name": "kind",
           "required": false,
-          "type": "boolean"
+          "type": "string"
         }
       ],
       "open": false
