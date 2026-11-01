@@ -34,17 +34,26 @@ WEB_ORDER = ((443, "https"), (8443, "https"), (9443, "https"), (80, "http"), (80
 
 
 def nmap_scan(targets, args):
-    cmd = ["nmap", "-oX", "-", "-T4", "--open", "-sV", "--version-light", "--script", "http-title"]
+    """nmap over TARGETS: one run per address family (nmap takes IPv6 targets only with -6, and then no IPv4 ones)."""
+    v6 = [t for t in targets if ":" in t]
+    v4 = [t for t in targets if ":" not in t]
+    return (nmap_run(v4, args) if v4 else []) + (nmap_run(v6, args, ["-6"]) if v6 else [])
+
+
+def nmap_run(targets, args, family=()):
+    # no --open, so a Host that answered with none of the ports open is counted (quiet); with -Pn every address
+    # counts as up, so there it's left out (--open)
+    cmd = [shutil.which("nmap") or "nmap", "-oX", "-", "-T4", "-sV", "--version-light", "--script", "http-title"]
     cmd += ["--top-ports", str(args.top_ports)] if args.top_ports else ["-p", args.ports]
     if args.no_ping:
-        cmd.append("-Pn")
+        cmd += ["-Pn", "--open"]
     if args.os:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             cmd.append("-O")
         else:
             say("note         --os needs root (sudo); skipping OS detection")
-    cmd += targets
-    say(f"nmap         {' '.join(cmd)}")
+    cmd += [*family, *targets]
+    say(f"nmap         {' '.join(['nmap', *cmd[1:]])}")
     say("             (this can take a few minutes on a big network)")
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
@@ -99,6 +108,13 @@ def parse_nmap_xml(text):
     return found
 
 
+def address_order(address):
+    """A sort key for addresses of both families (IPv4 ones first): ip_address alone can't compare an IPv4 address
+    with an IPv6 one."""
+    ip = ipaddress.ip_address(address)
+    return ip.version, ip
+
+
 def addresses_of(targets):
     """The addresses a scan of TARGETS visits: each network's hosts (not its network or broadcast address)."""
     nets = [ipaddress.ip_network(t, strict=False) for t in targets]
@@ -150,7 +166,7 @@ def builtin_scan(targets, args):
         "(install nmap for service versions and web page titles)")
     open_ports = open_ports_of(ips, ports, args.timeout)
     with cf.ThreadPoolExecutor(64) as ex:
-        return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=ipaddress.ip_address)))
+        return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=address_order)))
 
 
 def guess_identity(rec):
@@ -253,13 +269,15 @@ def render_group(group, entries, note, needs_user, indent):
 
 def cmd_discover(args):
     import datetime
-    targets = args.targets
-    total = 0
-    for t in targets:
+    nets = []
+    for t in args.targets:
         try:
-            total += ipaddress.ip_network(t, strict=False).num_addresses
+            nets.append(ipaddress.ip_network(t, strict=False))
         except ValueError:
             die(f"{t!r} isn't an IP address or network (e.g. 10.0.1.0/24)")
+    nets = distinct(nets)                       # an address in two targets is scanned (and written) once
+    targets = [str(n) for n in nets]
+    total = sum(n.num_addresses for n in nets)
     if total > 4096 and not args.force:
         die(f"that's {total} addresses; narrow it down or pass --force")
 
@@ -286,7 +304,7 @@ def cmd_discover(args):
     found = [r for r in found if r["ports"]]
     already = [r for r in found if r["ip"] in known_ips]
     new = [r for r in found if r["ip"] not in known_ips]
-    new.sort(key=lambda r: ipaddress.ip_address(r["ip"]))
+    new.sort(key=lambda r: address_order(r["ip"]))
     today = datetime.date.today().isoformat()
     entries = [scan_entry(r, taken, today) for r in new]
     say(f"\nfound        {len(found)} hosts with open ports: {len(new)} new, {len(already)} already in roster.yml"
@@ -392,9 +410,29 @@ def address_count(net):
     return n - 2 if net.version == 4 else n - 1
 
 
+def covers(m, n):
+    """True when network M visits every address network N does (addresses_of): N inside M, and not one of the
+    addresses M skips (its network address, and an IPv4 one's broadcast address) named on its own."""
+    if n.version != m.version or not n.subnet_of(m):
+        return False
+    if m.num_addresses <= 2 or n.num_addresses > 2:
+        return True
+    skipped = {m.network_address} | ({m.broadcast_address} if m.version == 4 else set())
+    return not any(ip in skipped for ip in n)
+
+
+def distinct(nets):
+    """NETS without those another one covers, so an address in two of them is visited (and found) once."""
+    kept = []
+    for n in nets:
+        if not any(covers(k, n) for k in kept):
+            kept = [k for k in kept if not covers(n, k)] + [n]
+    return kept
+
+
 def check_targets(targets, force=False):
-    """TARGETS (a list of networks or addresses) normalised, and how many addresses they hold. ValueError if one
-    isn't a network; TooMany past LIMIT (MAX with FORCE)."""
+    """TARGETS (a list of networks or addresses) normalised, without those another one covers, and how many
+    addresses they hold. ValueError if one isn't a network; TooMany past LIMIT (MAX with FORCE)."""
     if not isinstance(targets, list) or not targets or not all(isinstance(t, str) and t.strip() for t in targets):
         raise ValueError("targets must be a list of networks or addresses, such as [\"10.0.0.0/24\"]")
     nets = []
@@ -403,6 +441,7 @@ def check_targets(targets, force=False):
             nets.append(ipaddress.ip_network(t.strip(), strict=False))
         except ValueError:
             raise ValueError(f"{t!r} isn't an IP address or network (e.g. 10.0.0.0/24)") from None
+    nets = distinct(nets)
     count = sum(address_count(n) for n in nets)
     if count > (MAX if force else LIMIT):
         raise TooMany(count, MAX if force else LIMIT)
@@ -422,6 +461,13 @@ def check_ports(ports):
 def scanner():
     """"nmap" when it's installed, else roster's own "built-in" TCP connect scanner."""
     return "nmap" if shutil.which("nmap") else "built-in"
+
+
+def batches(ips, step):
+    """IPS STEP at a time, each batch of one family: nmap scans IPv6 addresses only with -6, and then no IPv4 ones."""
+    for family in (4, 6):
+        some = [ip for ip in ips if (":" in ip) == (family == 6)]
+        yield from (some[i:i + step] for i in range(0, len(some), step))
 
 
 class ScanFailed(Exception):
@@ -455,18 +501,17 @@ class Scan(threading.Thread):
 
     def run(self):
         try:
-            ips = addresses_of(self.targets)
             step = BATCH[self.kind]
-            for i in range(0, len(ips), step):
+            for batch in batches(addresses_of(self.targets), step):
                 if self.halt.is_set():
                     break
-                batch = ips[i:i + step]
                 recs = self.nmap(batch) if self.kind == "nmap" else self.builtin(batch)
                 if self.halt.is_set():
                     break
-                with self.lock:
-                    for rec in sorted(recs, key=lambda r: ipaddress.ip_address(r["ip"])):
-                        self.add(rec)
+                made = [self.record(rec) for rec in sorted(recs, key=lambda r: address_order(r["ip"]))]
+                with self.lock:                 # held only to hand them over: discover.status waits on it
+                    self.found += [x for x in made if x]
+                    self.quiet += made.count(None)
                     self.done += len(batch)
         except ScanFailed as e:
             self.error = str(e)
@@ -478,8 +523,9 @@ class Scan(threading.Thread):
             self.state = "failed" if self.error else "stopped" if self.halt.is_set() else "done"
 
     def nmap(self, batch):
-        cmd = [shutil.which("nmap") or "nmap", "-oX", "-", "-T4", "--open", "-sV", "--version-light", "--script", "http-title",
-               "-p", self.ports, *batch]
+        # no --open: it only leaves out of the output the Hosts that answered with none of the ports open (quiet)
+        cmd = [shutil.which("nmap") or "nmap", "-oX", "-", "-T4", "-sV", "--version-light", "--script", "http-title",
+               "-p", self.ports, *(["-6"] if ":" in batch[0] else []), *batch]
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if self.halt.is_set():
             self.proc.kill()
@@ -493,28 +539,28 @@ class Scan(threading.Thread):
     def builtin(self, batch):
         ports = [int(p) for p in self.ports.split(",")]
         open_ports = open_ports_of(batch, ports, self.timeout)
-        return [describe(ip, open_ports[ip]) for ip in sorted(open_ports, key=ipaddress.ip_address)]
+        with cf.ThreadPoolExecutor(64) as ex:          # each Host's reverse DNS and SSH banner (2 s) at once
+            return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=address_order)))
 
-    def add(self, rec):
+    def record(self, rec):
+        """(rec, the result's record) for a Host found, or None for one with none of the ports open (quiet). Only
+        the scan's thread calls it (self.taken)."""
         if not rec["ports"]:
-            self.quiet += 1
-            return
+            return None
         known = self.known.get(rec["ip"])
-        kind, _ = guess_identity(rec)
+        base, entry = scan_entry(rec, set(), self.today)
         name = None
         if known is None:
-            name, _ = scan_entry(rec, set(), self.today)
-            name = unique(name, self.taken)
+            name = unique(base, self.taken)
             self.taken.add(name)
-        title = next((p["title"] for p in rec["ports"] if p["title"]), "")
-        entry = scan_entry(rec, set(), self.today)[1]
-        self.found.append((rec, {
-            "address": rec["ip"], "name": name, "type": kind, "hostname": rec["hostname"], "title": title,
+        return (rec, {
+            "address": rec["ip"], "name": name, "type": entry["type"], "hostname": rec["hostname"],
+            "title": entry["title"],
             "web": entry.get("web"), "known": known, "added": None, "vendor": rec["vendor"], "os": rec["os"],
             "mac": rec["mac"],
             "ports": [{"port": p["port"], "name": p["name"], "product": p["product"], "title": p["title"]}
                       for p in rec["ports"]],
-        }))
+        })
 
     # -- what serve asks
 
@@ -542,7 +588,7 @@ class Scan(threading.Thread):
         bad = [a for a in addresses if a not in by or by[a][1]["known"] or by[a][1]["added"]]
         if bad:
             raise ValueError(bad)
-        return [by[a] for a in sorted(set(addresses), key=ipaddress.ip_address)]
+        return [by[a] for a in sorted(set(addresses), key=address_order)]
 
     def mark_added(self, names):
         """NAMES: {address: the name it was added as}."""

@@ -195,3 +195,88 @@ def test_the_builtin_scanner_when_nmap_isnt_installed(monkeypatch):
     assert r["state"] == "done" and r["done"] == 254
     assert [(f["address"], [p["port"] for p in f["ports"]]) for f in r["found"]] == [("10.0.0.7", [443]),
                                                                                    ("10.0.0.9", [22])]
+
+
+def no_network(monkeypatch, open_, banner_wait=0):
+    """Stand-ins for the built-in scanner (OPEN_: {(address, port)}): nothing connects. Reading a banner takes
+    BANNER_WAIT seconds, then fails."""
+    import time
+    monkeypatch.setattr(discover, "tcp_ok", lambda ip, port, timeout=None: (ip, port) in open_)
+    monkeypatch.setattr(discover.socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(discover.socket, "create_connection",
+                        lambda *a, **k: time.sleep(banner_wait) or (_ for _ in ()).throw(OSError()))
+
+
+def builtin_scan_of(monkeypatch, targets, open_):
+    """A built-in scan of TARGETS that's over."""
+    no_network(monkeypatch, open_)
+    scan = discover.Scan("s1", discover.check_targets(targets)[0], "22,443", "built-in", {}, set())
+    scan.run()
+    return scan
+
+
+def test_a_scan_of_ipv4_and_ipv6_together_sorts_its_addresses(monkeypatch):
+    # review 8 #3: IPv4 and IPv6 addresses don't compare, so sorting them together raised TypeError
+    scan = builtin_scan_of(monkeypatch, ["10.0.0.0/30", "fd00::/126"], {("10.0.0.2", 22), ("fd00::2", 22)})
+    r = scan.status()
+    assert r["state"] == "done" and r["error"] is None
+    assert [f["address"] for f in r["found"]] == ["10.0.0.2", "fd00::2"]
+    assert [rec["ip"] for rec, _ in scan.picked(["fd00::2", "10.0.0.2"])] == ["10.0.0.2", "fd00::2"]
+
+
+def test_nmap_scans_ipv6_targets_with_minus_6_and_each_family_on_its_own(serve, net, inventory, isolated):
+    # review 8 #2: nmap takes an IPv6 target only with -6 (and then no IPv4 one); without it the scan found nothing
+    (net / "v6").mkdir()
+    (net / "v6/address").write_text("fd00::7")
+    (net / "v6/ports").write_text("22 ssh OpenSSH 9.6\n")
+    s = serve("-c", str(inventory))
+    r = finished(s, s.call("discover.start", {"targets": ["fd00::/124", "10.0.0.0/28"]})["result"]["scan"])
+    assert r["state"] == "done" and r["done"] == r["total"] == 15 + 14
+    assert [f["address"] for f in r["found"]] == ["10.0.0.5", "10.0.0.7", "10.0.0.9", "fd00::7"]
+    runs = (isolated["home"].parent / "log").read_text().splitlines()
+    assert all(("-6" in run.split()) == (":" in run.split()[-1]) for run in runs)   # never both families at once
+
+
+def test_overlapping_targets_visit_each_address_once(serve, net, inventory):
+    # review 8 #5: an address in two targets was scanned twice, found twice under two names, and counted twice
+    s = serve("-c", str(inventory))
+    plan = s.call("discover.plan", {"targets": ["10.0.0.0/28", "10.0.0.0/24", "10.0.0.7", "10.0.0.0/24"]})["result"]
+    assert plan["targets"] == ["10.0.0.0/24"] and plan["addresses"] == 254
+    r = finished(s, s.call("discover.start", {"targets": ["10.0.0.7", "10.0.0.0/28"]})["result"]["scan"])
+    assert r["targets"] == ["10.0.0.0/28"] and r["done"] == r["total"] == 14
+    assert [f["address"] for f in r["found"]] == ["10.0.0.5", "10.0.0.7", "10.0.0.9"]
+
+
+def test_a_network_or_broadcast_address_named_on_its_own_is_kept():
+    # a /24 doesn't visit its network and broadcast addresses, so naming one as well isn't a duplicate
+    assert discover.check_targets(["10.0.0.0/24", "10.0.0.255", "10.0.0.8/29"]) == (["10.0.0.0/24", "10.0.0.255"], 255)
+
+
+def test_quiet_counts_the_hosts_that_answered_with_none_of_the_ports_open(serve, net, inventory):
+    # review 8 #6: nmap ran with --open, which leaves such a Host out of its output, so quiet was always 0
+    (net / "printer").mkdir()
+    (net / "printer/address").write_text("10.0.0.11")
+    (net / "printer/ports").write_text("9100 jetdirect\n")
+    s = serve("-c", str(inventory))
+    r = finished(s, s.call("discover.start", {"targets": ["10.0.0.0/28"], "ports": "22,443"})["result"]["scan"])
+    assert r["quiet"] == 1 and [f["address"] for f in r["found"]] == ["10.0.0.5", "10.0.0.7", "10.0.0.9"]
+
+
+def test_the_builtin_scanner_reads_its_hosts_banners_at_once_not_one_by_one(monkeypatch):
+    # review 8 #8: each Host found took its reverse DNS and up to 2 s for its SSH banner in turn, so a batch of 64
+    # took minutes, and a stop waited for it
+    import time
+    no_network(monkeypatch, {(f"10.0.0.{i}", 22) for i in range(1, 21)}, banner_wait=0.2)
+    t = time.monotonic()
+    scan = discover.Scan("s2", ["10.0.0.0/27"], "22", "built-in", {}, set())
+    scan.run()
+    assert scan.status()["count"] == 20 and time.monotonic() - t < 2          # one by one: 20 x 0.2 s = 4 s
+
+
+def test_a_scan_works_out_each_hosts_entry_once(monkeypatch):
+    # review 8 #9: each Host found was guessed at three times (scan_entry twice, guess_identity once more)
+    calls = []
+    guess = discover.guess_identity
+    monkeypatch.setattr(discover, "guess_identity", lambda rec: calls.append(rec["ip"]) or guess(rec))
+    scan = builtin_scan_of(monkeypatch, ["10.0.0.0/28"], {("10.0.0.7", 443), ("10.0.0.9", 22)})
+    assert scan.status()["count"] == 2 and calls == ["10.0.0.7", "10.0.0.9"]

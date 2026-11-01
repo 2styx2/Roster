@@ -6,8 +6,10 @@
 #   DIR/NAME/hostname   its reverse-DNS name
 #   DIR/NAME/title      the web page title nmap's http-title script would read
 #   DIR/NAME/down       it doesn't answer
-# Only ports in `-p LIST` are reported, as nmap does. FAKE_NMAP_DELAY=SECS waits that long before answering (a scan to
-# stop), FAKE_NMAP_FAIL=TEXT exits 1 with TEXT on stderr, and FAKE_LOG=FILE gets a line per run: "nmap ARGS".
+# Only ports in `-p LIST` are reported, as nmap does, and IPv6 targets only with -6 (then no IPv4 ones). A Host
+# with none of them open is up with no ports, or (--open) left out.
+# FAKE_NMAP_DELAY=SECS waits that long before answering (a scan to stop), FAKE_NMAP_FAIL=TEXT exits 1 with TEXT on
+# stderr, and FAKE_LOG=FILE gets a line per run: "nmap ARGS".
 import ipaddress, os, sys, time
 from xml.sax.saxutils import quoteattr
 
@@ -21,12 +23,18 @@ time.sleep(float(os.environ.get("FAKE_NMAP_DELAY") or 0))
 ports = None
 if "-p" in args:
     ports = {int(p) for p in args[args.index("-p") + 1].split(",") if p.strip()}
+# As nmap does: an IPv6 target only with -6, and then no IPv4 one ("Failed to resolve"; the rest are scanned)
+family = 6 if "-6" in args else 4
 targets = []
 for a in args:
     try:
-        targets.append(ipaddress.ip_network(a, strict=False))
+        t = ipaddress.ip_network(a, strict=False)
     except ValueError:
-        pass
+        continue
+    if t.version == family:
+        targets.append(t)
+    else:
+        print(f'Failed to resolve "{a}".', file=sys.stderr)
 
 
 def read(d, name):
@@ -41,10 +49,13 @@ for name in sorted(os.listdir(root)) if root and os.path.isdir(root) else []:
     address = read(d, "address")
     if not address or os.path.exists(os.path.join(d, "down")):
         continue
-    if not any(ipaddress.ip_address(address) in t for t in targets):
+    if not any(ipaddress.ip_address(address) in t for t in targets if t.version == ipaddress.ip_address(address).version):
         continue
+    shown = [line for line in read(d, "ports").splitlines() if ports is None or int(line.split()[0]) in ports]
+    if "--open" in args and not shown:
+        continue                                # --open: a Host without an open port isn't in the output at all
     out.append('  <host><status state="up"/>')
-    out.append(f'    <address addr={quoteattr(address)} addrtype="ipv4"/>')
+    out.append(f'    <address addr={quoteattr(address)} addrtype="ipv{family}"/>')
     if read(d, "hostname"):
         out.append(f'    <hostnames><hostname name={quoteattr(read(d, "hostname"))} type="PTR"/></hostnames>')
     out.append("    <ports>")
