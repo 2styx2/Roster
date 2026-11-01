@@ -544,7 +544,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.echo",
         params: &[p("text", "string", "What to say, on one line.")],
         summary: "Answers on the message line, as roster's own commands do",
-        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level) for anything else.",
+        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.",
         returns: ("", ""),
         errors: &[(
             "roster.echo: only while the user runs one of your actions, commands or finder items",

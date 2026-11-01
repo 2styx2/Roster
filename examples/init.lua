@@ -79,6 +79,23 @@ return {
     -- hints = false,
   },
 
+  -- Panels and views -------------------------------------------------------------------------
+  -- Every panel (help, Host details, the forms, :plugins) and every Plugin view can be docked
+  -- beside the terminal at any width, or full window: ␣ z, ␣ < and ␣ >, its header's button,
+  -- or a drag of its edge. What you choose is remembered per panel and wins over these defaults;
+  -- :panel reset forgets it.
+  panel = {
+    -- A docked panel's width, in percent of the window (10 to 95). Unset: each panel's own.
+    -- width = 35,
+  },
+  -- Per panel or view id: where it starts ("panel" or "full") and its docked width. Built-in
+  -- ids: help, details, edit, add, save, changes, plugins, packages, keys, check; a Plugin's
+  -- view by its id (:view lists them).
+  views = {
+    -- topology = { place = "panel", width = 60 },
+    -- help = { place = "full" },
+  },
+
   -- The terminal ------------------------------------------------------------------------------
   terminal = {
     -- Font families, most wanted first: the first one installed is used, and the bundled

@@ -221,7 +221,7 @@ What can go wrong is in [A Plugin's files](app/errors.md#a-plugins-files). The b
 
 | Area | Functions | Permission |
 |---|---|---|
-| The Plugin and the app | [`roster.plugin`](plugin-api.md#rosterplugin), [`roster.api_version`](plugin-api.md#rosterapi_version), [`roster.os`](plugin-api.md#rosteros), [`roster.has`](plugin-api.md#rosterhaspermission), [`roster.notify`](plugin-api.md#rosternotifytext-level), [`roster.on`](plugin-api.md#rosteronevent-listener) | none |
+| The Plugin and the app | [`roster.plugin`](plugin-api.md#rosterplugin), [`roster.api_version`](plugin-api.md#rosterapi_version), [`roster.os`](plugin-api.md#rosteros), [`roster.has`](plugin-api.md#rosterhaspermission), [`roster.notify`](plugin-api.md#rosternotifytext-level-opts), [`roster.on`](plugin-api.md#rosteronevent-listener) | none |
 | Timers | [`roster.defer`](plugin-api.md#rosterdeferms-fn), [`roster.every`](plugin-api.md#rostereveryms-fn), [`roster.cancel`](plugin-api.md#rostercanceltimer) | none |
 | Commands and keys | [`roster.commands`](plugin-api.md#rostercommands), [`roster.keymap`](plugin-api.md#rosterkeymap) | none |
 | What the app draws for you | [`roster.sidebar`](plugin-api.md#rostersidebar), [`roster.status`](plugin-api.md#rosterstatus), [`roster.toolbar`](plugin-api.md#rostertoolbar), [`roster.finders`](plugin-api.md#rosterfinders), [`roster.badges`](plugin-api.md#rosterbadges), [`roster.float`](plugin-api.md#rosterfloat), [`roster.views`](plugin-api.md#rosterviews), [`roster.details`](plugin-api.md#rosterdetails), [`roster.progress`](plugin-api.md#rosterprogress), [`roster.themes`](plugin-api.md#rosterthemes) | none |
@@ -276,7 +276,7 @@ Each line is a [`HealthCheck`](plugin-api.md#healthcheck): `ok`, `warn` or `erro
 
 ## Views, tables and Host-details sections
 
-A **view** is a side panel beside the terminal (`place = "panel"`, over it in Focus or a narrow window) or a full view over the whole window (`place = "full"`, as Topology is). It holds a few lines of text, facts (label and value, as a Host's details show them) and a table, top to bottom. `roster.views.set` adds it; it opens with `:view ID`, a key you bind to `view ID`, the `views` finder (`:view` alone), or `roster.views.open` in one of your actions or commands, never on its own at load or on an event. `Esc` closes it and puts the user back where they were. One view is open at a time.
+A **view** is a side panel beside the terminal (`place = "panel"`, over it in Focus or a narrow window) or a full view over the whole window (`place = "full"`, as Topology is). **`place` is only where it opens first:** the user can make any view full window or dock it, and widen or narrow it (`␣ z`, `␣ <`, `␣ >`, its header's button, a drag of its edge), and that choice, kept in their State, and init.lua's `views.ID` win over yours ([Panels](app/keyboard.md#panels-docked-or-full-window)). So draw for both: a table or a graph takes whatever width it gets, and a narrow table scrolls sideways. It holds a few lines of text, facts (label and value, as a Host's details show them) and a table, top to bottom. `roster.views.set` adds it; it opens with `:view ID`, a key you bind to `view ID`, the `views` finder (`:view` alone), or `roster.views.open` in one of your actions or commands, never on its own at load or on an event. `Esc` closes it and puts the user back where they were. One view is open at a time.
 
 A **table**'s rows are plain data: an `id`, the `cells` by column, and optionally the `host` it's about and a `tone` (`"muted"`, `"warn"`, `"error"`). What a row can do belongs to the table: `open` for `Enter`, and `actions`, each with a one-letter `key` and a button on the selected row. A function there gets the row it ran on (`e.row`, `e.host`, `e.view`). The app sorts it (`s`, `S`, a heading's click), moves with `j`/`k`, `g g`/`G` and `Ctrl+D`/`Ctrl+U`, keeps the selection on its row, and draws only the rows on screen, so thousands stay smooth.
 
@@ -312,9 +312,27 @@ local function arrived(host)
 end
 ```
 
-`roster.views.update` replaces a row whose `id` is there already where it stands, adds new ones at the end, takes away the ids in `remove`, and leaves the rest alone, so a scan doesn't send its whole table each time (a table holds up to 10,000 rows). It's plain data only: the table's functions stay those `roster.views.set` gave. Setting the view again replaces it all.
+`roster.views.update` replaces a row whose `id` is there already where it stands, adds new ones at the end, takes away the ids in `remove`, and leaves the rest alone, so a scan doesn't send its whole table each time (a table holds up to 10,000 rows). `clear = true` takes every row away first, in one go (a new scan), and the update's `rows` fill the table again. It's plain data only: the table's functions stay those `roster.views.set` gave. Setting the view again replaces it all.
 
 A **Host-details section** is the same text, facts and table in one Host's details (`:info HOST`), after roster's own, with your Plugin's name on it. Set it per Host, as a badge: `roster.details.set("mesh", "esx-02", { title = "Mesh", facts = { { label = "reach", value = "can reach 7 Hosts" } } })`; `nil` takes that Host's away, `roster.details.remove("mesh")` every Host's. A table action there gets the Host as `e.host`.
+
+**What the whole view or section does** goes on its heading, not on every row: `actions` beside `title` (at most 4, each a `label`, an `icon` and `run`), drawn as quiet icon buttons by the close button. A view's gets `{ view }`, a section's `{ section, host }`. The Mesh controls put Plan and Apply on their views' headings and Cut on each Host's Mesh section. The icons are the row icons (`RowIcon`), with `plan` (a dashed arrow), `apply` (an arrow into a bar) and `cut` (an edge broken by a cross, as a cut edge is drawn in a graph) for these.
+
+```lua
+roster.views.set("mesh-plan", {
+  title = "Mesh plan",
+  place = "full",
+  actions = {
+    { label = "Apply", icon = "apply", run = apply },
+    { label = "Plan again", icon = "plan", run = plan },
+  },
+  table = { … },
+})
+```
+
+**A view when a job finishes.** A Plugin never opens a view on its own (only the user's call does), so a job that ran in the background (a Mesh plan, a scan) says it's done with a notice whose button opens it: `roster.notify("Plan ready: 4 Hosts would change", "info", { actions = { { label = "Show the plan", run = "view mesh-plan" } } })`. A notice's button runs a command line, as `roster.cmd` would, and the click is the user's. At most 2.
+
+**A data column's long values are cut in the middle** (`server-10-1…77-203`), so names that differ only at the end stay told apart; a text column's are cut at the end. **There's no text field in a view** yet: ask for a value as an argument of your command (`:discover 10.0.0.0/24`), or open the command line with it half typed (`roster.cmdline("discover ")`), which completes and keeps its history.
 
 Nothing in a view moves: it opens from a key as often as a click, as every side panel does, and a row that changes is simply changed.
 
