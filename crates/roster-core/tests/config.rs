@@ -130,6 +130,32 @@ fn ui_hints_is_unset_by_default_and_takes_a_boolean() {
 }
 
 #[test]
+fn panel_width_and_views_set_each_panels_defaults() {
+    // Ticket 95: unset, each panel keeps its own; set, they're defaults the State's choice wins over.
+    assert_eq!(Config::default().panel.width, None);
+    assert!(Config::default().views.is_empty());
+    let dir = with_init(
+        "panels",
+        "return {\n  panel = { width = 35 },\n  views = { topology = { place = \"panel\", width = 60 }, help = { place = \"full\" } },\n}\n",
+    );
+    let c = config::load(&dir).unwrap();
+    assert_eq!(c.panel.width, Some(35));
+    let topology = &c.views["topology"];
+    assert_eq!((topology.place, topology.width), (Some(config::PanelPlace::Panel), Some(60)));
+    assert_eq!(c.views["help"].place, Some(config::PanelPlace::Full));
+    let json = serde_json::to_value(&c).unwrap();
+    assert_eq!(json["views"]["topology"], serde_json::json!({ "place": "panel", "width": 60 }));
+
+    let dir = with_init("panels-wide", "return {\n  views = { topology = { width = 120 } },\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert!(e.message.contains("views.topology.width") && e.message.contains("10 to 95"), "{e}");
+    let dir = with_init("panels-place", "return {\n  views = { help = { place = \"left\" } },\n}\n");
+    assert!(config::load(&dir).unwrap_err().message.contains("views.help.place"));
+    let dir = with_init("panels-narrow", "return { panel = { width = 5 } }\n");
+    assert!(config::load(&dir).unwrap_err().message.contains("panel.width"));
+}
+
+#[test]
 fn the_ui_text_size_is_read_and_kept_in_range() {
     let dir = with_init("uisize", "return { fonts = { ui_size = 16 } }\n");
     assert_eq!(config::load(&dir).unwrap().fonts.ui_size, 16);

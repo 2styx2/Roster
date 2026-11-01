@@ -22,6 +22,14 @@
   --statusbar-h: 24px;
   --sidebar-width: calc(var(--ui-size) * 19);
   --keys-width: 320px;
+  /* What lies over what, one rule (ticket 95, decision Q106): a panel floating over the terminal
+     (Focus, a narrow window), a full-window panel, the full one used last, then anything opened
+     over a full one (a docked panel, a question, a Plugin's float). Overlays (the Picker, the
+     lock) stay above them all. */
+  --z-float: 5;
+  --z-full: 6;
+  --z-full-top: 7;
+  --z-over-full: 8;
 
   /* Motion (the animate skill): strong ease-out, 150 ms or less, transform and opacity only.
      --dur-move drives transforms; --dur-fade opacity and colour. Reduced motion drops the
@@ -949,7 +957,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .screen[data-view="focus"] .keys-panel,
 .screen[data-view="focus"] .check-panel,
 .screen[data-view="focus"] .side-panel {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: var(--z-float);
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
 /* Host details sit opposite the Sidebar in Focus too (decision Q71). */
@@ -959,7 +967,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 /* Focus with the Sidebar shown (␣ e, issue #78): over the terminal on its side, so showing it
    doesn't resize the terminal. It comes from a key, so it doesn't animate. */
 .screen[data-view="focus"] .sidebar {
-  position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: var(--z-float);
   border-right: 1px solid var(--line-strong); box-shadow: 8px 0 32px var(--shadow);
 }
 .screen[data-view="focus"] .body.sidebar-right .sidebar {
@@ -971,7 +979,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    They open from a key, so they don't animate. */
 @media (max-width: 1040px) {
   .keys-panel, .check-panel, .side-panel {
-    position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: var(--z-float); max-width: 100%;
     border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
   }
   .body.sidebar-right .host-details {
@@ -1144,12 +1152,12 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 /* The page itself (`.help-doc`): help/doc.css, which the docs website uses too. */
 
 .screen[data-view="focus"] .help-panel {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 5;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: var(--z-float);
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
 }
 @media (max-width: 1040px) {
   .help-panel {
-    position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; max-width: 100%;
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: var(--z-float); max-width: 100%;
     border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow);
   }
 }
@@ -1175,9 +1183,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    never beside it: a docked panel narrows the terminal, and a resized Session prints its screen
    again (ConPTY on Windows), which Plugins that read the output took for new lines (ticket 73).
    It opens from a click or a key and closes with Esc, so like the other panels it doesn't animate. */
-/* Above a full view too (z-index 6), whose table's actions open it (ticket 44: Discover's details). */
+/* Above a full view too (--z-over-full), whose table's actions open it (ticket 44: Discover's details). */
 .side-panel.plugin-float {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 7; max-width: 100%;
+  position: absolute; top: 0; right: 0; bottom: 0; max-width: 100%;
   border-left: 1px solid var(--line-strong); box-shadow: -8px 0 32px var(--shadow); overscroll-behavior: contain;
 }
 .body.sidebar-right .side-panel.plugin-float {
@@ -1185,10 +1193,11 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 /* Its lines scroll and its buttons stay at the foot, however many lines it has (ticket 78). */
 .side-panel.plugin-float { display: flex; flex-direction: column; overflow: hidden; }
-/* A Plugin's question and float come over a full view (z-index 6) as well as the terminal: a Cut
-   asked from the Mesh controls' full view must be seen before it's typed (ticket 50). */
-.side-panel.plugin-confirm { position: relative; }
-.screen .side-panel.plugin-confirm, .screen .side-panel.plugin-float { z-index: 7; }
+/* A question and a Plugin's float come over a full view as well as the terminal: a Cut asked from
+   the Mesh controls' full view must be seen before it's typed (ticket 50). One rule for all of
+   them: --z-over-full (ticket 95). */
+.side-panel.confirm-panel, .side-panel.plugin-prompt { position: relative; }
+.screen .body > .confirm-panel, .screen .body > .plugin-prompt, .screen .body > .plugin-float { z-index: var(--z-over-full); }
 .side-panel.plugin-float > header, .plugin-float-foot, .plugin-float > .panel-foot { flex: none; }
 .plugin-float-lines {
   flex: 0 1 auto; min-height: 0; overflow: auto;
@@ -1264,10 +1273,10 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    panel), or a full view over the whole window but the title and status bars. It opens from a
    key as often as a click, so it doesn't animate (taste.md: a key is its own confirmation). */
 .side-panel.view-panel {
-  width: clamp(var(--keys-width), 40vw, 640px); display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
 }
 .view-full {
-  position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; min-height: 0;
+  position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0;
   padding: 10px 18px; background: var(--bg); font-size: var(--text-sm);
 }
 .view-full:focus, .view-panel:focus { outline: none; }
@@ -1396,3 +1405,80 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   flex: 1; min-width: 0; text-align: left; border-color: transparent; background: transparent; padding: 0 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ---------- Panels: docked at any width, or full window (ticket 95, decision Q106) ---------- */
+
+/* Every panel and view sits in a frame (panel/PanelFrame.tsx). Docked, the frame takes its width
+   beside the terminal; the panel inside lies on the frame's far side at the width drawn, which
+   during a drag of the edge is wider or narrower than the frame, over the terminal, so the
+   terminal fits its new size once, when the drag ends (ticket 73). Its width is the user's
+   (--pane-w, percent of the window), else its kind's default, kept between a minimum and what
+   leaves the terminal about 50 columns. Nothing here animates: a key or a click is its own
+   confirmation, and a drag follows the pointer (the animate skill). */
+.body:has(> .sidebar) { --sidebar-room: var(--sidebar-width); }
+.screen[data-view="focus"] .body { --sidebar-room: 0px; }
+.panel-frame {
+  --pane-default: var(--keys-width);
+  --pane-min: min(280px, 100%);
+  --pane-max: max(var(--pane-min), calc(100% - var(--sidebar-room, 0px) - 400px));
+  position: relative; flex: none; min-height: 0;
+  width: clamp(var(--pane-min), var(--pane-w, var(--pane-default)), var(--pane-max));
+}
+.panel-frame[data-kind="help"] { --pane-default: clamp(var(--keys-width), 40vw, 600px); }
+.panel-frame[data-kind="view"] { --pane-default: clamp(var(--keys-width), 40vw, 640px); }
+.panel-frame[data-side="left"] { order: -1; }
+.screen .body > .panel-frame > :first-child {
+  position: absolute; top: 0; bottom: 0; right: 0; left: auto; width: var(--pane-live, 100%); max-width: none; z-index: auto;
+}
+.screen .body > .panel-frame[data-side="left"] > :first-child { left: 0; right: auto; }
+.panel-frame[data-dragging] { z-index: var(--z-float); }
+
+/* The edge: a hairline on hover, on focus and while dragged, never the accent (it's chrome). */
+.panel-edge {
+  position: absolute; top: 0; bottom: 0; z-index: 2; width: 8px; right: calc(var(--pane-live, 100%) - 4px);
+  cursor: col-resize; touch-action: none; outline: none;
+}
+.panel-frame[data-side="left"] > .panel-edge { right: auto; left: calc(var(--pane-live, 100%) - 4px); }
+.panel-edge::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent;
+  transition: background-color var(--dur-fade) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .panel-edge:hover::after { background: var(--line-strong); }
+}
+.panel-frame[data-dragging] > .panel-edge::after { background: var(--line-strong); }
+.panel-edge:focus-visible::after { background: var(--muted); }
+:root[data-resizing], :root[data-resizing] * { cursor: col-resize; user-select: none; }
+
+/* The header's buttons: full window (or docked), then close. */
+.panel-head-buttons { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
+.keys-panel .panel-head-buttons .keys-close { margin-left: 0; }
+
+/* Full window: over the whole window but the title and status bars, as a full view always was.
+   The frame keeps the width it had docked (none if it opened full), so the terminal underneath
+   doesn't change size. */
+.screen .body > .panel-frame[data-place="full"] { position: static; width: 0; }
+.screen[data-view="standard"] .body > .panel-frame[data-place="full"][data-held] {
+  width: clamp(var(--pane-min), var(--pane-w, var(--pane-default)), var(--pane-max));
+}
+.screen .body > .panel-frame[data-place="full"] > :first-child {
+  inset: 0; width: auto; z-index: var(--z-full); border: 0; box-shadow: none; background: var(--bg);
+}
+.screen .body > .panel-frame[data-place="full"][data-top] > :first-child { z-index: var(--z-full-top); }
+
+/* Focus, and a window too narrow for a docked panel and a usable terminal: the panel floats over
+   the terminal instead of beside it (M5), leaving a sliver of it. */
+.screen[data-view="focus"] .body > .panel-frame:not([data-place="full"]) {
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: var(--z-float); --pane-max: calc(100% - 48px);
+}
+.screen[data-view="focus"] .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: 0; right: auto; }
+@media (max-width: 1040px) {
+  .screen .body > .panel-frame:not([data-place="full"]) {
+    position: absolute; top: 0; bottom: 0; right: 0; z-index: var(--z-float); --pane-max: calc(100% - 48px);
+  }
+  .screen .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: 0; right: auto; }
+  .screen .body > .panel-frame[data-place="full"][data-held] { width: 0; }
+}
+
+/* A docked panel opened over a full one (Host details from Topology) comes over it. */
+.screen .body:has(> .panel-frame[data-place="full"]) > .panel-frame:not([data-place="full"]) { z-index: var(--z-over-full); }

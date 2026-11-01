@@ -7,6 +7,7 @@
 // animate (taste.md: motion confirms, and a key is its own confirmation).
 import type { Host, HostList } from "../backend/types";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { PanelButton } from "../panel/PanelFrame";
 import { Keys } from "../ui/Keys";
 import { countOf } from "../ui/format";
 import { hostFacts, serviceRows } from "./details";
@@ -49,9 +50,12 @@ export function HostDetails({ host, groups, onOpen, onClose, cmdlineKeys, leader
             {host.name}
           </span>
         </h2>
-        <button type="button" className="icon-button close" aria-label="Close the Host details" onMouseDown={keepFocus} onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close the Host details" onMouseDown={keepFocus} onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       <dl className="details-facts">
         {facts.map((f) => (

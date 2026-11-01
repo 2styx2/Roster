@@ -139,6 +139,11 @@ export const defaultBindings: KeymapTables = {
     b: "finder sessions",
     // The Sidebar's tree as a finder (in Focus, where the Sidebar is hidden by default).
     t: "finder tree",
+    // The panel with focus, else the one used last (ticket 95): full window and back, as tmux's
+    // prefix z zooms a pane; narrower and wider, as Vim's Ctrl+W < and >.
+    z: "panel",
+    "<": "panel narrower",
+    ">": "panel wider",
     Escape: "terminal",
   },
   list: {

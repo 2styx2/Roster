@@ -5,6 +5,7 @@
 // confirms itself), like the other side panels.
 import { useEffect, useRef, useState } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { PanelButton } from "../panel/PanelFrame";
 import { Keys } from "../ui/Keys";
 import type { PackageStatus, PackageUpdate } from "../backend/types";
 import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
@@ -230,9 +231,12 @@ export function PluginsPanel({
     >
       <header>
         <h2>Plugins</h2>
-        <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       {snapshot.plugins.length === 0 ? (
         <p className="panel-empty">
@@ -542,9 +546,12 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
     >
       <header>
         <h2>Packages</h2>
-        <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       {snapshot.packages.length === 0 ? (
         <p className="panel-empty">

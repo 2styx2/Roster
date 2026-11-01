@@ -3,6 +3,7 @@
 // Plugin: it's text, set where the app puts it.
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { PanelButton, usePanel } from "../panel/PanelFrame";
 import { DataTable } from "../ui/DataTable";
 import { GraphView } from "../graph/GraphView";
 import type { GraphMemory } from "../graph/memory";
@@ -48,11 +49,14 @@ export function ViewContent({
   );
 }
 
-/** A view: beside the terminal (`panel`), or over the whole window (`full`). It opens from a key as
- * often as a click, so, like every side panel, it doesn't animate. Esc closes it; focus goes back
- * where it was. */
+/** A view: beside the terminal (`panel`), or over the whole window (`full`): the Plugin's `place`
+ * is where it opens first, and the user can move it (its PanelFrame, ticket 95). It opens from a
+ * key as often as a click, so, like every side panel, it doesn't animate. Esc closes it; focus goes
+ * back where it was. */
 export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; leader: string; onClose(): void; graphs?: GraphMemory }) {
   const panel = useRef<HTMLElement>(null);
+  const frame = usePanel();
+  const full = (frame?.place ?? view.place) === "full";
   const before = useRef<Element | null>(null);
   // Before the table takes focus (its own effect runs after this one).
   useLayoutEffect(() => {
@@ -79,7 +83,7 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
     <section
       ref={panel}
       tabIndex={-1}
-      className={view.place === "full" ? "view-full" : "side-panel view-panel"}
+      className={full ? "side-panel view-panel view-full" : "side-panel view-panel"}
       aria-label={`${view.title} (from ${view.source})`}
       onKeyDown={onKeyDown}
     >
@@ -88,9 +92,12 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
           {view.title}
           <span className="view-source muted"> · {view.source}</span>
         </h2>
-        <button type="button" className="icon-button close" aria-label={`Close ${view.title}`} onMouseDown={(e) => e.preventDefault()} onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label={`Close ${view.title}`} onMouseDown={(e) => e.preventDefault()} onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       <div className="view-body">
         <ViewContent key={view.id} content={view.content} label={view.title} leader={leader} autoFocus graph={{ ...(graphs ? { memory: graphs } : {}), key: `${view.source}/${view.id}` }} />

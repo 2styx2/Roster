@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import {
   ADD_API_VERSION,
@@ -96,6 +97,9 @@ import { sectionBuilder } from "./sidebar/sections";
 import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
 import { PluginManager } from "./plugins/manager";
 import { ViewPanel } from "./view/ViewContent";
+import { NO_DEFAULTS, PanelLayout, type PanelPlace } from "./panel/layout";
+import { PanelFrame } from "./panel/PanelFrame";
+import { registerPanel } from "./panel/command";
 import { GraphMemory } from "./graph/memory";
 import { registerViews, sectionsFor, ViewHost } from "./view/views";
 import { PackagesPanel, PluginConfirmPanel, PluginFloatPanel, PluginNotices, PluginProgressItems, PluginPrompt, PluginsPanel } from "./plugins/PluginsPanel";
@@ -469,6 +473,9 @@ function Workspace({
   const [viewHost] = useState(() => new ViewHost());
   // Graphs' places and folds (ticket 77), kept in the State.
   const [graphMemory] = useState(() => new GraphMemory(store));
+  // Every panel's place and width (ticket 95, decision Q106): the user's, kept in the State, over
+  // init.lua's `views` and `panel.width`.
+  const [panelLayout] = useState(() => new PanelLayout(store));
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
@@ -907,6 +914,15 @@ function Workspace({
   useEffect(() => registries.folders.subscribe(() => void plugins.reloadBuiltin("folders")), [registries, plugins]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
   useEffect(() => registerHints(registries, hintsChoice), [registries, hintsChoice]);
+  useEffect(() => registerPanel(registries, panelLayout), [registries, panelLayout]);
+  const configPanel = config?.panel;
+  const configViews = config?.views;
+  useEffect(() => {
+    const views = Object.fromEntries(
+      Object.entries(configViews ?? {}).map(([id, v]) => [id, { ...(v.place ? { place: v.place } : {}), ...(v.width !== null ? { width: v.width } : {}) }]),
+    );
+    panelLayout.setDefaults(configPanel || configViews ? { width: configPanel?.width ?? null, views } : NO_DEFAULTS);
+  }, [panelLayout, configPanel, configViews]);
   // `:help` (ticket 37): its pages read the live registries and the Config each time they show.
   const [helpView] = useState(() => new HelpView());
   const helpAt = useSyncExternalStore(helpView.subscribe, helpView.snapshot);
@@ -1901,6 +1917,14 @@ function Workspace({
     </footer>
   );
 
+  // Every docked panel and view goes in a frame: docked or full window, its width, its edge.
+  const panelKeys = hintFor(keymap, "panel");
+  const framed = (id: string, title: string, kind: string, node: ReactNode, extra: { side?: "left" | "right"; fallback?: PanelPlace } = {}) => (
+    <PanelFrame key={`panel:${id}`} id={id} title={title} kind={kind} layout={panelLayout} keys={panelKeys} {...extra}>
+      {node}
+    </PanelFrame>
+  );
+
   const shell = (
     <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`} data-view={viewMode}>
       {pieces("top")}
@@ -1987,7 +2011,7 @@ function Workspace({
             />
           )}
         </main>
-        {detailsHost && conn.hosts && (
+        {detailsHost && conn.hosts && framed("details", "Host details", "details", 
           <HostDetails
             host={detailsHost}
             groups={conn.hosts.groups}
@@ -1996,9 +2020,13 @@ function Workspace({
             cmdlineKeys={hintFor(keymap, "cmdline")}
             leader={options.leader}
             sections={sectionsFor(detailsList, detailsHost.name)}
-          />
+          />,
+          { side: sidebarSide === "right" ? "left" : "right" },
         )}
-        {openView && <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} graphs={graphMemory} />}
+        {openView &&
+          framed(`view:${openView.id}`, openView.title, "view", <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} graphs={graphMemory} />, {
+            fallback: openView.place,
+          })}
         {importing && (
           <ImportPanel
             preview={importing.preview}
@@ -2049,7 +2077,7 @@ function Workspace({
             }}
           />
         )}
-        {check && (
+        {check && framed("check", "Check", "check", 
           <CheckPanel
             check={check}
             rows={errorRows}
@@ -2058,9 +2086,9 @@ function Workspace({
               checkRun.current++;
               setCheck(null);
             }}
-          />
+          />,
         )}
-        {editing !== null && hostByName.get(editing) && (
+        {editing !== null && hostByName.get(editing) && framed("edit", "Edit", "edit", 
           <EditPanel
             key={editing}
             backend={backend}
@@ -2096,9 +2124,9 @@ function Workspace({
                   },
                 }
               : {})}
-          />
+          />,
         )}
-        {adding && hosts && (
+        {adding && hosts && framed("add", "Add a Host", "add", 
           <AddPanel
             backend={backend}
             hosts={hosts}
@@ -2122,9 +2150,9 @@ function Workspace({
               );
             }}
             onClose={closeAdd}
-          />
+          />,
         )}
-        {saveTab?.save && hosts && (
+        {saveTab?.save && hosts && framed("save", "Save to vault", "save", 
           <SavePanel
             key={saveTab.id}
             backend={backend}
@@ -2154,9 +2182,9 @@ function Workspace({
               );
             }}
             onClose={closeSave}
-          />
+          />,
         )}
-        {changesView && pending && (
+        {changesView && pending && framed("changes", "Pending changes", "changes", 
           <ChangesPanel
             key={changesView.step}
             changes={pending}
@@ -2188,7 +2216,7 @@ function Workspace({
               return r;
             }}
             onClose={closeChanges}
-          />
+          />,
         )}
         {confirming && (
           <ConfirmPanel
@@ -2239,8 +2267,8 @@ function Workspace({
             }}
           />
         )}
-        {pluginsOpen && <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />}
-        {packagesOpen && <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />}
+        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />)}
+        {packagesOpen && framed("packages", "Packages", "packages", <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />)}
         {pluginSnap.confirm && (
           <PluginConfirmPanel
             key={pluginSnap.confirm.id}
@@ -2263,7 +2291,7 @@ function Workspace({
             }}
           />
         )}
-        {keysOpen && (
+        {keysOpen && framed("keys", "Key bindings", "keys", 
           <BindingsPanel
             rows={bindingRows(keymap, options, commands)}
             leader={options.leader}
@@ -2272,9 +2300,9 @@ function Workspace({
               closeKeys();
               run(`help ${optionTopic(option, new Set(topics(helpCtx).map((t) => t.tag)))}`);
             }}
-          />
+          />,
         )}
-        {helpAt.at && (
+        {helpAt.at && framed("help", "Help", "help", 
           <HelpPanel
             view={helpView}
             snapshot={helpAt}
@@ -2284,7 +2312,7 @@ function Workspace({
             onFind={() => run("help")}
             onOutline={() => run("finder outline")}
             onSearch={onHelpSearch}
-          />
+          />,
         )}
       </div>
       {overlay !== null && typeof overlay === "object" && "cmdline" in overlay && (

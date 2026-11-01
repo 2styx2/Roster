@@ -5,6 +5,7 @@ import type { CheckStep, HostCheck } from "../backend/types";
 import { problemFromStep, type ErrorRow } from "./catalog";
 import { ProblemBody, type ProblemActions } from "./ErrorPanel";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { PanelButton } from "../panel/PanelFrame";
 
 export type CheckState =
   | { state: "running"; host: string }
@@ -43,9 +44,12 @@ export function CheckPanel({ check, rows, actions, onClose }: CheckPanelProps) {
           <span className="muted">Check · </span>
           {host}
         </h2>
-        <button type="button" className="icon-button close" aria-label="Close the check" onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close the check" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       {check.state === "running" && <p className="muted">Checking {host}…</p>}
       {check.state === "error" && <p className="problem-message">{check.message}</p>}

@@ -73,6 +73,10 @@ export interface Config {
   fonts: { ui: string; mono: string; uiSize: number };
   /** `ui.hints`: null when init.lua leaves it to `:hints` (and the State). */
   ui: { hints: boolean | null };
+  /** `panel.width` (ticket 95): every docked panel's default width, percent of the window. */
+  panel: { width: number | null };
+  /** `views.ID`: a panel's or view's default place and width (decision Q106). */
+  views: Record<string, { place: "panel" | "full" | null; width: number | null }>;
   terminal: {
     /** Families, most wanted first (ticket 33). */
     font: string[];
