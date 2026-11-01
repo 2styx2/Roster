@@ -183,7 +183,9 @@ app/src/App.tsx       connect → error screen, Lock gate, Standard layout; rout
 app/scripts/app-*.sh  Windows build loop from WSL (sync, tauri dev, stop)
 app/src/docs-site/    the docs website and PDF (ticket 46, ADR 0008): site.tsx renders every help page with HelpPanel's
                       HelpDoc and help/doc.css, writes tags.json, tag.html, print.html; the build fails on a dead link
-app/scripts/gen-docs-site.ts  `npm run docs` (`-- --out DIR`, `--pdf FILE`): writes it; run through vite-run.mjs
+                      search.ts + client.ts: the search box (ticket 65), :help's topic ranking and :helpgrep's
+                      matching over search-index.js; entry.ts is bundled into the site's search.js
+app/scripts/gen-docs-site.ts  `npm run docs` (`-- --out DIR`, `--pdf FILE`): writes it, and bundles search.js; run through vite-run.mjs
                       (Vite's module runner, so the app's `?raw` imports work)
 app/scripts/perf.sh   measuring (docs/app/performance.md): `browser`, `windows [--build]`, `serve`;
                       perf/serve.py is a stand-in `roster serve` (made-up Hosts, Sessions that print a busy log;
