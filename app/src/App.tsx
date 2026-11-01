@@ -623,27 +623,48 @@ function Workspace({
   // Each tab's state and Host (a Quick Connect Session's is null), so a tab closed while it ran
   // still names its Host in `session_exit`.
   const seenTabs = useRef(new Map<number, { state: "live" | "ended"; host: string | null }>());
+  // The Sessions open now, in the order they opened (a reconnect is a new open, so it goes last):
+  // the whole list goes to the core on start and whenever it changes, before the events that
+  // changed it, for `roster.sessions.list()` (ticket 96, decision Q127).
+  const openOrder = useRef(new Map<number, string | null>());
+  const sentOpen = useRef<string | null>(null);
   useEffect(() => {
     const before = seenTabs.current;
     const now = new Map<number, { state: "live" | "ended"; host: string | null }>();
+    const events: [() => void, () => void][] = [];
+    const order = openOrder.current;
     for (const t of sessions.tabs) {
       const ended = t.status.state === "ended" || t.status.state === "failed";
-      now.set(t.id, { state: ended ? "ended" : "live", host: t.quick ? null : t.host });
+      const host = t.quick ? null : t.host;
+      now.set(t.id, { state: ended ? "ended" : "live", host });
       if (!ended && before.get(t.id)?.state !== "live") {
+        order.delete(t.id);
+        order.set(t.id, host);
         // A Quick Connect Session's `host` is nil to a Plugin: it isn't a Host of the Inventory.
-        void plugins.event("session_open", { session: t.id, host: t.quick ? null : t.host });
-        tutorEvent("session_open", { host: t.host });
+        events.push([() => void plugins.event("session_open", { session: t.id, host }), () => tutorEvent("session_open", { host: t.host })]);
       }
       if (ended && before.get(t.id)?.state === "live") {
+        order.delete(t.id);
         const code = t.status.state === "ended" ? t.status.exit.code : null;
-        void plugins.event("session_exit", { session: t.id, host: t.quick ? null : t.host, code });
-        tutorEvent("session_exit", { host: t.host, code });
+        events.push([() => void plugins.event("session_exit", { session: t.id, host, code }), () => tutorEvent("session_exit", { host: t.host, code })]);
       }
     }
     for (const [id, was] of before) {
-      if (!now.has(id) && was.state === "live") void plugins.event("session_exit", { session: id, host: was.host, code: null });
+      if (now.has(id)) continue;
+      order.delete(id);
+      if (was.state === "live") events.push([() => void plugins.event("session_exit", { session: id, host: was.host, code: null }), () => {}]);
     }
     seenTabs.current = now;
+    const open = [...order].map(([session, host]) => ({ session, host }));
+    const text = JSON.stringify(open);
+    if (text !== sentOpen.current) {
+      sentOpen.current = text;
+      plugins.sessions(open);
+    }
+    for (const [toPlugins, toTutor] of events) {
+      toPlugins();
+      toTutor();
+    }
   }, [sessions.tabs, plugins, tutorEvent]);
   const onScreenTab = sessions.tabs.find((t) => t.id === sessions.active);
   const onScreenHost = onScreenTab?.host ?? null;

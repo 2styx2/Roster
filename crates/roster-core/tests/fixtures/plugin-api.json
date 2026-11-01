@@ -925,6 +925,19 @@
     {
       "params": [
         {
+          "name": "done",
+          "optional": false,
+          "type": "fun(list: HostList?, err: string?)"
+        }
+      ],
+      "path": "roster.inventory.request",
+      "permission": "inventory.read",
+      "returns": "",
+      "since": 4
+    },
+    {
+      "params": [
+        {
           "name": "host",
           "optional": false,
           "type": "string"
@@ -1011,6 +1024,16 @@
       "permission": null,
       "returns": "",
       "since": 3
+    },
+    {
+      "params": [],
+      "path": "roster.sessions.list",
+      "permission": [
+        "inventory.read",
+        "terminal.read"
+      ],
+      "returns": "Session[]",
+      "since": 4
     },
     {
       "params": [
@@ -1124,6 +1147,7 @@
   "tags": {
     "roster-Change": "plugin-api#change",
     "roster-ChangesDiff": "plugin-api#changesdiff",
+    "roster-CheckJob": "plugin-api#checkjob",
     "roster-CheckStep": "plugin-api#checkstep",
     "roster-Column": "plugin-api#column",
     "roster-ColumnKind": "plugin-api#columnkind",
@@ -1216,6 +1240,7 @@
     "roster-ServeError": "plugin-api#serveerror",
     "roster-Service": "plugin-api#service",
     "roster-ServiceProblem": "plugin-api#serviceproblem",
+    "roster-Session": "plugin-api#session",
     "roster-SessionExitEvent": "plugin-api#sessionexitevent",
     "roster-SessionOpenEvent": "plugin-api#sessionopenevent",
     "roster-SshLogin": "plugin-api#sshlogin",
@@ -1280,6 +1305,7 @@
     "roster.inventory.hosts()": "plugin-api#rosterinventoryhosts",
     "roster.inventory.move()": "plugin-api#rosterinventorymovehost-group",
     "roster.inventory.rename()": "plugin-api#rosterinventoryrenamehost-to",
+    "roster.inventory.request()": "plugin-api#rosterinventoryrequestdone",
     "roster.inventory.review()": "plugin-api#rosterinventoryreviewhost-reviewed",
     "roster.inventory.update()": "plugin-api#rosterinventoryupdatehost-changes",
     "roster.keymap": "plugin-api#rosterkeymap",
@@ -1296,6 +1322,7 @@
     "roster.serve.call()": "plugin-api#rosterservecallmethod-params",
     "roster.serve.request()": "plugin-api#rosterserverequestmethod-params-done",
     "roster.sessions": "plugin-api#rostersessions",
+    "roster.sessions.list()": "plugin-api#rostersessionslist",
     "roster.sessions.open()": "plugin-api#rostersessionsopenhost",
     "roster.sessions.show()": "plugin-api#rostersessionsshowsession-line",
     "roster.sidebar": "plugin-api#rostersidebar",
@@ -1411,6 +1438,61 @@
           "name": "last_commit",
           "required": false,
           "type": "LastCommit"
+        }
+      ],
+      "open": false
+    },
+    "CheckJob": {
+      "fields": [
+        {
+          "name": "kind",
+          "required": true,
+          "type": "\"check\""
+        },
+        {
+          "name": "job",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "\"check\""
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "done",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "at",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "HostCheck"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "ServeError"
         }
       ],
       "open": false
@@ -3694,6 +3776,21 @@
         {
           "name": "fix",
           "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "Session": {
+      "fields": [
+        {
+          "name": "session",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
           "type": "string"
         }
       ],

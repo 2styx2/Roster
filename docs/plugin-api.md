@@ -78,11 +78,13 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.inventory.hosts()`](#rosterinventoryhosts) | Every Host, in `roster.yml` order | `inventory.read` |
 | [`roster.inventory.host(name)`](#rosterinventoryhostname) | One Host, by its exact name | `inventory.read` |
 | [`roster.inventory.groups()`](#rosterinventorygroups) | Every group, by name | `inventory.read` |
+| [`roster.inventory.request(done)`](#rosterinventoryrequestdone) | Reads every Host and group without waiting: `done` gets them | `inventory.read` |
 | [`roster.inventory.update(host, changes)`](#rosterinventoryupdatehost-changes) | Changes a Host's fields, as a Pending change | `inventory.write` |
 | [`roster.inventory.rename(host, to)`](#rosterinventoryrenamehost-to) | Renames a Host, as a Pending change | `inventory.write` |
 | [`roster.inventory.move(host, group)`](#rosterinventorymovehost-group) | Moves a Host to another group, as a Pending change | `inventory.write` |
 | [`roster.inventory.review(host, reviewed)`](#rosterinventoryreviewhost-reviewed) | Marks a Host reviewed (or not), as a Pending change | `inventory.write` |
 | [`roster.sessions.show(session, line)`](#rostersessionsshowsession-line) | Goes to a Session, and to a line in its scrollback | none |
+| [`roster.sessions.list()`](#rostersessionslist) | The Sessions open now, in the order they opened | `inventory.read` or `terminal.read` |
 | [`roster.sessions.open(host)`](#rostersessionsopenhost) | Opens a Session on a Host, as `:connect HOST` | `sessions.open` |
 | [`roster.terminal.send(session, text)`](#rosterterminalsendsession-text) | Types into an open Session | `terminal.write` |
 | [`roster.serve.call(method, params)`](#rosterservecallmethod-params) | Calls a roster serve method the Plugin was granted | `serve:<method>` (that method) |
@@ -179,6 +181,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`HostList`](#hostlist) | `hosts.list`'s result |
 | [`InventoryError`](#inventoryerror) | Why `roster.yml` doesn't load right now |
 | [`HostCheck`](#hostcheck) | `host.check`'s result: the steps of `roster check HOST` |
+| [`CheckJob`](#checkjob) | `host.check_job`'s result: a Host's check, and how it came out |
 | [`CheckStep`](#checkstep) | One step of a `host.check` |
 | [`ChangesDiff`](#changesdiff) | `changes.diff`'s result: the Pending changes |
 | [`HostChange`](#hostchange) | A Host in `changes.diff` |
@@ -204,6 +207,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`EventName`](#eventname) | An event a Plugin can listen for |
 | [`EmptyEvent`](#emptyevent) | The payload of `lock`, `unlock` and `inventory_changed`: an empty table |
 | [`HostSelectedEvent`](#hostselectedevent) | `host_selected`'s payload |
+| [`Session`](#session) | An open Session, as `roster.sessions.list` gives it |
 | [`SessionOpenEvent`](#sessionopenevent) | `session_open`'s payload |
 | [`SessionExitEvent`](#sessionexitevent) | `session_exit`'s payload |
 | [`JobProgressEvent`](#jobprogressevent) | `job_progress`'s payload: serve's `job.progress` notification |
@@ -1847,11 +1851,11 @@ roster.storage.write_json("state.json", { hosts = { "esx-02" } })
 
 ## `roster.inventory`
 
-Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on.
+Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
 
 ### `roster.inventory.hosts()`
 
-Every Host, in `roster.yml` order. From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups).
+Every Host, in `roster.yml` order. From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups), from the same answer when it's called in the same call (since api 4). [`roster.inventory.request`](#rosterinventoryrequestdone) asks without waiting.
 
 **Parameters**
 
@@ -1904,7 +1908,7 @@ if h then roster.notify(name .. " is " .. h.ip) end
 
 ### `roster.inventory.groups()`
 
-Every group, by name. From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is. A Host's `group` names one of them.
+Every group, by name. From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a call into serve that can change something in between, a write or `mesh.cut`, reads it again). A Host's `group` names one of them.
 
 **Parameters**
 
@@ -1929,6 +1933,34 @@ for _, h in ipairs(roster.inventory.hosts()) do
   local g = groups[h.group]
   roster.notify(h.name .. " is in " .. (g and g.title ~= "" and g.title or h.group))
 end
+```
+
+### `roster.inventory.request(done)`
+
+Reads every Host and group without waiting: `done` gets them. Serve's [`hosts.list`](serve-api.md), asked as [`roster.serve.request`](#rosterserverequestmethod-params-done) asks: it returns at once and `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (a Publish holds `roster.yml` for a minute or two). Its answer carries the user's call as a `roster.serve.request`'s does. It counts toward the 8 requests a Plugin may have waiting, and needs no `serve:` permission. A `cmd:` or `env:` Login reference is cut to its kind, as in every read.
+
+**Parameters**
+
+- `done` (`fun(list: `[`HostList`](#hostlist)`?, err: string?)`): Runs once with the answer: every Host and group (`list.hosts`, `list.groups`), or `nil` and why (`roster.inventory.request: MESSAGE (code N)`). Its return value is ignored; an error in it counts like an action's.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.inventory.request: 8 requests are waiting for roster serve already: wait for one to answer`: 8 `roster.serve.request` and `roster.inventory.request` calls haven't answered yet.
+- And [those of every function](#errors).
+
+**Permission:** `inventory.read` · **Since:** api 4
+
+**Example**
+
+```lua
+roster.inventory.request(function(list, err)
+  if not list then return roster.notify(err, "warn") end
+  roster.status.set("hosts", { text = #list.hosts .. " Hosts" })
+end)
 ```
 
 ### `roster.inventory.update(host, changes)`
@@ -2052,7 +2084,7 @@ roster.inventory.review("esx-02")
 
 ## `roster.sessions`
 
-Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.
+Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `list` is there with `inventory.read` or `terminal.read` (the permissions that hear `session_open` and `session_exit`), and `open` only with `sessions.open`.
 
 ### `roster.sessions.show(session, line)`
 
@@ -2079,6 +2111,34 @@ Nothing.
 ```lua
 -- An alert's row goes to the line in the Session that printed it.
 open = function(e) roster.sessions.show(alerts[e.row].session, alerts[e.row].text) end
+```
+
+### `roster.sessions.list()`
+
+The Sessions open now, in the order they opened. Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. The app keeps the list in the order it saw each Session open, and a Session that connects again (the same id) opens again, so it goes last. In a listener for either event the list already has (or no longer has) that Session. It reads what the app last said, never roster serve, so it never waits.
+
+**Parameters**
+
+None.
+
+**Returns**
+
+- [`Session`](#session)`[]`: Each open Session's id and Host, oldest open first.
+
+**Errors**
+
+Only [those of every function](#errors).
+
+**Permission:** `inventory.read` or `terminal.read` · **Since:** api 4
+
+**Example**
+
+```lua
+local live = {}
+for _, s in ipairs(roster.sessions.list()) do
+  if s.host then live[s.host] = true end
+end
+roster.on("session_open", function(e) if e.host then live[e.host] = true end end)
 ```
 
 ### `roster.sessions.open(host)`
@@ -2324,7 +2384,7 @@ What `roster.serve.call(method)` returns, for the methods a Plugin may be grante
 | `hosts.list` | [`HostList`](#hostlist) | [hosts.list](serve-api.md) |
 | `host.get` | [`Host`](#host) | [host.get](serve-api.md) |
 | `host.check` | [`HostCheck`](#hostcheck) | [host.check](serve-api.md#diagnostics-hostcheck) |
-| `host.check_job` | see serve-api.md | [host.check_job](serve-api.md#diagnostics-hostcheck) |
+| `host.check_job` | [`CheckJob`](#checkjob) | [host.check_job](serve-api.md#diagnostics-hostcheck) |
 | `changes.diff` | [`ChangesDiff`](#changesdiff) | [changes.diff](serve-api.md#editing-pending-changes) |
 | `mesh.plan` | [`MeshResult`](#meshresult)`\|`[`MeshStarted`](#meshstarted) | [mesh.plan](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
 | `mesh.apply` | [`MeshResult`](#meshresult)`\|`[`MeshStarted`](#meshstarted) | [mesh.apply](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
@@ -3315,6 +3375,25 @@ Why `roster.yml` doesn't load right now.
 | `ok` | `boolean` | yes | Whether every step passed. |
 | `steps` | [`CheckStep`](#checkstep)`[]` | yes | Every step, in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`. |
 
+### `CheckJob`
+
+`host.check_job`'s result: a Host's check, and how it came out.
+
+Since serve API 21 a check is a job: the `job_progress` event (with `serve:host.check_job`) says when one starts, moves on and ends, the app's `:check` and Check from anywhere alike, and its `job` is what to ask for here once its `state` is `done` or `stopped`. serve keeps a check findable after it ends (the last 32 a newer check replaced too); one it no longer has is code 49.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `kind` | `"check"` | yes | Always `"check"`. |
+| `job` | `string` | yes | Its id, `"check-N"`. |
+| `action` | `"check"` | yes | Always `"check"`. |
+| `state` | `string` | yes | `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`. |
+| `done` | `integer` | yes | Steps started. |
+| `total` | `integer` | yes | Steps in all (8). |
+| `at` | `string` | no | The step under way (`"dns"`, `"auth"`, ...). |
+| `host` | `string` | yes | The Host it checks. |
+| `result` | [`HostCheck`](#hostcheck) | no | Once `done` or `stopped`: `host.check`'s result. `ok` is false for a stopped check, its later steps `skipped`. |
+| `error` | [`ServeError`](#serveerror) | no | Once `failed`: why. |
+
 ### `CheckStep`
 
 One step of a `host.check`.
@@ -3625,6 +3704,15 @@ No fields.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `host` | `string` | yes | The Host whose Session is on screen now. |
+
+### `Session`
+
+An open Session, as `roster.sessions.list` gives it.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `session` | `integer` | yes | The Session's id, as its events name it: `roster.terminal.send` and `roster.sessions.show` take it. |
+| `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session (`:quick`), which isn't on a Host. |
 
 ### `SessionOpenEvent`
 
