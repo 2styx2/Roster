@@ -8,7 +8,7 @@
 import type { Host, HostList } from "../backend/types";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { PanelButton } from "../panel/PanelFrame";
-import { HeadActions } from "../view/ViewContent";
+import { HeadActions, runHeadKey } from "../view/ViewContent";
 import { Keys } from "../ui/Keys";
 import { countOf } from "../ui/format";
 import { hostFacts, serviceRows } from "./details";
@@ -114,7 +114,7 @@ export function HostDetails({ host, groups, onOpen, onClose, cmdlineKeys, leader
         </>
       )}
       {sections.map((s) => (
-        <section key={s.id} className="details-section" aria-label={`${s.title} (from ${s.source})`}>
+        <section key={s.id} className="details-section" aria-label={`${s.title} (from ${s.source})`} onKeyDown={(e) => runHeadKey(e, s.content.actions)}>
           <h3 className="details-heading">
             {s.title} <span className="details-count">{s.source}</span>
             {s.content.actions?.length ? (

@@ -19,8 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 KB = 1000
 
 # KB, minified. Measured 2026-10-31: JS 1,972 raw / 591 gzipped, CSS 75 / 14; about 10 % above that.
+# JS measured again 2026-11-01 (ticket 100): 2,195 raw / 654 gzipped, the Plugin API reference and
+# its types (both bundled for :help) having grown by the typed serve results; about 10 % above that.
 BUDGETS = {
-    "js": {"raw": 2170, "gzip": 650},
+    "js": {"raw": 2410, "gzip": 720},
     "css": {"raw": 83, "gzip": 15.5},
 }
 

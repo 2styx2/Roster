@@ -47,7 +47,8 @@ export const FLOAT_GAP_PX = 48;
 export interface Room {
   /** The window's width under the title bar (the `.body`). */
   body: number;
-  /** What else takes width beside the terminal: the Sidebar when it's docked. */
+  /** What else takes width: beside the terminal, the docked Sidebar and the other docked panels;
+   * over it, the other floating panels (the limit is shared, #176). */
   others: number;
   /** The panel floats over the terminal instead of beside it. */
   floating: boolean;
@@ -56,7 +57,7 @@ export interface Room {
 /** The narrowest and widest a docked panel may be, in px, so the terminal stays usable. */
 export function limitsPx(room: Room): { min: number; max: number } {
   const min = Math.min(PANEL_MIN_PX, room.body);
-  const max = room.floating ? room.body - FLOAT_GAP_PX : room.body - room.others - TERMINAL_MIN_PX;
+  const max = room.body - room.others - (room.floating ? FLOAT_GAP_PX : TERMINAL_MIN_PX);
   return { min, max: Math.max(min, max) };
 }
 
@@ -101,6 +102,8 @@ export class PanelLayout {
   private readonly mounted = new Map<string, Mounted>();
   /** Panel ids, the one used last first. */
   private used: string[] = [];
+  /** Where each docked panel goes, arranged together (#176). */
+  private spots = new Map<string, Spot>();
 
   constructor(private readonly store: Store) {}
 
@@ -215,6 +218,37 @@ export class PanelLayout {
     return null;
   }
 
+  /** The docked panels on screen (not full window), in the order they're drawn. */
+  docked(): { id: string; el: HTMLElement }[] {
+    return [...this.mounted.values()]
+      .filter((m) => m.el.isConnected && this.place(m.id, m.fallback) === "panel")
+      .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      .map(({ id, el }) => ({ id, el }));
+  }
+
+  /** Where a docked panel goes; undefined until they've been arranged. */
+  spot(id: string): Spot | undefined {
+    return this.spots.get(id);
+  }
+
+  /** Some docked panel sits beside the terminal (not floating over it). */
+  anyDocked(): boolean {
+    return [...this.mounted.values()].some((m) => this.place(m.id, m.fallback) === "panel" && this.spots.get(m.id)?.float === false);
+  }
+
+  /** Some panel on screen is full window. */
+  anyFull(): boolean {
+    return [...this.mounted.values()].some((m) => this.place(m.id, m.fallback) === "full");
+  }
+
+  /** Takes a new arrangement; nothing changes (and nothing redraws) when it's the same. */
+  setSpots(spots: Map<string, Spot>) {
+    const same = spots.size === this.spots.size && [...spots].every(([id, s]) => JSON.stringify(this.spots.get(id)) === JSON.stringify(s));
+    if (same) return;
+    this.spots = spots;
+    this.changed();
+  }
+
   /** The full panel on top: the one used last. */
   topFull(): string | null {
     for (const id of this.used) {
@@ -231,4 +265,55 @@ export const configId = (id: string) => (id.startsWith("view:") ? id.slice(5) : 
 /** The next width after `␣ >` (+1) or `␣ <` (-1), in percent, within the limits. */
 export function stepped(current: number, direction: 1 | -1, limits: { min: number; max: number }): number {
   return clamp(Math.round((current + direction * STEP_PERCENT) * 10) / 10, limits.min, limits.max);
+}
+
+/** A docked panel to arrange: which side it docks on, and the width it'd be drawn at alone. */
+export interface Slot {
+  id: string;
+  side: "left" | "right";
+  /** px: its own width (the user's, init.lua's or its default), within its own limits. */
+  want: number;
+}
+
+/** Where a docked panel goes (#176, decision Q125). */
+export interface Spot {
+  /** Over the terminal instead of beside it. */
+  float: boolean;
+  /** px, when floats too wide together are narrowed to share the window; null for its own width. */
+  width: number | null;
+  /** px from its side's edge of the window, so floats sit side by side. */
+  at: number;
+}
+
+/**
+ * Where every docked panel goes, together rather than each alone (#176). Docked beside the
+ * terminal while each can keep its minimum and the terminal its 400 px; flexbox then shares the
+ * room among them (styles.css: they shrink in proportion, the terminal doesn't). When their
+ * minimums don't fit, or the window is narrow or in Focus (`forced`), they float over the terminal,
+ * side by side from their edge in the order they'd dock in, never on top of each other; floats too
+ * wide together are narrowed in proportion so a 48 px sliver of the terminal still shows.
+ * `slots` are in the order they're drawn (the DOM's).
+ */
+export function arrange(room: { body: number; others: number; forced: boolean }, slots: readonly Slot[]): Map<string, Spot> {
+  const out = new Map<string, Spot>();
+  const min = Math.min(PANEL_MIN_PX, room.body);
+  if (!room.forced && slots.length * min <= room.body - room.others - TERMINAL_MIN_PX) {
+    for (const s of slots) out.set(s.id, { float: false, width: null, at: 0 });
+    return out;
+  }
+  const total = slots.reduce((n, s) => n + s.want, 0);
+  const share = total > room.body - FLOAT_GAP_PX && total > 0 ? Math.max(0, room.body - FLOAT_GAP_PX) / total : 1;
+  const width = (s: Slot) => (share < 1 ? Math.floor(s.want * share) : null);
+  // Nearest the edge first: the first on the left, the last on the right, as when docked.
+  const lefts = slots.filter((s) => s.side === "left");
+  const rights = slots.filter((s) => s.side === "right").reverse();
+  for (const side of [lefts, rights]) {
+    let at = 0;
+    for (const s of side) {
+      const w = width(s);
+      out.set(s.id, { float: true, width: w, at });
+      at += w ?? s.want;
+    }
+  }
+  return out;
 }

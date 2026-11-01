@@ -70,6 +70,20 @@ describe("a view update and a Host-details section", () => {
     expect((parseOp({ op: "view", id: "v", spec: { actions: five } }) as { invalid: string }).invalid).toContain("actions has more than 4");
   });
 
+  it("a heading's button takes a key of its own: one character, not the table's or graph's, not a table action's (#176)", () => {
+    const invalid = (spec: Record<string, unknown>) => (parseOp({ op: "view", id: "mesh", spec }) as { invalid?: string }).invalid;
+    const op = parseOp({ op: "view", id: "mesh", spec: { actions: [{ label: "Plan", key: "P", icon: "plan", run: { handler: 1 } }, { label: "Apply", run: "x" }] } });
+    expect(op).toMatchObject({ view: { actions: [{ label: "Plan", key: "P" }, { label: "Apply" }] } });
+    expect((op as { view: { actions: object[] } }).view.actions[1]).not.toHaveProperty("key");
+    const section = parseOp({ op: "details", id: "mesh", host: "esx-02", spec: { actions: [{ label: "Cut", key: "X", run: "x" }] } });
+    expect(section).toMatchObject({ section: { actions: [{ label: "Cut", key: "X" }] } });
+    expect(invalid({ actions: [{ label: "A", key: "ab", run: "x" }] })).toContain("key must be one character");
+    expect(invalid({ actions: [{ label: "A", key: "j", run: "x" }] })).toContain("the table or graph uses j itself");
+    expect(invalid({ actions: [{ label: "A", key: "h", run: "x" }] })).toContain("the table or graph uses h itself");
+    expect(invalid({ actions: [{ label: "A", key: "A", run: "x" }, { label: "B", key: "A", run: "y" }] })).toContain("key A is used twice");
+    expect(invalid({ actions: [{ label: "A", key: "p", run: "x" }], table: { columns, rows: [], actions: [{ label: "Plan", key: "p", run: "y" }] } })).toContain("key p is used twice");
+  });
+
   it("a view's place is a panel or full", () => {
     expect((parseOp({ op: "view", id: "v", spec: { place: "left" } }) as { invalid: string }).invalid).toContain('place must be "panel" or "full"');
   });
