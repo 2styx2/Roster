@@ -97,10 +97,11 @@ export function pluginsCommand(manager: PluginManager, openPanel: () => void): C
 
 // `:packages` (ticket 24): Plugins from git repos that init.lua names.
 //
-//   packages          the panel: each Package, the commit it's at, and whether it runs
-//   packages update   fetches, then shows each new commit with its diff before applying it
-//   packages clean    removes the Packages init.lua no longer names
-const PACKAGE_SUBCOMMANDS = ["update", "clean"] as const;
+//   packages               the panel: each Package, the commit it's at, and whether it runs
+//   packages update [NAME] fetches (every Package, or NAME), then shows each new commit with its diff before applying it
+//   packages install NAME  asks again about a Package whose install was cancelled
+//   packages clean         removes the Packages init.lua no longer names
+const PACKAGE_SUBCOMMANDS = ["update", "install", "clean"] as const;
 
 export function packagesCommand(manager: PluginManager, openPanel: () => void): CommandDef {
   return {
@@ -111,19 +112,31 @@ export function packagesCommand(manager: PluginManager, openPanel: () => void): 
     optionalArg: true,
     seldom: true,
     label: (a) => (a ? `Packages: ${a}` : "Show the Packages init.lua names, and the commit each is at"),
-    complete: (arg) => matching(PACKAGE_SUBCOMMANDS, arg),
+    complete: (arg) => {
+      const words = arg.split(" ");
+      if (words.length <= 1) return matching(PACKAGE_SUBCOMMANDS, arg);
+      const [sub, name = ""] = words;
+      if (words.length !== 2 || (sub !== "update" && sub !== "install")) return [];
+      const snap = manager.snapshot();
+      const names = sub === "install" ? snap.declined : snap.packages.filter((p) => p.pinned).map((p) => p.name);
+      return matching(names, name).map((n) => `${sub} ${n}`);
+    },
     run: (ctx, arg) => {
-      const sub = (arg ?? "").trim();
+      const [sub = "", name, ...extra] = (arg ?? "").trim().split(/\s+/);
+      if (extra.length) return ctx.say(`:packages ${sub} takes one Package name`);
       switch (sub) {
         case "":
           return openPanel();
         case "update":
-          ctx.say(quiet("Checking the Packages for updates…"));
-          return void manager.checkPackages().then((m) => ctx.say(m));
+          ctx.say(quiet(name ? `Checking ${name} for an update…` : "Checking the Packages for updates…"));
+          return void manager.checkPackages(name).then((m) => ctx.say(m));
+        case "install":
+          if (!name) return ctx.say("Which Package? :packages install NAME");
+          return void manager.installPackage(name).then((m) => m && ctx.say(m));
         case "clean":
           return void manager.cleanPackages().then((m) => ctx.say(m));
         default:
-          return ctx.say(`:packages ${sub}? There's update and clean`);
+          return ctx.say(`:packages ${sub}? There's update, install and clean`);
       }
     },
   };
