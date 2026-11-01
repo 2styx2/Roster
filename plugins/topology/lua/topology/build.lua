@@ -35,16 +35,16 @@ M.plural = plural
 -- ------------------------------------------------------------------- settings
 
 ---@param config table?
----@return { leader: string, refresh: integer }, string[]
+---@return { leader: string|false, refresh: integer }, string[]
 function M.settings(config)
   local out = { leader = "T", refresh = 60 }
   local problems = {}
   config = type(config) == "table" and config or {}
   if config.leader ~= nil then
-    if type(config.leader) == "string" and config.leader:match("%S") then
+    if config.leader == false or (type(config.leader) == "string" and config.leader:match("%S")) then
       out.leader = config.leader
     else
-      problems[#problems + 1] = "topology: leader must be the keys after the Leader, such as \"T\""
+      problems[#problems + 1] = "topology: leader must be the keys after the Leader, such as \"T\", or false for none"
     end
   end
   if config.refresh ~= nil then

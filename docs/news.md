@@ -90,9 +90,11 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `init.lua`'s `modes` no longer warn "no section named …" or "no segment named …" for a Plugin's section or status segment: the names are checked once the Plugins have loaded.
 - A Plugin's finder can have a `prompt` of its own (`Folders ›`); without one it shows its title, once (finders with items showed `›` twice). See [`roster.finders.set`](plugin-api.md#rosterfinderssetid-finder).
 - A Plugin waiting for roster serve (behind a Publish, say) is no longer given up on and disabled after two seconds: waiting for serve never counts against a Plugin, for that call or for the calls queued behind it (`:help plugins`).
+- Discover and Topology take `leader = false` in their `config`, as the Mesh controls do: they bind no Leader key, and the command (and Discover's **Scan**) still works. See [discover](../plugins/discover/README.md) and [the Topology view](../plugins/topology/README.md).
 
 **CLI**
 
+- `ROSTER.md` tells Claude to run `roster check <name> --json` when a Host doesn't respond, to see which step fails and its fix, rather than `roster check --only <name>`.
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
 - Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).
 - A source that stops being one and loses (or changes) its `mesh_dir:` in the same edit is cleaned up from the directory it used until now, the one the `Include` in its `~/.ssh/config` names: an old `mesh_dir:` is warned about and kept (it was roster's default directory that went, with no word about the old one), roster's own default directory is removed, and the old `Include` goes. See [`mesh_dir:`](mesh.md#esxi).
