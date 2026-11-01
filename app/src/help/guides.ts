@@ -147,6 +147,7 @@ export const guides: readonly Guide[] = [
       providers: "cli#password-providers",
       discover: "cli#discover",
       resources: "cli#resources-secrets-with-no-address",
+      json: "cli#machine-readable-output",
     },
     markdown: cli,
   },

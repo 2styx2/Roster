@@ -39,6 +39,9 @@ def write_claude_files(cfg):
           f"Health check: `{run} check` (add `--only <name or group>`).",
           f"- The user will often name a box by product, role or description (\"the orion dev box\", "
           f"\"the core switch\"). Look it up: `{run} hosts --find orion`, then `{run} info <name>`.",
+          f"- **To read roster's data rather than show it** (to pick a Host, parse a check, script something), add "
+          f"`--json`: `{run} hosts --json`, `{run} info <name> --json`, `{run} check <name> --json`. One JSON "
+          "document, Logins as references only; prefer it to parsing the tables.",
           "- **access = unreviewed**: found by a network scan, not set up yet. Don't try to log in; "
           "tell the user it needs reviewing in roster.yml.",
           "- Web UIs: open the URL in the browser. If it shows a login page, ask the user to sign in.",
