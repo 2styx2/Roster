@@ -937,8 +937,21 @@ fn a_thousand_hosts_get_their_details_in_batches_until_every_one_has_its_section
         lab: 1000,
         ..World::default()
     });
+    // The budget is lifted (started_big), so the work each call does is checked here instead, by
+    // count: at most 300 Host-details sections per call, inside the 1,000 UI changes a call may
+    // make, and every section set within four calls (300 + 300 + 300 + 102).
+    assert_eq!(of(&run.ops, "details").len(), 300, "the first call");
+    let mut calls = 1;
     while of(&run.ops, "details").len() < 1002 {
-        run.tick();
+        let ops = run.tick();
+        calls += 1;
+        assert!(
+            of(&ops, "details").len() <= 300,
+            "{} sections in one call",
+            of(&ops, "details").len()
+        );
+        assert!(ops.len() <= 1000, "{} UI changes in one call", ops.len());
+        assert!(calls <= 4, "still not done after {calls} calls");
     }
     let hosts: std::collections::BTreeSet<&str> = of(&run.ops, "details")
         .iter()
