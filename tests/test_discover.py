@@ -1,3 +1,6 @@
+import datetime
+import json
+
 import pytest
 import yaml
 
@@ -133,3 +136,58 @@ def test_the_cli_scans_each_family_once_per_address_and_counts_quiet_hosts(fakes
     assert "found        2 hosts with open ports: 2 new" in out and "(1 more answered" in out
     hosts = load_config(cfg)["hosts"]
     assert sorted(h["ip"] for h in hosts.values()) == ["10.0.0.9", "fd00::7"]
+
+
+# ---------------------------------------------------------------- roster discover --json (T107)
+
+@pytest.fixture
+def scanned(fakes, isolated, monkeypatch):
+    """Stand-in Hosts for the stand-in nmap, and a roster.yml that already has the one at 10.0.0.9."""
+    root = isolated["home"].parent / "hosts"
+    for name, address, ports, title in (("db", "10.0.0.9", "22 ssh OpenSSH 9.6", ""),
+                                        ("web", "10.0.0.10", "22 ssh OpenSSH 9.6\n443 https nginx", "Lab page"),
+                                        ("printer", "10.0.0.11", "9100 jetdirect", "")):
+        (root / name).mkdir(parents=True)
+        (root / name / "address").write_text(address)
+        (root / name / "ports").write_text(ports + "\n")
+        if title:
+            (root / name / "title").write_text(title)
+    monkeypatch.setenv("FAKE_HOSTS", str(root))
+    cfg = isolated["work"] / "roster.yml"
+    cfg.write_text("groups:\n  lab:\n    user: ops\n    hosts:\n      old-db: 10.0.0.9\n")
+    return cfg
+
+
+def test_discover_json_is_the_plan_and_what_it_found(scanned, capsys):
+    from roster.cli import main
+    before = scanned.read_text()
+    assert main(["-c", str(scanned), "discover", "10.0.0.0/28", "10.0.0.9", "--ports", "22,443", "--json"]) == 0
+    out, err = capsys.readouterr()
+    assert err == "" and scanned.read_text() == before                 # a preview: nothing written
+    doc = json.loads(out)
+    today = datetime.date.today().strftime("%Y%m%d")
+    assert {k: v for k, v in doc.items() if k != "found"} == {
+        "version": 1, "targets": ["10.0.0.0/28"], "addresses": 14, "ports": 2, "scanner": "nmap",
+        "count": 2, "quiet": 1, "group": f"discovered-{today}"}
+    known, new = doc["found"]
+    assert known["address"] == "10.0.0.9" and known["known"] == "old-db" and known["name"] is None
+    assert new == {"address": "10.0.0.10", "name": "server-10-0-0-10", "type": "server", "hostname": "",
+                   "title": "Lab page", "web": "https://10.0.0.10", "known": None, "added": None, "vendor": "",
+                   "os": "", "mac": "", "ports": [{"port": 22, "name": "ssh", "product": "OpenSSH 9.6", "title": ""},
+                                                  {"port": 443, "name": "https", "product": "nginx",
+                                                   "title": "Lab page"}]}
+
+
+def test_discover_json_errors(scanned, capsys):
+    from roster.cli import main
+    assert main(["discover", "10.0.0.0/8", "--json"]) == 1
+    out, err = capsys.readouterr()
+    error = json.loads(err)["error"]
+    assert out == "" and error["code"] == 121 and "16777214" in error["message"] and "--force" in error["fix"]
+    assert main(["discover", "not-a-net", "--json"]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and json.loads(err)["error"]["code"] == 3
+    with pytest.raises(SystemExit) as e:
+        main(["discover", "10.0.0.0/28", "--write", "--json"])
+    out, err = capsys.readouterr()
+    assert e.value.code == 2 and out == "" and "--write" in json.loads(err)["error"]["message"]
