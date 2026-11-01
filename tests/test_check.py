@@ -7,6 +7,7 @@ ssh (tests/fakes/ssh), which logs each run and asks SSH_ASKPASS for the password
 
 import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -333,6 +334,34 @@ def test_a_background_check_answers_at_once_and_reports_each_step(serve, box):
     assert box.sshd.accepts == 1 and len(box.ssh_runs()) == 1               # one check, one connection
     _, out, err = s.close()
     assert not [x for x in ALL_SECRETS if x in "".join(s.responses) + out + err]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in ssh is a .cmd shim there: ending it leaves its Python")
+def test_locking_mid_login_ends_the_checks_ssh_rather_than_wait_for_it(serve, box, monkeypatch, tmp_path):
+    # #198 (b): vault.lock waited behind the auth step's ssh (up to ~35 s) while the lock screen hung
+    hung = tmp_path / "ssh.pid"
+    monkeypatch.setenv("FAKE_SSH_HANG", str(hung))
+    s = serve()
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    job = s.call("host.check", {"host": "esx", "background": True})["result"]["job"]
+    end = time.monotonic() + 15
+    while not (hung.exists() and hung.read_text()):
+        assert time.monotonic() < end, "the check never got to its login"
+        time.sleep(0.02)
+    pid = int(hung.read_text())
+    t = time.monotonic()
+    assert s.call("vault.lock")["result"]
+    assert time.monotonic() - t < 5                                 # not the ssh's minute
+    r = s.call("host.check_job", {"job": job})["result"]
+    while r["state"] in ("running", "stopping"):
+        time.sleep(0.02)
+        r = s.call("host.check_job", {"job": job})["result"]
+    assert r["state"] == "stopped" and r["result"]["ok"] is False
+    assert statuses(r["result"])[-1] == ("auth", "skipped", None)
+    assert r["result"]["steps"][-1]["message"] == "the check was stopped"
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)                                             # its ssh is gone, not left running
+    s.close()
 
 
 def test_the_waiting_form_answers_as_it_always_did(check):

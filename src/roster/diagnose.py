@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import subprocess
+import time
 from contextlib import nullcontext
 
 from . import askpass, errors, providers
@@ -116,7 +117,7 @@ def check_host(name, inventory, channel=None, progress=None, halted=None, vault=
     Event): once it's set no further step starts (the rest are "skipped", and ok is false). And VAULT(), a context
     manager that shares the vault, held only for a password Login's VAULT_STEPS: between them a lock or an unlock
     needn't wait for the check (decision Q112 (q)). It raises Stopped when the check was stopped meanwhile."""
-    ctx = {"name": name, "inventory": inventory, "channel": channel}
+    ctx = {"name": name, "inventory": inventory, "channel": channel, "halted": halted}
     steps, failed = [], False
     for i, step in enumerate(STEPS):
         if not failed and halted is not None and halted.is_set():
@@ -291,12 +292,10 @@ def step_auth(ctx):
         argv += ["-o", "BatchMode=yes"]
     argv += [h["name"], "true"]
     limit = round(time_left(LOGIN_TIMEOUT + 20))
-    try:
-        r = subprocess.run(argv, env={**os.environ, **env}, stdin=subprocess.DEVNULL, capture_output=True,
-                           text=True, timeout=limit)
-    except subprocess.TimeoutExpired:
+    r = login_attempt(argv, {**os.environ, **env}, limit, ctx.get("halted"))
+    if r is None:
         raise Problem(errors.TIMEOUT, f"{h['name']} didn't finish the login within {limit} s",
-                      fix=unreachable_fix(h)) from None
+                      fix=unreachable_fix(h))
     if r.returncode == 0:
         return f"logged in as {h['ssh']['user']}"
     details = r.stderr.strip()
@@ -308,6 +307,46 @@ def step_auth(ctx):
         if secret:
             details = details.replace(secret, "****")
     raise login_failure(h, password, details)
+
+
+STOP_POLL = 0.1            # s: how soon a stopped check notices it while its ssh logs in
+
+
+def login_attempt(argv, env, limit, halted=None):
+    """Run the login's ssh ARGV for at most LIMIT s: its CompletedProcess, or None when it ran out of time. Once
+    HALTED is set (serve's check was stopped: vault.lock, jobs.stop, its last waiter cancelled) its ssh is ended and
+    Stopped raised, so a lock never waits for a login (decision Q119). Ending it is safe: the login runs `true` and
+    nothing else, so nothing on the Host is left half-done, and the attempt is already made or never will be: a
+    stopped check never tries again, so the Host's rate limiter sees no more attempts than before."""
+    proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True)
+    end = time.monotonic() + limit
+    while True:
+        left = end - time.monotonic()
+        try:
+            out, err = proc.communicate(timeout=max(0.0, min(left, STOP_POLL) if halted is not None else left))
+            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            if halted is not None and halted.is_set():
+                end_process(proc)
+                raise Stopped from None
+            if time.monotonic() >= end:
+                end_process(proc)
+                return None
+
+
+def end_process(proc):
+    """End PROC (SIGTERM first, so ssh closes its connection and any ProxyJump it started), then kill it; never waits
+    long for pipes a child of it may still hold."""
+    for stop in (proc.terminate, proc.kill):
+        try:
+            stop()
+            proc.communicate(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+        except OSError:
+            return
 
 
 def login_failure(h, password, stderr):
