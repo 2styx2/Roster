@@ -77,6 +77,10 @@ return {
     -- The keycap hints (status bar, empty states, panels, Picker footers, menus). Unset, `:hints
     -- on|off|toggle` decides and the app remembers it; set here, it wins. The keys work either way.
     -- hints = false,
+    -- The message line, as Neovim's: "quiet" shows errors, warnings and answers; "all" also
+    -- routine confirmations and tips. Unset, `:messages all|quiet|toggle` decides and the app
+    -- remembers it (quiet until then). `:messages` lists the recent ones either way.
+    -- messages = "all",
   },
 
   -- Panels and views -------------------------------------------------------------------------

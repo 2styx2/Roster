@@ -9,6 +9,7 @@ import { groupCommand, hostCommand, type InventoryOp } from "../inventory/comman
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import { VIEW_MODES, type ViewMode } from "../view/layout";
+import type { Message } from "../ui/messages";
 
 export type ListMove = "down" | "up" | "top" | "bottom" | "choose";
 
@@ -59,8 +60,8 @@ export interface CommandContext {
   selectedHost(): string | null;
   /** Every Host's name, in roster.yml order (empty until the Inventory is loaded). */
   hostNames(): readonly string[];
-  /** A one-line message for the user. */
-  say(message: string): void;
+  /** A one-line message for the user: an error, a warning or an answer, or a quiet one (ui/messages.ts). */
+  say(message: Message): void;
   /** The view mode now (decision Q36). */
   viewMode(): ViewMode;
   /** Switches to `mode`, or to the other one. */

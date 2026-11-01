@@ -12,6 +12,7 @@
 import type { CommandDef } from "../commands/table";
 import { matching } from "../commands/table";
 import { BUILTIN } from "../registry";
+import { quiet } from "../ui/messages";
 import type { HandlerContext, PluginManager } from "./manager";
 
 const SUBCOMMANDS = ["install", "remove", "reload", "revoke", "grant", "types"] as const;
@@ -63,7 +64,7 @@ export function pluginsCommand(manager: PluginManager, openPanel: () => void): C
           if (!rest.length) return ctx.say("Which folder? :plugins install PATH");
           return void manager.install(text.slice("install".length).trim()).then(say);
         case "remove":
-          return void manager.remove(rest[0] ?? "").then((m) => say(m ?? `Removed ${rest[0] ?? ""}`));
+          return void manager.remove(rest[0] ?? "").then((m) => (m ? ctx.say(m) : ctx.say(quiet(`Removed ${rest[0] ?? ""}`))));
         case "reload":
           return void manager.reload(rest[0] ?? "").then(say);
         case "revoke":
@@ -117,7 +118,7 @@ export function packagesCommand(manager: PluginManager, openPanel: () => void): 
         case "":
           return openPanel();
         case "update":
-          ctx.say("Checking the Packages for updates…");
+          ctx.say(quiet("Checking the Packages for updates…"));
           return void manager.checkPackages().then((m) => ctx.say(m));
         case "clean":
           return void manager.cleanPackages().then((m) => ctx.say(m));

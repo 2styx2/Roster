@@ -128,6 +128,20 @@ fn ui_hints_is_unset_by_default_and_takes_a_boolean() {
 }
 
 #[test]
+fn ui_messages_is_unset_by_default_and_takes_quiet_or_all() {
+    // Ticket 111: unset leaves it to `:messages`, whose choice the State keeps (quiet until it
+    // makes one).
+    use roster_core::config::MessagesLevel;
+    assert_eq!(Config::default().ui.messages, None);
+    let dir = with_init("messages", "return { ui = { messages = \"all\" } }\n");
+    assert_eq!(config::load(&dir).unwrap().ui.messages, Some(MessagesLevel::All));
+    let dir = with_init("messages-bad", "return {\n  ui = { messages = \"loud\" },\n}\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("ui.messages"), "{e}");
+}
+
+#[test]
 fn panel_width_and_views_set_each_panels_defaults() {
     // Ticket 95: unset, each panel keeps its own; set, they're defaults the State's choice wins over.
     assert_eq!(Config::default().panel.width, None);

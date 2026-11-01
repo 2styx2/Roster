@@ -71,8 +71,9 @@ export interface Config {
   themes: Record<string, ThemeDef>;
   colors: Partial<ThemeColors>;
   fonts: { ui: string; mono: string; uiSize: number };
-  /** `ui.hints`: null when init.lua leaves it to `:hints` (and the State). */
-  ui: { hints: boolean | null };
+  /** `ui.hints`: null when init.lua leaves it to `:hints` (and the State). `ui.messages`: null
+   * when init.lua leaves it to `:messages` (and the State), quiet until it decides. */
+  ui: { hints: boolean | null; messages: "quiet" | "all" | null };
   /** `panel.width` (ticket 95): every docked panel's default width, percent of the window. */
   panel: { width: number | null };
   /** `views.ID`: a panel's or view's default place and width (decision Q106). */

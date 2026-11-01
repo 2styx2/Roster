@@ -72,7 +72,7 @@ The `options` page says, for each option, one of:
 
 - `default`: init.lua doesn't set it.
 - `init.lua:12`: the file sets it, on that line (or just `init.lua` when the line can't be found, for a value built in a loop or a `require`d module). The core lists every value the file set, so an option set to its default value still says `init.lua`.
-- `State (:theme)` or `State (:hints)`: init.lua leaves it to the app, and `:theme` or `:hints` made a choice the State keeps.
+- `State (:theme)`, `State (:hints)` or `State (:messages)`: init.lua leaves it to the app, and `:theme`, `:hints` or `:messages` made a choice the State keeps.
 - `State (:theme, over init.lua:12)`: init.lua sets `theme` on that line, and a `:theme` choice made over that same value is in effect.
 
 ## How the docs stay in sync

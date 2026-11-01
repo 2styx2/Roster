@@ -100,7 +100,8 @@ describe("a Plugin's view", () => {
     await user.keyboard(`${LEADER}:view{Enter}`);
     const finder = await screen.findByRole("dialog", { name: "Open a view" });
     expect(finder).toHaveTextContent("Scan");
-    await user.keyboard("{Enter}");
+    // `:messages`'s view is listed too (ticket 111).
+    await user.keyboard("Scan{Enter}");
     expect(await screen.findByRole("grid", { name: "Scan" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await user.keyboard(`${LEADER}:scan{Enter}`);
