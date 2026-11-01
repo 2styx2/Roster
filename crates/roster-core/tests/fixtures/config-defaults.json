@@ -86,6 +86,7 @@
     "panel": {
       "width": null
     },
+    "pluginProxy": null,
     "pullFreshMinutes": 5,
     "rosterCommand": null,
     "sessions": "sidebar",

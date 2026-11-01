@@ -2962,6 +2962,7 @@ dependencies = [
  "notify",
  "portable-pty",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
