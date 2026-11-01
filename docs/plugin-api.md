@@ -2100,7 +2100,7 @@ roster.on("session_open", function(e) roster.terminal.send(e.session, "uptime\n"
 
 ## `roster.serve`
 
-roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers one request at a time, so a call can wait behind the app's own (a Publish: a minute or two). [`roster.serve.request`](#rosterserverequestmethod-params-done) doesn't wait: prefer it in anything the user starts, and for a job's progress. [`roster.serve.call`](#rosterservecallmethod-params) waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
+roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers several requests at once, but a call can still wait: for its turn (2 calls into serve at a time for each Plugin, 4 for all of them) or behind the app's own write (a Publish: a minute or two). [`roster.serve.request`](#rosterserverequestmethod-params-done) doesn't wait: prefer it in anything the user starts. A job's progress comes as the `job_progress` event (serve API 20). [`roster.serve.call`](#rosterservecallmethod-params) waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
 
 ### `roster.serve.call(method, params)`
 
@@ -2134,7 +2134,7 @@ roster.status.set("box", { text = info.box .. ": " .. info.host_count .. " Hosts
 
 ### `roster.serve.request(method, params, done)`
 
-Asks roster serve without waiting: `done` gets the answer. Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (it answers one request at a time: a Publish holds it for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, a flagged one (`mesh.apply`, `discover.start`, …) only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for a flagged method. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.
+Asks roster serve without waiting: `done` gets the answer. Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (a Publish holds `roster.yml` for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, a flagged one (`mesh.apply`, `discover.start`, …) only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for a flagged method. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.
 
 **Parameters**
 

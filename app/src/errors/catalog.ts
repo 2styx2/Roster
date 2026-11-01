@@ -487,6 +487,15 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Wait for the Mesh job (its progress is in the status bar), or stop it with `:cancel mesh`; then run it again.",
     actions: [],
   }),
+  // serve answers concurrently (API 20, ticket 101): a lock held past this request's wait,
+  // docs/app/errors.md row 113. Nothing was done.
+  row("serve-busy", {
+    row: 113,
+    codes: [4],
+    where: ["roster"],
+    fix: () => "Try again once it has finished: nothing was done.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

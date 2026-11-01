@@ -30,7 +30,7 @@ pub(crate) const MAX_SERVE_REQUESTS: usize = 8;
 /// The most times one call (a load, an event, an answer) may wait for roster serve
 /// (`roster.serve.call`, `roster.inventory`), and the most it may wait in all: serve's wait isn't
 /// the Plugin's time (Q103), so without these a call asking serve in a loop would never run out of
-/// time and would keep serve, which answers one request at a time, from the app. 300 s is serve's
+/// time and would keep serve from the app. 300 s is serve's
 /// own longest deadline for one method, so one call merely queued behind a Publish still gets its
 /// answer; a call that passes either gets an error.
 pub(crate) const MAX_SERVE_CALLS: u32 = 100;

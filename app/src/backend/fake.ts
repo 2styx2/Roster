@@ -160,7 +160,7 @@ export interface FakeScenario {
   relockAfterMs?: number;
   /** `vault.unlock` with the right password takes `completesAfterMs`, but the call gives up
    * after `failAfterMs` (roster-core's timeout) while serve carries on and unlocks anyway. Like
-   * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
+   * serve, the fake then holds the vault's lock until it's done, so later vault calls wait for it. */
   slowUnlock?: { failAfterMs: number; completesAfterMs: number };
   /** The account `vault.login` signs in to, when the vault is `not-logged-in` (ticket 31). Without
    * it, `vault.status` has no `sign_in` (a roster older than api 3). */
@@ -1145,7 +1145,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     });
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  /** serve answers one request at a time: vault calls queue behind a slow unlock. */
+  /** The vault's lock (serve API 20): vault calls wait behind a slow unlock, which holds it alone. */
   let serveBusy: Promise<unknown> = Promise.resolve();
   const inOrder = <T>(job: () => Promise<T>): Promise<T> => {
     const run = serveBusy.then(job, job);

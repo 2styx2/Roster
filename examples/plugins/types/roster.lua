@@ -1060,7 +1060,7 @@ roster.terminal = {}
 ---@param text string What to type, as if the user typed it: `"uptime\n"` runs `uptime`.
 function roster.terminal.send(session, text) end
 
---- roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers one request at a time, so a call can wait behind the app's own (a Publish: a minute or two). `roster.serve.request` doesn't wait: prefer it in anything the user starts, and for a job's progress. `roster.serve.call` waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
+--- roster serve's methods, by name. `nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers several requests at once, but a call can still wait: for its turn (2 calls into serve at a time for each Plugin, 4 for all of them) or behind the app's own write (a Publish: a minute or two). `roster.serve.request` doesn't wait: prefer it in anything the user starts. A job's progress comes as the `job_progress` event (serve API 20). `roster.serve.call` waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.
 roster.serve = {}
 
 --- Calls a roster serve method the Plugin was granted.

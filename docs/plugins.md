@@ -154,7 +154,7 @@ No permission reaches a secret, nor how one is fetched: a `cmd:COMMAND` or `env:
 
 ### Asking roster serve
 
-roster serve answers one request at a time, so a Plugin's question can wait behind the app's own: a Publish holds it for a minute or two. `roster.serve.request` doesn't wait; the Plugin keeps answering the user, and `done` gets the answer when it comes:
+roster serve answers several requests at once, but a Plugin's question can still wait: for its turn (each Plugin has 2 calls into serve at a time, and all Plugins together 4, so one Plugin can't take serve from the others or from the app), or for `roster.yml` behind the app's own Publish, for a minute or two. `roster.serve.request` doesn't wait; the Plugin keeps answering the user, and `done` gets the answer when it comes:
 
 ```lua
 roster.commands.add("count", { run = function()
@@ -167,7 +167,21 @@ end })
 
 `done(result)` or `done(nil, why)` runs on the Plugin's thread as a call of its own. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question (`roster.confirm`), copy or run a command line, and ask for `discover.start` or `discover.add`, as the call could. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. At most 8 wait at once; an answer for a Plugin unloaded or reloaded since is dropped.
 
-`roster.serve.call` asks and waits. Waiting never counts against the Plugin (its budget, or being given up on), but the Plugin does nothing else meanwhile, and the user's next action in it waits too. One call (an action, a load, an event, an answer) may ask roster serve this way at most 100 times and wait 300 s in all, then it's an error: serve answers one request at a time, so a loop of calls would keep it from the app. Use it where the answer is needed there and then, such as a `:check` section, which answers when it's run. A job's progress (a Mesh run, a scan) is asked for with a timer and `roster.serve.request`, one question out at a time; a Plugin can't hear serve's notifications.
+`roster.serve.call` asks and waits. Waiting never counts against the Plugin (its budget, or being given up on), but the Plugin does nothing else meanwhile, and the user's next action in it waits too. One call (an action, a load, an event, an answer) may ask roster serve this way at most 100 times and wait 300 s in all, then it's an error: a loop of calls would keep serve from the app. Use it where the answer is needed there and then and serve is quick to give it; a `:check` section that needs serve answers later instead ([Health sections](#health-sections)).
+
+**A job's progress is pushed.** A Mesh run and a Discover scan are jobs in roster serve, and the `job_progress` event says when one starts, as it moves (at most five times a second) and when it ends: `{ kind, job, action, state, done, total, at }`. A Plugin hears a Mesh job only with `serve:mesh.job`, and a scan only with `serve:discover.status`, the permissions it would poll them with, so the event tells it nothing new. The result isn't in it: ask `mesh.job` or `discover.status` once, when it ends.
+
+```lua
+roster.on("job_progress", function(e)
+  if e.kind ~= "mesh" or e.job ~= following then return end
+  roster.progress.set("mesh", { title = "Mesh " .. e.action, done = e.done, total = e.total })
+  if e.state ~= "running" and e.state ~= "stopping" then
+    roster.serve.request("mesh.job", { job = e.job, brief = true }, show_result)
+  end
+end)
+```
+
+A roster serve older than API 20 sends none, so keep asking with a timer (`roster.every`) and `roster.serve.request`, one question out at a time, until the first `job_progress` comes; the first-party Plugins do that.
 
 ### The network
 
@@ -270,7 +284,18 @@ roster.health.set("recent-alerts", {
 })
 ```
 
-Each line is a [`HealthCheck`](plugin-api.md#healthcheck): `ok`, `warn` or `error`, a message and an optional fix, shown as `OK`, `WARNING` and `ERROR` like roster's own. The function runs like any call into your Plugin: with your permissions, a quarter of a second of Lua, and `roster serve`'s answers not counted against it, so check what you can see locally and keep it quick. One that raises, returns something that isn't a list of lines, or doesn't answer within three seconds is an `ERROR` line of its own section, and the rest of `:check` goes on. Without `check`, `checks = { … }` shows those lines as you last set them.
+Each line is a [`HealthCheck`](plugin-api.md#healthcheck): `ok`, `warn` or `error`, a message and an optional fix, shown as `OK`, `WARNING` and `ERROR` like roster's own. The function runs like any call into your Plugin: with your permissions, a quarter of a second of Lua, and `roster serve`'s answers not counted against it, so check what you can see locally and keep it quick. A check that needs roster serve returns `"later"` at once and answers with [`roster.health.answer`](plugin-api.md#rosterhealthanswercheck-lines) from the request's `done`, within 30 seconds, so it never waits for serve on your Plugin's thread:
+
+```lua
+check = function(e)
+  roster.serve.request("discover.plan", { targets = { "10.0.0.0/30" } }, function(plan, err)
+    roster.health.answer(e.check, plan and { { level = "ok", message = "can scan, with " .. plan.scanner } }
+      or { { level = "error", message = err } })
+  end)
+  return "later"
+end,
+```
+ One that raises, returns something that isn't a list of lines, or doesn't answer within three seconds is an `ERROR` line of its own section, and the rest of `:check` goes on. Without `check`, `checks = { … }` shows those lines as you last set them.
 
 ### Types in your editor
 
