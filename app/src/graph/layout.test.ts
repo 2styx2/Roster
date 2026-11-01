@@ -106,20 +106,19 @@ describe("the graph's layout", () => {
     expect(overlaps(second)).toEqual([]);
   });
 
-  it("parts clusters a layout saved overlapping (an older version's), moving the later one", () => {
+  it("a node the user drags out past a neighbour moves nothing else: only clusters that got new nodes move", () => {
     const g = bigGraph(120, 3);
     const l = layoutGraph(g);
     const a = l.clusters.get("g0")!;
+    const b = l.clusters.get("g1")!;
+    // One of g0's nodes dragged right over g1, so g0's circle now reaches it.
+    const dragged = g.nodes.find((n) => n.cluster === "g0")!.id;
     const saved = structuredClone(l.saved);
-    // g1 saved right on top of g0, its nodes with it.
-    const b = saved.clusters.g1!;
-    const dx = a.x - b[0];
-    const dy = a.y - b[1];
-    saved.clusters.g1 = [a.x, a.y];
-    for (const n of g.nodes.filter((n) => n.cluster === "g1")) saved.nodes[n.id] = [saved.nodes[n.id]![0] + dx, saved.nodes[n.id]![1] + dy];
-    const healed = layoutGraph(g, saved);
-    expect(overlaps(healed)).toEqual([]);
-    expect(healed.clusters.get("g0")).toMatchObject({ x: a.x, y: a.y });
+    saved.nodes[dragged] = [b.x, b.y];
+    const after = layoutGraph(g, saved);
+    for (const c of g.clusters) expect(after.clusters.get(c.id)).toMatchObject({ x: l.clusters.get(c.id)!.x, y: l.clusters.get(c.id)!.y });
+    expect(at(after, dragged)).toEqual({ x: b.x, y: b.y });
+    expect(after.clusters.get("g0")).toMatchObject({ x: a.x, y: a.y });
   });
 
   it("lays out 2,000 nodes in 40 clusters quickly", () => {

@@ -3,7 +3,7 @@
 // node is at its centre and each new one goes on the outside; the clusters are packed in rows, in
 // order, loose nodes first. Positions are kept (`saved`, in the State): a node or cluster placed
 // once stays where it is, and a new one takes a free place without moving the others; only a
-// cluster that grew into another moves, whole, to the nearest free place (T99). No force
+// cluster that got new nodes and grew into another moves, whole, to the nearest free place (T99). No force
 // simulation: it would move everything when one node arrives, and cost seconds at 2,000 nodes.
 import type { GraphData } from "./model";
 
@@ -133,14 +133,15 @@ export function layoutGraph(g: GraphData, saved?: SavedLayout): Layout {
     grp.r = Math.max(radiusFor(grp.members.length), far + PAD);
   }
 
-  // Groups placed before stay where they are, unless one grew into another (Topology fills its
-  // clusters as Hosts' details arrive): then the one that grew moves, whole, to the nearest free
-  // place. Those that didn't grow settle first, so a saved layout that overlaps heals too.
+  // Groups placed before stay where they are, unless one got new nodes and grew into another
+  // (Topology fills its clusters as Hosts' details arrive): then it moves, whole, to the nearest free
+  // place. Only new nodes count: a cluster the user made bigger by dragging a node out of it stays,
+  // and so does everything near it, even overlapping.
   const settled: Circle[] = [];
   const homeless: Group[] = [];
   for (const grp of [...used.filter((x) => x.fixed && !x.grew), ...used.filter((x) => x.grew)]) {
     const c = { ...grp.centre, r: grp.r };
-    if (!settled.every((o) => apart(c, o))) {
+    if (grp.grew && !settled.every((o) => apart(c, o))) {
       const p = nearestFree(grp.centre, grp.r, settled);
       if (!p) {
         grp.fixed = false;
