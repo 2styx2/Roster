@@ -130,6 +130,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- A Mesh source moved back to roster's own directory (its `mesh_dir:` removed) makes a new key there, as [`mesh_dir:`](mesh.md#esxi) says, instead of quietly using again the key that directory still held from before the `mesh_dir:`.
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.
 - `roster serve` started with a temp dir whose path leaves a Unix socket's no room puts its askpass folder in `/tmp` rather than fail.

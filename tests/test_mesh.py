@@ -445,6 +445,31 @@ def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
     assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
 
 
+def test_back_to_the_default_directory_roster_makes_a_new_key_rather_than_bring_back_the_old_one(net):
+    """orion-2's default directory still holds the key from before a mesh_dir: (roster warned about it then);
+    when roster.yml drops the mesh_dir:, that old key isn't silently used again."""
+    old = net.host("orion-2") / "home/.ssh/roster-mesh"
+    mesh.run(net.cfg(), apply=True)
+    first = (old / "id_ed25519.pub").read_text()
+    d = net.host("orion-2") / "srv/mesh"
+    (net.host("orion-2") / "srv").mkdir()
+    with_mesh_dir(net, str(d), host="orion-2")
+    mesh.run(net.cfg(), apply=True)
+    assert (old / "id_ed25519").exists()                    # warned about, never removed
+    net.cfg_path.write_text(CONFIG)
+    plan = mesh.run(net.cfg())
+    assert "replace key" in next(h for h in plan["hosts"] if h["host"] == "orion-2")["changes"]
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert "replace key" in next(h for h in r["hosts"] if h["host"] == "orion-2")["changes"]
+    now = (old / "id_ed25519.pub").read_text()
+    assert now != first
+    assert any(now.split()[1] in x for x in net.mesh_lines("orion-3"))      # its peers trust the new one
+    assert not any(first.split()[1] in x for p in HOSTS for x in net.mesh_lines(p))
+    assert any(w.startswith(f"orion-2: {d} holds an earlier Mesh key") for w in r["warnings"])
+    assert mesh.run(net.cfg())["already"]
+
+
 LINES = {"orion-2": "orion-2: 10.0.0.2", "esx-02": "esx-02: { ip: 10.0.0.12, user: root }"}
 CUSTOM = {"orion-2": "srv/mesh", "esx-02": "vmfs/volumes/data2/mesh"}      # a mesh_dir: on each, from its root
 DEFAULT = {"orion-2": "home/.ssh/roster-mesh", "esx-02": "vmfs/volumes/5f0e-uuid/.roster-mesh"}
