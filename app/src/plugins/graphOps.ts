@@ -3,7 +3,7 @@
 // apart from ops.ts, which calls it for `roster.views.set` and `roster.views.update`.
 import type { EdgeDir, EdgeStyle, EdgeTone, FilterState, GraphCluster, GraphData, GraphEdge, GraphFilter, GraphNode, Mark, NodeShape, NodeState, Reach } from "../graph/model";
 import type { RowAction } from "../sidebar/Sidebar";
-import type { PluginTableAction, Run } from "./ops";
+import { when, type PluginTableAction, type Run } from "./ops";
 
 /** Most nodes, edges and clusters a graph holds, after updates too. */
 export const MAX_NODES = 5000;
@@ -12,9 +12,12 @@ export const MAX_CLUSTERS = 500;
 const MAX_ACTIONS = 8;
 const MAX_TEXT = 500;
 
-/** Keys the graph uses itself: moving, panning, zoom, search, its filter, clusters, the list, and
- * kept ones; and `s` `S`, which sort its node list (a table). */
-export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "f", "s", "S", "/", "?", "q", "+", "-", "=", "0"] as const;
+/** Keys the graph uses itself: moving, panning, zoom, search, its filter, clusters, the list,
+ * placing a node (`m`), and kept ones; and `s` `S`, which sort its node list (a table). */
+export const GRAPH_KEYS = ["h", "j", "k", "l", "H", "J", "K", "L", "g", "G", "n", "N", "o", "O", "t", "f", "m", "s", "S", "/", "?", "q", "+", "-", "=", "0"] as const;
+
+/** What a graph action's `when` may test: a node's own fields (T89). */
+export const NODE_FIELDS = ["id", "label", "kind", "shape", "state", "mark", "note", "cluster", "host", "detail"] as const;
 
 export const SHAPES: readonly NodeShape[] = ["dot", "ring", "dashed", "hollow", "square"];
 const STATES: readonly NodeState[] = ["live", "down"];
@@ -199,7 +202,10 @@ export function parseGraph(v: unknown, what: string): PluginGraph {
       if (keys.has(key)) throw new GraphInvalid(`${where}: key ${key} is used twice`);
       keys.add(key);
     }
-    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon: oneOf(a, "icon", where, ICONS), when: undefined, run: run(a.run, where) });
+    const only = when(a, where);
+    for (const k of Object.keys(only ?? {}))
+      if (!(NODE_FIELDS as readonly string[]).includes(k)) throw new GraphInvalid(`${where}: when.${k}: a node has no ${k} (${NODE_FIELDS.join(", ")})`);
+    return defined<PluginTableAction>({ label: str(a, "label", where, 100), key, icon: oneOf(a, "icon", where, ICONS), when: only, run: run(a.run, where) });
   });
   return defined<PluginGraph>({
     data: parts(v, at),

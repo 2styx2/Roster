@@ -68,6 +68,8 @@ export interface Frame {
   matches: ReadonlySet<string> | null;
   /** Edges being drawn in (index → 0..1). */
   drawing: ReadonlyMap<number, number>;
+  /** The selected node is being moved from the keyboard (`m`): its ring is dashed. */
+  moving?: boolean;
 }
 
 /** How big a node is on screen at zoom `k`. */
@@ -261,9 +263,11 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
     const rr = (sel.n.count !== undefined ? STAND_IN_RADIUS : r) + 4;
     ctx.strokeStyle = p.text;
     ctx.lineWidth = 1.5;
+    ctx.setLineDash(f.moving ? [3, 3] : []);
     ctx.beginPath();
-    ctx.arc(sel.x, sel.y, rr, 0, Math.PI * 2);
+    ctx.arc(sel.x, sel.y, f.moving ? rr + 2 : rr, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // Labels where there's room: the selected node's, then its reach's and the matches, then live

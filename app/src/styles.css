@@ -1380,6 +1380,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .graph-canvas canvas { position: absolute; inset: 0; display: block; cursor: default; }
 .graph-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
 .graph-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.graph-list:focus { outline: none; }
+.graph-list:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--radius); }
 .graph-about { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-mono); }
 
 /* ---------- Packages (ticket 24): an update's commits and diff in the prompt ---------- */

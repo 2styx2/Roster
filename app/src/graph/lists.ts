@@ -6,6 +6,9 @@ import type { TableRow } from "../ui/table";
 import { reachCounts, type GraphData, type GraphEdge, type GraphIndex, type GraphNode, type NodeShape } from "./model";
 import type { GraphModel } from "../view/views";
 
+/** Cells the nodes' table keeps for an action's `when`, apart from its columns' ids. */
+const HIDDEN = "\u0000node.";
+
 /** A shape in words, as the list says it. */
 export const SHAPE_WORDS: Record<NodeShape, string> = { dot: "filled", ring: "ring", dashed: "dashed ring", hollow: "hollow", square: "square" };
 
@@ -19,6 +22,9 @@ export function stateWords(n: GraphNode): string {
 export function nodeTable(model: GraphModel, ix: GraphIndex, nodes: readonly GraphNode[] = model.data.nodes): TableModel {
   const titles = new Map(model.data.clusters.map((c) => [c.id, c.title]));
   const counts = reachCounts(ix, model.reach ?? "all");
+  // An action's `when` names a node's fields (T89): the rows carry those fields in cells no column
+  // shows, so the table asks the same question of each row as the graph does of each node.
+  const tested = [...new Set(model.actions.flatMap((a) => Object.keys(a.when ?? {})))];
   const rows: TableRow[] = nodes.map((n) => {
     const r = counts.get(n.id) ?? { out: 0, in: 0 };
     const cells: Record<string, string | number> = { name: n.label, shape: SHAPE_WORDS[n.shape], reaches: r.out, reached: r.in };
@@ -27,6 +33,10 @@ export function nodeTable(model: GraphModel, ix: GraphIndex, nodes: readonly Gra
     if (state) cells.state = state;
     if (n.cluster !== undefined && titles.has(n.cluster)) cells.cluster = titles.get(n.cluster) as string;
     if (n.detail) cells.detail = n.detail;
+    for (const k of tested) {
+      const v = (n as unknown as Record<string, unknown>)[k];
+      if (typeof v === "string") cells[`${HIDDEN}${k}`] = v;
+    }
     const tone = n.mark ?? (n.state === "down" ? "muted" : undefined);
     return { id: n.id, cells, ...(n.host ? { host: n.host } : {}), ...(tone ? { tone } : {}) };
   });
@@ -56,6 +66,7 @@ export function nodeTable(model: GraphModel, ix: GraphIndex, nodes: readonly Gra
       : {}),
     actions: model.actions.map((a) => ({
       ...a,
+      ...(a.when ? { when: Object.fromEntries(Object.entries(a.when).map(([k, v]) => [`${HIDDEN}${k}`, v])) } : {}),
       run: (row: TableRow) => {
         const n = node(row);
         if (n) a.run(n);

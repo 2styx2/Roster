@@ -4,8 +4,9 @@
 // Keyboard first: h j k l (or the arrows) go to the nearest node that way, / searches and n N go
 // through the matches, Enter opens a node (or opens and closes a collapsed cluster), o collapses
 // or opens the selected node's cluster and O all of them, + - zoom and 0 fits it all, H J K L pan,
-// t switches to the nodes' list and the edges' list, f goes to the filter (a cluster, kind or state
-// to show, hiding the rest), and an action's key runs it on the selected node. Selecting a node lights up what it reaches and what reaches it, with the counts. The mouse
+// t switches to the nodes' list and the edges' list, f goes to the filter (clusters, kinds or states
+// to show, hiding the rest), m moves the selected node with h j k l until Enter keeps it or Esc puts
+// it back (T89), and an action's key runs it on the selected node. Selecting a node lights up what it reaches and what reaches it, with the counts. The mouse
 // works too: a click selects, a double click opens, a drag on a node moves it (kept in the State),
 // a drag elsewhere pans, the wheel zooms.
 //
@@ -23,7 +24,7 @@ import type { GraphModel } from "../view/views";
 import { drawFrame, easeOut, nodeRadius, readPalette, STAND_IN_RADIUS, toScreen, toWorld, type Camera } from "./draw";
 import { edgeTable, nodeTable, SHAPE_WORDS, stateWords } from "./lists";
 import { GraphPlaces, type GraphMemory } from "./memory";
-import { filterGraph, filtering, graphIndex, type FilterState, type GraphFilter } from "./model";
+import { filterGraph, filtering, graphIndex, nodeActionApplies, type FilterState, type GraphFilter } from "./model";
 import { buildScene, foldsFor, highlightOf, matchesOf, stepFrom, type Direction, type Highlight, type Scene } from "./scene";
 
 export interface GraphViewProps {
@@ -44,6 +45,9 @@ const MODE_LABEL: Record<Mode, string> = { graph: "Graph", nodes: "Nodes", edges
 
 const MIN_ZOOM = 0.04;
 const MAX_ZOOM = 4;
+/** How far a key moves a node while placing it (`m`), in screen pixels; Shift or H J K L: more. */
+const NUDGE = 16;
+const NUDGE_BIG = 64;
 /** At most this many edges turning live at once are drawn in; more just appear. */
 const MAX_DRAWN_IN = 12;
 
@@ -94,7 +98,7 @@ function drawDuration(el: Element): number {
 class Painter {
   canvas: HTMLCanvasElement | null = null;
   camera: Camera | null = null;
-  now: { scene: Scene; highlight: Highlight | null; selected: string | null; matchSet: ReadonlySet<string> | null; size: { w: number; h: number } } | null = null;
+  now: { scene: Scene; highlight: Highlight | null; selected: string | null; matchSet: ReadonlySet<string> | null; size: { w: number; h: number }; moving: boolean } | null = null;
   private frame = 0;
   private readonly drawing = new Map<number, { start: number; ms: number }>();
   private wasLive: Set<string> | null = null;
@@ -168,6 +172,7 @@ class Painter {
       highlight: now.highlight,
       matches: now.matchSet,
       drawing: progress,
+      moving: now.moving,
     });
     // Only while an edge is being drawn in: then nothing until the next change.
     if (this.drawing.size) this.request();
@@ -203,6 +208,9 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
 
   const [mode, setMode] = useState<Mode>("graph");
   const [chosen, setChosen] = useState<string | null>(null);
+  // Placing a node from the keyboard (`m`, T89): which, and where it was, for Esc.
+  const [moving, setMoving] = useState<{ id: string; from: { x: number; y: number } } | null>(null);
+  const [moveSays, setMoveSays] = useState("");
   // The selection follows its node: into its cluster when that collapses, back out when it opens.
   const selected = useMemo(() => {
     if (chosen !== null && scene.byId.has(chosen)) return chosen;
@@ -228,7 +236,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // What a frame draws: the latest of everything, read when it's drawn.
   useLayoutEffect(() => {
     painter.attach(canvas.current);
-    painter.show({ scene, highlight, selected, matchSet, size });
+    painter.show({ scene, highlight, selected, matchSet, size, moving: moving !== null });
   });
   useEffect(() => () => painter.stop(), [painter]);
   const redraw = useCallback(() => painter.request(), [painter]);
@@ -259,7 +267,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     el.height = Math.round(size.h * dpr);
     redraw();
   }, [size, redraw, painter]);
-  useEffect(redraw, [scene, highlight, selected, matchSet, redraw]);
+  useEffect(redraw, [scene, highlight, selected, matchSet, moving, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
   useEffect(() => {
@@ -297,16 +305,58 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     redraw();
   };
 
+  /** Brings world point (x, y) on screen if it's off. */
+  const reveal = (x: number, y: number) => {
+    const c = painter.camera;
+    if (!c || size.w === 0) return;
+    const s = toScreen(c, size.w, size.h, x, y);
+    const m = 56;
+    if (s.x < m || s.y < m || s.x > size.w - m * 3 || s.y > size.h - m) painter.setCamera({ ...c, x, y });
+  };
+
   /** Selects scene node `id` and brings it on screen if it's off. */
   const select = (id: string | null) => {
     if (id === null) return;
     setChosen(id);
+    setMoveSays("");
     const n = scene.byId.get(id);
-    const c = painter.camera;
-    if (!n || !c || size.w === 0) return;
-    const s = toScreen(c, size.w, size.h, n.x, n.y);
-    const m = 56;
-    if (s.x < m || s.y < m || s.x > size.w - m * 3 || s.y > size.h - m) painter.setCamera({ ...c, x: n.x, y: n.y });
+    if (n) reveal(n.x, n.y);
+  };
+
+  /** Puts the node being placed at (x, y): kept in the State, as a drag is. */
+  const place = (id: string, x: number, y: number) => {
+    places.move(id, x, y);
+    setMoved((m) => m + 1);
+    reveal(x, y);
+  };
+  const startMoving = () => {
+    const n = currentNode && layout.nodes.get(currentNode.id);
+    if (!currentNode || !n) return;
+    setMoving({ id: currentNode.id, from: { x: n.x, y: n.y } });
+    setMoveSays(`Moving ${currentNode.label}: h, j, k and l or the arrow keys move it, with Shift further; Enter keeps the place, Esc puts it back`);
+  };
+  const stopMoving = (keep: boolean) => {
+    if (!moving) return;
+    const name = ix.nodes.get(moving.id)?.label ?? moving.id;
+    if (!keep) place(moving.id, moving.from.x, moving.from.y);
+    setMoving(null);
+    setMoveSays(keep ? `${name} placed` : `${name} put back`);
+  };
+  /** While placing: the key's move, Enter, Esc, zoom; every other key does nothing. */
+  const movingKey = (e: KeyboardEvent<HTMLDivElement>, m: NonNullable<typeof moving>): (() => void) | null => {
+    const at = layout.nodes.get(m.id);
+    if (!at) return () => setMoving(null);
+    const ways: Record<string, [number, number]> = { h: [-1, 0], l: [1, 0], k: [0, -1], j: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const way = ways[e.key] ?? ways[e.key.toLowerCase()];
+    if (way) {
+      const big = e.shiftKey || /^[HJKL]$/.test(e.key);
+      const step = (big ? NUDGE_BIG : NUDGE) / (painter.camera?.k ?? 1);
+      return () => place(m.id, at.x + way[0] * step, at.y + way[1] * step);
+    }
+    if (e.key === "Enter" || e.key === "m") return e.repeat ? () => {} : () => stopMoving(true);
+    if (e.key === "Escape") return () => stopMoving(false);
+    if (["+", "=", "-", "0"].includes(e.key)) return null;
+    return () => {};
   };
 
   const toggle = (cluster: string, open?: boolean) => {
@@ -350,6 +400,10 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const keyAction = (e: KeyboardEvent<HTMLDivElement>): (() => void) | null => {
     const k = e.key;
     if (e.altKey || e.metaKey || e.ctrlKey) return null;
+    if (moving) {
+      const act = movingKey(e, moving);
+      if (act) return act;
+    }
     const step = (d: Direction) => () => select(selected === null ? (scene.nodes[0]?.id ?? null) : stepFrom(scene, selected, d) ?? selected);
     const by = 80;
     switch (k) {
@@ -400,6 +454,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
         return () => setMode("nodes");
       case "f":
         return () => firstFilter.current?.focus();
+      case "m":
+        return e.repeat ? () => {} : startMoving;
       case "Enter":
         return e.repeat ? () => {} : open;
       case "Escape":
@@ -407,7 +463,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
         return query ? () => setQuery("") : hiding ? () => setFilter({}) : null;
     }
     const action = model.actions.find((a) => a.key === k);
-    if (!action || !currentNode) return null;
+    if (!action || !currentNode || !nodeActionApplies(action.when, currentNode)) return null;
     return e.repeat ? () => {} : () => action.run(currentNode);
   };
 
@@ -445,6 +501,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 || drag.current) return;
     box.current?.focus();
+    // A click while placing from the keyboard keeps the place.
+    if (moving) stopMoving(true);
     const p = local(e);
     const id = hit(p.x, p.y);
     if (id !== null) select(id);
@@ -494,6 +552,12 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const nodesModel = useMemo(() => (mode === "nodes" ? nodeTable(model, ix, shown.nodes) : null), [mode, model, ix, shown]);
   const edgesModel = useMemo(() => (mode === "edges" ? edgeTable(shown, ix, goTo) : null), [mode, shown, ix]); // eslint-disable-line react-hooks/exhaustive-deps
   const onListSelect = useCallback((row: TableRow) => setChosen(row.id), []);
+  // An empty list has no grid to hold the focus (T89): the list itself takes it, so t goes on.
+  const listBox = useRef<HTMLDivElement>(null);
+  const listEmpty = mode === "nodes" ? nodesModel?.rows.length === 0 : mode === "edges" ? edgesModel?.rows.length === 0 : false;
+  useEffect(() => {
+    if (listEmpty) listBox.current?.focus();
+  }, [listEmpty, mode]);
 
   const listKeys = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "t" || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -521,7 +585,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return `${words}${reach}`;
   })();
   const searchSays = query.trim() ? (matches.length ? `${countOf(matches.length, "match", "matches")} for ${query.trim()}` : `Nothing matches ${query.trim()}`) : "";
-  const keyed = model.actions.filter((a) => a.key);
+  // An action with `when` is offered only on the nodes it names (T89).
+  const keyed = model.actions.filter((a) => a.key && currentNode !== undefined && nodeActionApplies(a.when, currentNode));
 
   // The filter's choices: the clusters, the kinds and the states the graph has.
   const kinds = useMemo(() => [...new Set(data.nodes.flatMap((n) => (n.kind ? [n.kind] : [])))].sort(), [data]);
@@ -640,22 +705,40 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
           <canvas ref={canvas} aria-hidden="true" style={{ width: size.w, height: size.h }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDoubleClick={open} />
           {data.nodes.length === 0 ? <p className="graph-empty muted">No nodes yet.</p> : shown.nodes.length === 0 && <p className="graph-empty muted">Nothing here shows with this filter. Esc shows everything.</p>}
           <p id={helpId} className="visually-hidden">
-            h, j, k and l or the arrow keys move between nodes; slash searches; f filters; Enter opens; t lists every node and edge.
+            h, j, k and l or the arrow keys move between nodes; slash searches; f filters; m moves the selected node; Enter opens; t lists every node and edge.
           </p>
         </div>
       ) : (
-        <div className="graph-list" onKeyDown={listKeys}>
+        <div
+          ref={listBox}
+          className="graph-list"
+          onKeyDown={listKeys}
+          {...(listEmpty ? { role: "group", "aria-label": `${label}: ${mode}`, tabIndex: -1 } : {})}
+        >
           {mode === "nodes" && nodesModel && <DataTable key="nodes" model={nodesModel} label={`${label}: nodes`} leader={leader} autoFocus selectedId={currentNode?.id} onSelect={onListSelect} />}
           {mode === "edges" && edgesModel && <DataTable key="edges" model={edgesModel} label={`${label}: edges`} leader={leader} autoFocus />}
         </div>
       )}
-      <Announce text={mode === "graph" ? [about, searchSays].filter(Boolean).join(". ") : ""} delay={150} />
+      <Announce text={mode === "graph" ? (moving ? moveSays : [moveSays, about, searchSays].filter(Boolean).join(". ")) : ""} delay={150} />
       <p className="dt-foot muted key-hint graph-foot">
         <span className="graph-about" aria-hidden="true">
           {mode !== "graph" ? "" : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
         </span>
         <span className="dt-keys">
-          {mode === "graph" && (
+          {mode === "graph" && moving && (
+            <>
+              <span>
+                <Keys keys="h j k l" leader={leader} /> move it
+              </span>
+              <span>
+                <Keys keys="Enter" leader={leader} /> keep
+              </span>
+              <span>
+                <Keys keys="Esc" leader={leader} /> put back
+              </span>
+            </>
+          )}
+          {mode === "graph" && !moving && (
             <>
               <span>
                 <Keys keys="h j k l" leader={leader} /> move
@@ -683,11 +766,16 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
                   <Keys keys="o" leader={leader} /> collapse
                 </span>
               )}
+              {currentNode && (
+                <span>
+                  <Keys keys="m" leader={leader} /> place
+                </span>
+              )}
             </>
           )}
-          <span>
+          {!moving && <span>
             <Keys keys="t" leader={leader} /> {mode === "edges" ? "graph" : mode === "graph" ? "list" : "edges"}
-          </span>
+          </span>}
         </span>
       </p>
     </div>
