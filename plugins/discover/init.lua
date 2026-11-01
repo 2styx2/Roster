@@ -483,7 +483,7 @@ roster.commands.add("discover", {
     end
   end,
 })
-roster.keymap.set("leader", settings.leader, "discover")
+if settings.leader then roster.keymap.set("leader", settings.leader, "discover") end
 roster.toolbar.set("discover", { label = "Scan a network for Hosts", text = "Scan", icon = "map", run = "discover" })
 
 roster.help.set("discover", {
@@ -501,7 +501,8 @@ roster.help.set("discover", {
     "- `:discover 10.0.0.0/24` scans a range (several: `:discover 10.0.0.0/24 10.0.1.0/28`). It asks first, "
       .. "with how many addresses and ports.",
     "- `:discover` opens the view" .. (#settings.ranges > 0 and (", or scans " .. model.list(settings.ranges)
-      .. " if nothing has been scanned yet") or "") .. "; `␣ " .. settings.leader .. "` and the toolbar's **Scan** do the same.",
+      .. " if nothing has been scanned yet") or "") .. "; " .. (settings.leader and ("`␣ " .. settings.leader .. "` and ") or "") .. "the toolbar's **Scan** "
+      .. (settings.leader and "do" or "does") .. " the same.",
     "- On a row: `m` keeps it, `u` doesn't, `A` adds the kept ones, `i` or Enter shows its details. "
       .. "`:discover keep all` and `:discover keep none` mark every new one.",
     "- `:discover stop` (or `:cancel scan`, or the stop button by the progress) stops the scan; what it found stays.",

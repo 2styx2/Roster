@@ -316,7 +316,7 @@ roster.commands.add("topology", {
     roster.views.open(VIEW)
   end,
 })
-roster.keymap.set("leader", settings.leader, "topology")
+if settings.leader then roster.keymap.set("leader", settings.leader, "topology") end
 
 roster.help.set("topology", {
   title = "Topology",
@@ -324,9 +324,9 @@ roster.help.set("topology", {
   markdown = table.concat({
     "# Topology",
     "",
-    "A map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ "
-      .. settings.leader
-      .. "`; Esc goes back.",
+    "A map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group)"
+      .. (settings.leader and (", and so does `␣ " .. settings.leader .. "`") or "")
+      .. "; Esc goes back.",
     "",
     "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.",
     "- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.",
