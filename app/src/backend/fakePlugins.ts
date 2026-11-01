@@ -6,7 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
-import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginManifest, type PluginReply } from "./types";
+import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
 type Spec = Record<string, unknown>;
@@ -26,7 +26,7 @@ export interface FakeRoster {
     write_json(name: string, value: unknown): void;
   };
   /** api 3 (ticket 61): the message line, and the command line opened with text. */
-  echo(text: string): void;
+  echo(text: string, opts?: { quiet?: boolean }): void;
   cmdline(text: string): void;
   keymap: { set(context: string, keys: string, action: string | false): void; del(context: string, keys: string): void };
   themes: { define(id: string, theme: Spec): void; remove(id: string): void };
@@ -41,7 +41,7 @@ export interface FakeRoster {
   views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string): void; close(id: string): void; remove(id: string): void };
   details: { set(id: string, host: string, spec: Spec | null): void; remove(id: string): void };
   clipboard: { copy(text: string): void };
-  notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[] }): void;
+  notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[]; quiet?: boolean }): void;
   on(event: PluginEventName, f: Fn): void;
   /** Timers (ticket 79): the app keeps the clock and calls back, as the core does. */
   defer(ms: number, f: () => void): number;
@@ -416,6 +416,7 @@ export function fakePluginHost(
   pluginTypes(path: string): Promise<string>;
   pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   pluginForget(plugin: string): Promise<boolean>;
+  pluginData(names: readonly string[]): Promise<Record<string, PluginData>>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
   pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
@@ -534,10 +535,11 @@ export function fakePluginHost(
           push({ op: "copy", text });
         },
       },
-      notify: (text, level = "info", opts) => push({ op: "notify", text, level, ...(opts?.actions ? { actions: opts.actions } : {}) }),
-      echo: (text) => {
+      notify: (text, level = "info", opts) =>
+        push({ op: "notify", text, level, ...(opts?.actions ? { actions: opts.actions } : {}), ...(opts?.quiet !== undefined ? { quiet: opts.quiet } : {}) }),
+      echo: (text, opts) => {
         userOnly("roster.echo");
-        push({ op: "echo", text });
+        push({ op: "echo", text, ...(opts?.quiet ? { quiet: true } : {}) });
       },
       cmdline: (text) => {
         userOnly("roster.cmdline");
@@ -758,6 +760,15 @@ export function fakePluginHost(
     },
     async pluginForget(plugin) {
       return files.delete(plugin);
+    },
+    async pluginData(names) {
+      // As folder.rs counts: files and their bytes (UTF-8, as written to disk); none until written.
+      const out: Record<string, PluginData> = {};
+      for (const n of names) {
+        const f = files.get(n);
+        out[n] = f ? { state: "used", files: f.size, bytes: [...f.values()].reduce((a, t) => a + new TextEncoder().encode(t).length, 0) } : { state: "none" };
+      }
+      return out;
     },
     pluginFiles: (plugin) => filesOf(plugin),
     onPluginReply(onReply) {

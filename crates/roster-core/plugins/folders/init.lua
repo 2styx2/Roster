@@ -113,7 +113,10 @@ do
       if #folders > 0 then
         roster.notify(
           "Moved " .. count(#folders, "Folder") .. " from " .. from .. " into roster's own data"
-            .. (from == "folders.yml" and ": folders.yml isn't read any more (:check)" or "")
+            .. (from == "folders.yml" and ": folders.yml isn't read any more (:check)" or ""),
+          "info",
+          -- A result that needs attention: it shows whatever ui.messages says (ticket 117).
+          { quiet = false }
         )
       end
     end
@@ -325,7 +328,8 @@ local function run(a)
     if err then return say(err) end
     if not save() then return say(problem) end
     show()
-    say(message)
+    -- A routine confirmation: quiet, as roster's own (api 4, ticket 118).
+    roster.echo(message, { quiet = true })
   end
   -- Folders that couldn't be read aren't written over: nothing is lost while it's fixed.
   if blocked and sub ~= "" then

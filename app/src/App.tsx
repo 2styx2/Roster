@@ -505,7 +505,10 @@ function Workspace({
         openUrl: (url) => {
           platform.openUrl?.(url).catch(() => undefined);
         },
-        say: (text) => setMessage(text),
+        say: (message) => setMessage(message),
+        // A Plugin's messages follow ui.messages as roster's own do (tickets 117, 118).
+        messagesAll: () => messagesChoice.all(),
+        log: (message) => messageLog.push(message),
         openCommandLine: (text) => openCommandLineRef.current(text),
         // Folders (ticket 61, decision Q93): init.lua's Folders, and the ones to move in once.
         builtinSettings: async (name) => (name === "folders" ? foldersSettings(registries.folders, platform.folders, store) : null),
@@ -2352,7 +2355,7 @@ function Workspace({
             }}
           />
         )}
-        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} onRefresh={() => void plugins.refreshRequests()} />)}
+        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} onRefresh={() => void plugins.refreshRequests()} onOpen={() => void plugins.refreshData()} />)}
         {packagesOpen && framed("packages", "Packages", "packages", <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />)}
         {pluginSnap.confirm && (
           <PluginConfirmPanel
