@@ -112,7 +112,8 @@
     "theme": "auto",
     "themes": {},
     "ui": {
-      "hints": null
+      "hints": null,
+      "messages": null
     },
     "vault": {
       "kp": {

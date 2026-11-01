@@ -50,6 +50,8 @@ describe("removing a Host", () => {
 
   it("removes it on Enter, as a Pending change", async () => {
     const { user } = await ready();
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     await user.keyboard(`${LEADER}:host remove linux-1-000{Enter}`);
     await screen.findByRole("alertdialog", { name: "Remove linux-1-000?" });
     await user.keyboard("{Enter}");
@@ -72,6 +74,8 @@ describe("removing a Host", () => {
 describe("renaming and moving Hosts", () => {
   it("renames by command, and asks for the new name when it's left out", async () => {
     const { user } = await ready();
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     await user.keyboard(`${LEADER}:host rename linux-1-000 web-1{Enter}`);
     await said(/Renamed linux-1-000 to web-1 as a Pending change/);
     expect(item("web-1")).not.toBeNull();
@@ -89,6 +93,8 @@ describe("renaming and moving Hosts", () => {
 
   it("moves a Host dragged onto another group's heading, and by :host move", async () => {
     const { user } = await ready();
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     const target = within(inventory()).getByRole("treeitem", { name: /^subnet-3/ });
     fireEvent.dragStart(rowOf(item("linux-1-000") as HTMLElement));
     fireEvent.dragOver(rowOf(target));
@@ -103,6 +109,8 @@ describe("renaming and moving Hosts", () => {
 describe("groups", () => {
   it("adds a group from the heading's button, shown dimmed with a dot until it's Published", async () => {
     const { user } = await ready();
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     await user.click(within(inventory()).getByRole("button", { name: "New group" }));
     expect(screen.getByRole("combobox", { name: "Command" })).toHaveValue("group new ");
     await user.keyboard("dmz{Enter}");

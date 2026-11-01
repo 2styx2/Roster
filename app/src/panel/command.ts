@@ -5,6 +5,7 @@
 import type { CommandDef } from "../commands/table";
 import type { Registries } from "../registries";
 import { BUILTIN } from "../registry";
+import { quiet, type Message } from "../ui/messages";
 import { MAX_PERCENT, MIN_PERCENT, limitsPercent, stepped, type PanelLayout } from "./layout";
 import { currentPercent, roomOf } from "./PanelFrame";
 
@@ -20,8 +21,9 @@ const LABELS: Record<string, string> = {
   reset: "Put the panel back to its default place and width",
 };
 
-/** What `:panel WORD` does to the target panel; returns what to tell the user. */
-export function panelAction(layout: PanelLayout, arg: string | undefined): string {
+/** What `:panel WORD` does to the target panel; returns what to tell the user: its new place or
+ * width is quiet (ticket 111), shown with every message on; what it couldn't do always shows. */
+export function panelAction(layout: PanelLayout, arg: string | undefined): Message {
   const [word = "toggle", value] = (arg ?? "").trim().split(/\s+/).filter(Boolean);
   if (!(PANEL_WORDS as readonly string[]).includes(word)) return `panel takes ${PANEL_WORDS.join(", ")}`;
   const t = layout.target();
@@ -35,36 +37,36 @@ export function panelAction(layout: PanelLayout, arg: string | undefined): strin
     case "dock": {
       const next = word === "toggle" ? (place === "full" ? "panel" : "full") : word === "full" ? "full" : "panel";
       layout.setPlace(t.id, next);
-      return next === "full" ? `${t.title}: full window` : `${t.title}: docked`;
+      return quiet(next === "full" ? `${t.title}: full window` : `${t.title}: docked`);
     }
     case "wider": {
       if (place === "full") return `${t.title} is full window already`;
       const next = stepped(now, 1, lim);
       if (next <= now) return `${t.title} is as wide as it goes beside the terminal: ␣ z makes it full window`;
       layout.setWidth(t.id, next);
-      return `${t.title}: ${Math.round(next)}% of the window`;
+      return quiet(`${t.title}: ${Math.round(next)}% of the window`);
     }
     case "narrower": {
       // From full window, narrower puts it back beside the terminal.
       if (place === "full") {
         layout.setPlace(t.id, "panel");
-        return `${t.title}: docked`;
+        return quiet(`${t.title}: docked`);
       }
       const next = stepped(now, -1, lim);
       if (next >= now) return `${t.title} is as narrow as it goes`;
       layout.setWidth(t.id, next);
-      return `${t.title}: ${Math.round(next)}% of the window`;
+      return quiet(`${t.title}: ${Math.round(next)}% of the window`);
     }
     case "width": {
       const n = Number(value);
       if (!value || !Number.isFinite(n) || n < MIN_PERCENT || n > MAX_PERCENT) return `panel width takes a percent of the window, ${MIN_PERCENT} to ${MAX_PERCENT}`;
       layout.setWidth(t.id, n);
       if (place === "full") layout.setPlace(t.id, "panel");
-      return n > lim.max ? `${t.title}: ${n}% kept; this window fits ${Math.round(lim.max)}%` : `${t.title}: ${n}% of the window`;
+      return n > lim.max ? `${t.title}: ${n}% kept; this window fits ${Math.round(lim.max)}%` : quiet(`${t.title}: ${n}% of the window`);
     }
     default:
       layout.reset(t.id);
-      return `${t.title}: back to its default place and width`;
+      return quiet(`${t.title}: back to its default place and width`);
   }
 }
 

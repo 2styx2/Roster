@@ -129,7 +129,7 @@ describe(":help", () => {
   });
 
   it("keeps its key tables when the key hints are hidden", async () => {
-    const user = await ready({ config: configWith({ ui: { hints: false } }) });
+    const user = await ready({ config: configWith({ ui: { hints: false, messages: null } }) });
     await user.keyboard(`${LEADER}:help keys{Enter}`);
     const caps = help().querySelectorAll("table .keys");
     expect(caps.length).toBeGreaterThan(10);

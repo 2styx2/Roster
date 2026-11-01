@@ -148,6 +148,18 @@ pub struct Ui {
     /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
     /// `:hints` decides and the State keeps its choice; set, it wins.
     pub hints: Option<bool>,
+    /// What the message line shows (ticket 111): `"quiet"`, errors, warnings and answers only, as
+    /// Neovim; `"all"`, routine confirmations and tips too. Unset: `:messages` decides and the
+    /// State keeps its choice (quiet until it makes one); set, it wins.
+    pub messages: Option<MessagesLevel>,
+}
+
+/// `ui.messages`: which messages the message line shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MessagesLevel {
+    Quiet,
+    All,
 }
 
 /// `panel`: what every panel and view starts with (ticket 95). The user's own choice, kept in the

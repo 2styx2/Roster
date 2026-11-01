@@ -126,6 +126,7 @@ import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
 import { HintsChoice, HintsShown, registerHints } from "./ui/hints";
+import { MESSAGES_VIEW, MessageLog, MessagesChoice, logView, quiet, registerMessages, shownText, spokenText, type Message } from "./ui/messages";
 import { Keys } from "./ui/Keys";
 import {
   defaultLayouts,
@@ -411,7 +412,16 @@ function Workspace({
     if (derived) setLayouts(derived.layouts);
   }
   const [hint, setHint] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessageNow] = useState<Message>("");
+  // Every message goes into `:messages`'s history too, quiet ones included (ticket 111).
+  const [messageLog] = useState(() => new MessageLog());
+  const setMessage = useCallback(
+    (m: Message) => {
+      setMessageNow(m);
+      messageLog.push(m);
+    },
+    [messageLog],
+  );
   const [store] = useState(() => storeProp ?? new StateStore(platform));
   const appState = useSyncExternalStore(store.subscribe, store.snapshot);
   // The Sidebar shown or hidden (issue #78): what the toggle chose is kept in the State, per mode,
@@ -452,6 +462,12 @@ function Workspace({
   useLayoutEffect(() => {
     if (!suspended) document.documentElement.dataset.hints = hintsShown ? "on" : "off";
   }, [hintsShown, suspended]);
+  // The message line, as Neovim's (ticket 111, decision Q115): init.lua's `ui.messages`, else
+  // `:messages`'s choice in the State, else quiet (routine confirmations and tips don't show).
+  const [messagesChoice] = useState(() => new MessagesChoice(store));
+  messagesChoice.setConfig(config?.ui.messages ?? null);
+  const allMessages = messagesChoice.all();
+  const spokenMessage = spokenText(message, allMessages);
   const [fontSize, setFontSize] = useState(terminalOptions.fontSize);
   // A new size in the Config is a new zoom reset point, and where the font goes now.
   const [sizeFrom, setSizeFrom] = useState(terminalOptions.fontSize);
@@ -633,7 +649,7 @@ function Workspace({
     return () => {
       live = false;
     };
-  }, [backend, connInfo, configuresVault, vaultSettingsKey, checkVault]);
+  }, [backend, connInfo, configuresVault, vaultSettingsKey, checkVault, setMessage]);
   // A password Host whose vault turns out locked (session.prepare code 14) brings up the lock
   // screen; the tab opens by itself once the vault is unlocked again.
   // `vault` is a new object each render; its `lock` is stable, so the handler is set once.
@@ -776,7 +792,7 @@ function Workspace({
         setConn({ state: "failed", problem: asProblem(e) });
       }
     },
-    [backend],
+    [backend, setMessage],
   );
 
   useEffect(() => {
@@ -828,7 +844,7 @@ function Workspace({
       },
       () => {},
     );
-  }, [backend]);
+  }, [backend, setMessage]);
 
   // The pull before an Inventory write (decision Q88): one gate per Backend, shared by the forms
   // and `:pull`, so a pull within `pull_fresh_minutes` isn't repeated and one running is joined.
@@ -866,7 +882,7 @@ function Workspace({
     });
     backend.watchInventory(autoReload).catch(() => {});
     return stop;
-  }, [backend, conn.state, canLive, autoReload, reloadHosts, refreshPending, setStale]);
+  }, [backend, conn.state, canLive, autoReload, reloadHosts, refreshPending, setStale, setMessage]);
   // serve's jobs push their progress (API 20, decision Q112): each is a `job_progress` for the
   // Plugins that may ask about that kind of job (the core checks which), so they needn't poll.
   useEffect(() => {
@@ -922,6 +938,25 @@ function Workspace({
   useEffect(() => registries.folders.subscribe(() => void plugins.reloadBuiltin("folders")), [registries, plugins]);
   useEffect(() => registerThemePicker(registries, themeChoice), [registries, themeChoice]);
   useEffect(() => registerHints(registries, hintsChoice), [registries, hintsChoice]);
+  useEffect(
+    () => registerMessages(registries, messagesChoice, messageLog, () => viewHost.open(MESSAGES_VIEW)),
+    [registries, messagesChoice, messageLog, viewHost],
+  );
+  const loggedMessages = useSyncExternalStore(messageLog.subscribe, messageLog.snapshot);
+  // The new list goes in before the old one comes out, so an open `:messages` view stays open.
+  const messagesView = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const remove = registries.views.register(logView(loggedMessages));
+    messagesView.current?.();
+    messagesView.current = remove;
+  }, [registries, loggedMessages]);
+  useEffect(
+    () => () => {
+      messagesView.current?.();
+      messagesView.current = null;
+    },
+    [registries],
+  );
   useEffect(() => registerPanel(registries, panelLayout), [registries, panelLayout]);
   const configPanel = config?.panel;
   const configViews = config?.views;
@@ -939,6 +974,7 @@ function Workspace({
   const helpPages = useSyncExternalStore(registries.help.subscribe, registries.help.list);
   const healthSections = useSyncExternalStore(registries.health.subscribe, registries.health.list);
   const hintsStored = hintsChoice.stored();
+  const messagesStored = messagesChoice.stored();
   const configPath = report?.path ?? null;
   // `:tutor`'s progress: a tick re-renders the tutorial's page.
   const tutorDone = useSyncExternalStore(tutor?.progress.subscribe ?? noSubscribe, tutor?.progress.snapshot ?? noSnapshot);
@@ -963,13 +999,13 @@ function Workspace({
           options,
           config: config ?? defaultConfig,
           configPath,
-          state: { theme: themeInEffect, hints: hintsStored },
+          state: { theme: themeInEffect, hints: hintsStored, messages: messagesStored },
           activeTheme: theme.id,
           health: { sections: healthSections, report: health },
           ...(tutorCtx ? { tutor: tutorCtx } : {}),
         },
       ),
-    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health, tutorCtx],
+    [registries, commandList, keymap, options, config, configPath, themeInEffect, hintsStored, messagesStored, theme.id, themeList, helpPages, errorRows, finderSources, healthSections, health, tutorCtx],
   );
   helpView.setContext(() => helpCtx);
   // Where help went, for `:tutor`'s steps: a page opened, Ctrl+O back, Ctrl+I forward.
@@ -1070,7 +1106,7 @@ function Workspace({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- saying it once the workspace shows is the effect
     setMessage(newsLine);
     setNewsLine(null);
-  }, [unlockedOnce, newsLine]);
+  }, [unlockedOnce, newsLine, setMessage]);
 
   // On the demo Inventory: the tutorial running is the demo's too (a Plugin's isn't registered in
   // the demo's registries), and once the demo is up its page opens where you left off.
@@ -1309,15 +1345,19 @@ function Workspace({
     toggleSidebar: () => {
       const shown = !isShown(layout, "sidebar");
       const name = `modes.${viewMode}.sidebar`;
+      const said = `Sidebar ${shown ? "shown" : "hidden"}`;
       if (configSetsSidebar) {
         // init.lua sets it: this lasts until the Config is loaded again (or the app restarts).
         setLayouts((l) => ({ ...l, [viewMode]: togglePiece(l[viewMode], "sidebar") }));
         return setMessage(
-          `Sidebar ${shown ? "shown" : "hidden"} for now: init.lua sets ${name} = ${String(!shown)}, which comes back on :source or a restart`,
+          quiet(
+            said,
+            `${said} for now: init.lua sets ${name} = ${String(!shown)}, which comes back on :source or a restart`,
+          ),
         );
       }
       store.set(SIDEBAR_KEY, { ...sidebarChoices(appState), [viewMode]: shown });
-      setMessage(`Sidebar ${shown ? "shown" : "hidden"}, and kept that way. ${name} = ${String(shown)} in init.lua makes it the default`);
+      setMessage(quiet(said, `${said}, and kept that way. ${name} = ${String(shown)} in init.lua makes it the default`));
     },
     toggleStatusBar: () => {
       const next = togglePiece(layout, layout.bar);
@@ -1506,7 +1546,7 @@ function Workspace({
         (r) => {
           reloadHosts();
           refreshPending();
-          setMessage(r.changed ? done : already);
+          setMessage(r.changed ? quiet(`Marked ${host} ${reviewed ? "reviewed" : "unreviewed"}`, done) : already);
         },
         (e: unknown) =>
           setMessage(`Couldn't mark ${host} ${reviewed ? "reviewed" : "unreviewed"}: ${e instanceof Error ? e.message : String(e)}`),
@@ -1526,7 +1566,7 @@ function Workspace({
     },
     pull: () => {
       if (!canEdit) return setMessage(`:pull needs a newer roster (API version ${EDIT_API_VERSION}; this one speaks ${apiVersion})`);
-      setMessage("Pulling the infra repo…");
+      setMessage(quiet("Pulling the infra repo…"));
       gate.pull().then(
         (r) => {
           setMessage(
@@ -1560,7 +1600,7 @@ function Workspace({
           setMessage(
             created
               ? `Created ${path} with every option commented out. Uncomment one and save: it applies at once.`
-              : `Opened ${path}. Saving it applies it.`,
+              : quiet(`Opened ${path}`, `Opened ${path}. Saving it applies it.`),
           ),
         (e: unknown) => setMessage(`Can't open init.lua: ${failed(e)}`),
       );
@@ -1587,35 +1627,38 @@ function Workspace({
     refreshPending();
   }
 
-  async function inventoryCall(op: InventoryOp): Promise<string> {
+  async function inventoryCall(op: InventoryOp): Promise<Message> {
     const pendingNote = "as a Pending change";
     switch (op.op) {
       case "remove": {
         const r = await backend.removeHost(op.host);
-        return `Removed ${r.removed} from ${r.group} ${pendingNote}. Its vault item, if any, is untouched.`;
+        return quiet(`Removed ${r.removed}`, `Removed ${r.removed} from ${r.group} ${pendingNote}. Its vault item, if any, is untouched.`);
       }
       case "rename": {
         const r = await backend.renameHost(op.host, op.to);
-        return r.changed ? `Renamed ${op.host} to ${op.to} ${pendingNote}. Sessions use it after roster sync.` : `${op.host} already has that name.`;
+        return r.changed
+          ? quiet(`Renamed ${op.host} to ${op.to}`, `Renamed ${op.host} to ${op.to} ${pendingNote}. Sessions use it after roster sync.`)
+          : `${op.host} already has that name.`;
       }
       case "move": {
         const r = await backend.moveHost(op.host, op.group);
         if (!r.changed) return `${op.host} is already in ${op.group}.`;
-        const kept = r.pinned.length ? ` It keeps its ${r.pinned.join(", ")}, now written on the Host.` : "";
-        return `Moved ${op.host} to ${op.group} ${pendingNote}.${kept}`;
+        // What it keeps from its old group is worth knowing: said whatever the setting.
+        if (r.pinned.length) return `Moved ${op.host} to ${op.group} ${pendingNote}. It keeps its ${r.pinned.join(", ")}, now written on the Host.`;
+        return quiet(`Moved ${op.host} to ${op.group}`, `Moved ${op.host} to ${op.group} ${pendingNote}.`);
       }
       case "group-new":
         await backend.newGroup(op.name);
-        return `Added group ${op.name} ${pendingNote}. Drag Hosts onto it, or + adds one.`;
+        return quiet(`Added group ${op.name}`, `Added group ${op.name} ${pendingNote}. Drag Hosts onto it, or + adds one.`);
       case "group-rename": {
         const r = await backend.renameGroup(op.group, op.to);
-        return r.changed ? `Renamed group ${op.group} to ${op.to} ${pendingNote}.` : `${op.group} already has that name.`;
+        return r.changed ? quiet(`Renamed group ${op.group} to ${op.to}`, `Renamed group ${op.group} to ${op.to} ${pendingNote}.`) : `${op.group} already has that name.`;
       }
       case "group-delete": {
         const r = await backend.deleteGroup(op.group, op.to);
         return r.moved.length
           ? `Deleted group ${op.group}; ${countOf(r.moved.length, "Host")} moved to ${r.to ?? "?"}, ${pendingNote}.`
-          : `Deleted group ${op.group} ${pendingNote}.`;
+          : quiet(`Deleted group ${op.group}`, `Deleted group ${op.group} ${pendingNote}.`);
       }
     }
   }
@@ -1635,7 +1678,7 @@ function Workspace({
     if (!checked) return setMessage(`${host}'s ${service} has no http or https URL to open`);
     if (!platform.openUrl) return setMessage(`There's no browser to hand ${checked} to here`);
     platform.openUrl(checked).then(
-      () => setMessage(`Opened ${host}'s ${service} in the browser: ${checked}`),
+      () => setMessage(quiet(`Opened ${host}'s ${service} in the browser`, `Opened ${host}'s ${service} in the browser: ${checked}`)),
       (e: unknown) => setMessage(`Couldn't open ${checked}: ${e instanceof Error ? e.message : String(e)}`),
     );
   }
@@ -2123,9 +2166,9 @@ function Workspace({
               reloadHosts();
               refreshPending();
               setMessage(
-                (update.changed
-                  ? `Saved ${update.host.name} as a Pending change. Sessions use it after roster sync.`
-                  : `Nothing changed on ${update.host.name}.`) + (update.warnings?.length ? ` But ${update.warnings.join("; ")}.` : ""),
+                update.changed
+                  ? routine(`Saved ${update.host.name}`, `Saved ${update.host.name} as a Pending change. Sessions use it after roster sync.`, update.warnings)
+                  : `Nothing changed on ${update.host.name}.` + butWarnings(update.warnings),
               );
             }}
             onClose={closeEdit}
@@ -2163,11 +2206,15 @@ function Workspace({
               reloadHosts();
               refreshPending();
               const where = `${r.host.name} to ${r.host.group}`;
+              // Unreviewed, it can't be opened yet: worth saying whatever the setting.
               setMessage(
-                (r.host.reviewed
-                  ? `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}` : ""}.`
-                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.`) +
-                  (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
+                r.host.reviewed
+                  ? routine(
+                      `Added ${where}`,
+                      `Added ${where} as a Pending change${r.item ? `; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}` : ""}.`,
+                      r.warnings,
+                    )
+                  : `Added ${where} unreviewed, as a Pending change. :review ${r.host.name} marks it reviewed.` + butWarnings(r.warnings),
               );
             }}
             onClose={closeAdd}
@@ -2196,10 +2243,17 @@ function Workspace({
               reloadHosts();
               refreshPending();
               setMessage(
-                ("added" in r
-                  ? `Saved ${r.host.name} to ${r.host.group} as a Pending change; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}.`
-                  : `Saved ${r.host.name}'s password to the vault as ${r.item.name}${savedIn(r.item.target)}; its Login points at it now, as a Pending change.`) +
-                  (r.warnings?.length ? ` But ${r.warnings.join("; ")}.` : ""),
+                "added" in r
+                  ? routine(
+                      `Saved ${r.host.name}`,
+                      `Saved ${r.host.name} to ${r.host.group} as a Pending change; its password is in the vault as ${r.item.name}${savedIn(r.item.target)}.`,
+                      r.warnings,
+                    )
+                  : routine(
+                      `Saved ${r.host.name}'s password`,
+                      `Saved ${r.host.name}'s password to the vault as ${r.item.name}${savedIn(r.item.target)}; its Login points at it now, as a Pending change.`,
+                      r.warnings,
+                    ),
               );
             }}
             onClose={closeSave}
@@ -2218,7 +2272,7 @@ function Workspace({
             onDiscard={async () => {
               try {
                 const r = await backend.discardChanges();
-                setMessage(r.discarded ? "Discarded the Pending changes: roster.yml is as the last commit has it." : "Nothing to discard.");
+                setMessage(r.discarded ? quiet("Discarded the Pending changes", "Discarded the Pending changes: roster.yml is as the last commit has it.") : "Nothing to discard.");
               } catch (e) {
                 setMessage(`Couldn't discard: ${e instanceof Error ? e.message : String(e)}`);
               }
@@ -2377,8 +2431,10 @@ function Workspace({
           }}
         />
       )}
-      <div className="message-line" role="status">
-        {message}
+      {/* Quiet (ticket 111), a routine confirmation's short form ("Sidebar hidden") stays in the
+          line as visually hidden text, so a screen reader still hears what changed. */}
+      <div className={spokenMessage ? "message-line visually-hidden" : "message-line"} role="status">
+        {shownText(message, allMessages) || spokenMessage}
       </div>
       {pieces("bottom")}
       {/* Progress needs a place without the status bar (Focus hides it, ticket 85): a corner. */}
@@ -2501,6 +2557,17 @@ export function servicesLeftOut(list: HostList): string | null {
 }
 
 /** roster.yml doesn't load (an outside edit): its line, and that the last good Inventory stays. */
+/** " But WARNING; WARNING." after a result, or nothing. */
+function butWarnings(warnings: readonly string[] | undefined): string {
+  return warnings?.length ? ` But ${warnings.join("; ")}.` : "";
+}
+
+/** A routine action's confirmation: quiet (ticket 111), unless roster warned about something, which
+ * always shows. */
+function routine(said: string, text: string, warnings: readonly string[] | undefined): Message {
+  return warnings?.length ? text + butWarnings(warnings) : quiet(said, text);
+}
+
 /** Where a saved password went, for the add message: said unless it's the personal vault (ticket 35). */
 function savedIn(target: Omit<SaveTarget, "save_to"> | undefined): string {
   return target && target.kind !== "personal" ? `, in ${target.label}` : "";

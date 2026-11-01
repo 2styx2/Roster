@@ -60,7 +60,8 @@ describe("a panel's place", () => {
     expect(placeOf("help")).toBe("panel");
     await user.keyboard(`${LEADER}z`);
     expect(placeOf("help")).toBe("full");
-    expect(message()).toContain("Help: full window");
+    // Quiet by default (ticket 111): only a screen reader hears it.
+    expect(screen.getAllByRole("status").map((el) => el.textContent)).toContain("Help: full window");
     expect(saved(platform)).toEqual({ help: { place: "full" } });
     // It stays in App mode: z again (no Leader) docks it.
     await user.keyboard("z");

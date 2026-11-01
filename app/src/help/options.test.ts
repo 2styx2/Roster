@@ -61,12 +61,14 @@ describe("an option's value and where it came from", () => {
     expect(optionSource(c, "modes.standard").kind).toBe("default");
   });
 
-  it("says State for a choice the app keeps (:theme, :hints) when init.lua leaves it", () => {
+  it("says State for a choice the app keeps (:theme, :hints, :messages) when init.lua leaves it", () => {
     expect(optionSource(defaultConfig, "theme", { theme: "nord" })).toEqual({ kind: "State", value: "nord" });
     expect(optionSource(defaultConfig, "ui.hints", { hints: false })).toEqual({ kind: "State", value: false });
-    const set = configWith({ set: ["theme", "ui.hints"], theme: "gruvbox", ui: { hints: true } });
+    expect(optionSource(defaultConfig, "ui.messages", { messages: "all" })).toEqual({ kind: "State", value: "all" });
+    const set = configWith({ set: ["theme", "ui.hints", "ui.messages"], theme: "gruvbox", ui: { hints: true, messages: "quiet" } });
     expect(optionSource(set, "theme", { theme: null })).toEqual({ kind: "init.lua" });
     expect(optionSource(set, "ui.hints", { hints: false })).toEqual({ kind: "init.lua" });
+    expect(optionSource(set, "ui.messages", { messages: "all" })).toEqual({ kind: "init.lua" });
   });
 
   it("says State for a :theme choice in effect over init.lua's theme, naming that line (decision Q69)", () => {
