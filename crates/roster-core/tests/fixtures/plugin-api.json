@@ -1,5 +1,5 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "commands": [
     {
       "name": "finder",
@@ -98,6 +98,13 @@
         "terminal.read"
       ],
       "payload": "TerminalOutputEvent"
+    },
+    {
+      "name": "command_done",
+      "needs": [
+        "terminal.read"
+      ],
+      "payload": "CommandDoneEvent"
     },
     {
       "name": "job_progress",
@@ -1111,6 +1118,7 @@
     "roster-Column": "plugin-api#column",
     "roster-ColumnKind": "plugin-api#columnkind",
     "roster-CommandArgs": "plugin-api#commandargs",
+    "roster-CommandDoneEvent": "plugin-api#commanddoneevent",
     "roster-CommandSpec": "plugin-api#commandspec",
     "roster-Confirm": "plugin-api#confirm",
     "roster-DetailsSection": "plugin-api#detailssection",
@@ -1485,6 +1493,36 @@
       ],
       "open": false
     },
+    "CommandDoneEvent": {
+      "fields": [
+        {
+          "name": "session",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "command",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "output",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "code",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
     "CommandSpec": {
       "fields": [
         {
@@ -1599,7 +1637,7 @@
       "open": false
     },
     "EventName": {
-      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\""
+      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"command_done\"|\"job_progress\""
     },
     "Fact": {
       "fields": [
@@ -3229,6 +3267,11 @@
         {
           "name": "text",
           "required": true,
+          "type": "string"
+        },
+        {
+          "name": "kind",
+          "required": false,
           "type": "string"
         }
       ],

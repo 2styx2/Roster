@@ -126,6 +126,59 @@ describe("running", () => {
     expect(seen.at(-1)).toBe("esx-02: esx-02$\nERROR: new one");
   });
 
+  // Ticket 94 (#167): a shell's OSC 133 marks say what each run of lines is (`kind`), and each
+  // command that ends is a `command_done`, after the output it printed. Nothing is held back.
+  function listening() {
+    const heard: [string, Record<string, unknown>][] = [];
+    const listener: FakePlugin = {
+      manifest: { name: "listener", version: "1.0.0", description: "Hears commands", author: "A. Author", api: 4, permissions: ["terminal.read"] },
+      load(roster) {
+        roster.on("terminal_output", (e) => void heard.push(["terminal_output", e]));
+        roster.on("command_done", (e) => void heard.push(["command_done", e]));
+      },
+    };
+    const state = { [STATE_KEY]: [{ path: "~/plugins/listener", name: "listener", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    return { heard, ...setup({ "~/plugins/listener": listener }, state) };
+  }
+  const say = (manager: PluginManager, t: string, session = 4) => manager.output(session, "esx-02", new TextEncoder().encode(t), SIZE);
+  const cmd = (line: string, out: string, code: number) =>
+    `\x1b]133;A\x07esx-02$ \x1b]133;B\x07${line}\r\n\x1b]133;C\x07${out}\x1b]133;D;${code}\x07`;
+
+  it("a marked shell's lines come in runs of one kind, and its commands as command_done", async () => {
+    const { heard, manager } = listening();
+    await manager.start();
+    say(manager, `booting\r\n${cmd("df -h", "disk full\r\n", 1)}`);
+    await manager.flushOutput();
+    expect(heard).toEqual([
+      ["terminal_output", { session: 4, host: "esx-02", text: "booting\n", kind: null }],
+      ["terminal_output", { session: 4, host: "esx-02", text: "esx-02$ df -h\n", kind: "input" }],
+      ["terminal_output", { session: 4, host: "esx-02", text: "disk full\n", kind: "output" }],
+      ["command_done", { session: 4, host: "esx-02", command: "df -h", output: "disk full\n", code: 1 }],
+    ]);
+  });
+
+  // Review 2 of #215, finding 7: a Session's flushes never interleave.
+  it("two flushes in a row keep a Session's events in order", async () => {
+    const { heard, manager } = listening();
+    await manager.start();
+    say(manager, cmd("one", "1\r\n", 0));
+    const first = manager.flushOutput();
+    say(manager, cmd("two", "2\r\n", 0));
+    await Promise.all([first, manager.flushOutput()]);
+    expect(heard.filter(([n]) => n === "command_done").map(([, e]) => e.command)).toEqual(["one", "two"]);
+    const text = heard.filter(([n]) => n === "terminal_output").map(([, e]) => String(e.text)).join("");
+    expect(text).toBe("esx-02$ one\n1\nesx-02$ two\n2\n");
+  });
+
+  // Review 2, finding 8: a Session that ends sends what it had first.
+  it("a Session that ends sends its last lines and command_done before session_exit", async () => {
+    const { heard, manager } = listening();
+    await manager.start();
+    say(manager, cmd("exit 3", "", 3) + cmd("df -h", "disk full\r\n", 1));
+    await manager.event("session_exit", { session: 4, host: "esx-02", code: 0 });
+    expect(heard.map(([n]) => n)).toEqual(["terminal_output", "terminal_output", "command_done"]);
+  });
+
   it("a function it handed over runs through `plugins call`, and its float shows", async () => {
     const { manager, registries } = setup({ [ALERTS]: alerts(["esx-02: ERROR"]) }, { ...installed });
     await manager.start();

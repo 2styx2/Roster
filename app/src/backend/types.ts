@@ -1037,6 +1037,7 @@ export const PLUGIN_EVENTS = [
   "session_exit",
   "inventory_changed",
   "terminal_output",
+  "command_done",
   "job_progress",
 ] as const;
 export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

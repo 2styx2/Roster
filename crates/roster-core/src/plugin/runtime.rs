@@ -104,6 +104,7 @@ pub const EVENTS: &[(&str, &[&str])] = &[
     ("session_exit", &["inventory.read", "terminal.read"]),
     ("inventory_changed", &["inventory.read"]),
     ("terminal_output", &["terminal.read"]),
+    ("command_done", &["terminal.read"]),
     (
         "job_progress",
         &["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
