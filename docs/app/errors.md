@@ -319,6 +319,16 @@ What a Plugin running in `:tutor`'s demo gets instead of the real thing ([the tu
 | 135 | none (a Lua error, or `done`'s reason) | On the demo, the Plugin asked roster serve for a method other than `hosts.list` and `host.get` (`roster.serve.call`, `roster.serve.request`, or `roster.inventory`'s writes) | The demo | "coach: init.lua:12: roster.serve.call mesh.status: mesh.status isn't on the demo Inventory: the tutorial's demo answers only hosts.list and host.get (code 3)" | None needed: `:tutor quit` and use it on your own Inventory. A tutorial's author teaches what works on the demo's Hosts |
 | 136 | none (`done`'s reason) | On the demo, the Plugin made a `roster.http` request to a site it may reach (one it may not, or a bad header, body or timeout, is refused at once as on your Inventory: [A Plugin's network requests](#a-plugins-network-requests)) | The demo | "https://api.example.com/status wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)" | None needed: `:tutor quit` and use it on your own Inventory |
 
+## Filling a password prompt
+
+`␣ p` (`fill`) types the Host's password at a sudo, su or ssh prompt the Session shows ([security.md](security.md#filling-a-password-prompt)). Each refusal goes on the message line; nothing was typed but, for row 145, the probe, which leaves the prompt's line empty. A locked vault shows the lock screen (row 7); press the key again once it's unlocked.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 143 | 130 | The prompt asks for another Host or account (`root@10.0.0.9's password:`, `[sudo] password for root:` on a Host whose Login is `ops`), or isn't a password prompt at all | the Host | "won't fill on esx-02: the prompt asks for root@10.0.0.9's password, not ops@esx-02's" | Type that password yourself: roster fills only the Session's own Host |
+| 144 | 131 | The Login that would answer has no saved password (`auth: agent`, `key`, `none` or `prompt`) | `roster.yml` | "esx-02's ssh Login has no saved password to fill (auth: agent)" | Add `sudo: {auth: "bw:esx-02 sudo"}` to the Host for its own sudo password, or type it |
+| 145 | none (the core's, or the app's) | The prompt echoed the probe, or the Session printed something while roster checked (800 ms), or a key was typed meanwhile; no prompt on screen; the shell's marks say an `ssh` (or a nested shell) is running, so it may be another Host's; a Quick Connect (no Login) | the Host / roster | "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it" | Type it yourself; for `ssh` running, once it has ended the key works again |
+
 ## See also
 
 [The error catalog](errors) · [`roster check HOST`](../cli-reference.md#roster-check-host) · [The roster serve API](../serve-api.md)

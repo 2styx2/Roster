@@ -23,6 +23,7 @@ After the Leader you're in App mode until Esc, or until a command that isn't lis
 | — | `connect HOST` | Open a Session to HOST |
 | In the Picker: Ctrl+Enter | `here HOST` | Open HOST in the current tab if its Session has ended (else a new one) |
 | `<leader> r` | `reconnect` | Reconnect the current Session if it has ended or was refused |
+| `<leader> p` | `fill` | Fill the password prompt the current Session shows (sudo, su, a nested ssh to the Host itself) with the Host's password from the vault: its ssh Login, or its `sudo: {auth}` in `roster.yml` for sudo and su. Offered, with a note in the pane's corner, only while such a prompt is at the cursor; the password goes from serve to the Session's PTY, never through the window, and only once roster has checked that the prompt doesn't echo. Refuses a prompt for another Host or account, and, with shell integration, while an `ssh` runs. Needs API 25. See [security.md](security.md#filling-a-password-prompt) |
 | `<leader> ]` / `[` | `next` / `prev` | Next / previous Session (wraps) |
 | `<leader> 1`–`9` | `session N` | Go to Session N |
 | `<leader> d d` | `close [N]` | Close the current Session (or Session N) |

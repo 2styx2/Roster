@@ -16,6 +16,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **App**
 
+- **Fill a password prompt from the vault:** when a Session asks for a password again (`sudo`, `su`, a nested `ssh` to the Host itself), a note in the pane's corner offers `␣ p` (`:fill`), which types the Host's password from the vault: its ssh Login, or its own `sudo: {auth}` from `roster.yml`. Nothing is typed until you press it; the password goes from roster serve straight to the Session, never through the window or to a Plugin, and only once roster has checked the prompt doesn't echo. A prompt for another Host or account is refused, and with shell integration so is one while an `ssh` runs. Needs roster serve API 25. See [Keyboard](app/keyboard.md) and [security.md](app/security.md#filling-a-password-prompt).
 - **Your Plugins in `:tutor`'s demo:** the Plugins running in your workspace load in the demo too, with the permissions you granted them, so a Plugin's tutorial (`roster.tutor.set`) can teach the Plugin itself. There they see the demo's Hosts; roster serve answers only the demo's Host list, nothing reaches the network, and their files start empty and go when you leave. One that fails to load there doesn't stop the tutorial. See [A Plugin's tutorial](plugins.md#a-plugins-tutorial).
 - `:plugins` shows how full each Plugin's data folder is against its limits: "Data: 2.1 MB in 34 files (of 10 MB, 1,000 files)", or "Data: none yet". It's counted when the panel opens, from the folder's listing alone. See [A Plugin's own files](plugins.md#a-plugins-own-files).
 - **Shell integration for Plugins:** if the shell on a Host prints OSC 133 marks (a few lines in its rc file; `:help shell-integration` has them for bash, zsh, fish and PowerShell), a Plugin with `terminal.read` hears `command_done` when each command ends, with its command line, its output and its exit code, and each run of `terminal_output` says what the marks call it (its new `kind`: `prompt`, `input` or `output`; a hint, since the Host prints the marks). roster only reads the marks: it never puts hooks on a Host or types into a Session. recent-alerts never alerts on a line the marks call a prompt or what you typed, and keeps its guess at your own echoed command for the rest. Plugin API 4 (`roster.api_version` 4). See [Shell integration](plugins.md#shell-integration).
@@ -61,6 +62,11 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
+- `roster.yml` takes a per-Host (or group, or defaults) `sudo: { auth: "bw:esx-02 sudo" }`: the vault reference for that Host's own sudo and su password, which the app's fill key uses. See [A separate sudo password](adding-hosts.md#a-separate-sudo-password).
+
+**serve API (API 25)**
+
+- `session.fill {host, prompt}`: the password for a password prompt a Host Session shows, for the app's core to type, and the one result with a secret; codes 130 (a prompt roster won't fill) and 131 (no saved password). See [serve-api.md](serve-api.md#filling-a-password-prompt-sessionfill).
 
 **serve API (API 24)**
 

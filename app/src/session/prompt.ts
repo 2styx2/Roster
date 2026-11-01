@@ -45,7 +45,7 @@ export class PromptWatch {
           return;
         }
         const seq = s.slice(i, end);
-        if (seq.startsWith("\x1b]133;")) this.mark(seq.slice(6).replace(/(\x07|\x1b\\)$/, ""));
+        if (seq.startsWith("\x1b]133;")) this.mark(seq.slice(6, seq.endsWith("\x07") ? -1 : -2));
         i = end;
         continue;
       }

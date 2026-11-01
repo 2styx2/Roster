@@ -58,7 +58,7 @@ Paths below are from the repo root.
 Cargo.toml            workspace (repo root); default member is roster-core, so `cargo test` in WSL never builds Tauri
 crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs: answers matched by id in any order, `$/cancel` when it stops waiting),
                       start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:
-                      session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs),
+                      session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs; its `fill` types a prompt's password after a no-echo probe, ticket 119),
                       the State file (state.rs), where the window reopens (window.rs), the Windows build (platform.rs),
                       Windows Terminal's settings.json → an init.lua block, previewed as a diff (wt.rs, ticket 33),
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs),
@@ -79,7 +79,8 @@ app/src/quick/        Quick Connect (ticket 14): target.ts (user@address[:port],
 app/src/platform/     State file, clipboard, Windows build: types.ts, tauri.ts, browser.ts, memory.ts (tests)
 app/src/state/        appState.ts: the State's shape (recent Hosts), parsed leniently
 app/src/session/      Sessions: tabs.ts (store: open/close/select/reconnect/replay/resize, outside React), Sessions.tsx
-                      (terminal panes + the basic tab strip for `sessions = "tabs"`)
+                      (terminal panes + the basic tab strip for `sessions = "tabs"`), prompt.ts (a password prompt at
+                      the cursor, for the fill key's offer, ticket 119)
 app/src/terminal/     TerminalView.tsx (xterm.js, WebGL → DOM; copy/paste, find, zoom), SearchBar.tsx,
                       renderer.ts (WebGL, or DOM when its context can't start or is lost; what `:info` says, ticket 20),
                       options.ts (font, colour overrides, standard ANSI palette as data), fonts.ts (which installed font is

@@ -1594,7 +1594,11 @@ function Workspace({
       if (id === null) return setMessage("No Session to fill");
       tabs.fill(id).then(
         (host) => setMessage(quiet(`Filled ${host}'s password`)),
-        (e: unknown) => setMessage(e instanceof Error ? e.message : String(e)),
+        (e: unknown) => {
+          const fix = e instanceof BackendCallError ? e.data?.["fix"] : undefined;
+          const said = e instanceof Error ? e.message : String(e);
+          setMessage(typeof fix === "string" && fix ? `${said} - ${fix}` : said);
+        },
       );
     },
     review: (name, reviewed = true) => {

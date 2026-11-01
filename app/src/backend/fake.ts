@@ -1630,7 +1630,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       const { atPasswordPrompt, ...handle } = session;
       // The core's prompt fill (ticket 119), as the Tauri build's: serve's refusals first, then the
       // probe (an echoing prompt, or no prompt, refuses), then the password typed into the Session.
-      const fill = async (_prompt: string) => {
+      const fill = async () => {
         await wait();
         const refusal = scenario.fillRefusals?.[host];
         if (refusal) throw refuse(refusal);

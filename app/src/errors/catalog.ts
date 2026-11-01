@@ -609,6 +609,22 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Move it by hand in roster.yml, setting what it inherits on the Host itself; nothing was written.",
     actions: [],
   }),
+  // Filling a password prompt (`session.fill`, ticket 119): docs/app/errors.md rows 143-144. Shown
+  // on the message line when the fill key is pressed; nothing was looked up or typed.
+  row("fill-refused", {
+    row: 143,
+    codes: [130],
+    where: ["the Host"],
+    fix: () => "roster fills only the Session's own Host's sudo, su and ssh prompts: type this password yourself.",
+    actions: [],
+  }),
+  row("fill-nothing-saved", {
+    row: 144,
+    codes: [131],
+    where: ["roster.yml"],
+    fix: () => "Add a sudo: {auth: VAULT-REFERENCE} to the Host in roster.yml for its own sudo password, or type it yourself.",
+    actions: [],
+  }),
   row("other", {
     row: null,
     codes: [3, 22],
