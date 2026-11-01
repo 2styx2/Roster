@@ -111,6 +111,11 @@ fn serve_one(mut stream: TcpStream, heads: &Mutex<Vec<String>>) {
             &format!("Location: http://127.0.0.1:{}/echo\r\n", &p[4..]),
             b"",
         ),
+        p if p.starts_with("/tls/") => reply(
+            "302 Found",
+            &format!("Location: https://127.0.0.1:{}/hello\r\n", &p[5..]),
+            b"",
+        ),
         "/binary" => reply("200 OK", "", &[0, 159, 146, 150, 255]),
         "/slow" => {
             std::thread::sleep(Duration::from_secs(5));
@@ -609,4 +614,422 @@ end)
     }
     assert!(seen_true, "the echoed header wasn't there whole");
     assert!(seen_loop, "the looping callback wasn't stopped");
+}
+
+const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+#[test]
+fn a_name_is_either_private_or_public_in_one_manifest() {
+    let dir = plugin_dir(
+        "both",
+        &["network:nas.example.com", "network:private:http://nas.example.com:8080"],
+        "",
+    );
+    let e = read_manifest(&dir).unwrap_err();
+    assert!(
+        e.message.contains("nas.example.com") && e.message.contains("private:"),
+        "{e}"
+    );
+}
+
+#[test]
+fn one_site_has_one_pin_or_none() {
+    let pinned = format!("network:10.0.0.5:8443#sha256:{PIN}");
+    for other in [
+        "network:10.0.0.5:8443".to_string(),
+        format!("network:10.0.0.5:8443#sha256:{}", PIN.replace('0', "1")),
+    ] {
+        let dir = plugin_dir("pins", &[&pinned, &other], "");
+        let e = read_manifest(&dir).unwrap_err();
+        assert!(e.message.contains("10.0.0.5:8443"), "{e}");
+    }
+    // Another port is another site.
+    let dir = plugin_dir("pins-ok", &[&pinned, "network:10.0.0.5"], "");
+    assert!(read_manifest(&dir).is_ok());
+}
+
+/// A self-signed appliance over https on 127.0.0.1 (a made-up certificate for
+/// `appliance.example`, made for these tests only, in tests/fixtures/tls). With `key`, it signs
+/// the handshake with another key than its certificate's: someone showing a copied certificate.
+fn tls_appliance(key: &str) -> u16 {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    let cert = CertificateDer::from(std::fs::read(fixtures.join("appliance.crt.der")).unwrap());
+    let key = PrivateKeyDer::try_from(std::fs::read(fixtures.join(key)).unwrap()).unwrap();
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let signing = provider.key_provider.load_private_key(key).unwrap();
+    #[derive(Debug)]
+    struct One(Arc<rustls::sign::CertifiedKey>);
+    impl rustls::server::ResolvesServerCert for One {
+        fn resolve(&self, _: rustls::server::ClientHello<'_>) -> Option<Arc<rustls::sign::CertifiedKey>> {
+            Some(Arc::clone(&self.0))
+        }
+    }
+    let config = Arc::new(
+        rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(One(Arc::new(rustls::sign::CertifiedKey::new(
+                vec![cert],
+                signing,
+            ))))),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let config = Arc::clone(&config);
+            std::thread::spawn(move || {
+                let conn = rustls::ServerConnection::new(config).unwrap();
+                let mut tls = rustls::StreamOwned::new(conn, stream);
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match tls.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => return,
+                    }
+                }
+                let _ = tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nhi there");
+                let _ = tls.flush();
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            });
+        }
+    });
+    port
+}
+
+fn fetch_from(test: &str, site: &str, url: &str) -> String {
+    let (_host, reply, rx, _folder) = load(test, &[site], json!({ "url": url }), FETCH);
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let got = notices(&rx, 1, 20);
+    assert_eq!(got.len(), 1, "no answer from {url}");
+    got[0].clone()
+}
+
+fn appliance_pin() -> String {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
+    roster_core::plugin::network::Pin::of(&std::fs::read(fixtures.join("appliance.crt.der")).unwrap()).to_string()
+}
+
+#[test]
+fn a_pinned_site_trusts_its_one_certificate_in_place_of_the_os() {
+    let port = tls_appliance("appliance.key.der");
+    let url = format!("https://127.0.0.1:{port}/hello");
+    let pinned = format!("network:127.0.0.1:{port}#sha256:{}", appliance_pin());
+    assert!(fetch_from("pin-ok", &pinned, &url).starts_with("200 8 hi there"));
+    // Without the pin, the OS's trust store decides, and a self-signed certificate fails.
+    let plain = fetch_from("pin-none", &format!("network:127.0.0.1:{port}"), &url);
+    assert!(plain.starts_with("failed: "), "{plain}");
+    // Another pin: refused, and the error names what the site showed.
+    let wrong = fetch_from("pin-wrong", &format!("network:127.0.0.1:{port}#sha256:{PIN}"), &url);
+    assert!(
+        wrong.starts_with("failed: ") && wrong.contains(&appliance_pin()[..16]),
+        "{wrong}"
+    );
+}
+
+#[test]
+fn a_pinned_certificate_without_its_key_is_refused() {
+    let port = tls_appliance("other.key.der");
+    let url = format!("https://127.0.0.1:{port}/hello");
+    let pinned = format!("network:127.0.0.1:{port}#sha256:{}", appliance_pin());
+    let got = fetch_from("pin-stolen", &pinned, &url);
+    assert!(got.starts_with("failed: ") && got.contains("ignature"), "{got}");
+}
+
+#[test]
+fn a_redirect_never_leads_to_a_pinned_site() {
+    let server = Server::start();
+    let port = tls_appliance("appliance.key.der");
+    let pinned = format!("network:127.0.0.1:{port}#sha256:{}", appliance_pin());
+    let (_host, reply, rx, _folder) = load(
+        "pin-redirect",
+        &[&server.site(), &pinned],
+        json!({ "url": server.url(&format!("/tls/{port}")) }),
+        FETCH,
+    );
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let got = notices(&rx, 1, 20);
+    assert!(got[0].contains("pinned certificate"), "{got:?}");
+}
+
+/// A proxy on 127.0.0.1: what each request's first line was; a plain-http request gets "via
+/// proxy", a CONNECT a 403.
+fn proxy_server() -> (u16, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&lines);
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let seen = Arc::clone(&seen);
+            std::thread::spawn(move || {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte) {
+                        Ok(1) => head.push(byte[0]),
+                        _ => return,
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                seen.lock().unwrap().push(head.clone());
+                let out: &[u8] = if head.starts_with("CONNECT ") {
+                    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"
+                } else {
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nvia proxy"
+                };
+                let _ = stream.write_all(out);
+            });
+        }
+    });
+    (port, lines)
+}
+
+fn load_proxied(
+    test: &str,
+    proxy: &str,
+    permissions: &[&str],
+    url: &str,
+) -> (Reply, Receiver<Reply>, PluginHost, common::Temp) {
+    let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    let proxy = Some(roster_core::plugin::network::Proxy::parse(proxy).unwrap());
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    host.set_listener(Arc::new(move |r: Reply| {
+        let _ = tx.lock().unwrap().send(r);
+    }));
+    let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
+    let folder = plugin_dir(test, permissions, FETCH);
+    let (_, reply) = host
+        .load_with_proxy(
+            &Source::Dir(folder.to_path_buf()),
+            &grants,
+            &json!({ "url": url }),
+            proxy,
+        )
+        .unwrap();
+    (reply, rx, host, folder)
+}
+
+#[test]
+fn a_public_site_goes_through_the_users_proxy_with_nothing_of_theirs_added() {
+    let (port, lines) = proxy_server();
+    // By name: the proxy's own name may lead anywhere the user's setting says.
+    let proxy = format!("http://localhost:{port}");
+    let (reply, rx, _h, _f) = load_proxied(
+        "proxy-http",
+        &proxy,
+        &["network:http://api.example.com"],
+        "http://api.example.com/hello?q=1",
+    );
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    assert_eq!(notices(&rx, 1, 20), ["200 9 via proxy | connection,content-length"]);
+    let seen = lines.lock().unwrap().clone();
+    assert!(
+        seen[0].starts_with("GET http://api.example.com/hello?q=1 HTTP/1.1"),
+        "{seen:?}"
+    );
+    assert!(
+        !seen[0].to_ascii_lowercase().contains("proxy-authorization"),
+        "{seen:?}"
+    );
+    // https is a tunnel: the proxy sees only where to.
+    let (_r, rx, _h, _f) = load_proxied(
+        "proxy-https",
+        &proxy,
+        &["network:api.example.com"],
+        "https://api.example.com/hello",
+    );
+    let got = notices(&rx, 1, 20);
+    assert!(got[0].starts_with("failed: "), "{got:?}");
+    assert!(
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.starts_with("CONNECT api.example.com:443 "))
+    );
+}
+
+#[test]
+fn an_address_site_never_goes_through_the_proxy() {
+    let server = Server::start();
+    let (port, lines) = proxy_server();
+    let (_r, rx, _h, _f) = load_proxied(
+        "proxy-ip",
+        &format!("http://127.0.0.1:{port}"),
+        &[&server.site()],
+        &server.url("/hello"),
+    );
+    assert!(notices(&rx, 1, 20)[0].starts_with("200 8 hi there"));
+    assert!(lines.lock().unwrap().is_empty());
+}
+
+#[test]
+fn each_sites_requests_are_counted_with_nothing_of_what_they_carried() {
+    let server = Server::start();
+    let init = r#"
+      local c = roster.plugin.config
+      roster.http.get(c.base .. "/hello?token=s3cret", function(res) roster.notify("a " .. res.status) end)
+      roster.http.get(c.base .. "/big", function(res, err) roster.notify("b " .. tostring(err ~= nil)) end)
+    "#;
+    let (host, reply, rx, _folder) = load(
+        "counts",
+        &[&server.site(), "network:api.example.com"],
+        json!({ "base": server.url("") }),
+        init,
+    );
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    assert_eq!(notices(&rx, 2, 20).len(), 2);
+    let counts = host.requests_by_site("fetcher");
+    let shown = serde_json::to_value(&counts).unwrap();
+    assert_eq!(shown.as_array().unwrap().len(), 1, "{shown}");
+    let row = &shown[0];
+    assert_eq!(row["site"], format!("http://127.0.0.1:{}", server.port));
+    assert_eq!(row["requests"], 2);
+    assert_eq!(row["failed"], 1);
+    assert!(row["last"].as_u64().unwrap() > 1_700_000_000_000, "{row}");
+    assert!(
+        !shown.to_string().contains("s3cret") && !shown.to_string().contains("hello"),
+        "{shown}"
+    );
+    // In :plugins' list too.
+    let listed = serde_json::to_value(host.list()).unwrap();
+    assert_eq!(listed[0]["requests"][0]["requests"], 2);
+    // Nothing for a Plugin that isn't there.
+    assert!(host.requests_by_site("nobody").is_empty());
+}
+
+/// Loads a Plugin that fetches `url` each time the app locks, so a test can ask again later.
+fn load_on_lock(test: &str, host: &PluginHost, permissions: &[&str], url: &str, proxy: Option<&str>) -> common::Temp {
+    let init = r#"
+      roster.on("lock", function()
+        roster.http.get(roster.plugin.config.url, function(res, err)
+          roster.notify(res and (res.status .. " " .. res.body) or ("failed: " .. err))
+        end)
+      end)
+    "#;
+    let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
+    let folder = plugin_dir(test, permissions, init);
+    let proxy = proxy.map(|p| roster_core::plugin::network::Proxy::parse(p).unwrap());
+    let (_, reply) = host
+        .load_with_proxy(
+            &Source::Dir(folder.to_path_buf()),
+            &grants,
+            &json!({ "url": url }),
+            proxy,
+        )
+        .unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    folder
+}
+
+fn listening() -> (PluginHost, Receiver<Reply>) {
+    let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    host.set_listener(Arc::new(move |r: Reply| {
+        let _ = tx.lock().unwrap().send(r);
+    }));
+    (host, rx)
+}
+
+fn lock(host: &PluginHost) {
+    host.event(roster_core::plugin::Event {
+        name: "lock".into(),
+        payload: json!({}),
+    });
+}
+
+#[test]
+fn a_new_proxy_setting_reaches_a_plugin_that_runs_already() {
+    let (one, one_saw) = proxy_server();
+    let (two, two_saw) = proxy_server();
+    let (host, rx) = listening();
+    let url = "http://nothing.invalid/hello";
+    let _f = load_on_lock(
+        "proxy-change",
+        &host,
+        &["network:http://nothing.invalid"],
+        url,
+        Some(&format!("http://127.0.0.1:{one}")),
+    );
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20), ["200 via proxy"]);
+    host.set_proxy(Some(
+        roster_core::plugin::network::Proxy::parse(&format!("http://127.0.0.1:{two}")).unwrap(),
+    ));
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20), ["200 via proxy"]);
+    assert_eq!((one_saw.lock().unwrap().len(), two_saw.lock().unwrap().len()), (1, 1));
+    // Taken away: direct again, and a name that doesn't resolve fails here.
+    host.set_proxy(None);
+    lock(&host);
+    let got = notices(&rx, 1, 20);
+    assert!(
+        got[0].starts_with("failed: ") && got[0].contains("couldn't look up nothing.invalid"),
+        "{got:?}"
+    );
+    assert_eq!(two_saw.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_public_name_that_points_inside_isnt_reached_through_the_proxy() {
+    use std::net::ToSocketAddrs;
+    // A name this computer resolves to itself, where it does (systemd's resolver, most Linux).
+    let inside = ("roster-test.localhost", 0)
+        .to_socket_addrs()
+        .map(|a| a.collect::<Vec<_>>())
+        .unwrap_or_default();
+    if inside.is_empty() {
+        eprintln!("skipped: roster-test.localhost doesn't resolve here (the unit test covers the rule)");
+        return;
+    }
+    let (port, lines) = proxy_server();
+    let (host, rx) = listening();
+    let _f = load_on_lock(
+        "proxy-inside",
+        &host,
+        &["network:http://roster-test.localhost"],
+        "http://roster-test.localhost/hello",
+        Some(&format!("http://127.0.0.1:{port}")),
+    );
+    lock(&host);
+    let got = notices(&rx, 1, 20);
+    assert!(got[0].contains("roster-test.localhost is at"), "{got:?}");
+    assert!(lines.lock().unwrap().is_empty());
+}
+
+#[test]
+fn removing_a_plugin_forgets_its_counts() {
+    let server = Server::start();
+    let (host, rx) = listening();
+    let _f = load_on_lock("forget", &host, &[&server.site()], &server.url("/hello"), None);
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20).len(), 1);
+    assert_eq!(host.requests_by_site("fetcher")[0].requests, 1);
+    host.unload("fetcher");
+    host.forget("fetcher").unwrap();
+    assert!(host.requests_by_site("fetcher").is_empty());
+}
+
+#[test]
+fn a_request_stopped_by_an_unload_counts_as_one_with_no_answer() {
+    let server = Server::start();
+    let (host, _rx) = listening();
+    let _f = load_on_lock("aborted", &host, &[&server.site()], &server.url("/slow"), None);
+    lock(&host);
+    std::thread::sleep(Duration::from_millis(300));
+    host.unload("fetcher");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while host.requests_by_site("fetcher").first().is_none_or(|c| c.failed == 0) && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let counts = host.requests_by_site("fetcher");
+    assert_eq!((counts[0].requests, counts[0].failed), (1, 1));
 }

@@ -61,6 +61,9 @@ pub struct Config {
     /// Reload on every save of a `.lua` file. Off by default: `:source` reloads, as in Neovim
     /// (decision Q58).
     pub auto_reload: bool,
+    /// The proxy Plugins' requests to public names go through (decision Q116): `http://HOST:PORT`,
+    /// never with credentials. None: they go direct.
+    pub plugin_proxy: Option<String>,
     /// This Box's own vault settings, sent to roster serve (`vault.configure`, tickets 35 and 41).
     pub vault: Vault,
     /// Packages: Plugins from git repos, pinned in `roster.lock` (ticket 24, decision Q83). In
@@ -132,6 +135,7 @@ impl Default for Config {
             backend: BackendChoice::Auto,
             editor: Editor::Os,
             auto_reload: false,
+            plugin_proxy: None,
             vault: Vault::default(),
             packages: Vec::new(),
             lines: BTreeMap::new(),
