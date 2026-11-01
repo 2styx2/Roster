@@ -1141,6 +1141,29 @@ def test_serve_closing_mid_job_stops_it_and_records_what_it_didnt_finish(net, se
     assert set(pending) >= {"orion-3", "nas-1"}                         # not visited: the next run finishes them
 
 
+def test_serve_closing_mid_foreground_apply_stops_it_and_records_it_too(net, serve):
+    # T104 (#182): the waiting form (no background) is a job as well, so quitting the app stops it and mesh.json
+    # says what it didn't do, as for a background run
+    import time
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("60")
+    s.request("mesh.apply")                                             # waits for its result: never answered here
+    end = time.monotonic() + 15
+    while not any(n["params"].get("at") == "orion-2" for n in s.notes if n["method"] == "job.progress"):
+        assert time.monotonic() < end, "never got to orion-2"
+        s.notes.append(json.loads(s.p.stdout.readline()))
+    time.sleep(0.3)                                                     # its ssh has started
+    t = time.monotonic()
+    code, out, _ = s.close()
+    assert code == 0 and time.monotonic() - t < 3                     # inside the app's EXIT_GRACE
+    pending = mesh.load_state()["pending"]
+    assert "orion-2" in pending and "serve closed" in pending["orion-2"]
+    assert set(pending) >= {"orion-3", "nas-1"}
+    answer = next(json.loads(x) for x in out.splitlines() if '"id": 1' in x)
+    pending_links = [x for x in answer["result"]["links"] if x["from"] == "orion-2"]
+    assert pending_links and all(x["status"] == "pending" and "serve closed" in x["why"] for x in pending_links)
+
+
 def test_a_background_run_works_out_the_mesh_once_while_serve_waits(net, monkeypatch):
     # review 8 #10: serve answered nothing while it started a job (one request at a time), and the graph of a big meshed group is
     # every pair in it; starting the job worked it out twice (and the run a third time)

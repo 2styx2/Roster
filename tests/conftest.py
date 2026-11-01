@@ -85,6 +85,17 @@ def isolated(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def runtime_dir(monkeypatch):
+    """$XDG_RUNTIME_DIR as systemd/WSL make it (0700), at a path short enough for a Unix socket in a folder in it
+    whatever $TMPDIR is (a socket's path is at most ~107 bytes): straight under /tmp, removed when the test ends."""
+    run = Path(tempfile.mkdtemp(prefix="roster-run-", dir=None if WINDOWS else "/tmp"))
+    run.chmod(0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
+    yield run
+    shutil.rmtree(run, ignore_errors=True)
+
+
+@pytest.fixture
 def fakes(monkeypatch, tmp_path):
     """Put stand-in bw / op / pass / ssh commands first on PATH. Windows runs no script by its #! line, so there each
     one gets a NAME.cmd next to it that runs it with this Python (roster finds a tool by PATHEXT, as it would find
