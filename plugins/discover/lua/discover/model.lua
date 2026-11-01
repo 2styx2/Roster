@@ -11,7 +11,7 @@ M.CHUNK = 2000
 local PORTS_SHOWN = 4
 
 ---@class discover.Settings
----@field leader string
+---@field leader string|false
 ---@field ranges string[]
 ---@field ports string?
 ---@field group string?
@@ -37,10 +37,10 @@ function M.settings(config)
   ---@type discover.Settings
   local s = { leader = M.DEFAULT_LEADER, ranges = {}, ports = nil, group = nil }
   if config.leader ~= nil then
-    if is_keys(config.leader) then
+    if config.leader == false or is_keys(config.leader) then
       s.leader = config.leader
     else
-      problems[#problems + 1] = "config.leader must be keys after the Leader, such as \"y d\""
+      problems[#problems + 1] = "config.leader must be keys after the Leader, such as \"y d\", or false for none"
     end
   end
   if config.ranges ~= nil then

@@ -53,7 +53,7 @@ It asks for no other serve method, can't Publish, never sees a password or the v
 
 | Setting | Default | What it does |
 |---|---|---|
-| `leader` | `"T"` | The keys after the Leader that run `:topology` |
+| `leader` | `"T"` | The keys after the Leader that run `:topology`; `false` binds none |
 | `refresh` | `60` | Seconds between looks at `mesh.status` (10 to 3600), for applies and cuts made elsewhere |
 
 ```lua

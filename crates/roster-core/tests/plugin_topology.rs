@@ -716,6 +716,17 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
 }
 
 #[test]
+fn leader_false_binds_no_key_as_mesh_does() {
+    let w = World::new("no-leader");
+    let reply = w.load_with(ALL, json!({ "leader": false }));
+    assert!(find(&reply.ops, "notify").is_empty(), "{:?}", reply.ops);
+    assert!(find(&reply.ops, "key").is_empty());
+    let help = one(&reply.ops, "help")["spec"]["markdown"].as_str().unwrap();
+    assert!(!help.contains("false"), "{help}");
+    assert!(help.contains("`:topology` opens it"), "{help}");
+}
+
+#[test]
 fn topology_group_opens_the_view_filtered_to_that_groups_clusters() {
     let w = World::new("command");
     let reply = w.load(ALL);
