@@ -134,13 +134,8 @@ export class ViewHost {
 
   /** Opens view `id`; with `select`, at that node or row, even when it's already open. */
   open(id: string, select?: string) {
-    if (select !== undefined) {
-      this.snap = { at: id, select: { id: select, n: ++this.openings } };
-      for (const l of this.listeners) l();
-      return;
-    }
-    if (this.snap.at === id) return;
-    this.set(id);
+    if (select === undefined && this.snap.at === id) return;
+    this.set(id, select);
   }
 
   /** Closes the open view; with `id`, only if it's that one. */
@@ -149,8 +144,8 @@ export class ViewHost {
     this.set(null);
   }
 
-  private set(at: string | null) {
-    this.snap = { at };
+  private set(at: string | null, select?: string) {
+    this.snap = select === undefined ? { at } : { at, select: { id: select, n: ++this.openings } };
     for (const l of this.listeners) l();
   }
 }
