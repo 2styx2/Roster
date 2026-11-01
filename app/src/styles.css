@@ -681,7 +681,7 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .picker-row.unreviewed .host-name { color: var(--muted); }
 .picker-row > .badge { justify-self: end; overflow: visible; }
 /* A Host's details (ticket 18): in the last column, so it never moves the row; shown on the
-   selected row (Ctrl+I is its key) and under a real pointer. */
+   selected row only (Ctrl+I is its key), never on hover, as a Sidebar row's buttons (Q88). */
 .picker-row > .badge + .picker-info, .picker-row > .host-type + .picker-info { grid-column: 6; }
 .picker-info {
   width: 22px; height: 22px; padding: 0; display: grid; place-items: center; visibility: hidden;
@@ -689,7 +689,6 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 .picker-row.selected .picker-info { visibility: visible; }
 @media (hover: hover) and (pointer: fine) {
-  .picker-row:hover .picker-info { visibility: visible; }
   .picker-info:hover { color: var(--text); background: var(--hover); }
 }
 /* Quick Connect (ticket 14): a box that isn't in the Inventory, offered first while the query reads

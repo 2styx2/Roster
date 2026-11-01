@@ -66,6 +66,21 @@ describe('"Save to vault" on Quick Connect', () => {
     expect(document.body.innerHTML).not.toContain(FAKE_HOST_PASSWORD);
   });
 
+  it("calls out a Host name the pull brought while the form was open (T72)", async () => {
+    const theirs = { ...hosts.hosts[1]!, name: "nas-01" };
+    // No Pending changes here, so the form pulls; the pull brings a Host named as the box calls itself.
+    const backend = backendWith({ pending: {}, pullDelay: 200, pullBrings: { commits: 1, changes: {}, adds: [theirs] } });
+    const user = await ready(backend);
+    await connect(user);
+    await user.click(within(await offer()).getByRole("button", { name: "Save…" }));
+    const panel = await screen.findByRole("region", { name: "Save to vault" });
+    await waitFor(() => expect(within(panel).getByLabelText("Host name")).toHaveValue("nas-01"));
+    const note = await within(panel).findByText(/The pull brought a Host named/);
+    expect(note).toHaveTextContent("The pull brought a Host named nas-01, so this one needs another name.");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(backend.quickSaves()).toEqual([]);
+  });
+
   it("`:save` opens the same form", async () => {
     const user = await ready();
     await connect(user);
