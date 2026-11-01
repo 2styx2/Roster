@@ -459,7 +459,7 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "event",
                 "EventName",
-                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.",
+                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output`, `command_done` or `job_progress`.",
             ),
             p(
                 "listener",
@@ -1817,6 +1817,12 @@ pub const EVENTS: &[Event] = &[
         needs: &["terminal.read"],
         payload: "TerminalOutputEvent",
         when: "A Session printed something: a few times a second, in batches.",
+    },
+    Event {
+        name: "command_done",
+        needs: &["terminal.read"],
+        payload: "CommandDoneEvent",
+        when: "A command ended in a Session whose shell writes OSC 133 marks (since api 4): after the `terminal_output` with its last lines. A shell without them sends none; [Shell integration](plugins.md#shell-integration) says how to set one up.",
     },
     Event {
         name: "job_progress",
@@ -3604,7 +3610,7 @@ pub const TYPES: &[Type] = &[
         name: "EventName",
         summary: "An event a Plugin can listen for",
         doc: "",
-        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\"",
+        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"command_done\"|\"job_progress\"",
         fields: &[],
         open: false,
     },
@@ -3708,7 +3714,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "TerminalOutputEvent",
         summary: "`terminal_output`'s payload",
-        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints.",
+        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints (a shell with OSC 133 marks labels that line `kind = \"input\"`).",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),
@@ -3718,6 +3724,33 @@ pub const TYPES: &[Type] = &[
                 "string",
                 "The lines it finished since the last one, each ending in `\\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.",
             ),
+            o(
+                "kind",
+                "string",
+                "What the Session's shell's OSC 133 marks say these lines are (since api 4): `\"prompt\"` (a few lines after its prompt starts), `\"input\"` (the line typed at the prompt: the shell's echo of your command), `\"output\"` (what a command printed), or `nil` (no marks, or nothing they say). All the lines in `text` are of one kind; a batch of several kinds comes as several events, in order. A hint, not a guarantee: the marks come from the Host and anything it prints can forge them, and an `\"output\"` line may be an `ssh` or nested shell echoing what you type. Every line is sent whatever its kind.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "CommandDoneEvent",
+        summary: "`command_done`'s payload",
+        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. The command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased is never one, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't be. The marks come from the Host, so this is its word: a hint. A command a nested shell with marks took over (`ssh` to a Host with integration) has none, since its end can't be told from the nested shell's; nor does `exit` or `logout`, since a shell that exits sends no end mark for it.",
+        alias: "",
+        fields: &[
+            f("session", "integer", "The Session's id."),
+            o("host", "string", "The Host's name; `nil` for a Quick Connect Session."),
+            o(
+                "command",
+                "string",
+                "The command line as the shell showed it after its prompt; `nil` when it couldn't be read (the shell sent no `B` mark, or the line scrolled away or was reflowed by a resize before it ran).",
+            ),
+            f(
+                "output",
+                "string",
+                "What it printed, each line ending in `\\n`, as `terminal_output` sent it (its last line too, if it didn't end in a line feed). At most the last 16 KB.",
+            ),
+            o("code", "integer", "Its exit code; `nil` when the shell didn't say."),
         ],
         open: false,
     },

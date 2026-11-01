@@ -384,6 +384,37 @@ fn events_reach_only_plugins_that_may_hear_them() {
     assert_eq!(replies.len(), 2);
 }
 
+/// A marked shell's commands (ticket 94, #167): `command_done` is terminal.read's, like the output
+/// it summarises; it carries the command line, its output and its exit code, never what's typed.
+#[test]
+fn command_done_reaches_only_plugins_with_terminal_read() {
+    let listener = r#"
+        local ok, err = pcall(roster.on, "command_done", function(e)
+          roster.notify(e.host .. ": " .. e.command .. " -> " .. tostring(e.code) .. ": " .. e.output)
+        end)
+        if not ok then roster.notify(err) end
+    "#;
+    let reader = plugin_dir("reader-done", &manifest("reader", &["terminal.read"]), listener);
+    let deaf = plugin_dir("deaf-done", &manifest("deaf", &["terminal.read"]), listener);
+    let (host, _) = host();
+    host.load(&Source::Dir(reader.to_path_buf()), &perms(&["terminal.read"]))
+        .unwrap();
+    let (_, deaf_load) = host.load(&Source::Dir(deaf.to_path_buf()), &[]).unwrap();
+    assert!(
+        deaf_load.ops[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("the command_done event needs the terminal.read permission")
+    );
+    let replies = host.event(Event {
+        name: "command_done".into(),
+        payload: json!({ "session": 1, "host": "esx-02", "command": "df -h", "output": "disk full\n", "code": 1 }),
+    });
+    assert_eq!(replies.len(), 1);
+    assert_eq!(replies[0].plugin, "reader");
+    assert_eq!(replies[0].ops[0]["text"], "esx-02: df -h -> 1: disk full\n");
+}
+
 /// serve's job progress (ticket 101, decision Q112f): a Plugin hears a job only of a kind it may
 /// already ask about, a Mesh job with `serve:mesh.job`, a scan with `serve:discover.status`.
 #[test]

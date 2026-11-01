@@ -100,6 +100,7 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   session_exit: ["inventory.read", "terminal.read"],
   inventory_changed: ["inventory.read"],
   terminal_output: ["terminal.read"],
+  command_done: ["terminal.read"],
   job_progress: ["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
 };
 
@@ -424,7 +425,7 @@ export function fakePluginHost(
       remove: (id: string) => push({ op: "remove", kind, id }),
     });
     const m: FakeRoster = {
-      api_version: 3,
+      api_version: 4,
       plugin: { name: r.manifest.name, version: r.manifest.version, permissions: [...r.grants], config },
       commands: {
         add: (name, spec) => {
