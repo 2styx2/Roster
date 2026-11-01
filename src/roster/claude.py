@@ -59,7 +59,8 @@ def write_claude_files(cfg):
           "unlock it in the shell they start Claude from (e.g. `export BW_SESSION=$(bw unlock --raw)` "
           "or `eval $(op signin)`). Don't try to unlock it yourself.",
           "- Ask before changing state on a host: restarts, installs, deletes, config edits, writes to databases.",
-          f"- If a host doesn't respond, run `{run} check --only <name>` and report what you find.", "",
+          f"- If a host doesn't respond, run `{run} check <name> --json` to see which step fails and its fix, "
+          "and report what you find.", "",
           "## Groups"]
     for g, hs in groups.items():
         meta = cfg["groups"].get(g, {})
