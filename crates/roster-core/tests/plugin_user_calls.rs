@@ -417,3 +417,48 @@ end })
         said[4]
     );
 }
+
+/// Waiting for roster serve isn't the Plugin's time (decision Q103), but one call can't hold serve
+/// for ever by asking it again and again: it gets so many calls into serve, then an error.
+#[test]
+fn one_call_can_ask_roster_serve_only_so_many_times() {
+    let serve = Arc::new(Recorded {
+        slow: Some(Duration::from_millis(2)),
+        ..Recorded::default()
+    });
+    let (host, _rx) = listening(&serve, Limits::default());
+    let loaded = load(
+        &host,
+        "loop",
+        &["serve:mesh.status"],
+        r#"
+roster.commands.add("poll", { run = function()
+  while true do roster.serve.call("mesh.status") end
+end })
+roster.commands.add("once", { run = function() return roster.serve.call("mesh.status").ok end })
+"#,
+    );
+    let host = Arc::new(host);
+    let (tx, rx) = channel();
+    {
+        let host = Arc::clone(&host);
+        let poll = command(&loaded.ops, "poll");
+        std::thread::spawn(move || {
+            let _ = tx.send(host.call("guarded", poll, ARGS()));
+        });
+    }
+    let r = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("a call asking serve in a loop should end");
+    let e = r.error.expect("it ran out of calls into serve").message;
+    assert!(
+        e.contains("roster.serve.call mesh.status: more than 100 calls into roster serve in one go"),
+        "{e}"
+    );
+    assert!(r.disabled.is_none());
+    assert!(serve.methods().len() <= 100, "{}", serve.methods().len());
+    // The next call starts again from none.
+    let once = host.call("guarded", command(&loaded.ops, "once"), ARGS());
+    ok(&once);
+    assert_eq!(once.result, true);
+}

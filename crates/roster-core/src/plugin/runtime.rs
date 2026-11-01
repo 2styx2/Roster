@@ -27,6 +27,14 @@ const REQUESTS: &str = "roster.plugin.requests";
 const REQUEST_KEYS: &[&str] = &["url", "method", "headers", "body", "timeout"];
 /// How many `roster.serve.request` calls one Plugin may have waiting at once (decision Q103).
 pub(crate) const MAX_SERVE_REQUESTS: usize = 8;
+/// The most times one call (a load, an event, an answer) may wait for roster serve
+/// (`roster.serve.call`, `roster.inventory`), and the most it may wait in all: serve's wait isn't
+/// the Plugin's time (Q103), so without these a call asking serve in a loop would never run out of
+/// time and would keep serve, which answers one request at a time, from the app. 300 s is serve's
+/// own longest deadline for one method, so one call merely queued behind a Publish still gets its
+/// answer; a call that passes either gets an error.
+pub(crate) const MAX_SERVE_CALLS: u32 = 100;
+pub(crate) const MAX_SERVE_WAIT: Duration = Duration::from_secs(300);
 /// The most UI ops one call may produce.
 pub(crate) const MAX_OPS: usize = 1000;
 /// The most text `roster.clipboard.copy` takes.
@@ -152,6 +160,8 @@ struct Shared {
     /// During a run, the handlers it let go of: gone only once it succeeds, since a failed run's
     /// ops never reach the app, which still shows (and calls) what they replaced.
     dropping: RefCell<Option<Vec<u64>>>,
+    /// This run's calls into roster serve so far, and how long they waited in all.
+    served: Cell<(u32, Duration)>,
 }
 
 /// What a run may change in the core, as it was before: put back when the run fails, as its ops
@@ -249,6 +259,7 @@ impl Runtime {
             storage,
             serving,
             dropping: RefCell::default(),
+            served: Cell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -407,6 +418,7 @@ impl Runtime {
     fn run(&self, budget: Duration, body: impl FnOnce(&Lua) -> mlua::Result<Json>) -> Outcome {
         self.shared.clock.start(budget);
         self.shared.budget.set(Budget::default());
+        self.shared.served.set(Default::default());
         self.shared.ops.borrow_mut().clear();
         let s = &self.shared;
         let before = Before {
@@ -765,11 +777,24 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
     if super::permission::serve_user_only(method) && !shared.user_call.get() {
         return Err(USER_ONLY.into());
     }
+    let (calls, waited) = shared.served.get();
+    if calls >= MAX_SERVE_CALLS {
+        return Err(format!(
+            "more than {MAX_SERVE_CALLS} calls into roster serve in one go (roster.serve.request doesn't wait)"
+        ));
+    }
+    if waited >= MAX_SERVE_WAIT {
+        return Err(format!(
+            "waited more than {} s for roster serve in one go (roster.serve.request doesn't wait)",
+            MAX_SERVE_WAIT.as_secs()
+        ));
+    }
     let started = Instant::now();
     shared.serving.begin();
     let result = shared.serve.call(method, params);
     shared.serving.end();
     shared.clock.extend(started.elapsed());
+    shared.served.set((calls + 1, waited + started.elapsed()));
     redacted(result)
 }
 
