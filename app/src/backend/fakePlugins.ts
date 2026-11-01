@@ -636,6 +636,7 @@ export function fakePluginHost(
             return redact(serve(method, params));
           } catch (e) {
             // No `cause`: serve's own error is uncut, and a Plugin could read it there (Q92).
+            // eslint-disable-next-line preserve-caught-error -- the cut message is all a Plugin gets
             throw new Error(`roster.serve.call ${method}: ${errorText(e)}`);
           }
         },
