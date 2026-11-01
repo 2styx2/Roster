@@ -249,6 +249,7 @@ groups:
   lab:
     user: ops
     enroll: false
+    mesh: true
     port: {closed}
     hosts:
       by-bw: {{ip: 127.0.0.1, auth: "bw:Orion servers"}}
@@ -265,7 +266,7 @@ resources:
 """
 
 
-def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkeypatch, capsys):
+def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkeypatch, capsys, tmp_path):
     import socket
     gone = socket.create_server(("127.0.0.1", 0))
     closed = gone.getsockname()[1]
@@ -274,10 +275,17 @@ def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkey
     monkeypatch.setenv("BW_PASSWORD", "hunter2")
     monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", "tok-s3cret")
     monkeypatch.setenv("LAB_PW", "s3cret-in-env")
+    page = tmp_path / "found" / "page"                  # what the stand-in nmap finds: a web page that names one
+    page.mkdir(parents=True)
+    (page / "address").write_text("10.0.0.7")
+    (page / "ports").write_text("443 https\n")
+    (page / "title").write_text("sign in with cmd:printf s3cret-in-cmd")
+    monkeypatch.setenv("FAKE_HOSTS", str(tmp_path / "found"))
     assert main(["sync"]) == 0
     capsys.readouterr()
     commands = [["hosts", "--all"], ["hosts", "--long"], ["resources"], ["providers"], ["auth-check"], ["check"],
-                ["check", "--box"], ["mesh", "status"], ["info", "nope"], ["check", "nope"]]
+                ["check", "--box"], ["mesh", "status"], ["mesh", "--dry-run"], ["info", "nope"], ["check", "nope"],
+                ["discover", "10.0.0.0/29", "--ports", "443"], ["discover", "10.0.0.0/8"]]
     for name in ["by-bw", "by-op", "by-env", "by-cmd", "guest", "portal"]:
         commands.append(["info", name])
     for name in ["by-bw", "by-op", "by-env", "by-cmd"]:
@@ -292,5 +300,8 @@ def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkey
     assert [(argv, s) for argv, text in seen for s in SECRETS if s in text] == []
     everything = "".join(text for _, text in seen)
     assert "cmd:" in everything and "env:" in everything and "bw:Orion servers" in everything
+    by_command = {" ".join(argv): text for argv, text in seen}
+    assert '"title": "sign in with cmd:"' in by_command["discover 10.0.0.0/29 --ports 443"]
+    assert '"applied": false' in by_command["mesh --dry-run"]
     vault = next(text for argv, text in seen if argv == ["check", "by-bw"])
     assert '"vault-item", "status": "ok"' in vault       # the secret was really fetched, and still isn't shown
