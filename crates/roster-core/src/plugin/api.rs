@@ -194,6 +194,59 @@ pub const COMMANDS: &[CommandRule] = &[
     },
 ];
 
+/// Every other command roster itself has: never a Plugin's own, whatever it named its commands,
+/// so `roster.cmd` and a `run` line refuse them as they refuse any of roster's not in
+/// [`COMMANDS`] (the iteration 8 review, issue #184). The app refuses a Plugin's command named
+/// after any of roster's too and checks every line again (`plugins/cmd.ts`); its test
+/// `App.rosterOnly.test.tsx` fails when a built-in command is in neither list.
+pub const ROSTER_ONLY: &[&str] = &[
+    "bottom",
+    "cancel",
+    "choose",
+    "close",
+    "cmdline",
+    "config",
+    "details",
+    "discard",
+    "down",
+    "edit",
+    "focus",
+    "fold",
+    "group",
+    "helpgrep",
+    "here",
+    "hidepanel",
+    "hints",
+    "host",
+    "keys",
+    "lock",
+    "lookup",
+    "messages",
+    "mode",
+    "packages",
+    "panel",
+    "plugins",
+    "publish",
+    "pull",
+    "quick",
+    "reconnect",
+    "review",
+    "save",
+    "sidebar",
+    "so",
+    "source",
+    "statusbar",
+    "terminal",
+    "theme",
+    "togglefold",
+    "top",
+    "tutor",
+    "unfold",
+    "unreview",
+    "up",
+    "vault",
+];
+
 const fn p(name: &'static str, ty: &'static str, doc: &'static str) -> Param {
     Param {
         name,
@@ -4798,6 +4851,7 @@ pub fn json() -> Json {
         "functions": functions,
         "events": EVENTS.iter().map(|e| json!({ "name": e.name, "needs": e.needs, "payload": e.payload })).collect::<Vec<_>>(),
         "commands": COMMANDS.iter().map(|c| json!({ "name": c.name, "permission": match c.needs { Needs::Permission(p) => json!(p), _ => Json::Null } })).collect::<Vec<_>>(),
+        "roster_only": ROSTER_ONLY,
         "types": types,
         "tags": tags,
     })
@@ -4811,6 +4865,17 @@ pub fn json_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A command is one a Plugin may run or one never a Plugin's own, not both (issue #184).
+    #[test]
+    fn roster_only_and_the_commands_a_plugin_may_run_dont_overlap() {
+        let both: Vec<&str> = ROSTER_ONLY
+            .iter()
+            .copied()
+            .filter(|n| COMMANDS.iter().any(|c| c.name == *n))
+            .collect();
+        assert!(both.is_empty(), "{both:?}");
+    }
 
     #[test]
     fn slugs_are_githubs() {

@@ -313,6 +313,36 @@ fn roster_cmd_with_sessions_open_may_open_a_host() {
     assert!(out.contains("connect esx-02 => ok"), "{out}");
 }
 
+/// A Plugin that names its commands after roster's own still can't run them: every one of
+/// roster's commands that isn't in api.rs's COMMANDS is in its ROSTER_ONLY (issue #184), not only
+/// the ones that change trust or writes.
+#[test]
+fn a_plugins_command_named_after_one_of_rosters_isnt_its_own() {
+    let init = r#"
+    local roster = require("roster")
+    for _, name in ipairs({ "theme", "lock", "messages", "tutor", "publish" }) do
+      roster.commands.add(name, { run = function() end })
+    end
+    roster.commands.add("go", { run = function(a)
+      local ok, err = pcall(roster.cmd, a.args)
+      return ok and "ok" or tostring(err)
+    end })
+    "#;
+    let host = host();
+    let folder = plugin_dir("cmd-roster-only", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    for name in ["theme", "lock", "messages", "tutor", "publish"] {
+        let r = host.call(
+            "mesh",
+            command(&reply.ops, "go"),
+            json!({ "args": name, "words": [name] }),
+        );
+        let out = r.result.as_str().unwrap_or_default().to_string();
+        assert!(out.contains("isn't one a Plugin may run"), "{name}: {out}");
+    }
+}
+
 #[test]
 fn a_removed_command_is_no_longer_the_plugins_own() {
     let init = r#"

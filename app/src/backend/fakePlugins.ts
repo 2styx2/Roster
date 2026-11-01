@@ -4,7 +4,7 @@
 // as `{ handler: N }`. Errors name the Plugin and `init.lua`, a load error or a third error
 // disables it, as in the core. The built-in `hosts` Plugin is here as the core's Lua is.
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
-import { PLUGIN_COMMANDS } from "../plugins/cmd";
+import { PLUGIN_COMMANDS, ROSTER_ONLY } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
 import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
@@ -132,7 +132,6 @@ function serveMethodAllowed(method: string): boolean {
 const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.includes(method);
 
 /** As runtime.rs's own_command: one the Plugin added, and not one of roster's. */
-const ROSTER_ONLY = ["plugins", "packages", "publish", "source", "config", "vault"];
 const ownCommand = (r: { commands: Set<string> }, word: string): boolean =>
   r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word);
 

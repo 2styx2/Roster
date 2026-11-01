@@ -802,17 +802,12 @@ fn quiet_opt(opts: Option<&Table>, what: &str) -> mlua::Result<Option<bool>> {
     }
 }
 
-/// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
-/// the vault): never a Plugin's own, whatever it named its commands. The app refuses a Plugin's
-/// command named after any of roster's and checks every line again (`plugins/cmd.ts`); this is the
-/// core's side of it for the ones that matter most (the iteration 8 review).
-const ROSTER_ONLY: &[&str] = &["plugins", "packages", "publish", "source", "config", "vault"];
-
 /// Whether `word` is one of the Plugin's own commands: one it added, and not one of roster's that
-/// a Plugin may run ([`super::api::COMMANDS`], which keep the permission they need) or never may.
+/// a Plugin may run ([`super::api::COMMANDS`], which keep the permission they need) or never may
+/// ([`super::api::ROSTER_ONLY`]).
 fn own_command(s: &Shared, word: &str) -> bool {
     s.commands.borrow().contains(word)
-        && !ROSTER_ONLY.contains(&word)
+        && !super::api::ROSTER_ONLY.contains(&word)
         && !super::api::COMMANDS.iter().any(|c| c.name == word)
 }
 
