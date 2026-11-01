@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 from . import jsonout
-from .common import die, oneline, say
+from .common import die, oneline, say, tcp_ok
 from .config import find_config, load_config
 
 # ---------------------------------------------------------------- discover (network scan)
@@ -124,45 +124,15 @@ def addresses_of(targets):
     return [str(ip) for n in nets for ip in (n.hosts() if n.num_addresses > 2 else n)]
 
 
-def tcp_probe(ip, port, timeout):
-    """A plain TCP connect to IP:PORT: "open", "refused" (the Host answered that nothing listens there: a reset), or
-    None (no answer within TIMEOUT, or no route to it). Only a refusal counts as an answer: a timeout or an unreachable
-    address says nothing about whether a Host is there."""
-    try:
-        with socket.create_connection((ip, int(port)), timeout=timeout):
-            return "open"
-    except ConnectionRefusedError:
-        return "refused"
-    except (OSError, ValueError):
-        return None
-
-
 def open_ports_of(ips, ports, timeout):
-    """({ip: [open port, ...]}, {ip that refused a port}) for a plain TCP connect to each of PORTS on each of IPS."""
-    found, refused = {}, set()
+    """{ip: [open port, ...]} for a plain TCP connect to each of PORTS on each of IPS."""
+    found = {}
     with cf.ThreadPoolExecutor(256) as ex:
         pairs = [(ip, p) for ip in ips for p in ports]
-        for (ip, p), how in zip(pairs, ex.map(lambda t: tcp_probe(t[0], t[1], timeout=timeout), pairs), strict=False):
-            if how == "open":
+        for (ip, p), ok in zip(pairs, ex.map(lambda t: tcp_ok(t[0], t[1], timeout=timeout), pairs), strict=False):
+            if ok:
                 found.setdefault(ip, []).append(p)
-            elif how == "refused":
-                refused.add(ip)
-    return found, refused - set(found)
-
-
-def quiet_record(ip):
-    """A Host that answered (refused a port) with none of them open, as parse_nmap_xml gives one: counted as quiet,
-    never shown, so no reverse DNS or banner for it."""
-    return {"ip": ip, "hostname": "", "mac": "", "vendor": "", "os": "", "ports": []}
-
-
-def scanned(ips, ports, timeout):
-    """The built-in scan of IPS: a record for each Host found (reverse DNS and SSH banners read at once) and one with
-    no ports for each that answered with none of PORTS open."""
-    open_ports, refused = open_ports_of(ips, ports, timeout)
-    with cf.ThreadPoolExecutor(64) as ex:          # each Host's reverse DNS and SSH banner (2 s) at once
-        found = list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=address_order)))
-    return found + [quiet_record(ip) for ip in sorted(refused, key=address_order)]
+    return found
 
 
 def describe(ip, open_ports):
@@ -197,7 +167,9 @@ def builtin_scan(targets, args):
     ports = [int(p) for p in args.ports.split(",") if p.strip()]
     say(f"scanning     {len(ips)} addresses x {len(ports)} ports with the built-in scanner "
         "(install nmap for service versions and web page titles)")
-    return scanned(ips, ports, args.timeout)
+    open_ports = open_ports_of(ips, ports, args.timeout)
+    with cf.ThreadPoolExecutor(64) as ex:
+        return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=address_order)))
 
 
 def guess_identity(rec):
@@ -582,7 +554,10 @@ class Scan:
         return parse_nmap_xml(out)
 
     def builtin(self, batch):
-        return scanned(batch, [int(p) for p in self.ports.split(",")], self.timeout)
+        ports = [int(p) for p in self.ports.split(",")]
+        open_ports = open_ports_of(batch, ports, self.timeout)
+        with cf.ThreadPoolExecutor(64) as ex:          # each Host's reverse DNS and SSH banner (2 s) at once
+            return list(ex.map(lambda ip: describe(ip, open_ports[ip]), sorted(open_ports, key=address_order)))
 
     def record(self, rec):
         """(rec, the result's record) for a Host found, or None for one with none of the ports open (quiet). Only

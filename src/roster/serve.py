@@ -2413,8 +2413,8 @@ def discover_status(state, params):
     Result: `{scan, state, targets, scanner, done, total, count, quiet, found: [Found], error}`. `state` is
         `running`, `stopping`, `done`, `stopped` or `failed` (`error` says why); `done` of `total` addresses
         visited; `count` how many were found in all (pass it as the next `since`); `quiet` how many answered with
-        none of the ports open (the built-in scanner counts a Host that refused a connection to every port; one
-        behind a firewall that drops them looks like no Host, as with nmap without a ping). A Found is `{address, name, type, hostname, title, web, known, added, vendor, os, mac, ports:
+        none of the ports open (nmap only: the built-in scanner can't tell a quiet Host from no Host, so it's 0
+        there). A Found is `{address, name, type, hostname, title, web, known, added, vendor, os, mac, ports:
         [{port, name, product, title}]}`: `name` the name it would be added as (`null` when `known`
         names the Host already at that address), `type` the guessed kind, `added` the name `discover.add` gave it
     Errors: -32602, 122

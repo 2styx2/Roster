@@ -186,7 +186,7 @@ def test_add_into_a_named_group_and_without_a_git_repo(serve, net, inventory):
 def test_the_builtin_scanner_when_nmap_isnt_installed(monkeypatch):
     """No nmap: roster's own TCP connect scan, in batches, stoppable. tcp_ok is the stand-in here: nothing connects."""
     open_ = {("10.0.0.7", 443), ("10.0.0.9", 22)}
-    monkeypatch.setattr(discover, "tcp_probe", lambda ip, port, timeout=None: "open" if (ip, port) in open_ else None)
+    monkeypatch.setattr(discover, "tcp_ok", lambda ip, port, timeout=None: (ip, port) in open_)
     monkeypatch.setattr(discover.socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(OSError()))
     monkeypatch.setattr(discover.socket, "create_connection", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     scan = discover.Scan("s1", ["10.0.0.0/24"], "22,443", "built-in", {}, set())
@@ -201,7 +201,7 @@ def no_network(monkeypatch, open_, banner_wait=0):
     """Stand-ins for the built-in scanner (OPEN_: {(address, port)}): nothing connects. Reading a banner takes
     BANNER_WAIT seconds, then fails."""
     import time
-    monkeypatch.setattr(discover, "tcp_probe", lambda ip, port, timeout=None: "open" if (ip, port) in open_ else None)
+    monkeypatch.setattr(discover, "tcp_ok", lambda ip, port, timeout=None: (ip, port) in open_)
     monkeypatch.setattr(discover.socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(OSError()))
     monkeypatch.setattr(discover.socket, "create_connection",
                         lambda *a, **k: time.sleep(banner_wait) or (_ for _ in ()).throw(OSError()))
@@ -260,41 +260,6 @@ def test_quiet_counts_the_hosts_that_answered_with_none_of_the_ports_open(serve,
     s = serve("-c", str(inventory))
     r = finished(s, s.call("discover.start", {"targets": ["10.0.0.0/28"], "ports": "22,443"})["result"]["scan"])
     assert r["quiet"] == 1 and [f["address"] for f in r["found"]] == ["10.0.0.5", "10.0.0.7", "10.0.0.9"]
-
-
-def test_the_builtin_scanner_counts_a_host_that_refused_every_port_as_quiet():
-    # T104 (#182): a refused connection is a Host's answer, so the built-in scanner can count quiet as nmap does
-    import socket
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        closed = s.getsockname()[1]                                 # nothing listens on it once this closes
-    with socket.create_server(("127.0.0.1", 0)) as listening:
-        port = listening.getsockname()[1]
-        # (3 s: Windows tries a refused port again for about 2 s before it says so)
-        scan = discover.Scan("q1", ["127.0.0.1"], str(closed), "built-in", {}, set(), timeout=3)
-        scan.run()
-        found = discover.Scan("q2", ["127.0.0.1"], f"{port},{closed}", "built-in", {}, set(), timeout=3)
-        found.run()
-    assert (scan.status()["quiet"], scan.status()["count"]) == (1, 0)
-    assert (found.status()["quiet"], found.status()["count"]) == (0, 1)
-    assert [p["port"] for p in found.status()["found"][0]["ports"]] == [port]
-
-
-def test_a_timeout_or_an_unreachable_address_isnt_quiet(monkeypatch):
-    import errno
-
-    def connect(address, timeout=None):
-        ip = address[0]
-        if ip == "10.0.0.1":
-            raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
-        if ip == "10.0.0.2":
-            raise TimeoutError("timed out")
-        raise OSError(errno.EHOSTUNREACH, "no route to host")
-    monkeypatch.setattr(discover.socket, "create_connection", connect)
-    monkeypatch.setattr(discover.socket, "gethostbyaddr", lambda ip: (_ for _ in ()).throw(OSError()))
-    scan = discover.Scan("q3", ["10.0.0.0/29"], "22,443", "built-in", {}, set())
-    scan.run()
-    assert (scan.status()["quiet"], scan.status()["count"], scan.status()["done"]) == (1, 0, 6)
 
 
 def test_the_builtin_scanner_reads_its_hosts_banners_at_once_not_one_by_one(monkeypatch):
