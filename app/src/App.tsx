@@ -1703,8 +1703,6 @@ function Workspace({
   openPlugins.current = () => {
     rememberFocus();
     setPluginsOpen(true);
-    // Each site's request counts, as the core has them now (decision Q116).
-    void plugins.refreshRequests();
   };
   const closePlugins = () => {
     setPluginsOpen(false);
@@ -2344,7 +2342,7 @@ function Workspace({
             }}
           />
         )}
-        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />)}
+        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} onRefresh={() => void plugins.refreshRequests()} />)}
         {packagesOpen && framed("packages", "Packages", "packages", <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />)}
         {pluginSnap.confirm && (
           <PluginConfirmPanel

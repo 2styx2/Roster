@@ -211,20 +211,39 @@ function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string,
   );
 }
 
+/** How often `:plugins` asks the core for its request counts while it's open. */
+export const REFRESH_MS = 3000;
+
 /** `:plugins`: every Plugin, whether it runs, its grants as toggles, and what it did lately. */
 export function PluginsPanel({
   snapshot,
   onGrant,
   onClose,
+  onRefresh,
 }: {
   snapshot: Snapshot;
   onGrant(name: string, permission: string, on: boolean): void;
   onClose(): void;
+  /** Asks the core for each site's request counts (decision Q116): when it opens, then every
+   * REFRESH_MS while it's open. */
+  onRefresh?(): void;
 }) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => panel.current?.focus(), []);
-  // "2m ago" is counted from when the panel opened.
-  const [now] = useState(() => Date.now());
+  // "2m ago" is counted from the last refresh; the text just changes, nothing moves.
+  const [now, setNow] = useState(() => Date.now());
+  const refresh = useRef(onRefresh);
+  useEffect(() => {
+    refresh.current = onRefresh;
+  });
+  useEffect(() => {
+    refresh.current?.();
+    const timer = setInterval(() => {
+      refresh.current?.();
+      setNow(Date.now());
+    }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
   return (
     <section
       ref={panel}

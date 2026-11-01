@@ -796,7 +796,7 @@ fn load_proxied(
     url: &str,
 ) -> (Reply, Receiver<Reply>, PluginHost, common::Temp) {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
-    host.set_proxy(Some(roster_core::plugin::network::Proxy::parse(proxy).unwrap()));
+    let proxy = Some(roster_core::plugin::network::Proxy::parse(proxy).unwrap());
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     host.set_listener(Arc::new(move |r: Reply| {
@@ -805,7 +805,12 @@ fn load_proxied(
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
     let folder = plugin_dir(test, permissions, FETCH);
     let (_, reply) = host
-        .load_with(&Source::Dir(folder.to_path_buf()), &grants, &json!({ "url": url }))
+        .load_with_proxy(
+            &Source::Dir(folder.to_path_buf()),
+            &grants,
+            &json!({ "url": url }),
+            proxy,
+        )
         .unwrap();
     (reply, rx, host, folder)
 }
@@ -897,4 +902,134 @@ fn each_sites_requests_are_counted_with_nothing_of_what_they_carried() {
     assert_eq!(listed[0]["requests"][0]["requests"], 2);
     // Nothing for a Plugin that isn't there.
     assert!(host.requests_by_site("nobody").is_empty());
+}
+
+/// Loads a Plugin that fetches `url` each time the app locks, so a test can ask again later.
+fn load_on_lock(test: &str, host: &PluginHost, permissions: &[&str], url: &str, proxy: Option<&str>) -> common::Temp {
+    let init = r#"
+      roster.on("lock", function()
+        roster.http.get(roster.plugin.config.url, function(res, err)
+          roster.notify(res and (res.status .. " " .. res.body) or ("failed: " .. err))
+        end)
+      end)
+    "#;
+    let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
+    let folder = plugin_dir(test, permissions, init);
+    let proxy = proxy.map(|p| roster_core::plugin::network::Proxy::parse(p).unwrap());
+    let (_, reply) = host
+        .load_with_proxy(
+            &Source::Dir(folder.to_path_buf()),
+            &grants,
+            &json!({ "url": url }),
+            proxy,
+        )
+        .unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    folder
+}
+
+fn listening() -> (PluginHost, Receiver<Reply>) {
+    let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    host.set_listener(Arc::new(move |r: Reply| {
+        let _ = tx.lock().unwrap().send(r);
+    }));
+    (host, rx)
+}
+
+fn lock(host: &PluginHost) {
+    host.event(roster_core::plugin::Event {
+        name: "lock".into(),
+        payload: json!({}),
+    });
+}
+
+#[test]
+fn a_new_proxy_setting_reaches_a_plugin_that_runs_already() {
+    let (one, one_saw) = proxy_server();
+    let (two, two_saw) = proxy_server();
+    let (host, rx) = listening();
+    let url = "http://nothing.invalid/hello";
+    let _f = load_on_lock(
+        "proxy-change",
+        &host,
+        &["network:http://nothing.invalid"],
+        url,
+        Some(&format!("http://127.0.0.1:{one}")),
+    );
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20), ["200 via proxy"]);
+    host.set_proxy(Some(
+        roster_core::plugin::network::Proxy::parse(&format!("http://127.0.0.1:{two}")).unwrap(),
+    ));
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20), ["200 via proxy"]);
+    assert_eq!((one_saw.lock().unwrap().len(), two_saw.lock().unwrap().len()), (1, 1));
+    // Taken away: direct again, and a name that doesn't resolve fails here.
+    host.set_proxy(None);
+    lock(&host);
+    let got = notices(&rx, 1, 20);
+    assert!(
+        got[0].starts_with("failed: ") && got[0].contains("couldn't look up nothing.invalid"),
+        "{got:?}"
+    );
+    assert_eq!(two_saw.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_public_name_that_points_inside_isnt_reached_through_the_proxy() {
+    use std::net::ToSocketAddrs;
+    // A name this computer resolves to itself, where it does (systemd's resolver, most Linux).
+    let inside = ("roster-test.localhost", 0)
+        .to_socket_addrs()
+        .map(|a| a.collect::<Vec<_>>())
+        .unwrap_or_default();
+    if inside.is_empty() {
+        eprintln!("skipped: roster-test.localhost doesn't resolve here (the unit test covers the rule)");
+        return;
+    }
+    let (port, lines) = proxy_server();
+    let (host, rx) = listening();
+    let _f = load_on_lock(
+        "proxy-inside",
+        &host,
+        &["network:http://roster-test.localhost"],
+        "http://roster-test.localhost/hello",
+        Some(&format!("http://127.0.0.1:{port}")),
+    );
+    lock(&host);
+    let got = notices(&rx, 1, 20);
+    assert!(got[0].contains("roster-test.localhost is at"), "{got:?}");
+    assert!(lines.lock().unwrap().is_empty());
+}
+
+#[test]
+fn removing_a_plugin_forgets_its_counts() {
+    let server = Server::start();
+    let (host, rx) = listening();
+    let _f = load_on_lock("forget", &host, &[&server.site()], &server.url("/hello"), None);
+    lock(&host);
+    assert_eq!(notices(&rx, 1, 20).len(), 1);
+    assert_eq!(host.requests_by_site("fetcher")[0].requests, 1);
+    host.unload("fetcher");
+    host.forget("fetcher").unwrap();
+    assert!(host.requests_by_site("fetcher").is_empty());
+}
+
+#[test]
+fn a_request_stopped_by_an_unload_counts_as_one_with_no_answer() {
+    let server = Server::start();
+    let (host, _rx) = listening();
+    let _f = load_on_lock("aborted", &host, &[&server.site()], &server.url("/slow"), None);
+    lock(&host);
+    std::thread::sleep(Duration::from_millis(300));
+    host.unload("fetcher");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while host.requests_by_site("fetcher").first().is_none_or(|c| c.failed == 0) && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let counts = host.requests_by_site("fetcher");
+    assert_eq!((counts[0].requests, counts[0].failed), (1, 1));
 }

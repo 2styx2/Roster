@@ -578,33 +578,52 @@ impl Resolve for Checked {
 /// Only requests to public names go through it; a `private:` site and an address go direct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proxy {
+    /// `http://HOST:PORT/`, as the URL parser writes it (it leaves out port 80).
     url: Url,
+    /// The port as written, 80 too.
+    port: u16,
 }
 
 impl Proxy {
+    /// `http://HOST:PORT`: an http scheme, a host (a name, an IPv4 address or an IPv6 one in
+    /// `[ ]`), and a port written out; no user or password, path, query or fragment. A trailing
+    /// `/` is allowed, and the name is case-insensitive.
     pub fn parse(text: &str) -> Result<Proxy, String> {
         let bad = |why: &str| {
             Err(format!(
                 "{why} (a proxy is http://HOST:PORT, such as http://10.0.0.5:3128)"
             ))
         };
-        let Ok(url) = Url::parse(text) else {
-            return bad("that isn't an address");
+        let Some(rest) = text.strip_prefix("http://") else {
+            return bad("only an http:// proxy (https still goes through it end to end, as a tunnel)");
         };
-        if !url.username().is_empty() || url.password().is_some() {
+        let rest = rest.strip_suffix('/').unwrap_or(rest);
+        if rest.contains('@') {
             // Never repeat what was written: it may hold a password.
             return bad("a proxy carries no user or password: roster never sends credentials to one");
         }
-        if url.scheme() != "http" {
-            return bad("only an http:// proxy (https still goes through it end to end, as a tunnel)");
+        if rest.contains(['/', '?', '#']) {
+            return bad("only http://HOST:PORT, with no path or query");
         }
-        if url.host().is_none() || url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
-            return bad("only http://HOST:PORT, with no path");
+        // The port is what follows the last ':' outside [ ].
+        let (host, port) = match rest.rfind(':') {
+            Some(i) if !rest[i..].contains(']') => (&rest[..i], &rest[i + 1..]),
+            _ => return bad("it needs its port: http://HOST:PORT"),
+        };
+        if host.is_empty() {
+            return bad("which host?");
         }
-        if text.trim_end_matches('/') != url.as_str().trim_end_matches('/') {
-            return bad("write it in lower case, as http://HOST:PORT");
+        let port = match port.parse::<u16>() {
+            Ok(n) if n > 0 && !port.starts_with('+') => n,
+            _ => return bad("the port is a number from 1 to 65535"),
+        };
+        let Ok(url) = Url::parse(&format!("http://{host}:{port}/")) else {
+            return bad("that isn't a host name or address");
+        };
+        if url.host().is_none() {
+            return bad("which host?");
         }
-        Ok(Proxy { url })
+        Ok(Proxy { url, port })
     }
 
     /// Whether a request to `url` goes through the proxy: only to a public name. An address and
@@ -624,14 +643,60 @@ impl Proxy {
 
 impl fmt::Display for Proxy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.url.as_str().trim_end_matches('/'))
+        match self.url.host() {
+            Some(host) => write!(f, "http://{host}:{}", self.port),
+            None => f.write_str("http://"),
+        }
     }
 }
 
-/// What the host hands each Plugin's client: the user's proxy, and where its requests are counted.
+/// The one rule the proxy can't keep for us (decision Q116): a public name going through it is
+/// looked up here first, and if this computer gets any address inside, the request is refused
+/// exactly as without a proxy. Only a name this computer can't look up at all (a network where
+/// only the proxy resolves names) goes on to the proxy unchecked.
+pub fn proxied(host: &str, lookup: Result<Vec<SocketAddr>, String>) -> Result<(), String> {
+    match lookup {
+        Ok(addrs) if !addrs.is_empty() => Mode::Public.admit(host, addrs).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
+/// [`proxied`] for `host`, looking it up with the system's resolver (blocking).
+fn proxied_lookup(host: &str) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+    proxied(
+        host,
+        (host, 0)
+            .to_socket_addrs()
+            .map(Iterator::collect)
+            .map_err(|e| e.to_string()),
+    )
+}
+
+/// One Plugin's proxy setting: handed over when it loads, and changed by the host when the
+/// user's Config changes it (`PluginHost::set_proxy`). Its client reads it at each request and
+/// starts its connections over when it changed; requests already going finish as they began.
+#[derive(Debug, Default)]
+pub struct ProxyCell(Mutex<Option<Proxy>>);
+
+impl ProxyCell {
+    pub fn new(proxy: Option<Proxy>) -> ProxyCell {
+        ProxyCell(Mutex::new(proxy))
+    }
+
+    pub fn get(&self) -> Option<Proxy> {
+        self.0.lock().expect("proxy setting").clone()
+    }
+
+    pub fn set(&self, proxy: Option<Proxy>) {
+        *self.0.lock().expect("proxy setting") = proxy;
+    }
+}
+
+/// What the host hands each Plugin's client: its proxy setting, and where its requests are counted.
 #[derive(Clone, Default)]
 pub struct Setup {
-    pub proxy: Option<Proxy>,
+    pub proxy: Arc<ProxyCell>,
     pub log: Arc<Log>,
 }
 
@@ -726,13 +791,47 @@ pub enum Answer {
 /// requests in flight.
 pub struct Net {
     sites: Arc<Vec<Site>>,
+    proxy: Arc<ProxyCell>,
+    /// Built for the proxy setting they name; built again when it changes.
+    clients: std::cell::RefCell<Clients>,
+    in_flight: Arc<AtomicUsize>,
+    /// The requests going: each one's task, whether it has been counted as done, and its site.
+    tasks: std::cell::RefCell<Vec<Going>>,
+    log: Arc<Log>,
+}
+
+struct Going {
+    task: tokio::task::AbortHandle,
+    settled: Arc<std::sync::atomic::AtomicBool>,
+    site: Site,
+}
+
+struct Clients {
+    proxy: Option<Proxy>,
     /// For every site without a pin: the OS's trust store checks certificates.
-    client: Client,
+    shared: Client,
     /// For each pinned site, a client of its own that trusts only its pin and never leaves it.
     pinned: Vec<(Site, Client)>,
-    in_flight: Arc<AtomicUsize>,
-    tasks: std::cell::RefCell<Vec<tokio::task::AbortHandle>>,
-    log: Arc<Log>,
+}
+
+impl Clients {
+    fn new(sites: &Arc<Vec<Site>>, proxy: Option<Proxy>) -> Result<Clients, String> {
+        let shared = build(sites, proxy.as_ref(), None)?;
+        let pinned = sites
+            .iter()
+            .filter(|s| s.pin.is_some())
+            .map(|s| Ok((s.clone(), build(sites, proxy.as_ref(), Some(s))?)))
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(Clients { proxy, shared, pinned })
+    }
+
+    /// The client for a request to `site`: its own if pinned, else the shared one.
+    fn for_site(&self, site: &Site) -> Option<Client> {
+        match site.pin {
+            Some(_) => self.pinned.iter().find(|(s, _)| s == site).map(|(_, c)| c.clone()),
+            None => Some(self.shared.clone()),
+        }
+    }
 }
 
 /// Which client a request belongs to: the shared one (`None`), or a pinned site's.
@@ -746,16 +845,11 @@ impl Net {
         // rustls with ring; the platform's trust store checks certificates.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let sites = Arc::new(sites);
-        let client = build(&sites, proxy.as_ref(), None)?;
-        let pinned = sites
-            .iter()
-            .filter(|s| s.pin.is_some())
-            .map(|s| Ok((s.clone(), build(&sites, proxy.as_ref(), Some(s))?)))
-            .collect::<Result<Vec<_>, String>>()?;
+        let clients = Clients::new(&sites, proxy.get())?;
         Ok(Net {
             sites,
-            client,
-            pinned,
+            proxy,
+            clients: std::cell::RefCell::new(clients),
             in_flight: Arc::new(AtomicUsize::new(0)),
             tasks: std::cell::RefCell::default(),
             log,
@@ -830,15 +924,22 @@ impl Net {
     /// [`MAX_IN_FLIGHT`] requests going already.
     pub fn start(&self, request: Request, done: impl FnOnce(Answer) + Send + 'static) -> Result<(), String> {
         let rt = runtime()?;
-        let client = match client_of(&self.sites, &request.url) {
-            Some(site) => self
-                .pinned
-                .iter()
-                .find(|(s, _)| s == site)
-                .map(|(_, c)| c.clone())
-                .ok_or("no client for that pinned site")?,
-            None => self.client.clone(),
+        // check() made sure a site allows it; counted by that site, never by its URL.
+        let site = site_for(&self.sites, &request.url)
+            .cloned()
+            .ok_or("not a site this Plugin may reach")?;
+        let proxy = self.proxy.get();
+        if self.clients.borrow().proxy != proxy {
+            *self.clients.borrow_mut() = Clients::new(&self.sites, proxy)?;
+        }
+        let clients = self.clients.borrow();
+        let client = clients.for_site(&site).ok_or("no client for that pinned site")?;
+        // Through the proxy, the name is still looked up here first ([`proxied`]).
+        let look_up = match (&clients.proxy, request.url.host()) {
+            (Some(p), Some(url::Host::Domain(d))) if p.carries(&self.sites, &request.url) => Some(d.to_string()),
+            _ => None,
         };
+        drop(clients);
         let n = self.in_flight.fetch_add(1, Ordering::SeqCst);
         if n >= MAX_IN_FLIGHT {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -847,33 +948,49 @@ impl Net {
             ));
         }
         let in_flight = Arc::clone(&self.in_flight);
-        // check() made sure a site allows it; counted by that site, never by its URL.
-        let site = site_for(&self.sites, &request.url).cloned();
-        if let Some(site) = &site {
-            self.log.sent(site);
-        }
-        let log = Arc::clone(&self.log);
+        self.log.sent(&site);
+        let (log, counted) = (Arc::clone(&self.log), site.clone());
+        let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done_once = Arc::clone(&settled);
         let task = rt.spawn(async move {
-            let answer = fetch(&client, request).await;
+            let checked = match look_up {
+                Some(host) => tokio::task::spawn_blocking(move || proxied_lookup(&host))
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string())),
+                None => Ok(()),
+            };
+            let answer = match checked {
+                Ok(()) => fetch(&client, request).await,
+                Err(why) => Answer::Failed(why),
+            };
             in_flight.fetch_sub(1, Ordering::SeqCst);
-            if let (Answer::Failed(_), Some(site)) = (&answer, &site) {
-                log.failed(site);
+            // Counted once: here, or by the unload that stopped it.
+            if !done_once.swap(true, Ordering::SeqCst) && matches!(answer, Answer::Failed(_)) {
+                log.failed(&counted);
             }
             // Delivering waits for the Plugin's thread: not on a network thread.
             let _ = tokio::task::spawn_blocking(move || done(answer)).await;
         });
         let mut tasks = self.tasks.borrow_mut();
-        tasks.retain(|t| !t.is_finished());
-        tasks.push(task.abort_handle());
+        tasks.retain(|t| !t.task.is_finished());
+        tasks.push(Going {
+            task: task.abort_handle(),
+            settled,
+            site,
+        });
         Ok(())
     }
 }
 
 impl Drop for Net {
-    /// The Plugin is gone (unloaded, reloaded, disabled): its requests stop with it.
+    /// The Plugin is gone (unloaded, reloaded, disabled): its requests stop with it, and one
+    /// that hadn't answered yet counts as one with no answer.
     fn drop(&mut self) {
         for t in self.tasks.borrow().iter() {
-            t.abort();
+            t.task.abort();
+            if !t.settled.swap(true, Ordering::SeqCst) {
+                self.log.failed(&t.site);
+            }
         }
     }
 }
@@ -883,6 +1000,7 @@ impl Drop for Net {
 fn build(sites: &Arc<Vec<Site>>, proxy: Option<&Proxy>, pinned: Option<&Site>) -> Result<Client, String> {
     let for_redirects = Arc::clone(sites);
     let mine = pinned.cloned();
+    let via = proxy.cloned();
     let mut builder = Client::builder()
         .no_proxy()
         .referer(false)
@@ -897,6 +1015,14 @@ fn build(sites: &Arc<Vec<Site>>, proxy: Option<&Proxy>, pinned: Option<&Site>) -
                 attempt.error(format!(
                     "redirected to {to}: a redirect never leads to or from a site with a pinned certificate"
                 ))
+            } else if let Some(Err(why)) = via
+                .as_ref()
+                .filter(|p| p.carries(&for_redirects, attempt.url()))
+                .and_then(|_| attempt.url().host_str().map(str::to_string))
+                // The policy runs on a network thread: let tokio move its other work meanwhile.
+                .map(|host| tokio::task::block_in_place(|| proxied_lookup(&host)))
+            {
+                attempt.error(why)
             } else {
                 attempt.follow()
             }
@@ -1381,9 +1507,31 @@ mod tests {
             "http://10.0.0.5:3128?x=1",
             "10.0.0.5:3128",
             "",
+            "http://10.0.0.5",
+            "http://10.0.0.5:",
+            "http://10.0.0.5:0",
+            "http://10.0.0.5:65536",
+            "http://[fd00::5]",
+            "http://:3128",
         ] {
             assert!(Proxy::parse(no).is_err(), "{no} must be refused");
         }
+        // The default port written out, a trailing slash and an upper-case name are all the same
+        // proxy, not "write it in lower case".
+        assert_eq!(
+            Proxy::parse("http://10.0.0.5:80").unwrap().to_string(),
+            "http://10.0.0.5:80"
+        );
+        assert_eq!(
+            Proxy::parse("http://Proxy.Example.com:8080/").unwrap().to_string(),
+            "http://proxy.example.com:8080"
+        );
+        assert_eq!(
+            Proxy::parse("http://[fd00:0::5]:3128").unwrap().to_string(),
+            "http://[fd00::5]:3128"
+        );
+        let e = Proxy::parse("http://10.0.0.5").unwrap_err();
+        assert!(e.contains("port"), "{e}");
         let e = Proxy::parse("http://someone:secret@10.0.0.5:3128").unwrap_err();
         assert!(!e.contains("secret"), "the error repeats the password: {e}");
     }
@@ -1396,5 +1544,23 @@ mod tests {
         assert!(proxy.carries(&s, &url("https://a.example.org/")));
         assert!(!proxy.carries(&s, &url("https://10.0.0.9/")));
         assert!(!proxy.carries(&s, &url("https://nas.lan/")));
+    }
+
+    /// Through the proxy, a public name is still looked up here first: any address inside refuses
+    /// it, as without a proxy. Only a name this computer can't look up at all goes on to the proxy.
+    #[test]
+    fn a_public_name_through_the_proxy_is_still_checked_where_it_can_be() {
+        assert!(proxied("api.example.com", Ok(addrs(&["45.10.20.30"]))).is_ok());
+        for inside in [
+            &["10.0.0.5"][..],
+            &["45.10.20.30", "127.0.0.1"],
+            &["169.254.169.254"],
+            &["fd00::5"],
+        ] {
+            let e = proxied("api.example.com", Ok(addrs(inside))).unwrap_err();
+            assert!(e.contains("api.example.com is at"), "{e}");
+        }
+        assert!(proxied("api.example.com", Err("no such name".into())).is_ok());
+        assert!(proxied("api.example.com", Ok(Vec::new())).is_ok());
     }
 }

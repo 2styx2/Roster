@@ -1548,11 +1548,15 @@ export class PluginManager {
   /** Asks the core how many requests each Plugin sent to each site (`:plugins` opening). A core
    * that can't say leaves the counts as they were. */
   async refreshRequests(): Promise<void> {
+    let next: Record<string, SiteRequests[]>;
     try {
-      this.requests = await this.backend.pluginRequests();
+      next = await this.backend.pluginRequests();
     } catch {
       return;
     }
+    // Asked every few seconds while :plugins is open: the same counts redraw nothing.
+    if (JSON.stringify(next) === JSON.stringify(this.requests)) return;
+    this.requests = next;
     this.changed();
   }
 

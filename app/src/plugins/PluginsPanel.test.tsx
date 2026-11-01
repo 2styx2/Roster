@@ -1,8 +1,8 @@
 // `:plugins`' rows: each network site a Plugin was granted says how many requests went there
 // since the app started (decision Q116): counts and a time, never what was sent.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { PluginsPanel } from "./PluginsPanel";
+import { PluginsPanel, REFRESH_MS } from "./PluginsPanel";
 import type { PluginStatus, Snapshot } from "./manager";
 
 const NOW = Date.now();
@@ -63,5 +63,23 @@ describe("PluginsPanel's request counts", () => {
       />,
     );
     expect(within(row("network:hooks.example.com")).getByText("1 request, the last 10m ago")).toBeInTheDocument();
+  });
+});
+
+describe("PluginsPanel's refresh", () => {
+  it("asks for the counts when it opens and again every few seconds while it's open, and stops when it closes", () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn();
+      const { unmount } = render(<PluginsPanel snapshot={snap([status()])} onGrant={() => undefined} onClose={() => undefined} onRefresh={onRefresh} />);
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(REFRESH_MS);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+      unmount();
+      vi.advanceTimersByTime(REFRESH_MS * 3);
+      expect(onRefresh).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1022,17 +1022,9 @@ fn request(
         return Err(fail("not granted (network:<site>)".into()));
     };
     let req = net.check(method, url, headers, body, timeout).map_err(fail)?;
-    // Again against the grants themselves, by the same rule (a private: name only through its
-    // private: site).
-    let granted: Vec<network::Site> = s
-        .grants
-        .iter()
-        .filter_map(|g| match g {
-            Permission::Network(site) => Some(site.clone()),
-            _ => None,
-        })
-        .collect();
-    if !network::allowed(&granted, &req.url) {
+    // Again against the sites granted, by the same rule (a private: name only through its
+    // private: site): the client holds exactly those, built from the grants at load.
+    if !network::allowed(net.sites(), &req.url) {
         return Err(fail("not granted (network:<site>)".into()));
     }
     let id = s.next_request.get() + 1;

@@ -367,6 +367,11 @@ describe("requests by site (decision Q116)", () => {
     expect(manager.snapshot().plugins.find((p) => p.name === "recent-alerts")?.requests).toEqual([]);
     await manager.refreshRequests();
     expect(manager.snapshot().plugins.find((p) => p.name === "recent-alerts")?.requests).toEqual([{ site: "hooks.example.com", requests: 12, failed: 1, last: 1_000 }]);
+    // The same counts again change nothing: :plugins asks every few seconds while it's open.
+    const heard = vi.fn();
+    manager.subscribe(heard);
+    await manager.refreshRequests();
+    expect(heard).not.toHaveBeenCalled();
   });
 });
 
