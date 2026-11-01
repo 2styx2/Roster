@@ -773,6 +773,24 @@ fn plugin_requests(
         .collect()
 }
 
+/// How full each named Plugin's data folder is, for `:plugins` (ticket 98): files and bytes as
+/// the caps count them, never what they hold. Loaded or not, so a stopped Plugin's shows too.
+#[tauri::command]
+async fn plugin_data(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    names: Vec<String>,
+) -> Result<std::collections::BTreeMap<String, plugin::folder::DataUse>, String> {
+    let host = Arc::clone(&plugins);
+    blocking(move || {
+        let used = names.into_iter().map(|n| {
+            let u = host.data_use(&n);
+            (n, u)
+        });
+        Ok(used.collect())
+    })
+    .await
+}
+
 /// Removes a Plugin's data folder with everything in it (decision Q93): `:plugins remove` and
 /// `:packages clean` call it once the Plugin is gone. A reload or a revoke never does.
 #[tauri::command]
@@ -1125,6 +1143,7 @@ pub fn run() {
             plugin_unload,
             plugin_forget,
             plugin_requests,
+            plugin_data,
             packages_sync,
             packages_pin,
             packages_discard,

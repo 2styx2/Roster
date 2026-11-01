@@ -9,7 +9,8 @@
 //!   junction, any reparse point) is never followed, read, written or removed through; the folder
 //!   itself may not be a link either. Writes are atomic (a temporary file, then a rename), a file
 //!   holds at most [`MAX_FILE`] bytes and the folder [`MAX_TOTAL`] in [`MAX_FILES`] files.
-//!   [`forget`] removes the folder with the Plugin (`:plugins remove`, `:packages clean`).
+//!   [`forget`] removes the folder with the Plugin (`:plugins remove`, `:packages clean`), and
+//!   [`Storage::data_use`] says how full it is, for `:plugins` (ticket 98).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -98,6 +99,19 @@ fn check_name(name: &str) -> Result<(), String> {
         return Err(format!("{name:?} isn't a file name"));
     }
     Ok(())
+}
+
+/// How full a Plugin's data folder is, for `:plugins` (ticket 98): what the caps count, never
+/// what the files hold.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum DataUse {
+    /// No data folder yet (nothing written), or no data folder at all.
+    None,
+    /// The files in it, and their bytes, as [`MAX_FILES`] and [`MAX_TOTAL`] count them.
+    Used { files: usize, bytes: u64 },
+    /// It can't be counted: it's a link, or it can't be read.
+    Problem { message: String },
 }
 
 /// One Plugin's data folder.
@@ -244,13 +258,30 @@ impl Storage {
         Ok(true)
     }
 
-    /// How many files, and how many bytes, the folder holds (temporary files count).
+    /// How full the folder is: one listing of it and each entry's metadata, never a link
+    /// followed and never a file opened, so it's cheap for many Plugins.
+    pub fn data_use(&self) -> DataUse {
+        match self.folder() {
+            Ok(None) => DataUse::None,
+            Ok(Some(dir)) => match self.usage(&dir) {
+                Ok((files, bytes)) => DataUse::Used {
+                    files,
+                    bytes: bytes as u64,
+                },
+                Err(message) => DataUse::Problem { message },
+            },
+            Err(message) => DataUse::Problem { message },
+        }
+    }
+
+    /// How many files, and how many bytes, the folder holds (temporary files count; links don't).
     fn usage(&self, dir: &Path) -> Result<(usize, usize), String> {
         let (mut count, mut total) = (0, 0);
         for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             if let Ok(meta) = std::fs::symlink_metadata(entry.path())
                 && meta.is_file()
+                && !is_link(&meta)
             {
                 count += 1;
                 total += meta.len() as usize;
