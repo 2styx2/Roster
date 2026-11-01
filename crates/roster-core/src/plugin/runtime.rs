@@ -1227,42 +1227,44 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         push(s, json!({ "op": "cmdline", "text": text }))
     });
 
-    func!(
-        roster,
-        "notify",
-        |_lua, s, (text, level, opts): (mlua::LuaString, Option<String>, Option<Table>)| {
-            let text = text.to_string_lossy();
-            let level = level.unwrap_or_else(|| "info".into());
-            if !matches!(level.as_str(), "info" | "warn" | "error") {
-                return Err(mlua::Error::runtime(
-                    "roster.notify: the level is \"info\", \"warn\" or \"error\"",
-                ));
-            }
-            // Buttons on the notice (ticket 91): plain data, each a command line the user's click
-            // runs (`view mesh-plan`), so a notice holds no function that would outlive it.
-            let actions = match opts {
-                Some(t) => {
-                    let v: Value = t.raw_get("actions")?;
-                    if v.is_nil() {
-                        Json::Null
-                    } else {
-                        plain(s, "roster.notify: actions", &v).map_err(|e| {
-                            mlua::Error::runtime(format!(
-                                "{} (a notice's action runs a command line, not a function)",
-                                lua::error_text(&e)
-                            ))
-                        })?
-                    }
-                }
-                None => Json::Null,
-            };
-            let mut op = json!({ "op": "notify", "text": text, "level": level });
-            if !actions.is_null() {
-                op["actions"] = actions;
-            }
-            push(s, op)
+    func!(roster, "notify", |_lua,
+                             s,
+                             (text, level, opts): (
+        mlua::LuaString,
+        Option<String>,
+        Option<Table>
+    )| {
+        let text = text.to_string_lossy();
+        let level = level.unwrap_or_else(|| "info".into());
+        if !matches!(level.as_str(), "info" | "warn" | "error") {
+            return Err(mlua::Error::runtime(
+                "roster.notify: the level is \"info\", \"warn\" or \"error\"",
+            ));
         }
-    );
+        // Buttons on the notice (ticket 91): plain data, each a command line the user's click
+        // runs (`view mesh-plan`), so a notice holds no function that would outlive it.
+        let actions = match opts {
+            Some(t) => {
+                let v: Value = t.raw_get("actions")?;
+                if v.is_nil() {
+                    Json::Null
+                } else {
+                    plain(s, "roster.notify: actions", &v).map_err(|e| {
+                        mlua::Error::runtime(format!(
+                            "{} (a notice's action runs a command line, not a function)",
+                            lua::error_text(&e)
+                        ))
+                    })?
+                }
+            }
+            None => Json::Null,
+        };
+        let mut op = json!({ "op": "notify", "text": text, "level": level });
+        if !actions.is_null() {
+            op["actions"] = actions;
+        }
+        push(s, op)
+    });
 
     // Timers: the app keeps the clock and runs the function in the Plugin when it's time.
     func!(roster, "defer", |lua, s, (ms, f): (f64, Function)| {

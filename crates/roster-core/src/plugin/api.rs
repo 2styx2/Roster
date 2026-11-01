@@ -2168,11 +2168,7 @@ pub const TYPES: &[Type] = &[
         summary: "What else a notice has (`roster.notify`, since api 3)",
         doc: "",
         alias: "",
-        fields: &[o(
-            "actions",
-            "NoticeAction[]",
-            "Buttons under its text, at most 2.",
-        )],
+        fields: &[o("actions", "NoticeAction[]", "Buttons under its text, at most 2.")],
         open: false,
     },
     Type {

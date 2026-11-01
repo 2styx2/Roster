@@ -222,7 +222,10 @@ fn heading_actions_are_functions_and_a_notices_actions_are_command_lines() {
         json!({ "op": "notify", "text": "Plan ready", "level": "info",
                 "actions": [{ "label": "Show the plan", "run": "view plan" }] })
     );
-    assert_eq!(reply.ops[2], json!({ "op": "notify", "text": "plain", "level": "info" }));
+    assert_eq!(
+        reply.ops[2],
+        json!({ "op": "notify", "text": "plain", "level": "info" })
+    );
     let text = reply.ops[3]["spec"]["text"].as_str().unwrap();
     assert!(text.contains("a command line, not a function"), "{text}");
 }
