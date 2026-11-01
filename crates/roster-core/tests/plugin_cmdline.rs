@@ -75,3 +75,48 @@ fn complete_must_be_a_function() {
     let (_, reply, _dir) = load(r#"roster.commands.add("note", { run = "note", complete = { "a" } })"#);
     assert!(reply.error.unwrap().message.contains("`complete` must be a function"));
 }
+
+/// A routine confirmation is marked `quiet` (ticket 118, api 4): it follows `ui.messages`, as
+/// roster's own "Saved esx-02" does. A plain echo still shows: it answers what the user asked.
+#[test]
+fn echo_can_be_marked_quiet() {
+    let (host, reply, _dir) = load(
+        r#"roster.commands.add("note", { run = function(a)
+             if a.args == "bad" then return roster.echo("x", { quiet = "yes" }) end
+             roster.echo("Noted " .. a.args, { quiet = true })
+             roster.echo("3 notes", { quiet = false })
+           end })"#,
+    );
+    let note = reply.ops[0]["run"]["handler"].as_u64().unwrap();
+    let r = host.call("asker", note, json!({ "args": "milk", "words": ["milk"] }));
+    assert_eq!(
+        r.ops,
+        [
+            json!({ "op": "echo", "text": "Noted milk", "quiet": true }),
+            json!({ "op": "echo", "text": "3 notes" }),
+        ]
+    );
+    let r = host.call("asker", note, json!({ "args": "bad", "words": ["bad"] }));
+    assert!(r.error.unwrap().message.contains("roster.echo: quiet is true or false"));
+}
+
+/// An info notice is quiet unless it has buttons or says `quiet = false` (ticket 117, api 4);
+/// the app decides with `ui.messages`, so the core only passes on what the Plugin said.
+#[test]
+fn notify_passes_on_quiet() {
+    let (_, reply, _dir) = load(
+        r#"roster.notify("Moved 2 Folders", "info", { quiet = false })
+           roster.notify("Copied")
+           roster.notify(select(2, pcall(roster.notify, "no", "info", { quiet = 1 })))"#,
+    );
+    assert_eq!(
+        reply.ops[0],
+        json!({ "op": "notify", "text": "Moved 2 Folders", "level": "info", "quiet": false })
+    );
+    assert_eq!(
+        reply.ops[1],
+        json!({ "op": "notify", "text": "Copied", "level": "info" })
+    );
+    let said = reply.ops[2]["text"].as_str().unwrap();
+    assert!(said.contains("roster.notify: quiet is true or false"), "{said}");
+}
