@@ -2003,10 +2003,12 @@ def mesh_run(state, params, apply):
     cfg = state.fresh()
     if not background:
         return mesh.run(cfg, apply=apply, rotate=rotate)
-    g = mesh.graph(cfg)
+    visits = mesh.visits_of(cfg, mesh.with_mesh_dirs(cfg))     # once: a big meshed group's graph is every pair
+    g, _, _, _, _, hop_only, hosts = visits
     mesh.check_rotate(g, rotate)                # refused at once, as without background
-    return start_mesh_job(state, "apply" if apply else "plan", mesh.steps_of(cfg), lambda job: mesh.run(
-        cfg, apply=apply, rotate=rotate, progress=job.progress, stopped=job.stop.is_set))
+    return start_mesh_job(state, "apply" if apply else "plan", len(g["sources"]) + len(hop_only) + len(hosts),
+                          lambda job: mesh.run(cfg, apply=apply, rotate=rotate, progress=job.progress,
+                                               stopped=job.stop.is_set, visits=visits))
 
 
 def mesh_plan(state, params):
@@ -2175,9 +2177,10 @@ def discover_plan(state, params):
 
     Params: `{targets: [network], ports?, force?}`: networks or addresses (`10.0.0.0/24`); `ports` a list such as
         `"22,80,443"` (`roster discover`'s default list if left out); `force` allows up to `max` addresses
-    Result: `{targets, addresses, ports, scanner, limit, max}`: the targets as written back, how many addresses
-        they hold, how many ports, `"nmap"` or `"built-in"` (no nmap: roster's own TCP connect scan), and the
-        most addresses without and with `force` (4,096 and 65,536)
+    Result: `{targets, addresses, ports, scanner, limit, max}`: the targets as written back (without one another
+        covers: an address is visited once), how many addresses they hold, how many ports, `"nmap"` or
+        `"built-in"` (no nmap: roster's own TCP connect scan), and the most addresses without and with `force`
+        (4,096 and 65,536)
     Errors: -32602, 121
     Since: API 18
     """
@@ -2213,8 +2216,9 @@ def discover_status(state, params):
     Result: `{scan, state, targets, scanner, done, total, count, quiet, found: [Found], error}`. `state` is
         `running`, `stopping`, `done`, `stopped` or `failed` (`error` says why); `done` of `total` addresses
         visited; `count` how many were found in all (pass it as the next `since`); `quiet` how many answered with
-        none of the ports open. A Found is `{address, name, type, hostname, title, web, known, added, vendor, os,
-        mac, ports: [{port, name, product, title}]}`: `name` the name it would be added as (`null` when `known`
+        none of the ports open (nmap only: the built-in scanner can't tell a quiet Host from no Host, so it's 0
+        there). A Found is `{address, name, type, hostname, title, web, known, added, vendor, os, mac, ports:
+        [{port, name, product, title}]}`: `name` the name it would be added as (`null` when `known`
         names the Host already at that address), `type` the guessed kind, `added` the name `discover.add` gave it
     Errors: -32602, 122
     Since: API 18
@@ -2387,4 +2391,20 @@ def serve(config_arg):
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
             if state.scan is not None:
                 state.scan.stop()           # nor does a scan (its nmap is killed)
+            stop_mesh_job(state)
     return 0
+
+
+CLOSE_WAIT = 0.8            # s: the app waits a second after closing serve's stdin, then kills it (rpc.rs)
+
+
+def stop_mesh_job(state):
+    """Serve is closing: a Mesh job stops now, as mesh.stop would but without finishing its Host's step (its ssh is
+    ended, mesh.close), and records what it did in mesh.json (pending: what it didn't) before serve exits. Each file
+    on a Host is replaced whole, so a step cut short leaves it as before or after, and the next run finishes it."""
+    job = state.mesh_job
+    if job is None or not job.running():
+        return
+    job.stop.set()
+    mesh.close()
+    job.thread.join(CLOSE_WAIT)

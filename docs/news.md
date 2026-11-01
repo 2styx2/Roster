@@ -2,7 +2,7 @@
 
 What changed in each Release of roster, the CLI and the app together, newest first: what's new, what changed, what's gone and what's on its way out. The app says once, on its first start after an upgrade, "roster 0.2.0: what's new: `:help news`". [Deprecated names](deprecated.md) lists every old name that still works, and what replaces it.
 
-Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
+Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Fixed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
 ## Unreleased
 
@@ -83,6 +83,19 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).
 - A source that stops being one and loses (or changes) its `mesh_dir:` in the same edit is cleaned up from the directory it used until now, the one the `Include` in its `~/.ssh/config` names: an old `mesh_dir:` is warned about and kept (it was roster's default directory that went, with no word about the old one), roster's own default directory is removed, and the old `Include` goes. See [`mesh_dir:`](mesh.md#esxi).
 - Publish's generated commit message names the `links:` that changed (`roster: add link orion-2 -> storage`), as it does Hosts and groups, rather than "roster: edit roster.yml".
+
+### Fixed
+
+**CLI**
+
+- The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
+- `roster discover` scans IPv6 networks (nmap takes them only with `-6`, in a run of their own), scans an address that two of its networks hold once instead of writing it twice, and counts the hosts that answered with none of the ports open, as it said it did (nmap ran with `--open`, which leaves them out).
+
+**`roster serve` API**
+
+- Closing `roster serve` mid Mesh job stops the job at once and records in `mesh.json` what it didn't finish (pending), where the job died with serve and the next run didn't know; a step cut short leaves each file whole.
+- `discover.*`: IPv6 targets scan (with `-6`), a scan of IPv4 and IPv6 targets together no longer fails sorting them, an address two targets hold is visited once (`targets` drops the one another covers), `quiet` counts the Hosts that answered with none of the ports open (nmap; it's 0 with the built-in scanner, which can't tell them from no Host), and the built-in scanner reads its Hosts' SSH banners at once rather than one by one, so a batch (and a stop) no longer waits minutes.
+- A background `mesh.plan` or `mesh.apply` works the Mesh out once rather than three times, two of them while serve answers nothing else.
 
 ### Deprecated
 

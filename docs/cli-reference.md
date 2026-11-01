@@ -217,7 +217,7 @@ A local database is this Box's own, so the app's `init.lua` can name it instead:
 roster discover 10.0.1.0/24 [more networks] [--write] [--top-ports 1000] [--no-ping] [--os]
 ```
 
-With nmap installed, discover collects open ports, service versions, web page titles, and hardware vendor. It uses these to guess each host's type: `server`, `db`, `network`, `bmc`, `windows`, or `appliance`. It then fills in a name, title, SSH port, web URL, services, and a description. Without nmap, it falls back to a built-in TCP scanner.
+With nmap installed, discover collects open ports, service versions, web page titles, and hardware vendor. It uses these to guess each host's type: `server`, `db`, `network`, `bmc`, `windows`, or `appliance`. It then fills in a name, title, SSH port, web URL, services, and a description. Without nmap, it falls back to a built-in TCP scanner. Networks may be IPv4 or IPv6 (nmap scans the IPv6 ones in a run of their own, with `-6`), and an address two of them hold is scanned once. With nmap, it also counts the hosts that answered with none of the ports open (not with `--no-ping`, where nmap takes every address as up).
 
 `--write` adds new hosts to a `discovered-YYYYMMDD` group with `reviewed: false`:
 - It keeps your comments.

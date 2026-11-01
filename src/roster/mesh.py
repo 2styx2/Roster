@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 
 from .common import current_deadline, deadline_at, past_deadline, program_argv, time_left, user_config_dir
 from .sshops import hk_name, recorded_host_keys
@@ -30,6 +31,7 @@ STEP_TIMEOUT = 120          # s: one Host's script, at most
 CUT_TIMEOUT = 30            # s: one Host's part of a cut
 OUT_OF_TIME = "out of time: not visited (the next roster mesh finishes it)"   # past serve's deadline
 STOPPED = "stopped: not visited (the next roster mesh finishes it)"            # mesh.stop, before it got there
+CLOSED = "serve closed: stopped part way (the next roster mesh finishes it)"   # close(), mid-step
 
 
 # ---------------------------------------------------------------- who reaches whom (no connections)
@@ -410,23 +412,48 @@ grep -qE "$T" "$AK" 2>/dev/null && echo "ERROR a roster-mesh line is still there
 def on_host(h, script, timeout=STEP_TIMEOUT):
     """Run SCRIPT on H over the Box's ssh (its key, roster's ssh config). Returns (report lines, None) or
     (None, why it didn't finish). The script goes as bytes: text mode on Windows would hand sh "\r\n" line ends."""
+    with _ssh["lock"]:
+        if _ssh["closed"]:
+            return None, CLOSED
+        try:
+            p = subprocess.Popen(program_argv(["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
+                                               h["name"], "sh -s"]),
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            return None, "ssh isn't installed on this Box"
+        _ssh["live"].add(p)
     try:
-        r = subprocess.run(program_argv(["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_TIMEOUT}",
-                                         h["name"], "sh -s"]),
-                           input=script.encode(), capture_output=True, timeout=time_left(timeout))
+        raw_out, raw_err = p.communicate(script.encode(), timeout=time_left(timeout))
     except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
         return None, "didn't answer in time"
-    except FileNotFoundError:
-        return None, "ssh isn't installed on this Box"
-    stdout, stderr = r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
+    finally:
+        with _ssh["lock"]:
+            _ssh["live"].discard(p)
+    stdout, stderr = raw_out.decode(errors="replace"), raw_err.decode(errors="replace")
     lines = stdout.splitlines()
+    if _ssh["closed"] and "ROSTER_DONE" not in lines:
+        return None, CLOSED
     err = next((x[6:] for x in lines if x.startswith("ERROR ")), None)
     if err:
         return None, err
     if "ROSTER_DONE" not in lines:
-        words = (stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1]
-        return None, f"no answer: {words}" if r.returncode == 255 else f"stopped part way: {words}"
+        words = (stderr.strip().splitlines() or [f"exit {p.returncode}"])[-1]
+        return None, f"no answer: {words}" if p.returncode == 255 else f"stopped part way: {words}"
     return lines, None
+
+
+_ssh = {"lock": threading.Lock(), "live": set(), "closed": False}      # on_host's ssh runs now, for close()
+
+
+def close():
+    """serve is closing: end the ssh runs under way now (the Host's step is pending, CLOSED) and start no more.
+    Each file a step writes is replaced whole (WRITE's replace), so a run cut short leaves each as before or after."""
+    with _ssh["lock"]:
+        _ssh["closed"] = True
+        for p in _ssh["live"]:
+            p.kill()
 
 
 def report(lines, prefix):
@@ -516,23 +543,18 @@ def visits_of(cfg, hosts):
     return g, st, ex, links, hops, hop_only, visits
 
 
-def steps_of(cfg):
-    """How many Host steps a plan or apply of CFG takes (the `total` its progress counts to)."""
-    g, _, _, _, _, hop_only, visits = visits_of(cfg, with_mesh_dirs(cfg))
-    return len(g["sources"]) + len(hop_only) + len(visits)
-
-
-def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
+def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None, visits=None):
     """The Mesh as roster.yml asks for it, against what the Hosts hold now, one connection at a time.
     Plan (apply=False) changes nothing anywhere; apply makes it so and remembers what it couldn't finish.
     ROTATE: sources whose key is replaced. PROGRESS(done, total, host) is told before each Host's step and once at
-    the end; STOPPED() true leaves the Hosts not yet visited pending, as serve's deadline does.
+    the end; STOPPED() true leaves the Hosts not yet visited pending, as serve's deadline does. VISITS: what
+    visits_of(cfg, with_mesh_dirs(cfg)) said just before, so serve works out a big Mesh once for a job.
     Returns the result serve and the CLI show (docs/serve-api.md, mesh.plan)."""
     say = say or (lambda msg: None)
     progress = progress or (lambda done, total, host: None)
     stopped = stopped or (lambda: False)
     hosts, mode = with_mesh_dirs(cfg), "apply" if apply else "check"
-    g, st, ex, links, hops, hop_only, visits = visits_of(cfg, hosts)
+    g, st, ex, links, hops, hop_only, visits = visits or visits_of(cfg, hosts)
     check_rotate(g, rotate)
     gone = sorted(n for n in set(st["members"]) if n not in hosts)
     out = {"host": {}, "probe": {}, "hop": {}}
@@ -595,6 +617,10 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
             x["status"] = "no-via"
             x["why"] = (f"{x['from']} has no Link to {via}, its hop to {x['to']} "
                         f"(add {{ from: {x['from']}, to: {via} }})")
+        elif via and not recorded_host_keys(hosts[via]):      # its Link to VIA isn't written: no Host VIA to jump through
+            x["status"] = "no-host-key"
+            x["why"] = (f"no recorded host key for {via} ({x['from']}'s hop to {x['to']}) on this Box "
+                        f"(roster setup --only {via})")
         elif via and "error" in hop:
             x["status"], x["why"] = "pending", f"{via}: {hop['error']}"
         elif via and p["reach"].get(via) == "fail":
