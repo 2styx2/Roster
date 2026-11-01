@@ -110,6 +110,18 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   const selCluster = f.selected ? scene.byId.get(f.selected)?.node?.cluster : undefined;
   const clusterOrder = [...scene.clusters].sort((a, b) => (a.id === selCluster ? -1 : b.id === selCluster ? 1 : b.r - a.r));
   const clusterAt = new Map<string, { x: number; y: number; r: number }>();
+  // Open circles on screen: a title doesn't climb into the row above nor drop into the row below (a
+  // circle whose centre is further up or down than either radius) by more than its own height, as
+  // the line just above a circle may at a distance; a neighbour beside it in its own row may sit
+  // under its ends.
+  const circles = clusterOrder.flatMap((c) => {
+    if (c.collapsed) return [];
+    const s = toScreen(cam, w, h, c.x, c.y);
+    const cr = c.r * cam.k;
+    return onScreen(s.x, s.y, cr) ? [{ id: c.id, x: s.x, y: s.y, r: cr }] : [];
+  });
+  const overCircle = (own: { id: string; y: number; r: number }, x: number, y: number, bw: number, bh: number) =>
+    circles.some((o) => o.id !== own.id && Math.abs(o.y - own.y) > Math.max(o.r, own.r) && Math.hypot(o.x - Math.max(x, Math.min(o.x, x + bw)), o.y - Math.max(y, Math.min(o.y, y + bh))) < o.r - bh);
   for (const c of clusterOrder) {
     if (c.collapsed) continue;
     const s = toScreen(cam, w, h, c.x, c.y);
@@ -129,12 +141,26 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
       ctx.font = font(p.size);
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      // Just above the circle, or a line higher where a neighbour's title is in the way.
-      const tops = [s.y - cr - 4 - lh, s.y - cr - 4 - lh * 2];
-      const freeAt = (tw: number) => tops.find((top) => !taken.hits(s.x - tw / 2 - 2, top, tw + 4, lh));
+      // Just above the circle; where a neighbour's title is in the way, just above that title (twice
+      // at most), else just below the circle; never over another cluster's circle. Zoomed out, small clusters side by side have titles
+      // far wider than their circles, and circles of other sizes put their lines at other heights,
+      // so a fixed "a line higher" can land half over a bigger neighbour's (T99).
+      const me = { id: c.id, y: s.y, r: cr };
+      const freeAt = (tw: number): number | undefined => {
+        const x = s.x - tw / 2 - 2;
+        let top = s.y - cr - 4 - lh;
+        for (let i = 0; i < 3; i++) {
+          if (overCircle(me, x, top, tw + 4, lh)) break;
+          const over = taken.highestHit(x, top, tw + 4, lh);
+          if (over === null) return top;
+          top = over - lh;
+        }
+        const below = s.y + cr + 4;
+        return taken.highestHit(x, below, tw + 4, lh) === null && !overCircle(me, x, below, tw + 4, lh) ? below : undefined;
+      };
       const title = fitTitle((t) => ctx.measureText(t).width, c.title, c.mesh === true, cr * 2, (tw) => freeAt(tw) !== undefined);
       const tw = ctx.measureText(title).width;
-      const top = freeAt(tw) ?? (tops[0] as number);
+      const top = freeAt(tw) ?? s.y - cr - 4 - lh;
       taken.add(s.x - tw / 2 - 2, top, tw + 4, lh);
       ctx.fillText(title, s.x, top + lh);
     }
@@ -490,8 +516,14 @@ class Boxes {
     return out;
   }
   hits(x: number, y: number, w: number, h: number): boolean {
-    for (const k of this.keys(x, y, w, h)) for (const [bx, by, bw, bh] of this.cells.get(k) ?? []) if (x < bx + bw && bx < x + w && y < by + bh && by < y + h) return true;
-    return false;
+    return this.highestHit(x, y, w, h) !== null;
+  }
+  /** The top of the highest box this one would cover, or null when it covers none. */
+  highestHit(x: number, y: number, w: number, h: number): number | null {
+    let top: number | null = null;
+    for (const k of this.keys(x, y, w, h))
+      for (const [bx, by, bw, bh] of this.cells.get(k) ?? []) if (x < bx + bw && bx < x + w && y < by + bh && by < y + h && (top === null || by < top)) top = by;
+    return top;
   }
   add(x: number, y: number, w: number, h: number) {
     for (const k of this.keys(x, y, w, h)) {
