@@ -65,6 +65,7 @@ import {
   SaveLoginError,
   SIGN_OUT_API_VERSION,
   type SignedOut,
+  SiteRequests,
 } from "./types";
 import type { KeymapOverrides } from "../keymap";
 import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
@@ -190,6 +191,9 @@ export interface FakeScenario {
   logs?: Record<string, string[]>;
   /** Plugin folders by path (ticket 23): `:plugins install PATH` finds them here. */
   plugins?: Record<string, FakePlugin>;
+  /** What the core counted of each Plugin's network requests, by its name (decision Q116). The
+   * fake runs no HTTP, so the counts are the scenario's. */
+  pluginRequests?: Record<string, SiteRequests[]>;
   /** Ticket 44 (API 18): what a scan from roster serve finds (`discover.*`, for the discover Plugin).
    * Without it, roster serve has no discover methods, as a roster older than API 18. */
   discover?: FakeNet;
@@ -2018,6 +2022,9 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       for (const w of changeWatchers) w(change);
     },
     ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, pluginServe(scenario)),
+    async pluginRequests() {
+      return structuredClone(scenario.pluginRequests ?? {});
+    },
     ...packageHost,
     watching: () => watchAuto,
     vaultSettings: () => settings,

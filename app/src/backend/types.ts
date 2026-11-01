@@ -910,6 +910,9 @@ export interface Backend {
   /** Removes a Plugin's data folder with everything in it (decision Q93), when the Plugin is
    * removed: `:plugins remove`, `:packages clean`. True if it had one. */
   pluginForget(plugin: string): Promise<boolean>;
+  /** Each loaded Plugin's network requests by site since the app started, by its name (decision
+   * Q116), for `:plugins`. */
+  pluginRequests(): Promise<Record<string, SiteRequests[]>>;
   /** The replies nobody asked for: what a Plugin did when one of its HTTP requests answered
    * (the `network` permission, decision Q97). The core sends them as they come. */
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
@@ -1005,6 +1008,18 @@ export interface PluginErrorInfo {
 /** Whose call a Plugin's run is: the user's (true), the user's carried one hop (a command the
  * Plugin's `roster.cmd` ran from the user's call), or the app's (false). Decision Q98, issue #183. */
 export type PluginCaller = boolean | "carried";
+
+/** How a Plugin used one network site since the app started, as the core counts it (decision
+ * Q116): counts and a time only, never a path, a query, a header or a body. */
+export interface SiteRequests {
+  /** The site as its permission names it, after `network:`. */
+  site: string;
+  requests: number;
+  /** Of those, the ones that got no answer (an HTTP error status is an answer). */
+  failed: number;
+  /** When the last one was sent, in ms since 1970. */
+  last: number;
+}
 
 export interface PluginReply {
   plugin: string;

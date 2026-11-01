@@ -18,7 +18,7 @@
 //   old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginReply } from "../backend/types";
+import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginReply, SiteRequests } from "../backend/types";
 import { themeOf } from "../config/apply";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { sectionFinder, type FinderItem, type FinderSourceDef } from "../finder/sources";
@@ -139,6 +139,9 @@ export interface PluginStatus {
   /** Waiting for the user to answer an update's new permissions. */
   waiting: boolean;
   uses: readonly Use[];
+  /** Its network requests by site since the app started, as the core last counted them
+   * (`refreshRequests`, decision Q116). */
+  requests: readonly SiteRequests[];
 }
 
 /** A question for the user: install this Plugin, or allow what its update newly asks for. */
@@ -203,6 +206,7 @@ type PluginBackend = Pick<
   | "pluginEvent"
   | "pluginUnload"
   | "pluginForget"
+  | "pluginRequests"
   | "packagesSync"
   | "packagesPin"
   | "packagesDiscard"
@@ -280,6 +284,7 @@ export class PluginManager {
   private lineCaller: { plugin: string; by: PluginCaller } | null = null;
   private readonly waiting = new Map<string, Prompt>();
   private readonly uses = new Map<string, Use[]>();
+  private requests: Record<string, SiteRequests[]> = {};
   private prompts: Prompt[] = [];
   private notices: Notice[] = [];
   private float: Snapshot["float"] = null;
@@ -1567,6 +1572,21 @@ export class PluginManager {
     this.changed();
   }
 
+  /** Asks the core how many requests each Plugin sent to each site (`:plugins` opening). A core
+   * that can't say leaves the counts as they were. */
+  async refreshRequests(): Promise<void> {
+    let next: Record<string, SiteRequests[]>;
+    try {
+      next = await this.backend.pluginRequests();
+    } catch {
+      return;
+    }
+    // Asked every few seconds while :plugins is open: the same counts redraw nothing.
+    if (JSON.stringify(next) === JSON.stringify(this.requests)) return;
+    this.requests = next;
+    this.changed();
+  }
+
   private used(plugin: string, what: string) {
     const list = this.uses.get(plugin) ?? [];
     this.uses.set(plugin, [{ at: this.now(), what }, ...list].slice(0, MAX_USES));
@@ -1589,6 +1609,7 @@ export class PluginManager {
         problem: this.problems.get(name) ?? null,
         waiting: this.waiting.has(name),
         uses: this.uses.get(name) ?? [],
+        requests: this.requests[name] ?? [],
       };
     });
     this.snap = {
