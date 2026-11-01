@@ -465,9 +465,9 @@ def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
     assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
 
 
-def test_back_to_the_default_directory_roster_makes_a_new_key_rather_than_bring_back_the_old_one(net):
+def back_to_the_default_directory(net):
     """orion-2's default directory still holds the key from before a mesh_dir: (roster warned about it then);
-    when roster.yml drops the mesh_dir:, that old key isn't silently used again."""
+    roster.yml then drops the mesh_dir:. Returns (the default directory, the mesh_dir:, the old public key)."""
     old = net.host("orion-2") / "home/.ssh/roster-mesh"
     mesh.run(net.cfg(), apply=True)
     first = (old / "id_ed25519.pub").read_text()
@@ -477,17 +477,37 @@ def test_back_to_the_default_directory_roster_makes_a_new_key_rather_than_bring_
     mesh.run(net.cfg(), apply=True)
     assert (old / "id_ed25519").exists()                    # warned about, never removed
     net.cfg_path.write_text(CONFIG)
-    plan = mesh.run(net.cfg())
-    assert "replace key" in next(h for h in plan["hosts"] if h["host"] == "orion-2")["changes"]
+    return old, d, first
+
+
+OLD_KEY = ("orion-2: {old} still holds an older Mesh key from before mesh_dir: changed, and roster uses it again: "
+           "run roster mesh --rotate orion-2 to replace it")
+
+
+def test_back_to_the_default_directory_roster_warns_about_the_old_key_and_leaves_it(net):
+    old, d, first = back_to_the_default_directory(net)
+    for _ in range(2):                                      # a plan changes nothing, however often
+        plan = mesh.run(net.cfg())
+        assert OLD_KEY.format(old=old) in plan["warnings"]
+        assert "replace key" not in next(h for h in plan["hosts"] if h["host"] == "orion-2")["changes"]
+        assert (old / "id_ed25519.pub").read_text() == first
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
-    assert "replace key" in next(h for h in r["hosts"] if h["host"] == "orion-2")["changes"]
-    now = (old / "id_ed25519.pub").read_text()
-    assert now != first
-    assert any(now.split()[1] in x for x in net.mesh_lines("orion-3"))      # its peers trust the new one
-    assert not any(first.split()[1] in x for p in HOSTS for x in net.mesh_lines(p))
+    assert OLD_KEY.format(old=old) in r["warnings"]
     assert any(w.startswith(f"orion-2: {d} holds an earlier Mesh key") for w in r["warnings"])
-    assert mesh.run(net.cfg())["already"]
+    assert (old / "id_ed25519.pub").read_text() == first    # left alone: the owner's call
+    again = mesh.run(net.cfg())                             # the Include names it now: nothing more to say
+    assert not any("older Mesh key" in w for w in again["warnings"]) and again["already"]
+
+
+def test_back_to_the_default_directory_after_deleting_the_old_one_says_nothing_more(net):
+    import shutil
+    old, d, first = back_to_the_default_directory(net)
+    shutil.rmtree(d)                                        # as roster's warning said to
+    plan = mesh.run(net.cfg())
+    assert not any("older Mesh key" in w for w in plan["warnings"])
+    assert "replace key" not in next(h for h in plan["hosts"] if h["host"] == "orion-2")["changes"]
+    assert (old / "id_ed25519.pub").read_text() == first
 
 
 LINES = {"orion-2": "orion-2: 10.0.0.2", "esx-02": "esx-02: { ip: 10.0.0.12, user: root }"}

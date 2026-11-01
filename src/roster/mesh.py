@@ -204,9 +204,10 @@ fi
 # the directory the Include after roster's mark in ~/.ssh/config names: an earlier mesh_dir: (or roster's own pick)
 O=$(awk -v m="$MARK" 'p { print; exit } $0 == m { p = 1 }' "$HOME/.ssh/config" 2>/dev/null)
 case "$O" in "Include "/*/config) O=${O#Include }; O=${O%/config}; [ -f "$O/id_ed25519" ] && mine "$O" && stale "$O";; esac
-# a key in $P from before that earlier directory took over: roster stopped using it (and warned), so it isn't
-# brought back; a new one is made, as --rotate would
-case "$O" in /*) [ -f "$K" ] && [ "$(cd "$O" 2>/dev/null && pwd -P)" != "$(cd "$P" && pwd -P)" ] && ROTATE=1;; esac
+# a key in $P from before that earlier directory took over: roster stopped using it (and warned then), and uses
+# it again now; said (OLDKEY), never replaced unasked (--rotate does). Only while that directory is still there.
+case "$O" in /*) r=$(cd "$O" 2>/dev/null && pwd -P) && [ -f "$K" ] && [ "$r" != "$(cd "$P" && pwd -P)" ] && [ "$ROTATE" != 1 ] \
+  && echo "OLDKEY $P";; esac
 KG=$(command -v ssh-keygen 2>/dev/null || echo /usr/lib/vmware/openssh/bin/ssh-keygen)
 if [ "$ROTATE" = 1 ] && [ -f "$K" ]; then
   if [ "$MODE" = apply ]; then rm -f "$K" "$K.pub"; fi
@@ -592,6 +593,10 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None, visi
                               "key": report(lines, "KEY "),
                               "reach": dict(x.split(" ", 1) for x in report(lines, "REACH "))}
         stale(out, name, lines)
+        for d in report(lines, "OLDKEY "):
+            out.setdefault("warnings", []).append(
+                f"{name}: {d} still holds an older Mesh key from before mesh_dir: changed, and roster uses it again: "
+                f"run roster mesh --rotate {name} to replace it")
 
     # jump Hosts that aren't sources: whether they reach the peers they're a hop to
     for name in hop_only:                       # a password Host isn't one: the Box can't run anything there

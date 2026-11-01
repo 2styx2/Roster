@@ -142,7 +142,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
-- A Mesh source moved back to roster's own directory (its `mesh_dir:` removed) makes a new key there, as [`mesh_dir:`](mesh.md#esxi) says, instead of quietly using again the key that directory still held from before the `mesh_dir:`.
+- A Mesh source moved back to roster's own directory (its `mesh_dir:` removed) that still holds the key from before the `mesh_dir:` gets a warning that roster uses that old key again, with `roster mesh --rotate HOST` to replace it; it was used again without a word. See [`mesh_dir:`](mesh.md#esxi).
 - On native Windows, closing `roster serve` during a Mesh run ends the run's ssh with everything it started, as a step that times out does, so `mesh.json` records which Hosts were left to do (an ssh that is a batch file kept running before).
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.
