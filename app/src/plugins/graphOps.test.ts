@@ -97,6 +97,24 @@ describe("a view's graph, checked", () => {
     expect(parseOp({ op: "view_update", id: "topo", changes: { filter: {} } })).toMatchObject({ update: { graph: { filter: {} } } });
   });
 
+  it("an action's when names a node's fields: one value or a list of them (T89)", () => {
+    const op = view({ actions: [{ label: "Cut", key: "x", when: { kind: ["esxi", "linux"], state: "live" }, run: "x" }] });
+    expect(op).toMatchObject({ view: { graph: { actions: [{ label: "Cut", when: { kind: ["esxi", "linux"], state: ["live"] } }] } } });
+    expect(view({ actions: [{ label: "Cut", run: "x" }] })).not.toHaveProperty("view.graph.actions.0.when");
+  });
+
+  it.each([
+    [{ colour: "red" }, "when.colour: a node has no colour (id, label, kind, shape, state, mark, note, cluster, host, detail)"],
+    [{ state: {} }, "when.state must be"],
+    ["live", "when must be a table"],
+  ])("refuses an action's when %j", (when, message) => {
+    expect((view({ actions: [{ label: "Cut", when, run: "x" }] }) as { invalid: string }).invalid).toContain(message);
+  });
+
+  it("the graph keeps m for moving a node from the keyboard (T89)", () => {
+    expect((view({ actions: [{ label: "Mark", key: "m", run: "x" }] }) as { invalid: string }).invalid).toContain("the graph uses m itself");
+  });
+
   it("the graph keeps f for its filter", () => {
     expect((view({ actions: [{ label: "Find", key: "f", run: "x" }] }) as { invalid: string }).invalid).toContain("the graph uses f itself");
   });

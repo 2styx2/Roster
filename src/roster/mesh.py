@@ -285,16 +285,31 @@ if [ -z "$ESXI" ] && [ -d "$HOME/.claude" ]; then
 fi
 """
 
+# A Host that's no longer a source: its Mesh files go, and its Include. The directory in use until now is the one
+# the Include after roster's mark names, which isn't $P when mesh_dir: changed in the same edit (T97): roster's own
+# pick goes, as $P would; a mesh_dir: is only warned about (STALE), as after a move.
 NOT_SOURCE = r"""
-if [ -n "$P" ] && { [ -z "$MD" ] || mine "$P"; }; then
-  # the public half goes last: until it does, mine still knows the rest is roster's
-  for f in id_ed25519 known_hosts config ROSTER.md id_ed25519.pub; do drop "$P/$f" "remove $f"; done
-  [ "$MODE" = apply ] && rmdir "$P" 2>/dev/null
+clean() {  # clean DIR: roster's files in it; the public half goes last: until it does, mine knows the rest is roster's
+  for f in id_ed25519 known_hosts config ROSTER.md id_ed25519.pub; do drop "$1/$f" "remove $f"; done
+  [ "$MODE" = apply ] && rmdir "$1" 2>/dev/null
+}
+O=$(awk -v m="$MARK" 'p { print; exit } $0 == m { p = 1 }' "$C" 2>/dev/null)
+case "$O" in "Include "/*/config) O=${O#Include }; O=${O%/config};; *) O=;; esac
+if [ -n "$O" ] && [ "$(cd "$O" 2>/dev/null && pwd -P)" = "$(cd "$P" 2>/dev/null && pwd -P)" ]; then O=; fi
+if [ -n "$P" ] && { [ -z "$MD" ] || mine "$P"; }; then clean "$P"; fi
+if [ -n "$O" ] && [ -f "$O/id_ed25519" ] && mine "$O"; then
+  OWN=
+  if [ -n "$ESXI" ]; then
+    case "$O" in /vmfs/volumes/*/.roster-mesh) v=${O#/vmfs/volumes/}; case "${v%/.roster-mesh}" in */*) ;; *) OWN=1;; esac;; esac
+  elif [ "$O" = "$HOME/.ssh/roster-mesh" ]; then OWN=1; fi
+  if [ -n "$OWN" ]; then clean "$O"; else echo "STALE $O"; fi
 fi
-if grep -qxF "$INC" "$C" 2>/dev/null; then
+if grep -qxF -e "$MARK" -e "$INC" "$C" 2>/dev/null; then
   echo "CHANGE remove include"
   if [ "$MODE" = apply ]; then
-    t=$(mktemp); grep -vxF -e "$MARK" -e "$INC" "$C" > "$t"; replace "$C" < "$t"; rm -f "$t"; [ -s "$C" ] || rm -f "$C"
+    t=$(mktemp)
+    awk -v m="$MARK" -v i="$INC" 'd { d = 0; if (/^Include /) next } $0 == m { d = 1; next } $0 == i { next } { print }' "$C" > "$t"
+    replace "$C" < "$t"; rm -f "$t"; [ -s "$C" ] || rm -f "$C"
   fi
 fi
 [ -z "$ESXI" ] && ours "$R" && drop "$R" "remove ROSTER.md"
@@ -551,10 +566,7 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
         out["probe"][name] = {"dir": report(lines, "DIR ")[0], "esxi": "PLATFORM esxi" in lines, "pub": pub[0] if pub else None,
                               "key": report(lines, "KEY "),
                               "reach": dict(x.split(" ", 1) for x in report(lines, "REACH "))}
-        for old in report(lines, "STALE "):
-            out.setdefault("warnings", []).append(
-                f"{name}: {old} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it "
-                "by hand")
+        stale(out, name, lines)
 
     # jump Hosts that aren't sources: whether they reach the peers they're a hop to
     for name in hop_only:                       # a password Host isn't one: the Box can't run anything there
@@ -653,6 +665,7 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
                    .replace("remove include", "remove the Include from ~/.ssh/config")
                    .replace("remove claude", "remove the import from ~/.claude/CLAUDE.md") for c in changes]
         finish(name, changes)
+        stale(out, name, lines)                 # a source that left with its mesh_dir: (NOT_SOURCE)
         for path in report(lines, "CONFLICT "):
             out.setdefault("warnings", []).append(
                 f"{name}: {path} isn't roster's, so roster left it alone (move it away and apply again)")
@@ -663,6 +676,14 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None):
         record(cfg, g, st, result, ex)
     result["cut_pending"] = load_state()["cut"] if apply else st["cut"]
     return result
+
+
+def stale(out, name, lines):
+    """A warning for each earlier Mesh directory NAME's script found (STALE): roster never removes one."""
+    for old in report(lines, "STALE "):
+        out.setdefault("warnings", []).append(
+            f"{name}: {old} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it "
+            "by hand")
 
 
 def key_changes(probe, apply, rotate):

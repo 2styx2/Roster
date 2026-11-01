@@ -481,8 +481,8 @@ function columnsOf(v: Obj, at: string): TableColumn[] {
   return columns;
 }
 
-/** An action's `when`: cell = value, or a list of values. */
-function when(a: Obj, where: string): PluginTableAction["when"] {
+/** An action's `when`: cell = value, or a list of values (a graph's names a node's fields). */
+export function when(a: Obj, where: string): PluginTableAction["when"] {
   const v = a.when;
   if (v === undefined || v === null) return undefined;
   if (!isObj(v)) throw new Invalid(`${where}: when must be a table of cell = value`);

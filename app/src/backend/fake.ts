@@ -122,8 +122,8 @@ export interface FakeScenario {
   /** Decision Q88: how long `inventory.pull` takes, in ms (else `delay`). */
   pullDelay?: number;
   /** Decision Q88: someone published meanwhile. The next pull brings `commits` commits that
-   * change these Hosts' fields, once. */
-  pullBrings?: { commits: number; changes: Record<string, HostChanges> };
+   * change these Hosts' fields and add the Hosts in `adds` (T72), once. */
+  pullBrings?: { commits: number; changes: Record<string, HostChanges>; adds?: readonly Host[] };
   /** Per Host: what `host.verify_login` answers (default: every step ok). */
   verifyResults?: Record<string, HostCheck>;
   /** Ticket 36: Hosts whose host key roster hasn't recorded: `session.prepare` refuses with 44 until
@@ -1647,8 +1647,9 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       if (brings && !pulledIn) {
         pulledIn = true;
         const change = (h: Host) => (brings.changes[h.name] ? withFields(h, brings.changes[h.name] ?? {}) : h);
-        committed = committed.map(change);
-        hosts = hosts.map(change);
+        const adds = brings.adds ?? [];
+        committed = [...committed.map(change), ...adds];
+        hosts = [...hosts.map(change), ...adds];
         return { updated: true, upstream: "origin/main", commits: brings.commits, ahead: 0 };
       }
       return { updated: false, upstream: "origin/main", commits: 0, ahead: 0 };

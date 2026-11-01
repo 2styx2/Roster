@@ -70,6 +70,17 @@ export interface GraphFilter {
 }
 export type FilterState = NodeState | Mark;
 
+/** Whether an action with `when` applies to `node` (T89, as a table's, ticket 78): every field it
+ * names holds one of its values. A number and its text are the same value; a field the node
+ * lacks matches nothing. */
+export function nodeActionApplies(when: Readonly<Record<string, readonly (string | number)[]>> | undefined, node: GraphNode): boolean {
+  if (!when) return true;
+  return Object.entries(when).every(([k, values]) => {
+    const v = (node as unknown as Record<string, unknown>)[k];
+    return (typeof v === "string" || typeof v === "number") && values.some((x) => String(x) === String(v));
+  });
+}
+
 export interface GraphData {
   nodes: readonly GraphNode[];
   edges: readonly GraphEdge[];

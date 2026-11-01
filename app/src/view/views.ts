@@ -47,6 +47,8 @@ export interface NodeActionDef {
   label: string;
   key?: string;
   icon?: RowAction["icon"];
+  /** Only on nodes whose fields match: each key one of its values (model.ts nodeActionApplies). */
+  when?: Readonly<Record<string, readonly (string | number)[]>>;
   run(node: GraphNode): void;
 }
 

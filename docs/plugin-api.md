@@ -1358,7 +1358,7 @@ Nothing.
 - a view with that id from elsewhere.
 - a field of the wrong kind (`roster.views.set discover table row 2: id must be text`): the whole view is dropped.
 - an action key the table uses itself (`j`, `k`, `g`, `G`, `s`, `S`, `/`, `?`, `q`) or one used twice.
-- a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `f` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view.
+- a graph's action key the graph uses itself (`h` `j` `k` `l` `H` `J` `K` `L` `g` `G` `n` `N` `o` `O` `t` `f` `m` `s` `S` `/` `?` `q` `+` `-` `=` `0`), a graph action's `when` naming what a node doesn't have (`when.colour: a node has no colour`), a node or cluster id used twice, an edge id used twice, or a table and a graph in one view.
 
 **Permission:** none · **Since:** api 3
 
@@ -2834,7 +2834,7 @@ What a site answered.
 
 A graph: nodes, edges and clusters as plain data, and what a node can do.
 
-The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, `f` goes to the filter (a cluster, kind or state to show, hiding the rest; `Esc` clears a search, then the filter, then closes the view), and an action's `key` runs it on the selected node. Selecting a node lights up what it can reach and what can reach it, with the counts: however many hops away, or only one with `reach = "direct"`. Hiding nodes doesn't change what they reach: the counts are the whole graph's. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.
+The app lays it out (each cluster's nodes on a spiral, the clusters in rows, loose nodes first), keeps every position in the State so it opens the same way each time, and draws only what's on screen, so 2,000 nodes stay smooth. Clusters collapse to one node with their count: the user's `o`, or by themselves when the graph has more than 300 nodes and the cluster doesn't say. Keys, once it has focus: `h` `j` `k` `l` or the arrows go to the nearest node that way, `/` searches (name, id, kind, note, detail, cluster) and `n`/`N` go through the matches, `Enter` runs `open` (or opens a collapsed cluster), `o` collapses or opens the selected node's cluster and `O` all of them, `+` `-` zoom and `0` shows it all, `H` `J` `K` `L` pan, `t` switches to a table of every node, then of every edge, `f` goes to the filter (the clusters, kinds and states to show, as many of each as the user ticks, hiding the rest; `Esc` clears a search, then the filter, then closes the view), `m` moves the selected node with `h` `j` `k` `l` or the arrows (`Shift` for a bigger step) until `Enter` keeps its place or `Esc` puts it back, and an action's `key` runs it on the selected node (only where its `when` matches). Selecting a node lights up what it can reach and what can reach it, with the counts: however many hops away, or only one with `reach = "direct"`. Hiding nodes doesn't change what they reach: the counts are the whole graph's. A click selects, a double click opens, a drag moves a node (kept) or pans, the wheel zooms. An edge whose end names nothing is left out until it does.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -2974,6 +2974,7 @@ Something a graph's selected node can do.
 | `label` | `string` | yes | What it does (`"Check"`), in the key hints. |
 | `key` | `string` | no | One character that runs it on the selected node, not one the graph uses itself. |
 | `icon` | [`RowIcon`](#rowicon) | no | Its icon in the node list's buttons. |
+| `when` | `table<string, string\|number\|(string\|number)[]>` | no | Only on the nodes whose fields match, as a table action's `when` (since api 3): `{ state = "live" }`, or a list of values (`{ kind = { "esxi", "linux" } }`). It names a node's own fields (`id`, `label`, `kind`, `shape`, `state`, `mark`, `note`, `cluster`, `host`, `detail`); a field the node leaves out matches nothing. Elsewhere its key does nothing and its hint isn't shown. |
 | `run` | [`NodeRun`](#noderun) | yes | What it runs. |
 
 ### `NodeRun`

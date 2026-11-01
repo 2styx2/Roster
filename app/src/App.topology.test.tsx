@@ -77,7 +77,8 @@ describe("the Topology view", () => {
     await open(user, "topology subnet-2");
     const shown = hosts.filter((h) => h.group === "subnet-2").length;
     expect(screen.getByText(`Showing ${shown} of ${hosts.length + 1} nodes`)).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Show the cluster" })).toHaveValue("\u0000several");
+    // The group's clusters: its own, its password peers and those not in the Mesh.
+    expect(screen.getByRole("button", { name: /^Show the cluster/ })).toHaveTextContent(/^\d+ clusters/);
     await user.keyboard("{Escape}{Escape}");
     await open(user);
     expect(screen.queryByText(/^Showing/)).toBeNull();
