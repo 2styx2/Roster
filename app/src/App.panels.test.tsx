@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
-import { FAKE_PASSWORD, fakeBackend, makeHosts } from "./backend/fake";
+import { FAKE_PASSWORD, fakeBackend, fixtures, makeHosts, type FakeScenario } from "./backend/fake";
 import type { FakePlugin } from "./backend/fakePlugins";
 import { configWith } from "./config/fixture";
 import type { Config, ConfigReport } from "./config/types";
@@ -101,6 +101,21 @@ describe("a panel's place", () => {
     expect(frame("view:map")).toBeNull();
   });
 
+  it("Esc in a field of a form made full window closes the form, as it does docked (owner, #176 item 7)", async () => {
+    const user = userEvent.setup();
+    render(<App backend={fakeBackend(fixtures.edit as FakeScenario)} terminalView={StubTerminal} platform={memoryPlatform()} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await user.keyboard(`${LEADER}:edit linux-1-000{Enter}`);
+    const form = await screen.findByRole("region", { name: "Edit linux-1-000" });
+    const title = await within(form).findByLabelText("Title");
+    await user.click(within(form).getByRole("button", { name: "Full window" }));
+    expect(placeOf("edit")).toBe("full");
+    title.focus();
+    await user.keyboard("{Escape}");
+    expect(frame("edit")).toBeNull();
+  });
+
   it("a docked panel opened from a full view comes over it, and acts as the panel used last", async () => {
     const { user } = await ready({ plugin: true });
     await user.keyboard(`${LEADER}:view map{Enter}`);
@@ -166,6 +181,43 @@ describe("a panel's width", () => {
     expect(widthOf("keys")).toBe("41%");
     expect(frame("keys")?.style.getPropertyValue("--pane-live")).toBe("");
     expect(document.documentElement.dataset.resizing).toBeUndefined();
+  });
+});
+
+describe("several docked panels (#176)", () => {
+  const body = () => document.querySelector<HTMLElement>(".screen .body");
+
+  it("dock together while the terminal keeps 400 px beside their minimums, and float side by side when it can't", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}K`);
+    await user.keyboard(`${LEADER}:info linux-1-000{Enter}`);
+    await screen.findByRole("complementary", { name: "Details of linux-1-000" });
+    // jsdom's window is 1024 px: two panels at 280 px leave the terminal 464.
+    expect(frame("keys")).not.toHaveAttribute("data-float");
+    expect(frame("details")).not.toHaveAttribute("data-float");
+    expect(body()).toHaveAttribute("data-docked");
+    await user.keyboard(`${LEADER}:help options{Enter}`);
+    await screen.findByRole("complementary", { name: "Help" });
+    // A third doesn't fit: all three float over the terminal, side by side, none on another.
+    for (const id of ["keys", "details", "help"]) expect(frame(id)).toHaveAttribute("data-float");
+    expect(body()).not.toHaveAttribute("data-docked");
+    const at = ["keys", "details", "help"].map((id) => frame(id)?.style.getPropertyValue("--pane-at"));
+    expect(new Set(at).size).toBe(3);
+    expect(at).toContain("0px");
+    await user.keyboard(`{Escape}`);
+    await user.keyboard(`${LEADER}:help options{Enter}`);
+    await user.keyboard(`${LEADER}z`);
+    // Full window takes no part: the other two dock again.
+    expect(placeOf("help")).toBe("full");
+    expect(frame("keys")).not.toHaveAttribute("data-float");
+  });
+
+  it("the layering rule needs no :has(): the body says when a panel is full window", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}K`);
+    expect(body()).not.toHaveAttribute("data-full");
+    await user.keyboard(`${LEADER}z`);
+    expect(body()).toHaveAttribute("data-full");
   });
 });
 

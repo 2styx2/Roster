@@ -1466,31 +1466,36 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    terminal fits its new size once, when the drag ends (ticket 73). Its width is the user's
    (--pane-w, percent of the window), else its kind's default, kept between a minimum and what
    leaves the terminal about 50 columns. Nothing here animates: a key or a click is its own
-   confirmation, and a drag follows the pointer (the animate skill). */
-.body:has(> .sidebar) { --sidebar-room: var(--sidebar-width); }
+   confirmation, and a drag follows the pointer (the animate skill).
+   Several docked panels share one limit (#176, decision Q125): each may shrink (in proportion to
+   its width, flexbox's way) down to its minimum, and the terminal never below 400 px. When their
+   minimums don't fit, panel/layout.ts's arrange() floats them all ([data-float], below). The body's
+   data attributes come from the app, so none of this needs :has(). */
+.body[data-sidebar] { --sidebar-room: var(--sidebar-width); }
+.screen .body[data-docked] > .workspace { min-width: 400px; }
 .screen[data-view="focus"] .body { --sidebar-room: 0px; }
 .panel-frame {
   --pane-default: var(--keys-width);
   --pane-min: min(280px, 100%);
   --pane-max: max(var(--pane-min), calc(100% - var(--sidebar-room, 0px) - 400px));
-  position: relative; flex: none; min-height: 0;
+  position: relative; flex: 0 1 auto; min-width: var(--pane-min); min-height: 0;
   width: clamp(var(--pane-min), var(--pane-w, var(--pane-default)), var(--pane-max));
 }
 .panel-frame[data-kind="help"] { --pane-default: clamp(var(--keys-width), 40vw, 600px); }
 .panel-frame[data-kind="view"] { --pane-default: clamp(var(--keys-width), 40vw, 640px); }
 .panel-frame[data-side="left"] { order: -1; }
 .screen .body > .panel-frame > :first-child {
-  position: absolute; top: 0; bottom: 0; right: 0; left: auto; width: var(--pane-live, 100%); max-width: none; z-index: auto;
+  position: absolute; top: 0; bottom: 0; right: 0; left: auto; width: var(--pane-live, var(--pane-fit, 100%)); max-width: none; z-index: auto;
 }
 .screen .body > .panel-frame[data-side="left"] > :first-child { left: 0; right: auto; }
 .panel-frame[data-dragging] { z-index: var(--z-float); }
 
 /* The edge: a hairline on hover, on focus and while dragged, never the accent (it's chrome). */
 .panel-edge {
-  position: absolute; top: 0; bottom: 0; z-index: 2; width: 8px; right: calc(var(--pane-live, 100%) - 4px);
+  position: absolute; top: 0; bottom: 0; z-index: 2; width: 8px; right: calc(var(--pane-live, var(--pane-fit, 100%)) - 4px);
   cursor: col-resize; touch-action: none; outline: none;
 }
-.panel-frame[data-side="left"] > .panel-edge { right: auto; left: calc(var(--pane-live, 100%) - 4px); }
+.panel-frame[data-side="left"] > .panel-edge { right: auto; left: calc(var(--pane-live, var(--pane-fit, 100%)) - 4px); }
 .panel-edge::after {
   content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent;
   transition: background-color var(--dur-fade) ease;
@@ -1518,23 +1523,33 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 .screen .body > .panel-frame[data-place="full"][data-top] > :first-child { z-index: var(--z-full-top); }
 
-/* Focus, and a window too narrow for a docked panel and a usable terminal: the panel floats over
-   the terminal instead of beside it (M5), leaving a sliver of it. */
-.screen[data-view="focus"] .body > .panel-frame:not([data-place="full"]) {
-  position: absolute; top: 0; bottom: 0; right: 0; z-index: var(--z-float); --pane-max: calc(100% - 48px);
+/* Focus, a window too narrow for a docked panel and a usable terminal, and more docked panels than
+   fit beside one ([data-float], #176): the panels float over the terminal instead of beside it (M5),
+   leaving a sliver of it. Several sit side by side from their edge (--pane-at, arrange() in
+   panel/layout.ts), never on top of each other; too wide together, each panel is narrowed in
+   proportion (--pane-fit) while its frame keeps its own width, which takes no clicks. */
+.screen[data-view="focus"] .body > .panel-frame:not([data-place="full"]),
+.screen .body > .panel-frame[data-float]:not([data-place="full"]) {
+  position: absolute; top: 0; bottom: 0; right: var(--pane-at, 0px); z-index: var(--z-float); --pane-max: calc(100% - 48px);
+  pointer-events: none;
 }
-.screen[data-view="focus"] .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: 0; right: auto; }
+.screen[data-view="focus"] .body > .panel-frame[data-side="left"]:not([data-place="full"]),
+.screen .body > .panel-frame[data-float][data-side="left"]:not([data-place="full"]) { left: var(--pane-at, 0px); right: auto; }
+.screen .body > .panel-frame[data-float] > *,
+.screen[data-view="focus"] .body > .panel-frame > * { pointer-events: auto; }
 @media (max-width: 1040px) {
   .screen .body > .panel-frame:not([data-place="full"]) {
-    position: absolute; top: 0; bottom: 0; right: 0; z-index: var(--z-float); --pane-max: calc(100% - 48px);
+    position: absolute; top: 0; bottom: 0; right: var(--pane-at, 0px); z-index: var(--z-float); --pane-max: calc(100% - 48px);
+    pointer-events: none;
   }
-  .screen .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: 0; right: auto; }
+  .screen .body > .panel-frame:not([data-place="full"]) > * { pointer-events: auto; }
+  .screen .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: var(--pane-at, 0px); right: auto; }
   /* Docked, it floated and took no room, so full window takes none either. */
   .screen[data-view] .body > .panel-frame[data-place="full"][data-held] { width: 0; }
 }
 
 /* A docked panel opened over a full one (Host details from Topology) comes over it. */
-.screen .body:has(> .panel-frame[data-place="full"]) > .panel-frame:not([data-place="full"]) { z-index: var(--z-over-full); }
+.screen .body[data-full] > .panel-frame:not([data-place="full"]) { z-index: var(--z-over-full); }
 /* A panel of prose or a form made full window keeps a readable measure, centred; a view's table or
    graph takes the whole width. */
 .screen .body > .panel-frame[data-place="full"] > :is(.side-panel, .check-panel, .keys-panel):not(.view-panel) {

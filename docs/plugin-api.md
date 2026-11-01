@@ -109,6 +109,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`NoticeOptions`](#noticeoptions) | What else a notice has (`roster.notify`, since api 3) |
 | [`NoticeAction`](#noticeaction) | A button on a notice |
 | [`RowAction`](#rowaction) | A button on a row |
+| [`HeadAction`](#headaction) | A button on a view's or a Host-details section's heading |
 | [`RowIcon`](#rowicon) | A row action's icon |
 | [`RowGlyph`](#rowglyph) | A Sidebar row's glyph (since api 3) |
 | [`StatusSegment`](#statussegment) | A status bar segment (`roster.status.set`) |
@@ -181,6 +182,23 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`HostChange`](#hostchange) | A Host in `changes.diff` |
 | [`GroupChange`](#groupchange) | A group in `changes.diff` |
 | [`LastCommit`](#lastcommit) | The infra repo's last commit |
+| [`MeshResult`](#meshresult) | `mesh.plan`'s and `mesh.apply`'s result |
+| [`MeshLink`](#meshlink) | A Link of the Mesh: a source reaching a peer |
+| [`MeshHost`](#meshhost) | A Host a Mesh run visited |
+| [`MeshStarted`](#meshstarted) | A Mesh run started with `background = true` |
+| [`MeshCut`](#meshcut) | `mesh.cut`'s result |
+| [`MeshCutChange`](#meshcutchange) | The `mesh: false` a `mesh.cut` writes into `roster.yml` |
+| [`MeshStatus`](#meshstatus) | `mesh.status`'s result: the Mesh as `roster.yml` asks for it |
+| [`MeshJob`](#meshjob) | `mesh.job`'s result: how far a Mesh run has got |
+| [`ServeError`](#serveerror) | An error roster serve answered with |
+| [`MeshStop`](#meshstop) | `mesh.stop`'s result |
+| [`DiscoverPlan`](#discoverplan) | `discover.plan`'s result: what a scan would visit |
+| [`DiscoverStatus`](#discoverstatus) | `discover.status`'s and `discover.start`'s result: how far a scan has got |
+| [`DiscoverFound`](#discoverfound) | Something a scan found at an address |
+| [`DiscoverPort`](#discoverport) | An open port a scan found |
+| [`DiscoverStop`](#discoverstop) | `discover.stop`'s result |
+| [`DiscoverAdd`](#discoveradd) | `discover.add`'s result |
+| [`DiscoverAdded`](#discoveradded) | A Host `discover.add` added |
 | [`EventName`](#eventname) | An event a Plugin can listen for |
 | [`EmptyEvent`](#emptyevent) | The payload of `lock`, `unlock` and `inventory_changed`: an empty table |
 | [`HostSelectedEvent`](#hostselectedevent) | `host_selected`'s payload |
@@ -2287,8 +2305,17 @@ What `roster.serve.call(method)` returns, for the methods a Plugin may be grante
 | `host.check` | [`HostCheck`](#hostcheck) | [host.check](serve-api.md#diagnostics-hostcheck) |
 | `host.check_job` | see serve-api.md | [host.check_job](serve-api.md#diagnostics-hostcheck) |
 | `changes.diff` | [`ChangesDiff`](#changesdiff) | [changes.diff](serve-api.md#editing-pending-changes) |
-| `mesh.*` | see serve-api.md | [mesh.*](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
-| `discover.*` | see serve-api.md | [discover.*](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
+| `mesh.plan` | [`MeshResult`](#meshresult)`\|`[`MeshStarted`](#meshstarted) | [mesh.plan](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `mesh.apply` | [`MeshResult`](#meshresult)`\|`[`MeshStarted`](#meshstarted) | [mesh.apply](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `mesh.cut` | [`MeshCut`](#meshcut)`\|`[`MeshStarted`](#meshstarted) | [mesh.cut](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `mesh.status` | [`MeshStatus`](#meshstatus) | [mesh.status](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `mesh.job` | [`MeshJob`](#meshjob)`?` | [mesh.job](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `mesh.stop` | [`MeshStop`](#meshstop) | [mesh.stop](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
+| `discover.plan` | [`DiscoverPlan`](#discoverplan) | [discover.plan](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
+| `discover.start` | [`DiscoverStatus`](#discoverstatus) | [discover.start](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
+| `discover.status` | [`DiscoverStatus`](#discoverstatus) | [discover.status](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
+| `discover.stop` | [`DiscoverStop`](#discoverstop) | [discover.stop](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
+| `discover.add` | [`DiscoverAdd`](#discoveradd) | [discover.add](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
 
 ## Types
 
@@ -2485,6 +2512,19 @@ A button on a row.
 | `label` | `string` | yes | What it does, for its tooltip and screen readers (`"Unpin esx-02"`). |
 | `icon` | [`RowIcon`](#rowicon) | no | Its icon; `info` if left out. |
 | `run` | [`Run`](#run) | yes | What pressing it runs. |
+
+### `HeadAction`
+
+A button on a view's or a Host-details section's heading.
+
+A [`RowAction`](#rowaction) with a key of its own (since api 4, #176): pressed anywhere in its view, or in its section, it runs the button, unless the table or graph there took the key first or a text field (a table's filter) has focus. Its tooltip shows the key.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it does, for its tooltip and screen readers (`"Plan"`). |
+| `icon` | [`RowIcon`](#rowicon) | no | Its icon; `info` if left out. |
+| `run` | [`Run`](#run) | yes | What pressing it runs. |
+| `key` | `string` | no | One character (`"P"`) that runs it: not one a table or graph uses itself (`h j k l H J K L g G n N o O t f m s S / ? q + - = 0`), nor one of the view's table or graph actions' keys, nor another button's (since api 4). |
 
 ### `RowIcon`
 
@@ -2709,7 +2749,7 @@ Drawn top to bottom: the text, the facts, then the table or the graph (one or th
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
 | `place` | [`ViewPlace`](#viewplace) | no | Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it. |
-| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3). |
+| `actions` | [`HeadAction`](#headaction)`[]` | no | Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3), and its `key` runs it from anywhere in the view (since api 4). |
 | `text` | `string` | no | A few lines above the rest, in the app's voice; a blank line starts a paragraph. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs, as a Host's details show them. |
 | `table` | [`Table`](#table) | no | A table of rows. |
@@ -2755,7 +2795,7 @@ Drawn after roster's own sections, with your Plugin's name under its heading: th
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
 | `order` | `number` | no | Where it goes among the Plugins' sections, lowest first; 500 if left out. |
-| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3). |
+| `actions` | [`HeadAction`](#headaction)`[]` | no | Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3), and its `key` runs it from anywhere in the section (since api 4). |
 | `text` | `string` | no | A few lines, in the app's voice. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs. |
 | `table` | [`Table`](#table) | no | A table of rows. |
@@ -3295,6 +3335,237 @@ The infra repo's last commit.
 | `subject` | `string` | yes | Its subject line. |
 | `upstream` | `string` | no | The branch's upstream (`origin/main`); `nil` without one. |
 | `pushed` | `boolean` | yes | Whether the upstream has it, as this Box last fetched. |
+
+### `MeshResult`
+
+`mesh.plan`'s and `mesh.apply`'s result.
+
+With `brief = true` (on `mesh.job`), `links` keeps only those worth a look and `link_count`, `link_statuses`, `reached` and `links_more` count the rest.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `applied` | `boolean` | yes | `false` for a plan (nothing changed), `true` for an apply. |
+| `links` | [`MeshLink`](#meshlink)`[]` | yes | Every Link, with how it went. |
+| `hosts` | [`MeshHost`](#meshhost)`[]` | yes | Every Host visited. |
+| `excluded` | `table<string, string>` | yes | Hosts kept out, and why (`not reviewed (reviewed: false)`, `mesh: false`). |
+| `reach` | `table<string, integer>` | yes | How many Hosts each source reaches, counting the Links that work. |
+| `pending` | `table<string, string>` | yes | Hosts that didn't answer, and why. |
+| `already` | `boolean` | yes | Nothing to change and nothing pending: already in the Mesh. |
+| `warnings` | `string[]` | yes | Words to show (a `ROSTER.md` that isn't roster's, a Host that left `roster.yml`). |
+| `cut_pending` | `table<string, string[]>` | yes | Earlier cuts not finished yet: a Host, and the peers still to do. |
+| `link_count` | `integer` | no | Brief: how many Links there are in all. |
+| `link_statuses` | `table<string, integer>` | no | Brief: how many Links have each status. |
+| `reached` | `table<string, integer>` | no | Brief: how many Hosts reach each Host. |
+| `links_more` | `integer` | no | Brief: the Links worth a look that `links` leaves out (it keeps 1,000). |
+
+### `MeshLink`
+
+A Link of the Mesh: a source reaching a peer.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from` | `string` | yes | The source Host. |
+| `to` | `string` | yes | The peer it reaches. |
+| `kind` | `"key"\|"password"` | yes | `password` when the peer asks for one. |
+| `status` | `"ok"\|"untested"\|"unreachable"\|"no-host-key"\|"no-via"\|"pending"\|"skipped"` | no | How it went; `mesh.status` gives none (it never connects), except `no-via` with `brief`. `unreachable`, `no-host-key` and `no-via` are left out. |
+| `why` | `string` | no | The status in words. |
+| `via` | `string` | no | The Host the source goes through to the peer (a Link's `via:`). |
+| `skip` | `string` | no | Why roster didn't write it: `"password-source"`. |
+
+### `MeshHost`
+
+A Host a Mesh run visited.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `host` | `string` | yes | Its name. |
+| `status` | `"same"\|"would-change"\|"changed"\|"pending"` | yes | `would-change` from a plan, `changed` from an apply, `pending` when it didn't answer. |
+| `changes` | `string[]` | yes | Short phrases: `make key`, `write ssh config`, `add key from orion-2`, … |
+| `error` | `string` | no | Why it's pending. |
+| `more` | `integer` | no | Brief: the changes left out (it keeps 10). |
+
+### `MeshStarted`
+
+A Mesh run started with `background = true`.
+
+Its result comes in `mesh.job`, and `job_progress` events follow it.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `job` | `integer` | yes | The job's number, for `mesh.job` and `mesh.stop`. |
+| `action` | `"plan"\|"apply"\|"cut"` | yes | What it does. |
+| `total` | `integer` | yes | How many Hosts it visits. |
+| `host` | `string` | no | A cut's Host. |
+
+### `MeshCut`
+
+`mesh.cut`'s result.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `host` | `string` | yes | The Host cut from the Mesh. |
+| `confirmed` | `string[]` | yes | The peers whose keys it took off, and that took its off. |
+| `pending` | `table<string, string>` | yes | The peers that didn't answer, and why: the next cut finishes them. |
+| `change` | [`MeshCutChange`](#meshcutchange) | yes | The `mesh: false` written for it as a Pending change. |
+
+### `MeshCutChange`
+
+The `mesh: false` a `mesh.cut` writes into `roster.yml`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `written` | `boolean` | yes | Whether it was written now (`false` when it already was, or couldn't be). |
+| `backup` | `string` | no | The copy of `roster.yml` from before; `nil` when it isn't in a git repo. |
+| `note` | `string` | no | Why nothing was written, or that it went straight to a file outside git. |
+| `error` | `string` | no | Why it couldn't be written (the cut still happened). |
+| `fix` | `string` | no | What to do then, in a sentence. |
+
+### `MeshStatus`
+
+`mesh.status`'s result: the Mesh as `roster.yml` asks for it.
+
+It never connects. `brief = true` keeps it small as in a brief [`MeshResult`](#meshresult); `grouped = true` says each meshed group once (`meshed`) and leaves the pairs it covers out of `links`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `links` | [`MeshLink`](#meshlink)`[]` | yes | The Links, without a `status`. |
+| `excluded` | `table<string, string>` | yes | Hosts kept out, and why. |
+| `reach` | `table<string, integer>` | yes | How many Hosts each source reaches. |
+| `members` | `string[]` | yes | The Hosts roster visits. |
+| `pending` | `table<string, string>` | yes | Hosts the last run didn't finish, and why. |
+| `cut_pending` | `table<string, string[]>` | yes | Earlier cuts not finished yet. |
+| `out_of_date` | `boolean` | yes | `roster.yml` changed the Mesh since the last complete apply on this Box. |
+| `meshed` | `table<string, string[]>` | no | Grouped: each meshed group's Hosts that reach each other both ways. |
+| `link_count` | `integer` | no | Brief: how many Links there are in all. |
+| `link_statuses` | `table<string, integer>` | no | Brief: how many Links have each status (`asked` for untested ones). |
+| `reached` | `table<string, integer>` | no | Brief: how many Hosts reach each Host. |
+| `links_more` | `integer` | no | Brief: the Links worth a look that `links` leaves out. |
+
+### `MeshJob`
+
+`mesh.job`'s result: how far a Mesh run has got.
+
+`nil` when there's no job, or `job` isn't the latest.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `job` | `integer` | yes | Its number. |
+| `action` | `"plan"\|"apply"\|"cut"` | yes | What it does. |
+| `host` | `string` | no | A cut's Host. |
+| `state` | `"running"\|"done"\|"failed"` | yes | Where it is. |
+| `done` | `integer` | yes | Hosts done so far. |
+| `total` | `integer` | yes | Hosts in all. |
+| `at` | `string` | no | The Host it's on. |
+| `stopped` | `boolean` | yes | `mesh.stop` asked it to stop; the Hosts it hadn't got to are pending. |
+| `result` | [`MeshResult`](#meshresult)`\|`[`MeshCut`](#meshcut) | no | Once `done`: what the method itself returns. |
+| `error` | [`ServeError`](#serveerror) | no | Once `failed`: why. |
+
+### `ServeError`
+
+An error roster serve answered with.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | `integer` | yes | Its code, in serve-api.md's tables. |
+| `message` | `string` | yes | What went wrong. |
+| `data` | `table` | no | More about it, as its row says. |
+
+### `MeshStop`
+
+`mesh.stop`'s result.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `job` | `integer` | yes | The job. |
+| `stopping` | `boolean` | yes | `false` when it isn't running (over already, or not the latest). |
+
+### `DiscoverPlan`
+
+`discover.plan`'s result: what a scan would visit.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `targets` | `string[]` | yes | The targets as written back, without one another covers. |
+| `addresses` | `integer` | yes | How many addresses they hold. |
+| `ports` | `integer` | yes | How many ports it tries on each. |
+| `scanner` | `"nmap"\|"built-in"` | yes | nmap, or roster's own TCP connect scan without it. |
+| `limit` | `integer` | yes | The most addresses without `force` (4,096). |
+| `max` | `integer` | yes | The most with `force` (65,536). |
+
+### `DiscoverStatus`
+
+`discover.status`'s and `discover.start`'s result: how far a scan has got.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `scan` | `string` | yes | Its id (`"scan-N"`). |
+| `state` | `"running"\|"stopping"\|"done"\|"stopped"\|"failed"` | yes | Where it is. |
+| `targets` | `string[]` | yes | What it scans. |
+| `scanner` | `"nmap"\|"built-in"` | yes | What it scans with. |
+| `done` | `integer` | yes | Addresses visited so far. |
+| `total` | `integer` | yes | Addresses in all. |
+| `count` | `integer` | yes | How many it found in all: the next `since`. |
+| `quiet` | `integer` | yes | How many answered with none of the ports open (nmap only). |
+| `found` | [`DiscoverFound`](#discoverfound)`[]` | yes | What it found, after the first `since`. |
+| `error` | `string` | no | Why it `failed`. |
+
+### `DiscoverFound`
+
+Something a scan found at an address.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `address` | `string` | yes | Its address. |
+| `name` | `string` | no | The name it would be added as; `nil` when `known` names the Host already there. |
+| `type` | `string` | yes | The guessed kind. |
+| `hostname` | `string` | yes | Its name in DNS; `""` for none. |
+| `title` | `string` | yes | A web page's title; `""` for none. |
+| `web` | `string` | no | Its web address, when it serves one. |
+| `known` | `string` | no | The Inventory's Host at that address. |
+| `added` | `string` | no | The name `discover.add` gave it. |
+| `vendor` | `string` | yes | The network card's maker (nmap); `""` when unknown. |
+| `os` | `string` | yes | The guessed operating system (nmap); `""` when unknown. |
+| `mac` | `string` | yes | Its MAC address (nmap, on the same network); `""` when unknown. |
+| `ports` | [`DiscoverPort`](#discoverport)`[]` | yes | Its open ports. |
+
+### `DiscoverPort`
+
+An open port a scan found.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `port` | `integer` | yes | Its number. |
+| `name` | `string` | yes | The service's name (`ssh`). |
+| `product` | `string` | yes | What answered (`OpenSSH 9.6`); `""` when unknown. |
+| `title` | `string` | yes | A web page's title; `""` for none. |
+
+### `DiscoverStop`
+
+`discover.stop`'s result.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `scan` | `string` | yes | The scan. |
+| `stopping` | `boolean` | yes | `false` when it had ended already; `discover.status` says `stopped` once it has. |
+
+### `DiscoverAdd`
+
+`discover.add`'s result.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `group` | `string` | yes | The new group they went in. |
+| `added` | [`DiscoverAdded`](#discoveradded)`[]` | yes | Each Host added, `reviewed: false`, as a Pending change. |
+| `backup` | `string` | no | The copy of `roster.yml` from before. |
+
+### `DiscoverAdded`
+
+A Host `discover.add` added.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `address` | `string` | yes | Its address. |
+| `name` | `string` | yes | Its name in `roster.yml`. |
 
 ### `EventName`
 

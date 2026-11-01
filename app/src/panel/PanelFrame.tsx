@@ -9,7 +9,7 @@
 // Going full window keeps the docked width in place underneath, so the terminal doesn't change
 // size either. Nothing animates (the animate skill: a key or a click is its own confirmation).
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { clamp, limitsPercent, limitsPx, percentOf, type PanelLayout, type PanelPlace, type Room } from "./layout";
+import { arrange, clamp, limitsPercent, limitsPx, percentOf, type PanelLayout, type PanelPlace, type Room, type Slot } from "./layout";
 
 export interface PanelControls {
   id: string;
@@ -25,14 +25,49 @@ const PanelContext = createContext<PanelControls | null>(null);
 /** The panel this is drawn in, if any. */
 export const usePanel = () => useContext(PanelContext);
 
-/** What the window gives a panel's frame now. */
+/** The Sidebar's width when it's docked beside the terminal (not floating over it, as in Focus). */
+function sidebarRoom(body: HTMLElement | null): number {
+  const sidebar = body?.querySelector<HTMLElement>(":scope > .sidebar") ?? null;
+  return sidebar && getComputedStyle(sidebar).position !== "absolute" ? sidebar.offsetWidth : 0;
+}
+
+/** The frame floats over the terminal: Focus, a narrow window, or too many to dock (#176). */
+const floats = (frame: HTMLElement) => frame.hasAttribute("data-float") || getComputedStyle(frame).position === "absolute";
+
+/** What the window gives a panel's frame now. The limit is shared (#176): beside the terminal,
+ * the Sidebar and the other docked panels count against it; over the terminal, the other floats. */
 export function roomOf(frame: HTMLElement): Room {
   const body = frame.parentElement;
   const width = body?.clientWidth || (typeof window === "undefined" ? 0 : window.innerWidth);
-  const sidebar = body?.querySelector<HTMLElement>(":scope > .sidebar") ?? null;
-  const floating = getComputedStyle(frame).position === "absolute";
-  const others = sidebar && getComputedStyle(sidebar).position !== "absolute" ? sidebar.offsetWidth : 0;
+  const floating = floats(frame);
+  const siblings = body ? [...body.querySelectorAll<HTMLElement>(":scope > .panel-frame")].filter((f) => f !== frame) : [];
+  const others = floating
+    ? siblings.filter((f) => f.dataset.place !== "full" && floats(f)).reduce((n, f) => n + ((f.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0), 0)
+    : sidebarRoom(body) + siblings.filter((f) => !floats(f)).reduce((n, f) => n + f.offsetWidth, 0);
   return { body: width, others, floating };
+}
+
+/** Focus, or a window too narrow for a docked panel (styles.css's 1,040 px). */
+function forcedToFloat(frame: HTMLElement): boolean {
+  if (frame.closest<HTMLElement>(".screen")?.dataset.view === "focus") return true;
+  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 1040px)").matches === true;
+}
+
+/** Arranges every docked panel together (#176): docked while all fit beside a usable terminal,
+ * else floating side by side. Cheap, and a no-op when nothing changed, so every frame calls it
+ * after it draws and when the window resizes. */
+export function arrangeAll(layout: PanelLayout) {
+  const list = layout.docked();
+  const first = list[0]?.el;
+  if (!first) return layout.setSpots(new Map());
+  const body = first.parentElement;
+  const width = body?.clientWidth || window.innerWidth;
+  // A panel made full window from docked keeps its docked width underneath.
+  const held = body ? [...body.querySelectorAll<HTMLElement>(":scope > .panel-frame[data-place='full']")].reduce((n, f) => n + f.offsetWidth, 0) : 0;
+  // Its own width: a floating frame is drawn at it whatever its panel is narrowed to; jsdom draws
+  // nothing, so the narrowest default stands in.
+  const slots: Slot[] = list.map(({ id, el }) => ({ id, side: el.dataset.side === "left" ? "left" : "right", want: el.offsetWidth || 320 }));
+  layout.setSpots(arrange({ body: width, others: sidebarRoom(body) + held, forced: forcedToFloat(first) }, slots));
 }
 
 /** The width a docked panel is drawn at now, in percent of the window. */
@@ -73,6 +108,7 @@ export function PanelFrame({
   const place = layout.place(id, fallback);
   const width = layout.width(id);
   const isTop = place === "full" && layout.topFull() === id;
+  const spot = place === "panel" ? layout.spot(id) : undefined;
   const frame = useRef<HTMLDivElement>(null);
   // Full window after being docked in this opening: the docked width stays underneath (so the
   // terminal keeps its size), and Esc docks it again.
@@ -108,6 +144,14 @@ export function PanelFrame({
     return () => window.removeEventListener("resize", measure);
   }, [layout, id, place, width]);
 
+  // The docked panels are arranged together, after every frame draws and when the window resizes.
+  useLayoutEffect(() => arrangeAll(layout));
+  useEffect(() => {
+    const again = () => arrangeAll(layout);
+    window.addEventListener("resize", again);
+    return () => window.removeEventListener("resize", again);
+  }, [layout]);
+
   const toggle = () => layout.setPlace(id, place === "full" ? "panel" : "full");
 
   // A resize in progress shows as one cursor everywhere, and nothing gets selected.
@@ -126,7 +170,9 @@ export function PanelFrame({
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const room = roomOf(el);
     const { min, max } = limitsPx(room);
-    const w = clamp(el.getBoundingClientRect().width || el.offsetWidth || 320, min, max);
+    // The panel as drawn: a float narrowed to share the window is narrower than its frame.
+    const drawn = (el.firstElementChild as HTMLElement | null) ?? el;
+    const w = clamp(drawn.getBoundingClientRect().width || el.offsetWidth || 320, min, max);
     drag.current = { x: e.clientX, w, room, min, max };
     layout.use(id);
     setLive(w);
@@ -177,6 +223,8 @@ export function PanelFrame({
   const style = {
     ...(width !== null ? { "--pane-w": `${width}%` } : {}),
     ...(live !== null ? { "--pane-live": `${Math.round(live)}px` } : {}),
+    ...(spot?.float ? { "--pane-at": `${spot.at}px` } : {}),
+    ...(spot?.float && spot.width !== null ? { "--pane-fit": `${spot.width}px` } : {}),
   } as CSSProperties;
 
   return (
@@ -189,6 +237,7 @@ export function PanelFrame({
       data-side={side}
       {...(held ? { "data-held": "" } : {})}
       {...(isTop ? { "data-top": "" } : {})}
+      {...(spot?.float ? { "data-float": "" } : {})}
       {...(live !== null ? { "data-dragging": "" } : {})}
       style={style}
       onFocusCapture={() => layout.use(id)}

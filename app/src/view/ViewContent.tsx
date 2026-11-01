@@ -15,10 +15,33 @@ import { RowActionGlyph } from "../sidebar/Sidebar";
 export function HeadActions({ actions }: { actions: readonly HeadActionDef[] | undefined }) {
   if (!actions?.length) return null;
   return actions.map((a) => (
-    <button key={a.label} type="button" className="icon-button head-action" aria-label={a.label} title={a.label} onMouseDown={(e) => e.preventDefault()} onClick={() => a.run()}>
+    <button
+      key={a.label}
+      type="button"
+      className="icon-button head-action"
+      aria-label={a.label}
+      title={a.key ? `${a.label} (${a.key})` : a.label}
+      {...(a.key ? { "aria-keyshortcuts": a.key } : {})}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => a.run()}
+    >
       <RowActionGlyph name={a.icon} />
     </button>
   ));
+}
+
+/** A heading button's key (#176), pressed anywhere in its view or section that didn't take it
+ * itself: a table's or graph's own keys and its actions' run first (they stop the key), a text
+ * field keeps its letters, and a held key runs nothing. True when it ran one. */
+export function runHeadKey(e: KeyboardEvent<HTMLElement>, actions: readonly HeadActionDef[] | undefined): boolean {
+  if (!actions?.length || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return false;
+  const action = actions.find((a) => a.key === e.key);
+  if (!action) return false;
+  if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable='true']")) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  if (!e.repeat) action.run();
+  return true;
 }
 
 export function ViewContent({
@@ -92,6 +115,7 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
     e.currentTarget.querySelector<HTMLElement>(".dt-grid, .graph-canvas")?.focus();
   };
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    if (runHeadKey(e, view.content.actions)) return;
     if (e.key !== "Escape") return;
     e.preventDefault();
     e.stopPropagation();
