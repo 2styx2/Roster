@@ -243,6 +243,15 @@ export class PluginManager {
   /** Every Plugin loaded since the start, running or not: what `:plugins` lists. */
   private readonly known = new Map<string, Omit<Loaded, "disposers">>();
   private readonly problems = new Map<string, string>();
+  /** The replies that came for a Plugin while it loads (answers to what its init.lua asked can
+   * overtake the load's own reply): applied once the load's are. */
+  private readonly loading = new Map<string, PluginReply[]>();
+  /** The Plugin commands running now (`PLUGIN NAME`): a line that runs one of them again would
+   * never end (a command whose line names itself, or two naming each other). */
+  private readonly runningCommands = new Set<string>();
+  /** The Plugins whose own `roster.cmd` line runs now: a command of theirs it runs is their
+   * doing, not the user's, so it isn't a new user's call (the user's call carries one hop, Q103). */
+  private readonly byPlugin = new Set<string>();
   private readonly waiting = new Map<string, Prompt>();
   private readonly uses = new Map<string, Use[]>();
   private prompts: Prompt[] = [];
@@ -634,6 +643,8 @@ export class PluginManager {
    * over the network (decision Q97) or from roster serve (Q103). Applied like a call's, if the
    * Plugin still runs. */
   replied(reply: PluginReply): void {
+    const held = this.loading.get(reply.plugin);
+    if (held) return void held.push(reply);
     if (!this.loaded.has(reply.plugin)) return;
     this.used(reply.plugin, "got an answer to a request");
     this.apply(reply);
@@ -738,6 +749,17 @@ export class PluginManager {
   // ---------------------------------------------------------------- loading
 
   private async loadPath(path: string, granted: string[] | null, name: string) {
+    if (!this.loading.has(name)) this.loading.set(name, []);
+    try {
+      await this.loadNow(path, granted, name);
+    } finally {
+      const held = this.loading.get(name) ?? [];
+      this.loading.delete(name);
+      for (const r of held) this.replied(r);
+    }
+  }
+
+  private async loadNow(path: string, granted: string[] | null, name: string) {
     let result;
     try {
       // A built-in Plugin is granted everything it asks for until a permission is revoked.
@@ -844,6 +866,8 @@ export class PluginManager {
     if (!l) return;
     const refused = lineRefused(line, plugin, l.granted, (name) => this.registries.commands.get(name)?.source);
     if (refused) return this.notify(plugin, "warn", `${plugin}: ${refused}`);
+    const word = line.trim().split(/\s+/)[0] ?? "";
+    if (this.runningCommands.has(`${plugin} ${word}`)) return this.notify(plugin, "warn", `${plugin}: :${word} runs itself (its line runs again)`);
     this.ui.run(line.trim());
   }
 
@@ -927,7 +951,14 @@ export class PluginManager {
           label: (a) => (a ? `${op.desc || op.name} ${a}` : op.desc || op.name),
           run: (ctx, arg) => {
             const args = (arg ?? "").trim();
-            this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext);
+            const running = `${plugin} ${op.name}`;
+            this.runningCommands.add(running);
+            try {
+              const context = { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext;
+              this.runFor(plugin, run, context, !this.byPlugin.has(plugin));
+            } finally {
+              this.runningCommands.delete(running);
+            }
           },
           ...(op.complete ? { complete: this.completer(plugin, op.name, op.complete.handler) } : {}),
         };
@@ -1142,8 +1173,14 @@ export class PluginManager {
           }),
         );
       }
-      case "cmd":
-        return this.runLine(plugin, op.line);
+      case "cmd": {
+        this.byPlugin.add(plugin);
+        try {
+          return this.runLine(plugin, op.line);
+        } finally {
+          this.byPlugin.delete(plugin);
+        }
+      }
       case "echo":
         return this.ui.say ? this.ui.say(op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
       case "cmdline": {

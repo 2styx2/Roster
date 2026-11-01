@@ -18,24 +18,45 @@ function tried(roster: FakeRoster): string {
   }
 }
 
-function plugin(name: string, load: FakePlugin["load"]): FakePlugin {
-  return { manifest: { name, version: "1.0.0", description: "", author: null, api: 3, permissions: [] }, load };
+function plugin(name: string, load: FakePlugin["load"], permissions: string[] = []): FakePlugin {
+  return { manifest: { name, version: "1.0.0", description: "", author: null, api: 3, permissions }, load };
 }
 
-function setup(plugins: Record<string, FakePlugin>) {
+/** The manager over the fake Backend, every Plugin installed and granted what it asks. With
+ * `slowLoad`, a load's reply reaches the app only after the answers to what it asked meanwhile, as
+ * the core's `plugin-reply` events can overtake the load's own reply. */
+function setup(plugins: Record<string, FakePlugin>, slowLoad = false) {
   const backend = fakeBackend({ hosts: makeHosts(2), plugins });
+  if (slowLoad) {
+    const load = backend.pluginLoad.bind(backend);
+    backend.pluginLoad = async (...args) => {
+      const r = await load(...args);
+      await new Promise((done) => setTimeout(done, 5));
+      return r;
+    };
+  }
   const registries = builtinRegistries();
   const state: Record<string, unknown> = {
-    [STATE_KEY]: Object.values(plugins).map((p) => ({ path: p.manifest.name, name: p.manifest.name, granted: [], asked: [] })),
+    [STATE_KEY]: Object.values(plugins).map((p) => ({ path: p.manifest.name, name: p.manifest.name, granted: p.manifest.permissions, asked: p.manifest.permissions })),
   };
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
   const ran: string[] = [];
-  const ui: PluginUi = { run: (l) => void ran.push(l), send: () => undefined, copy: async () => undefined };
+  // As the app's: a line runs its command there and then.
+  const ui: PluginUi = {
+    run: (l) => {
+      ran.push(l);
+      const [word = "", ...rest] = l.split(/\s+/);
+      if (ran.length < 200) registries.commands.get(word)?.run({} as never, rest.join(" "));
+    },
+    send: () => undefined,
+    copy: async () => undefined,
+  };
   const manager = new PluginManager(backend, registries, store, ui);
+  backend.onPluginReply((r) => manager.replied(r));
   return { manager, registries, ran };
 }
 
-const settle = () => new Promise((done) => setTimeout(done, 0));
+const settle = () => new Promise((done) => setTimeout(done, 5));
 
 describe("the user's call", () => {
   it("a finder's items and a :check section's lines are never it", async () => {
@@ -73,5 +94,73 @@ describe("the user's call", () => {
     manager.answerConfirm(false);
     await settle();
     expect(said).toEqual(["a no copy refused", "b no copy ok"]);
+  });
+});
+
+describe("roster.cmd", () => {
+  it("running the Plugin's own command doesn't make a new user's call, so it can't carry one on", async () => {
+    const said: string[] = [];
+    const chain = plugin("chain", (roster) => {
+      roster.commands.add("start", { run: () => roster.cmd("then") });
+      roster.commands.add("then", { run: () => said.push(`then ${tried(roster)}`) });
+    });
+    const { manager, registries } = setup({ chain });
+    await manager.start();
+    registries.commands.get("start")?.run({} as never, "");
+    await settle();
+    await settle();
+    expect(said).toEqual(["then copy refused"]);
+    // Typed by the user, the same command is theirs.
+    registries.commands.get("then")?.run({} as never, "");
+    await settle();
+    expect(said).toEqual(["then copy refused", "then copy ok"]);
+  });
+});
+
+describe("loading", () => {
+  it("an answer to what init.lua asked, arriving before the load's reply, is applied after it", async () => {
+    let loads = 0;
+    const asker = plugin(
+      "asker",
+      (roster) => {
+        const load = ++loads;
+        roster.status.set("state", { text: `loading ${load}` });
+        roster.serve?.request("mesh.status", {}, (_r, why) => roster.status.set("state", { text: `answered ${load}: ${why ? "no Mesh" : "Mesh"}` }));
+      },
+      ["serve:mesh.status"],
+    );
+    const { manager, registries } = setup({ asker }, true);
+    await manager.start();
+    await settle();
+    expect(registries.status.get("state")?.text).toBe("answered 1: no Mesh");
+    // A reload: the new load's answer is the new load's, not put on the old one and then lost.
+    await manager.reload("asker");
+    await settle();
+    expect(registries.status.get("state")?.text).toBe("answered 2: no Mesh");
+  });
+});
+
+describe("a Plugin's command lines", () => {
+  it("a command whose line runs itself, or two that run each other, stop with a notice", async () => {
+    const loops = plugin("loops", (roster) => {
+      roster.commands.add("again", { run: "again" });
+      roster.commands.add("ping", { run: "pong" });
+      roster.commands.add("pong", { run: "ping" });
+      roster.commands.add("hello", { run: "pong-free" });
+      roster.commands.add("pong-free", { run: () => undefined });
+    });
+    const { manager, registries, ran } = setup({ loops });
+    await manager.start();
+    registries.commands.get("again")?.run({} as never, "");
+    expect(ran).toEqual([]);
+    registries.commands.get("ping")?.run({} as never, "");
+    expect(ran).toEqual(["pong"]);
+    // A line that runs another command is fine.
+    registries.commands.get("hello")?.run({} as never, "");
+    expect(ran).toEqual(["pong", "pong-free"]);
+    expect(manager.snapshot().notices.map((n) => n.text)).toEqual([
+      "loops: :again runs itself (its line runs again)",
+      "loops: :ping runs itself (its line runs again)",
+    ]);
   });
 });
