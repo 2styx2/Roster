@@ -25,10 +25,12 @@
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{Client, Method, Url, redirect};
+use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The most a request's body may be.
@@ -66,11 +68,55 @@ pub const METHODS: &[&str] = &["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"];
 /// One site a Plugin may reach, as `network:SITE` names it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Site {
+    /// `private:` before it (decision Q116): a name that resolves inside the private network,
+    /// and only there. Never an address or a wildcard.
+    pub private: bool,
     /// Plain http (`http://` before it); else https only.
     pub http: bool,
     pub host: SiteHost,
     /// The one port; `None`: the scheme's own (443, or 80 for http).
     pub port: Option<u16>,
+    /// `#sha256:HEX` after it (decision Q116): the one certificate trusted for this https site,
+    /// in place of the OS's trust store.
+    pub pin: Option<Pin>,
+}
+
+/// A certificate's SHA-256 fingerprint: the hash of its DER bytes, as browsers show it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Pin(pub [u8; 32]);
+
+impl Pin {
+    /// 64 lower-case hex digits, no colons.
+    fn parse(hex: &str) -> Option<Pin> {
+        if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+            return None;
+        }
+        let mut out = [0u8; 32];
+        for (i, pair) in hex.as_bytes().chunks(2).enumerate() {
+            out[i] = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+        }
+        Some(Pin(out))
+    }
+
+    /// The fingerprint of a certificate's DER bytes.
+    pub fn of(der: &[u8]) -> Pin {
+        let digest = ring::digest::digest(&ring::digest::SHA256, der);
+        let mut out = [0u8; 32];
+        out.copy_from_slice(digest.as_ref());
+        Pin(out)
+    }
+}
+
+impl fmt::Display for Pin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.iter().try_for_each(|b| write!(f, "{b:02x}"))
+    }
+}
+
+impl fmt::Debug for Pin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sha256:{self}")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -102,16 +148,31 @@ fn is_domain(s: &str) -> bool {
         && !labels[labels.len() - 1].chars().all(|c| c.is_ascii_digit())
 }
 
-const SITE_HELP: &str = "a site is a domain such as api.example.com, *.example.com for the names under it, or an address such as 10.0.0.5; http:// before it allows plain http, :PORT after it another port";
+const SITE_HELP: &str = "a site is a domain such as api.example.com, *.example.com for the names under it, or an address such as 10.0.0.5; http:// before it allows plain http, :PORT after it another port; private: before a name keeps it inside your private network, and #sha256:FINGERPRINT after an https site trusts only that certificate";
 
 impl Site {
     /// `api.example.com`, `*.example.com`, `http://10.0.0.5:8080`, `[fd00::5]:8443`.
     pub fn parse(text: &str) -> Result<Site, String> {
         let bad = |why: &str| Err(format!("\"network:{text}\": {why} ({SITE_HELP})"));
-        let (http, rest) = match text.strip_prefix("http://") {
+        let (private, rest) = match text.strip_prefix("private:") {
             Some(rest) => (true, rest),
-            None if text.contains("://") => return bad("only http:// may come before a site; https is the default"),
             None => (false, text),
+        };
+        let (rest, pin) = match rest.split_once('#') {
+            None => (rest, None),
+            Some((site, pin)) => match pin.strip_prefix("sha256:").and_then(Pin::parse) {
+                Some(pin) => (site, Some(pin)),
+                None => {
+                    return bad(
+                        "a pin is #sha256: and the certificate's SHA-256 fingerprint as 64 lower-case hex digits, without colons",
+                    );
+                }
+            },
+        };
+        let (http, rest) = match rest.strip_prefix("http://") {
+            Some(rest) => (true, rest),
+            None if rest.contains("://") => return bad("only http:// may come before a site; https is the default"),
+            None => (false, rest),
         };
         if rest.is_empty() {
             return bad("which site?");
@@ -158,7 +219,8 @@ impl Site {
                 SiteHost::Under(under.to_string())
             } else if host.contains('*') {
                 return bad("a wildcard is only *. at the start");
-            } else if is_domain(host) {
+            } else if is_domain(host) || (private && is_label(host) && !host.chars().all(|c| c.is_ascii_digit())) {
+                // A name on the private network may be one label (`appliance`), as LANs name things.
                 SiteHost::Name(host.to_string())
             } else if host.chars().all(|c| c.is_ascii_digit() || c == '.') {
                 return bad("that isn't an IPv4 address");
@@ -174,7 +236,40 @@ impl Site {
                 _ => return bad("the port is a number from 1 to 65535"),
             },
         };
-        Ok(Site { http, host, port })
+        if private {
+            match &host {
+                SiteHost::Ip(ip) => {
+                    return bad(&format!(
+                        "an address is a site of its own: write network:{}{}",
+                        if http { "http://" } else { "" },
+                        match ip {
+                            IpAddr::V4(v4) => v4.to_string(),
+                            IpAddr::V6(v6) => format!("[{v6}]"),
+                        }
+                    ));
+                }
+                SiteHost::Under(_) => return bad("private: names one site, never a wildcard"),
+                SiteHost::Name(n) if n == "localhost" || n.ends_with(".localhost") => {
+                    return bad("that's this computer, not your private network: list 127.0.0.1 if you mean it");
+                }
+                SiteHost::Name(_) => {}
+            }
+        }
+        if pin.is_some() {
+            if http {
+                return bad("plain http has no certificate to pin");
+            }
+            if matches!(host, SiteHost::Under(_)) {
+                return bad("a pin is for one site, never a wildcard");
+            }
+        }
+        Ok(Site {
+            private,
+            http,
+            host,
+            port,
+            pin,
+        })
     }
 
     /// Whether `url` is on this site: its scheme, host and port.
@@ -201,7 +296,7 @@ impl Site {
     pub fn risk(&self) -> String {
         let mut text = format!(
             "Can send data to {} and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer.",
-            self.shown()
+            self.place()
         );
         if self.http {
             text.push_str(" Plain http: anyone on the way can read and change it.");
@@ -211,24 +306,55 @@ impl Site {
         {
             text.push_str(" That address is on this computer or a private network.");
         }
+        if self.private {
+            text.push_str(" It reaches inside your private network: whatever your network's DNS says that name is there. roster lets it reach only a private address, never this computer or the internet.");
+        }
+        if let Some(pin) = &self.pin {
+            text.push_str(&format!(
+                " Trusts only the certificate whose SHA-256 starts {}, in place of the ones your computer trusts, for this site alone.",
+                &pin.to_string()[..16]
+            ));
+        }
         text
     }
 
-    /// The site as a person reads it: `api.example.com`, `any name under example.com`.
+    /// The site as a person reads it: `api.example.com`, `any site under example.com`,
+    /// `nas.lan on your private network, with a pinned certificate`.
     pub fn shown(&self) -> String {
-        match &self.host {
+        match self.pin {
+            Some(_) => format!("{}, with a pinned certificate", self.place()),
+            None => self.place(),
+        }
+    }
+
+    /// Where it reaches, without the pin.
+    fn place(&self) -> String {
+        let bare = Site {
+            private: false,
+            pin: None,
+            ..self.clone()
+        };
+        let text = match &self.host {
             SiteHost::Under(under) => format!(
                 "any site under {under}{}{}",
                 if self.http { " over plain http" } else { "" },
                 self.port.map(|p| format!(" on port {p}")).unwrap_or_default()
             ),
-            _ => self.to_string(),
+            _ => bare.to_string(),
+        };
+        if self.private {
+            format!("{text} on your private network")
+        } else {
+            text
         }
     }
 }
 
 impl fmt::Display for Site {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.private {
+            f.write_str("private:")?;
+        }
         if self.http {
             f.write_str("http://")?;
         }
@@ -240,6 +366,9 @@ impl fmt::Display for Site {
         }
         if let Some(p) = self.port {
             write!(f, ":{p}")?;
+        }
+        if let Some(pin) = &self.pin {
+            write!(f, "#sha256:{pin}")?;
         }
         Ok(())
     }
@@ -293,35 +422,256 @@ fn is_public_v4(ip: Ipv4Addr) -> bool {
         || a >= 224) // multicast, reserved, broadcast
 }
 
-/// Whether any of `sites` allows `url`.
-pub fn allowed(sites: &[Site], url: &Url) -> bool {
-    sites.iter().any(|s| s.allows(url))
+/// Whether `ip` is on a private network and nowhere else: 10/8, 172.16/12, 192.168/16, shared
+/// address space (100.64/10, CGNAT and overlay VPNs) and IPv6 unique local (fc00::/7), or an
+/// IPv4-mapped one of those. Never this computer, link-local (where cloud metadata lives),
+/// multicast or a public address.
+pub fn is_lan(ip: IpAddr) -> bool {
+    let v4 = |ip: Ipv4Addr| {
+        let [a, b, ..] = ip.octets();
+        a == 10 || (a == 172 && (16..32).contains(&b)) || (a == 192 && b == 168) || (a == 100 && (64..128).contains(&b))
+    };
+    match ip {
+        IpAddr::V4(ip) => v4(ip),
+        IpAddr::V6(ip) => match ip.to_ipv4_mapped() {
+            Some(mapped) => v4(mapped),
+            None => (ip.segments()[0] & 0xfe00) == 0xfc00,
+        },
+    }
 }
 
-/// Resolves a name and refuses it if any address it gives isn't public; the connection then
-/// goes only to the addresses checked here (no second lookup to re-point).
-struct PublicOnly;
+/// The sites a request to `url` is judged by: a name a `private:` site lists is reached only
+/// through the private sites, so no public site (a wildcard over it, another port) widens it.
+fn judged_by<'a>(sites: &'a [Site], url: &Url) -> impl Iterator<Item = &'a Site> {
+    let private = matches!(url.host(), Some(url::Host::Domain(d)) if is_private_name(sites, d));
+    sites.iter().filter(move |s| s.private == private)
+}
 
-impl Resolve for PublicOnly {
+fn is_private_name(sites: &[Site], name: &str) -> bool {
+    sites
+        .iter()
+        .any(|s| s.private && matches!(&s.host, SiteHost::Name(n) if n == name))
+}
+
+/// What one manifest's sites may not say together: a name both `private:` and not (which rule
+/// would its lookup follow?), or one site twice with different pins (which certificate?).
+pub fn check_together(sites: &[Site]) -> Result<(), String> {
+    for (i, a) in sites.iter().enumerate() {
+        for b in &sites[i + 1..] {
+            if let (SiteHost::Name(x), SiteHost::Name(y)) = (&a.host, &b.host)
+                && x == y
+                && a.private != b.private
+            {
+                return Err(format!(
+                    "\"network:{a}\" and \"network:{b}\": {x} is either a name on your private network (private:{x}) or a public one, not both"
+                ));
+            }
+            let bare = |s: &Site| Site { pin: None, ..s.clone() };
+            if a.pin != b.pin && bare(a) == bare(b) {
+                let bare = bare(a);
+                return Err(format!(
+                    "\"network:{a}\" and \"network:{b}\": {bare} is one site, with one pin or none"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether any of `sites` allows `url`.
+pub fn allowed(sites: &[Site], url: &Url) -> bool {
+    site_for(sites, url).is_some()
+}
+
+/// The site that allows `url`: one naming its host exactly before a wildcard over it, since a
+/// site's pin holds for that exact site.
+pub fn site_for<'a>(sites: &'a [Site], url: &Url) -> Option<&'a Site> {
+    let mut matching = judged_by(sites, url).filter(|s| s.allows(url));
+    let first = matching.next()?;
+    if !matches!(first.host, SiteHost::Under(_)) {
+        return Some(first);
+    }
+    matching.find(|s| !matches!(s.host, SiteHost::Under(_))).or(Some(first))
+}
+
+/// Which addresses a name may lead to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Public addresses only: every site's name, unless it's listed `private:`.
+    Public,
+    /// Private-network addresses only ([`is_lan`]): a `private:` site's name.
+    Private,
+    /// The proxy the user set: wherever their own setting says.
+    Proxy,
+}
+
+impl Mode {
+    /// The rule for the name `host`, given the Plugin's `sites` and the user's proxy's name.
+    pub fn of(sites: &[Site], host: &str, proxy: Option<&str>) -> Mode {
+        if is_private_name(sites, host) {
+            Mode::Private
+        } else if proxy == Some(host) {
+            Mode::Proxy
+        } else {
+            Mode::Public
+        }
+    }
+
+    /// `addrs` if every one is allowed, else why not.
+    pub fn admit(self, host: &str, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, String> {
+        if addrs.is_empty() {
+            return Err(format!("{host} has no address"));
+        }
+        let wrong = match self {
+            Mode::Public => addrs.iter().find(|a| !is_public(a.ip())).map(|a| {
+                format!(
+                    "{host} is at {}, an address on this computer or a private network: a Plugin reaches one only when its manifest lists the address itself, or the name as private:{host}",
+                    a.ip()
+                )
+            }),
+            Mode::Private => addrs.iter().find(|a| !is_lan(a.ip())).map(|a| {
+                format!(
+                    "{host} is at {}, which isn't on your private network: a private: site reaches only private addresses, never this computer or the internet",
+                    a.ip()
+                )
+            }),
+            Mode::Proxy => None,
+        };
+        match wrong {
+            Some(why) => Err(why),
+            None => Ok(addrs),
+        }
+    }
+}
+
+/// Resolves a name and refuses it unless every address it gives is one its [`Mode`] allows; the
+/// connection then goes only to the addresses checked here (no second lookup to re-point).
+struct Checked {
+    sites: Arc<Vec<Site>>,
+    proxy: Option<String>,
+}
+
+impl Resolve for Checked {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_string();
+        let mode = Mode::of(&self.sites, &host, self.proxy.as_deref());
         Box::pin(async move {
             let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0))
                 .await
                 .map_err(|e| format!("couldn't look up {host}: {e}"))?
                 .collect();
-            if addrs.is_empty() {
-                return Err(format!("{host} has no address").into());
-            }
-            if let Some(a) = addrs.iter().find(|a| !is_public(a.ip())) {
-                return Err(format!(
-                    "{host} is at {}, an address on this computer or a private network: a Plugin reaches one only when its manifest lists the address itself",
-                    a.ip()
-                )
-                .into());
-            }
+            let addrs = mode.admit(&host, addrs)?;
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
+    }
+}
+
+/// The user's proxy for Plugins' requests (`plugin_proxy` in init.lua, decision Q116): an
+/// `http://HOST:PORT` address and nothing else, never credentials. A Plugin can't set or see it.
+/// Only requests to public names go through it; a `private:` site and an address go direct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proxy {
+    url: Url,
+}
+
+impl Proxy {
+    pub fn parse(text: &str) -> Result<Proxy, String> {
+        let bad = |why: &str| {
+            Err(format!(
+                "{why} (a proxy is http://HOST:PORT, such as http://10.0.0.5:3128)"
+            ))
+        };
+        let Ok(url) = Url::parse(text) else {
+            return bad("that isn't an address");
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            // Never repeat what was written: it may hold a password.
+            return bad("a proxy carries no user or password: roster never sends credentials to one");
+        }
+        if url.scheme() != "http" {
+            return bad("only an http:// proxy (https still goes through it end to end, as a tunnel)");
+        }
+        if url.host().is_none() || url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+            return bad("only http://HOST:PORT, with no path");
+        }
+        if text.trim_end_matches('/') != url.as_str().trim_end_matches('/') {
+            return bad("write it in lower case, as http://HOST:PORT");
+        }
+        Ok(Proxy { url })
+    }
+
+    /// Whether a request to `url` goes through the proxy: only to a public name. An address and
+    /// a `private:` site's name are on a network the proxy isn't for.
+    pub fn carries(&self, sites: &[Site], url: &Url) -> bool {
+        matches!(url.host(), Some(url::Host::Domain(d)) if !is_private_name(sites, d))
+    }
+
+    /// Its name, when it's given by one: the one name that may lead anywhere.
+    fn name(&self) -> Option<String> {
+        match self.url.host() {
+            Some(url::Host::Domain(d)) => Some(d.to_string()),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Proxy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.url.as_str().trim_end_matches('/'))
+    }
+}
+
+/// What the host hands each Plugin's client: the user's proxy, and where its requests are counted.
+#[derive(Clone, Default)]
+pub struct Setup {
+    pub proxy: Option<Proxy>,
+    pub log: Arc<Log>,
+}
+
+/// How a Plugin used one site, for `:plugins` (decision Q116): counts and a time, never a path,
+/// a query, a header or a body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SiteCount {
+    /// The site as its permission names it (`api.example.com`, `private:nas.lan`).
+    pub site: String,
+    /// Requests sent.
+    pub requests: u64,
+    /// Of those, the ones that got no answer (an HTTP error status is an answer).
+    pub failed: u64,
+    /// When the last one was sent, in milliseconds since 1970.
+    pub last: u64,
+}
+
+/// One Plugin's [`SiteCount`]s, kept by the host across its reloads, for as long as the app runs.
+#[derive(Debug, Default)]
+pub struct Log(Mutex<BTreeMap<String, SiteCount>>);
+
+impl Log {
+    fn sent(&self, site: &Site) {
+        let last = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let key = site.to_string();
+        let mut counts = self.0.lock().expect("network log");
+        let row = counts.entry(key.clone()).or_insert_with(|| SiteCount {
+            site: key,
+            requests: 0,
+            failed: 0,
+            last: 0,
+        });
+        row.requests += 1;
+        row.last = last;
+    }
+
+    fn failed(&self, site: &Site) {
+        if let Some(row) = self.0.lock().expect("network log").get_mut(&site.to_string()) {
+            row.failed += 1;
+        }
+    }
+
+    /// Every site used, in order.
+    pub fn counts(&self) -> Vec<SiteCount> {
+        self.0.lock().expect("network log").values().cloned().collect()
     }
 }
 
@@ -369,43 +719,39 @@ pub enum Answer {
 /// requests in flight.
 pub struct Net {
     sites: Arc<Vec<Site>>,
+    /// For every site without a pin: the OS's trust store checks certificates.
     client: Client,
+    /// For each pinned site, a client of its own that trusts only its pin and never leaves it.
+    pinned: Vec<(Site, Client)>,
     in_flight: Arc<AtomicUsize>,
     tasks: std::cell::RefCell<Vec<tokio::task::AbortHandle>>,
+    log: Arc<Log>,
+}
+
+/// Which client a request belongs to: the shared one (`None`), or a pinned site's.
+fn client_of<'a>(sites: &'a [Site], url: &Url) -> Option<&'a Site> {
+    site_for(sites, url).filter(|s| s.pin.is_some())
 }
 
 impl Net {
-    pub fn new(sites: Vec<Site>) -> Result<Net, String> {
+    pub fn new(sites: Vec<Site>, setup: Setup) -> Result<Net, String> {
+        let Setup { proxy, log } = setup;
         // rustls with ring; the platform's trust store checks certificates.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let sites = Arc::new(sites);
-        let for_redirects = Arc::clone(&sites);
-        let client = Client::builder()
-            .no_proxy()
-            .referer(false)
-            .retry(reqwest::retry::never())
-            .redirect(redirect::Policy::custom(move |attempt| {
-                if attempt.previous().len() > MAX_REDIRECTS {
-                    attempt.error(format!("more than {MAX_REDIRECTS} redirects"))
-                } else if allowed(&for_redirects, attempt.url()) {
-                    attempt.follow()
-                } else {
-                    let to = attempt.url().origin().ascii_serialization();
-                    attempt.error(format!("redirected to {to}, which the Plugin may not reach"))
-                }
-            }))
-            .dns_resolver(PublicOnly)
-            .connect_timeout(CONNECT_TIMEOUT)
-            .pool_max_idle_per_host(2)
-            .pool_idle_timeout(Duration::from_secs(30))
-            .user_agent(concat!("roster/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| format!("couldn't start the HTTP client: {}", chain(&e)))?;
+        let client = build(&sites, proxy.as_ref(), None)?;
+        let pinned = sites
+            .iter()
+            .filter(|s| s.pin.is_some())
+            .map(|s| Ok((s.clone(), build(&sites, proxy.as_ref(), Some(s))?)))
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(Net {
             sites,
             client,
+            pinned,
             in_flight: Arc::new(AtomicUsize::new(0)),
             tasks: std::cell::RefCell::default(),
+            log,
         })
     }
 
@@ -477,6 +823,15 @@ impl Net {
     /// [`MAX_IN_FLIGHT`] requests going already.
     pub fn start(&self, request: Request, done: impl FnOnce(Answer) + Send + 'static) -> Result<(), String> {
         let rt = runtime()?;
+        let client = match client_of(&self.sites, &request.url) {
+            Some(site) => self
+                .pinned
+                .iter()
+                .find(|(s, _)| s == site)
+                .map(|(_, c)| c.clone())
+                .ok_or("no client for that pinned site")?,
+            None => self.client.clone(),
+        };
         let n = self.in_flight.fetch_add(1, Ordering::SeqCst);
         if n >= MAX_IN_FLIGHT {
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -485,10 +840,18 @@ impl Net {
             ));
         }
         let in_flight = Arc::clone(&self.in_flight);
-        let client = self.client.clone();
+        // check() made sure a site allows it; counted by that site, never by its URL.
+        let site = site_for(&self.sites, &request.url).cloned();
+        if let Some(site) = &site {
+            self.log.sent(site);
+        }
+        let log = Arc::clone(&self.log);
         let task = rt.spawn(async move {
             let answer = fetch(&client, request).await;
             in_flight.fetch_sub(1, Ordering::SeqCst);
+            if let (Answer::Failed(_), Some(site)) = (&answer, &site) {
+                log.failed(site);
+            }
             // Delivering waits for the Plugin's thread: not on a network thread.
             let _ = tokio::task::spawn_blocking(move || done(answer)).await;
         });
@@ -505,6 +868,132 @@ impl Drop for Net {
         for t in self.tasks.borrow().iter() {
             t.abort();
         }
+    }
+}
+
+/// A client for `sites`: the shared one (`pinned` is `None`), whose redirects never lead to a
+/// pinned site, or a pinned site's, which trusts only its pin and is never redirected off it.
+fn build(sites: &Arc<Vec<Site>>, proxy: Option<&Proxy>, pinned: Option<&Site>) -> Result<Client, String> {
+    let for_redirects = Arc::clone(sites);
+    let mine = pinned.cloned();
+    let mut builder = Client::builder()
+        .no_proxy()
+        .referer(false)
+        .retry(reqwest::retry::never())
+        .redirect(redirect::Policy::custom(move |attempt| {
+            let to = attempt.url().origin().ascii_serialization();
+            if attempt.previous().len() > MAX_REDIRECTS {
+                attempt.error(format!("more than {MAX_REDIRECTS} redirects"))
+            } else if !allowed(&for_redirects, attempt.url()) {
+                attempt.error(format!("redirected to {to}, which the Plugin may not reach"))
+            } else if client_of(&for_redirects, attempt.url()) != mine.as_ref() {
+                attempt.error(format!(
+                    "redirected to {to}: a redirect never leads to or from a site with a pinned certificate"
+                ))
+            } else {
+                attempt.follow()
+            }
+        }))
+        .dns_resolver(Checked {
+            sites: Arc::clone(sites),
+            proxy: proxy.and_then(Proxy::name),
+        })
+        .connect_timeout(CONNECT_TIMEOUT)
+        .pool_max_idle_per_host(2)
+        .pool_idle_timeout(Duration::from_secs(30))
+        .user_agent(concat!("roster/", env!("CARGO_PKG_VERSION")));
+    if let Some(site) = pinned {
+        builder = builder.tls_backend_preconfigured(pinned_tls(site)?);
+    }
+    // Added after no_proxy(): only this one, never the environment's or the system's.
+    if let Some(proxy) = proxy {
+        let (proxy, sites) = (proxy.clone(), Arc::clone(sites));
+        builder = builder.proxy(reqwest::Proxy::custom(move |url| {
+            proxy.carries(&sites, url).then(|| proxy.url.clone())
+        }));
+    }
+    builder
+        .build()
+        .map_err(|e| format!("couldn't start the HTTP client: {}", chain(&e)))
+}
+
+/// TLS that trusts one certificate for one site (decision Q116): the end certificate's SHA-256
+/// must be the pin, the handshake must be signed with that certificate's key (checked as rustls
+/// always does), and the name asked for must be the site's. No chain, no expiry, no OS trust.
+fn pinned_tls(site: &Site) -> Result<rustls::ClientConfig, String> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let name = match &site.host {
+        SiteHost::Name(n) => rustls::pki_types::ServerName::try_from(n.clone()).map_err(|e| e.to_string())?,
+        SiteHost::Ip(ip) => rustls::pki_types::ServerName::IpAddress((*ip).into()),
+        SiteHost::Under(_) => return Err("a wildcard has no pin".into()),
+    };
+    let verifier = Pinned {
+        name,
+        pin: site.pin.ok_or("no pin")?,
+        algorithms: provider.signature_verification_algorithms,
+    };
+    Ok(rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth())
+}
+
+#[derive(Debug)]
+struct Pinned {
+    name: rustls::pki_types::ServerName<'static>,
+    pin: Pin,
+    algorithms: rustls::crypto::WebPkiSupportedAlgorithms,
+}
+
+impl rustls::client::danger::ServerCertVerifier for Pinned {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        if *server_name != self.name {
+            return Err(rustls::Error::General(format!(
+                "the pin is for {}, not {}",
+                self.name.to_str(),
+                server_name.to_str()
+            )));
+        }
+        let got = Pin::of(end_entity.as_ref());
+        // Both are public; the comparison needn't be constant-time.
+        if got != self.pin {
+            return Err(rustls::Error::General(format!(
+                "its certificate's SHA-256 is {got}, not the {} the manifest pins",
+                self.pin
+            )));
+        }
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.algorithms)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.algorithms)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.algorithms.supported_schemes()
     }
 }
 
@@ -681,7 +1170,13 @@ mod tests {
     fn a_name_that_resolves_to_this_computer_is_refused() {
         use std::str::FromStr;
         let rt = runtime().unwrap();
-        let err = match rt.block_on(PublicOnly.resolve(Name::from_str("localhost").unwrap())) {
+        let err = match rt.block_on(
+            Checked {
+                sites: Arc::default(),
+                proxy: None,
+            }
+            .resolve(Name::from_str("localhost").unwrap()),
+        ) {
             Ok(addrs) => panic!("localhost resolved to {:?}", addrs.collect::<Vec<_>>()),
             Err(e) => e.to_string(),
         };
@@ -730,5 +1225,162 @@ mod tests {
         ] {
             assert!(is_public(ip.parse().unwrap()), "{ip} is public");
         }
+    }
+
+    const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn a_private_site_is_a_name_on_the_private_network() {
+        for s in ["private:nas.lan", "private:http://nas.lan:8080", "private:appliance"] {
+            let site = Site::parse(s).unwrap();
+            assert!(site.private, "{s}");
+            assert_eq!(site.to_string(), s);
+        }
+        let site = Site::parse("private:nas.lan").unwrap();
+        assert!(site.allows(&url("https://nas.lan/status")));
+        assert!(!site.allows(&url("http://nas.lan/status")));
+        assert!(!site.allows(&url("https://x.nas.lan/")));
+        for no in [
+            "private:",
+            "private:10.0.0.5",
+            "private:[fd00::5]",
+            "private:*.lan",
+            "private:localhost",
+            "private:x.localhost",
+            "private:private:nas.lan",
+            "http://private:nas.lan",
+            "private:NAS.lan",
+        ] {
+            assert!(Site::parse(no).is_err(), "{no} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_pin_names_one_certificate_for_one_https_site() {
+        for s in [
+            format!("appliance.example.com#sha256:{PIN}"),
+            format!("private:appliance.lan:8443#sha256:{PIN}"),
+            format!("10.0.0.5:8443#sha256:{PIN}"),
+            format!("[fd00::5]#sha256:{PIN}"),
+        ] {
+            let site = Site::parse(&s).unwrap();
+            assert_eq!(site.pin.map(|p| p.to_string()).as_deref(), Some(PIN), "{s}");
+            assert_eq!(site.to_string(), s);
+        }
+        let upper = PIN.to_uppercase();
+        let colons: Vec<String> = PIN
+            .as_bytes()
+            .chunks(2)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect();
+        for no in [
+            format!("http://10.0.0.5#sha256:{PIN}"),
+            format!("*.example.com#sha256:{PIN}"),
+            format!("10.0.0.5#sha256:{upper}"),
+            format!("10.0.0.5#sha256:{}", colons.join(":")),
+            format!("10.0.0.5#sha256:{}", &PIN[2..]),
+            format!("10.0.0.5#md5:{}", &PIN[..32]),
+            "10.0.0.5#sha256:".to_string(),
+            "10.0.0.5#".to_string(),
+        ] {
+            assert!(Site::parse(&no).is_err(), "{no} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_pinned_site_still_matches_by_scheme_name_and_port() {
+        let site = Site::parse(&format!("private:appliance.lan:8443#sha256:{PIN}")).unwrap();
+        assert!(site.allows(&url("https://appliance.lan:8443/api")));
+        assert!(!site.allows(&url("https://appliance.lan/api")));
+    }
+
+    fn sites(list: &[&str]) -> Vec<Site> {
+        list.iter().map(|s| Site::parse(s).unwrap()).collect()
+    }
+
+    #[test]
+    fn a_name_listed_as_private_is_reached_only_through_its_private_site() {
+        // A wildcard over it doesn't widen it to another scheme or port.
+        let both = sites(&["*.example.lan", "private:http://nas.example.lan:8080"]);
+        assert!(allowed(&both, &url("http://nas.example.lan:8080/")));
+        assert!(!allowed(&both, &url("https://nas.example.lan/")));
+        assert!(allowed(&both, &url("https://web.example.lan/")));
+        assert_eq!(Mode::of(&both, "nas.example.lan", None), Mode::Private);
+        assert_eq!(Mode::of(&both, "web.example.lan", None), Mode::Public);
+    }
+
+    fn addrs(list: &[&str]) -> Vec<SocketAddr> {
+        list.iter().map(|a| SocketAddr::new(a.parse().unwrap(), 0)).collect()
+    }
+
+    #[test]
+    fn a_private_name_reaches_only_private_addresses() {
+        for ok in [
+            &["10.0.0.5"][..],
+            &["192.168.1.20", "fd00::5"],
+            &["172.16.0.9"],
+            &["100.64.0.7"],
+        ] {
+            assert!(Mode::Private.admit("nas.lan", addrs(ok)).is_ok(), "{ok:?}");
+        }
+        for no in [
+            &["45.10.20.30"][..],
+            &["10.0.0.5", "45.10.20.30"],
+            &["127.0.0.1"],
+            &["::1"],
+            &["169.254.169.254"],
+            &["fe80::1"],
+            &["0.0.0.0"],
+            &["224.0.0.1"],
+            &["::ffff:127.0.0.1"],
+        ] {
+            let e = Mode::Private.admit("nas.lan", addrs(no)).unwrap_err();
+            assert!(e.contains("nas.lan is at"), "{e}");
+        }
+    }
+
+    #[test]
+    fn a_public_name_reaches_only_public_addresses() {
+        assert!(Mode::Public.admit("api.example.com", addrs(&["45.10.20.30"])).is_ok());
+        for no in [&["10.0.0.5"][..], &["45.10.20.30", "192.168.1.1"], &["127.0.0.1"]] {
+            assert!(Mode::Public.admit("api.example.com", addrs(no)).is_err(), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn a_proxy_is_an_http_address_with_no_credentials() {
+        for ok in [
+            "http://10.0.0.5:3128",
+            "http://proxy.example.com:8080",
+            "http://proxy:3128",
+            "http://[fd00::5]:3128",
+        ] {
+            let p = Proxy::parse(ok).unwrap();
+            assert_eq!(p.to_string(), ok);
+        }
+        for no in [
+            "http://someone:secret@10.0.0.5:3128",
+            "http://someone@10.0.0.5:3128",
+            "https://10.0.0.5:3128",
+            "socks5://10.0.0.5:1080",
+            "http://10.0.0.5:3128/path",
+            "http://10.0.0.5:3128?x=1",
+            "10.0.0.5:3128",
+            "",
+        ] {
+            assert!(Proxy::parse(no).is_err(), "{no} must be refused");
+        }
+        let e = Proxy::parse("http://someone:secret@10.0.0.5:3128").unwrap_err();
+        assert!(!e.contains("secret"), "the error repeats the password: {e}");
+    }
+
+    #[test]
+    fn only_public_names_go_through_the_proxy() {
+        let proxy = Proxy::parse("http://10.0.0.5:3128").unwrap();
+        let s = sites(&["api.example.com", "*.example.org", "10.0.0.9", "private:nas.lan"]);
+        assert!(proxy.carries(&s, &url("https://api.example.com/")));
+        assert!(proxy.carries(&s, &url("https://a.example.org/")));
+        assert!(!proxy.carries(&s, &url("https://10.0.0.9/")));
+        assert!(!proxy.carries(&s, &url("https://nas.lan/")));
     }
 }

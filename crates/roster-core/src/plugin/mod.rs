@@ -230,6 +230,8 @@ pub struct Status {
     pub granted: Vec<Permission>,
     pub errors: u32,
     pub disabled: Option<String>,
+    /// Its network requests by site since the app started (decision Q116).
+    pub requests: Vec<network::SiteCount>,
 }
 
 enum Job {
@@ -281,6 +283,10 @@ pub struct PluginHost {
     /// The app's data folder: each Plugin keeps its data in `plugin-data/NAME` there
     /// ([`folder::Storage`], decision Q93). None: `roster.storage` says there's no data folder.
     data: std::sync::OnceLock<PathBuf>,
+    /// The user's proxy for Plugins' requests (`plugin_proxy`, decision Q116), for each load.
+    proxy: Mutex<Option<network::Proxy>>,
+    /// Each Plugin's network requests by site, by name: kept across reloads (decision Q116).
+    logs: Mutex<BTreeMap<String, Arc<network::Log>>>,
 }
 
 impl PluginHost {
@@ -294,7 +300,16 @@ impl PluginHost {
             listener: Arc::default(),
             generation: AtomicU64::new(0),
             data: std::sync::OnceLock::new(),
+            proxy: Mutex::default(),
+            logs: Mutex::default(),
         }
+    }
+
+    /// The proxy Plugins' requests to public names go through (`plugin_proxy` in init.lua,
+    /// decision Q116), or none. A Plugin loaded from now on uses it; one loaded already keeps
+    /// what it had until it's loaded again.
+    pub fn set_proxy(&self, proxy: Option<network::Proxy>) {
+        *self.proxy.lock().expect("plugin proxy") = proxy;
     }
 
     /// The host, with each Plugin's data folder under `data` (the app's data folder, next to the
@@ -520,6 +535,17 @@ impl PluginHost {
             .map_or(0, |s| s.serving.requests.load(Ordering::SeqCst))
     }
 
+    /// The Plugin's network requests by site since the app started, for `:plugins`: counts and
+    /// a time only (decision Q116). Empty for one that made none or isn't there.
+    pub fn requests_by_site(&self, plugin: &str) -> Vec<network::SiteCount> {
+        self.logs
+            .lock()
+            .expect("plugin logs")
+            .get(plugin)
+            .map(|l| l.counts())
+            .unwrap_or_default()
+    }
+
     /// Every Plugin loaded, in name order.
     pub fn list(&self) -> Vec<Status> {
         self.slots
@@ -527,6 +553,7 @@ impl PluginHost {
             .expect("plugin slots")
             .values()
             .map(|s| Status {
+                requests: self.requests_by_site(&s.manifest.name),
                 manifest: s.manifest.clone(),
                 dir: s.dir.clone(),
                 granted: s.grants.iter().cloned().collect(),
@@ -585,6 +612,10 @@ impl PluginHost {
         });
         let (limits, serving) = (self.limits, Arc::clone(serving));
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
+        let network = network::Setup {
+            proxy: self.proxy.lock().expect("plugin proxy").clone(),
+            log: Arc::clone(self.logs.lock().expect("plugin logs").entry(name.clone()).or_default()),
+        };
         let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
@@ -610,6 +641,7 @@ impl PluginHost {
                     storage,
                     serving,
                     generation,
+                    network,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -920,6 +952,14 @@ fn parse_manifest(v: &Json) -> Result<Manifest, String> {
         Some(Json::Object(o)) if o.is_empty() => {}
         Some(_) => return Err("permissions: a list of names such as \"inventory.read\"".into()),
     }
+    let sites: Vec<network::Site> = permissions
+        .iter()
+        .filter_map(|p| match p {
+            Permission::Network(site) => Some(site.clone()),
+            _ => None,
+        })
+        .collect();
+    network::check_together(&sites).map_err(|e| format!("permissions: {e}"))?;
     Ok(Manifest {
         name,
         version,

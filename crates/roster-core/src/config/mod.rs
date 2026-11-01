@@ -482,6 +482,9 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             ));
         }
     }
+    if let Some(proxy) = &c.plugin_proxy {
+        crate::plugin::network::Proxy::parse(proxy).map_err(|e| at(&["plugin_proxy"], e))?;
+    }
     if c.pull_fresh_minutes > 1440 {
         return Err(at(
             &["pull_fresh_minutes"],
