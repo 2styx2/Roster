@@ -119,6 +119,8 @@ async function openSession(host: string, size: TermSize, events: SessionEvents, 
     write: (data) => call("session_write", { id, data }),
     resize: ({ cols, rows }) => call("session_resize", { id, cols, rows }),
     close: () => call("session_close", { id }),
+    // Only the prompt line goes; the password stays in the core (ticket 119).
+    fill: (prompt) => call<{ host: string }>("session_fill", { id, prompt }),
   };
 }
 

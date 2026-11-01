@@ -43,6 +43,7 @@ import {
   HOST_KEY_API_VERSION,
   QUICK_CONNECT_API_VERSION,
   SAVE_TO_VAULT_API_VERSION,
+  FILL_API_VERSION,
   SIGN_OUT_API_VERSION,
   type VaultAccount,
   type VaultSettings,
@@ -1585,6 +1586,17 @@ function Workspace({
       setAdding(null);
       setSaving(tab.id);
     },
+    fillPrompt: () => {
+      if (apiVersion < FILL_API_VERSION) {
+        return setMessage(`Filling a password prompt needs a newer roster (API version ${FILL_API_VERSION}; this one speaks ${apiVersion})`);
+      }
+      const id = sessions.active;
+      if (id === null) return setMessage("No Session to fill");
+      tabs.fill(id).then(
+        (host) => setMessage(quiet(`Filled ${host}'s password`)),
+        (e: unknown) => setMessage(e instanceof Error ? e.message : String(e)),
+      );
+    },
     review: (name, reviewed = true) => {
       const verb = reviewed ? "review" : "unreview";
       const host = name ?? ctx.selectedHost();
@@ -2134,6 +2146,8 @@ function Workspace({
               addressOf={(name) => hostByName.get(name)?.ip ?? null}
               canSave={canSave}
               saveKeys={hintFor(keymap, "save")}
+              canFill={apiVersion >= FILL_API_VERSION}
+              fillKeys={hintFor(keymap, "fill")}
               reveal={reveal}
             />
           )}

@@ -81,6 +81,10 @@ export interface CommandContext {
   /** Opens "Save to vault" for the current Session, once it logged in with a password typed for it
    * (tickets 15, 16). */
   saveSession(): void;
+  /** Fills the password prompt the current Session shows from the vault (ticket 119): only when
+   * one is detected; the password goes from serve to the Session's PTY through the core, never
+   * through the frontend. */
+  fillPrompt(): void;
   /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
    * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
   inventory(op: InventoryOp): void;
@@ -241,6 +245,13 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Sessions",
     label: () => "Save to vault: the password typed for this Session, once it logged in",
     run: (ctx) => ctx.saveSession(),
+  },
+  {
+    id: "fill",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Fill the password prompt on screen (sudo, su, ssh) from the Host's Login in the vault",
+    run: (ctx) => ctx.fillPrompt(),
   },
   {
     id: "reconnect",

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import { QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, type SessionEvents } from "../backend/types";
+import { BackendCallError, QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, SessionRefusal, type SessionEvents } from "../backend/types";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -939,5 +939,53 @@ describe("a held password, around the Session's life (iteration-4 review)", () =
     print("x".repeat(8 * 1024));
     login("h1");
     expect(save()?.hostname).toBeNull();
+  });
+});
+
+describe("filling a password prompt (ticket 119)", () => {
+  /** A tab whose Session shows a sudo prompt, and whose fill the test answers. */
+  async function atPrompt(fill: (prompt: string) => Promise<{ host: string }>) {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    let ev: SessionEvents | null = null;
+    const asked: string[] = [];
+    backend.openSession = async (_host, _size, events) => {
+      ev = events;
+      const done = async () => {};
+      return { id: 1, auth: "key", write: done, resize: done, close: done, fill: (p: string) => (asked.push(p), fill(p)) };
+    };
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0] ?? "");
+    await settle();
+    (ev as SessionEvents | null)?.output(new TextEncoder().encode("$ sudo -v\r\n[sudo] password for admin: "));
+    return { tabs, id, asked, print: (s: string) => (ev as SessionEvents | null)?.output(new TextEncoder().encode(s)) };
+  }
+
+  it("sends only the prompt line, and the tab's prompt goes once the Host answers", async () => {
+    const { tabs, id, asked, print } = await atPrompt(async () => ({ host: "h" }));
+    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null });
+    await expect(tabs.fill(id)).resolves.toBe("h");
+    expect(asked).toEqual(["[sudo] password for admin:"]);
+    print("\r\n$ ");
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+  });
+
+  it("shows the lock screen on a locked vault and says to press the key again", async () => {
+    const { tabs, id } = await atPrompt(async () => {
+      throw new BackendCallError("Bitwarden vault is locked - unlock it first", SessionRefusal.vaultLocked);
+    });
+    const locked = vi.fn();
+    tabs.setVaultLockedHandler(locked);
+    await expect(tabs.fill(id)).rejects.toThrow(/Unlock it, then press the fill key again/);
+    expect(locked).toHaveBeenCalledOnce();
+  });
+
+  it("won't start a second fill while one is under way", async () => {
+    let finish: (v: { host: string }) => void = () => {};
+    const { tabs, id } = await atPrompt(() => new Promise((r) => (finish = r)));
+    const first = tabs.fill(id);
+    await expect(tabs.fill(id)).rejects.toThrow(/Already filling/);
+    finish({ host: "h" });
+    await expect(first).resolves.toBe("h");
   });
 });

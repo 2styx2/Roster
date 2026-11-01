@@ -1,0 +1,140 @@
+// Filling a password prompt from the vault (ticket 119, decision Q129), through the App with the
+// fake Backend and a stub terminal: the fake shell's `sudo …` asks for the Login's password
+// without echo, the offer shows only while it does, `␣ p` fills it, and the password never
+// reaches the page. The fake stands in for the core's probe: no prompt (or one that echoes) is
+// refused there.
+import { describe, expect, it } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { App } from "./App";
+import { FAKE_LOGIN_PASSWORD, FAKE_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "./backend/fake";
+import { FILL_API_VERSION, FillRefusal } from "./backend/types";
+import { builtinRegistries } from "./registries";
+import { StubTerminal } from "./terminal/StubTerminal";
+
+const hosts = makeHosts(6);
+// makeHosts: every third Host has a vault Login (bw:…), the rest log in with keys (auth: key).
+const vaultHost = hosts.hosts.find((h) => h.reviewed && h.ssh.auth.startsWith("bw:"))?.name ?? "";
+const keyHost = hosts.hosts.find((h) => h.reviewed && h.ssh.auth === "key")?.name ?? "";
+const LEADER = "{Control>} {/Control}";
+type User = ReturnType<typeof userEvent.setup>;
+
+async function ready(scenario: Partial<FakeScenario> = {}) {
+  const user = userEvent.setup();
+  render(
+    <App
+      backend={fakeBackend({ hosts, apiVersion: FILL_API_VERSION, ...scenario })}
+      terminalView={StubTerminal}
+      registries={builtinRegistries()}
+    />,
+  );
+  await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+  await screen.findByRole("main", { name: /workspace/i });
+  return user;
+}
+
+async function connect(user: User, name: string) {
+  await user.keyboard(`${LEADER}f`);
+  await user.keyboard(name);
+  await user.keyboard("{Enter}");
+  await within(output()).findByText(new RegExp(`Connected to ${name}`));
+}
+
+const output = () => screen.getByLabelText("terminal output", { selector: ":not([hidden]) > pre" });
+const offer = () => screen.queryByRole("status", { name: "Password prompt" });
+const messageLine = () => document.querySelector(".message-line") as HTMLElement;
+
+async function sudo(user: User) {
+  await user.keyboard("sudo -v{Enter}");
+  await within(output()).findByText(/\[sudo\] password for admin:/);
+}
+
+describe("filling a password prompt", () => {
+  it("offers the key only while the prompt is up, and fills it without the password reaching the page", async () => {
+    const user = await ready();
+    await connect(user, vaultHost);
+    expect(offer()).toBeNull();
+    await sudo(user);
+    const note = await screen.findByRole("status", { name: "Password prompt" });
+    expect(note).toHaveTextContent(`fill ${vaultHost}'s from the vault`);
+    expect(within(note).getByRole("button", { name: "Fill" })).toBeInTheDocument();
+
+    await user.keyboard(`${LEADER}p`);
+    await within(output()).findByText(/\[sudo ok\]/);
+    await waitFor(() => expect(offer()).toBeNull());
+    expect(document.body.innerHTML).not.toContain(FAKE_LOGIN_PASSWORD);
+    // The keys go back to the shell, as after any command.
+    expect(document.activeElement).toHaveAccessibleName("terminal input");
+  });
+
+  it("fills from the offer's button too, keeping the terminal's focus", async () => {
+    const user = await ready();
+    await connect(user, vaultHost);
+    await sudo(user);
+    await user.click(await screen.findByRole("button", { name: "Fill" }));
+    await within(output()).findByText(/\[sudo ok\]/);
+  });
+
+  it("says there's no prompt when there's none, and types nothing", async () => {
+    const user = await ready();
+    await connect(user, vaultHost);
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/No password prompt/));
+    expect(output()).not.toHaveTextContent(/sudo ok|Sorry/);
+  });
+
+  it("shows roster's refusal, as a Login with no saved password", async () => {
+    const user = await ready();
+    await connect(user, keyHost);
+    await sudo(user);
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/has no saved password to fill/));
+    expect(output()).not.toHaveTextContent(/sudo ok/);
+  });
+
+  it("shows serve's refusal of a prompt for another Host", async () => {
+    const user = await ready({
+      fillRefusals: { [vaultHost]: { code: FillRefusal.refused, message: `won't fill on ${vaultHost}: the prompt asks for root@10.0.0.9's password` } },
+    });
+    await connect(user, vaultHost);
+    await sudo(user);
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/root@10\.0\.0\.9/));
+  });
+
+  it("offers nothing, and says why, while an ssh the shell marked is running", async () => {
+    const user = await ready({ shellMarks: true });
+    await connect(user, vaultHost);
+    await user.keyboard("ssh other{Enter}");
+    await within(output()).findByText(/Connected to other/);
+    await sudo(user);
+    const note = await screen.findByRole("status", { name: "Password prompt" });
+    expect(note).toHaveTextContent(/ssh other.*won't fill it/);
+    expect(within(note).queryByRole("button")).toBeNull();
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/may be another Host's/));
+    expect(output()).not.toHaveTextContent(/sudo ok/);
+  });
+
+  it("offers it again once that ssh has ended", async () => {
+    const user = await ready({ shellMarks: true });
+    await connect(user, vaultHost);
+    await user.keyboard("ssh other{Enter}");
+    await within(output()).findByText(/Connected to other/);
+    await user.keyboard("exit{Enter}");
+    await within(output()).findByText(/logout/);
+    await sudo(user);
+    expect(await screen.findByRole("button", { name: "Fill" })).toBeInTheDocument();
+    await user.keyboard(`${LEADER}p`);
+    await within(output()).findByText(/\[sudo ok\]/);
+  });
+
+  it("isn't offered by an older roster, and the key says why", async () => {
+    const user = await ready({ apiVersion: FILL_API_VERSION - 1 });
+    await connect(user, vaultHost);
+    await sudo(user);
+    expect(offer()).toBeNull();
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/needs a newer roster \(API version 25/));
+  });
+});

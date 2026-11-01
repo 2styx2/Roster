@@ -55,6 +55,8 @@ import {
   type SessionHandle,
   type TermSize,
   SessionRefusal,
+  FILL_API_VERSION,
+  FillRefusal,
   HostKeyError,
   type QuickConnect,
   type QuickSave,
@@ -113,6 +115,10 @@ export interface FakeScenario {
   passwordRefusal?: Refusal;
   /** Per Host: `session.prepare` refuses with this (a Login's codes 30-35, roster.yml's 1). */
   refusals?: Record<string, Refusal>;
+  /** The fake shells print OSC 133 marks (Q121), and `ssh NAME` stays in NAME until `exit`. */
+  shellMarks?: boolean;
+  /** Per Host: `session.fill` refuses with this (ticket 119: 130, 131, the vault's codes). */
+  fillRefusals?: Record<string, Refusal>;
   /** Per Host: ssh prints this into the PTY and exits 255 (a refused port, a changed key…). */
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
@@ -825,8 +831,20 @@ function fakeSession(
   size: TermSize,
   events: SessionEvents,
   loginMs = 0,
-  extra: { onLogin?: () => void; title?: string; stream?: number | undefined; printers?: Printers; repaints?: boolean | undefined; log?: readonly string[] | undefined } = {},
-): SessionHandle {
+  extra: {
+    onLogin?: () => void;
+    title?: string;
+    stream?: number | undefined;
+    printers?: Printers;
+    repaints?: boolean | undefined;
+    log?: readonly string[] | undefined;
+    /** The Host's ssh user: `sudo …` asks for its password, without echo, and takes FAKE_LOGIN_PASSWORD. */
+    user?: string;
+    /** A shell with integration (Q121): OSC 133 marks around its prompt and each command, and
+     * `ssh NAME` stays "in" NAME (a shell without marks) until `exit`. */
+    marks?: boolean | undefined;
+  } = {},
+): SessionHandle & { atPasswordPrompt(): boolean } {
   // What it printed, without escapes, for a ConPTY-style repaint.
   let screen = "";
   const out = (bytes: Uint8Array) => {
@@ -839,6 +857,8 @@ function fakeSession(
     events.output(encode(`\x1b[?25l\x1b[H${rows.map((r) => `${r}\x1b[K`).join("\r\n")}\x1b[?25h`));
   };
   let line = "";
+  // `sudo …` (ticket 119): a password prompt that doesn't echo what's typed, as sudo's.
+  let password = false;
   let ended = false;
   let streaming: ReturnType<typeof setInterval> | undefined;
   // Whether the cursor sits right after the prompt: what the box prints then (a log, `wall`)
@@ -859,6 +879,9 @@ function fakeSession(
     clearInterval(streaming);
     setTimeout(() => events.exit({ code, closed }), 0);
   };
+  // Inside a pretend `ssh NAME` (with `marks`): NAME's own prompt, unmarked, until `exit`.
+  let nested: string | null = null;
+  const promptOf = () => (nested !== null ? `${nested}$ ` : extra.marks ? `\x1b]133;A\x07${host}$ \x1b]133;B\x07` : `${host}$ `);
   const prompt = `${host}$ `;
   // Like ssh, nothing is printed until the Host answers (the login takes `loginMs`).
   let loggedIn = false;
@@ -869,7 +892,7 @@ function fakeSession(
     extra.onLogin?.();
     // A shell that names its box in the window title, as most Linux prompts do (OSC 0).
     if (extra.title) out(encode(`\x1b]0;${extra.title}\x07`));
-    out(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${(extra.log ?? []).map((l) => `${l}\r\n`).join("")}${prompt}`));
+    out(encode(`Connected to ${host} (fake, ${size.cols}x${size.rows})\r\n${(extra.log ?? []).map((l) => `${l}\r\n`).join("")}${promptOf()}`));
     atPrompt = true;
     if (resized && !ended) sayResized(resized);
     if (extra.stream && !ended) streaming = streamLog(extra.stream, (text) => out(encode(text)));
@@ -881,11 +904,46 @@ function fakeSession(
     async write(data) {
       if (ended) throw new BackendCallError(`session ${id} isn't open`);
       for (const ch of data) {
+        if (password) {
+          if (ch === "\x15") line = "";
+          else if (ch !== "\r") line += ch;
+          else {
+            password = false;
+            out(encode(line === FAKE_LOGIN_PASSWORD ? "\r\n[sudo ok]\r\n" : "\r\nSorry, try again.\r\n"));
+            line = "";
+            if (extra.marks && nested === null) out(encode("\x1b]133;D;0\x07"));
+            out(encode(promptOf()));
+            atPrompt = true;
+          }
+          continue;
+        }
         if (ch === "\r") {
+          if (extra.marks && nested === null) out(encode("\x1b]133;C\x07"));
           out(encode("\r\n"));
+          const ssh = extra.marks && nested === null ? /^ssh\s+(\S+)/.exec(line.trim()) : null;
+          if (ssh) {
+            nested = ssh[1] ?? "";
+            line = "";
+            out(encode(`Connected to ${nested}\r\n${promptOf()}`));
+            continue;
+          }
+          if (line.trim() === "exit" && nested !== null) {
+            nested = null;
+            line = "";
+            out(encode(`logout\r\n\x1b]133;D;0\x07${promptOf()}`));
+            continue;
+          }
           if (line.trim() === "exit") return end(0, false);
+          if (extra.user && /^sudo\s/.test(line.trim())) {
+            line = "";
+            password = true;
+            out(encode(`[sudo] password for ${extra.user}: `));
+            atPrompt = false;
+            continue;
+          }
           line = "";
-          out(encode(prompt));
+          if (extra.marks && nested === null) out(encode("\x1b]133;D;0\x07"));
+          out(encode(promptOf()));
           atPrompt = true;
         } else {
           line += ch;
@@ -903,8 +961,13 @@ function fakeSession(
     async close() {
       end(null, true);
     },
+    atPasswordPrompt: () => password && !ended,
   };
 }
+
+/** The password the fake vault holds for every Host Login a prompt fill types (ticket 119). Never
+ * shown: tests check it reaches neither the terminal nor the page. */
+export const FAKE_LOGIN_PASSWORD = "fake-login-pw-7q";
 
 const BACKUP = "~/infra/.git/roster/roster.yml.bak";
 
@@ -1556,7 +1619,36 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       }
       const failure = scenario.sshFailures?.[host];
       if (failure !== undefined) return failingSession(++sessions, auth, failure, events);
-      return fakeSession(++sessions, host, auth, size, events, scenario.loginMs, { stream: scenario.stream, printers, repaints: scenario.repaints, log: scenario.logs?.[host] });
+      const session = fakeSession(++sessions, host, auth, size, events, scenario.loginMs, {
+        stream: scenario.stream,
+        printers,
+        repaints: scenario.repaints,
+        log: scenario.logs?.[host],
+        user: h.ssh.user,
+        marks: scenario.shellMarks,
+      });
+      const { atPasswordPrompt, ...handle } = session;
+      // The core's prompt fill (ticket 119), as the Tauri build's: serve's refusals first, then the
+      // probe (an echoing prompt, or no prompt, refuses), then the password typed into the Session.
+      const fill = async (_prompt: string) => {
+        await wait();
+        const refusal = scenario.fillRefusals?.[host];
+        if (refusal) throw refuse(refusal);
+        if (["agent", "key", "none", "prompt"].includes(h.ssh.auth)) {
+          throw new BackendCallError(`${host}'s ssh Login has no saved password to fill (auth: ${h.ssh.auth})`, FillRefusal.nothingToFill, {
+            fix: `add a sudo: {auth: VAULT-REFERENCE} to ${host} in roster.yml for its own sudo password, or type it yourself`,
+          });
+        }
+        if (vaultNow() === "locked") throw new BackendCallError(VAULT_LOCKED, SessionRefusal.vaultLocked);
+        if (!atPasswordPrompt()) {
+          throw new BackendCallError(
+            "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it",
+          );
+        }
+        await handle.write(`\x15x\x15${FAKE_LOGIN_PASSWORD}\r`);
+        return { host };
+      };
+      return (scenario.apiVersion ?? 2) >= FILL_API_VERSION ? { ...handle, fill } : handle;
     },
     async openQuickSession(to, password, size, events, options = {}) {
       await (scenario.sessionDelay === undefined ? wait() : new Promise((r) => setTimeout(r, scenario.sessionDelay)));

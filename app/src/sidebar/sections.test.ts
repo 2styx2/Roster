@@ -10,7 +10,7 @@ const hostByName = new Map(hosts.hosts.map((h) => [h.name, h]));
 const first = hosts.hosts[0]?.name ?? "";
 
 function tab(id: number, host: string, status: Tab["status"] = { state: "connecting" }): Tab {
-  return { id, host, label: host, status, auth: null, shell: false, attempt: 1, quick: null, save: null };
+  return { id, host, label: host, status, auth: null, shell: false, attempt: 1, quick: null, save: null, prompt: null };
 }
 
 // The App memoizes these, so they're the same between builds unless they change.

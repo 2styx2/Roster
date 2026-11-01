@@ -19,6 +19,7 @@ import { classifyDrop, classifyExit, terminalTail, type Problem } from "../error
 import { problemFromCallError } from "../errors/catalog";
 import { hostnameIn } from "../quick/hostname";
 import { formatQuickTarget, type QuickTarget } from "../quick/target";
+import { PromptWatch } from "./prompt";
 
 export type TabStatus =
   | { state: "connecting" }
@@ -57,6 +58,15 @@ export interface Tab {
    * `held`. `loggedIn` once the Session logged in with it (serve says so), `hostname` what the
    * box's shell calls it, `saved` the Host it was saved as. Null when nothing is held. */
   save: SaveOffer | null;
+  /** The password prompt at the Session's cursor (ticket 119), while it's there: the line as the
+   * Host printed it, and why it may be another Host's when the shell's marks say so (then roster
+   * won't fill it). Null otherwise. Never a password. */
+  prompt: PasswordPrompt | null;
+}
+
+export interface PasswordPrompt {
+  line: string;
+  elsewhere: string | null;
 }
 
 export interface SaveOffer {
@@ -139,6 +149,10 @@ interface Entry {
   pending: string[];
   /** The attempt's last output while a save may be offered: where the box's name is read from. */
   saveScan: string;
+  /** Watches the attempt's output for a password prompt (ticket 119); new each attempt. */
+  watch: PromptWatch;
+  /** A fill is under way: a second press waits for it. */
+  filling: boolean;
 }
 
 /** How much of the output after the login is searched for the box's name. */
@@ -348,7 +362,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null, prompt: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -366,6 +380,8 @@ export class Tabs {
       keyAsked: false,
       pending: [],
       saveScan: "",
+      watch: new PromptWatch(),
+      filling: false,
       wiring: {
         attach: (sink) => this.attach(id, sink),
         onData: (data) => this.write(id, data),
@@ -430,12 +446,21 @@ export class Tabs {
     entry.late = "";
     entry.decoder = new TextDecoder();
     entry.saveScan = "";
+    entry.watch = new PromptWatch();
+    if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
     open(entry.size, {
         output: (data) => {
           if (!current()) return;
           const before = entry.tab;
           const text = this.keepTail(entry, data);
           this.scanForName(entry, text);
+          entry.watch.feed(text);
+          const line = entry.watch.prompt();
+          const elsewhere = line === null ? null : entry.watch.elsewhere();
+          const was = entry.tab.prompt;
+          if (line !== (was?.line ?? null) || elsewhere !== (was?.elsewhere ?? null)) {
+            entry.tab = { ...entry.tab, prompt: line === null ? null : { line, elsewhere } };
+          }
           this.output(entry, data);
           // A Quick Connect Session isn't on a Host of the Inventory: no Host to name.
           this.outputTap?.output(id, entry.tab.quick ? null : entry.tab.host, data, entry.sentSize);
@@ -445,6 +470,7 @@ export class Tabs {
         exit: (exit) => {
           if (!current()) return;
           entry.session = null;
+          if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
           // A Session that ends without saving: serve forgets the password it held for it.
           this.dropSave(entry);
           if (this.find(id)) this.setStatus(entry, { state: "ended", exit, problem: this.classify(entry, exit) });
@@ -700,6 +726,42 @@ export class Tabs {
     return () => {
       if (entry.sink === sink) entry.sink = null;
     };
+  }
+
+  /**
+   * Fills the password prompt the tab's Session shows from the vault (ticket 119, decision Q129):
+   * the user pressed the fill key. Only the prompt line goes to the Backend; the core asks serve
+   * for the Host's password and types it into the PTY if the prompt doesn't echo, so nothing of it
+   * reaches the frontend. Resolves with the Host's name; rejects with why it didn't fill: no prompt,
+   * the marks say it may be another Host's, a Quick Connect, or the Backend's refusal (a locked
+   * vault also shows the lock screen first, the existing unlock flow; press the key again after).
+   */
+  async fill(id: number): Promise<string> {
+    const entry = this.find(id);
+    if (!entry) throw new Error("No Session to fill");
+    const { session } = entry;
+    const prompt = entry.tab.prompt;
+    if (!session || entry.tab.status.state !== "open" || prompt === null) {
+      throw new Error(`No password prompt in ${entry.tab.label}'s Session right now`);
+    }
+    if (!session.fill) throw new Error(`${entry.tab.label} is a Quick Connect: roster has no Login of it to fill`);
+    const { elsewhere } = prompt;
+    if (elsewhere !== null) {
+      throw new Error(`Won't fill: ${elsewhere}, so this prompt may be another Host's. Type that password yourself.`);
+    }
+    if (entry.filling) throw new Error("Already filling this prompt");
+    entry.filling = true;
+    try {
+      return (await session.fill(prompt.line)).host;
+    } catch (e) {
+      if (e instanceof BackendCallError && e.code === SessionRefusal.vaultLocked) {
+        this.onVaultLocked();
+        throw new BackendCallError("The vault is locked. Unlock it, then press the fill key again.", e.code, e.data);
+      }
+      throw e;
+    } finally {
+      entry.filling = false;
+    }
   }
 
   /** Keystrokes for the tab's Session; held until it's open, dropped once it has ended. */

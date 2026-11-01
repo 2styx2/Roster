@@ -135,6 +135,8 @@ export const defaultBindings: KeymapTables = {
     N: "group new",
     c: "changes",
     r: "reconnect",
+    // Fill the password prompt on screen from the vault (ticket 119): offered only at one.
+    p: "fill",
     m: "mode",
     b: "finder sessions",
     // The Sidebar's tree as a finder (in Focus, where the Sidebar is hidden by default).
