@@ -1,14 +1,13 @@
 """`roster serve` answers requests concurrently (ticket 101, decision Q112): a quick read answers while a slow
 Publish runs, writes to roster.yml never interleave, the vault's lock waits for whoever holds a secret, and a lock
 not free in time is code 4 with nothing done. The Publish pushes to a bare repo in the test's temp dir whose hook
-takes a few seconds; nothing connects anywhere."""
+holds the push until the test lets it go; nothing connects anywhere."""
 import json
 import subprocess
 import threading
 import time
 
 import pytest
-from conftest import posix_shell
 
 from roster import serve as rpc
 
@@ -21,7 +20,7 @@ groups:
       esx-02: 10.0.0.12
       nas-1: 10.0.0.30
 """
-SLOW_PUSH = 3               # s the upstream's hook takes to accept a push
+HOOK_LIMIT = 30             # s: the upstream's hook gives up waiting to be let go (a test that failed early)
 
 
 def git(cwd, *args):
@@ -30,10 +29,37 @@ def git(cwd, *args):
     return r.stdout.strip()
 
 
+class Upstream:
+    """The bare 'origin' whose pre-receive hook holds each push: it leaves `pushing` when a push reaches it and waits
+    for `release` (HOOK_LIMIT s at most). An sh script: git runs hooks with its own sh, Git for Windows' too, so this
+    runs on native Windows as well (ticket 108)."""
+
+    def __init__(self, origin):
+        self.origin = origin
+
+    def pushing(self, seconds=10):
+        """Wait until a push is held in the hook."""
+        end = time.monotonic() + seconds
+        while not (self.origin / "pushing").exists():
+            assert time.monotonic() < end, "no push reached the upstream"
+            time.sleep(0.01)
+
+    def release(self):
+        (self.origin / "release").write_text("")
+
+
 @pytest.fixture
-def infra(tmp_path, monkeypatch):
-    """roster.yml committed in a clone of a bare 'origin' whose pre-receive hook sleeps SLOW_PUSH s, with a
-    Pending change (new-1) waiting to be published."""
+def upstream():
+    made = []
+    yield made
+    for u in made:
+        u.release()                     # a hook still waiting ends now, not after HOOK_LIMIT
+
+
+@pytest.fixture
+def infra(tmp_path, monkeypatch, upstream):
+    """roster.yml committed in a clone of a bare 'origin' whose pre-receive hook holds a push until the test lets it
+    go (infra.upstream), with a Pending change (new-1) waiting to be published."""
     for k, v in {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
                  "GIT_COMMITTER_EMAIL": "t@x", "GIT_CONFIG_NOSYSTEM": "1"}.items():
         monkeypatch.setenv(k, v)
@@ -46,36 +72,37 @@ def infra(tmp_path, monkeypatch):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "inventory")
     git(repo, "push", "-q", "-u", "origin", "main")
-    hook = origin / "hooks" / "pre-receive"
-    hook.write_text(f"#!/bin/sh\ncat >/dev/null\nsleep {SLOW_PUSH}\n")
+    hook = origin / "hooks" / "pre-receive"         # run in the bare repo: `pushing` and `release` are beside it
+    hook.write_text("#!/bin/sh\ncat >/dev/null\n: >pushing\ni=0\n"
+                    f"while [ ! -f release ] && [ $i -lt {HOOK_LIMIT * 20} ]; do sleep 0.05; i=$((i+1)); done\n",
+                    newline="\n")
     hook.chmod(0o755)
     (repo / "roster.yml").write_text(INVENTORY + "      new-1: 10.0.0.40\n")
+    upstream.append(Upstream(origin))
     return repo
 
 
-@posix_shell              # the upstream's hook is a sh script
-def test_a_quick_read_answers_while_a_slow_publish_runs(serve, infra):
+def test_a_quick_read_answers_while_a_slow_publish_runs(serve, infra, upstream):
     s = serve("-c", str(infra / "roster.yml"))
     s.call("inventory.info")
     publish = s.request("changes.publish", {"message": "Add new-1"})
-    time.sleep(0.5)                                                     # it's pushing now
-    t = time.monotonic()
+    upstream[0].pushing()                                               # it's pushing now, held there
     hosts = s.call("hosts.list")["result"]["hosts"]
-    took = time.monotonic() - t
-    assert took < 1, f"hosts.list took {took:.2f} s behind a Publish"
     assert [h["name"] for h in hosts] == ["esx-02", "nas-1", "new-1"]
     assert s.call("mesh.status")["result"]["members"] is not None        # another quick read
+    assert publish not in s.answered                                    # both answered while it still pushed
+    upstream[0].release()
     r = s.answer(publish)["result"]
     assert r["commit"] and r["sync"]["ok"] is True
     assert s.order.index(publish) > s.order.index(publish + 1)          # answered after the read it came before
 
 
-@posix_shell              # the upstream's hook is a sh script
-def test_a_write_waits_for_the_publish_so_the_commit_holds_exactly_what_was_written(serve, infra):
+def test_a_write_waits_for_the_publish_so_the_commit_holds_exactly_what_was_written(serve, infra, upstream):
     s = serve("-c", str(infra / "roster.yml"))
     publish = s.request("changes.publish", {"message": "Add new-1"})
-    time.sleep(0.5)
+    upstream[0].pushing()
     rename = s.request("host.rename", {"host": "nas-1", "to": "nas-2"})
+    upstream[0].release()
     assert s.answer(rename)["result"]["host"]["name"] == "nas-2"
     assert s.order.index(publish) < s.order.index(rename)               # it waited for roster.yml
     assert "commit" in s.answer(publish)["result"]
@@ -178,11 +205,10 @@ def test_the_server_answers_a_quick_read_while_every_worker_is_busy(state, monke
     assert sorted(r["id"] for r in out) == [0, 1, 2, 9]
 
 
-@posix_shell              # the upstream's hook is a sh script
-def test_serve_exits_well_within_the_apps_grace_with_a_slow_request_under_way(serve, infra):
+def test_serve_exits_well_within_the_apps_grace_with_a_slow_request_under_way(serve, infra, upstream):
     s = serve("-c", str(infra / "roster.yml"))
     s.request("changes.publish", {"message": "Add new-1"})
-    time.sleep(0.5)                                                     # pushing, for 3 s
+    upstream[0].pushing()                                               # held there until the test ends
     t = time.monotonic()
     code, _, _ = s.close()
     assert code == 0 and time.monotonic() - t < 2.5                     # the app kills it after 3 s (rpc.rs)
@@ -401,3 +427,39 @@ def test_a_sign_in_that_starts_while_serve_closes_ends_its_cli(state, monkeypatc
     r = call(state, "vault.login", {"action": "start", "method": "sso"})
     assert r["error"]["message"] == "roster serve is closing"
     assert Flow.closed and state.login is None
+
+
+# ---------------------------------------------------------------- item creation, one at a time per vault (ticket 108)
+
+def test_two_item_creations_at_once_go_to_the_vault_one_after_the_other(state, monkeypatch):
+    # bw keeps its local cache in one data.json, and pass commits each insert to a git repo: neither is known to take
+    # two writes at once (and both creations would pass the "no item by that name" check before either made one)
+    from roster import providers
+    inside, entered, go, made = [], threading.Event(), threading.Event(), []
+
+    def create_item(provider, name, password, save_to=None, **extra):
+        inside.append(name)
+        assert len(inside) == 1, f"two creations in {provider} at once: {inside}"
+        entered.set()
+        go.wait(5)
+        made.append(name)
+        inside.remove(name)
+        return {"id": f"id-{name}", "name": name, "target": None}
+    monkeypatch.setattr(providers, "create_item", create_item)
+    monkeypatch.setattr(rpc, "vault_provider", lambda st, params: "bw")
+    answers = {}
+
+    def create(name):
+        answers[name] = call(state, "vault.create_item", {"name": name, "password": "pw"})
+    first = threading.Thread(target=create, args=("a ssh",), daemon=True)
+    first.start()
+    entered.wait(5)
+    second = threading.Thread(target=create, args=("b ssh",), daemon=True)
+    second.start()
+    wait_until(lambda: rpc.item_lock("bw").writers_waiting == 1)    # the second waits for the first
+    assert made == []
+    go.set()
+    first.join(5)
+    second.join(5)
+    assert made == ["a ssh", "b ssh"]
+    assert all("result" in a for a in answers.values()), answers
