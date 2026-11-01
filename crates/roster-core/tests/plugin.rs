@@ -455,9 +455,11 @@ fn a_check_job_reaches_only_plugins_that_may_read_it() {
     let reader = plugin_dir("checky-ev", &manifest("checky", &["serve:host.check_job"]), listener);
     let caller = plugin_dir("calls-ev", &manifest("calls", &["serve:host.check"]), listener);
     let (host, _) = host();
-    host.load(&Source::Dir(reader), &perms(&["serve:host.check_job"]))
+    host.load(&Source::Dir(reader.to_path_buf()), &perms(&["serve:host.check_job"]))
         .unwrap();
-    let (_, deaf) = host.load(&Source::Dir(caller), &perms(&["serve:host.check"])).unwrap();
+    let (_, deaf) = host
+        .load(&Source::Dir(caller.to_path_buf()), &perms(&["serve:host.check"]))
+        .unwrap();
     assert!(
         deaf.ops[0]["text"]
             .as_str()
