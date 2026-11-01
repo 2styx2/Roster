@@ -78,10 +78,14 @@ A change that goes over one of these needs a reason in its pull request. Measure
 | After closing every Session | JS heap within 2 MB of idle; DOM nodes within 100 of idle | +0 MB (13.8 vs 15.5); +11 |
 | App JS, minified | ≤ 2,170 KB raw, ≤ 650 KB gzipped | 1,972 KB; 586 KB |
 | App CSS, minified | ≤ 83 KB raw, ≤ 15.5 KB gzipped | 75 KB; 13.8 KB |
+| Docs website's `search.js` (every page loads it), minified | ≤ 12 KB raw | 9.8 KB; 3.8 KB gzipped |
+| Docs website's `search-index.js` (loaded when the search box is first used) | ≤ 250 KB gzipped | 756 KB raw; 221 KB gzipped |
 
 **Memory per Session.** xterm.js keeps every line at the terminal's full width, so a Session's memory grows with its scrollback, not with what it printed: about 2 KB per line in the measured window, so a full default scrollback of 10,000 lines (`terminal.scrollback`, [config.md](config.md)) is about 20 MB per Session, plus up to 1 MB of output kept to replay into a terminal that attaches again (`tabs.ts`). 12 busy Sessions after ~40 s (about 4,000 lines each) held 144 MB of JS heap; 50 full Sessions would be about 1 GB. `terminal.scrollback = 3000` cuts that by more than two thirds.
 
 ### Bundle size
+
+The docs website's search has budgets of its own (the last two rows above): `npm run docs` stops when `search.js` is over its budget, and `app/src/docs-site/site.test.ts` fails when the index is. The index is every page's text, so it grows with the docs; a page loads it only when someone uses the search box.
 
 The app's JS and CSS are checked on every pull request: CI builds the frontend (`vite build`) and `scripts/check-bundle-size.py` adds up every `.js` and `.css` file in `app/dist/assets`, minified as shipped and gzipped, and fails when a total is over the budget above. Run it yourself after `npx vite build` in `app/`: `python3 scripts/check-bundle-size.py`. It counts every chunk the build writes, the fake Backend's included; fonts and icons aren't counted (they change only when a font does). A KB is 1,000 bytes, as Vite prints them. The webview reads the files from disk, so the raw size is what it parses; gzipped is there to compare with other projects and catches a dependency that's large but repetitive. The budgets sit about 10 % above the build of 2026-10-31, so a feature of a few KB passes and a new dependency of a hundred doesn't go unnoticed: a change that goes over raises the budget in the script and in the table above, with the reason in its pull request. Most of the JS is the app itself with the guides `:help` bundles (they're text, so they gzip well), React and xterm.js.
 
