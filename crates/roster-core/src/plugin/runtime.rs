@@ -689,10 +689,41 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
     let result = shared.serve.call(method, params);
     shared.serving.end();
     shared.clock.extend(started.elapsed());
-    result.map(|mut v| {
-        redact(&mut v);
-        v
-    })
+    redacted(result)
+}
+
+/// serve's answer as a Plugin gets it: `cmd:`/`env:` references cut in the answer and in an
+/// error's message alike (Q92), since serve's messages echo what they were given.
+fn redacted(result: Result<Json, String>) -> Result<Json, String> {
+    match result {
+        Ok(mut v) => {
+            redact(&mut v);
+            Ok(v)
+        }
+        Err(message) => Err(redact_error(&message)),
+    }
+}
+
+/// An error's message with its references cut. serve's `(code N)` at the end stays, even after a
+/// `cmd:` reference that runs to the end of the line: a Plugin tells errors apart by it.
+fn redact_error(message: &str) -> String {
+    let (text, code) = match message.rfind(" (code ") {
+        Some(at)
+            if message.ends_with(')')
+                && at + 8 < message.len()
+                && message[at + 7..message.len() - 1]
+                    .trim_start_matches('-')
+                    .chars()
+                    .all(|c| c.is_ascii_digit()) =>
+        {
+            message.split_at(at)
+        }
+        _ => (message, ""),
+    };
+    match redact_text(text) {
+        Some(cut) => format!("{cut}{code}"),
+        None => message.to_string(),
+    }
 }
 
 /// The Login references that say how a secret is fetched, `cmd:COMMAND` and `env:VAR`, cut to
@@ -860,10 +891,7 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
     std::thread::Builder::new()
         .name(format!("plugin:{} serve", s.plugin))
         .spawn(move || {
-            let result = serve.call(&asked, params).map(|mut v| {
-                redact(&mut v);
-                v
-            });
+            let result = redacted(serve.call(&asked, params));
             post(id, Arrival::Serve(result));
         })
         .map_err(|e| {

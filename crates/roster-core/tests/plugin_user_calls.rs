@@ -284,3 +284,36 @@ roster.commands.add("go", {{ run = function() roster.notify("command: " .. tried
     ok(&unasked);
     assert_eq!(notices(&unasked.ops), [format!("command: {refused}")]);
 }
+
+#[test]
+fn serves_errors_reach_a_plugin_cut_as_its_answers_do() {
+    let serve = Arc::new(Recorded::default());
+    let (host, rx) = listening(&serve, Limits::default());
+    // host.get fails with a message that echoes a Login reference (Recorded's).
+    let loaded = load(
+        &host,
+        "errors",
+        &["serve:host.get"],
+        r#"
+roster.commands.add("go", { run = function()
+  local ok, err = pcall(roster.serve.call, "host.get", { name = "esx-02" })
+  roster.notify("call: " .. tostring(err))
+  roster.serve.request("host.get", { name = "esx-02" }, function(r, why)
+    roster.notify("request: " .. tostring(why))
+  end)
+end })
+"#,
+    );
+    let go = host.call("guarded", command(&loaded.ops, "go"), ARGS());
+    ok(&go);
+    let mut said = notices(&go.ops);
+    said.extend(later(&rx, 1));
+    // The reference is cut to its kind; serve's code stays, so a Plugin can still tell why.
+    assert_eq!(
+        said,
+        [
+            "call: roster.serve.call host.get: no Login for esx-02: cmd: (code 5)",
+            "request: roster.serve.request host.get: no Login for esx-02: cmd: (code 5)",
+        ]
+    );
+}
