@@ -154,12 +154,12 @@ local function over(j)
     end
     state.last = r.already and "Applied: already in the Mesh." or ("Applied: " .. words.plural(changed, "Host", "Hosts") .. " changed"
       .. (pending > 0 and (", " .. words.count(pending) .. " pending (the next apply finishes them)") or "") .. stopped .. ".")
-    roster.notify(state.last, pending > 0 and "warn" or "info")
+    roster.notify(state.last, pending > 0 and "warn" or "info", { quiet = false })
   else
     state.plan = nil
     local pending = words.keys(r.pending)
     state.last = host .. " is cut from the Mesh on " .. words.plural(#r.confirmed, "Host", "Hosts") .. "."
-    roster.notify(state.last, #pending > 0 and "warn" or "info")
+    roster.notify(state.last, #pending > 0 and "warn" or "info", { quiet = false })
     -- A warning per Host that's down: it may still let the cut Host in.
     for i, h in ipairs(pending) do
       if i > 5 then
@@ -292,10 +292,10 @@ local function apply()
   if not allowed("apply") or busy() then return end
   local p = state.plan
   if not p then
-    roster.notify("Plan first: here's what an apply would change. Press a when you've looked.")
+    roster.notify("Plan first: here's what an apply would change. Press a when you've looked.", "info", { quiet = false })
     return plan()
   end
-  if p.already then return roster.notify("Nothing to apply: the plan changes nothing.") end
+  if p.already then return roster.notify("Nothing to apply: the plan changes nothing.", "info", { quiet = false }) end
   local change, left = 0, 0
   for _, h in ipairs(p.hosts) do
     if #h.changes > 0 then change = change + 1 end

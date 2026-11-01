@@ -747,6 +747,7 @@
           {
             "level": "info",
             "op": "notify",
+            "quiet": false,
             "text": "Scan done: 3 Hosts answered, 2 new"
           }
         ]
@@ -1081,6 +1082,7 @@
           {
             "level": "info",
             "op": "notify",
+            "quiet": false,
             "text": "Added 2 Hosts to discovered-20261031 as Pending changes: review them in :changes, then Publish"
           }
         ]
@@ -1135,6 +1137,7 @@
         {
           "level": "info",
           "op": "notify",
+          "quiet": false,
           "text": "No scan is going"
         }
       ]
@@ -1353,6 +1356,7 @@
           {
             "level": "info",
             "op": "notify",
+            "quiet": false,
             "text": "Scan done: 3 Hosts answered, 2 new"
           }
         ]

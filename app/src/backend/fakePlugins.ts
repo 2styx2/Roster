@@ -26,7 +26,7 @@ export interface FakeRoster {
     write_json(name: string, value: unknown): void;
   };
   /** api 3 (ticket 61): the message line, and the command line opened with text. */
-  echo(text: string): void;
+  echo(text: string, opts?: { quiet?: boolean }): void;
   cmdline(text: string): void;
   keymap: { set(context: string, keys: string, action: string | false): void; del(context: string, keys: string): void };
   themes: { define(id: string, theme: Spec): void; remove(id: string): void };
@@ -41,7 +41,7 @@ export interface FakeRoster {
   views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string, opts?: { select?: string }): void; close(id: string): void; remove(id: string): void };
   details: { set(id: string, host: string, spec: Spec | null): void; remove(id: string): void };
   clipboard: { copy(text: string): void };
-  notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[] }): void;
+  notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[]; quiet?: boolean }): void;
   on(event: PluginEventName, f: Fn): void;
   /** Timers (ticket 79): the app keeps the clock and calls back, as the core does. */
   defer(ms: number, f: () => void): number;
@@ -534,10 +534,11 @@ export function fakePluginHost(
           push({ op: "copy", text });
         },
       },
-      notify: (text, level = "info", opts) => push({ op: "notify", text, level, ...(opts?.actions ? { actions: opts.actions } : {}) }),
-      echo: (text) => {
+      notify: (text, level = "info", opts) =>
+        push({ op: "notify", text, level, ...(opts?.actions ? { actions: opts.actions } : {}), ...(opts?.quiet !== undefined ? { quiet: opts.quiet } : {}) }),
+      echo: (text, opts) => {
         userOnly("roster.echo");
-        push({ op: "echo", text });
+        push({ op: "echo", text, ...(opts?.quiet ? { quiet: true } : {}) });
       },
       cmdline: (text) => {
         userOnly("roster.cmdline");

@@ -172,10 +172,11 @@ roster.commands.add("alerts", {
     if what == "clear" then
       local n = #alerts
       clear()
-      roster.notify(n == 0 and "No alerts to clear" or ("Dismissed " .. plural(n, "alert", "alerts")))
+      -- "Dismissed 3 alerts" is routine (quiet unless ui.messages = "all"); "No alerts to clear" answers.
+      roster.notify(n == 0 and "No alerts to clear" or ("Dismissed " .. plural(n, "alert", "alerts")), "info", { quiet = n > 0 })
     elseif what == nil then
       if #alerts == 0 then
-        roster.notify("No alerts")
+        roster.notify("No alerts", "info", { quiet = false })
         return
       end
       local lines = {}

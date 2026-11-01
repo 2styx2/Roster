@@ -286,7 +286,7 @@ function load(roster: FakeRoster) {
     if (!scan) return;
     const picks = keeping();
     if (picks.length === 0) {
-      roster.notify("Keep a Host first: m on its row, or :discover keep all");
+      roster.notify("Keep a Host first: m on its row, or :discover keep all", "info", { quiet: false });
       return;
     }
     if (!roster.has(ADDS)) {
@@ -330,7 +330,7 @@ function load(roster: FakeRoster) {
             }
           }
           redraw(touched);
-          roster.notify(`Added ${plural(r.added.length, "Host", "Hosts")} to ${r.group} as Pending changes: review them in :changes, then Publish`);
+          roster.notify(`Added ${plural(r.added.length, "Host", "Hosts")} to ${r.group} as Pending changes: review them in :changes, then Publish`, "info", { quiet: false });
         });
       },
     });
@@ -384,7 +384,7 @@ function load(roster: FakeRoster) {
       if (scan.state === "failed") roster.notify(`The scan of ${list(scan.targets)} failed: ${scan.error ?? "no reason given"}`, "error");
       else {
         const [fresh] = counts();
-        roster.notify(`${scan.state === "stopped" ? "Stopped: " : "Scan done: "}${plural(scan.count, "Host", "Hosts")} answered, ${count(fresh)} new`);
+        roster.notify(`${scan.state === "stopped" ? "Stopped: " : "Scan done: "}${plural(scan.count, "Host", "Hosts")} answered, ${count(fresh)} new`, "info", { quiet: false });
       }
     }
   };
@@ -484,7 +484,7 @@ function load(roster: FakeRoster) {
       return;
     }
     if (planning) {
-      roster.notify("Still waiting for roster serve to size the last range: a moment");
+      roster.notify("Still waiting for roster serve to size the last range: a moment", "info", { quiet: false });
       return;
     }
     planning = true;
@@ -534,7 +534,7 @@ function load(roster: FakeRoster) {
       const what = w[0];
       if (what === "stop") {
         if (scan && scan.state === "running") stop();
-        else roster.notify("No scan is going");
+        else roster.notify("No scan is going", "info", { quiet: false });
       } else if (what === "add") add();
       else if (what === "keep") {
         const all = w[1] === "all";

@@ -432,11 +432,11 @@ pub const FUNCTIONS: &[Function] = &[
             opt(
                 "opts",
                 "NoticeOptions",
-                "Buttons on the notice (since api 3): `{ actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } }`.",
+                "Buttons on the notice (since api 3): `{ actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } }`; whether an info notice is quiet (since api 4): `{ quiet = false }`.",
             ),
         ],
         summary: "Shows a notice, naming the Plugin",
-        doc: "A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.",
+        doc: "Warnings and errors always show. An info notice is quiet by default, as roster's own routine messages are (`ui.messages`, like Neovim's): unless `ui.messages = \"all\"`, it isn't drawn, a screen reader still hears it and `:messages` keeps it. An info notice with buttons shows, and `quiet` decides either way: mark `quiet = false` on what the user asked for: the result of something they started (\"Scan done: 12 Hosts answered, 3 new\"), an answer (\"No alerts\") or a refusal (\"Keep a Host first\"), and leave it out for a routine confirmation (\"Copied the line\"). Every notice, shown or quiet, is in `:messages`.\n\nA notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.",
         returns: ("", ""),
         errors: &[
             (
@@ -447,11 +447,15 @@ pub const FUNCTIONS: &[Function] = &[
                 "roster.notify: actions… (a notice's action runs a command line, not a function)",
                 "a function in `opts`",
             ),
+            (
+                "roster.notify: quiet is true or false",
+                "`opts.quiet` is something else",
+            ),
         ],
         refused: &["more than 2 actions, or one whose `run` isn't a command line"],
         needs: Needs::Nothing,
         since: 2,
-        example: "roster.notify(\"3 new alerts\")\nroster.notify(\"leader: not a key sequence, using w w\", \"warn\")\nroster.notify(\"Plan ready: 4 Hosts change\", \"info\", { actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } })",
+        example: "roster.notify(\"Copied esx-02's address\") -- quiet unless ui.messages = \"all\"\nroster.notify(\"leader: not a key sequence, using w w\", \"warn\")\nroster.notify(\"Plan ready: 4 Hosts change\", \"info\", { actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } })\nroster.notify(\"Scan done: 12 Hosts found\", \"info\", { quiet = false })",
     },
     Function {
         path: "roster.on",
@@ -542,18 +546,28 @@ pub const FUNCTIONS: &[Function] = &[
     },
     Function {
         path: "roster.echo",
-        params: &[p("text", "string", "What to say, on one line.")],
+        params: &[
+            p("text", "string", "What to say, on one line."),
+            opt(
+                "opts",
+                "EchoOptions",
+                "`{ quiet = true }` for a routine confirmation (since api 4).",
+            ),
+        ],
         summary: "Answers on the message line, as roster's own commands do",
-        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.",
+        doc: "For what a command did or found: the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.\n\nIt follows `ui.messages` as roster's own messages do (like Neovim's): what went wrong (\"No Host named nope-01\") and the answer to what was asked (\"3 alerts\") always show, so a plain `roster.echo` shows. Mark a routine confirmation, when nothing went wrong (\"Added esx-02 to Lab\"), with `{ quiet = true }`: unless `ui.messages = \"all\"`, it isn't drawn, a screen reader still hears it and `:messages` keeps it.",
         returns: ("", ""),
-        errors: &[(
-            "roster.echo: only while the user runs one of your actions, commands or finder items",
-            "at load, in an event listener or a timer",
-        )],
+        errors: &[
+            (
+                "roster.echo: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener or a timer",
+            ),
+            ("roster.echo: quiet is true or false", "`opts.quiet` is something else"),
+        ],
         refused: &[],
         needs: Needs::Nothing,
         since: 3,
-        example: "roster.commands.add(\"alerts\", { run = function(a)\n  if a.words[1] == \"clear\" then alerts = {} roster.echo(\"Cleared the alerts\") end\nend })",
+        example: "roster.commands.add(\"alerts\", { run = function(a)\n  if a.words[1] == \"clear\" then alerts = {} roster.echo(\"Cleared the alerts\", { quiet = true })\n  elseif a.words[1] == nil then roster.echo(#alerts .. \" alerts\")\n  else roster.echo(\"alerts takes clear\") end\nend })",
     },
     Function {
         path: "roster.cmdline",
@@ -1714,7 +1728,7 @@ pub const FUNCTIONS: &[Function] = &[
         refused: &[],
         needs: Needs::AnyServe,
         since: 3,
-        example: "roster.commands.add(\"count\", { run = function()\n  roster.serve.request(\"hosts.list\", {}, function(r, err)\n    if not r then return roster.notify(err, \"warn\") end\n    roster.notify(#r.hosts .. \" Hosts\")\n  end)\nend })",
+        example: "roster.commands.add(\"count\", { run = function()\n  roster.serve.request(\"hosts.list\", {}, function(r, err)\n    if not r then return roster.notify(err, \"warn\") end\n    roster.echo(#r.hosts .. \" Hosts\")\n  end)\nend })",
     },
     Function {
         path: "roster.http.request",
@@ -2240,7 +2254,26 @@ pub const TYPES: &[Type] = &[
         summary: "What else a notice has (`roster.notify`, since api 3)",
         doc: "",
         alias: "",
-        fields: &[o("actions", "NoticeAction[]", "Buttons under its text, at most 2.")],
+        fields: &[
+            o("actions", "NoticeAction[]", "Buttons under its text, at most 2."),
+            o(
+                "quiet",
+                "boolean",
+                "An info notice's: whether it follows `ui.messages` (since api 4). Left out, it's quiet unless it has buttons; a warning or an error always shows.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "EchoOptions",
+        summary: "How a line on the message line is said (`roster.echo`, since api 4)",
+        doc: "",
+        alias: "",
+        fields: &[o(
+            "quiet",
+            "boolean",
+            "A routine confirmation (`true`): shown only with `ui.messages = \"all\"`, heard by a screen reader and kept by `:messages` either way. Left out or `false`, it shows.",
+        )],
         open: false,
     },
     Type {

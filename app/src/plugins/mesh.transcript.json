@@ -4922,6 +4922,7 @@
           {
             "level": "info",
             "op": "notify",
+            "quiet": false,
             "text": "Applied: 3 Hosts changed."
           }
         ],
@@ -6536,6 +6537,7 @@
           {
             "level": "warn",
             "op": "notify",
+            "quiet": false,
             "text": "orion-2 is cut from the Mesh on 2 Hosts."
           },
           {
