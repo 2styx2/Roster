@@ -233,7 +233,8 @@ pub struct Status {
 
 enum Job {
     Load(String),
-    Call(u64, Json),
+    /// A handler, its arguments, and whether the user chose it.
+    Call(u64, Json, bool),
     Event(Event),
     /// A `roster.http` or `roster.serve.request` answer, for the function waiting for it.
     Answer(u64, runtime::Arrival),
@@ -434,15 +435,29 @@ impl PluginHost {
         self.slots.lock().expect("plugin slots").remove(plugin).is_some()
     }
 
-    /// Calls a function the Plugin handed over (`{ "handler": N }` in its ops) with `args`.
+    /// Calls a function the Plugin handed over (`{ "handler": N }` in its ops) with `args`, as
+    /// the user's call: they chose it (a command, a row or button, a finder item, a toolbar
+    /// control, a key, a question's answer). A timer's run, a command's `complete`, a finder's
+    /// `items` and a `:check` section's `check` are never the user's call, whoever runs them.
     pub fn call(&self, plugin: &str, handler: u64, args: Json) -> Reply {
+        self.call_as(plugin, handler, args, true)
+    }
+
+    /// [`PluginHost::call`] for what the app runs on its own, not the user's choice (another
+    /// Plugin's question took this one's place and its `cancel` runs): never the user's call, so
+    /// it can't copy, ask, run a command line or act on the network or the Inventory.
+    pub fn call_by_app(&self, plugin: &str, handler: u64, args: Json) -> Reply {
+        self.call_as(plugin, handler, args, false)
+    }
+
+    fn call_as(&self, plugin: &str, handler: u64, args: Json, user: bool) -> Reply {
         let wall = self.limits.call + self.limits.grace;
         let Some((sender, serving)) = self.sender(plugin) else {
             let why = self.why_not(plugin);
             return Reply::failed(plugin, PluginError::new(plugin, None, None, why), None);
         };
         let start = Instant::now();
-        let answer = send(&sender, Job::Call(handler, args)).and_then(|rx| wait(&rx, start, wall, &serving));
+        let answer = send(&sender, Job::Call(handler, args, user)).and_then(|rx| wait(&rx, start, wall, &serving));
         self.settle(plugin, answer)
     }
 
@@ -574,7 +589,7 @@ impl PluginHost {
                         },
                         Ok(rt) => match job {
                             Job::Load(source) => rt.load(&source, limits.load),
-                            Job::Call(handler, args) => rt.call(handler, &args),
+                            Job::Call(handler, args, user) => rt.call(handler, &args, user),
                             Job::Answer(id, answer) => rt.answer(id, answer),
                             Job::Event(event) => {
                                 if runtime::may_hear(&event.name, rt.grants()).is_ok() {

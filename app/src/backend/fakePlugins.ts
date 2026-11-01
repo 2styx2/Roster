@@ -337,7 +337,7 @@ export function fakePluginHost(
   pluginForget(plugin: string): Promise<boolean>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
-  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  pluginCall(plugin: string, handler: number, args: unknown, user?: boolean): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   pluginUnload(plugin: string): Promise<boolean>;
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
@@ -355,7 +355,8 @@ export function fakePluginHost(
     if (!f) files.set(name, (f = new Map()));
     return f;
   };
-  /** The handlers the app calls as it likes (a command's complete): never a user's call. */
+  /** The handlers the app calls as it likes (a command's complete, a finder's items, a :check
+   * section's check): never a user's call. */
   const quiet = new Set<number>();
   const running = new Map<string, Running>();
   let next = 0;
@@ -393,7 +394,13 @@ export function fakePluginHost(
   const module = (r: Running, config: Record<string, unknown> = {}): FakeRoster => {
     const push = (op: Record<string, unknown>) => ops.push(data(r, op));
     const piece = (kind: string) => ({
-      set: (id: string, spec: Spec) => push({ op: kind, id, spec }),
+      set: (id: string, spec: Spec) => {
+        const op = data(r, { op: kind, id, spec }) as { spec: Record<string, { handler?: number } | undefined> };
+        // As runtime.rs: what the app runs on its own is never the user's call.
+        const unasked = kind === "finder" ? op.spec.items : kind === "health" ? op.spec.check : undefined;
+        if (unasked?.handler !== undefined) quiet.add(unasked.handler);
+        ops.push(op);
+      },
       remove: (id: string) => push({ op: "remove", kind, id }),
     });
     const m: FakeRoster = {
@@ -631,7 +638,7 @@ export function fakePluginHost(
       const reply = run(manifest.name, r, () => p.load(module(r, config)), true);
       return { manifest, dir: path, reply };
     },
-    async pluginCall(plugin, handler, args) {
+    async pluginCall(plugin, handler, args, user = true) {
       const r = running.get(plugin);
       if (!r || r.disabled) {
         const message = r?.disabled ? `it's disabled: ${r.disabled}` : "it isn't loaded";
@@ -645,7 +652,7 @@ export function fakePluginHost(
         r.timers.delete(handler);
         r.handlers.delete(handler);
       }
-      userCall = timer === undefined && !quiet.has(handler);
+      userCall = user && timer === undefined && !quiet.has(handler);
       try {
         return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
       } finally {

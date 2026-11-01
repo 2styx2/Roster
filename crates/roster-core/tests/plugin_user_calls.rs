@@ -223,3 +223,64 @@ end })
     assert_eq!(notices(&user.ops), ["user wrote"]);
     assert_eq!(serve.methods(), ["host.review"]);
 }
+
+/// What only the user's call may do, tried in turn: a copy, a question, a command line, a scan.
+const USER_THINGS: &str = r#"
+local function tried()
+  local said = {}
+  local function try(name, f, ...)
+    local ok = pcall(f, ...)
+    said[#said + 1] = name .. (ok and " ok" or " refused")
+  end
+  try("copy", roster.clipboard.copy, "10.0.0.5")
+  try("confirm", roster.confirm, { title = "Sure?", run = function() end })
+  try("cmd", roster.cmd, "finder hosts")
+  try("scan", roster.serve.request, "discover.start", {}, function() end)
+  return table.concat(said, ", ")
+end
+"#;
+
+#[test]
+fn a_finders_items_and_a_checks_lines_are_never_the_users_call() {
+    let serve = Arc::new(Recorded::default());
+    let (host, _rx) = listening(&serve, Limits::default());
+    let init = format!(
+        r#"{USER_THINGS}
+roster.finders.set("picks", {{ title = "Picks", items = function()
+  return {{ {{ id = "a", label = tried(), run = function() roster.notify("item: " .. tried()) end }} }}
+end }})
+roster.health.set("lab", {{ title = "Lab", check = function()
+  return {{ {{ level = "ok", message = tried() }} }}
+end }})
+roster.commands.add("go", {{ run = function() roster.notify("command: " .. tried()) end }})
+"#
+    );
+    let loaded = load(&host, "app-calls", &["serve:discover.start"], &init);
+    let finder = op(&loaded.ops, "finder");
+    let items = host.call("guarded", handler(&finder["spec"]["items"]), json!({}));
+    ok(&items);
+    let refused = "copy refused, confirm refused, cmd refused, scan refused";
+    let allowed = "copy ok, confirm ok, cmd ok, scan ok";
+    // Listing the finder's items runs as the finder opens, whoever opened it: not the user's choice.
+    assert_eq!(items.result[0]["label"], refused);
+    assert!(items.ops.is_empty(), "{:?}", items.ops);
+    let check = op(&loaded.ops, "health");
+    let lines = host.call("guarded", handler(&check["spec"]["check"]), json!({ "health": "lab" }));
+    ok(&lines);
+    assert_eq!(lines.result[0]["message"], refused);
+    // Choosing an item is the user's call, as a command is.
+    let item = host.call(
+        "guarded",
+        handler(&items.result[0]["run"]),
+        json!({ "finder": "picks", "item": "a" }),
+    );
+    ok(&item);
+    assert_eq!(notices(&item.ops), [format!("item: {allowed}")]);
+    let go = host.call("guarded", command(&loaded.ops, "go"), ARGS());
+    assert_eq!(notices(&go.ops), [format!("command: {allowed}")]);
+    // The app calling a handler on its own (another Plugin's question took this one's place, so
+    // its `cancel` runs) isn't the user's call either, whatever handler it is.
+    let unasked = host.call_by_app("guarded", command(&loaded.ops, "go"), ARGS());
+    ok(&unasked);
+    assert_eq!(notices(&unasked.ops), [format!("command: {refused}")]);
+}

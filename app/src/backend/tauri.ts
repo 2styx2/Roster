@@ -208,7 +208,7 @@ export function tauriBackend(): Backend {
     pluginManifest: (path) => call("plugin_manifest", { path }),
     pluginTypes: (path) => call<string>("plugin_types", { path }),
     pluginLoad: (path, grants, settings) => call("plugin_load", { path, grants, settings: settings ?? null }),
-    pluginCall: (plugin, handler, args) => call<PluginReply>("plugin_call", { plugin, handler, args }),
+    pluginCall: (plugin, handler, args, user) => call<PluginReply>("plugin_call", { plugin, handler, args, user: user !== false }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
     pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin }),

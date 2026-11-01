@@ -606,8 +606,8 @@ export class PluginManager {
 
   /** Runs what a Plugin's row, action, finder item or segment handed over, telling it which one
    * (`context`) and, when it may know, the Session on screen. */
-  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action"): Promise<unknown> {
-    return this.call(plugin, handler, { ...context, ...this.onScreen(plugin) }, what);
+  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action", user = true): Promise<unknown> {
+    return this.call(plugin, handler, { ...context, ...this.onScreen(plugin) }, what, user);
   }
 
   /** The Session on screen, for a Plugin that may know it (the permissions that let it hear
@@ -620,11 +620,12 @@ export class PluginManager {
   }
 
   /** Runs what a Plugin's row, action, finder item or command handed over; `what` is how
-   * `:plugins` lists it among its recent use (null: not at all, a timer). */
-  async call(plugin: string, handler: number, args: unknown = {}, what: string | null = "ran an action"): Promise<unknown> {
+   * `:plugins` lists it among its recent use (null: not at all, a timer). `user`: whether the user
+   * chose it (false: the app runs it on its own, never the user's call). */
+  async call(plugin: string, handler: number, args: unknown = {}, what: string | null = "ran an action", user = true): Promise<unknown> {
     if (!this.loaded.has(plugin)) return undefined;
     if (what !== null) this.used(plugin, what);
-    const reply = await this.backend.pluginCall(plugin, handler, args).catch((e: unknown) => this.lost(plugin, e));
+    const reply = await this.backend.pluginCall(plugin, handler, args, user).catch((e: unknown) => this.lost(plugin, e));
     this.apply(reply);
     return reply.result;
   }
@@ -848,9 +849,9 @@ export class PluginManager {
 
   /** Runs what `plugin` handed over: its function (with `context`, and the Session on screen
    * when it may know it), or its line. */
-  private runFor(plugin: string, run: Run, context: HandlerContext = {}) {
+  private runFor(plugin: string, run: Run, context: HandlerContext = {}, user = true) {
     if ("command" in run) this.runLine(plugin, run.command);
-    else void this.callWith(plugin, run.handler, context);
+    else void this.callWith(plugin, run.handler, context, "ran an action", user);
   }
 
   /** The user's answer to the question up: `run` on yes, `cancel` on no (ticket 78). */
@@ -1034,7 +1035,7 @@ export class PluginManager {
         let current: () => void;
         const open = () => {
           const mine = current;
-          void this.call(plugin, handler, {}, `listed ${op.id}`).then((result) => {
+          void this.call(plugin, handler, {}, `listed ${op.id}`, false).then((result) => {
             // Replaced (or gone) meanwhile: what came back is for a finder that isn't there.
             if (l.disposers.get(key) !== mine || this.loaded.get(plugin) !== l) return;
             const items = parseFinderItems(result ?? [], `roster.finders.set ${op.id}`);
@@ -1055,7 +1056,7 @@ export class PluginManager {
           handle = null;
           // A deferred one is gone in the core as it runs.
           if (!op.every) l.disposers.delete(key);
-          await this.call(plugin, op.run.handler, {}, null);
+          await this.call(plugin, op.run.handler, {}, null, false);
           if (live && op.every && this.loaded.get(plugin) === l) handle = setTimeout(() => void fire(), op.ms);
         };
         handle = setTimeout(() => void fire(), op.ms);
@@ -1112,7 +1113,8 @@ export class PluginManager {
         // One question at a time: a newer one replaces it (another Plugin's hears its cancel).
         const before = this.confirm;
         this.confirm = { ...op.confirm, plugin, id: ++this.confirmId };
-        if (before && before.plugin !== plugin && before.cancel) this.runFor(before.plugin, before.cancel, { confirm: "no" });
+        // The app's doing, not the user's answer: never the user's call for that Plugin.
+        if (before && before.plugin !== plugin && before.cancel) this.runFor(before.plugin, before.cancel, { confirm: "no" }, false);
         return;
       }
       case "progress": {
@@ -1233,7 +1235,7 @@ export class PluginManager {
   private async healthCheck(plugin: string, id: string, handler: number) {
     const error = (message: string) => [{ section: id, level: "error" as const, message, fix: `:plugins says how ${plugin} is doing; :plugins reload ${plugin} runs it again` }];
     if (!this.loaded.has(plugin)) return error(`${plugin} isn't running`);
-    const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }).catch((e: unknown) => this.lost(plugin, e));
+    const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }, false).catch((e: unknown) => this.lost(plugin, e));
     this.used(plugin, "ran its :check section");
     this.apply(reply);
     if (reply.error) return error(`check failed: ${describeError(reply.error)}`);
@@ -1370,7 +1372,7 @@ export class PluginManager {
     return (arg: string): string[] => {
       const last = this.completions.get(key);
       if (!last || last.arg !== arg) {
-        void this.call(plugin, handler, arg, null).then((result) => {
+        void this.call(plugin, handler, arg, null, false).then((result) => {
           const list = Array.isArray(result) ? result.filter((x): x is string => typeof x === "string").slice(0, 200) : [];
           const before = this.completions.get(key);
           this.completions.set(key, { arg, list });

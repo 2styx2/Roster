@@ -142,7 +142,8 @@ struct Shared {
     carried: Cell<bool>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
-    /// The handlers that run as the app asks, not as the user's call: a command's `complete`.
+    /// The handlers that run as the app asks, not as the user's call: a command's `complete`, a
+    /// finder's `items`, a `:check` section's `check`.
     quiet: RefCell<BTreeSet<u64>>,
     /// Its data folder (`roster.storage`, decision Q93): None when the host has no data folder.
     storage: Option<Result<Storage, String>>,
@@ -264,14 +265,14 @@ impl Runtime {
     }
 
     /// Calls a function the Plugin handed over, with `args`; its return value comes back as data.
-    /// A timer's function runs as the timer firing, not as something the user started; a
-    /// deferred one is gone once it has run.
-    pub(crate) fn call(&self, handler: u64, args: &Json) -> Outcome {
+    /// It's the user's call only when `user` (they chose it) and the handler isn't one the app
+    /// runs as it likes: a timer, a command's `complete`, a finder's `items`, a `:check` section's
+    /// `check`. A deferred timer's function is gone once it has run.
+    pub(crate) fn call(&self, handler: u64, args: &Json, user: bool) -> Outcome {
         let shared = Rc::clone(&self.shared);
         let timer = self.shared.timers.borrow().get(&handler).copied();
-        // A timer, or the app asking for completions, isn't something the user did.
         let quiet = self.shared.quiet.borrow().contains(&handler);
-        self.shared.user_call.set(timer.is_none() && !quiet);
+        self.shared.user_call.set(user && timer.is_none() && !quiet);
         let outcome = self.run(self.budget, move |lua| {
             let f = match timer {
                 // Gone before it runs, so it can defer itself again.
@@ -1015,6 +1016,17 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         func!(t, "set", |lua, s, (id, spec): (String, Table)| {
             check_id(&what, &id)?;
             let spec = data(lua, s, &what, &Value::Table(spec), &format!("{kind}:{id}"))?;
+            // What the app runs on its own, never the user's choice: a finder's `items` as it
+            // opens (whoever opened it, another Plugin's `roster.cmd` included) and a `:check`
+            // section's `check`.
+            let unasked = match kind {
+                "finder" => spec.get("items"),
+                "health" => spec.get("check"),
+                _ => None,
+            };
+            if let Some(id) = unasked.and_then(|f| f.get("handler")).and_then(Json::as_u64) {
+                s.quiet.borrow_mut().insert(id);
+            }
             let mut op = Map::new();
             op.insert("op".into(), kind.into());
             op.insert("id".into(), id.into());
