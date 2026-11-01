@@ -64,6 +64,7 @@ import { ErrorScreen } from "./ErrorScreen";
 import { Finder } from "./finder/Finder";
 import type { FinderContext, FinderItem } from "./finder/sources";
 import { CheckPanel, type CheckState } from "./errors/CheckPanel";
+import { checkProgressed, checkStarted } from "./errors/checkProgress";
 import { ChangesPanel, type ChangesState, type ChangesStep } from "./edit/ChangesPanel";
 import { AddPanel } from "./edit/AddPanel";
 import { EditPanel } from "./edit/EditPanel";
@@ -889,6 +890,13 @@ function Workspace({
     if (conn.state !== "ready" || !canJobs) return;
     return backend.onJobProgress((job) => void plugins.event("job_progress", job));
   }, [backend, conn.state, canJobs, plugins]);
+  // `:check HOST` as it runs (ticket 110): serve's check job says which step it's on (API 21; an
+  // older serve sends nothing, and the panel waits for the answer as before).
+  const checking = check?.state === "running";
+  useEffect(() => {
+    if (conn.state !== "ready" || !checking) return;
+    return backend.onJobProgress((job) => setCheck((c) => checkProgressed(c, job, Date.now())));
+  }, [backend, conn.state, checking]);
   // `:source` reloads roster.yml too.
   useEffect(() => {
     if (!canLive) return;
@@ -1328,12 +1336,14 @@ function Workspace({
         return setMessage(`:check needs a newer roster (API version ${CHECK_API_VERSION}; this one speaks ${api})`);
       }
       const run = ++checkRun.current;
-      setCheck({ state: "running", host });
+      setCheck((prev) => checkStarted(prev, host, Date.now()));
+      // Where it was (ticket 110) stays with the answer: a stopped check's step, a failed call's.
+      const at = (prev: CheckState | null) => (prev?.state === "running" && prev.host === host ? prev.at : null);
       backend.checkHost(host).then(
-        (result) => run === checkRun.current && setCheck({ state: "done", host, result }),
+        (result) => run === checkRun.current && setCheck((prev) => ({ state: "done", host, result, at: at(prev) })),
         (e: unknown) =>
           run === checkRun.current &&
-          setCheck({ state: "error", host, message: e instanceof Error ? e.message : String(e) }),
+          setCheck((prev) => ({ state: "error", host, message: e instanceof Error ? e.message : String(e), at: at(prev) })),
       );
     },
     selectRelative: (delta) => tabs.selectRelative(delta),
