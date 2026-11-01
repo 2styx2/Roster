@@ -210,6 +210,8 @@ struct Shared {
     dropping: RefCell<Option<Vec<u64>>>,
     /// This run's calls into roster serve so far, and how long they waited in all.
     served: Cell<(u32, Duration)>,
+    /// The clock a wait for roster serve is measured on: `Instant::now`, a fake one in tests.
+    serve_clock: Cell<fn() -> Instant>,
 }
 
 /// What a run may change in the core, as it was before: put back when the run fails, as its ops
@@ -325,6 +327,7 @@ impl Runtime {
             serving,
             dropping: RefCell::default(),
             served: Cell::default(),
+            serve_clock: Cell::new(Instant::now),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -864,12 +867,14 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
             MAX_SERVE_WAIT.as_secs()
         ));
     }
-    let started = Instant::now();
+    let now = shared.serve_clock.get();
+    let started = now();
     shared.serving.begin();
     let result = shared.serve.call(method, params);
     shared.serving.end();
-    shared.clock.extend(started.elapsed());
-    shared.served.set((calls + 1, waited + started.elapsed()));
+    let took = now() - started;
+    shared.clock.extend(took);
+    shared.served.set((calls + 1, waited + took));
     redacted(result)
 }
 
@@ -1810,6 +1815,88 @@ mod tests {
             network::Setup::default(),
         )
         .unwrap()
+    }
+
+    thread_local! {
+        /// Fake time for how long roster serve takes: each call moves it on, nothing waits.
+        static SERVE_START: Instant = Instant::now();
+        static SERVE_TIME: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    }
+
+    fn fake_now() -> Instant {
+        SERVE_START.with(|s| *s) + SERVE_TIME.with(Cell::get)
+    }
+
+    /// roster serve taking two minutes of fake time for every call, counting them.
+    struct Calls(std::sync::atomic::AtomicU32);
+
+    impl Serve for Calls {
+        fn call(&self, _method: &str, _params: Json) -> Result<Json, String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            SERVE_TIME.with(|t| t.set(t.get() + Duration::from_secs(120)));
+            Ok(json!({ "ok": true }))
+        }
+    }
+
+    /// One call (a load, an event, an answer) may wait for roster serve 300 s in all, serve's own
+    /// longest deadline for one method (Q103): the call that's waited that long gets an error on
+    /// its next call into serve, and the next call starts again from none. On fake time.
+    #[test]
+    fn one_call_may_wait_for_roster_serve_300_s_in_all() {
+        let serve = Arc::new(Calls(Default::default()));
+        let rt = Runtime::new(
+            "slow",
+            "1.0.0",
+            Path::new(""),
+            &Json::Null,
+            BTreeSet::from([Permission::Serve("mesh.status".into())]),
+            serve.clone(),
+            8 * 1024 * 1024,
+            Duration::from_millis(250),
+            None,
+            false,
+            None,
+            Arc::new(ServeWait::default()),
+            1,
+            network::Setup::default(),
+        )
+        .unwrap();
+        rt.shared.serve_clock.set(fake_now);
+        let loaded = rt.load(
+            r#"
+            roster.commands.add("poll", { run = function()
+              local n = 0
+              local ok, err = pcall(function()
+                while true do roster.serve.call("mesh.status"); n = n + 1 end
+              end)
+              return n .. " " .. tostring(err)
+            end })
+            "#,
+            Duration::from_secs(1),
+        );
+        assert!(loaded.error.is_none(), "{:?}", loaded.error);
+        let poll = loaded
+            .ops
+            .iter()
+            .find(|o| o["op"] == "command" && o["name"] == "poll")
+            .and_then(|o| o["run"]["handler"].as_u64())
+            .unwrap();
+        let said = |r: Outcome| {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.as_str().unwrap().to_string()
+        };
+        // 0, 120 and 240 s waited: asked; 360 s: refused before serve is asked.
+        let first = said(rt.call(poll, &json!({}), By::User));
+        assert!(first.starts_with("3 "), "{first}");
+        assert!(
+            first.contains("roster.serve.call mesh.status: waited more than 300 s for roster serve in one go"),
+            "{first}"
+        );
+        assert_eq!(serve.0.load(std::sync::atomic::Ordering::SeqCst), 3);
+        // The next call has its own 300 s.
+        let again = said(rt.call(poll, &json!({}), By::User));
+        assert!(again.starts_with("3 "), "{again}");
+        assert_eq!(serve.0.load(std::sync::atomic::Ordering::SeqCst), 6);
     }
 
     /// The set of quiet handlers (a command's `complete`, a finder's `items`) holds only the ones
