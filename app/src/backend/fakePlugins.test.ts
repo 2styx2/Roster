@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import table from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { described, fakePluginHost, manifestProblem, type FakePlugin } from "./fakePlugins";
-import { BackendCallError, type PluginReply } from "./types";
+import { BackendCallError, type Host, type PluginReply } from "./types";
 
 const manifest = (permissions: string[]): FakePlugin["manifest"] => ({
   name: "example",
@@ -91,5 +91,73 @@ describe("a fake Plugin's roster.serve.request (decision Q103)", () => {
     await host.pluginSettled("asker");
     expect(replies.map((r) => r.ops.map((o) => (o as { op: string }).op))).toEqual([["notify", "confirm"], ["notify"]]);
     expect(replies[1]?.ops[0]).toMatchObject({ text: "didn't ask again" });
+  });
+});
+
+describe("what a fake Plugin gets has its cmd:/env: Login references cut (decision Q92)", () => {
+  // Everything the Plugin sees goes into one notice, so a reference that leaks shows up in it.
+  const seen: string[] = [];
+  const watcher: FakePlugin = {
+    manifest: {
+      ...manifest(["inventory.read", "serve:changes.diff", "serve:host.check", "serve:host.check_job", "serve:mesh.status"]),
+      name: "watcher",
+    },
+    load(roster) {
+      roster.on("job_progress", (job) => seen.push(JSON.stringify(job)));
+      roster.commands.add("look", {
+        run: () => {
+          seen.push(JSON.stringify(roster.inventory?.hosts()), JSON.stringify(roster.inventory?.host("esx-02")));
+          seen.push(JSON.stringify(roster.serve?.call("changes.diff")));
+          try {
+            roster.serve?.call("host.check", { host: "esx-02" });
+          } catch (e) {
+            seen.push((e as Error).message);
+          }
+          roster.serve?.request("changes.diff", {}, (r) => seen.push(JSON.stringify(r)));
+          roster.serve?.request("host.check", { host: "esx-02" }, (_r, err) => seen.push(String(err)));
+        },
+      });
+    },
+  };
+  const host: Host = {
+    name: "esx-02",
+    group: "lab",
+    ip: "10.0.0.5",
+    type: "esxi",
+    product: "",
+    title: "",
+    description: "",
+    reviewed: true,
+    enroll: false,
+    ssh: { user: "root", port: 22, auth: "cmd:pass show lab/esx-02" },
+    web: null,
+    login: { user: "admin", auth: "env:LAB_PW" },
+    services: {
+      web: { port: 443, url: "https://10.0.0.5", scheme: "https", user: null, auth: "bw:esx-02 web", verify: true, login: "cmd:printf hunter2", override: true },
+    },
+  };
+  const serve = (method: string) => {
+    if (method === "changes.diff") return { diff: '-    auth: "cmd:pass show old"\n+    auth: env:NEW_PW\n' };
+    throw new BackendCallError("cmd:pass show lab/esx-02 resolves to no item", 31);
+  };
+
+  it("in Hosts, serve's answers and errors, and serve's job_progress", async () => {
+    seen.length = 0;
+    const plugins = fakePluginHost({ watcher }, () => [host], undefined, serve);
+    const loaded = await plugins.pluginLoad("watcher", watcher.manifest.permissions);
+    const look = (loaded.reply.ops.find((o) => (o as { op: string }).op === "command") as { run: { handler: number } }).run.handler;
+    const r = await plugins.pluginCall("watcher", look, { args: "", words: [] }, true);
+    expect(r.error).toBeNull();
+    await plugins.pluginSettled("watcher");
+    await plugins.pluginEvent("job_progress", { kind: "check", job: "check-1", state: "failed", error: "auth env:LAB_PW is unset" });
+    const all = seen.join("\n");
+    expect(all).not.toMatch(/pass show|LAB_PW|NEW_PW|hunter2/);
+    // Cut to their kind, the rest kept.
+    expect(all).toContain('"auth":"cmd:"');
+    expect(all).toContain('"auth":"env:"');
+    expect(all).toContain("bw:esx-02 web");
+    expect(all).toContain("roster.serve.call host.check: cmd: (code 31)");
+    expect(all).toContain("roster.serve.request host.check: cmd: (code 31)");
+    expect(seen).toHaveLength(7);
   });
 });

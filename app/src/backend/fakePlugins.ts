@@ -6,6 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS, ROSTER_ONLY } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
+import { redact, redactError } from "./redact";
 import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
@@ -609,24 +610,26 @@ export function fakePluginHost(
       },
     };
     if (r.grants.has("inventory.read")) {
+      // As the core's, which reads them from serve: cmd:/env: references cut (Q92).
       m.inventory = {
-        hosts: () => hosts(),
-        host: (name) => hosts().find((h) => h.name === name),
-        groups: () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }])),
+        hosts: () => redact(hosts()),
+        host: (name) => redact(hosts().find((h) => h.name === name)),
+        groups: () => redact(Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }]))),
       };
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
     // As runtime.rs: `roster.serve` with any serve: grant, each call checked against its own.
     if ([...r.grants].some((g) => g.startsWith("serve:"))) {
+      // serve's answers and errors with their cmd:/env: references cut, as runtime.rs's redacted (Q92).
       const errorText = (e: unknown) =>
-        e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e);
+        redactError(e instanceof BackendCallError && e.code !== null ? `${e.message} (code ${e.code})` : e instanceof Error ? e.message : String(e));
       m.serve = {
         call: (method, params = {}) => {
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
           if (userOnlyMethod(method)) userOnly(`roster.serve.call ${method}`);
           try {
-            return serve(method, params);
+            return redact(serve(method, params));
           } catch (e) {
             throw new Error(`roster.serve.call ${method}: ${errorText(e)}`, { cause: e });
           }
@@ -642,7 +645,7 @@ export function fakePluginHost(
           }
           let answer: () => void;
           try {
-            const result = serve(method, params ?? {});
+            const result = redact(serve(method, params ?? {}));
             answer = () => done(result ?? undefined);
           } catch (e) {
             answer = () => done(undefined, `${what}: ${errorText(e)}`);
@@ -749,7 +752,9 @@ export function fakePluginHost(
         const fs = r.listeners.get(name);
         const needs = EVENT_NEEDS[name];
         if (!fs || r.disabled || (needs.length && !needs.some((p) => r.grants.has(p))) || !hearsThis(name, payload, r.grants)) continue;
-        const reply = run(plugin, r, () => fs.forEach((f) => f(payload)));
+        // serve's own text (job_progress) is cut as its answers are, as runtime.rs's heard_payload.
+        const heard = name === "job_progress" ? redact(payload) : payload;
+        const reply = run(plugin, r, () => fs.forEach((f) => f(heard)));
         if (reply.ops.length || reply.error) replies.push(reply);
       }
       return replies;
