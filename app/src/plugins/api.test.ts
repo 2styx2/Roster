@@ -102,7 +102,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
       spec: typed("View", {
         title: "V",
         place: "full",
-        actions: [typed("RowAction", { label: "Plan", icon: "plan", run: { handler: 9 } })],
+        actions: [typed("HeadAction", { label: "Plan", icon: "plan", key: "P", run: { handler: 9 } })],
         text: "t",
         facts: [typed("Fact", { label: "l", value: "v", data: true })],
         table: typed("Table", {
@@ -167,7 +167,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
     for (const op of ops) expect(parseOp(op)).not.toHaveProperty("invalid");
   });
 
-  it.each(["Section", "Row", "RowAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction", "FloatAction", "Link", "Confirm", "Progress", "ToolbarControl", "Graph", "GraphNode", "GraphEdge", "GraphCluster", "GraphFilter", "NodeAction"])(
+  it.each(["Section", "Row", "RowAction", "HeadAction", "StatusSegment", "Finder", "FinderItem", "HelpPage", "HealthSection", "HealthCheck", "Tutorial", "Lesson", "Step", "Float", "View", "ViewUpdate", "DetailsSection", "Fact", "Table", "Column", "TableRow", "TableAction", "FloatAction", "Link", "Confirm", "Progress", "ToolbarControl", "Graph", "GraphNode", "GraphEdge", "GraphCluster", "GraphFilter", "NodeAction"])(
     "%s: ops.ts reads exactly the fields the reference lists",
     (type) => {
       for (const op of ops) parseOp(op);

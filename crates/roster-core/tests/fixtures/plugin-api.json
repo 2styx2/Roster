@@ -1127,6 +1127,13 @@
     "roster-CommandSpec": "plugin-api#commandspec",
     "roster-Confirm": "plugin-api#confirm",
     "roster-DetailsSection": "plugin-api#detailssection",
+    "roster-DiscoverAdd": "plugin-api#discoveradd",
+    "roster-DiscoverAdded": "plugin-api#discoveradded",
+    "roster-DiscoverFound": "plugin-api#discoverfound",
+    "roster-DiscoverPlan": "plugin-api#discoverplan",
+    "roster-DiscoverPort": "plugin-api#discoverport",
+    "roster-DiscoverStatus": "plugin-api#discoverstatus",
+    "roster-DiscoverStop": "plugin-api#discoverstop",
     "roster-EchoOptions": "plugin-api#echooptions",
     "roster-EdgeDir": "plugin-api#edgedir",
     "roster-EdgeStyle": "plugin-api#edgestyle",
@@ -1148,6 +1155,7 @@
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
     "roster-HandlerContext": "plugin-api#handlercontext",
+    "roster-HeadAction": "plugin-api#headaction",
     "roster-HealthCheck": "plugin-api#healthcheck",
     "roster-HealthSection": "plugin-api#healthsection",
     "roster-HelpPage": "plugin-api#helppage",
@@ -1169,6 +1177,15 @@
     "roster-Login": "plugin-api#login",
     "roster-LoginRef": "plugin-api#loginref",
     "roster-Manifest": "plugin-api#manifest",
+    "roster-MeshCut": "plugin-api#meshcut",
+    "roster-MeshCutChange": "plugin-api#meshcutchange",
+    "roster-MeshHost": "plugin-api#meshhost",
+    "roster-MeshJob": "plugin-api#meshjob",
+    "roster-MeshLink": "plugin-api#meshlink",
+    "roster-MeshResult": "plugin-api#meshresult",
+    "roster-MeshStarted": "plugin-api#meshstarted",
+    "roster-MeshStatus": "plugin-api#meshstatus",
+    "roster-MeshStop": "plugin-api#meshstop",
     "roster-MoveResult": "plugin-api#moveresult",
     "roster-NodeAction": "plugin-api#nodeaction",
     "roster-NodeEvent": "plugin-api#nodeevent",
@@ -1191,6 +1208,7 @@
     "roster-RowTone": "plugin-api#rowtone",
     "roster-Run": "plugin-api#run",
     "roster-Section": "plugin-api#section",
+    "roster-ServeError": "plugin-api#serveerror",
     "roster-Service": "plugin-api#service",
     "roster-ServiceProblem": "plugin-api#serviceproblem",
     "roster-SessionExitEvent": "plugin-api#sessionexitevent",
@@ -1609,7 +1627,7 @@
         {
           "name": "actions",
           "required": false,
-          "type": "RowAction[]"
+          "type": "HeadAction[]"
         },
         {
           "name": "text",
@@ -1625,6 +1643,236 @@
           "name": "table",
           "required": false,
           "type": "Table"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverAdd": {
+      "fields": [
+        {
+          "name": "group",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "added",
+          "required": true,
+          "type": "DiscoverAdded[]"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverAdded": {
+      "fields": [
+        {
+          "name": "address",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverFound": {
+      "fields": [
+        {
+          "name": "address",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "name",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "type",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "hostname",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "web",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "known",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "added",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "vendor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "os",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "mac",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "ports",
+          "required": true,
+          "type": "DiscoverPort[]"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverPlan": {
+      "fields": [
+        {
+          "name": "targets",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "addresses",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "ports",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "scanner",
+          "required": true,
+          "type": "\"nmap\"|\"built-in\""
+        },
+        {
+          "name": "limit",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "max",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverPort": {
+      "fields": [
+        {
+          "name": "port",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "product",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverStatus": {
+      "fields": [
+        {
+          "name": "scan",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "\"running\"|\"stopping\"|\"done\"|\"stopped\"|\"failed\""
+        },
+        {
+          "name": "targets",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "scanner",
+          "required": true,
+          "type": "\"nmap\"|\"built-in\""
+        },
+        {
+          "name": "done",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "count",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "quiet",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "found",
+          "required": true,
+          "type": "DiscoverFound[]"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "DiscoverStop": {
+      "fields": [
+        {
+          "name": "scan",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "stopping",
+          "required": true,
+          "type": "boolean"
         }
       ],
       "open": false
@@ -2065,6 +2313,31 @@
         },
         {
           "name": "session_host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "HeadAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "icon",
+          "required": false,
+          "type": "RowIcon"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "Run"
+        },
+        {
+          "name": "key",
           "required": false,
           "type": "string"
         }
@@ -2590,6 +2863,361 @@
       ],
       "open": false
     },
+    "MeshCut": {
+      "fields": [
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "confirmed",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "pending",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "change",
+          "required": true,
+          "type": "MeshCutChange"
+        }
+      ],
+      "open": false
+    },
+    "MeshCutChange": {
+      "fields": [
+        {
+          "name": "written",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "backup",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "note",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "fix",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "MeshHost": {
+      "fields": [
+        {
+          "name": "host",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "\"same\"|\"would-change\"|\"changed\"|\"pending\""
+        },
+        {
+          "name": "changes",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "more",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "MeshJob": {
+      "fields": [
+        {
+          "name": "job",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "\"plan\"|\"apply\"|\"cut\""
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "\"running\"|\"done\"|\"failed\""
+        },
+        {
+          "name": "done",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "at",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "stopped",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "MeshResult|MeshCut"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "ServeError"
+        }
+      ],
+      "open": false
+    },
+    "MeshLink": {
+      "fields": [
+        {
+          "name": "from",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "to",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "kind",
+          "required": true,
+          "type": "\"key\"|\"password\""
+        },
+        {
+          "name": "status",
+          "required": false,
+          "type": "\"ok\"|\"untested\"|\"unreachable\"|\"no-host-key\"|\"no-via\"|\"pending\"|\"skipped\""
+        },
+        {
+          "name": "why",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "via",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "skip",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "MeshResult": {
+      "fields": [
+        {
+          "name": "applied",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "links",
+          "required": true,
+          "type": "MeshLink[]"
+        },
+        {
+          "name": "hosts",
+          "required": true,
+          "type": "MeshHost[]"
+        },
+        {
+          "name": "excluded",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "reach",
+          "required": true,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "pending",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "already",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "warnings",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "cut_pending",
+          "required": true,
+          "type": "table<string, string[]>"
+        },
+        {
+          "name": "link_count",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "link_statuses",
+          "required": false,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "reached",
+          "required": false,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "links_more",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "MeshStarted": {
+      "fields": [
+        {
+          "name": "job",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "\"plan\"|\"apply\"|\"cut\""
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "MeshStatus": {
+      "fields": [
+        {
+          "name": "links",
+          "required": true,
+          "type": "MeshLink[]"
+        },
+        {
+          "name": "excluded",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "reach",
+          "required": true,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "members",
+          "required": true,
+          "type": "string[]"
+        },
+        {
+          "name": "pending",
+          "required": true,
+          "type": "table<string, string>"
+        },
+        {
+          "name": "cut_pending",
+          "required": true,
+          "type": "table<string, string[]>"
+        },
+        {
+          "name": "out_of_date",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "name": "meshed",
+          "required": false,
+          "type": "table<string, string[]>"
+        },
+        {
+          "name": "link_count",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "name": "link_statuses",
+          "required": false,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "reached",
+          "required": false,
+          "type": "table<string, integer>"
+        },
+        {
+          "name": "links_more",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "MeshStop": {
+      "fields": [
+        {
+          "name": "job",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "stopping",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "open": false
+    },
     "MoveResult": {
       "fields": [
         {
@@ -2971,6 +3599,26 @@
           "name": "drop",
           "required": false,
           "type": "Run"
+        }
+      ],
+      "open": false
+    },
+    "ServeError": {
+      "fields": [
+        {
+          "name": "code",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "message",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "data",
+          "required": false,
+          "type": "table"
         }
       ],
       "open": false
@@ -3437,7 +4085,7 @@
         {
           "name": "actions",
           "required": false,
-          "type": "RowAction[]"
+          "type": "HeadAction[]"
         },
         {
           "name": "text",

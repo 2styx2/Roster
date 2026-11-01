@@ -87,4 +87,17 @@ describe("the Mesh controls", () => {
     await user.keyboard(`${LEADER}:info esx-02{Enter}`);
     expect(await screen.findByText("can reach 3 Hosts", undefined, WAIT)).toBeInTheDocument();
   }, TEST);
+
+  it("a Host's Mesh section lists only its Links, and x there asks to Cut it, as its heading's button does (#176)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:info esx-02{Enter}`);
+    await screen.findByText("can reach 3 Hosts", undefined, WAIT);
+    const section = screen.getByRole("region", { name: "Mesh (from mesh)" });
+    expect(within(section).queryByText("this Host")).toBeNull();
+    const button = within(section).getByRole("button", { name: "Cut esx-02 from the Mesh" });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "x");
+    (within(section).queryByRole("grid") ?? button).focus();
+    await user.keyboard("x");
+    expect(await screen.findByRole("alertdialog", { name: /Cut esx-02 from the Mesh\?/ })).toBeInTheDocument();
+  }, TEST);
 });

@@ -494,6 +494,10 @@ function Workspace({
   // Every panel's place and width (ticket 95, decision Q106): the user's, kept in the State, over
   // init.lua's `views` and `panel.width`.
   const [panelLayout] = useState(() => new PanelLayout(store));
+  // Drawn again when the panels' arrangement changes: the body says what the layering and the
+  // terminal's minimum need, without CSS :has() (#176).
+  // Only those two: focus moving between panels changes the layout too, and needn't redraw the app.
+  const bodyPanels = useSyncExternalStore(panelLayout.subscribe, () => `${panelLayout.anyDocked() ? "d" : ""}${panelLayout.anyFull() ? "f" : ""}`);
   const [plugins] = useState(
     () => new PluginManager(backend, registries, store, {
         run: (line) => runRef.current(line),
@@ -2005,7 +2009,12 @@ function Workspace({
   const shell = (
     <div className={`screen app ${appMode ? "mode-app" : "mode-terminal"}`} data-view={viewMode}>
       {pieces("top")}
-      <div className={`body sidebar-${sidebarSide}`}>
+      <div
+        className={`body sidebar-${sidebarSide}`}
+        {...(sidebarShown ? { "data-sidebar": "" } : {})}
+        {...(bodyPanels.includes("d") ? { "data-docked": "" } : {})}
+        {...(bodyPanels.includes("f") ? { "data-full": "" } : {})}
+      >
         {sidebarShown && (
           <Sidebar
             sections={sections}
