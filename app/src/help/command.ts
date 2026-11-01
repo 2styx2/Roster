@@ -6,6 +6,7 @@ import type { FinderItem, FinderSourceDef } from "../finder/sources";
 import type { Registries } from "../registries";
 import { BUILTIN } from "../registry";
 import { plain } from "./doc";
+import { grepTexts } from "./grep";
 import { lineTopic } from "./lookup";
 import { findTopic, headingTag, pageBody, pageTexts, topics, type HelpContext, type Topic } from "./pages";
 
@@ -178,41 +179,17 @@ export function helpgrepCommand(): CommandDef {
   };
 }
 
-/** Up to `width` characters of `text` around its first match of `term`. */
-function snippet(text: string, term: string, width = 80): string {
-  if (text.length <= width) return text;
-  const at = Math.max(0, text.toLowerCase().indexOf(term.toLowerCase()));
-  let from = Math.max(0, Math.min(at - 30, text.length - width));
-  // Start at a word, not in one.
-  if (from > 0) from = text.indexOf(" ", from) + 1 || from;
-  return `${from > 0 ? "…" : ""}${text.slice(from, from + width).trim()}${from + width < text.length ? "…" : ""}`;
-}
-
 /** The `helpgrep` finder: every paragraph, list item, table row and entry of every page that
  * has all the words typed, as typed (not fuzzy: this is text). Enter opens the page there and
  * searches it for the first word, so n and N go on from there. */
 export function helpgrepFinder(view: HelpView): FinderSourceDef {
   const search = (query: string): FinderItem[] => {
     const ctx = view.context();
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!ctx || terms.length === 0) return [];
-    const out: FinderItem[] = [];
-    const seen = new Set<string>();
-    const headings = new Set<string>();
-    pageTexts(ctx).forEach((hit, k) => {
-      // The index and `all` only repeat other pages' titles and summaries.
-      if (hit.page === "index" || hit.page === "all") return;
-      const lower = hit.text.toLowerCase();
-      if (!terms.every((t) => lower.includes(t))) return;
-      const label = snippet(hit.text, terms[0] as string);
-      const key = `${hit.tag}\n${label}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ id: `${k}`, label, path: hit.where, command: `help ${hit.tag} /${query.trim().split(/\s+/)[0]}` });
-      if (hit.heading) headings.add(`${k}`);
-    });
-    // A heading that has the words comes first: it's what the text is about.
-    return [...out.filter((i) => headings.has(i.id)), ...out.filter((i) => !headings.has(i.id))];
+    if (!ctx) return [];
+    const first = query.trim().split(/\s+/)[0];
+    // The index and `all` only repeat other pages' titles and summaries.
+    const texts = pageTexts(ctx).filter((hit) => hit.page !== "index" && hit.page !== "all");
+    return grepTexts(texts, query).map(({ hit, label }, k) => ({ id: `${k}`, label, path: hit.where, command: `help ${hit.tag} /${first}` }));
   };
   return {
     id: "helpgrep",
