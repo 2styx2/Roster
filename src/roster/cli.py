@@ -831,6 +831,7 @@ def build_parser():
     s.add_argument("--timeout", type=float, default=0.5, metavar="SECONDS",
                    help="built-in scanner connect timeout (default: 0.5)")
     s.add_argument("--force", action="store_true", help="allow scanning more than 4096 addresses")
+    s.add_argument("--json", **as_json)
     s = sub.add_parser("bw", help="run the Bitwarden CLI with this box's vault session (bw-session file)")
     s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS", help="arguments for bw")
     s = sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
@@ -893,6 +894,8 @@ def _main(argv=None):
         from .manpage import cmd_man
         return cmd_man(args)
     if args.cmd == "discover":
+        if args.json and args.write:
+            build_parser().error("--json goes with discover's preview, not --write: drop one of them")
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
