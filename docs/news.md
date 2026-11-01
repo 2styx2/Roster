@@ -61,6 +61,10 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
+**serve API (API 23)**
+
+- On native Windows, `vault.login` signs bw in with a password or SSO too: it drives `bw login` on a pseudoconsole (ConPTY), where it answered `59` before. There the `sso` step's `url` is `null`, because bw opens the sign-in page in the default browser itself; the app says so instead of showing a link. See [Signing in](serve-api.md#signing-in-vaultlogin).
+
 **serve API (API 21)**
 
 - `$/cancel {id}` stops a request sent earlier: one still queued or waiting for a lock never runs (code 5, nothing done), a running `host.check` or waiting Mesh run stops its job, and anything else that runs finishes, so nothing is half-written; `vault.lock` is never cancelled. The app's core sends it whenever it gives up waiting. See [Cancelling](serve-api.md#ordering-locks-and-jobs).
@@ -132,6 +136,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- On native Windows, closing `roster serve` during a Mesh run ends the run's ssh with everything it started, as a step that times out does, so `mesh.json` records which Hosts were left to do (an ssh that is a batch file kept running before).
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.
 - `roster serve` started with a temp dir whose path leaves a Unix socket's no room puts its askpass folder in `/tmp` rather than fail.

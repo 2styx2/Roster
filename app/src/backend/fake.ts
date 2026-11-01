@@ -224,6 +224,8 @@ export interface FakeAccount {
   /** How SSO ends in the browser, after `ssoMs` (default ok, 300 ms). */
   sso?: "ok" | "fail";
   ssoMs?: number;
+  /** false: SSO as on native Windows, where bw opens the page itself and the step's `url` is null (API 23). */
+  ssoLink?: boolean;
   /** Every start is refused with this (52 rate limited, 53 unreachable…). */
   refuse?: Refusal;
   /** What `bw config server` says (null: bitwarden.com). */
@@ -1322,7 +1324,10 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     }
     return stepOf(id, {
       step: "sso",
-      url: "https://vault.bitwarden.com/#/sso?clientId=cli&redirectUri=http%3A%2F%2Flocalhost%3A8065&state=fake",
+      url:
+        scenario.signIn?.ssoLink === false
+          ? null
+          : "https://vault.bitwarden.com/#/sso?clientId=cli&redirectUri=http%3A%2F%2Flocalhost%3A8065&state=fake",
       expires_in: 300,
     });
   };
