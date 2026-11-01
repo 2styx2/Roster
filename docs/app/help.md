@@ -85,6 +85,8 @@ CI also checks the docs themselves, the way Neovim's `make lintdoc` does: every 
 
 The same pages are a website, [2styx2.github.io/roster/](https://2styx2.github.io/roster/), and one PDF, `roster-docs.pdf` there and `roster-docs-X.Y.Z.pdf` on each Release. Both are made from the same Markdown, the same generated pages and the same renderer as help in the app, the way Neovim's website is made from its `:help`, so they can't say something different. The generated pages show roster's defaults there (no `init.lua`, no Plugins) and say so; in the app they show what's in effect.
 
+The box at the top of every page searches (`/` goes to it from anywhere on the page): the topics, ranked as `:help`'s topic finder ranks them, then the text, found the way `:helpgrep` finds it. ↑ and ↓ (or `Ctrl+N` and `Ctrl+P`) choose, Enter opens, Esc closes the list, and the last row, "All N results", opens `search.html?q=WORDS` with every match. A match in the text opens the page at its place with the first word marked. It runs in the page, on an index the website is built with; nothing is sent anywhere.
+
 Every topic has a web address: `tag.html?t=TOPIC`, such as [2styx2.github.io/roster/tag.html?t=terminal.size](https://2styx2.github.io/roster/tag.html?t=terminal.size). Every page ends with the commit it was made from, a link to edit its Markdown, and "Wrong or unclear? Report it", which opens a new issue naming the page.
 
 To build them yourself, in `app/`: `npm run docs` writes the website to `app/dist-docs/`, and `npm run docs -- --pdf FILE` prints the PDF too, with Chrome or Chromium (`CHROME=PATH` if it's not on `PATH`). The build stops on a link that goes nowhere. The website updates when a Release reaches `main` (ADR 0008).
