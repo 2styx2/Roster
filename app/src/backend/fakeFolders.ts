@@ -31,7 +31,7 @@ export const fakeFoldersPlugin: FakePlugin = {
     version: "1.0.0",
     description: "The Sidebar's Folders: your own groupings of Hosts",
     author: "roster",
-    api: 3,
+    api: 4,
     permissions: ["inventory.read"],
   },
   load(roster: FakeRoster) {
@@ -68,7 +68,10 @@ export const fakeFoldersPlugin: FakePlugin = {
         if (save()) {
           moved = { from, n: folders.length };
           if (folders.length > 0) {
-            roster.notify(`Moved ${count(folders.length, "Folder")} from ${from} into roster's own data${from === "folders.yml" ? ": folders.yml isn't read any more (:check)" : ""}`);
+            // A result that needs attention: it shows whatever ui.messages says (ticket 117).
+            roster.notify(`Moved ${count(folders.length, "Folder")} from ${from} into roster's own data${from === "folders.yml" ? ": folders.yml isn't read any more (:check)" : ""}`, "info", {
+              quiet: false,
+            });
           }
         }
       }
@@ -150,7 +153,8 @@ export const fakeFoldersPlugin: FakePlugin = {
           return say(problem ?? "can't save the Folders");
         }
         show();
-        say(o.message);
+        // A routine confirmation: quiet, as roster's own (api 4, ticket 118).
+        roster.echo(o.message, { quiet: true });
       };
       if (blocked && sub !== "") return say(`Folders can't be changed until they can be read: ${blocked}`);
       const fromConfig = (name: string) => {

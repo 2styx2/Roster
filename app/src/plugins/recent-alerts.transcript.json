@@ -1075,6 +1075,7 @@
         {
           "level": "info",
           "op": "notify",
+          "quiet": true,
           "text": "Dismissed 3 alerts"
         }
       ]

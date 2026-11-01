@@ -53,6 +53,7 @@ import { mergeRows, type TableRow } from "../ui/table";
 import { detailsId, type Content, type GraphModel } from "../view/views";
 import { mergeGraph, type GraphNode } from "../graph/model";
 import { MAX_CLUSTERS, MAX_EDGES, MAX_NODES, type PluginGraph } from "./graphOps";
+import { quiet, type Message } from "../ui/messages";
 
 /** What the manager asks of the app. */
 export interface PluginUi {
@@ -73,8 +74,13 @@ export interface PluginUi {
   showSession?(id: number, line: string | null): boolean;
   /** Opens a float's link (http or https, checked) in the browser. */
   openUrl?(url: string): void;
-  /** Says a line on the message line (`roster.echo`, api 3). */
-  say?(text: string): void;
+  /** Says a line on the message line (`roster.echo`, api 3), quiet or not (Q115): a quiet one
+   * follows `ui.messages`, and so does a Plugin's info notice (tickets 117, 118). */
+  say?(message: Message): void;
+  /** Whether every message shows (`ui.messages = "all"`); without it, notices always show. */
+  messagesAll?(): boolean;
+  /** Keeps a notice shown in `:messages`'s history, as the message line's are. */
+  log?(message: Message): void;
   /** Opens the command line with `text` typed in (`roster.cmdline`, api 3). */
   openCommandLine?(text: string): void;
   /** The settings a built-in Plugin gets as `roster.plugin.config` (Folders: init.lua's Folders,
@@ -936,7 +942,7 @@ export class PluginManager {
           );
           copying = Promise.all([before, done]).then(([a, b]) => a && b);
         } else if (op.op === "notify" && copying) {
-          void copying.then((ok) => ok && this.notify(name, op.level, `${name}: ${op.text}`));
+          void copying.then((ok) => ok && this.notify(name, op.level, `${name}: ${op.text}`, op.actions, op.quiet));
         } else this.applyOp(l, name, op);
       }
     }
@@ -998,7 +1004,7 @@ export class PluginManager {
   }
 
   /** `:cancel [ID]`: stops a progress through its Plugin's `cancel`. Says what happened. */
-  cancelProgress(id?: string): string {
+  cancelProgress(id?: string): Message {
     const list = [...this.progress.values()];
     const p = id ? this.progress.get(id) : list.filter((x) => x.cancel && !x.stopping).at(-1);
     if (!p) return id ? `Nothing called ${id} is running: :cancel lists none` : "Nothing running can be cancelled";
@@ -1007,7 +1013,8 @@ export class PluginManager {
     this.progress.set(p.id, { ...p, stopping: true });
     this.changed();
     this.runFor(p.plugin, p.cancel, { progress: p.id });
-    return `Stopping ${p.title}`;
+    // Quiet (ticket 117): the progress itself shows it's stopping.
+    return quiet(`Stopping ${p.title}`);
   }
 
   /** The ids `:cancel` completes: what can be stopped now. */
@@ -1250,7 +1257,7 @@ export class PluginManager {
         this.float = op.spec ? { ...op.spec, plugin } : this.float?.plugin === plugin ? null : this.float;
         return;
       case "notify":
-        return this.notify(plugin, op.level, `${plugin}: ${op.text}`, op.actions);
+        return this.notify(plugin, op.level, `${plugin}: ${op.text}`, op.actions, op.quiet);
       case "open":
         return this.ui.run(`connect ${op.host}`);
       case "send":
@@ -1302,7 +1309,7 @@ export class PluginManager {
         }
       }
       case "echo":
-        return this.ui.say ? this.ui.say(op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
+        return this.ui.say ? this.ui.say(op.quiet ? quiet(op.text) : op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
       case "cmdline": {
         // Its own commands only (the core checks too): never a line for roster's or another's.
         const word = op.text.trim().split(/\s+/)[0] ?? "";
@@ -1566,7 +1573,13 @@ export class PluginManager {
     return { label: a.label, icon: a.icon, command: this.line(plugin, a.run, context) };
   }
 
-  private notify(plugin: string, level: Notice["level"], text: string, actions: Notice["actions"] = []) {
+  /** A notice; an info one is quiet (on the message line, heard but not seen) unless it has
+   * buttons or the Plugin said `quiet = false`, while `ui.messages` is quiet (ticket 117).
+   * Warnings and errors always show. `:messages` keeps it either way. */
+  private notify(plugin: string, level: Notice["level"], text: string, actions: Notice["actions"] = [], asked?: boolean) {
+    const routine = level === "info" && (asked ?? actions.length === 0);
+    if (routine && this.ui.say && this.ui.messagesAll?.() === false) return this.ui.say(quiet(text));
+    this.ui.log?.(text);
     const notice: Notice = { id: ++this.noticeId, plugin, level, text, ...(actions.length ? { actions } : {}) };
     this.notices = [...this.notices, notice].slice(-MAX_NOTICES);
     this.changed();
