@@ -128,6 +128,13 @@
 ---@field icon? roster.RowIcon Its icon; `info` if left out.
 ---@field run roster.Run What pressing it runs.
 
+--- A button on a view's or a Host-details section's heading
+---@class roster.HeadAction
+---@field label string What it does, for its tooltip and screen readers (`"Plan"`).
+---@field icon? roster.RowIcon Its icon; `info` if left out.
+---@field run roster.Run What pressing it runs.
+---@field key? string One character (`"P"`) that runs it: not one a table or graph uses itself (`h j k l H J K L g G n N o O t f m s S / ? q + - = 0`), nor one of the view's table or graph actions' keys, nor another button's (since api 4).
+
 --- A row action's icon
 ---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"
 
@@ -252,7 +259,7 @@
 ---@class roster.View
 ---@field title? string Its heading; the id if left out.
 ---@field place? roster.ViewPlace Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it.
----@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3).
+---@field actions? roster.HeadAction[] Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3), and its `key` runs it from anywhere in the view (since api 4).
 ---@field text? string A few lines above the rest, in the app's voice; a blank line starts a paragraph.
 ---@field facts? roster.Fact[] Label and value pairs, as a Host's details show them.
 ---@field table? roster.Table A table of rows.
@@ -283,7 +290,7 @@
 ---@class roster.DetailsSection
 ---@field title? string Its heading; the id if left out.
 ---@field order? number Where it goes among the Plugins' sections, lowest first; 500 if left out.
----@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3).
+---@field actions? roster.HeadAction[] Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3), and its `key` runs it from anywhere in the section (since api 4).
 ---@field text? string A few lines, in the app's voice.
 ---@field facts? roster.Fact[] Label and value pairs.
 ---@field table? roster.Table A table of rows.
@@ -609,6 +616,161 @@
 ---@field subject string Its subject line.
 ---@field upstream? string The branch's upstream (`origin/main`); `nil` without one.
 ---@field pushed boolean Whether the upstream has it, as this Box last fetched.
+
+--- `mesh.plan`'s and `mesh.apply`'s result
+---@class roster.MeshResult
+---@field applied boolean `false` for a plan (nothing changed), `true` for an apply.
+---@field links roster.MeshLink[] Every Link, with how it went.
+---@field hosts roster.MeshHost[] Every Host visited.
+---@field excluded table<string, string> Hosts kept out, and why (`not reviewed (reviewed: false)`, `mesh: false`).
+---@field reach table<string, integer> How many Hosts each source reaches, counting the Links that work.
+---@field pending table<string, string> Hosts that didn't answer, and why.
+---@field already boolean Nothing to change and nothing pending: already in the Mesh.
+---@field warnings string[] Words to show (a `ROSTER.md` that isn't roster's, a Host that left `roster.yml`).
+---@field cut_pending table<string, string[]> Earlier cuts not finished yet: a Host, and the peers still to do.
+---@field link_count? integer Brief: how many Links there are in all.
+---@field link_statuses? table<string, integer> Brief: how many Links have each status.
+---@field reached? table<string, integer> Brief: how many Hosts reach each Host.
+---@field links_more? integer Brief: the Links worth a look that `links` leaves out (it keeps 1,000).
+
+--- A Link of the Mesh: a source reaching a peer
+---@class roster.MeshLink
+---@field from string The source Host.
+---@field to string The peer it reaches.
+---@field kind "key"|"password" `password` when the peer asks for one.
+---@field status? "ok"|"untested"|"unreachable"|"no-host-key"|"no-via"|"pending"|"skipped" How it went; `mesh.status` gives none (it never connects), except `no-via` with `brief`. `unreachable`, `no-host-key` and `no-via` are left out.
+---@field why? string The status in words.
+---@field via? string The Host the source goes through to the peer (a Link's `via:`).
+---@field skip? string Why roster didn't write it: `"password-source"`.
+
+--- A Host a Mesh run visited
+---@class roster.MeshHost
+---@field host string Its name.
+---@field status "same"|"would-change"|"changed"|"pending" `would-change` from a plan, `changed` from an apply, `pending` when it didn't answer.
+---@field changes string[] Short phrases: `make key`, `write ssh config`, `add key from orion-2`, …
+---@field error? string Why it's pending.
+---@field more? integer Brief: the changes left out (it keeps 10).
+
+--- A Mesh run started with `background = true`
+---@class roster.MeshStarted
+---@field job integer The job's number, for `mesh.job` and `mesh.stop`.
+---@field action "plan"|"apply"|"cut" What it does.
+---@field total integer How many Hosts it visits.
+---@field host? string A cut's Host.
+
+--- `mesh.cut`'s result
+---@class roster.MeshCut
+---@field host string The Host cut from the Mesh.
+---@field confirmed string[] The peers whose keys it took off, and that took its off.
+---@field pending table<string, string> The peers that didn't answer, and why: the next cut finishes them.
+---@field change roster.MeshCutChange The `mesh: false` written for it as a Pending change.
+
+--- The `mesh: false` a `mesh.cut` writes into `roster.yml`
+---@class roster.MeshCutChange
+---@field written boolean Whether it was written now (`false` when it already was, or couldn't be).
+---@field backup? string The copy of `roster.yml` from before; `nil` when it isn't in a git repo.
+---@field note? string Why nothing was written, or that it went straight to a file outside git.
+---@field error? string Why it couldn't be written (the cut still happened).
+---@field fix? string What to do then, in a sentence.
+
+--- `mesh.status`'s result: the Mesh as `roster.yml` asks for it
+---@class roster.MeshStatus
+---@field links roster.MeshLink[] The Links, without a `status`.
+---@field excluded table<string, string> Hosts kept out, and why.
+---@field reach table<string, integer> How many Hosts each source reaches.
+---@field members string[] The Hosts roster visits.
+---@field pending table<string, string> Hosts the last run didn't finish, and why.
+---@field cut_pending table<string, string[]> Earlier cuts not finished yet.
+---@field out_of_date boolean `roster.yml` changed the Mesh since the last complete apply on this Box.
+---@field meshed? table<string, string[]> Grouped: each meshed group's Hosts that reach each other both ways.
+---@field link_count? integer Brief: how many Links there are in all.
+---@field link_statuses? table<string, integer> Brief: how many Links have each status (`asked` for untested ones).
+---@field reached? table<string, integer> Brief: how many Hosts reach each Host.
+---@field links_more? integer Brief: the Links worth a look that `links` leaves out.
+
+--- `mesh.job`'s result: how far a Mesh run has got
+---@class roster.MeshJob
+---@field job integer Its number.
+---@field action "plan"|"apply"|"cut" What it does.
+---@field host? string A cut's Host.
+---@field state "running"|"done"|"failed" Where it is.
+---@field done integer Hosts done so far.
+---@field total integer Hosts in all.
+---@field at? string The Host it's on.
+---@field stopped boolean `mesh.stop` asked it to stop; the Hosts it hadn't got to are pending.
+---@field result? roster.MeshResult|roster.MeshCut Once `done`: what the method itself returns.
+---@field error? roster.ServeError Once `failed`: why.
+
+--- An error roster serve answered with
+---@class roster.ServeError
+---@field code integer Its code, in serve-api.md's tables.
+---@field message string What went wrong.
+---@field data? table More about it, as its row says.
+
+--- `mesh.stop`'s result
+---@class roster.MeshStop
+---@field job integer The job.
+---@field stopping boolean `false` when it isn't running (over already, or not the latest).
+
+--- `discover.plan`'s result: what a scan would visit
+---@class roster.DiscoverPlan
+---@field targets string[] The targets as written back, without one another covers.
+---@field addresses integer How many addresses they hold.
+---@field ports integer How many ports it tries on each.
+---@field scanner "nmap"|"built-in" nmap, or roster's own TCP connect scan without it.
+---@field limit integer The most addresses without `force` (4,096).
+---@field max integer The most with `force` (65,536).
+
+--- `discover.status`'s and `discover.start`'s result: how far a scan has got
+---@class roster.DiscoverStatus
+---@field scan string Its id (`"scan-N"`).
+---@field state "running"|"stopping"|"done"|"stopped"|"failed" Where it is.
+---@field targets string[] What it scans.
+---@field scanner "nmap"|"built-in" What it scans with.
+---@field done integer Addresses visited so far.
+---@field total integer Addresses in all.
+---@field count integer How many it found in all: the next `since`.
+---@field quiet integer How many answered with none of the ports open (nmap only).
+---@field found roster.DiscoverFound[] What it found, after the first `since`.
+---@field error? string Why it `failed`.
+
+--- Something a scan found at an address
+---@class roster.DiscoverFound
+---@field address string Its address.
+---@field name? string The name it would be added as; `nil` when `known` names the Host already there.
+---@field type string The guessed kind.
+---@field hostname string Its name in DNS; `""` for none.
+---@field title string A web page's title; `""` for none.
+---@field web? string Its web address, when it serves one.
+---@field known? string The Inventory's Host at that address.
+---@field added? string The name `discover.add` gave it.
+---@field vendor string The network card's maker (nmap); `""` when unknown.
+---@field os string The guessed operating system (nmap); `""` when unknown.
+---@field mac string Its MAC address (nmap, on the same network); `""` when unknown.
+---@field ports roster.DiscoverPort[] Its open ports.
+
+--- An open port a scan found
+---@class roster.DiscoverPort
+---@field port integer Its number.
+---@field name string The service's name (`ssh`).
+---@field product string What answered (`OpenSSH 9.6`); `""` when unknown.
+---@field title string A web page's title; `""` for none.
+
+--- `discover.stop`'s result
+---@class roster.DiscoverStop
+---@field scan string The scan.
+---@field stopping boolean `false` when it had ended already; `discover.status` says `stopped` once it has.
+
+--- `discover.add`'s result
+---@class roster.DiscoverAdd
+---@field group string The new group they went in.
+---@field added roster.DiscoverAdded[] Each Host added, `reviewed: false`, as a Pending change.
+---@field backup? string The copy of `roster.yml` from before.
+
+--- A Host `discover.add` added
+---@class roster.DiscoverAdded
+---@field address string Its address.
+---@field name string Its name in `roster.yml`.
 
 --- An event a Plugin can listen for
 ---@alias roster.EventName "lock"|"unlock"|"host_selected"|"session_open"|"session_exit"|"inventory_changed"|"terminal_output"|"command_done"|"job_progress"

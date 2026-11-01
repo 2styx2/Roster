@@ -410,7 +410,7 @@ local function draw_details(names)
   local members = {}
   for _, m in ipairs(st.members or {}) do members[m] = true end
   for _, h in ipairs(names) do
-    local what, tone = words.state(h, st)
+    local what = words.state(h, st)
     local section = {
       title = "Mesh",
       facts = {
@@ -420,25 +420,26 @@ local function draw_details(names)
       },
     }
     if members[h] then
-      local rows = { { id = "host", cells = { link = "this Host", status = what, member = "yes" }, tone = tone } }
+      -- The Host itself is the facts above and the Cut on the heading; the rows are its Links.
+      local rows = {}
       for i, x in ipairs(mine[h] or {}) do
         rows[#rows + 1] = { id = "l" .. i, cells = { link = words.link(x), status = words.status(x.status), member = "yes" },
           tone = words.LEFT_OUT[x.status] and "error" or nil }
       end
-      section.text = #rows == 1 and "Every Link of this Host works as roster.yml asks." or "The Links worth a look: a hop (via) or a problem."
-      section.table = {
-        columns = { { id = "link", label = "Link", kind = "data" }, { id = "status", label = "Status" } },
-        rows = rows,
-        open = function(e)
-          local x = (mine[e.host] or {})[tonumber((e.row or ""):match("^l(%d+)$") or "")]
-          if x then explain(x) end
-        end,
-        actions = {
-          { label = "Cut", key = "x", icon = "cut", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
-        },
-      }
-      -- Cut on the section's heading too: it's about this Host, not one of its rows.
-      section.actions = { { label = "Cut " .. h .. " from the Mesh", icon = "cut", run = function(e) cut(e.host) end } }
+      section.text = #rows == 0 and "Every Link of this Host works as roster.yml asks." or "The Links worth a look: a hop (via) or a problem."
+      if #rows > 0 then
+        section.table = {
+          columns = { { id = "link", label = "Link", kind = "data" }, { id = "status", label = "Status" } },
+          rows = rows,
+          open = function(e)
+            local x = (mine[e.host] or {})[tonumber((e.row or ""):match("^l(%d+)$") or "")]
+            if x then explain(x) end
+          end,
+        }
+      end
+      -- Cut on the section's heading: it's about this Host, not one of its Links; x anywhere in
+      -- the section runs it (api 4).
+      section.actions = { { label = "Cut " .. h .. " from the Mesh", key = "x", icon = "cut", run = function(e) cut(e.host) end } }
     end
     roster.details.set("mesh", h, section)
     state.detailed[h] = true

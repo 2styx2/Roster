@@ -68,6 +68,8 @@ export interface GraphModel {
 export interface HeadActionDef {
   label: string;
   icon: RowAction["icon"];
+  /** Runs it from anywhere in its view or section (#176). */
+  key?: string;
   run(): void;
 }
 
