@@ -61,7 +61,7 @@ It needs `roster serve` API 18 on the Box (a roster with `discover.*`). With an 
 | Setting | Default | What it does |
 |---|---|---|
 | `ranges` | none | What `:discover` alone offers to scan; with none, you name a range each time |
-| `leader` | `"y d"` | The keys after the Leader that open its view |
+| `leader` | `"y d"` | The keys after the Leader that open its view; `false` binds none |
 | `ports` | `roster discover`'s list | The TCP ports to try |
 | `group` | `discovered-YYYYMMDD` | The new group the kept Hosts go into |
 
