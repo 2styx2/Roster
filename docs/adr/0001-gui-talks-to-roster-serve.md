@@ -4,7 +4,7 @@ The desktop app (in `app/`; until 2026-10-30 the separate roster-desk repo, see 
 
 ## Amendment (2026-10-31, decision Q112)
 
-`roster serve` no longer answers one request at a time. Since serve API 20 it answers several at once on a pool of workers, with a lock per resource (`roster.yml` and its repo, the vault) where requests must not overlap, and a job manager that owns its background work (Mesh runs, Discover scans) and pushes their progress. The decision stands: the app still talks to roster only through this one `roster serve` over stdio, the backend stays Python (the owner chose that over a rewrite), and secrets still never leave it. [serve-api.md](../serve-api.md#ordering-locks-and-jobs) has the ordering, the locks and the jobs.
+`roster serve` no longer answers one request at a time. Since serve API 20 it answers several at once on a pool of workers, with a lock per resource (`roster.yml` and its repo, the vault) where requests must not overlap, and a job manager that owns its background work (Mesh runs, Discover scans) and pushes their progress. The decision stands: the app still talks to roster only through this one `roster serve` over stdio, the backend stays Python (the owner chose that over a rewrite; [ADR 0009](0009-python-cli-rust-where-it-falls-short.md) says when Rust is used instead and when a rewrite is revisited), and secrets still never leave it. [serve-api.md](../serve-api.md#ordering-locks-and-jobs) has the ordering, the locks and the jobs.
 
 ## Considered Options
 
