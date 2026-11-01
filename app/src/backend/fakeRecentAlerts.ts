@@ -250,7 +250,9 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
       const fresh: Alert[] = [];
       for (const raw of whole) {
         const all = raw.trim();
-        const pattern = all !== "" && !prompt(all) ? s.patterns.find((p) => all.includes(p)) : undefined;
+        // A line OSC 133 marks call a prompt or input (ticket 94) is never an alert; else the guess.
+        const echoed = e.kind === "prompt" || e.kind === "input" || prompt(all);
+        const pattern = all !== "" && !echoed ? s.patterns.find((p) => all.includes(p)) : undefined;
         const line = tidy(all);
         if (pattern) {
           const a: Alert = { id: ++nextId, host, session, text: line, pattern, at: Math.floor(Date.now() / 1000), before: seen.slice(-CONTEXT) };

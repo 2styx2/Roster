@@ -77,14 +77,14 @@ fn said(ops: &[Value], id: &str) -> String {
 }
 
 #[test]
-fn the_api_version_is_3() {
+fn the_api_version_is_4() {
     let (_, ops, error, _folder) = load(
         "version",
         &[],
         r#"roster.status.set("v", { text = tostring(roster.api_version) })"#,
     );
     assert_eq!(error, None);
-    assert_eq!(said(&ops, "v"), "3");
+    assert_eq!(said(&ops, "v"), "4");
 }
 
 #[test]

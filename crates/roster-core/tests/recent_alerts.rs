@@ -450,6 +450,26 @@ fn what_you_type_echoed_after_a_shell_prompt_isnt_an_alert() {
     );
 }
 
+/// Ticket 94 (#167): a shell's OSC 133 marks say what each run of lines is (`kind`). recent-alerts
+/// skips the prompt and the line typed at it whatever they look like (a prompt its guess doesn't
+/// know), and keeps its guess for the rest: a command's output may be an `ssh` echoing you.
+#[test]
+fn lines_the_marks_call_prompt_or_input_are_never_alerts_and_the_rest_keep_the_guess() {
+    let w = World::new("marks");
+    ok(&w.install(&["terminal.read"]));
+    let say = |kind: &str, text: &str| {
+        w.host.event(Event {
+            name: "terminal_output".into(),
+            payload: json!({ "session": 1, "host": "esx-02", "text": text, "kind": kind }),
+        })
+    };
+    assert!(say("input", "esx-02 % grep ERROR app.log\n").is_empty());
+    assert!(say("prompt", "ERROR count: 3 (main)\n").is_empty());
+    assert!(say("output", "esx-03$ grep ERROR x\n").is_empty());
+    let replies = say("output", "ERROR: disk full\n");
+    assert_eq!(rows(one(&replies[0].ops, "section")), ["ERROR: disk full"]);
+}
+
 #[test]
 fn a_quick_connect_session_has_no_host_so_its_alerts_have_no_badge_and_no_goto() {
     let w = World::new("quick");
@@ -859,6 +879,7 @@ fn steps() -> Value {
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "all good\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "esx-02$ grep ERROR /var/log/syslog\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 3, "host": null, "text": "ERROR on a box\n" } },
+        { "do": "event", "name": "terminal_output", "payload": { "session": 4, "host": "esx-02", "text": "esx-02 % grep ERROR app.log\n", "kind": "input" } },
         { "do": "timer" },
         { "do": "action", "label": "Details of ERROR on a box" },
         { "do": "action", "label": "Details of ERROR: disk /dev/sda1 full" },

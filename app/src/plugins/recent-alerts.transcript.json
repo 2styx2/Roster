@@ -607,6 +607,17 @@
       }
     },
     {
+      "do": "event",
+      "name": "terminal_output",
+      "ops": [],
+      "payload": {
+        "host": "esx-02",
+        "kind": "input",
+        "session": 4,
+        "text": "esx-02 % grep ERROR app.log\n"
+      }
+    },
+    {
       "do": "timer",
       "ops": [
         {
