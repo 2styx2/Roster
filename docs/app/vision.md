@@ -8,7 +8,7 @@ SecureCRT is the reference point for the skeleton: saved Hosts, tabs, and loggin
 
 ## Who
 
-It's a personal tool first, open source under GPL-3.0-or-later. If it gets good enough, and does something the other tools don't, it may even have a small subscription. Until then, choose what feels best to use every day over what would sell.
+It's a personal tool first, open source under GPL-3.0-or-later. Choose what feels best to use every day over what would sell.
 
 ## What already exists (checked 2026-10-29)
 
