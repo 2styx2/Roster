@@ -317,3 +317,59 @@ end })
         ]
     );
 }
+
+/// A failed call's UI changes are dropped, so what it did in the core goes too: the functions it
+/// replaced still run, its timers and commands aren't kept.
+#[test]
+fn a_failed_call_leaves_nothing_behind_in_the_core() {
+    let serve = Arc::new(Recorded::default());
+    // Errors don't disable here: the point is what each one leaves behind.
+    let (host, _rx) = listening(
+        &serve,
+        Limits {
+            strikes: 1000,
+            ..Limits::default()
+        },
+    );
+    let loaded = load(
+        &host,
+        "failed",
+        &[],
+        r#"
+roster.sidebar.set("alerts", { title = "Alerts", rows = {}, actions = { { label = "Clear", run = function() roster.notify("cleared") end } } })
+roster.commands.add("redo", { run = function()
+  roster.sidebar.set("alerts", { title = "Alerts", rows = {}, actions = { { label = "Clear", run = function() end } } })
+  roster.commands.add("ghost", { run = function() end })
+  roster.defer(1000, function() end)
+  error("half done")
+end })
+roster.commands.add("later", { run = function()
+  roster.defer(1000, function() end)
+  local ok, err = pcall(roster.cmd, "ghost")
+  roster.notify(ok and "ghost ran" or tostring(err))
+end })
+"#,
+    );
+    let section = op(&loaded.ops, "section");
+    let clear = handler(&section["spec"]["actions"][0]["run"]);
+    let redo = command(&loaded.ops, "redo");
+    for _ in 0..100 {
+        let r = host.call("guarded", redo, ARGS());
+        assert!(r.error.is_some() && r.ops.is_empty(), "{r:?}");
+    }
+    // The section the app still shows is the one before: its button still runs.
+    let cleared = host.call("guarded", clear, json!({ "section": "alerts", "action": 1 }));
+    ok(&cleared);
+    assert_eq!(notices(&cleared.ops), ["cleared"]);
+    // The 100 timers the failed calls asked for never reached the app, so they don't count.
+    let next = host.call("guarded", command(&loaded.ops, "later"), ARGS());
+    ok(&next);
+    assert_eq!(op(&next.ops, "timer")["ms"], 1000);
+    // Nor is a command a failed call added the Plugin's own.
+    assert_eq!(
+        notices(&next.ops),
+        [
+            "roster.cmd: :ghost isn't one a Plugin may run (its own commands, and finder, view, help, find, info, changes, session, next, prev, check, open, connect)"
+        ]
+    );
+}

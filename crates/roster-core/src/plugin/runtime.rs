@@ -149,6 +149,19 @@ struct Shared {
     storage: Option<Result<Storage, String>>,
     /// How long this thread has waited for roster serve: the host doesn't count it.
     serving: Arc<ServeWait>,
+    /// During a run, the handlers it let go of: gone only once it succeeds, since a failed run's
+    /// ops never reach the app, which still shows (and calls) what they replaced.
+    dropping: RefCell<Option<Vec<u64>>>,
+}
+
+/// What a run may change in the core, as it was before: put back when the run fails, as its ops
+/// are dropped (the iteration 8 review: a failed call left timers that never reached the app
+/// counting toward the cap, and the buttons it replaced dead).
+struct Before {
+    handlers: Handlers,
+    timers: HashMap<u64, bool>,
+    commands: BTreeSet<String>,
+    quiet: BTreeSet<u64>,
 }
 
 /// Hands a request's answer back to the host (request id, answer), from a network or serve thread.
@@ -166,7 +179,7 @@ pub(crate) enum Arrival {
 /// 2^32 handlers a load, and the ids stay below 2^53, a whole number to JavaScript, for 2^21 loads.
 const HANDLER_BITS: u32 = 32;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Handlers {
     /// The last handler's number: the load's generation in the high bits.
     next: u64,
@@ -235,6 +248,7 @@ impl Runtime {
             quiet: RefCell::default(),
             storage,
             serving,
+            dropping: RefCell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -273,14 +287,15 @@ impl Runtime {
         let timer = self.shared.timers.borrow().get(&handler).copied();
         let quiet = self.shared.quiet.borrow().contains(&handler);
         self.shared.user_call.set(user && timer.is_none() && !quiet);
+        // A deferred timer is gone before it runs, so it can defer itself again; gone whether its
+        // run succeeds or not, as the app has let go of it already.
+        let taken = match timer {
+            Some(false) => Some(take_timer(&self.lua, &self.shared, handler)),
+            _ => None,
+        };
         let outcome = self.run(self.budget, move |lua| {
-            let f = match timer {
-                // Gone before it runs, so it can defer itself again.
-                Some(false) => Some(take_timer(lua, &shared, handler)?),
-                _ => None,
-            };
-            let f: Option<Function> = match f {
-                Some(f) => f,
+            let f: Option<Function> = match taken {
+                Some(f) => f?,
                 None => lua.named_registry_value::<Table>(HANDLERS)?.raw_get(handler)?,
             };
             let Some(f) = f else {
@@ -393,7 +408,21 @@ impl Runtime {
         self.shared.clock.start(budget);
         self.shared.budget.set(Budget::default());
         self.shared.ops.borrow_mut().clear();
+        let s = &self.shared;
+        let before = Before {
+            handlers: s.handlers.borrow().clone(),
+            timers: s.timers.borrow().clone(),
+            commands: s.commands.borrow().clone(),
+            quiet: s.quiet.borrow().clone(),
+        };
+        *s.dropping.borrow_mut() = Some(Vec::new());
         let result = body(&self.lua);
+        let dropped = s.dropping.borrow_mut().take().unwrap_or_default();
+        let settled = match &result {
+            Ok(_) => dropped.into_iter().try_for_each(|id| forget(&self.lua, s, id)),
+            Err(_) => self.undo(before),
+        };
+        let result = result.and_then(|v| settled.map(|()| v));
         let ops = std::mem::take(&mut *self.shared.ops.borrow_mut());
         match result {
             Ok(result) => Outcome {
@@ -425,6 +454,42 @@ impl Runtime {
             }
         }
     }
+}
+
+impl Runtime {
+    /// Puts the core back as it was before a failed run: the functions it handed over are let
+    /// go, the ones it replaced kept, and its timers, commands and quiet handlers as they were.
+    /// What Lua itself changed (a variable, a listener) stays, as a failed `init.lua`'s would.
+    fn undo(&self, before: Before) -> mlua::Result<()> {
+        let s = &self.shared;
+        let made = (before.handlers.next + 1)..=s.handlers.borrow().next;
+        let table: Table = self.lua.named_registry_value(HANDLERS)?;
+        for id in made {
+            table.raw_set(id, Value::Nil)?;
+        }
+        *s.handlers.borrow_mut() = before.handlers;
+        *s.timers.borrow_mut() = before.timers;
+        *s.commands.borrow_mut() = before.commands;
+        *s.quiet.borrow_mut() = before.quiet;
+        Ok(())
+    }
+}
+
+/// Lets handler `id` go: at once outside a run, else once the run has succeeded.
+fn let_go(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<()> {
+    match shared.dropping.borrow_mut().as_mut() {
+        Some(later) => {
+            later.push(id);
+            Ok(())
+        }
+        None => forget(lua, shared, id),
+    }
+}
+
+/// Handler `id` is gone: its function, and its place among the quiet ones.
+fn forget(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<()> {
+    shared.quiet.borrow_mut().remove(&id);
+    lua.named_registry_value::<Table>(HANDLERS)?.raw_set(id, Value::Nil)
 }
 
 /// `coroutine` (api 3), which Neovim authors expect: within the same memory limit and time budget.
@@ -468,7 +533,7 @@ fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> m
     let handlers: Table = lua.named_registry_value(HANDLERS)?;
     let old = shared.handlers.borrow_mut().owners.remove(owner).unwrap_or_default();
     for id in &old {
-        handlers.raw_set(*id, Value::Nil)?;
+        let_go(lua, shared, *id)?;
     }
     shared.handlers.borrow_mut().count -= old.len();
     let mut ids = Vec::new();
@@ -492,16 +557,17 @@ fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> m
 /// Drops the functions every owner `which` picks handed over (a view or a Host-details section
 /// taken away).
 fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua::Result<()> {
-    let handlers: Table = lua.named_registry_value(HANDLERS)?;
-    let mut h = shared.handlers.borrow_mut();
-    let owners: Vec<String> = h.owners.keys().filter(|k| which(k)).cloned().collect();
-    for owner in owners {
-        for id in h.owners.remove(&owner).unwrap_or_default() {
-            handlers.raw_set(id, Value::Nil)?;
-            h.count -= 1;
-        }
-    }
-    Ok(())
+    let ids: Vec<u64> = {
+        let mut h = shared.handlers.borrow_mut();
+        let owners: Vec<String> = h.owners.keys().filter(|k| which(k)).cloned().collect();
+        let ids: Vec<u64> = owners
+            .iter()
+            .flat_map(|o| h.owners.remove(o).unwrap_or_default())
+            .collect();
+        h.count -= ids.len();
+        ids
+    };
+    ids.into_iter().try_for_each(|id| let_go(lua, shared, id))
 }
 
 /// A view's spec without its table's `actions`, and those actions (`nil` for none). The
@@ -554,13 +620,14 @@ fn convert_error(what: &str, e: &lua::ConvertError) -> mlua::Error {
 /// Takes timer `id` out (and its function, returned): it won't run again.
 fn take_timer(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<Option<Function>> {
     shared.timers.borrow_mut().remove(&id);
-    let handlers: Table = lua.named_registry_value(HANDLERS)?;
-    let f: Option<Function> = handlers.raw_get(id)?;
-    let mut h = shared.handlers.borrow_mut();
-    if h.owners.remove(&format!("timer:{id}")).is_some() {
-        h.count -= 1;
+    let f: Option<Function> = lua.named_registry_value::<Table>(HANDLERS)?.raw_get(id)?;
+    {
+        let mut h = shared.handlers.borrow_mut();
+        if h.owners.remove(&format!("timer:{id}")).is_some() {
+            h.count -= 1;
+        }
     }
-    handlers.raw_set(id, Value::Nil)?;
+    let_go(lua, shared, id)?;
     Ok(f)
 }
 
@@ -1565,4 +1632,67 @@ pub(crate) fn to_lua(lua: &Lua, v: &Json) -> mlua::Result<Value> {
             Value::Table(t)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoServe;
+
+    impl Serve for NoServe {
+        fn call(&self, method: &str, _params: Json) -> Result<Json, String> {
+            Err(format!("unknown method {method}"))
+        }
+    }
+
+    fn runtime() -> Runtime {
+        Runtime::new(
+            "quiet",
+            "1.0.0",
+            Path::new(""),
+            &Json::Null,
+            BTreeSet::new(),
+            Arc::new(NoServe),
+            8 * 1024 * 1024,
+            Duration::from_millis(250),
+            None,
+            None,
+            Arc::new(ServeWait::default()),
+            1,
+        )
+        .unwrap()
+    }
+
+    /// The set of quiet handlers (a command's `complete`, a finder's `items`) holds only the ones
+    /// still there: a Plugin adding a command again and again, from a timer say, doesn't grow it
+    /// outside Lua's memory limit (the iteration 8 review).
+    #[test]
+    fn replaced_quiet_handlers_are_let_go() {
+        let rt = runtime();
+        let loaded = rt.load(
+            r#"
+            local function again()
+              roster.commands.add("pick", { run = function() end, complete = function() return {} end })
+              roster.finders.set("picks", { title = "Picks", items = function() return {} end })
+              roster.health.set("lab", { title = "Lab", check = function() return {} end })
+            end
+            again()
+            roster.commands.add("again", { run = again })
+            "#,
+            Duration::from_secs(1),
+        );
+        assert!(loaded.error.is_none(), "{:?}", loaded.error);
+        let again = loaded
+            .ops
+            .iter()
+            .find(|o| o["op"] == "command" && o["name"] == "again")
+            .and_then(|o| o["run"]["handler"].as_u64())
+            .unwrap();
+        for _ in 0..50 {
+            let r = rt.call(again, &json!({}), true);
+            assert!(r.error.is_none(), "{:?}", r.error);
+        }
+        assert_eq!(rt.shared.quiet.borrow().len(), 3);
+    }
 }
