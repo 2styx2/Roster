@@ -425,7 +425,8 @@ roster reveal lab-guest --wifi | qrencode -t ansiutf8
   - never read keys or fetch passwords,
   - ask before changing state on a host,
   - ask you to unlock a locked password manager rather than trying itself,
-  - leave unreviewed hosts alone.
+  - leave unreviewed hosts alone,
+  - run `roster check NAME --json` when a host doesn't respond, and report which step fails.
 
   It also tells Claude to use `--json` (`roster hosts --json`, `roster info NAME --json`, `roster check HOST --json`) when it needs to read roster's data rather than show it.
 - **`CLAUDE.md`** gets an `@ROSTER.md` line added, and its existing content is kept.
