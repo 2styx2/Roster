@@ -178,6 +178,27 @@ def test_discover_json_is_the_plan_and_what_it_found(scanned, capsys):
                                                    "title": "Lab page"}]}
 
 
+def test_discover_json_with_a_broken_roster_yml_found_without_c_is_error_1(scanned, capsys):
+    # T104 (#182, from T107): without -c a broken roster.yml was ignored silently, --json too
+    from roster.cli import main
+    scanned.write_text("groups: [unclosed\n")
+    assert main(["discover", "10.0.0.0/28", "--json"]) == 1
+    out, err = capsys.readouterr()
+    error = json.loads(err)["error"]
+    assert out == "" and error["code"] == 1 and "roster.yml" in error["fix"]
+    scanned.unlink()                                                # none at all: a scan needs no inventory
+    assert main(["discover", "10.0.0.0/28", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["count"] == 3
+
+
+def test_discover_json_with_roster_config_naming_no_file_scans_as_before(scanned, capsys, monkeypatch, tmp_path):
+    # review of #216, 2: a ROSTER_CONFIG that names no file is no Inventory, not a broken one
+    from roster.cli import main
+    monkeypatch.setenv("ROSTER_CONFIG", str(tmp_path / "nowhere" / "roster.yml"))
+    assert main(["discover", "10.0.0.0/28", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["count"] == 3
+
+
 def test_discover_json_errors(scanned, capsys):
     from roster.cli import main
     assert main(["discover", "10.0.0.0/8", "--json"]) == 1
