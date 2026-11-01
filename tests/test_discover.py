@@ -114,3 +114,22 @@ def test_inline_groups_are_refused(isolated):
     path.write_text("groups: {}\n")
     with pytest.raises(SystemExit, match="inline"):
         write_discovered(path, "g", entries(), "n", True, "2026-10-07")
+
+
+def test_the_cli_scans_each_family_once_per_address_and_counts_quiet_hosts(fakes, isolated, monkeypatch, capsys):
+    """`roster discover` with the stand-in nmap (review 8 #2, #5, #6): IPv6 with -6, an address in two targets
+    written once, and a Host with none of the ports open counted."""
+    from roster.cli import main
+    root = isolated["home"].parent / "hosts"
+    for name, address, ports in (("db", "10.0.0.9", "22 ssh OpenSSH 9.6"), ("v6", "fd00::7", "22 ssh OpenSSH 9.6"),
+                                 ("printer", "10.0.0.11", "9100 jetdirect")):
+        (root / name).mkdir(parents=True)
+        (root / name / "address").write_text(address)
+        (root / name / "ports").write_text(ports + "\n")
+    monkeypatch.setenv("FAKE_HOSTS", str(root))
+    cfg = isolated["home"].parent / "new.yml"
+    assert main(["-c", str(cfg), "discover", "10.0.0.0/28", "10.0.0.9", "fd00::/124", "--ports", "22", "--write"]) == 0
+    out = capsys.readouterr().out
+    assert "found        2 hosts with open ports: 2 new" in out and "(1 more answered" in out
+    hosts = load_config(cfg)["hosts"]
+    assert sorted(h["ip"] for h in hosts.values()) == ["10.0.0.9", "fd00::7"]

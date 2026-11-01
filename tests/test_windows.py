@@ -140,7 +140,7 @@ def test_roster_run_hands_over_to_ssh_and_passes_on_its_code(write_config, fakes
 # ---------------------------------------------------------------- what a remote sh reads from a Windows Box
 
 def sent_on_windows(kw):
-    """The bytes a child reads on stdin from subprocess.run(**KW) on Windows, where text mode turns "\n" into "\r\n"
+    """The bytes a child reads on stdin from subprocess.run(**KW) (or Popen's communicate) on Windows, where text mode turns "\n" into "\r\n"
     (a remote sh then sees CRLF: a heredoc's end marker never matches, sudo's password ends in "\r")."""
     data = kw.get("input")
     if isinstance(data, str):
@@ -156,10 +156,28 @@ def fake_run_answering(seen, stdout):
     return run
 
 
+def fake_popen_answering(seen, stdout):
+    """A stand-in subprocess.Popen whose communicate() answers STDOUT (as text, or bytes, as it was opened)."""
+    class Popen:
+        returncode = 0
+
+        def __init__(self, argv, **kw):
+            seen.update(argv=argv, **kw)
+            self.text = kw.get("text") or kw.get("universal_newlines")
+
+        def communicate(self, input=None, timeout=None):
+            seen["input"] = input
+            return (stdout, "") if self.text else (stdout.encode(), b"")
+
+        def kill(self):
+            pass
+    return Popen
+
+
 def test_the_meshs_script_reaches_the_remote_sh_with_unix_newlines(as_windows, monkeypatch):
     from roster import mesh
     seen = {}
-    monkeypatch.setattr(mesh.subprocess, "run", fake_run_answering(seen, "SAME include\nROSTER_DONE\n"))
+    monkeypatch.setattr(mesh.subprocess, "Popen", fake_popen_answering(seen, "SAME include\nROSTER_DONE\n"))
     h = {"name": "esx-02", "ip": "10.0.0.12", "ssh": {"user": "root", "port": 22}, "enroll": True}
     lines, err = mesh.on_host(h, mesh.write_script(h, "apply", None, [], set()))
     assert err is None and lines == ["SAME include", "ROSTER_DONE"]

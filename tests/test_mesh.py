@@ -1051,3 +1051,51 @@ def test_serve_mesh_status_grouped(net, serve):
     assert s.call("mesh.status", {"grouped": True})["result"]["meshed"] == {"lab": ["orion-2", "orion-3", "esx-02", "sw-1"]}
     assert s.call("mesh.status", {"grouped": "yes"})["error"]["code"] == -32602
     assert s.call("mesh.status", {"grouped": True, "brief": True})["error"]["code"] == -32602
+
+
+def test_a_via_link_whose_jump_host_has_no_recorded_host_key_is_not_written(net, isolated):
+    # review 8 #1: orion-3's own Link to jump-1 isn't written (no host key), so a ProxyJump jump-1 would name a Host
+    # orion-3's ssh config doesn't have, with no pinned key
+    net.cfg_path.write_text(VIA)
+    kh = isolated["home"] / ".ssh/roster_known_hosts"
+    kh.write_text("".join(x + "\n" for x in kh.read_text().splitlines() if not x.startswith("10.0.5.1 ")))
+    r = mesh.run(net.cfg(), apply=True)
+    link = next(x for x in r["links"] if (x["from"], x["to"]) == ("orion-3", "db-9"))
+    assert link["status"] == "no-host-key"
+    assert link["why"] == "no recorded host key for jump-1 (orion-3's hop to db-9) on this Box (roster setup --only jump-1)"
+    assert net.mesh_lines("db-9") == []
+    assert "ProxyJump" not in net.file("orion-3", "home/.ssh/roster-mesh/config")
+
+
+def test_serve_closing_mid_job_stops_it_and_records_what_it_didnt_finish(net, serve):
+    # review 8 #4: closing serve (the app closes its stdin, then kills it a second later) stopped a scan but left a
+    # Mesh job's daemon thread to die mid-apply, so mesh.json never said which Hosts were left to do
+    import time
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("60")                     # its step would take a minute
+    started = s.call("mesh.apply", {"background": True})["result"]
+    assert wait_for(s, started["job"], until=lambda j: j["at"] == "orion-2")["state"] == "running"
+    time.sleep(0.3)                                                     # its ssh has started
+    t = time.monotonic()
+    code, _, _ = s.close()
+    assert code == 0 and time.monotonic() - t < 5                     # not after the step (a minute)
+    pending = mesh.load_state()["pending"]
+    assert "orion-2" in pending and "serve closed" in pending["orion-2"]
+    assert set(pending) >= {"orion-3", "nas-1"}                         # not visited: the next run finishes them
+
+
+def test_a_background_run_works_out_the_mesh_once_while_serve_waits(net, monkeypatch):
+    # review 8 #10: serve answers nothing while it starts a job (state.lock), and the graph of a big meshed group is
+    # every pair in it; starting the job worked it out twice (and the run a third time)
+    from roster import serve as rpc
+    state = rpc.State(str(net.cfg_path))
+    calls = []
+    graph = mesh.graph
+    monkeypatch.setattr(mesh, "graph", lambda cfg: calls.append(1) or graph(cfg))
+    with state.lock:
+        r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "mesh.apply",
+                                          "params": {"background": True}}))
+        assert len(calls) == 1
+    state.mesh_job.thread.join(20)
+    assert len(calls) == 1 and state.mesh_job.result["pending"] == {}
+    assert r["result"]["total"] == state.mesh_job.total == state.mesh_job.done

@@ -2,7 +2,7 @@
 
 What changed in each Release of roster, the CLI and the app together, newest first: what's new, what changed, what's gone and what's on its way out. The app says once, on its first start after an upgrade, "roster 0.2.0: what's new: `:help news`". [Deprecated names](deprecated.md) lists every old name that still works, and what replaces it.
 
-Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
+Each Release has the same sections, left out when empty: **Breaking** (something you have to change), **New**, **Changed**, **Fixed**, **Removed** and **Deprecated**. Inside a section the bullets are grouped by area: the CLI, the app, and the `roster serve` API with the API version that brought the change.
 
 ## Unreleased
 
@@ -95,6 +95,11 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 ### Fixed
 
+**CLI**
+
+- The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
+- `roster discover` scans IPv6 networks (nmap takes them only with `-6`, in a run of their own), scans an address that two of its networks hold once instead of writing it twice, and counts the hosts that answered with none of the ports open, as it said it did (nmap ran with `--open`, which leaves them out).
+
 **App**
 
 - A Plugin call that fails no longer leaves the buttons it was replacing dead ("that action is gone"), nor timers and commands behind it; 100 failed calls could use up a Plugin's timers.
@@ -102,6 +107,12 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - An answer to what a Plugin asked while loading is no longer lost (first load) or put on the load before (reload).
 - A Plugin command whose line runs itself, or two that run each other, stop with a notice instead of recursing until the app gives up.
 - A Plugin's `pairs` costs far less on a list (about 7 times faster on 10,000 items) and on tables with only text or only number keys, in the same order as before.
+
+**`roster serve` API**
+
+- Closing `roster serve` mid Mesh job stops the job at once and records in `mesh.json` what it didn't finish (pending), where the job died with serve and the next run didn't know; a step cut short leaves each file whole.
+- `discover.*`: IPv6 targets scan (with `-6`), a scan of IPv4 and IPv6 targets together no longer fails sorting them, an address two targets hold is visited once (`targets` drops the one another covers), `quiet` counts the Hosts that answered with none of the ports open (nmap; it's 0 with the built-in scanner, which can't tell them from no Host), and the built-in scanner reads its Hosts' SSH banners at once rather than one by one, so a batch (and a stop) no longer waits minutes.
+- A background `mesh.plan` or `mesh.apply` works the Mesh out once rather than three times, two of them while serve answers nothing else.
 
 ### Deprecated
 
