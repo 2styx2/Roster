@@ -230,6 +230,17 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return scene.nodes[0]?.id ?? null;
   }, [chosen, scene]);
   const highlight = useMemo(() => (selected === null ? null : highlightOf(scene, ix, selected, hops)), [scene, ix, selected, hops]);
+  // The node it was opened at, until it's on the map or the user picks another: one that comes later
+  // in a collapsed cluster opens that cluster.
+  const [awaited, setAwaited] = useState(openAt);
+  if (awaited !== undefined) {
+    const c = ix.nodes.get(awaited)?.cluster;
+    if (scene.byId.has(awaited)) setAwaited(undefined);
+    else if (c !== undefined && collapsed.has(c)) {
+      places.fold(c, false);
+      setFolds(places.userFolds());
+    }
+  }
 
   const [query, setQuery] = useState("");
   const matches = useMemo(() => matchesOf(shown, scene, query), [shown, scene, query]);
@@ -284,19 +295,11 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   useLayoutEffect(() => {
     if (aimed.current || openAt === undefined || size.w === 0) return;
     const n = scene.byId.get(openAt);
-    if (!n) {
-      // It came in a cluster that's collapsed: that opens, and the next scene has it.
-      const c = ix.nodes.get(openAt)?.cluster;
-      if (c !== undefined && collapsed.has(c)) {
-        places.fold(c, false);
-        setFolds(places.userFolds());
-      }
-      return;
-    }
+    if (!n) return;
     aimed.current = true;
     painter.setCamera({ x: n.x, y: n.y, k: Math.max(fitted(scene, size.w, size.h).k, 1) });
     redraw();
-  }, [openAt, size, scene, ix, collapsed, places, painter, redraw]);
+  }, [openAt, size, scene, painter, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
   useEffect(() => {
@@ -347,6 +350,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const select = (id: string | null) => {
     if (id === null) return;
     aimed.current = true;
+    setAwaited(undefined);
     setChosen(id);
     setMoveSays("");
     const n = scene.byId.get(id);

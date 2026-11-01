@@ -182,6 +182,14 @@ describe("a Plugin's graph", () => {
     await user.keyboard(`${LEADER}:topo-add late-2{Enter}`);
     await new Promise((r) => setTimeout(r, 50));
     expect(foot()).toMatch(/^esx-02/);
+    // One that comes into a collapsed cluster opens it.
+    await user.keyboard(`${LEADER}:topo-at web-1{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^web-1/));
+    await user.keyboard("o");
+    expect(foot()).toMatch(/^web: \d nodes, collapsed/);
+    await user.keyboard(`${LEADER}:topo-at late-3{Enter}`);
+    await user.keyboard(`${LEADER}:topo-add late-3{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^late-3/));
   });
 
   it("o collapses the selected node's cluster to its count and opens it again", async () => {
