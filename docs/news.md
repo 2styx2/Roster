@@ -55,6 +55,10 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
+**serve API (API 23)**
+
+- `mesh.cut`'s result has `warnings`: an earlier `mesh_dir:` the cut Host still holds a Mesh key in, which roster never removes. The Mesh controls show each as a warning after the cut. See [Cut](mesh.md#cut).
+
 **serve API (API 21)**
 
 - `$/cancel {id}` stops a request sent earlier: one still queued or waiting for a lock never runs (code 5, nothing done), a running `host.check` or waiting Mesh run stops its job, and anything else that runs finishes, so nothing is half-written; `vault.lock` is never cancelled. The app's core sends it whenever it gives up waiting. See [Cancelling](serve-api.md#ordering-locks-and-jobs).
@@ -98,6 +102,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- `roster mesh cut HOST` warns about an earlier `mesh_dir:` it leaves on HOST, where it said nothing. See [Cut](mesh.md#cut).
 - `ROSTER.md` tells Claude to run `roster check <name> --json` when a Host doesn't respond, to see which step fails and its fix, rather than `roster check --only <name>`.
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
 - Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).

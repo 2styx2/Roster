@@ -118,6 +118,8 @@ It then writes `mesh: false` for HOST in `roster.yml` as a Pending change, so th
 
 Every Host is confirmed. One that's down or doesn't answer gets a loud warning, `CUT PENDING ON 2 HOSTS`, on every `roster mesh` run until the cut is finished there, by `roster mesh cut HOST` again or by the next `roster mesh`.
 
+HOST's own Mesh files go from the directory its `mesh_dir:` names now, and from roster's own default directory. An earlier `mesh_dir:` that still holds a Mesh key (you changed or removed `mesh_dir:` since the last apply) is never removed: the cut ends with a warning naming it, so you can delete it by hand. `:mesh cut HOST` in the app shows the same warning (serve API 23).
+
 ## roster check
 
 `roster check` (without `--only`) also checks the Mesh, read-only: whatever a `roster mesh` would change is **drift**, something on a Host that isn't what roster wrote, and is listed per Host (`nas-1: add key from orion-2`), in a [`mesh_dir:`](#esxi) too. Links that don't work (unreachable, no recorded host key, no Link to their hop) and pending Hosts make it fail too.
