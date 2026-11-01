@@ -912,6 +912,8 @@ export interface Backend {
   /** Each loaded Plugin's network requests by site since the app started, by its name (decision
    * Q116), for `:plugins`. */
   pluginRequests(): Promise<Record<string, SiteRequests[]>>;
+  /** How full each named Plugin's data folder is, loaded or not (ticket 98), for `:plugins`. */
+  pluginData(names: readonly string[]): Promise<Record<string, PluginData>>;
   /** The replies nobody asked for: what a Plugin did when one of its HTTP requests answered
    * (the `network` permission, decision Q97). The core sends them as they come. */
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
@@ -1037,6 +1039,11 @@ export interface SiteRequests {
   /** When the last one was sent, in ms since 1970. */
   last: number;
 }
+
+/** How full a Plugin's data folder is, as the core counts it (ticket 98): files and bytes as
+ * the caps (1,000 files, 10 MB) count them, never what they hold. `none`: nothing written yet;
+ * `problem`: it can't be counted (it's a link, or it can't be read). */
+export type PluginData = { state: "none" } | { state: "used"; files: number; bytes: number } | { state: "problem"; message: string };
 
 export interface PluginReply {
   plugin: string;

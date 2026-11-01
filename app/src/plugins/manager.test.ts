@@ -428,6 +428,37 @@ describe("requests by site (decision Q116)", () => {
   });
 });
 
+describe("data-folder sizes (ticket 98)", () => {
+  const keeper: FakePlugin = {
+    manifest: { name: "keeper", version: "1", description: "", author: null, api: 3, permissions: [] },
+    load(roster) {
+      roster.storage.write("notes.txt", "hello");
+      roster.storage.write("state.json", "é");
+    },
+  };
+
+  it("come from the core when :plugins opens: files and bytes as the caps count them, none for a Plugin that wrote nothing", async () => {
+    const { manager } = setup({ "~/plugins/keeper": keeper, [ALERTS]: alerts() }, {
+      [STATE_KEY]: [
+        { path: "~/plugins/keeper", name: "keeper", granted: [], asked: [] },
+        { path: ALERTS, name: "recent-alerts", granted: [], asked: [] },
+      ],
+    });
+    await manager.start();
+    const data = (name: string) => manager.snapshot().plugins.find((p) => p.name === name)?.data;
+    expect(data("keeper")).toBeNull();
+    await manager.refreshData();
+    // "é" is two bytes on disk.
+    expect(data("keeper")).toEqual({ state: "used", files: 2, bytes: 7 });
+    expect(data("recent-alerts")).toEqual({ state: "none" });
+    // Asked again with nothing changed: nothing redraws.
+    const heard = vi.fn();
+    manager.subscribe(heard);
+    await manager.refreshData();
+    expect(heard).not.toHaveBeenCalled();
+  });
+});
+
 // Ticket 79 (#137): timers and finders whose items come from a function.
 describe("timers", () => {
   const ticker = (log: string[]): FakePlugin => ({

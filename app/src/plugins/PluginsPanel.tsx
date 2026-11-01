@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { PanelButton } from "../panel/PanelFrame";
 import { Keys } from "../ui/Keys";
-import type { PackageStatus, PackageUpdate, SiteRequests } from "../backend/types";
+import type { PackageStatus, PackageUpdate, PluginData, SiteRequests } from "../backend/types";
 import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
 import { PACKAGE_PREFIX, type Notice, type PendingConfirm, type PluginStatus, type Prompt, type RunningProgress, type Snapshot } from "./manager";
 
@@ -166,10 +166,29 @@ export function requestsLine(r: SiteRequests | undefined, now: number): string {
   return `${n(r.requests)} ${r.requests === 1 ? "request" : "requests"}${failed}, the last ${ago(r.last, now)}`;
 }
 
+const MB = 1024 * 1024;
+
+/** A data folder's size: bytes, KB or MB (1,024s, as the 10 MB cap counts). */
+function size(bytes: number): string {
+  if (bytes < 1024) return `${bytes} ${bytes === 1 ? "byte" : "bytes"}`;
+  const kb = Math.round(bytes / 1024);
+  return kb < 1024 ? `${kb.toLocaleString("en-US")} KB` : `${(bytes / MB).toFixed(1)} MB`;
+}
+
+/** What `:plugins` says about a Plugin's data folder (ticket 98): how full it is against both
+ * caps (decision Q93), counted when the panel opened. */
+export function dataLine(d: PluginData): string {
+  if (d.state === "problem") return `Data: can't count it: ${d.message}`;
+  if (d.state === "none" || d.files === 0) return "Data: none yet";
+  const files = `${d.files.toLocaleString("en-US")} ${d.files === 1 ? "file" : "files"}`;
+  return `Data: ${size(d.bytes)} in ${files} (of 10 MB, 1,000 files)`;
+}
+
 function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string, permission: string, on: boolean): void; now: number }) {
   const state = p.waiting ? "waiting for you" : p.problem ? "stopped" : "running";
   // A line each about the Plugin as a whole, under its permissions.
   const facts: string[] = [];
+  if (p.data) facts.push(dataLine(p.data));
   if (p.uses.length > 0) facts.push(`Recently: ${p.uses.slice(0, 3).map((u) => `${u.what} ${ago(u.at, now)}`).join(", ")}`);
   return (
     <li className="plugin-row" aria-label={`${p.name}, ${state}`}>
@@ -220,6 +239,7 @@ export function PluginsPanel({
   onGrant,
   onClose,
   onRefresh,
+  onOpen,
 }: {
   snapshot: Snapshot;
   onGrant(name: string, permission: string, on: boolean): void;
@@ -227,12 +247,16 @@ export function PluginsPanel({
   /** Asks the core for each site's request counts (decision Q116): when it opens, then every
    * REFRESH_MS while it's open. */
   onRefresh?(): void;
+  /** Asks the core how full each Plugin's data folder is (ticket 98): once, when it opens. */
+  onOpen?(): void;
 }) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => panel.current?.focus(), []);
   // "2m ago" is counted from the last refresh; the text just changes, nothing moves.
   const [now, setNow] = useState(() => Date.now());
   const refresh = useRef(onRefresh);
+  const opened = useRef(onOpen);
+  useEffect(() => opened.current?.(), []);
   useEffect(() => {
     refresh.current = onRefresh;
   });

@@ -46,6 +46,7 @@ import {
   type SessionExit,
   type SessionHandle,
   type SiteRequests,
+  type PluginData,
   type TermSize,
 } from "./types";
 
@@ -215,6 +216,7 @@ export function tauriBackend(): Backend {
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
     pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin }),
     pluginRequests: () => call<Record<string, SiteRequests[]>>("plugin_requests"),
+    pluginData: (names) => call<Record<string, PluginData>>("plugin_data", { names }),
     onPluginReply(onReply) {
       const stop = listen<PluginReply>("plugin-reply", (e) => onReply(e.payload));
       return () => void stop.then((f) => f());

@@ -584,6 +584,19 @@ impl PluginHost {
             .unwrap_or_default()
     }
 
+    /// How full the Plugin `plugin`'s data folder is, for `:plugins` (ticket 98): loaded or
+    /// not, since the folder outlives a stopped Plugin. [`folder::DataUse::None`] when it has
+    /// none yet or the host has no data folder.
+    pub fn data_use(&self, plugin: &str) -> folder::DataUse {
+        let Some(data) = self.data.get() else {
+            return folder::DataUse::None;
+        };
+        match folder::Storage::new(data, plugin) {
+            Ok(storage) => storage.data_use(),
+            Err(message) => folder::DataUse::Problem { message },
+        }
+    }
+
     /// Every Plugin loaded, in name order.
     pub fn list(&self) -> Vec<Status> {
         self.slots
