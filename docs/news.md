@@ -84,6 +84,25 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - A source that stops being one and loses (or changes) its `mesh_dir:` in the same edit is cleaned up from the directory it used until now, the one the `Include` in its `~/.ssh/config` names: an old `mesh_dir:` is warned about and kept (it was roster's default directory that went, with no word about the old one), roster's own default directory is removed, and the old `Include` goes. See [`mesh_dir:`](mesh.md#esxi).
 - Publish's generated commit message names the `links:` that changed (`roster: add link orion-2 -> storage`), as it does Hosts and groups, rather than "roster: edit roster.yml".
 
+### Security
+
+**App**
+
+- A Plugin can act on the network or the Inventory only when you've just asked it to: every serve method the install prompt flags (`mesh.apply`, `mesh.cut`, `host.check`, `discover.start`, `discover.add`, …) and `roster.inventory.update`, `.rename`, `.move` and `.review` work only in an action, command, finder item, toolbar control or question's answer of its own. At load, on an event or from a timer they're now errors (only `discover.start` and `discover.add` were held before). See [Plugins](plugins.md#asking-roster-serve).
+- Only what you chose counts as your call: a finder's items as it opens, a `:check` section's lines and a question's cancel when another Plugin's question replaced it can no longer copy, ask, run a command line or call those methods, so another Plugin opening a finder can't lend them your call.
+- `cmd:` and `env:` Login references are now cut from roster serve's error messages to a Plugin too, not only its answers.
+- `roster.cmd` holds a command named after one of roster's (`open`, `check`, `plugins`, …) to roster's rule even if the Plugin added a command of that name.
+
+### Fixed
+
+**App**
+
+- A Plugin call that fails no longer leaves the buttons it was replacing dead ("that action is gone"), nor timers and commands behind it; 100 failed calls could use up a Plugin's timers.
+- A Plugin that asks roster serve in a loop gets an error after 100 calls (or 300 s of waiting) in one go, instead of running for ever and keeping serve from the app.
+- An answer to what a Plugin asked while loading is no longer lost (first load) or put on the load before (reload).
+- A Plugin command whose line runs itself, or two that run each other, stop with a notice instead of recursing until the app gives up.
+- A Plugin's `pairs` costs far less on a list (about 7 times faster on 10,000 items) and on tables with only text or only number keys, in the same order as before.
+
 ### Deprecated
 
 **App**
