@@ -112,6 +112,11 @@
           "name": "level",
           "optional": true,
           "type": "Level"
+        },
+        {
+          "name": "opts",
+          "optional": true,
+          "type": "NoticeOptions"
         }
       ],
       "path": "roster.notify",
@@ -1129,6 +1134,8 @@
     "roster-NodeRun": "plugin-api#noderun",
     "roster-NodeShape": "plugin-api#nodeshape",
     "roster-NodeState": "plugin-api#nodestate",
+    "roster-NoticeAction": "plugin-api#noticeaction",
+    "roster-NoticeOptions": "plugin-api#noticeoptions",
     "roster-Os": "plugin-api#os",
     "roster-Permission": "plugin-api#permission",
     "roster-Plugin": "plugin-api#plugin",
@@ -1211,7 +1218,7 @@
     "roster.keymap": "plugin-api#rosterkeymap",
     "roster.keymap.del()": "plugin-api#rosterkeymapdelcontext-keys",
     "roster.keymap.set()": "plugin-api#rosterkeymapsetcontext-keys-action",
-    "roster.notify()": "plugin-api#rosternotifytext-level",
+    "roster.notify()": "plugin-api#rosternotifytext-level-opts",
     "roster.on()": "plugin-api#rosteronevent-listener",
     "roster.os": "plugin-api#rosteros",
     "roster.plugin": "plugin-api#rosterplugin",
@@ -2531,6 +2538,31 @@
     },
     "NodeState": {
       "alias": "\"live\"|\"down\""
+    },
+    "NoticeAction": {
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "run",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "open": false
+    },
+    "NoticeOptions": {
+      "fields": [
+        {
+          "name": "actions",
+          "required": false,
+          "type": "NoticeAction[]"
+        }
+      ],
+      "open": false
     },
     "Os": {
       "alias": "\"windows\"|\"linux\"|\"macos\""

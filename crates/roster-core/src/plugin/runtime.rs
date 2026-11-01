@@ -1230,7 +1230,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     func!(
         roster,
         "notify",
-        |_lua, s, (text, level): (mlua::LuaString, Option<String>)| {
+        |_lua, s, (text, level, opts): (mlua::LuaString, Option<String>, Option<Table>)| {
             let text = text.to_string_lossy();
             let level = level.unwrap_or_else(|| "info".into());
             if !matches!(level.as_str(), "info" | "warn" | "error") {
@@ -1238,7 +1238,29 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                     "roster.notify: the level is \"info\", \"warn\" or \"error\"",
                 ));
             }
-            push(s, json!({ "op": "notify", "text": text, "level": level }))
+            // Buttons on the notice (ticket 91): plain data, each a command line the user's click
+            // runs (`view mesh-plan`), so a notice holds no function that would outlive it.
+            let actions = match opts {
+                Some(t) => {
+                    let v: Value = t.raw_get("actions")?;
+                    if v.is_nil() {
+                        Json::Null
+                    } else {
+                        plain(s, "roster.notify: actions", &v).map_err(|e| {
+                            mlua::Error::runtime(format!(
+                                "{} (a notice's action runs a command line, not a function)",
+                                lua::error_text(&e)
+                            ))
+                        })?
+                    }
+                }
+                None => Json::Null,
+            };
+            let mut op = json!({ "op": "notify", "text": text, "level": level });
+            if !actions.is_null() {
+                op["actions"] = actions;
+            }
+            push(s, op)
         }
     );
 

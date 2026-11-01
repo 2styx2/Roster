@@ -48,6 +48,8 @@ function scanPlugin(count = 3, place: "panel" | "full" = "panel"): FakePlugin {
       roster.keymap.set("leader", "y v", "view scan");
       roster.commands.add("scan", { desc: "Scan", run: () => roster.views.open("scan") });
       roster.commands.add("scan-done", { desc: "Done", run: () => roster.views.close("scan") });
+      // A background job that ends says so with a button that opens its view (ticket 91).
+      roster.commands.add("scan-finish", { desc: "Finish", run: () => roster.notify("Scan done", "info", { actions: [{ label: "Show the scan", run: "view scan" }] }) });
       roster.details.set("ports", "linux-1-000", {
         title: "Open ports",
         actions: [{ label: "Forget linux-1-000", icon: "cut", run: (e: Record<string, unknown>) => roster.notify(`forget ${String(e.section)} of ${String(e.host)}`) }],
@@ -111,6 +113,16 @@ describe("a Plugin's view", () => {
     const user = await ready(scanPlugin(3, "full"));
     await user.keyboard(`${LEADER}:view scan{Enter}`);
     expect(await screen.findByRole("region", { name: "Scan (from scan)" })).toHaveClass("view-full");
+  });
+
+  it("a notice's button opens the view: the click is the user's call (ticket 91)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:scan-finish{Enter}`);
+    const notice = await screen.findByRole("status", { name: "From scan" });
+    expect(notice).toHaveTextContent("scan: Scan done");
+    await user.click(within(notice).getByRole("button", { name: "Show the scan" }));
+    expect(await screen.findByRole("grid", { name: "Scan" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "From scan" })).toBeNull();
   });
 
   it("says so for a view that isn't there", async () => {

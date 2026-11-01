@@ -1491,3 +1491,6 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 /* A view's or section's own buttons (ticket 91), by its heading: quiet icons, never the accent. */
 .details-head-actions { margin-left: auto; display: inline-flex; gap: 2px; text-transform: none; letter-spacing: 0; }
 .details-head-actions .icon-button { width: 22px; height: 22px; }
+/* A notice's buttons (ticket 91): quiet, under its text; the click is the user's call. */
+.notice-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.notice-actions button { height: calc(var(--ui-size) * 1.75); padding: 0 10px; font-size: var(--text-sm); }

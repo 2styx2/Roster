@@ -25,7 +25,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.api_version`](#rosterapi_version) | The version of the `roster` module this app has | none |
 | [`roster.os`](#rosteros) | The OS the app runs on | none |
 | [`roster.plugin`](#rosterplugin) | The Plugin itself: its name, version, what it was granted and its settings | none |
-| [`roster.notify(text, level)`](#rosternotifytext-level) | Shows a notice, naming the Plugin | none |
+| [`roster.notify(text, level, opts)`](#rosternotifytext-level-opts) | Shows a notice, naming the Plugin | none |
 | [`roster.on(event, listener)`](#rosteronevent-listener) | Runs a function on an event | none |
 | [`roster.confirm(question)`](#rosterconfirmquestion) | Asks the user to confirm, then runs a function | none |
 | [`roster.cmd(line)`](#rostercmdline) | Runs a command line | none |
@@ -105,6 +105,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Theme`](#theme) | A Theme, as `init.lua`'s `themes` takes one |
 | [`Section`](#section) | A Sidebar section (`roster.sidebar.set`) |
 | [`Row`](#row) | A row of a Sidebar section |
+| [`NoticeOptions`](#noticeoptions) | What else a notice has (`roster.notify`, since api 3) |
+| [`NoticeAction`](#noticeaction) | A button on a notice |
 | [`RowAction`](#rowaction) | A button on a row |
 | [`RowIcon`](#rowicon) | A row action's icon |
 | [`RowGlyph`](#rowglyph) | A Sidebar row's glyph (since api 3) |
@@ -247,14 +249,15 @@ roster.notify(roster.plugin.name .. " " .. roster.plugin.version)
 local leader = roster.plugin.config.leader or "w w"
 ```
 
-### `roster.notify(text, level)`
+### `roster.notify(text, level, opts)`
 
-Shows a notice, naming the Plugin.
+Shows a notice, naming the Plugin. A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.
 
 **Parameters**
 
 - `text` (`string`): What to say. It's shown after the Plugin's name (`pinned: …`).
 - `level` ([`Level`](#level)`?`, optional): `"info"` (the default), `"warn"` or `"error"`.
+- `opts` ([`NoticeOptions`](#noticeoptions)`?`, optional): Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`.
 
 **Returns**
 
@@ -263,7 +266,12 @@ Nothing.
 **Errors**
 
 - `roster.notify: the level is "info", "warn" or "error"`: `level` is something else.
+- `roster.notify: actions… (a notice's action runs a command line, not a function)`: a function in `opts`.
 - And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- more than 2 actions, or one whose `run` isn't a command line.
 
 **Permission:** none · **Since:** api 2
 
@@ -272,6 +280,7 @@ Nothing.
 ```lua
 roster.notify("3 new alerts")
 roster.notify("leader: not a key sequence, using w w", "warn")
+roster.notify("Plan ready: 4 Hosts change", "info", { actions = { { label = "Show the plan", run = "view mesh-plan" } } })
 ```
 
 ### `roster.on(event, listener)`
@@ -2401,6 +2410,23 @@ Text is cut to 500 characters.
 | `kind` | `"host"` | no | With `host`: drawn as the Inventory draws that Host (its state, address, Details and Review buttons, then the row's own `actions`); `label` and `note` are used only while the Host isn't in the Inventory (since api 3). |
 | `drop` | [`Run`](#run) | no | Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged. |
 | `drag_out` | [`Run`](#run) | no | Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3). |
+
+### `NoticeOptions`
+
+What else a notice has (`roster.notify`, since api 3).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `actions` | [`NoticeAction`](#noticeaction)`[]` | no | Buttons under its text, at most 2. |
+
+### `NoticeAction`
+
+A button on a notice.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it says (`"Show the plan"`). |
+| `run` | `string` | yes | The command line a click runs, as `roster.cmd` would (`"view mesh-plan"`); then the notice goes. |
 
 ### `RowAction`
 

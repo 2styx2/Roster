@@ -1759,7 +1759,7 @@ function Workspace({
         {tutor?.demo && <DemoBanner tutorial={tutor.demo.tutorial} done={tutorCtx?.done(tutor.demo.tutorial.id) ?? null} onLeave={tutor.demo.leave} />}
         <div className="window-body">{content}</div>
         {toast}
-        <PluginNotices notices={pluginSnap.notices} onClose={(id) => plugins.dismissNotice(id)} />
+        <PluginNotices notices={pluginSnap.notices} onClose={(id) => plugins.dismissNotice(id)} onAction={(id, i) => plugins.noticeAction(id, i)} />
       </div>
     </HintsShown>
   );

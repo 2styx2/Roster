@@ -136,6 +136,8 @@ export interface Notice {
   plugin: string;
   level: "info" | "warn" | "error";
   text: string;
+  /** Buttons (ticket 91): each runs a command line for its Plugin, on the user's click. */
+  actions?: readonly { label: string; command: string }[];
 }
 
 /** A Plugin's question, waiting for the user's answer (ticket 78). */
@@ -696,6 +698,16 @@ export class PluginManager {
     this.screens.delete(session);
   }
 
+  /** A notice's button (ticket 91): the user's click runs its command line, as `roster.cmd` would
+   * (so `view ID` may open the Plugin's view), and the notice goes. */
+  noticeAction(id: number, index: number) {
+    const n = this.notices.find((x) => x.id === id);
+    const a = n?.actions?.[index];
+    if (!n || !a) return;
+    this.dismissNotice(id);
+    this.runLine(n.plugin, a.command);
+  }
+
   dismissNotice(id: number) {
     this.notices = this.notices.filter((n) => n.id !== id);
     this.changed();
@@ -1089,7 +1101,7 @@ export class PluginManager {
         this.float = op.spec ? { ...op.spec, plugin } : this.float?.plugin === plugin ? null : this.float;
         return;
       case "notify":
-        return this.notify(plugin, op.level, `${plugin}: ${op.text}`);
+        return this.notify(plugin, op.level, `${plugin}: ${op.text}`, op.actions);
       case "open":
         return this.ui.run(`connect ${op.host}`);
       case "send":
@@ -1375,8 +1387,9 @@ export class PluginManager {
     return { label: a.label, icon: a.icon, command: this.line(plugin, a.run, context) };
   }
 
-  private notify(plugin: string, level: Notice["level"], text: string) {
-    this.notices = [...this.notices, { id: ++this.noticeId, plugin, level, text }].slice(-MAX_NOTICES);
+  private notify(plugin: string, level: Notice["level"], text: string, actions: Notice["actions"] = []) {
+    const notice: Notice = { id: ++this.noticeId, plugin, level, text, ...(actions.length ? { actions } : {}) };
+    this.notices = [...this.notices, notice].slice(-MAX_NOTICES);
     this.changed();
   }
 
