@@ -198,8 +198,11 @@ function check(e)
 end
 
 -- A cut runs as a job of roster serve's (serve API 17), so it doesn't hold this Plugin's call while
--- every Host answers; a timer asks how it's going once a second, and stops when it's over.
-local cutting -- { job, host, timer }
+-- every Host answers. serve pushes how it's going (`job_progress`, API 20) and the Plugin asks
+-- `mesh.job` once it's over; until the first push (an older serve sends none), a timer asks once a
+-- second, and stops when it's over.
+local cutting -- { job, host, timer, polling, again }
+local pushed = false -- serve pushes job_progress: no timer needed
 
 local function cut_done(host, r)
   local waiting = 0
@@ -219,8 +222,12 @@ local function cut_over()
 end
 
 local function cut_poll()
-  if not cutting or cutting.polling then return end
-  cutting.polling = true
+  if not cutting then return end
+  if cutting.polling then
+    cutting.again = true -- it ended while a question was out: ask again once that's back
+    return
+  end
+  cutting.polling, cutting.again = true, false
   ask("mesh.job", { job = cutting.job }, function(j)
     if not cutting then return end
     cutting.polling = false
@@ -230,6 +237,7 @@ local function cut_poll()
     end
     if j.state == "running" then
       roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = j.done or 0, total = j.total or 0 })
+      if cutting.again then cut_poll() end
       return
     end
     if j.state == "done" then
@@ -267,7 +275,9 @@ function cut(e)
         if type(r) == "table" and r.job then
           cutting.job = r.job
           roster.progress.set("topology-cut", { title = "Cutting " .. h .. " from the Mesh", done = 0, total = r.total or 0 })
-          cutting.timer = roster.every(1000, cut_poll)
+          -- It may be over already (its end pushed before this answer): ask once; until serve
+          -- has pushed anything, a timer asks.
+          if pushed then cut_poll() else cutting.timer = roster.every(1000, cut_poll) end
           return
         end
         cutting = nil
@@ -390,6 +400,24 @@ if reads then
     refresh()
   end)
 end
+-- serve's job_progress (API 20): a cut's progress as it moves, and mesh.job asked once it's over.
+-- The first one means serve pushes, so the timer goes.
+if can_job then
+  roster.on("job_progress", function(e)
+    if e.kind ~= "mesh" then return end
+    pushed = true
+    if cutting and cutting.timer then
+      roster.cancel(cutting.timer)
+      cutting.timer = nil
+    end
+    if not cutting or cutting.job ~= e.job then return end
+    if e.state == "running" or e.state == "stopping" then
+      return roster.progress.set("topology-cut", { title = "Cutting " .. cutting.host .. " from the Mesh", done = e.done or 0, total = e.total or 0 })
+    end
+    cut_poll()
+  end)
+end
+
 -- The Mesh changes when someone applies or cuts it, here or on another Box: look again now and then.
 -- mesh.status never connects anywhere, so it's cheap.
 if can_mesh then roster.every(settings.refresh * 1000, refresh) end

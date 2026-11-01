@@ -174,11 +174,6 @@ function load(roster: FakeRoster) {
   const [s, problems] = settings(roster.plugin.config);
   for (const p of problems) roster.notify(`${p}; using the default`, "warn");
   const missing = () => SCANS.filter((p) => !roster.has(p));
-  const call = (method: string, params: Record<string, unknown> = {}) => {
-    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
-    if (!roster.serve) throw new Error("roster.serve.call: not granted");
-    return roster.serve.call(method, clean);
-  };
   /** As the Lua's `request`: roster serve without waiting; `done(true, result)` or `done(false, why)` later. */
   const request = (method: string, params: Record<string, unknown>, done: (ok: boolean, result: unknown) => void) => {
     const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
@@ -189,13 +184,6 @@ function load(roster: FakeRoster) {
       done(false, e);
     }
   };
-  const attempt = <T>(f: () => T): [true, T] | [false, unknown] => {
-    try {
-      return [true, f()];
-    } catch (e) {
-      return [false, e];
-    }
-  };
 
   let scan: Scan | null = null;
   let found = new Map<string, Found>();
@@ -204,6 +192,8 @@ function load(roster: FakeRoster) {
   let cut = false;
   let polling: number | null = null;
   let asking = false;
+  let again = false;
+  let pushed = false;
   let planning = false;
   let adding = false;
   /** A found address, by its address: always one the scan found. */
@@ -399,15 +389,34 @@ function load(roster: FakeRoster) {
     }
   };
 
+  const going = () => scan !== null && (scan.state === "running" || scan.state === "stopping");
   const poll = () => {
-    if (!scan || asking) return;
+    if (!scan) return;
+    if (asking) {
+      again = true;
+      return;
+    }
     asking = true;
+    again = false;
     const id = scan.id;
     request("discover.status", { scan: id, since: scan.count }, (ok, r) => {
       asking = false;
       if (scan && scan.id === id) heard(ok, r);
+      if (again && going()) poll();
     });
   };
+  // serve's job_progress (API 20): each may bring results; the first one means serve pushes.
+  if (roster.has("serve:discover.status")) {
+    roster.on("job_progress", (e) => {
+      if (e.kind !== "discover") return;
+      pushed = true;
+      if (polling !== null) {
+        roster.cancel(polling);
+        polling = null;
+      }
+      if (scan && scan.id === e.job && going()) poll();
+    });
+  }
 
   const table = {
     columns: [
@@ -450,7 +459,9 @@ function load(roster: FakeRoster) {
     roster.views.open(VIEW);
     progress();
     if (polling !== null) roster.cancel(polling);
-    polling = roster.every(1000, poll);
+    polling = null;
+    if (pushed) poll();
+    else polling = roster.every(1000, poll);
   };
 
   const start = (targets: string[], force: boolean) => {
@@ -569,28 +580,34 @@ function load(roster: FakeRoster) {
   });
   roster.health.set("discover", {
     title: "Discover",
-    check: () => {
+    // It answers later (decision Q112h), from discover.plan's answer.
+    check: (e: Record<string, unknown>) => {
       const gone = missing();
       if (gone.length > 0) return [{ level: "warn", message: `${list(gone)} not granted: Discover can't scan`, fix: "Allow them in :plugins" }];
-      const [ok, plan] = attempt(() => call("discover.plan", { targets: ["10.0.0.0/30"] }) as Plan);
-      if (!ok && codeOf(plan) === -32601)
-        return [
-          {
-            level: "error",
-            message: "roster on this Box can't scan from the app (it needs roster serve API 18)",
-            fix: "Update roster on this Box; `roster discover` in a terminal works meanwhile",
-          },
-        ];
-      if (!ok) return [{ level: "error", message: `roster serve didn't answer discover.plan: ${messageOf(plan)}` }];
-      const out: Record<string, unknown>[] = [{ level: "ok", message: `roster serve can scan, with ${(plan as Plan).scanner}` }];
-      if ((plan as Plan).scanner !== "nmap")
-        out[0] = {
-          level: "warn",
-          message: "nmap isn't installed on this Box: scans use roster's own TCP connect scan, with no service versions or web page titles",
-          fix: "Install nmap on this Box (apt install nmap)",
-        };
-      if (!roster.has(ADDS)) out.push({ level: "warn", message: `${ADDS} isn't granted: scans can't add what they find`, fix: "Allow it in :plugins" });
-      return out;
+      request("discover.plan", { targets: ["10.0.0.0/30"] }, (ok, plan) => {
+        let out: Record<string, unknown>[];
+        if (!ok && codeOf(plan) === -32601)
+          out = [
+            {
+              level: "error",
+              message: "roster on this Box can't scan from the app (it needs roster serve API 18)",
+              fix: "Update roster on this Box; `roster discover` in a terminal works meanwhile",
+            },
+          ];
+        else if (!ok) out = [{ level: "error", message: `roster serve didn't answer discover.plan: ${messageOf(plan)}` }];
+        else {
+          out = [{ level: "ok", message: `roster serve can scan, with ${(plan as Plan).scanner}` }];
+          if ((plan as Plan).scanner !== "nmap")
+            out[0] = {
+              level: "warn",
+              message: "nmap isn't installed on this Box: scans use roster's own TCP connect scan, with no service versions or web page titles",
+              fix: "Install nmap on this Box (apt install nmap)",
+            };
+          if (!roster.has(ADDS)) out.push({ level: "warn", message: `${ADDS} isn't granted: scans can't add what they find`, fix: "Allow it in :plugins" });
+        }
+        roster.health.answer(e.check as number, out);
+      });
+      return "later";
     },
   });
   const [text, facts] = words();

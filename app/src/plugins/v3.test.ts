@@ -169,7 +169,7 @@ describe("a :check section that answers later (decision Q112h)", () => {
   it("returns \"later\" and answers from a request's answer, so it never waits for serve", async () => {
     const { manager, registries } = setup(
       later((roster, c) =>
-        roster.serve.request("hosts.list", {}, () => {
+        roster.serve?.request("hosts.list", {}, () => {
           roster.health.answer(c.check as number, [{ level: "ok", message: "roster serve answered" }]);
         }),
       ),

@@ -1047,6 +1047,111 @@
     },
     {
       "do": "action",
+      "label": "Cut",
+      "node": "esx-01",
+      "ops": [
+        {
+          "op": "confirm",
+          "spec": {
+            "action": "Cut",
+            "danger": true,
+            "facts": [
+              {
+                "label": "Reaches now",
+                "value": "5 Hosts directly"
+              },
+              {
+                "label": "Reached by",
+                "value": "1 Host directly"
+              }
+            ],
+            "run": "fn",
+            "text": "Its key comes off every Host it reaches, and every peer's key comes off it, at once. This Box keeps its own access, so you can look into it.\n\nroster writes `mesh: false` for esx-01 as a Pending change, so the cut lasts after the next Publish.",
+            "title": "Cut esx-01 from the Mesh?",
+            "typed": "esx-01"
+          }
+        }
+      ]
+    },
+    {
+      "do": "confirm",
+      "ops": [
+        {
+          "id": "topology-cut",
+          "op": "progress",
+          "spec": {
+            "done": 0,
+            "title": "Cutting esx-01 from the Mesh",
+            "total": 3
+          }
+        },
+        {
+          "every": true,
+          "id": "N",
+          "ms": 1000,
+          "op": "timer",
+          "run": "fn"
+        }
+      ]
+    },
+    {
+      "do": "event",
+      "name": "job_progress",
+      "ops": [
+        {
+          "id": "N",
+          "kind": "timer",
+          "op": "remove"
+        },
+        {
+          "id": "topology-cut",
+          "op": "progress",
+          "spec": {
+            "done": 1,
+            "title": "Cutting esx-01 from the Mesh",
+            "total": 3
+          }
+        }
+      ],
+      "payload": {
+        "action": "cut",
+        "at": "nas-01",
+        "done": 1,
+        "host": "esx-01",
+        "job": 7,
+        "kind": "mesh",
+        "state": "running",
+        "total": 3
+      }
+    },
+    {
+      "do": "event",
+      "name": "job_progress",
+      "ops": [
+        {
+          "level": "warn",
+          "op": "notify",
+          "text": "Cut esx-01: cut pending on 1 Host that didn't answer."
+        },
+        {
+          "id": "topology-cut",
+          "kind": "progress",
+          "op": "remove"
+        }
+      ],
+      "payload": {
+        "action": "cut",
+        "at": null,
+        "done": 3,
+        "host": "esx-01",
+        "job": 7,
+        "kind": "mesh",
+        "state": "done",
+        "total": 3
+      }
+    },
+    {
+      "do": "action",
       "label": "Details",
       "node": "esx-01",
       "ops": [

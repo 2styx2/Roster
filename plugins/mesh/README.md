@@ -42,7 +42,7 @@ It needs roster serve's API 17 (Mesh jobs). With an older roster it loads and sa
 | Permission | Why | Flagged |
 |---|---|---|
 | `serve:mesh.status` | Who reaches whom as `roster.yml` says, what's pending and whether the Mesh is out of date: the Mesh view, the badges, the status segment and the Host details. It never connects to a Host | no |
-| `serve:mesh.job` | How a plan, apply or cut is getting on and how it ended, asked once a second while one runs (the progress). Also how it learns serve has jobs at all | no |
+| `serve:mesh.job` | How a plan, apply or cut ended, asked once it's over; with it the Plugin hears the job's progress as roster serve pushes it (`job_progress`). Also how it learns serve has jobs at all | no |
 | `serve:mesh.stop` | Stop a plan or apply before its next Host, from the progress's stop button or `:cancel mesh` | no |
 | `serve:mesh.plan` | Plan: connects to each Host and reads, changing nothing | no |
 | `serve:mesh.apply` | Apply the plan, only after you confirm the question | yes: it writes keys and ssh config on your Hosts |
@@ -70,8 +70,8 @@ mesh/
   lua/mesh/words.lua     the pure part: what serve's answers say, in words
 ```
 
-- **Every Mesh run is a job.** `mesh.plan`, `mesh.apply` and `mesh.cut` with `background: true` answer at once with the job's number (serve API 17); a timer (`roster.every(1000, …)`) asks `mesh.job` while it runs, sets the progress, and cancels itself when the job is over.
-- **It never waits for serve.** Every question is a `roster.serve.request` (decision Q103): serve answers one request at a time, and the app's Publish can hold it for a minute or two, so the controls keep answering meanwhile and catch up when serve does. The timer has one `mesh.job` question out at a time, a refresh asked for while one is out goes again once it's back, and a plan, apply or cut asked for while the last is still starting says so instead of asking twice. A Plugin reloaded mid-run finds the job with `mesh.job` and follows it again.
+- **Every Mesh run is a job.** `mesh.plan`, `mesh.apply` and `mesh.cut` with `background: true` answer at once with the job's number (serve API 17). roster serve pushes the job's progress (`roster.on("job_progress", …)`, serve API 20): the Plugin sets the progress from each push and asks `mesh.job` once, when the job is over, for its result. Until the first push comes (a serve before API 20 sends none) a timer (`roster.every(1000, …)`) asks `mesh.job` instead, and the first push cancels it.
+- **It never waits for serve.** Every question is a `roster.serve.request` (decision Q103): the app's Publish can hold serve for a minute or two, so the controls keep answering meanwhile and catch up when serve does. There's one `mesh.job` question out at a time (a job that ends while one is out is asked about again once it's back), a refresh asked for while one is out goes again once it's back, and a plan, apply or cut asked for while the last is still starting says so instead of asking twice. A Plugin reloaded mid-run finds the job with `mesh.job` and follows it again.
 - **It asks, the app draws.** Apply is a plain question (`roster.confirm`); Cut is the stronger one with `danger` and `typed`. Nothing runs until you answer.
 - **The first look is deferred** (`roster.defer(50, …)`): nothing calls serve while the Plugin loads, so a busy serve can't hold the app's start.
 

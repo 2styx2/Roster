@@ -1,9 +1,10 @@
 -- discover: scan a network from the app, review what it found, and add the Hosts you keep as
 -- Pending changes. A first-party Plugin (plugins/README.md): built only on the public Plugin API,
 -- like anyone's. The scan itself runs in roster serve (discover.*), never here: this draws the
--- view, asks before anything happens, shows the progress and polls for results. It asks serve
--- with `roster.serve.request`, which doesn't wait (decision Q103): serve answers one request at
--- a time, and the app's Publish can hold it for a minute or two.
+-- view, asks before anything happens, shows the progress and asks for results as serve pushes
+-- the scan's progress (`job_progress`, serve API 20; until the first one comes, a timer asks once
+-- a second, as an older serve sends none). It asks serve with `roster.serve.request`, which
+-- doesn't wait (decision Q103): the app's Publish can hold serve for a minute or two.
 --
 -- Settings come from init.lua, where you name it as a Package:
 --   packages = { { "https://github.com/2styx2/roster", dir = "plugins/discover",
@@ -50,6 +51,8 @@ local kept = {} -- address -> true: marked to add
 local cut = false -- more were found than the view keeps
 local polling -- the timer that asks roster serve how the scan is going
 local asking = false -- a discover.status question is out
+local again = false -- serve pushed more while that question was out: ask again once it's back
+local pushed = false -- serve pushes job_progress: no timer needed
 local planning = false -- a discover.plan question is out, for a scan the user asked for
 local adding = false -- a discover.add is out
 
@@ -284,13 +287,32 @@ end
 
 -- Asks roster serve how the scan is going, one question at a time however long serve takes.
 poll = function()
-  if not scan or asking then return end
-  asking = true
+  if not scan then return end
+  if asking then
+    again = true
+    return
+  end
+  asking, again = true, false
   local id = scan.id
   request("discover.status", { scan = id, since = scan.count }, function(ok, r)
     asking = false
     -- A newer scan started meanwhile: this answer is about the old one.
     if scan and scan.id == id then heard(ok, r) end
+    if again and scan and (scan.state == "running" or scan.state == "stopping") then poll() end
+  end)
+end
+
+-- serve's job_progress (API 20): each one may bring results, so ask (one question out at a
+-- time); the first one means serve pushes, so the timer goes.
+if roster.has("serve:discover.status") then
+  roster.on("job_progress", function(e)
+    if e.kind ~= "discover" then return end
+    pushed = true
+    if polling then
+      roster.cancel(polling)
+      polling = nil
+    end
+    if scan and scan.id == e.job and (scan.state == "running" or scan.state == "stopping") then poll() end
   end)
 end
 
@@ -345,7 +367,10 @@ local function started(r)
   roster.views.open(VIEW)
   progress()
   if polling then roster.cancel(polling) end
-  polling = roster.every(1000, poll)
+  polling = nil
+  -- It may be over already (its end pushed before this answer): ask once; until serve has
+  -- pushed anything, a timer asks.
+  if pushed then poll() else polling = roster.every(1000, poll) end
 end
 
 -- Starts the scan the user confirmed.
@@ -494,31 +519,35 @@ roster.help.set("discover", {
 -- nowhere, so :check stays safe to run anywhere.
 roster.health.set("discover", {
   title = "Discover",
-  check = function()
+  check = function(e)
     local gone = missing()
     if #gone > 0 then
       return { { level = "warn", message = model.list(gone) .. " not granted: Discover can't scan",
         fix = "Allow them in :plugins" } }
     end
-    -- A `:check` section answers when it's run, so this one call waits for roster serve (behind
-    -- a Publish, that's a while; the wait never counts against the Plugin).
-    local ok, plan = pcall(roster.serve.call, "discover.plan", { targets = { "10.0.0.0/30" } })
-    if not ok and model.code(plan) == -32601 then
-      return { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 18)",
-        fix = "Update roster on this Box; `roster discover` in a terminal works meanwhile" } }
-    elseif not ok then
-      return { { level = "error", message = "roster serve didn't answer discover.plan: " .. model.message(plan) } }
-    end
-    local out = { { level = "ok", message = "roster serve can scan, with " .. plan.scanner } }
-    if plan.scanner ~= "nmap" then
-      out[1] = { level = "warn", message = "nmap isn't installed on this Box: scans use roster's own TCP connect "
-        .. "scan, with no service versions or web page titles", fix = "Install nmap on this Box (apt install nmap)" }
-    end
-    if not roster.has(ADDS) then
-      out[#out + 1] = { level = "warn", message = ADDS .. " isn't granted: scans can't add what they find",
-        fix = "Allow it in :plugins" }
-    end
-    return out
+    -- It answers later (decision Q112h): discover.plan is asked without waiting, so :check never
+    -- holds this Plugin's thread while serve is busy (behind a Publish, that's a while).
+    request("discover.plan", { targets = { "10.0.0.0/30" } }, function(ok, plan)
+      local out
+      if not ok and model.code(plan) == -32601 then
+        out = { { level = "error", message = "roster on this Box can't scan from the app (it needs roster serve API 18)",
+          fix = "Update roster on this Box; `roster discover` in a terminal works meanwhile" } }
+      elseif not ok then
+        out = { { level = "error", message = "roster serve didn't answer discover.plan: " .. model.message(plan) } }
+      else
+        out = { { level = "ok", message = "roster serve can scan, with " .. plan.scanner } }
+        if plan.scanner ~= "nmap" then
+          out[1] = { level = "warn", message = "nmap isn't installed on this Box: scans use roster's own TCP connect "
+            .. "scan, with no service versions or web page titles", fix = "Install nmap on this Box (apt install nmap)" }
+        end
+        if not roster.has(ADDS) then
+          out[#out + 1] = { level = "warn", message = ADDS .. " isn't granted: scans can't add what they find",
+            fix = "Allow it in :plugins" }
+        end
+      end
+      roster.health.answer(e.check, out)
+    end)
+    return "later"
   end,
 })
 

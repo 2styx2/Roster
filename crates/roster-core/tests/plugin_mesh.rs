@@ -317,6 +317,8 @@ struct Run {
     replies: Receiver<Reply>,
     /// The ops of each of those answers since the last step, for the transcript.
     answers: Vec<Value>,
+    /// The last `job_progress` pushed, for the transcript.
+    pushed: Value,
 }
 
 impl Run {
@@ -341,6 +343,7 @@ impl Run {
             ops: Vec::new(),
             replies,
             answers: Vec::new(),
+            pushed: Value::Null,
         }
     }
 
@@ -374,9 +377,37 @@ impl Run {
 
     /// Sends `name` to the Plugin: what it did, then what its requests' answers did.
     fn event(&mut self, name: &str) -> Vec<Value> {
+        self.event_with(name, json!({}))
+    }
+
+    /// serve's `job.progress` for its job, as the app hands it to the Plugins (API 20): `state`
+    /// running (one more step done), or how it ended (serve has finished it, so `mesh.job` says
+    /// so). What the Plugin did, then what its requests' answers did.
+    fn push(&mut self, state: &str) -> Vec<Value> {
+        let payload = {
+            let mut job = self.serve.job.lock().unwrap();
+            let j = job.as_mut().expect("a job");
+            if state == "running" {
+                j.left = j.left.saturating_sub(1).max(1);
+            } else {
+                j.left = 0;
+            }
+            let done = if state == "running" { j.total / 2 } else { j.total };
+            let mut p = json!({ "kind": "mesh", "job": j.number, "action": j.action, "state": state,
+                                "done": done, "total": j.total, "at": if state == "running" { json!("orion-2") } else { Value::Null } });
+            if let Some(h) = &j.host {
+                p["host"] = json!(h);
+            }
+            p
+        };
+        self.pushed = payload.clone();
+        self.event_with("job_progress", payload)
+    }
+
+    fn event_with(&mut self, name: &str, payload: Value) -> Vec<Value> {
         let replies = self.host.event(Event {
             name: name.into(),
-            payload: json!({}),
+            payload,
         });
         let mut ops: Vec<Value> = replies.into_iter().flat_map(|r| self.take(r)).collect();
         ops.extend(self.take(Reply {
@@ -746,6 +777,48 @@ fn cut_asks_for_the_hosts_name_and_warns_about_each_host_that_was_down() {
     assert_eq!(texts(&ops)[0], "sw-1 isn't in the Mesh: there's nothing to cut.");
 }
 
+/// serve API 20 pushes the job's progress (decision Q112f): the first push takes the timer away,
+/// the progress comes from the pushes, `mesh.job` is asked once the job is over, and the next job
+/// needs no timer.
+#[test]
+fn it_follows_a_job_by_job_progress_and_stops_polling() {
+    let mut run = started(World {
+        ticks: 5,
+        ..World::default()
+    });
+    let started_ops = run.command("plan");
+    assert!(!of(&started_ops, "timer").is_empty(), "no push yet: it polls");
+    run.serve.take();
+    let first = run.push("running");
+    assert!(first.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
+    let p = of(&first, "progress");
+    assert_eq!(p.last().unwrap()["spec"]["text"], "At orion-2");
+    assert!(run.serve.take().is_empty(), "a push while it runs asks serve nothing");
+    let end = run.push("done");
+    let asked: Vec<Value> = run.serve.take().iter().map(|c| c["method"].clone()).collect();
+    assert_eq!(asked[0], "mesh.job");
+    assert!(
+        texts(&end).iter().any(|t| t.starts_with("Plan ready")),
+        "{:?}",
+        texts(&end)
+    );
+    // The next job asks once and sets no timer: serve pushes.
+    let apply = run.command("plan");
+    assert!(of(&apply, "timer").is_empty());
+    assert_eq!(run.serve.take().iter().filter(|c| c["method"] == "mesh.job").count(), 1);
+}
+
+/// Another kind's job, or another Plugin's Mesh job, isn't followed.
+#[test]
+fn a_scans_progress_isnt_heard() {
+    let mut run = started(World::default());
+    let ops = run.event_with(
+        "job_progress",
+        json!({ "kind": "discover", "job": "scan-1", "action": "scan", "state": "running", "done": 1, "total": 254, "at": null }),
+    );
+    assert!(ops.is_empty());
+}
+
 #[test]
 fn stopping_calls_mesh_stop_and_says_what_was_left_pending() {
     let mut run = started(World {
@@ -907,6 +980,9 @@ fn steps() -> Value {
         { "do": "event", "name": "inventory_changed" },
         { "do": "command", "args": "cut sw-1" },
         { "do": "command", "args": "nonsense" },
+        { "do": "command", "args": "plan" },
+        { "do": "push", "state": "running" },
+        { "do": "push", "state": "done" },
         { "do": "load", "grants": ["serve:mesh.status", "serve:mesh.job"] },
         { "do": "timer" },
         { "do": "command", "args": "plan" }
@@ -978,6 +1054,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
             ),
             "confirm" => run.confirm(),
             "event" => run.event(step["name"].as_str().unwrap()),
+            "push" => run.push(step["state"].as_str().unwrap()),
             other => panic!("no step {other}"),
         };
         // The call's own ops, then each answer's: the stand-in replays both, in order.
@@ -990,6 +1067,9 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
                 .map(|a| a.as_array().unwrap().len())
                 .sum::<usize>();
         let mut step = step.clone();
+        if step["do"] == "push" {
+            step["payload"] = run.pushed.clone();
+        }
         step["ops"] = normal(&Value::Array(ops[..own].to_vec()));
         step["answers"] = answers;
         step["serve"] = Value::Array(run.serve.take());

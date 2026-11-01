@@ -358,15 +358,31 @@ impl World {
         self.settle(self.host.call(NAME, handler, args))
     }
 
+    /// What the Plugin did with an event, its answers included: a reply of its own when it only
+    /// asked serve (a job's end), since the host returns only replies with ops.
     fn event(&self, name: &str, payload: Value) -> Vec<Reply> {
-        self.host
+        let mut replies: Vec<Reply> = self
+            .host
             .event(Event {
                 name: name.into(),
                 payload,
             })
             .into_iter()
             .map(|r| self.settle(r))
-            .collect()
+            .collect();
+        if replies.is_empty() {
+            let r = self.settle(Reply {
+                plugin: NAME.into(),
+                result: Value::Null,
+                ops: Vec::new(),
+                error: None,
+                disabled: None,
+            });
+            if !r.ops.is_empty() {
+                replies.push(r);
+            }
+        }
+        replies
     }
 }
 
@@ -657,6 +673,37 @@ fn cut_asks_first_with_the_host_to_type_and_only_the_answer_cuts() {
     );
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "progress"));
     assert!(r.ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
+    // serve API 20 pushes the cut's progress (decision Q112f): the next cut's first push takes
+    // its timer away, and mesh.job is asked once it's over.
+    let r = w.call(cut, on("esx-01"));
+    let r = w.call(
+        handler(&one(&r.ops, "confirm")["spec"]["run"]),
+        json!({ "confirm": "yes" }),
+    );
+    ok(&r);
+    assert_eq!(one(&r.ops, "timer")["every"], true, "no push yet: it polls");
+    let job = |state: &str, done: u64| {
+        json!({ "kind": "mesh", "job": 7, "action": "cut", "state": state, "done": done, "total": 3,
+                "at": null, "host": "esx-01" })
+    };
+    let heard = w.event("job_progress", job("running", 1));
+    assert!(heard[0].ops.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
+    assert_eq!(one(&heard[0].ops, "progress")["spec"]["done"], 1);
+    assert_eq!(w.serve.called("mesh.job").len(), 1, "a push while it runs asks nothing");
+    let heard = w.event("job_progress", job("done", 3));
+    assert_eq!(w.serve.called("mesh.job").len(), 2);
+    assert_eq!(
+        one(&heard[0].ops, "notify")["text"],
+        "Cut esx-01: cut pending on 1 Host that didn't answer."
+    );
+    // The next cut asks once and sets no timer.
+    let r = w.call(cut, on("esx-01"));
+    let r = w.call(
+        handler(&one(&r.ops, "confirm")["spec"]["run"]),
+        json!({ "confirm": "yes" }),
+    );
+    assert!(find(&r.ops, "timer").is_empty());
+    assert_eq!(w.serve.called("mesh.job").len(), 3);
     // A Host that isn't in the Mesh has nothing to cut, and isn't asked about.
     let r = w.call(cut, on("new-01"));
     assert!(find(&r.ops, "confirm").is_empty());
@@ -874,6 +921,10 @@ fn steps() -> Value {
         { "do": "action", "label": "Cut", "node": "esx-01" },
         { "do": "confirm" },
         { "do": "cut-timer" },
+        { "do": "action", "label": "Cut", "node": "esx-01" },
+        { "do": "confirm" },
+        { "do": "event", "name": "job_progress", "payload": { "kind": "mesh", "job": 7, "action": "cut", "state": "running", "done": 1, "total": 3, "at": "nas-01", "host": "esx-01" } },
+        { "do": "event", "name": "job_progress", "payload": { "kind": "mesh", "job": 7, "action": "cut", "state": "done", "done": 3, "total": 3, "at": null, "host": "esx-01" } },
         { "do": "action", "label": "Details", "node": "esx-01" },
         { "do": "command", "name": "topology", "args": "lab" },
         { "do": "command", "name": "topology", "args": "" },

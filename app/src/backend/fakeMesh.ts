@@ -187,6 +187,8 @@ function load(roster: FakeRoster) {
     job: null as Job | null,
     starting: null as string | null,
     asking: false,
+    recheck: false,
+    pushed: false,
     refreshing: false,
     again: false,
     timer: null as number | null,
@@ -253,7 +255,7 @@ function load(roster: FakeRoster) {
       const job = j as (Job & { state: string }) | null;
       if (job && job.state === "running" && !state.job) {
         state.job = { job: job.job, action: job.action, host: job.host, total: job.total };
-        state.timer = roster.every(POLL, () => poll());
+        if (!state.pushed) state.timer = roster.every(POLL, () => poll());
       }
       askStatus();
     });
@@ -326,26 +328,54 @@ function load(roster: FakeRoster) {
 
   const stop = (job: number): void => ask("mesh.stop", { job }, () => undefined);
 
+  // The job's progress in the status bar: from mesh.job's answer or a job_progress event.
+  const draw = (j: { action: string; done: number; total: number; at?: string | null }): void => {
+    const job = state.job;
+    if (!job) return;
+    state.done = j.done;
+    roster.progress.set("mesh", {
+      title: (ACTIONS[j.action] ?? j.action) + (job.host ? ` ${job.host} out` : ""),
+      text: j.at ? `At ${j.at}` : undefined,
+      done: j.done,
+      total: j.total,
+      cancel: can("mesh.stop") ? () => stop(job.job) : undefined,
+    });
+    if (j.action === "plan") show();
+  };
+
   const poll = (): void => {
-    if (!state.job || state.asking) return;
+    if (!state.job) return;
+    if (state.asking) {
+      state.recheck = true;
+      return;
+    }
     state.asking = true;
+    state.recheck = false;
     const following = state.job.job;
     ask("mesh.job", { job: following, brief: true }, (ok, a) => {
       state.asking = false;
       if (!ok || !state.job || state.job.job !== following) return;
       const j = a as JobAnswer | null;
       if (j === null || j.state !== "running") return over(j);
-      state.done = j.done;
-      roster.progress.set("mesh", {
-        title: (ACTIONS[j.action] ?? j.action) + (j.host ? ` ${j.host} out` : ""),
-        text: j.at ? `At ${j.at}` : undefined,
-        done: j.done,
-        total: j.total,
-        cancel: can("mesh.stop") ? () => stop(j.job) : undefined,
-      });
-      if (j.action === "plan") show();
+      draw(j);
+      if (state.recheck) poll();
     });
   };
+
+  // serve's job_progress (API 20): the progress as it moves, mesh.job asked once it's over.
+  if (can("mesh.job")) {
+    roster.on("job_progress", (e) => {
+      if (e.kind !== "mesh") return;
+      state.pushed = true;
+      if (state.timer !== null) {
+        roster.cancel(state.timer);
+        state.timer = null;
+      }
+      if (!state.job || state.job.job !== e.job) return;
+      if (e.state === "running" || e.state === "stopping") return draw(e as unknown as { action: string; done: number; total: number; at?: string | null });
+      poll();
+    });
+  }
 
   const busy = (): boolean => {
     if (state.starting) {
@@ -388,7 +418,8 @@ function load(roster: FakeRoster) {
         total: r.total,
         cancel: can("mesh.stop") ? () => stop(r.job) : undefined,
       });
-      state.timer = roster.every(POLL, poll);
+      if (state.pushed) poll();
+      else state.timer = roster.every(POLL, poll);
       show();
     });
     return true;

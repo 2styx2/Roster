@@ -8089,6 +8089,2387 @@
       "serve": []
     },
     {
+      "answers": [
+        [
+          {
+            "id": "mesh",
+            "op": "progress",
+            "spec": {
+              "cancel": "fn",
+              "done": 0,
+              "title": "Planning the Mesh",
+              "total": 8
+            }
+          },
+          {
+            "every": true,
+            "id": "N",
+            "ms": 1000,
+            "op": "timer",
+            "run": "fn"
+          },
+          {
+            "id": "mesh",
+            "kind": "status",
+            "op": "remove"
+          },
+          {
+            "host": "nas-1",
+            "op": "badge",
+            "text": "cut pending"
+          },
+          {
+            "host": "orion-2",
+            "op": "badge",
+            "text": "cut pending"
+          },
+          {
+            "id": "mesh",
+            "op": "view",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "plan",
+                  "label": "Plan",
+                  "run": "fn"
+                },
+                {
+                  "icon": "apply",
+                  "label": "Apply",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "Hosts",
+                  "value": "5"
+                },
+                {
+                  "label": "Links",
+                  "value": "13"
+                },
+                {
+                  "label": "out of date",
+                  "value": "no"
+                },
+                {
+                  "label": "pending",
+                  "value": "0"
+                },
+                {
+                  "label": "cut pending",
+                  "value": "1"
+                }
+              ],
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "icon": "plan",
+                    "key": "p",
+                    "label": "Plan",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "apply",
+                    "key": "a",
+                    "label": "Apply",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "l",
+                    "label": "Links",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "host",
+                    "kind": "data",
+                    "label": "Host"
+                  },
+                  {
+                    "id": "reach",
+                    "kind": "number",
+                    "label": "Can reach"
+                  },
+                  {
+                    "id": "reached",
+                    "kind": "number",
+                    "label": "Reached from"
+                  },
+                  {
+                    "id": "state",
+                    "label": "State"
+                  }
+                ],
+                "empty": "No Hosts in the Mesh.",
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "host": "db-9",
+                      "member": "yes",
+                      "reach": 0,
+                      "reached": 0,
+                      "state": "in the Mesh"
+                    },
+                    "host": "db-9",
+                    "id": "db-9"
+                  },
+                  {
+                    "cells": {
+                      "host": "esx-02",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "in the Mesh"
+                    },
+                    "host": "esx-02",
+                    "id": "esx-02"
+                  },
+                  {
+                    "cells": {
+                      "host": "nas-1",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "still holds orion-2's key (cut pending)"
+                    },
+                    "host": "nas-1",
+                    "id": "nas-1",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "host": "orion-2",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "cut, pending on 1 Host"
+                    },
+                    "host": "orion-2",
+                    "id": "orion-2",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "host": "orion-3",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "in the Mesh"
+                    },
+                    "host": "orion-3",
+                    "id": "orion-3"
+                  },
+                  {
+                    "cells": {
+                      "host": "sw-1",
+                      "member": "no",
+                      "reach": 0,
+                      "reached": 0,
+                      "state": "kept out: mesh: false"
+                    },
+                    "host": "sw-1",
+                    "id": "sw-1",
+                    "tone": "muted"
+                  }
+                ],
+                "sort": "host"
+              },
+              "text": "5 Hosts in the Mesh, 13 Links. Each Host's reach is who it can log in to with its Mesh key: the risk if it's taken over.\n\n1 Link goes through a jump Host its source has no Link to (no-via): see :view mesh-links.\n\norion-2 is cut from the Mesh on 2 Hosts.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "id": "mesh-links",
+            "op": "view",
+            "spec": {
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "key": "e",
+                    "label": "Explain",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "p",
+                    "label": "Plan",
+                    "run": "fn"
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "from",
+                    "kind": "data",
+                    "label": "From"
+                  },
+                  {
+                    "id": "to",
+                    "kind": "data",
+                    "label": "To"
+                  },
+                  {
+                    "id": "via",
+                    "kind": "data",
+                    "label": "Via"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status",
+                    "width": 18
+                  },
+                  {
+                    "id": "why",
+                    "label": "Why"
+                  }
+                ],
+                "empty": "No Link goes through a jump Host or has a problem.",
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "from": "orion-3",
+                      "status": "no Link to its hop",
+                      "to": "db-9",
+                      "via": "jump-1",
+                      "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "13 Links: 12 not tested yet, 1 no Link to its hop.\n\nListed: the Links that go through a jump Host (via) or have a problem. Plan the Mesh to test them all.\n\nno-via: the Link goes through a jump Host its source has no Link to. ssh logs in to the jump Host first, so add a Link from the source to it in roster.yml, or take via: off.",
+              "title": "Mesh Links"
+            }
+          },
+          {
+            "id": "mesh-plan",
+            "op": "view",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "apply",
+                  "label": "Apply",
+                  "run": "fn"
+                },
+                {
+                  "icon": "plan",
+                  "label": "Plan again",
+                  "run": "fn"
+                }
+              ],
+              "facts": [],
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "icon": "apply",
+                    "key": "a",
+                    "label": "Apply",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "plan",
+                    "key": "p",
+                    "label": "Plan again",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "l",
+                    "label": "Links",
+                    "run": "fn"
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "host",
+                    "kind": "data",
+                    "label": "Host"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status",
+                    "width": 14
+                  },
+                  {
+                    "id": "changes",
+                    "label": "Changes"
+                  }
+                ],
+                "empty": "Nothing planned yet.",
+                "open": "fn",
+                "rows": [],
+                "sort": "host"
+              },
+              "text": "Planning: roster connects to each Host in turn and changes nothing. 0 of 8 steps so far.",
+              "title": "Mesh plan"
+            }
+          },
+          {
+            "host": "db-9",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut db-9 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 0 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "0 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-3 → db-9 via jump-1",
+                      "member": "yes",
+                      "status": "no Link to its hop"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "esx-02",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut esx-02 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  }
+                ]
+              },
+              "text": "Every Link of this Host works as roster.yml asks.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "nas-1",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut nas-1 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "still holds orion-2's key (cut pending)"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "still holds orion-2's key (cut pending)"
+                    },
+                    "id": "host",
+                    "tone": "warn"
+                  }
+                ]
+              },
+              "text": "Every Link of this Host works as roster.yml asks.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "orion-2",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut orion-2 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "cut, pending on 1 Host"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "cut, pending on 1 Host"
+                    },
+                    "id": "host",
+                    "tone": "warn"
+                  }
+                ]
+              },
+              "text": "Every Link of this Host works as roster.yml asks.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "orion-3",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut orion-3 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-3 → db-9 via jump-1",
+                      "member": "yes",
+                      "status": "no Link to its hop"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "sw-1",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 0 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "0 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "kept out: mesh: false"
+                }
+              ],
+              "title": "Mesh"
+            }
+          }
+        ]
+      ],
+      "args": "plan",
+      "do": "command",
+      "ops": [
+        {
+          "id": "mesh-plan",
+          "op": "view_open"
+        }
+      ],
+      "serve": [
+        {
+          "method": "mesh.plan",
+          "params": {
+            "background": true
+          },
+          "result": {
+            "action": "plan",
+            "job": 4,
+            "total": 8
+          }
+        }
+      ]
+    },
+    {
+      "answers": [],
+      "do": "push",
+      "ops": [
+        {
+          "id": "N",
+          "kind": "timer",
+          "op": "remove"
+        },
+        {
+          "id": "mesh",
+          "op": "progress",
+          "spec": {
+            "cancel": "fn",
+            "done": 4,
+            "text": "At orion-2",
+            "title": "Planning the Mesh",
+            "total": 8
+          }
+        },
+        {
+          "id": "mesh",
+          "kind": "status",
+          "op": "remove"
+        },
+        {
+          "host": "nas-1",
+          "op": "badge",
+          "text": "cut pending"
+        },
+        {
+          "host": "orion-2",
+          "op": "badge",
+          "text": "cut pending"
+        },
+        {
+          "id": "mesh",
+          "op": "view",
+          "spec": {
+            "actions": [
+              {
+                "icon": "plan",
+                "label": "Plan",
+                "run": "fn"
+              },
+              {
+                "icon": "apply",
+                "label": "Apply",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "Hosts",
+                "value": "5"
+              },
+              {
+                "label": "Links",
+                "value": "13"
+              },
+              {
+                "label": "out of date",
+                "value": "no"
+              },
+              {
+                "label": "pending",
+                "value": "0"
+              },
+              {
+                "label": "cut pending",
+                "value": "1"
+              }
+            ],
+            "place": "full",
+            "table": {
+              "actions": [
+                {
+                  "icon": "plan",
+                  "key": "p",
+                  "label": "Plan",
+                  "run": "fn"
+                },
+                {
+                  "icon": "apply",
+                  "key": "a",
+                  "label": "Apply",
+                  "run": "fn"
+                },
+                {
+                  "key": "l",
+                  "label": "Links",
+                  "run": "fn"
+                },
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "host",
+                  "kind": "data",
+                  "label": "Host"
+                },
+                {
+                  "id": "reach",
+                  "kind": "number",
+                  "label": "Can reach"
+                },
+                {
+                  "id": "reached",
+                  "kind": "number",
+                  "label": "Reached from"
+                },
+                {
+                  "id": "state",
+                  "label": "State"
+                }
+              ],
+              "empty": "No Hosts in the Mesh.",
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "host": "db-9",
+                    "member": "yes",
+                    "reach": 0,
+                    "reached": 0,
+                    "state": "in the Mesh"
+                  },
+                  "host": "db-9",
+                  "id": "db-9"
+                },
+                {
+                  "cells": {
+                    "host": "esx-02",
+                    "member": "yes",
+                    "reach": 3,
+                    "reached": 3,
+                    "state": "in the Mesh"
+                  },
+                  "host": "esx-02",
+                  "id": "esx-02"
+                },
+                {
+                  "cells": {
+                    "host": "nas-1",
+                    "member": "yes",
+                    "reach": 3,
+                    "reached": 3,
+                    "state": "still holds orion-2's key (cut pending)"
+                  },
+                  "host": "nas-1",
+                  "id": "nas-1",
+                  "tone": "warn"
+                },
+                {
+                  "cells": {
+                    "host": "orion-2",
+                    "member": "yes",
+                    "reach": 3,
+                    "reached": 3,
+                    "state": "cut, pending on 1 Host"
+                  },
+                  "host": "orion-2",
+                  "id": "orion-2",
+                  "tone": "warn"
+                },
+                {
+                  "cells": {
+                    "host": "orion-3",
+                    "member": "yes",
+                    "reach": 3,
+                    "reached": 3,
+                    "state": "in the Mesh"
+                  },
+                  "host": "orion-3",
+                  "id": "orion-3"
+                },
+                {
+                  "cells": {
+                    "host": "sw-1",
+                    "member": "no",
+                    "reach": 0,
+                    "reached": 0,
+                    "state": "kept out: mesh: false"
+                  },
+                  "host": "sw-1",
+                  "id": "sw-1",
+                  "tone": "muted"
+                }
+              ],
+              "sort": "host"
+            },
+            "text": "5 Hosts in the Mesh, 13 Links. Each Host's reach is who it can log in to with its Mesh key: the risk if it's taken over.\n\n1 Link goes through a jump Host its source has no Link to (no-via): see :view mesh-links.\n\norion-2 is cut from the Mesh on 2 Hosts.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "id": "mesh-links",
+          "op": "view",
+          "spec": {
+            "place": "full",
+            "table": {
+              "actions": [
+                {
+                  "key": "e",
+                  "label": "Explain",
+                  "run": "fn"
+                },
+                {
+                  "key": "p",
+                  "label": "Plan",
+                  "run": "fn"
+                }
+              ],
+              "columns": [
+                {
+                  "id": "from",
+                  "kind": "data",
+                  "label": "From"
+                },
+                {
+                  "id": "to",
+                  "kind": "data",
+                  "label": "To"
+                },
+                {
+                  "id": "via",
+                  "kind": "data",
+                  "label": "Via"
+                },
+                {
+                  "id": "status",
+                  "label": "Status",
+                  "width": 18
+                },
+                {
+                  "id": "why",
+                  "label": "Why"
+                }
+              ],
+              "empty": "No Link goes through a jump Host or has a problem.",
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "from": "orion-3",
+                    "status": "no Link to its hop",
+                    "to": "db-9",
+                    "via": "jump-1",
+                    "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+                  },
+                  "id": "l1",
+                  "tone": "error"
+                }
+              ]
+            },
+            "text": "13 Links: 12 not tested yet, 1 no Link to its hop.\n\nListed: the Links that go through a jump Host (via) or have a problem. Plan the Mesh to test them all.\n\nno-via: the Link goes through a jump Host its source has no Link to. ssh logs in to the jump Host first, so add a Link from the source to it in roster.yml, or take via: off.",
+            "title": "Mesh Links"
+          }
+        },
+        {
+          "id": "mesh-plan",
+          "op": "view",
+          "spec": {
+            "actions": [
+              {
+                "icon": "apply",
+                "label": "Apply",
+                "run": "fn"
+              },
+              {
+                "icon": "plan",
+                "label": "Plan again",
+                "run": "fn"
+              }
+            ],
+            "facts": [],
+            "place": "full",
+            "table": {
+              "actions": [
+                {
+                  "icon": "apply",
+                  "key": "a",
+                  "label": "Apply",
+                  "run": "fn"
+                },
+                {
+                  "icon": "plan",
+                  "key": "p",
+                  "label": "Plan again",
+                  "run": "fn"
+                },
+                {
+                  "key": "l",
+                  "label": "Links",
+                  "run": "fn"
+                }
+              ],
+              "columns": [
+                {
+                  "id": "host",
+                  "kind": "data",
+                  "label": "Host"
+                },
+                {
+                  "id": "status",
+                  "label": "Status",
+                  "width": 14
+                },
+                {
+                  "id": "changes",
+                  "label": "Changes"
+                }
+              ],
+              "empty": "Nothing planned yet.",
+              "open": "fn",
+              "rows": [],
+              "sort": "host"
+            },
+            "text": "Planning: roster connects to each Host in turn and changes nothing. 4 of 8 steps so far.",
+            "title": "Mesh plan"
+          }
+        },
+        {
+          "host": "db-9",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "actions": [
+              {
+                "icon": "cut",
+                "label": "Cut db-9 from the Mesh",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 0 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "0 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "in the Mesh"
+              }
+            ],
+            "table": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "link",
+                  "kind": "data",
+                  "label": "Link"
+                },
+                {
+                  "id": "status",
+                  "label": "Status"
+                }
+              ],
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "link": "this Host",
+                    "member": "yes",
+                    "status": "in the Mesh"
+                  },
+                  "id": "host"
+                },
+                {
+                  "cells": {
+                    "link": "orion-3 → db-9 via jump-1",
+                    "member": "yes",
+                    "status": "no Link to its hop"
+                  },
+                  "id": "l1",
+                  "tone": "error"
+                }
+              ]
+            },
+            "text": "The Links worth a look: a hop (via) or a problem.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "host": "esx-02",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "actions": [
+              {
+                "icon": "cut",
+                "label": "Cut esx-02 from the Mesh",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 3 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "3 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "in the Mesh"
+              }
+            ],
+            "table": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "link",
+                  "kind": "data",
+                  "label": "Link"
+                },
+                {
+                  "id": "status",
+                  "label": "Status"
+                }
+              ],
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "link": "this Host",
+                    "member": "yes",
+                    "status": "in the Mesh"
+                  },
+                  "id": "host"
+                }
+              ]
+            },
+            "text": "Every Link of this Host works as roster.yml asks.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "host": "nas-1",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "actions": [
+              {
+                "icon": "cut",
+                "label": "Cut nas-1 from the Mesh",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 3 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "3 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "still holds orion-2's key (cut pending)"
+              }
+            ],
+            "table": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "link",
+                  "kind": "data",
+                  "label": "Link"
+                },
+                {
+                  "id": "status",
+                  "label": "Status"
+                }
+              ],
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "link": "this Host",
+                    "member": "yes",
+                    "status": "still holds orion-2's key (cut pending)"
+                  },
+                  "id": "host",
+                  "tone": "warn"
+                }
+              ]
+            },
+            "text": "Every Link of this Host works as roster.yml asks.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "host": "orion-2",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "actions": [
+              {
+                "icon": "cut",
+                "label": "Cut orion-2 from the Mesh",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 3 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "3 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "cut, pending on 1 Host"
+              }
+            ],
+            "table": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "link",
+                  "kind": "data",
+                  "label": "Link"
+                },
+                {
+                  "id": "status",
+                  "label": "Status"
+                }
+              ],
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "link": "this Host",
+                    "member": "yes",
+                    "status": "cut, pending on 1 Host"
+                  },
+                  "id": "host",
+                  "tone": "warn"
+                }
+              ]
+            },
+            "text": "Every Link of this Host works as roster.yml asks.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "host": "orion-3",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "actions": [
+              {
+                "icon": "cut",
+                "label": "Cut orion-3 from the Mesh",
+                "run": "fn"
+              }
+            ],
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 3 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "3 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "in the Mesh"
+              }
+            ],
+            "table": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "key": "x",
+                  "label": "Cut",
+                  "run": "fn",
+                  "when": {
+                    "member": "yes"
+                  }
+                }
+              ],
+              "columns": [
+                {
+                  "id": "link",
+                  "kind": "data",
+                  "label": "Link"
+                },
+                {
+                  "id": "status",
+                  "label": "Status"
+                }
+              ],
+              "open": "fn",
+              "rows": [
+                {
+                  "cells": {
+                    "link": "this Host",
+                    "member": "yes",
+                    "status": "in the Mesh"
+                  },
+                  "id": "host"
+                },
+                {
+                  "cells": {
+                    "link": "orion-3 → db-9 via jump-1",
+                    "member": "yes",
+                    "status": "no Link to its hop"
+                  },
+                  "id": "l1",
+                  "tone": "error"
+                }
+              ]
+            },
+            "text": "The Links worth a look: a hop (via) or a problem.",
+            "title": "Mesh"
+          }
+        },
+        {
+          "host": "sw-1",
+          "id": "mesh",
+          "op": "details",
+          "spec": {
+            "facts": [
+              {
+                "label": "reach",
+                "value": "can reach 0 Hosts"
+              },
+              {
+                "label": "reached from",
+                "value": "0 Hosts"
+              },
+              {
+                "label": "state",
+                "value": "kept out: mesh: false"
+              }
+            ],
+            "title": "Mesh"
+          }
+        }
+      ],
+      "payload": {
+        "action": "plan",
+        "at": "orion-2",
+        "done": 4,
+        "job": 4,
+        "kind": "mesh",
+        "state": "running",
+        "total": 8
+      },
+      "serve": [],
+      "state": "running"
+    },
+    {
+      "answers": [
+        [
+          {
+            "id": "mesh",
+            "kind": "progress",
+            "op": "remove"
+          },
+          {
+            "actions": [
+              {
+                "label": "Show the plan",
+                "run": "view mesh-plan"
+              }
+            ],
+            "level": "info",
+            "op": "notify",
+            "text": "Plan ready: 3 Hosts would change. Press a in :view mesh-plan to apply it."
+          }
+        ],
+        [
+          {
+            "id": "mesh",
+            "op": "status",
+            "spec": {
+              "run": "view mesh",
+              "text": "Cut pending",
+              "title": "A cut isn't finished on every Host: :view mesh"
+            }
+          },
+          {
+            "host": "nas-1",
+            "op": "badge",
+            "text": "cut pending"
+          },
+          {
+            "host": "orion-2",
+            "op": "badge",
+            "text": "cut pending"
+          },
+          {
+            "id": "mesh",
+            "op": "view",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "plan",
+                  "label": "Plan",
+                  "run": "fn"
+                },
+                {
+                  "icon": "apply",
+                  "label": "Apply",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "Hosts",
+                  "value": "5"
+                },
+                {
+                  "label": "Links",
+                  "value": "13"
+                },
+                {
+                  "label": "out of date",
+                  "value": "no"
+                },
+                {
+                  "label": "pending",
+                  "value": "0"
+                },
+                {
+                  "label": "cut pending",
+                  "value": "1"
+                }
+              ],
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "icon": "plan",
+                    "key": "p",
+                    "label": "Plan",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "apply",
+                    "key": "a",
+                    "label": "Apply",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "l",
+                    "label": "Links",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "host",
+                    "kind": "data",
+                    "label": "Host"
+                  },
+                  {
+                    "id": "reach",
+                    "kind": "number",
+                    "label": "Can reach"
+                  },
+                  {
+                    "id": "reached",
+                    "kind": "number",
+                    "label": "Reached from"
+                  },
+                  {
+                    "id": "state",
+                    "label": "State"
+                  }
+                ],
+                "empty": "No Hosts in the Mesh.",
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "host": "db-9",
+                      "member": "yes",
+                      "reach": 0,
+                      "reached": 0,
+                      "state": "in the Mesh"
+                    },
+                    "host": "db-9",
+                    "id": "db-9"
+                  },
+                  {
+                    "cells": {
+                      "host": "esx-02",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "in the Mesh"
+                    },
+                    "host": "esx-02",
+                    "id": "esx-02"
+                  },
+                  {
+                    "cells": {
+                      "host": "nas-1",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "still holds orion-2's key (cut pending)"
+                    },
+                    "host": "nas-1",
+                    "id": "nas-1",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "host": "orion-2",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "cut, pending on 1 Host"
+                    },
+                    "host": "orion-2",
+                    "id": "orion-2",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "host": "orion-3",
+                      "member": "yes",
+                      "reach": 3,
+                      "reached": 3,
+                      "state": "in the Mesh"
+                    },
+                    "host": "orion-3",
+                    "id": "orion-3"
+                  },
+                  {
+                    "cells": {
+                      "host": "sw-1",
+                      "member": "no",
+                      "reach": 0,
+                      "reached": 0,
+                      "state": "kept out: mesh: false"
+                    },
+                    "host": "sw-1",
+                    "id": "sw-1",
+                    "tone": "muted"
+                  }
+                ],
+                "sort": "host"
+              },
+              "text": "5 Hosts in the Mesh, 13 Links. Each Host's reach is who it can log in to with its Mesh key: the risk if it's taken over.\n\n1 Link goes through a jump Host its source has no Link to (no-via): see :view mesh-links.\n\norion-2 is cut from the Mesh on 2 Hosts.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "id": "mesh-links",
+            "op": "view",
+            "spec": {
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "key": "e",
+                    "label": "Explain",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "p",
+                    "label": "Plan",
+                    "run": "fn"
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "from",
+                    "kind": "data",
+                    "label": "From"
+                  },
+                  {
+                    "id": "to",
+                    "kind": "data",
+                    "label": "To"
+                  },
+                  {
+                    "id": "via",
+                    "kind": "data",
+                    "label": "Via"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status",
+                    "width": 18
+                  },
+                  {
+                    "id": "why",
+                    "label": "Why"
+                  }
+                ],
+                "empty": "No Link goes through a jump Host or has a problem.",
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "from": "orion-3",
+                      "status": "no Link to its hop",
+                      "to": "db-9",
+                      "via": "jump-1",
+                      "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  },
+                  {
+                    "cells": {
+                      "from": "orion-2",
+                      "status": "unreachable",
+                      "to": "nas-1",
+                      "via": "",
+                      "why": "orion-2 can't reach 10.0.0.30:22"
+                    },
+                    "id": "l2",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "13 Links: 1 no Link to its hop, 11 works, 1 unreachable.\n\nListed: the Links that go through a jump Host (via) or have a problem.\n\nno-via: the Link goes through a jump Host its source has no Link to. ssh logs in to the jump Host first, so add a Link from the source to it in roster.yml, or take via: off.",
+              "title": "Mesh Links"
+            }
+          },
+          {
+            "id": "mesh-plan",
+            "op": "view",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "apply",
+                  "label": "Apply",
+                  "run": "fn"
+                },
+                {
+                  "icon": "plan",
+                  "label": "Plan again",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "Hosts that change",
+                  "value": "3 of 4"
+                },
+                {
+                  "label": "pending",
+                  "value": "0"
+                }
+              ],
+              "place": "full",
+              "table": {
+                "actions": [
+                  {
+                    "icon": "apply",
+                    "key": "a",
+                    "label": "Apply",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "plan",
+                    "key": "p",
+                    "label": "Plan again",
+                    "run": "fn"
+                  },
+                  {
+                    "key": "l",
+                    "label": "Links",
+                    "run": "fn"
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "host",
+                    "kind": "data",
+                    "label": "Host"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status",
+                    "width": 14
+                  },
+                  {
+                    "id": "changes",
+                    "label": "Changes"
+                  }
+                ],
+                "empty": "Nothing planned yet.",
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "changes": "make key; write ssh config; add key from esx-02",
+                      "host": "esx-02",
+                      "status": "would change"
+                    },
+                    "host": "esx-02",
+                    "id": "esx-02"
+                  },
+                  {
+                    "cells": {
+                      "changes": "",
+                      "host": "nas-1",
+                      "status": "same"
+                    },
+                    "host": "nas-1",
+                    "id": "nas-1",
+                    "tone": "muted"
+                  },
+                  {
+                    "cells": {
+                      "changes": "make key; write ssh config; add key from esx-02",
+                      "host": "orion-2",
+                      "status": "would change"
+                    },
+                    "host": "orion-2",
+                    "id": "orion-2"
+                  },
+                  {
+                    "cells": {
+                      "changes": "make key; write ssh config; add key from esx-02",
+                      "host": "orion-3",
+                      "status": "would change"
+                    },
+                    "host": "orion-3",
+                    "id": "orion-3"
+                  }
+                ],
+                "sort": "host"
+              },
+              "text": "Planned at HH:MM:SS. 3 Hosts would change. Apply it with a: you're asked first.\n\norion-3: ~/ROSTER.md isn't roster's, so roster left it alone (move it away and apply again)",
+              "title": "Mesh plan"
+            }
+          },
+          {
+            "host": "db-9",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut db-9 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 0 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "0 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-3 → db-9 via jump-1",
+                      "member": "yes",
+                      "status": "no Link to its hop"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "esx-02",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut esx-02 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  }
+                ]
+              },
+              "text": "Every Link of this Host works as roster.yml asks.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "nas-1",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut nas-1 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "still holds orion-2's key (cut pending)"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "still holds orion-2's key (cut pending)"
+                    },
+                    "id": "host",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-2 → nas-1",
+                      "member": "yes",
+                      "status": "unreachable"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "orion-2",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut orion-2 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "cut, pending on 1 Host"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "cut, pending on 1 Host"
+                    },
+                    "id": "host",
+                    "tone": "warn"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-2 → nas-1",
+                      "member": "yes",
+                      "status": "unreachable"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "orion-3",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "actions": [
+                {
+                  "icon": "cut",
+                  "label": "Cut orion-3 from the Mesh",
+                  "run": "fn"
+                }
+              ],
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 3 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "3 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "in the Mesh"
+                }
+              ],
+              "table": {
+                "actions": [
+                  {
+                    "icon": "cut",
+                    "key": "x",
+                    "label": "Cut",
+                    "run": "fn",
+                    "when": {
+                      "member": "yes"
+                    }
+                  }
+                ],
+                "columns": [
+                  {
+                    "id": "link",
+                    "kind": "data",
+                    "label": "Link"
+                  },
+                  {
+                    "id": "status",
+                    "label": "Status"
+                  }
+                ],
+                "open": "fn",
+                "rows": [
+                  {
+                    "cells": {
+                      "link": "this Host",
+                      "member": "yes",
+                      "status": "in the Mesh"
+                    },
+                    "id": "host"
+                  },
+                  {
+                    "cells": {
+                      "link": "orion-3 → db-9 via jump-1",
+                      "member": "yes",
+                      "status": "no Link to its hop"
+                    },
+                    "id": "l1",
+                    "tone": "error"
+                  }
+                ]
+              },
+              "text": "The Links worth a look: a hop (via) or a problem.",
+              "title": "Mesh"
+            }
+          },
+          {
+            "host": "sw-1",
+            "id": "mesh",
+            "op": "details",
+            "spec": {
+              "facts": [
+                {
+                  "label": "reach",
+                  "value": "can reach 0 Hosts"
+                },
+                {
+                  "label": "reached from",
+                  "value": "0 Hosts"
+                },
+                {
+                  "label": "state",
+                  "value": "kept out: mesh: false"
+                }
+              ],
+              "title": "Mesh"
+            }
+          }
+        ]
+      ],
+      "do": "push",
+      "ops": [],
+      "payload": {
+        "action": "plan",
+        "at": null,
+        "done": 8,
+        "job": 4,
+        "kind": "mesh",
+        "state": "done",
+        "total": 8
+      },
+      "serve": [
+        {
+          "method": "mesh.job",
+          "params": {
+            "brief": true,
+            "job": 4
+          },
+          "result": {
+            "action": "plan",
+            "at": null,
+            "done": 8,
+            "job": 4,
+            "result": {
+              "already": false,
+              "applied": false,
+              "cut_pending": {
+                "orion-2": [
+                  "nas-1"
+                ]
+              },
+              "excluded": {
+                "sw-1": "mesh: false"
+              },
+              "hosts": [
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "esx-02",
+                  "status": "would-change"
+                },
+                {
+                  "changes": [],
+                  "host": "nas-1",
+                  "status": "same"
+                },
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "orion-2",
+                  "status": "would-change"
+                },
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "orion-3",
+                  "status": "would-change"
+                }
+              ],
+              "link_count": 13,
+              "link_statuses": {
+                "no-via": 1,
+                "ok": 11,
+                "unreachable": 1
+              },
+              "links": [
+                {
+                  "from": "orion-3",
+                  "kind": "key",
+                  "status": "no-via",
+                  "to": "db-9",
+                  "via": "jump-1",
+                  "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+                },
+                {
+                  "from": "orion-2",
+                  "kind": "key",
+                  "status": "unreachable",
+                  "to": "nas-1",
+                  "why": "orion-2 can't reach 10.0.0.30:22"
+                }
+              ],
+              "links_more": 0,
+              "pending": {},
+              "reach": {
+                "esx-02": 3,
+                "nas-1": 3,
+                "orion-2": 3,
+                "orion-3": 3
+              },
+              "reached": {
+                "esx-02": 3,
+                "nas-1": 3,
+                "orion-2": 3,
+                "orion-3": 3
+              },
+              "warnings": [
+                "orion-3: ~/ROSTER.md isn't roster's, so roster left it alone (move it away and apply again)"
+              ]
+            },
+            "state": "done",
+            "stopped": false,
+            "total": 8
+          }
+        },
+        {
+          "method": "mesh.status",
+          "params": {
+            "brief": true
+          },
+          "result": {
+            "cut_pending": {
+              "orion-2": [
+                "nas-1"
+              ]
+            },
+            "excluded": {
+              "sw-1": "mesh: false"
+            },
+            "link_count": 13,
+            "link_statuses": {
+              "asked": 12,
+              "no-via": 1
+            },
+            "links": [
+              {
+                "from": "orion-3",
+                "kind": "key",
+                "status": "no-via",
+                "to": "db-9",
+                "via": "jump-1",
+                "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+              }
+            ],
+            "links_more": 0,
+            "members": [
+              "db-9",
+              "esx-02",
+              "nas-1",
+              "orion-2",
+              "orion-3"
+            ],
+            "out_of_date": false,
+            "pending": {},
+            "reach": {
+              "esx-02": 3,
+              "nas-1": 3,
+              "orion-2": 3,
+              "orion-3": 3
+            },
+            "reached": {
+              "esx-02": 3,
+              "nas-1": 3,
+              "orion-2": 3,
+              "orion-3": 3
+            }
+          }
+        }
+      ],
+      "state": "done"
+    },
+    {
       "answers": [],
       "do": "load",
       "grants": [
@@ -9017,28 +11398,99 @@
           "method": "mesh.job",
           "params": {},
           "result": {
-            "action": "cut",
+            "action": "plan",
             "at": null,
-            "done": 3,
-            "host": "orion-2",
-            "job": 3,
+            "done": 8,
+            "job": 4,
             "result": {
-              "change": {
-                "backup": "/home/you/.config/roster/backup/roster.yml",
-                "written": true
+              "already": false,
+              "applied": false,
+              "cut_pending": {
+                "orion-2": [
+                  "nas-1"
+                ]
               },
-              "confirmed": [
-                "esx-02",
-                "orion-3"
+              "excluded": {
+                "sw-1": "mesh: false"
+              },
+              "hosts": [
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "esx-02",
+                  "status": "would-change"
+                },
+                {
+                  "changes": [],
+                  "host": "nas-1",
+                  "status": "same"
+                },
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "orion-2",
+                  "status": "would-change"
+                },
+                {
+                  "changes": [
+                    "make key",
+                    "write ssh config",
+                    "add key from esx-02"
+                  ],
+                  "host": "orion-3",
+                  "status": "would-change"
+                }
               ],
-              "host": "orion-2",
-              "pending": {
-                "nas-1": "no answer: ssh: connect to host nas-1 port 22: Connection timed out"
-              }
+              "link_count": 13,
+              "link_statuses": {
+                "no-via": 1,
+                "ok": 11,
+                "unreachable": 1
+              },
+              "links": [
+                {
+                  "from": "orion-3",
+                  "kind": "key",
+                  "status": "no-via",
+                  "to": "db-9",
+                  "via": "jump-1",
+                  "why": "orion-3 has no Link to jump-1, its hop to db-9 (add { from: orion-3, to: jump-1 })"
+                },
+                {
+                  "from": "orion-2",
+                  "kind": "key",
+                  "status": "unreachable",
+                  "to": "nas-1",
+                  "why": "orion-2 can't reach 10.0.0.30:22"
+                }
+              ],
+              "links_more": 0,
+              "pending": {},
+              "reach": {
+                "esx-02": 3,
+                "nas-1": 3,
+                "orion-2": 3,
+                "orion-3": 3
+              },
+              "reached": {
+                "esx-02": 3,
+                "nas-1": 3,
+                "orion-2": 3,
+                "orion-3": 3
+              },
+              "warnings": [
+                "orion-3: ~/ROSTER.md isn't roster's, so roster left it alone (move it away and apply again)"
+              ]
             },
             "state": "done",
             "stopped": false,
-            "total": 3
+            "total": 8
           }
         },
         {
