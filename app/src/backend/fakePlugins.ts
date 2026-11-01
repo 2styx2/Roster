@@ -112,6 +112,10 @@ function serveMethodAllowed(method: string): boolean {
   );
 }
 
+/** Whether a Plugin may call `method` only in the user's call, as permission.rs's serve_user_only:
+ * every method the install prompt flags (decision Q100). */
+const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.includes(method);
+
 // ------------------------------------------------------------------ network:<site> (Q97)
 // As roster-core's plugin/network.rs Site::parse, on the same table of cases.
 
@@ -530,7 +534,7 @@ export function fakePluginHost(
       m.serve = {
         call: (method, params = {}) => {
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
-          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(`roster.serve.call ${method}`);
+          if (userOnlyMethod(method)) userOnly(`roster.serve.call ${method}`);
           try {
             return serve(method, params);
           } catch (e) {
@@ -542,7 +546,7 @@ export function fakePluginHost(
         request: (method, params, done) => {
           const what = `roster.serve.request ${method}`;
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.request: not granted (serve:${method})`);
-          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(what);
+          if (userOnlyMethod(method)) userOnly(what);
           if (r.requests >= MAX_SERVE_REQUESTS) {
             throw new Error(`${what}: ${MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer`);
           }

@@ -294,18 +294,25 @@ fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
 /// a `cmd:` one to the end of its line, an `env:` one its variable's name. The rest stays.
 #[test]
 fn cmd_and_env_references_in_raw_text_reach_a_plugin_cut() {
-    let (_, ops, error) = load(
+    // host.check connects to the Host: only ever the user's call (decision Q100), a command here.
+    let (host, loaded, error) = load(
         "redact-text",
         &["serve:changes.diff", "serve:host.check"],
         r#"
-        local d = roster.serve.call("changes.diff").diff
-        local c = roster.serve.call("host.check", { host = "esx-02" }).steps
-        roster.status.set("diff", { text = d })
-        roster.status.set("check", { text = table.concat({ c[1].message, c[2].message, c[2].details.auth,
-          c[2].details.tried[1], c[2].details.tried[2] }, "|") })
+        roster.commands.add("go", { run = function()
+          local d = roster.serve.call("changes.diff").diff
+          local c = roster.serve.call("host.check", { host = "esx-02" }).steps
+          roster.status.set("diff", { text = d })
+          roster.status.set("check", { text = table.concat({ c[1].message, c[2].message, c[2].details.auth,
+            c[2].details.tried[1], c[2].details.tried[2] }, "|") })
+        end })
         "#,
     );
     assert_eq!(error, None);
+    let go = loaded[0]["run"]["handler"].as_u64().unwrap();
+    let r = host.call("t", go, json!({ "args": "", "words": [] }));
+    assert!(r.error.is_none(), "{:?}", r.error);
+    let ops = r.ops;
     assert_eq!(
         said(&ops, "diff"),
         "--- a/roster.yml\n+++ b/roster.yml\n@@ -3,2 +3,4 @@\n   esx-02:\n-    auth: \"cmd:\"\n+    auth: cmd:\n+    login: { user: admin, auth: env: }\n+    ssh: { auth: 'env:' }\n"

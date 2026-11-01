@@ -206,21 +206,27 @@ fn granted_functions_reach_only_their_serve_methods_and_writes_stay_pending() {
             &["inventory.read", "inventory.write", "sessions.open", "terminal.write"],
         ),
         r#"
-        local hosts = roster.inventory.hosts()
-        local one = roster.inventory.host("esx-02")
-        local r = roster.inventory.update("esx-02", { description = "lab box" })
-        roster.sessions.open(hosts[1].name)
-        roster.terminal.send(3, "uptime\n")
-        roster.status.set("n", { text = #hosts .. " " .. one.ip .. " " .. tostring(r.pending) })
+        -- An Inventory write is only ever the user's call (decision Q100): a command here.
+        roster.commands.add("go", { run = function()
+          local hosts = roster.inventory.hosts()
+          local one = roster.inventory.host("esx-02")
+          local r = roster.inventory.update("esx-02", { description = "lab box" })
+          roster.sessions.open(hosts[1].name)
+          roster.terminal.send(3, "uptime\n")
+          roster.status.set("n", { text = #hosts .. " " .. one.ip .. " " .. tostring(r.pending) })
+        end })
         "#,
     );
     let (host, serve) = host();
-    let (_, reply) = host
+    let (_, loaded) = host
         .load(
             &Source::Dir(dir.clone()),
             &perms(&["inventory.read", "inventory.write", "sessions.open", "terminal.write"]),
         )
         .unwrap();
+    assert!(loaded.error.is_none(), "{:?}", loaded.error);
+    let go = loaded.ops[0]["run"]["handler"].as_u64().unwrap();
+    let reply = host.call("reader", go, json!({ "args": "", "words": [] }));
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(serve.methods(), ["hosts.list", "host.get", "host.update"]);
     assert_eq!(reply.ops[0], json!({ "op": "open", "host": "esx-02" }));

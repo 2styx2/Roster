@@ -630,14 +630,15 @@ fn check_id(what: &str, id: &str) -> mlua::Result<()> {
     }
 }
 
+/// Why a call refused something only the user's call may do.
+const USER_ONLY: &str = "only while the user runs one of your actions, commands or finder items";
+
 /// Errors unless the run is a call the user started (an action, a command, a finder item).
 fn user_only(shared: &Shared, what: &str) -> mlua::Result<()> {
     if shared.user_call.get() {
         Ok(())
     } else {
-        Err(mlua::Error::runtime(format!(
-            "{what}: only while the user runs one of your actions, commands or finder items"
-        )))
+        Err(mlua::Error::runtime(format!("{what}: {USER_ONLY}")))
     }
 }
 
@@ -676,8 +677,12 @@ fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> 
     answer(lua, what, ask_serve(shared, method, params))
 }
 
-/// roster serve's answer, before it's Lua.
+/// roster serve's answer, before it's Lua. A method that acts on the network or the Inventory
+/// (`roster.serve.call`'s and `inventory.write`'s alike) is asked only in the user's call (Q100).
 fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String> {
+    if super::permission::serve_user_only(method) && !shared.user_call.get() {
+        return Err(USER_ONLY.into());
+    }
     let started = Instant::now();
     shared.serving.begin();
     let result = shared.serve.call(method, params);
@@ -831,7 +836,7 @@ fn request(
 fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, done: Function) -> mlua::Result<()> {
     let what = format!("roster.serve.request {method}");
     need(s, &Permission::Serve(method.clone()), "roster.serve.request")?;
-    if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
+    if super::permission::serve_user_only(&method) {
         user_only(s, &what)?;
     }
     let params = match params {
@@ -1435,9 +1440,6 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         let t = lua.create_table()?;
         func!(t, "call", |lua, s, (method, params): (String, Option<Value>)| {
             need(s, &Permission::Serve(method.clone()), "roster.serve.call")?;
-            if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
-                user_only(s, &format!("roster.serve.call {method}"))?;
-            }
             let params = match params {
                 Some(v) => plain(s, "roster.serve.call", &v)?,
                 None => json!({}),
