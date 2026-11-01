@@ -2,18 +2,16 @@
 //! sandboxed Lua 5.4, checked against a schema, layered over the defaults. These tests drive the
 //! public loader the Tauri shell uses, with real files in a temp dir.
 
+mod common;
+
 use roster_core::config::{self, Config, Loader};
-use std::path::PathBuf;
 
 /// A fresh, empty config dir for one test.
-fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-config-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp_dir(name: &str) -> common::Temp {
+    common::temp(&format!("config-{name}"))
 }
 
-fn with_init(name: &str, lua: &str) -> PathBuf {
+fn with_init(name: &str, lua: &str) -> common::Temp {
     let dir = temp_dir(name);
     std::fs::write(dir.join("init.lua"), lua).unwrap();
     dir
@@ -853,8 +851,9 @@ fn the_backend_plan_refuses_a_roster_command_that_isnt_roster_but_the_env_var_ma
 
 /// A loader for an init.lua that keeps Lua busy for at least `ms` of wall-clock time (os.time
 /// counts seconds and os.clock is the whole process's CPU, so it counts its own iterations,
-/// calibrated first), then sets the leader. Its limits are generous so it isn't cut off.
-fn slow_loader(name: &str, ms: u32) -> Loader {
+/// calibrated first), then sets the leader. Its limits are generous so it isn't cut off. Returns its
+/// folder too, deleted when the test drops it.
+fn slow_loader(name: &str, ms: u32) -> (Loader, common::Temp) {
     let dir = with_init(
         name,
         &format!(
@@ -862,7 +861,7 @@ fn slow_loader(name: &str, ms: u32) -> Loader {
             iterations_for(ms)
         ),
     );
-    Loader::with_env(&dir, generous())
+    (Loader::with_env(&dir, generous()), dir)
 }
 
 fn generous() -> config::Env {
@@ -895,7 +894,8 @@ fn iterations_for(ms: u32) -> u64 {
 fn reading_the_config_never_waits_for_a_reload_in_progress() {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
-    let loader = Arc::new(slow_loader("loader-busy", 600));
+    let (loader, _dir) = slow_loader("loader-busy", 600);
+    let loader = Arc::new(loader);
     let l = Arc::clone(&loader);
     let reload = std::thread::spawn(move || l.reload());
     std::thread::sleep(Duration::from_millis(100));
@@ -921,7 +921,8 @@ fn reading_the_config_never_waits_for_a_reload_in_progress() {
 fn a_startup_reload_waits_only_so_long_then_reports_when_done() {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
-    let loader = Arc::new(slow_loader("loader-startup", 600));
+    let (loader, _dir) = slow_loader("loader-startup", 600);
+    let loader = Arc::new(loader);
     let (tx, rx) = std::sync::mpsc::channel();
     let started = Instant::now();
     let now = loader.reload_within(Duration::from_millis(100), move |report| {
@@ -1004,7 +1005,7 @@ fn a_continuous_stream_of_saves_still_reloads_within_half_a_second() {
     std::thread::sleep(Duration::from_millis(100));
     let started = Instant::now();
     let writer = std::thread::spawn({
-        let dir = dir.clone();
+        let dir = dir.to_path_buf();
         move || {
             while started.elapsed() < Duration::from_secs(2) {
                 std::fs::write(dir.join("init.lua"), "return {}").unwrap();
@@ -1048,7 +1049,8 @@ fn the_starter_file_is_the_example_commented_out_and_loads_as_the_defaults() {
 
 #[test]
 fn ensuring_the_file_creates_it_once_and_never_overwrites_it() {
-    let dir = temp_dir("ensure").join("nested").join("roster");
+    let tmp = temp_dir("ensure");
+    let dir = tmp.join("nested").join("roster");
     let first = config::ensure_file(&dir).unwrap();
     assert!(first.created);
     assert_eq!(first.path, dir.join("init.lua"));

@@ -1,5 +1,7 @@
 //! The JSON-RPC client against a stub `roster serve` (tests/fake_serve.py).
 
+mod common;
+
 use roster_core::rpc::{CallError, RpcClient};
 use serde_json::json;
 use std::process::Command;
@@ -131,8 +133,8 @@ fn notifications_go_to_the_notify_callback_and_answers_still_reach_their_caller(
 /// Q101), which takes it a moment, so the wait is longer than that.
 #[test]
 fn dropping_the_client_gives_serve_time_to_wind_down_on_its_own() {
-    let marker = std::env::temp_dir().join(format!("roster-core-rpc-slow-exit-{}", std::process::id()));
-    let _ = std::fs::remove_file(&marker);
+    let tmp = common::temp("rpc-slow-exit");
+    let marker = tmp.join("marker");
     let mut c = Command::new("python3");
     c.arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py"))
         .arg("slow-exit")
@@ -140,7 +142,6 @@ fn dropping_the_client_gives_serve_time_to_wind_down_on_its_own() {
     let client = RpcClient::spawn(c).expect("spawn fake serve");
     drop(client);
     assert!(marker.exists(), "serve was killed before it could finish winding down");
-    let _ = std::fs::remove_file(&marker);
 }
 
 /// When the client gives up waiting it tells serve with the notification `$/cancel {id}` (ticket

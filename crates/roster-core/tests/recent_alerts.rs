@@ -9,6 +9,8 @@
 //! stand-in for this Plugin and check it does the same, so the UI tests test this Plugin's
 //! behaviour, not a guess at it. `ROSTER_UPDATE_TRANSCRIPT=1 cargo test` rewrites the file.
 
+mod common;
+
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
@@ -24,11 +26,8 @@ fn example() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugins/recent-alerts")
 }
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-recent-alerts-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("recent-alerts-{test}"))
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -146,12 +145,13 @@ fn perms(names: &[&str]) -> Vec<Permission> {
 
 /// An installed recent-alerts: the author's repo, the Packages, and the host it runs in.
 struct World {
-    root: PathBuf,
     repo: Repo,
     packages: Packages,
     specs: Vec<PackageSpec>,
     host: PluginHost,
     serve: Arc<Serve0>,
+    /// Last, so it's deleted after the host above has stopped.
+    root: common::Temp,
 }
 
 impl World {
@@ -163,12 +163,12 @@ impl World {
         let serve = Arc::new(Serve0::default());
         let host = PluginHost::new(serve.clone(), Limits::default());
         World {
-            root,
             repo,
             packages,
             specs,
             host,
             serve,
+            root,
         }
     }
 

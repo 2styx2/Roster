@@ -3,9 +3,11 @@
 //! Folders in once without losing any. Driven through `PluginHost`, as the Tauri shell does,
 //! with a fake `roster serve` and a temp data folder.
 
+mod common;
+
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source};
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 struct FakeServe;
@@ -22,11 +24,8 @@ impl Serve for FakeServe {
     }
 }
 
-fn data(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-folders-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn data(test: &str) -> common::Temp {
+    common::temp(&format!("folders-{test}"))
 }
 
 fn host(data: &Path) -> PluginHost {

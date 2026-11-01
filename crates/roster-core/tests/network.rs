@@ -2,11 +2,12 @@
 //! against a small HTTP server on 127.0.0.1 that each test lists explicitly
 //! (`network:http://127.0.0.1:PORT`). Nothing here reaches the internet.
 
+mod common;
+
 use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -145,10 +146,8 @@ impl Server {
     }
 }
 
-fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-network-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
+    let dir = common::temp(&format!("network-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     std::fs::write(
         dir.join("roster-plugin.lua"),
@@ -164,7 +163,12 @@ fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
 
 /// Loads a Plugin granted `permissions`, with `config` as `roster.plugin.config`; the replies
 /// it sends on its own come out of the receiver.
-fn load(test: &str, permissions: &[&str], config: Value, init: &str) -> (PluginHost, Reply, Receiver<Reply>) {
+fn load(
+    test: &str,
+    permissions: &[&str],
+    config: Value,
+    init: &str,
+) -> (PluginHost, Reply, Receiver<Reply>, common::Temp) {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
@@ -172,10 +176,11 @@ fn load(test: &str, permissions: &[&str], config: Value, init: &str) -> (PluginH
         let _ = tx.lock().unwrap().send(r);
     }));
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
+    let folder = plugin_dir(test, permissions, init);
     let (_, reply) = host
-        .load_with(&Source::Dir(plugin_dir(test, permissions, init)), &grants, &config)
+        .load_with(&Source::Dir(folder.to_path_buf()), &grants, &config)
         .unwrap();
-    (host, reply, rx)
+    (host, reply, rx, folder)
 }
 
 /// The notices in the replies that come within `secs`.
@@ -213,7 +218,7 @@ end)
 "#;
 
 fn fetch(test: &str, server: &Server, path: &str, req: Value) -> String {
-    let (_host, reply, rx) = load(
+    let (_host, reply, rx, _folder) = load(
         test,
         &[&server.site()],
         json!({ "url": server.url(path), "req": req }),
@@ -232,9 +237,9 @@ fn without_a_network_grant_there_is_no_roster_http() {
     // Asked for but not granted: still nothing.
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
     let dir = plugin_dir("ungranted", &[&server.site()], init);
-    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert_eq!(reply.ops[0]["text"], "nil");
-    let (_, reply, _) = load("other-grant", &["inventory.read"], json!({}), init);
+    let (_, reply, _, _folder) = load("other-grant", &["inventory.read"], json!({}), init);
     assert_eq!(reply.ops[0]["text"], "nil");
     assert!(server.heads.lock().unwrap().is_empty());
 }
@@ -246,7 +251,7 @@ fn roster_has_answers_for_a_site_and_for_any_site() {
         roster.notify(p .. "=" .. tostring(roster.has(p)))
       end
     "#;
-    let (_h, reply, _) = load("has", &["network:api.example.com"], json!({}), init);
+    let (_h, reply, _, _folder) = load("has", &["network:api.example.com"], json!({}), init);
     let texts: Vec<&str> = reply.ops.iter().map(|o| o["text"].as_str().unwrap()).collect();
     assert_eq!(
         texts,
@@ -257,7 +262,7 @@ fn roster_has_answers_for_a_site_and_for_any_site() {
             "network:bad site=false"
         ]
     );
-    let (_h, reply, _) = load("has-none", &[], json!({}), init);
+    let (_h, reply, _, _folder) = load("has-none", &[], json!({}), init);
     assert_eq!(reply.ops[0]["text"], "network=false");
 }
 
@@ -311,7 +316,7 @@ fn an_answer_that_comes_while_init_lua_still_runs_isnt_lost() {
       local n = 0
       for i = 1, 20000000 do n = n + i end
     "#;
-    let (_h, lr, rx) = load(
+    let (_h, lr, rx, _folder) = load(
         "during-load",
         &[&server.site()],
         json!({ "url": server.url("/hello") }),
@@ -327,7 +332,7 @@ fn a_binary_body_comes_back_as_its_bytes() {
     let init = r#"roster.http.get(roster.plugin.config.url, function(res)
       roster.notify(table.concat({ res.body:byte(1, -1) }, ","))
     end)"#;
-    let (_h, lr, rx) = load(
+    let (_h, lr, rx, _folder) = load(
         "binary",
         &[&server.site()],
         json!({ "url": server.url("/binary") }),
@@ -357,7 +362,7 @@ fn a_site_it_wasnt_granted_is_refused_before_anything_is_sent() {
         "file:///etc/passwd",
         "not a url",
     ]);
-    let (_h, reply, _) = load("refused", &[&server.site()], json!({ "urls": urls }), init);
+    let (_h, reply, _, _folder) = load("refused", &[&server.site()], json!({ "urls": urls }), init);
     let texts: Vec<&str> = reply.ops.iter().map(|o| o["text"].as_str().unwrap()).collect();
     assert_eq!(texts.len(), 7);
     for t in &texts[..4] {
@@ -384,7 +389,7 @@ fn headers_that_steer_the_connection_are_refused() {
       ok, err = pcall(roster.http.request, { url = roster.plugin.config.url, cookies = true }, function() end)
       roster.notify(ok and "sent" or err)
     "#;
-    let (_h, reply, _) = load(
+    let (_h, reply, _, _folder) = load(
         "headers",
         &[&server.site()],
         json!({ "url": server.url("/hello") }),
@@ -418,7 +423,7 @@ fn redirects_are_followed_only_to_its_sites() {
 #[test]
 fn a_token_isnt_carried_to_another_site_by_a_redirect() {
     let (a, b) = (Server::start(), Server::start());
-    let (_h, _, rx) = load(
+    let (_h, _, rx, _folder) = load(
         "redir-token",
         &[&a.site(), &b.site()],
         json!({ "url": a.url(&format!("/to/{}", b.port)), "req": { "headers": { "Authorization": "Bearer t0ken" } } }),
@@ -458,7 +463,7 @@ fn the_plugin_isnt_blocked_while_a_request_runs() {
       roster.http.get(roster.plugin.config.url, function(res, err) roster.notify("answered") end)
       roster.commands.add("ping", { run = function() roster.notify("pong") end })
     "#;
-    let (host, reply, _) = load(
+    let (host, reply, _, _folder) = load(
         "unblocked",
         &[&server.site()],
         json!({ "url": server.url("/slow") }),
@@ -480,7 +485,7 @@ fn at_most_four_requests_go_at_once() {
         roster.notify(ok and "sent" or err)
       end
     "#;
-    let (_h, reply, _) = load(
+    let (_h, reply, _, _folder) = load(
         "in-flight",
         &[&server.site()],
         json!({ "url": server.url("/slow") }),
@@ -495,7 +500,7 @@ fn at_most_four_requests_go_at_once() {
 fn an_answer_for_a_plugin_that_was_unloaded_goes_nowhere() {
     let server = Server::start();
     let init = r#"roster.http.get(roster.plugin.config.url, function() roster.notify("late") end)"#;
-    let (host, _, rx) = load(
+    let (host, _, rx, _folder) = load(
         "unloaded",
         &[&server.site()],
         json!({ "url": server.url("/slow") }),
@@ -509,7 +514,7 @@ fn an_answer_for_a_plugin_that_was_unloaded_goes_nowhere() {
 fn an_error_in_the_callback_names_the_plugin_and_counts() {
     let server = Server::start();
     let init = r#"roster.http.get(roster.plugin.config.url, function() error("boom") end)"#;
-    let (_h, _, rx) = load(
+    let (_h, _, rx, _folder) = load(
         "callback-error",
         &[&server.site()],
         json!({ "url": server.url("/hello") }),
@@ -559,7 +564,7 @@ fn the_install_prompt_shows_each_site_flagged() {
 #[test]
 fn nothing_listening_is_said_plainly() {
     no_proxy_env();
-    let (_h, _, rx) = load(
+    let (_h, _, rx, _folder) = load(
         "refused-port",
         &["network:http://127.0.0.1:1"],
         json!({ "url": "http://127.0.0.1:1/x" }),
@@ -586,7 +591,7 @@ roster.http.request({ url = roster.plugin.config.url }, function()
   coroutine.wrap(function() while true do end end)()
 end)
 "#;
-    let (_host, reply, rx) = load("loop", &[&server.site()], json!({ "url": server.url("/echo") }), init);
+    let (_host, reply, rx, _folder) = load("loop", &[&server.site()], json!({ "url": server.url("/echo") }), init);
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let mut seen_true = false;
     let mut seen_loop = false;

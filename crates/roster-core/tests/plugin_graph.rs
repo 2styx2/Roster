@@ -3,9 +3,10 @@
 //! `roster.views.update` changes nodes and edges in place as plain data only, and setting the view
 //! again drops the old graph's functions.
 
+mod common;
+
 use roster_core::plugin::{Limits, PluginHost, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct NoServe;
@@ -16,10 +17,8 @@ impl Serve for NoServe {
     }
 }
 
-fn plugin_dir(test: &str, init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-graph-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-graph-{test}"));
     std::fs::write(
         dir.join("roster-plugin.lua"),
         "return { name = \"map\", version = \"1.0.0\", description = \"A test\", api = 2, permissions = {} }",
@@ -61,7 +60,8 @@ roster.commands.add("again", { run = set })
 #[test]
 fn a_graph_is_data_and_its_actions_get_the_node() {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("graph", MAP)), &[]).unwrap();
+    let folder = plugin_dir("graph", MAP);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let view = &reply.ops[0];
     assert_eq!(view["op"], "view");

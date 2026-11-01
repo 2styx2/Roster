@@ -3,9 +3,10 @@
 //! two). That wait is serve's, never the Plugin's: it doesn't count toward the Plugin's time, and
 //! `roster.serve.request` doesn't wait at all.
 
+mod common;
+
 use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -62,10 +63,8 @@ impl SerialServe {
     }
 }
 
-fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-serve-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-serve-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     std::fs::write(
         dir.join("roster-plugin.lua"),
@@ -120,13 +119,12 @@ fn notices(rx: &Receiver<Reply>, want: usize) -> Vec<String> {
     out
 }
 
-fn load(host: &PluginHost, test: &str, permissions: &[&str], init: &str) -> Reply {
+fn load(host: &PluginHost, test: &str, permissions: &[&str], init: &str) -> (Reply, common::Temp) {
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir(test, permissions, init)), &grants)
-        .unwrap();
+    let folder = plugin_dir(test, permissions, init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
-    reply
+    (reply, folder)
 }
 
 /// The handler of the command `name` among `ops`.
@@ -146,7 +144,7 @@ fn ok(r: &Reply) {
 fn a_call_queued_behind_a_slow_serve_call_doesnt_disable_the_plugin() {
     let serve = Arc::new(SerialServe::default());
     let host = Arc::new(host(&serve));
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "queued",
         &["inventory.read"],
@@ -179,7 +177,7 @@ roster.commands.add("quick", { run = function() return "here" end })
 fn a_request_returns_at_once_and_its_answer_comes_later() {
     let serve = Arc::new(SerialServe::default());
     let (host, rx) = listening(&serve);
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "request",
         &["serve:hosts.list", "serve:mesh.status"],
@@ -257,7 +255,7 @@ refused(function() roster.serve.request("hosts.list", {}) end, "bad argument #3"
 fn a_scan_is_asked_for_only_in_a_call_the_user_started_and_its_answer_is_part_of_it() {
     let serve = Arc::new(SerialServe::default());
     let (host, rx) = listening(&serve);
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "user",
         &["serve:discover.start", "serve:discover.status"],
@@ -353,14 +351,14 @@ fn an_answer_after_an_unload_or_a_reload_is_dropped() {
 roster.serve.request("hosts.list", {}, function() roster.notify("answered " .. roster.plugin.version) end)
 "#;
     let publish = serve.busy(400);
-    load(&host, "reload", &["serve:hosts.list"], init);
+    let (_, _folder) = load(&host, "reload", &["serve:hosts.list"], init);
     // Reloaded while its first request waits: only the second load's answer arrives.
-    load(&host, "reload", &["serve:hosts.list"], init);
+    let (_, _folder) = load(&host, "reload", &["serve:hosts.list"], init);
     publish.join().unwrap();
     assert_eq!(notices(&rx, 2), ["answered 1.0.0"]);
 
     let publish = serve.busy(400);
-    load(&host, "reload", &["serve:hosts.list"], init);
+    let (_, _folder) = load(&host, "reload", &["serve:hosts.list"], init);
     assert!(host.unload("waiter"));
     publish.join().unwrap();
     assert!(notices(&rx, 1).is_empty());
@@ -414,6 +412,7 @@ fn one_plugin_cant_take_every_serve_worker_and_none_is_disabled_while_queued() {
     );
     let names = ["fair-a", "fair-b", "fair-c"];
     let mut sync = 0;
+    let mut folders = Vec::new();
     for who in names {
         let dir = plugin_dir(
             who,
@@ -433,10 +432,14 @@ end }})
             .replace("\"waiter\"", &format!("\"{who}\""));
         std::fs::write(dir.join("roster-plugin.lua"), manifest).unwrap();
         let (_, reply) = host
-            .load(&Source::Dir(dir), &[Permission::parse("serve:hosts.list").unwrap()])
+            .load(
+                &Source::Dir(dir.to_path_buf()),
+                &[Permission::parse("serve:hosts.list").unwrap()],
+            )
             .unwrap();
         ok(&reply);
         sync = command(&reply.ops, "sync");
+        folders.push(dir);
     }
     assert_eq!(host.list().len(), 3);
     // fair-c's looping call: 6 calls behind its 8 requests, 150 ms each, 2 at a time and sharing
@@ -502,8 +505,9 @@ fn a_reloaded_plugins_calls_still_count_against_its_share() {
     let serve = Arc::new(HeldServe::default());
     let host = PluginHost::new(Arc::clone(&serve) as Arc<dyn Serve>, Limits::default());
     let init = r#"for i = 1, 4 do roster.serve.request("hosts.list", {}, function() end) end"#;
+    let mut folders = Vec::new();
     for _ in 0..3 {
-        load(&host, "reloads", &["serve:hosts.list"], init);
+        folders.push(load(&host, "reloads", &["serve:hosts.list"], init).1);
     }
     let started = Instant::now();
     while serve.now.lock().unwrap().0 < 2 {
