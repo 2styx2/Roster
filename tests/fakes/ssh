@@ -5,6 +5,8 @@
 # FAKE_SSH_PROMPT + _PASSWORD   act as a password login: run $SSH_ASKPASS PROMPT, as ssh does, and succeed
 #                               only if it prints FAKE_SSH_PASSWORD (its stderr goes to ours, as with ssh); once
 #                               logged in, it runs -o LocalCommand with sh -c (cmd.exe on Windows) when -o PermitLocalCommand=yes, as ssh does
+# FAKE_SSH_HANG=FILE            write this process's pid to FILE, then hang for a minute before the login (a slow
+#                               server's key exchange)
 # FAKE_HOSTS=DIR                stand-in Hosts for the Mesh (tests/test_mesh.py): `ssh NAME CMD` runs CMD with sh in
 #                               DIR/NAME as that Host (HOME=DIR/NAME/home), when that directory exists:
 #                                 DIR/NAME/down     the Host is down: ssh times out (exit 255), nothing runs
@@ -70,6 +72,10 @@ if hosts:
         time.sleep(0.01)
         open(log, "a").write(f"end {dest}\n")
         sys.exit(r.returncode)
+
+if os.environ.get("FAKE_SSH_HANG"):
+    open(os.environ["FAKE_SSH_HANG"], "w").write(str(os.getpid()))
+    time.sleep(60)
 
 prompt = os.environ.get("FAKE_SSH_PROMPT")
 if prompt is not None and os.environ.get("SSH_ASKPASS"):
