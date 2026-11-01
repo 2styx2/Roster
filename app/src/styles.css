@@ -1482,3 +1482,9 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 
 /* A docked panel opened over a full one (Host details from Topology) comes over it. */
 .screen .body:has(> .panel-frame[data-place="full"]) > .panel-frame:not([data-place="full"]) { z-index: var(--z-over-full); }
+/* A panel of prose or a form made full window keeps a readable measure, centred; a view's table or
+   graph takes the whole width. */
+.screen .body > .panel-frame[data-place="full"] > :is(.side-panel, .check-panel, .keys-panel):not(.view-panel) {
+  padding-inline: max(14px, calc((100% - 960px) / 2));
+}
+.panel-frame[data-place="full"] .help-doc { margin-inline: auto; }
