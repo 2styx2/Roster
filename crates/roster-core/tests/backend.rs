@@ -330,6 +330,26 @@ fn a_check_runs_as_a_job_when_serve_has_them() {
     assert_eq!(info["checks"], serde_json::json!(["esxi-02"]));
 }
 
+/// A check the core gave up on is stopped only if the core started it (iteration 9 review, item
+/// 2): one it joined is another caller's too, a Plugin's waiting `host.check` say, and serve says
+/// which (`joined`, API 22).
+#[test]
+fn a_check_given_up_on_is_stopped_only_when_the_core_started_it() {
+    use std::time::Duration;
+    for (how, stops) in [
+        ("started", serde_json::json!([{ "kind": "check", "job": "check-1" }])),
+        ("joined", serde_json::json!([])),
+    ] {
+        let mut candidate = fake("stuck-check");
+        candidate.serve_argv.push(how.into());
+        let b = Backend::start(&candidate).unwrap();
+        let err = b.check_host_within("esxi-02", Duration::from_millis(300)).unwrap_err();
+        assert!(matches!(err, roster_core::rpc::CallError::Timeout), "{how}: {err:?}");
+        let info = b.call("inventory.info", serde_json::json!({})).unwrap();
+        assert_eq!(info["stops"], stops, "{how}");
+    }
+}
+
 #[test]
 fn a_check_waits_for_its_answer_on_an_older_serve() {
     let b = Backend::start(&fake("ok")).unwrap();

@@ -168,8 +168,16 @@ impl Backend {
     /// (ticket 108) the check is a job in serve: it's started in the background and
     /// `host.check_job` (a quick read) is asked every [`CHECK_POLL`] until it's over, so no worker
     /// of serve waits for the check meanwhile. An older serve gets the waiting form. Past
-    /// [`timeout_for`] `host.check` the job is stopped and this is [`CallError::Timeout`].
+    /// [`timeout_for`] `host.check` this is [`CallError::Timeout`], and the job is stopped if
+    /// this call started it ([`Backend::check_host_within`]).
     pub fn check_host(&self, host: &str) -> Result<Value, CallError> {
+        self.check_host_within(host, timeout_for("host.check"))
+    }
+
+    /// [`Backend::check_host`], giving up after `limit`. Giving up stops the job only when serve
+    /// says this call started it (`joined: false`, serve API 22): a check it joined (one per Host
+    /// at a time) is another caller's too, which may still be waiting for it.
+    pub fn check_host_within(&self, host: &str, limit: std::time::Duration) -> Result<Value, CallError> {
         if self.api_version() < CHECK_JOBS_API_VERSION {
             return self.call("host.check", json!({ "host": host }));
         }
@@ -177,7 +185,8 @@ impl Backend {
         let job = started.get("job").cloned().ok_or_else(|| CallError::Io {
             message: "host.check answered without a job".into(),
         })?;
-        let end = std::time::Instant::now() + timeout_for("host.check");
+        let started_here = started.get("joined").and_then(Value::as_bool) == Some(false);
+        let end = std::time::Instant::now() + limit;
         loop {
             let r = self.call("host.check_job", json!({ "job": job }))?;
             match r.get("state").and_then(Value::as_str) {
@@ -197,7 +206,9 @@ impl Backend {
                 }
             }
             if std::time::Instant::now() >= end {
-                let _ = self.call("jobs.stop", json!({ "kind": "check", "job": job }));
+                if started_here {
+                    let _ = self.call("jobs.stop", json!({ "kind": "check", "job": job }));
+                }
                 return Err(CallError::Timeout);
             }
             std::thread::sleep(CHECK_POLL);

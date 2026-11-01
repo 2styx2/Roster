@@ -1822,7 +1822,7 @@ pub const EVENTS: &[Event] = &[
         name: "job_progress",
         needs: &["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
         payload: "JobProgressEvent",
-        when: "One of roster serve's jobs (a Mesh run, a Discover scan, a Host's check) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes; a check is a job from serve API 21). A Plugin hears a Mesh job only with `serve:mesh.job`, a scan only with `serve:discover.status` and a check only with `serve:host.check_job`: what it could ask anyway (`serve:host.check` alone isn't enough: a listener may never call it). The result isn't in it: ask `mesh.job`, `discover.status` or `host.check_job` once it ends.",
+        when: "One of roster serve's jobs (a Mesh run, a Discover scan, a Host's check) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes; a check is a job from serve API 21). A Plugin hears a Mesh job only with `serve:mesh.job`, a scan only with `serve:discover.status` and a check only with `serve:host.check_job`: what it could ask anyway (`serve:host.check` alone isn't enough: a listener may never call it). The result isn't in it: ask `mesh.job`, `discover.status` or `host.check_job` once it ends. Its text is cut as roster serve's answers are: a `cmd:` or `env:` Login reference in it (a failed check's `error.message`) reaches you as `cmd:` or `env:`.",
     },
 ];
 

@@ -484,6 +484,34 @@ fn a_check_job_reaches_only_plugins_that_may_read_it() {
     assert!(roster_core::plugin::Permission::parse("serve:$/cancel").is_err());
 }
 
+/// A `job_progress` payload is serve's text, as an answer is: its `cmd:`/`env:` references are
+/// cut the same way (decision Q92; iteration 9 review, item 1), a failed job's error message most
+/// of all, since serve's messages echo the Login they were given.
+#[test]
+fn job_progress_is_cut_as_serves_answers_are() {
+    let listener = r#"
+        roster.on("job_progress", function(e)
+          roster.notify(tostring(e.at) .. "|" .. (e.error and e.error.message or "-"))
+        end)
+    "#;
+    let reader = plugin_dir("cut-ev", &manifest("cutty", &["serve:host.check_job"]), listener);
+    let (host, _) = host();
+    host.load(&Source::Dir(reader.to_path_buf()), &perms(&["serve:host.check_job"]))
+        .unwrap();
+    let heard: Vec<String> = host
+        .event(Event {
+            name: "job_progress".into(),
+            payload: json!({ "kind": "check", "job": "check-1", "action": "check", "state": "failed",
+                             "done": 3, "total": 8, "at": "auth env:LAB_PW", "host": "esx-02",
+                             "error": { "code": 5, "message": "cmd:pass show esx-02 --hunter2 failed: exit 1",
+                                        "data": { "cmd:pass show x": "env:LAB_PW" } } }),
+        })
+        .into_iter()
+        .map(|r| r.ops[0]["text"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(heard, vec!["auth env:|cmd:".to_string()]);
+}
+
 #[test]
 fn an_error_while_loading_names_the_plugin_and_line_and_disables_it() {
     let dir = plugin_dir("loaderr", &manifest("broken", &[]), "local x = nil\n\nx.y = 1\n");

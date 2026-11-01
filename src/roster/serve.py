@@ -82,12 +82,25 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 21            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 22            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
 # roster's own codes are in errors.py: stable, the app switches on them; the message is ready to show
 RpcError = Problem
+
+
+def busy_error(resource, who, subject=None):
+    """Code 4: RESOURCE (a key of NAMES) was held by WHO (a method, or None) past this request's wait, and nothing
+    was done. SUBJECT says what was busy, when it's narrower than the resource (a provider's items)."""
+    return RpcError(BUSY, f"{subject or NAMES[resource]} is busy" + (f": {who} is still running" if who else "")
+                    + " - nothing was done", {"busy": NAMES[resource], "method": who},
+                    fix="try again once it has finished")
+
+
+def closing_error():
+    """serve's stdin closed: nothing new starts (code 3)."""
+    return RpcError(ROSTER_ERROR, "roster serve is closing")
 
 
 def die_message(e):
@@ -385,22 +398,26 @@ askpass_lookup = diagnose.askpass_lookup
 def host_check(state, params):
     """`roster check HOST` for the app: the diagnostic steps in order, stopping at the first failure (see
     diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel. It runs as a
-    job (kind `check`, one per Host at a time: a second ask while one runs joins it), which shares the vault while it
-    runs and sends `job.progress` as each step starts. The waiting form answers with its result; `background: true`
-    (API 21) answers at once, and `host.check_job` has the result once it's over. `vault.lock` stops a running check.
+    job (kind `check`, one per Host at a time: a second ask while one runs joins it), which shares the vault only for
+    a password Login's steps that fetch a secret or mint a token (API 22), and sends `job.progress` as each step
+    starts. The waiting form answers with its result; `background: true` (API 21) answers at once, and
+    `host.check_job` has the result once it's over. `vault.lock` stops a running check. Cancelling a waiting form
+    stops the check only when no other request waits for it and none asked for it in the background (API 22).
 
     Params: `{host, background?}` (exact Host name; `background` since API 21)
     Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`; with `background: true`
-        the job: `{kind: "check", job, action: "check", state, done, total, at, host}`
+        the job: `{kind: "check", job, action: "check", state, done, total, at, host, joined}`: `joined` (API 22) is
+        true when it joined a check already running, which only its starter should stop
     Errors: -32602, 4
     Since: API 2
     """
     name = text_param(params, "host")
     background = background_param(params)
-    job = check_job(state, name)
+    job, joined = check_job(state, name)
+    job.hold(waiting=not background)
     if background:
-        return job.view()
-    on_cancel(job.stop)
+        return {**job.view(), "joined": joined}
+    on_cancel(job.let_go)           # a cancel stops it only if no other request wants it (one may have joined)
     job.wait()
     if job.error is not None:
         raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
@@ -408,29 +425,31 @@ def host_check(state, params):
 
 
 def check_job(state, name):
-    """The running check of Host NAME, or a new one."""
+    """The running check of Host NAME, or a new one: (job, joined)."""
     def work(job):
-        with deadline(DEADLINES["host.check"]):
-            # the job holds the vault, shared, while it runs: vault.lock stops it rather than wait (stop_checks)
-            if not state.vault.acquire(True, DEADLINES["host.check"], "host.check", job.halted):
+        @contextmanager
+        def vault():
+            # shared only for the steps that fetch a secret or mint a token (diagnose.VAULT_STEPS), so a lock or an
+            # unlock never waits for the rest; vault.lock stops the check rather than wait (stop_checks)
+            at = current_deadline()
+            if not state.vault.acquire(True, max(0.0, at - time.monotonic()), "host.check", job.halted):
                 if job.halted.is_set():
-                    return diagnose.check_host(name, state.inventory, state.askpass, halted=job.halted)
-                who = state.vault.holder()
-                raise RpcError(BUSY, "the vault is busy" + (f": {who} is still running" if who else "")
-                               + " - nothing was done", {"busy": NAMES["vault"], "method": who},
-                               fix="try again once it has finished")
+                    raise diagnose.Stopped
+                raise busy_error("vault", state.vault.holder())
             try:
-                return diagnose.check_host(name, state.inventory, state.askpass, progress=job.progress,
-                                           halted=job.halted)
+                yield
             finally:
                 state.vault.release()
+        with deadline(DEADLINES["host.check"]):
+            return diagnose.check_host(name, state.inventory, state.askpass, progress=job.progress,
+                                       halted=job.halted, vault=vault)
     try:
         return state.jobs.start("check", "check", work, total=len(diagnose.STEPS), host=name, per_host=True,
-                                job_prefix="check-", on_stop=state.vault.wake)
+                                job_prefix="check-", on_stop=state.vault.wake), False
     except jobs.Busy as e:
-        return e.job
+        return e.job, True
     except jobs.Closed:
-        raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+        raise closing_error() from None
 
 
 def stop_checks(state):
@@ -1057,10 +1076,7 @@ def item_writes(provider, floor=0.0):
     wait = LOCK_WAIT if at is None else max(floor, at - time.monotonic())
     r = current_request()
     if not lock.acquire(False, wait, r.method if r is not None else "a Vault item"):
-        who = lock.holder()
-        raise RpcError(BUSY, f"{provider} is busy saving another item" + (f" ({who})" if who else "")
-                       + " - nothing was done", {"busy": NAMES["vault"], "method": who},
-                       fix="try again once it has finished")
+        raise busy_error("vault", lock.holder(), f"{provider}'s items")
     try:
         yield
     finally:
@@ -1922,11 +1938,16 @@ def vault_undo_create(state, params):
     try:
         with item_writes(provider, UNDO_TIME):
             providers.delete_item(provider, item_id)
-    except (providers.SecretError, RpcError) as e:
-        state.created[item_id] = provider       # not deleted: it can be undone again
+    except BaseException as e:
+        state.created[item_id] = provider       # not known to be deleted: it can be undone again
         if isinstance(e, RpcError):
             raise
-        raise write_problem(e) from None
+        if isinstance(e, providers.SecretError):
+            raise write_problem(e) from None
+        if not isinstance(e, Exception):
+            raise
+        # never let the generic handler log text that might hold a secret
+        raise RpcError(INTERNAL_ERROR, f"deleting from {provider} failed: {type(e).__name__}") from None
     return {"provider": provider, "id": item_id}
 
 
@@ -2070,7 +2091,7 @@ def closing(state, login):
             end_sign_in(state)
         else:
             login.flow.close()
-        raise RpcError(ROSTER_ERROR, "roster serve is closing")
+        raise closing_error()
 
 
 METHODS["vault.login"] = vault_login
@@ -2142,7 +2163,7 @@ def start_mesh_job(state, action, total, work, host=None, background=True):
     except jobs.Busy as e:
         raise busy_mesh(e.job) from None
     except jobs.Closed:
-        raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+        raise closing_error() from None
     if not background:
         on_cancel(job.stop)                     # $/cancel stops it at its next Host, as mesh.stop would
         job.wait()
@@ -2368,7 +2389,7 @@ def discover_start(state, params):
             raise RpcError(SCAN_RUNNING, f"a scan of {', '.join(going.targets)} is going already",
                            {"scan": going.sid}, fix="wait for it, or stop it first (discover.stop)") from None
         except jobs.Closed:
-            raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+            raise closing_error() from None
         state.scans += 1
         state.scan = scan
     return scan.status()
@@ -2628,10 +2649,7 @@ class claimed:
                 self.__exit__()
                 if cancel is not None and cancel.is_set():
                     raise cancelled(self.method)
-                who = lock.holder()
-                raise RpcError(BUSY, f"{NAMES[resource]} is busy" + (f": {who} is still running" if who else "")
-                               + " - nothing was done", {"busy": NAMES[resource], "method": who},
-                               fix="try again once it has finished")
+                raise busy_error(resource, lock.holder())
             self.held.append(lock)
         return self
 
@@ -2724,8 +2742,7 @@ def after_unlocks(state, method):
             if r.cancelled.is_set():
                 raise cancelled(method)
             if left <= 0:
-                raise RpcError(BUSY, "the vault is busy: vault.unlock is still running - nothing was done",
-                               {"busy": "the vault", "method": "vault.unlock"}, fix="try again once it has finished")
+                raise busy_error("vault", "vault.unlock")
             MOVED.wait(left)
 
 
@@ -2892,7 +2909,7 @@ class Server:
         try:
             if self.state.closing:             # queued when stdin closed: refused, never run
                 if isinstance(req, dict) and "id" in req:
-                    self.send(error_response(req.get("id"), RpcError(ROSTER_ERROR, "roster serve is closing")))
+                    self.send(error_response(req.get("id"), closing_error()))
                 return
             with record.lock:
                 refused = record.cancelled.is_set()
