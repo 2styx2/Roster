@@ -36,7 +36,15 @@ describe("a fake Plugin's manifest", () => {
 
   it("flags every network site", () => {
     const sites = table.grant.filter((p) => p.startsWith("network:"));
-    expect(described(manifest(sites)).permissions.every((p) => p.risk?.startsWith("Can send data to "))).toBe(true);
+    expect(sites.every((p) => described(manifest([p])).permissions[0]?.risk?.startsWith("Can send data to "))).toBe(true);
+  });
+
+  it.each(table.refuse_together)("refuses %j in one manifest, as the core does", (...sites) => {
+    expect(manifestProblem(manifest(sites))).toMatch(/^roster-plugin\.lua: permissions: "network:/);
+  });
+
+  it.each(table.grant_together)("grants %j in one manifest, as the core does", (...sites) => {
+    expect(manifestProblem(manifest(sites))).toBeNull();
   });
 });
 

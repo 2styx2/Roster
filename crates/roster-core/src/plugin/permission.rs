@@ -220,6 +220,28 @@ mod tests {
         }
     }
 
+    fn sites(list: &serde_json::Value) -> Vec<Site> {
+        let names: Vec<String> = serde_json::from_value(list.clone()).unwrap();
+        names
+            .iter()
+            .map(|p| match Permission::parse(p).unwrap() {
+                Permission::Network(site) => site,
+                other => panic!("{other} isn't a site"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sites_together_are_refused_and_granted_as_the_fake_backend_says() {
+        let t = table();
+        for set in t["refuse_together"].as_array().unwrap() {
+            assert!(super::super::network::check_together(&sites(set)).is_err(), "{set}");
+        }
+        for set in t["grant_together"].as_array().unwrap() {
+            assert!(super::super::network::check_together(&sites(set)).is_ok(), "{set}");
+        }
+    }
+
     #[test]
     fn agrees_with_the_fake_backend() {
         let t = table();

@@ -1178,6 +1178,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .plugin-state.problem, .plugin-problem { color: var(--error); }
 .plugin-problem { overflow-wrap: anywhere; margin: 2px 0 4px; }
 .plugin-uses { margin-top: 4px; }
+/* A granted site's request counts (decision Q116): numbers that line up, quiet under the switch. */
+.plugin-requests { margin: 2px 0 0 22px; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 /* A Plugin's float (roster.float.open) lies over the terminal in every layout, as its name says,
    never beside it: a docked panel narrows the terminal, and a resized Session prints its screen
    again (ConPTY on Windows), which Plugins that read the output took for new lines (ticket 73).

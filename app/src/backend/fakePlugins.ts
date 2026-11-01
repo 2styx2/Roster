@@ -189,28 +189,47 @@ function v4Public(s: string): boolean {
 
 interface Site {
   http: boolean;
-  shown: string;
+  /** `private:` before it (decision Q116): a name on the private network. */
+  private: boolean;
+  /** Its name, port and scheme without the pin: the key two pins can't share. */
+  bare: string;
+  /** Its name, when it names one exactly (not a wildcard, not an address). */
+  name: string | null;
+  /** `#sha256:` after it, the fingerprint's 64 hex digits. */
+  pin: string | null;
+  /** Where it reaches, as a person reads it, without the pin. */
+  place: string;
   /** An address that isn't public (the core's is_public; IPv6 simplified to global unicast). */
   inside: boolean;
 }
 
 const SITE_HELP =
-  "a site is a domain such as api.example.com, *.example.com for the names under it, or an address such as 10.0.0.5; http:// before it allows plain http, :PORT after it another port";
+  "a site is a domain such as api.example.com, *.example.com for the names under it, or an address such as 10.0.0.5; http:// before it allows plain http, :PORT after it another port; private: before a name keeps it inside your private network, and #sha256:FINGERPRINT after an https site trusts only that certificate";
 
 /** A `network:` site, or why the core refuses it. */
 function parseSite(text: string): Site | string {
   const bad = (why: string) => `"network:${text}": ${why} (${SITE_HELP})`;
-  let rest = text;
-  const http = text.startsWith("http://");
-  if (http) rest = text.slice(7);
-  else if (text.includes("://")) return bad("only http:// may come before a site; https is the default");
+  const priv = text.startsWith("private:");
+  let rest = priv ? text.slice(8) : text;
+  let pin: string | null = null;
+  const hash = rest.indexOf("#");
+  if (hash >= 0) {
+    const p = rest.slice(hash + 1);
+    if (!/^sha256:[0-9a-f]{64}$/.test(p)) return bad("a pin is #sha256: and the certificate's SHA-256 fingerprint as 64 lower-case hex digits, without colons");
+    pin = p.slice(7);
+    rest = rest.slice(0, hash);
+  }
+  const http = rest.startsWith("http://");
+  if (http) rest = rest.slice(7);
+  else if (rest.includes("://")) return bad("only http:// may come before a site; https is the default");
   if (rest === "") return bad("which site?");
   if (/[A-Z]/.test(rest)) return bad("write it in lower case");
   if (/[/?#@ ]/.test(rest)) return bad("only a site, with no path, user or spaces");
   let host: string;
   let port: string | null = null;
   let inside = false;
-  let shown = text;
+  let kind: "name" | "under" | "ip" = "name";
+  let shown: string | null = null;
   if (rest.startsWith("[")) {
     const close = rest.indexOf("]");
     if (close < 0) return bad("an IPv6 address goes in [ ]");
@@ -223,28 +242,69 @@ function parseSite(text: string): Site | string {
     if (ipv6Text(g) !== addr) return bad(`write the address as [${ipv6Text(g)}]`);
     const [g0 = 0, g1 = 0] = g;
     inside = (g0 & 0xe000) !== 0x2000 || (g0 === 0x2001 && (g1 === 0x0db8 || g1 < 0x0200));
+    host = `[${addr}]`;
+    kind = "ip";
   } else {
     const colon = rest.indexOf(":");
     host = colon < 0 ? rest : rest.slice(0, colon);
     if (colon >= 0) port = rest.slice(colon + 1);
-    if (isIpv4(host)) inside = !v4Public(host);
-    else if (host.startsWith("*.")) {
+    if (isIpv4(host)) {
+      inside = !v4Public(host);
+      kind = "ip";
+    } else if (host.startsWith("*.")) {
       if (!isDomain(host.slice(2))) return bad("*. goes before a domain of two names or more, such as *.example.com");
+      kind = "under";
       shown = `any site under ${host.slice(2)}${http ? " over plain http" : ""}${port !== null ? ` on port ${port}` : ""}`;
     } else if (host.includes("*")) return bad("a wildcard is only *. at the start");
-    else if (!isDomain(host)) {
+    else if (!(isDomain(host) || (priv && isLabel(host) && !/^[0-9]+$/.test(host)))) {
       return bad(/^[0-9.]+$/.test(host) ? "that isn't an IPv4 address" : "that isn't a domain with a dot in it, such as api.example.com");
     }
   }
   if (port !== null && !(/^[1-9][0-9]{0,4}$/.test(port) && Number(port) <= 65535)) return bad("the port is a number from 1 to 65535");
-  return { http, shown, inside };
+  if (priv) {
+    if (kind === "ip") return bad(`an address is a site of its own: write network:${http ? "http://" : ""}${host}`);
+    if (kind === "under") return bad("private: names one site, never a wildcard");
+    if (host === "localhost" || host.endsWith(".localhost")) return bad("that's this computer, not your private network: list 127.0.0.1 if you mean it");
+  }
+  if (pin !== null) {
+    if (http) return bad("plain http has no certificate to pin");
+    if (kind === "under") return bad("a pin is for one site, never a wildcard");
+  }
+  const bare = `${http ? "http://" : ""}${host}${port !== null ? `:${port}` : ""}`;
+  const place = `${shown ?? bare}${priv ? " on your private network" : ""}`;
+  return { http, private: priv, bare, name: kind === "name" ? host : null, pin, place, inside };
+}
+
+function networkSummary(site: Site): string {
+  return `Send and fetch over the network: ${site.place}${site.pin ? ", with a pinned certificate" : ""}`;
 }
 
 function networkRisk(site: Site): string {
-  let text = `Can send data to ${site.shown} and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer.`;
+  let text = `Can send data to ${site.place} and fetch from it: anything the Plugin can read (your Hosts, what your Sessions print) could leave this computer.`;
   if (site.http) text += " Plain http: anyone on the way can read and change it.";
   if (site.inside) text += " That address is on this computer or a private network.";
+  if (site.private) text += " It reaches inside your private network: whatever your network's DNS says that name is there. roster lets it reach only a private address, never this computer or the internet.";
+  if (site.pin) text += ` Trusts only the certificate whose SHA-256 starts ${site.pin.slice(0, 16)}, in place of the ones your computer trusts, for this site alone.`;
   return text;
+}
+
+/** What one manifest's sites may not say together (network.rs's check_together). */
+function sitesProblem(permissions: readonly string[]): string | null {
+  const sites = permissions
+    .filter((p) => p.startsWith("network:"))
+    .map((p) => [p, parseSite(p.slice(8))] as const)
+    .flatMap(([p, s]) => (typeof s === "string" ? [] : [[p, s] as const]));
+  for (const [i, [pa, a]] of sites.entries()) {
+    for (const [pb, b] of sites.slice(i + 1)) {
+      if (a.name !== null && a.name === b.name && a.private !== b.private) {
+        return `"${pa}" and "${pb}": ${a.name} is either a name on your private network (private:${a.name}) or a public one, not both`;
+      }
+      if (a.pin !== b.pin && a.bare === b.bare && a.private === b.private) {
+        return `"${pa}" and "${pb}": ${a.private ? "private:" : ""}${a.bare} is one site, with one pin or none`;
+      }
+    }
+  }
+  return null;
 }
 
 /** Why the core refuses `p` in a manifest (permission.rs's Permission::parse), or null. */
@@ -270,7 +330,8 @@ export function manifestProblem(m: FakePlugin["manifest"]): string | null {
     const problem = permissionProblem(p);
     if (problem) return `roster-plugin.lua: permissions: ${problem}`;
   }
-  return null;
+  const together = sitesProblem(m.permissions);
+  return together ? `roster-plugin.lua: permissions: ${together}` : null;
 }
 
 export function described(m: FakePlugin["manifest"]): PluginManifest {
@@ -281,7 +342,7 @@ export function described(m: FakePlugin["manifest"]): PluginManifest {
     permissions: m.permissions.map((name) => {
       const site = name.startsWith("network:") ? parseSite(name.slice(8)) : null;
       if (site && typeof site !== "string") {
-        return { name, summary: `Send and fetch over the network: ${site.shown}`, risk: networkRisk(site) };
+        return { name, summary: networkSummary(site), risk: networkRisk(site) };
       }
       return {
       name,

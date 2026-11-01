@@ -352,6 +352,24 @@ describe("replies nobody asked for (an HTTP request's answer, decision Q97)", ()
   });
 });
 
+describe("requests by site (decision Q116)", () => {
+  it("come from the core when :plugins asks, for each Plugin, and nothing more", async () => {
+    const plugin = alerts();
+    plugin.manifest.permissions = ["terminal.read", "network:hooks.example.com"];
+    const backend = fakeBackend({
+      hosts: makeHosts(3),
+      plugins: { [ALERTS]: plugin },
+      pluginRequests: { "recent-alerts": [{ site: "hooks.example.com", requests: 12, failed: 1, last: 1_000 }] },
+    });
+    const store = { get: () => [{ path: ALERTS, name: "recent-alerts", granted: ["terminal.read", "network:hooks.example.com"], asked: ["terminal.read", "network:hooks.example.com"] }], set: () => undefined };
+    const manager = new PluginManager(backend, builtinRegistries(), store, { run: () => undefined, send: () => undefined, copy: async () => undefined });
+    await manager.start();
+    expect(manager.snapshot().plugins.find((p) => p.name === "recent-alerts")?.requests).toEqual([]);
+    await manager.refreshRequests();
+    expect(manager.snapshot().plugins.find((p) => p.name === "recent-alerts")?.requests).toEqual([{ site: "hooks.example.com", requests: 12, failed: 1, last: 1_000 }]);
+  });
+});
+
 // Ticket 79 (#137): timers and finders whose items come from a function.
 describe("timers", () => {
   const ticker = (log: string[]): FakePlugin => ({

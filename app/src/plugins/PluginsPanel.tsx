@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { PanelButton } from "../panel/PanelFrame";
 import { Keys } from "../ui/Keys";
-import type { PackageStatus, PackageUpdate } from "../backend/types";
+import type { PackageStatus, PackageUpdate, SiteRequests } from "../backend/types";
 import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
 import { PACKAGE_PREFIX, type Notice, type PendingConfirm, type PluginStatus, type Prompt, type RunningProgress, type Snapshot } from "./manager";
 
@@ -158,8 +158,19 @@ const ago = (at: number, now: number) => {
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`;
 };
 
+/** What `:plugins` says under a granted site (decision Q116): counts and a time, never what went. */
+export function requestsLine(r: SiteRequests | undefined, now: number): string {
+  if (!r || r.requests === 0) return "No requests since roster started";
+  const n = (x: number) => x.toLocaleString("en-US");
+  const failed = r.failed > 0 ? `, ${n(r.failed)} with no answer` : "";
+  return `${n(r.requests)} ${r.requests === 1 ? "request" : "requests"}${failed}, the last ${ago(r.last, now)}`;
+}
+
 function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string, permission: string, on: boolean): void; now: number }) {
   const state = p.waiting ? "waiting for you" : p.problem ? "stopped" : "running";
+  // A line each about the Plugin as a whole, under its permissions.
+  const facts: string[] = [];
+  if (p.uses.length > 0) facts.push(`Recently: ${p.uses.slice(0, 3).map((u) => `${u.what} ${ago(u.at, now)}`).join(", ")}`);
   return (
     <li className="plugin-row" aria-label={`${p.name}, ${state}`}>
       <div className="plugin-head">
@@ -181,6 +192,9 @@ function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string,
                   <input type="checkbox" role="switch" checked={on} onChange={() => onGrant(p.name, perm.name, !on)} />{" "}
                   <span className="mono">{perm.name}</span> {perm.summary}
                 </label>
+                {on && perm.name.startsWith("network:") && (
+                  <div className="plugin-requests muted">{requestsLine(p.requests.find((r) => `network:${r.site}` === perm.name), now)}</div>
+                )}
               </li>
             );
           })}
@@ -188,11 +202,11 @@ function PluginRow({ p, onGrant, now }: { p: PluginStatus; onGrant(name: string,
       ) : (
         p.manifest && <div className="muted">No permissions.</div>
       )}
-      {p.uses.length > 0 && (
-        <div className="plugin-uses muted">
-          Recently: {p.uses.slice(0, 3).map((u) => `${u.what} ${ago(u.at, now)}`).join(", ")}
+      {facts.map((f) => (
+        <div key={f} className="plugin-uses muted">
+          {f}
         </div>
-      )}
+      ))}
     </li>
   );
 }

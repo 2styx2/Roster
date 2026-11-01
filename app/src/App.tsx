@@ -1703,6 +1703,8 @@ function Workspace({
   openPlugins.current = () => {
     rememberFocus();
     setPluginsOpen(true);
+    // Each site's request counts, as the core has them now (decision Q116).
+    void plugins.refreshRequests();
   };
   const closePlugins = () => {
     setPluginsOpen(false);

@@ -588,6 +588,14 @@ async fn plugin_load(
     let host = Arc::clone(&plugins);
     let (config, packages) = (config.inner().clone(), packages.inner().clone());
     blocking(move || {
+        // The user's proxy for its requests to public names, from the Config in effect (decision
+        // Q116); the Config's check refused a bad one, so a value here parses.
+        let proxy = config
+            .0
+            .as_ref()
+            .and_then(|l| l.settled().plugin_proxy.clone())
+            .and_then(|p| plugin::network::Proxy::parse(&p).ok());
+        host.set_proxy(proxy);
         let (source, mut handed, shown) = plugin_source(&config, &packages, &path)?;
         // A built-in Plugin's settings come from the app (Folders: init.lua's Folders, and
         // folders.yml's to move in once); a Package's from init.lua, and a folder has none.
@@ -729,6 +737,19 @@ async fn plugin_event(
 #[tauri::command]
 fn plugin_unload(plugins: tauri::State<'_, Arc<PluginHost>>, plugin: String) -> bool {
     plugins.unload(&plugin)
+}
+
+/// Each loaded Plugin's network requests by site since the app started, by its name, for
+/// `:plugins` (decision Q116): counts and a time, never a path, a query or a body.
+#[tauri::command]
+fn plugin_requests(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+) -> std::collections::BTreeMap<String, Vec<plugin::network::SiteCount>> {
+    plugins
+        .list()
+        .into_iter()
+        .map(|s| (s.manifest.name, s.requests))
+        .collect()
 }
 
 /// Removes a Plugin's data folder with everything in it (decision Q93): `:plugins remove` and
@@ -1082,6 +1103,7 @@ pub fn run() {
             plugin_event,
             plugin_unload,
             plugin_forget,
+            plugin_requests,
             packages_sync,
             packages_pin,
             packages_discard,

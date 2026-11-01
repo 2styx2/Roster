@@ -113,6 +113,9 @@ export interface Config {
   editor: "os" | "wsl";
   /** Reload on every save (decision Q58); off: `:source` reloads. */
   autoReload: boolean;
+  /** `plugin_proxy` (decision Q116): the http proxy Plugins' requests to public names go through,
+   * or null. The core uses it; the frontend only shows it in `:help options`. */
+  pluginProxy: string | null;
   /** This Box's own vault settings, sent to roster (`vault.configure`) at start and on every
    * `:source`; they win over roster.yml's. Paths on the Backend's Box, never a secret. */
   vault: VaultConfig;
