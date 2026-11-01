@@ -358,3 +358,52 @@ fn a_check_waits_for_its_answer_on_an_older_serve() {
     let info = b.call("inventory.info", serde_json::json!({})).unwrap();
     assert_eq!(info["checks"], serde_json::json!([]));
 }
+
+/// fake_serve.py's session.fill password (ticket 119).
+const FILL_PASSWORD: &str = "fill-pw-9d2e";
+
+#[test]
+fn a_fill_secret_comes_from_session_fill_and_never_prints() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    let secret = b.fill_secret("sw-core", "[sudo] password for root: ").unwrap();
+    assert!(!format!("{secret:?}").contains(FILL_PASSWORD));
+}
+
+#[test]
+fn a_refused_fill_keeps_serves_code_and_a_malformed_one_never_shows_its_value() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    match b.fill_secret("esxi-02", "Username: ").unwrap_err() {
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 130),
+        other => panic!("{other:?}"),
+    }
+    let locked = Backend::start(&fake("locked")).unwrap();
+    match locked.fill_secret("sw-core", "[sudo] password for root: ").unwrap_err() {
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 14),
+        other => panic!("{other:?}"),
+    }
+    let bad = Backend::start(&fake("bad-fill")).unwrap();
+    let err = bad.fill_secret("sw-core", "[sudo] password for root: ").unwrap_err();
+    let text = format!("{err} {err:?}");
+    assert!(text.contains("`password`") && !text.contains("31337"), "{text}");
+}
+
+#[test]
+fn a_quick_connect_session_has_no_host_to_fill() {
+    let b = Backend::start(&fake("quick")).unwrap();
+    let to = roster_core::backend::QuickTarget {
+        user: "root".into(),
+        address: "10.0.0.5".into(),
+        port: 22,
+        fingerprint: "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8".into(),
+    };
+    assert_eq!(b.quick_session_command(&to, None, false).unwrap().command.host, None);
+    assert_eq!(
+        Backend::start(&fake("ok"))
+            .unwrap()
+            .session_command("esxi-02")
+            .unwrap()
+            .host
+            .as_deref(),
+        Some("esxi-02")
+    );
+}

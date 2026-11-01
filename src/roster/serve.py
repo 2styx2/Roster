@@ -26,7 +26,7 @@ import threading
 import time
 from contextlib import contextmanager
 
-from . import __version__, askpass, changes, diagnose, discover, edit, health, jobs, mesh, providers
+from . import __version__, askpass, changes, diagnose, discover, edit, fill, health, jobs, mesh, providers
 from .claude import write_claude_files
 from .common import current_deadline, deadline, deadline_at, not_reviewed, ssh_config_file, ssh_path
 from .config import find_config, load_config
@@ -82,7 +82,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 24            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 25            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -314,6 +314,37 @@ def session_prepare(state, params):
             "host": h["name"], "auth": "key"}
 
 
+def session_fill(state, params):
+    """The password for a prompt a Host Session shows (sudo, su, a nested ssh to the Host itself; ticket 119,
+    decision Q129), for the app's core to type into that Session's PTY, and for nothing else: this is the one
+    result that holds a secret. The core asks only when the user pressed the fill key at a detected prompt, never
+    hands the result on (not to the frontend, a log or a Plugin, whose serve allow-list has no `session.*`), and
+    types it only after checking that the prompt doesn't echo. `prompt` is the line at the Session's cursor, as the
+    Host printed it: it can narrow what's filled (a prompt for another Host or account is refused, 130) but never
+    widen it. Which Login: the Host's ssh Login, or its `sudo: {auth}` reference for a sudo or su prompt. Nothing
+    is logged but the method's name; serve keeps the value only in the providers' cache it already had.
+
+    Params: `{host, prompt}` (exact Host name; the cursor's line)
+    Result: `{host, login: "ssh"|"sudo", password}`
+    Errors: -32602, 1, 2, 20, 30, 130, 131, 11, 12, 14, 31-35
+    Since: API 25
+    """
+    name = text_param(params, "host")
+    prompt = params.get("prompt")
+    if not isinstance(prompt, str):
+        raise RpcError(INVALID_PARAMS, "params.prompt must be a string")
+    cfg = state.inventory()
+    h = cfg["hosts"].get(name)
+    if h is None:
+        raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
+    if not h["reviewed"]:
+        raise RpcError(NOT_REVIEWED, not_reviewed(h))
+    diagnose.check_user(h)
+    which, ref = fill.login_for(h, prompt, cfg.get("sudo", {}).get(name))
+    diagnose.check_provider(h, ref, which)
+    return {"host": h["name"], "login": which, "password": diagnose.resolve_password(h, ref, which)}
+
+
 def known_key(h):
     """Refuse (44, with the address to ask about) a Session to a Host roster has recorded no host key for. It comes
     after every other check, so the app only asks about a key when trusting it is all that's left to do."""
@@ -515,6 +546,7 @@ METHODS = {
     "hosts.list": hosts_list,
     "host.get": host_get,
     "session.prepare": session_prepare,
+    "session.fill": session_fill,
     "host.check": host_check,
     "host.check_job": host_check_job,
 }
@@ -2635,7 +2667,7 @@ LOCKS = {
         "inventory.reload")},
     **{m: [("inventory", False), ("vault", True)] for m in ("host.add", "quick.save", "host.save_login")},
     **{m: [("vault", True)] for m in (
-        "session.prepare", "quick.prepare", "vault.status", "vault.targets", "vault.create_item",
+        "session.prepare", "session.fill", "quick.prepare", "vault.status", "vault.targets", "vault.create_item",
         "vault.undo_create")},
     # vault.lock and vault.logout aren't here: they forget first and then wait, never refused (vault_lock); nor is
     # host.check: its job shares the vault (check_job), not the request waiting for it

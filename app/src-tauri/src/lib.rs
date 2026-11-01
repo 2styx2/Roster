@@ -8,7 +8,7 @@ use roster_core::detect::{BackendError, ErrorKind, Platform, SystemRunner, detec
 use roster_core::package::{self, Packages};
 use roster_core::plugin::{self, Permission, PluginHost};
 use roster_core::rpc::{CallError, Notify};
-use roster_core::session::{SessionError, SessionEvent, SessionId, SessionManager, Size};
+use roster_core::session::{FillError, SessionError, SessionEvent, SessionId, SessionManager, Size};
 use roster_core::slot::Slot;
 use roster_core::state::StateFile;
 use serde_json::{Value, json};
@@ -1005,6 +1005,40 @@ fn session_write(
     sessions.write(id, data.as_bytes()).map_err(session_error)
 }
 
+/// How long a prompt fill waits for an echo of its probe before it types the secret (ticket 119,
+/// decision Q129). Longer than an ssh round trip to a far Host; a link slower than that could echo
+/// after it, which is why the docs say so.
+const FILL_WAIT: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// Fills the password prompt Session `id` shows, when the user pressed the fill key at one
+/// (ticket 119, decision Q129). The core asks serve (`session.fill`) for the password of the
+/// Host the Session was opened to (its own record, never a name from the frontend), with the
+/// prompt line the frontend read off the screen, then types it only if the prompt doesn't echo
+/// (`SessionManager::fill`). Only the Host's name comes back; the password never reaches the
+/// frontend, a log or an error.
+#[tauri::command]
+async fn session_fill(
+    state: tauri::State<'_, Arc<BackendState>>,
+    sessions: tauri::State<'_, Arc<SessionManager>>,
+    id: SessionId,
+    prompt: String,
+) -> Result<Value, CallError> {
+    let backend = state.get()?;
+    let sessions = Arc::clone(&sessions);
+    blocking(move || {
+        sessions
+            .fill(id, FILL_WAIT, |host| backend.fill_secret(host, &prompt))
+            .map(|host| json!({ "host": host }))
+            .map_err(|e| match e {
+                FillError::Lookup(e) => e,
+                other => CallError::Io {
+                    message: other.to_string(),
+                },
+            })
+    })
+    .await
+}
+
 #[tauri::command]
 fn session_resize(
     sessions: tauri::State<'_, Arc<SessionManager>>,
@@ -1210,6 +1244,7 @@ pub fn run() {
             session_open,
             quick_session_open,
             session_write,
+            session_fill,
             session_resize,
             session_close,
             state_load,
