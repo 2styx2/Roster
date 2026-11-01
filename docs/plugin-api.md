@@ -2686,6 +2686,7 @@ Plain data, but for `actions`. A field left out stays as it is.
 | `facts` | [`Fact`](#fact)`[]` | no | New facts, all of them. |
 | `rows` | [`TableRow`](#tablerow)`[]` | no | Rows to add or replace, by `id` (at most 2,000 at once). |
 | `remove` | `string[]` | no | The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose). |
+| `clear` | `boolean` | no | `true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3). |
 | `nodes` | [`GraphNode`](#graphnode)`[]` | no | A graph's nodes to add or replace, by `id`. |
 | `edges` | [`GraphEdge`](#graphedge)`[]` | no | A graph's edges to add or replace, by `id`. |
 | `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | A graph's clusters to add or replace, by `id`. |

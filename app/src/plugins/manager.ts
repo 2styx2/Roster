@@ -1163,7 +1163,7 @@ export class PluginManager {
         if (!view) return refuse(`roster.views.update: there's no view ${op.id} (roster.views.set it first)`);
         const u = op.update;
         // `remove` is a graph's nodes and clusters in a graph, else a table's rows.
-        const tableChange = u.rows.length > 0 || (u.remove.length > 0 && !view.graph) || u.columns !== undefined || u.sort !== undefined || u.actions !== undefined;
+        const tableChange = u.rows.length > 0 || u.clear === true || (u.remove.length > 0 && !view.graph) || u.columns !== undefined || u.sort !== undefined || u.actions !== undefined;
         if (tableChange && !view.table) return refuse(`roster.views.update ${op.id}: the view has no table to change`);
         if (u.graph && !view.graph) return refuse(`roster.views.update ${op.id}: the view has no graph for nodes and edges`);
         let graph = view.graph;
@@ -1175,8 +1175,8 @@ export class PluginManager {
           graph = { ...graph, data, ...(g.filter ? { filter: g.filter } : {}) };
         }
         let table = view.table;
-        if (table && (u.rows.length || u.remove.length)) {
-          const rows = mergeRows(table.rows, u.rows, u.remove);
+        if (table && (u.rows.length || u.remove.length || u.clear)) {
+          const rows = mergeRows(u.clear ? [] : table.rows, u.rows, u.remove);
           if (rows.length > MAX_TABLE_ROWS) return refuse(`roster.views.update ${op.id}: more than ${MAX_TABLE_ROWS.toLocaleString("en-US")} rows`);
           table = { ...table, rows };
         }

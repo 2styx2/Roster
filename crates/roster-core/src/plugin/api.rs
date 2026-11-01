@@ -2609,6 +2609,11 @@ pub const TYPES: &[Type] = &[
                 "string[]",
                 "The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).",
             ),
+            o(
+                "clear",
+                "boolean",
+                "`true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3).",
+            ),
             o("nodes", "GraphNode[]", "A graph's nodes to add or replace, by `id`."),
             o("edges", "GraphEdge[]", "A graph's edges to add or replace, by `id`."),
             o(

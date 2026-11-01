@@ -3340,6 +3340,11 @@
           "type": "string[]"
         },
         {
+          "name": "clear",
+          "required": false,
+          "type": "boolean"
+        },
+        {
           "name": "nodes",
           "required": false,
           "type": "GraphNode[]"

@@ -177,6 +177,8 @@ export interface PluginViewUpdate {
   rows: TableRow[];
   /** Rows' ids, or in a graph, nodes' and clusters'. */
   remove: string[];
+  /** Every row goes first (ticket 91); `rows` then fill the table again. */
+  clear?: true;
   /** Nodes, edges and clusters, in a graph (ticket 77). */
   graph?: PluginGraphUpdate;
   /** New columns, all of them (ticket 78). */
@@ -546,6 +548,13 @@ function content(spec: Obj, what: string): PluginContent {
   });
 }
 
+/** `clear = true` in a view update (ticket 91). */
+function clearOf(c: Obj, what: string): true | undefined {
+  if (c.clear === undefined || c.clear === null || c.clear === false) return undefined;
+  if (c.clear !== true) throw new Invalid(`${what}: clear must be true or false`);
+  return true;
+}
+
 /** The op, checked; or why it can't be used. */
 export function parseOp(raw: unknown): PluginOp | { invalid: string } {
   try {
@@ -744,6 +753,7 @@ function parse(raw: unknown): PluginOp {
             return r;
           }),
           graph: parseGraphUpdate(c, what),
+          clear: clearOf(c, what),
         }),
       };
     }

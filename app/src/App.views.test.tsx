@@ -47,6 +47,7 @@ function scanPlugin(count = 3, place: "panel" | "full" = "panel"): FakePlugin {
       });
       roster.keymap.set("leader", "y v", "view scan");
       roster.commands.add("scan", { desc: "Scan", run: () => roster.views.open("scan") });
+      roster.commands.add("scan-clear", { desc: "Clear", run: () => roster.views.update("scan", { clear: true, rows: [{ id: "10.0.0.9", cells: { address: "10.0.0.9", ports: 1, state: "new" } }] }) });
       roster.commands.add("scan-done", { desc: "Done", run: () => roster.views.close("scan") });
       // A background job that ends says so with a button that opens its view (ticket 91).
       roster.commands.add("scan-finish", { desc: "Finish", run: () => roster.notify("Scan done", "info", { actions: [{ label: "Show the scan", run: "view scan" }] }) });
@@ -170,6 +171,15 @@ describe("a table", () => {
     // Enter runs the table's open with the row.
     await user.keyboard("{Enter}");
     expect(await screen.findByText("scan: opened 10.0.0.2")).toBeInTheDocument();
+  });
+
+  it("clear takes every row away in one update, and its rows fill it again (ticket 91)", async () => {
+    const user = await ready(scanPlugin(600));
+    await user.keyboard(`${LEADER}:view scan{Enter}`);
+    await screen.findByRole("grid", { name: "Scan" });
+    await user.keyboard(`${LEADER}:scan-clear{Enter}`);
+    expect(await screen.findByText("1 row")).toBeInTheDocument();
+    expect(grid()).toHaveTextContent("10.0.0.9");
   });
 
   it("a click selects a row and shows its buttons; the button runs the action", async () => {

@@ -262,6 +262,7 @@
 ---@field facts? roster.Fact[] New facts, all of them.
 ---@field rows? roster.TableRow[] Rows to add or replace, by `id` (at most 2,000 at once).
 ---@field remove? string[] The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).
+---@field clear? boolean `true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3).
 ---@field nodes? roster.GraphNode[] A graph's nodes to add or replace, by `id`.
 ---@field edges? roster.GraphEdge[] A graph's edges to add or replace, by `id`.
 ---@field clusters? roster.GraphCluster[] A graph's clusters to add or replace, by `id`.
