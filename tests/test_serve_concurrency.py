@@ -8,6 +8,7 @@ import threading
 import time
 
 import pytest
+from conftest import posix_shell
 
 from roster import serve as rpc
 
@@ -52,6 +53,7 @@ def infra(tmp_path, monkeypatch):
     return repo
 
 
+@posix_shell              # the upstream's hook is a sh script
 def test_a_quick_read_answers_while_a_slow_publish_runs(serve, infra):
     s = serve("-c", str(infra / "roster.yml"))
     s.call("inventory.info")
@@ -68,6 +70,7 @@ def test_a_quick_read_answers_while_a_slow_publish_runs(serve, infra):
     assert s.order.index(publish) > s.order.index(publish + 1)          # answered after the read it came before
 
 
+@posix_shell              # the upstream's hook is a sh script
 def test_a_write_waits_for_the_publish_so_the_commit_holds_exactly_what_was_written(serve, infra):
     s = serve("-c", str(infra / "roster.yml"))
     publish = s.request("changes.publish", {"message": "Add new-1"})
@@ -180,6 +183,7 @@ def test_the_server_answers_a_quick_read_while_every_worker_is_busy(state, monke
     assert sorted(r["id"] for r in out) == [0, 1, 2, 9]
 
 
+@posix_shell              # the upstream's hook is a sh script
 def test_serve_exits_well_within_the_apps_grace_with_a_slow_request_under_way(serve, infra):
     s = serve("-c", str(infra / "roster.yml"))
     s.request("changes.publish", {"message": "Add new-1"})
