@@ -297,8 +297,9 @@ pub struct PluginHost {
     builtins: Builtins,
 }
 
-/// The app's built-in command names, shared by a host and its Plugins' runtimes.
-pub(crate) type Builtins = Arc<std::sync::RwLock<BTreeSet<String>>>;
+/// The app's built-in command names, shared by a host and its Plugins' runtimes: None until the
+/// app has said them once.
+pub(crate) type Builtins = Arc<std::sync::RwLock<Option<BTreeSet<String>>>>;
 
 impl PluginHost {
     pub fn new(serve: Arc<dyn Serve>, limits: Limits) -> Self {
@@ -327,10 +328,11 @@ impl PluginHost {
     /// The app's built-in commands (every `:` command roster itself registers), at the start and
     /// whenever one registers later: none of them is a Plugin's own to run with `roster.cmd` or a
     /// `run` line, whatever the Plugin named its commands (issue #184). Each replaces the last and
-    /// reaches the Plugins running at once. Before the app says, api.rs's
-    /// [`api::ROSTER_ONLY`](crate::plugin::api::ROSTER_ONLY) are refused all the same.
+    /// reaches the Plugins running at once. Until the app has said them once, no Plugin's own
+    /// command runs that way either (api.rs's
+    /// [`api::ROSTER_ONLY`](crate::plugin::api::ROSTER_ONLY) are refused all the same).
     pub fn set_builtins(&self, names: impl IntoIterator<Item = String>) {
-        *self.builtins.write().expect("builtin commands") = names.into_iter().collect();
+        *self.builtins.write().expect("builtin commands") = Some(names.into_iter().collect());
     }
 
     /// A new proxy setting (`plugin_proxy` in init.lua changed, decision Q116) for every Plugin

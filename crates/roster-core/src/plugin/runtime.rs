@@ -820,7 +820,21 @@ fn own_command(s: &Shared, word: &str) -> bool {
     s.commands.borrow().contains(word)
         && !super::api::ROSTER_ONLY.contains(&word)
         && !super::api::COMMANDS.iter().any(|c| c.name == word)
-        && s.builtins.read().is_ok_and(|b| !b.contains(word))
+        && s.builtins
+            .read()
+            .is_ok_and(|b| b.as_ref().is_some_and(|b| !b.contains(word)))
+}
+
+/// Why `word`, a command the Plugin added, can't run yet: the app hasn't told the core its
+/// built-in commands, so it can't tell the Plugin's own from roster's (issue #184). None once it
+/// has, or for a word that isn't the Plugin's or is one of roster's either way.
+fn not_yet(s: &Shared, word: &str) -> Option<String> {
+    let unknown = s.builtins.read().map_or(true, |b| b.is_none());
+    (unknown
+        && s.commands.borrow().contains(word)
+        && !super::api::ROSTER_ONLY.contains(&word)
+        && !super::api::COMMANDS.iter().any(|c| c.name == word))
+    .then(|| format!(":{word} can't run yet: the app hasn't told roster its own commands"))
 }
 
 /// Whether a Plugin with `grants` may run roster's command `word` (api.rs's COMMANDS). Its own
@@ -1474,6 +1488,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         if line.len() > 500 {
             return Err(mlua::Error::runtime("roster.cmd: the line is over 500 characters"));
         }
+        if let Some(why) = not_yet(s, word) {
+            return Err(mlua::Error::runtime(format!("roster.cmd: {why}")));
+        }
         if !own_command(s, word) {
             command_allowed(word, &s.grants).map_err(|m| mlua::Error::runtime(format!("roster.cmd: {m}")))?;
         }
@@ -1511,6 +1528,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             return Err(mlua::Error::runtime("roster.cmdline: the line is over 500 characters"));
         }
         let word = text.split_whitespace().next().unwrap_or("");
+        if let Some(why) = not_yet(s, word) {
+            return Err(mlua::Error::runtime(format!("roster.cmdline: {why}")));
+        }
         if !own_command(s, word) {
             return Err(mlua::Error::runtime(format!(
                 "roster.cmdline: {word:?} isn't one of your commands (a line such as \"alerts \")"

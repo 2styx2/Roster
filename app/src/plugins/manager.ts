@@ -332,11 +332,16 @@ export class PluginManager {
   /** The flush running, if any: the next waits for it (a Session's events stay in order). */
   private flushing: Promise<void> = Promise.resolve();
   private started = false;
-  /** Every built-in command id told to the core so far (issue #184): it only grows, so a built-in
-   * an effect takes out and puts back is never a Plugin's own in between. */
-  private readonly builtinsSent = new Set<string>();
-  /** The last send of them: each waits for the one before, so the core gets them in order. */
+  /** Every built-in command id seen so far (issue #184): it only grows, so a built-in an effect
+   * takes out and puts back is never a Plugin's own in between. */
+  private readonly builtinsSeen = new Set<string>();
+  /** The list the core has taken, as sent (sorted, one per line): "" until a send succeeds. */
+  private builtinsHeld = "";
+  /** The last send: each waits for the one before, so the core gets them in order. */
   private builtinsSending: Promise<void> = Promise.resolve();
+  /** Sends that failed in a row, and the retry waiting. */
+  private builtinsFailed = 0;
+  private builtinsRetry: ReturnType<typeof setTimeout> | null = null;
   private stopBuiltins: (() => void) | null = null;
   /** Stopped for good (`stop`): nothing loads, no event or call reaches the core. */
   private stopped = false;
@@ -901,6 +906,8 @@ export class PluginManager {
     this.stopped = true;
     this.stopBuiltins?.();
     this.stopBuiltins = null;
+    if (this.builtinsRetry) clearTimeout(this.builtinsRetry);
+    this.builtinsRetry = null;
     for (const [name, l] of [...this.loaded]) {
       for (const d of l.disposers.values()) d();
       this.loaded.delete(name);
@@ -918,15 +925,35 @@ export class PluginManager {
     return this.snap.plugins.map((p) => p.name);
   }
 
-  /** Tells the core the built-in commands it hasn't heard of yet. A core that can't take them
-   * still refuses the ones that change trust or writes, and the app checks every line itself. */
+  /** Tells the core every built-in command seen, unless it has that list already. A send that
+   * fails is said once (quietly), retried after 1 s, 2 s, … up to 30 s apart, and tried again before
+   * each Plugin loads; until one gets through the core refuses every Plugin's own command line too
+   * (runtime.rs), and the app checks every line itself. */
   private sendBuiltins(): Promise<void> {
-    const ids = this.registries.commands.list().filter((c) => c.source === BUILTIN).map((c) => c.id);
-    if (ids.every((id) => this.builtinsSent.has(id))) return this.builtinsSending;
-    for (const id of ids) this.builtinsSent.add(id);
-    const names = [...this.builtinsSent].sort();
-    this.builtinsSending = this.builtinsSending.then(() => this.backend.pluginBuiltins(names)).catch(() => undefined);
+    for (const c of this.registries.commands.list()) if (c.source === BUILTIN) this.builtinsSeen.add(c.id);
+    this.builtinsSending = this.builtinsSending.then(() => this.sendBuiltinsNow());
     return this.builtinsSending;
+  }
+
+  private async sendBuiltinsNow(): Promise<void> {
+    const names = [...this.builtinsSeen].sort();
+    const list = names.join("\n");
+    if (this.stopped || list === this.builtinsHeld) return;
+    try {
+      await this.backend.pluginBuiltins(names);
+      this.builtinsHeld = list;
+      this.builtinsFailed = 0;
+      if (this.builtinsRetry) clearTimeout(this.builtinsRetry);
+      this.builtinsRetry = null;
+    } catch {
+      if (this.builtinsFailed++ === 0) this.ui.say?.(quiet("Plugins: couldn't tell roster its own commands; trying again"));
+      if (this.builtinsRetry || this.stopped) return;
+      const wait = Math.min(1000 * 2 ** (this.builtinsFailed - 1), 30_000);
+      this.builtinsRetry = setTimeout(() => {
+        this.builtinsRetry = null;
+        void this.sendBuiltins();
+      }, wait);
+    }
   }
 
   // ---------------------------------------------------------------- loading
@@ -944,6 +971,8 @@ export class PluginManager {
 
   private async loadNow(path: string, granted: string[] | null, name: string) {
     if (this.stopped) return;
+    // The core has the built-ins before this Plugin runs, or is asked again (issue #184).
+    await this.sendBuiltins();
     let result;
     try {
       // A built-in Plugin is granted everything it asks for until a permission is revoked.

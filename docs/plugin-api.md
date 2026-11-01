@@ -394,7 +394,8 @@ Nothing.
 
 - `roster.cmd: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
 - `roster.cmd: which command? …`: an empty line.
-- `roster.cmd: :NAME isn't one a Plugin may run (its own commands, and …)`: a command not in the list, or another Plugin's.
+- `roster.cmd: :NAME isn't one a Plugin may run (its own commands, and …)`: a command not in the list, another Plugin's, or one of yours named after one of roster's.
+- `roster.cmd: :NAME can't run yet: the app hasn't told roster its own commands`: one of your commands, in the moment before the app has said which are roster's (it tries again).
 - `roster.cmd: :NAME needs the P permission`: `:open` or `:connect` without `sessions.open`.
 - And [those of every function](#errors).
 
@@ -457,6 +458,7 @@ Nothing.
 
 - `roster.cmdline: only while the user runs one of your actions, commands or finder items`: at load, in an event listener or a timer.
 - `roster.cmdline: "WORD" isn't one of your commands …`: the line starts with anything but one of the Plugin's commands.
+- `roster.cmdline: :NAME can't run yet: the app hasn't told roster its own commands`: as `roster.cmd`'s.
 - And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 3

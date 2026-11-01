@@ -134,8 +134,13 @@ const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.inc
 
 /** As runtime.rs's own_command: one the Plugin added that no built-in has (the app's, as it last
  * said, the ones a Plugin may run, and the ones that change trust or writes, issue #184). */
-const ownCommand = (r: { commands: Set<string> }, word: string, builtins: ReadonlySet<string>): boolean =>
-  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word) && !builtins.has(word);
+const ownCommand = (r: { commands: Set<string> }, word: string, builtins: ReadonlySet<string> | null): boolean =>
+  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word) && builtins !== null && !builtins.has(word);
+/** As runtime.rs's not_yet: the Plugin's command can't run before the app has said its built-ins. */
+const notYet = (r: { commands: Set<string> }, word: string, builtins: ReadonlySet<string> | null): string | null =>
+  builtins === null && r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word)
+    ? `:${word} can't run yet: the app hasn't told roster its own commands`
+    : null;
 
 // ------------------------------------------------------------------ network:<site> (Q97)
 // As roster-core's plugin/network.rs Site::parse, on the same table of cases.
@@ -443,8 +448,8 @@ export function fakePluginHost(
    * section's check): never a user's call. */
   const quiet = new Set<number>();
   const running = new Map<string, Running>();
-  /** The app's built-in commands, as it last said (PluginHost::set_builtins). */
-  let builtins: ReadonlySet<string> = new Set();
+  /** The app's built-in commands, as it last said (PluginHost::set_builtins): null until it has. */
+  let builtins: ReadonlySet<string> | null = null;
   let next = 0;
   let ops: unknown[] = [];
   /** Whether the run is a call the user started: only then may a Plugin copy. */
@@ -548,6 +553,8 @@ export function fakePluginHost(
       cmdline: (text) => {
         userOnly("roster.cmdline");
         const word = text.trim().split(/\s+/)[0] ?? "";
+        const why = notYet(r, word, builtins);
+        if (why) throw new Error(`roster.cmdline: ${why}`);
         if (!ownCommand(r, word, builtins)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
         push({ op: "cmdline", text });
       },
@@ -584,6 +591,8 @@ export function fakePluginHost(
         userOnly("roster.cmd");
         const word = line.trim().split(/\s+/)[0] ?? "";
         if (!word) throw new Error('roster.cmd: which command? (a line such as "finder alerts")');
+        const why = notYet(r, word, builtins);
+        if (why) throw new Error(`roster.cmd: ${why}`);
         if (!ownCommand(r, word, builtins)) {
           const rule = PLUGIN_COMMANDS.find((c) => c.name === word);
           if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
