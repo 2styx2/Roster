@@ -459,7 +459,7 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "event",
                 "EventName",
-                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`.",
+                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.",
             ),
             p(
                 "listener",
@@ -1798,6 +1798,12 @@ pub const EVENTS: &[Event] = &[
         needs: &["terminal.read"],
         payload: "TerminalOutputEvent",
         when: "A Session printed something: a few times a second, in batches.",
+    },
+    Event {
+        name: "job_progress",
+        needs: &["serve:mesh.job", "serve:discover.status"],
+        payload: "JobProgressEvent",
+        when: "One of roster serve's jobs (a Mesh run, a Discover scan) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes). A Plugin hears a Mesh job only with `serve:mesh.job` and a scan only with `serve:discover.status`: what it could ask anyway. The result isn't in it: ask `mesh.job` or `discover.status` once it ends.",
     },
 ];
 
@@ -3569,7 +3575,7 @@ pub const TYPES: &[Type] = &[
         name: "EventName",
         summary: "An event a Plugin can listen for",
         doc: "",
-        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"",
+        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\"",
         fields: &[],
         open: false,
     },
@@ -3624,6 +3630,44 @@ pub const TYPES: &[Type] = &[
                 "code",
                 "integer",
                 "ssh's exit code; `nil` when it failed to start or its tab was closed.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "JobProgressEvent",
+        summary: "`job_progress`'s payload: serve's `job.progress` notification",
+        doc: "",
+        alias: "",
+        fields: &[
+            f("kind", "string", "`\"mesh\"` or `\"discover\"`."),
+            f(
+                "job",
+                "integer|string",
+                "Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `\"scan-N\"` (`discover.status { scan = ... }`).",
+            ),
+            f(
+                "action",
+                "string",
+                "`\"plan\"`, `\"apply\"` or `\"cut\"` for the Mesh; `\"scan\"` for Discover.",
+            ),
+            f(
+                "state",
+                "string",
+                "`\"running\"`, `\"stopping\"`, or how it ended: `\"done\"`, `\"stopped\"`, `\"failed\"`.",
+            ),
+            f(
+                "done",
+                "integer",
+                "How far it has got: Hosts visited, addresses scanned.",
+            ),
+            f("total", "integer", "Of how many."),
+            o("at", "string", "The Host it's on, when it's on one."),
+            o("host", "string", "A cut's Host."),
+            o(
+                "error",
+                "table",
+                "How it failed: `{ code, message, data? }`, as serve's error.",
             ),
         ],
         open: false,

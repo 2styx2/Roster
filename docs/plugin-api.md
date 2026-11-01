@@ -185,6 +185,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`HostSelectedEvent`](#hostselectedevent) | `host_selected`'s payload |
 | [`SessionOpenEvent`](#sessionopenevent) | `session_open`'s payload |
 | [`SessionExitEvent`](#sessionexitevent) | `session_exit`'s payload |
+| [`JobProgressEvent`](#jobprogressevent) | `job_progress`'s payload: serve's `job.progress` notification |
 | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal_output`'s payload |
 
 ## Errors
@@ -289,7 +290,7 @@ Runs a function on an event. Several listeners for one event run in the order th
 
 **Parameters**
 
-- `event` ([`EventName`](#eventname)): The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`.
+- `event` ([`EventName`](#eventname)): The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.
 - `listener` (`fun(e: table)`): Runs with the event's payload (see [Events](#events)) each time it happens. Its return value is ignored.
 
 **Returns**
@@ -2214,6 +2215,7 @@ end)
 | `session_exit` | A Session ended, failed, or its tab was closed while it ran. | [`SessionExitEvent`](#sessionexitevent) | `inventory.read` or `terminal.read` |
 | `inventory_changed` | The app got a new Host list (an edit, a pull, a Publish, an outside edit of `roster.yml`). | [`EmptyEvent`](#emptyevent) | `inventory.read` |
 | `terminal_output` | A Session printed something: a few times a second, in batches. | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal.read` |
+| `job_progress` | One of roster serve's jobs (a Mesh run, a Discover scan) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes). A Plugin hears a Mesh job only with `serve:mesh.job` and a scan only with `serve:discover.status`: what it could ask anyway. The result isn't in it: ask `mesh.job` or `discover.status` once it ends. | [`JobProgressEvent`](#jobprogressevent) | `serve:mesh.job` or `serve:discover.status` |
 
 ## Command lines a Plugin may run
 
@@ -3257,7 +3259,7 @@ The infra repo's last commit.
 
 An event a Plugin can listen for.
 
-One of: `"lock" \| "unlock" \| "host_selected" \| "session_open" \| "session_exit" \| "inventory_changed" \| "terminal_output"`
+One of: `"lock" \| "unlock" \| "host_selected" \| "session_open" \| "session_exit" \| "inventory_changed" \| "terminal_output" \| "job_progress"`
 
 ### `EmptyEvent`
 
@@ -3291,6 +3293,22 @@ No fields.
 | `session` | `integer` | yes | The Session's id. |
 | `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session. A tab closed while it ran has it too (since api 3). |
 | `code` | `integer` | no | ssh's exit code; `nil` when it failed to start or its tab was closed. |
+
+### `JobProgressEvent`
+
+`job_progress`'s payload: serve's `job.progress` notification.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `kind` | `string` | yes | `"mesh"` or `"discover"`. |
+| `job` | `integer\|string` | yes | Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`). |
+| `action` | `string` | yes | `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover. |
+| `state` | `string` | yes | `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`. |
+| `done` | `integer` | yes | How far it has got: Hosts visited, addresses scanned. |
+| `total` | `integer` | yes | Of how many. |
+| `at` | `string` | no | The Host it's on, when it's on one. |
+| `host` | `string` | no | A cut's Host. |
+| `error` | `table` | no | How it failed: `{ code, message, data? }`, as serve's error. |
 
 ### `TerminalOutputEvent`
 

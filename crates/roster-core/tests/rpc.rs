@@ -44,6 +44,45 @@ fn answers_in_another_order_reach_the_right_caller() {
     assert_eq!(first.join().unwrap().unwrap()["name"], "esxi-02");
 }
 
+/// serve answers concurrently (API 20, decision Q112): four calls at once come back in another
+/// order, with notifications between them, and each still reaches its own caller.
+#[test]
+fn concurrent_answers_out_of_order_with_notifications_between_reach_the_right_callers() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    let mut c = Command::new("python3");
+    c.arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py"))
+        .arg("shuffle");
+    let notify: roster_core::rpc::Notify = std::sync::Arc::new(move |method: &str, params| {
+        let _ = tx.lock().unwrap().send((method.to_string(), params));
+    });
+    let client = std::sync::Arc::new(RpcClient::spawn_with(c, Some(notify)).expect("spawn fake serve"));
+    let names = ["esxi-02", "scan-1", "sw-core", "nope"];
+    let calls: Vec<_> = names
+        .iter()
+        .map(|name| {
+            let c = std::sync::Arc::clone(&client);
+            let name = name.to_string();
+            let t = std::thread::spawn(move || c.call("host.get", json!({ "name": name })));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            t
+        })
+        .collect();
+    let answers: Vec<_> = calls.into_iter().map(|t| t.join().unwrap()).collect();
+    for (name, answer) in names.iter().zip(&answers).take(3) {
+        assert_eq!(answer.as_ref().unwrap()["name"], *name);
+    }
+    assert!(
+        matches!(&answers[3], Err(CallError::Rpc { code: 2, .. })),
+        "{:?}",
+        answers[3]
+    );
+    let progress: Vec<_> = (0..4)
+        .map(|_| rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap())
+        .collect();
+    assert!(progress.iter().all(|(m, p)| m == "job.progress" && p["kind"] == "mesh"));
+}
+
 #[test]
 fn a_child_that_exits_mid_call_fails_the_call_with_its_exit_code() {
     let client = fake("die-on-hosts");

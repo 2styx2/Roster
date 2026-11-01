@@ -13,8 +13,8 @@
 //! loading disables the Plugin, and so does the third error after it loaded (repeat offenders).
 //! A Plugin stuck in one long C call is abandoned after the wall-clock limit and disabled, so a
 //! slow Plugin delays nothing but itself. Time spent waiting for `roster serve` is serve's, not
-//! the Plugin's ([`ServeWait`], decision Q103): serve answers one request at a time, and a call
-//! behind the app's Publish isn't the Plugin misbehaving.
+//! the Plugin's ([`ServeWait`], decision Q103): a call behind the app's Publish, or waiting for
+//! its fair share of serve ([`fair`], decision Q112), isn't the Plugin misbehaving.
 //!
 //! Secrets: the Rust core never holds one, and a Plugin reaches roster only through [`Serve`],
 //! for the methods its permissions name ([`permission`]); none of those touches a password, a
@@ -25,6 +25,7 @@
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod api;
+pub mod fair;
 pub mod folder;
 pub mod network;
 pub mod permission;
@@ -268,6 +269,8 @@ struct Slot {
 /// Every loaded Plugin. Cheap to share: calls into different Plugins run at the same time.
 pub struct PluginHost {
     serve: Arc<dyn Serve>,
+    /// The share of roster serve all Plugins together may take at once ([`fair`]).
+    all_plugins: Arc<fair::Gate>,
     limits: Limits,
     slots: Arc<Slots>,
     listener: Arc<Mutex<Option<Listener>>>,
@@ -281,6 +284,7 @@ impl PluginHost {
     pub fn new(serve: Arc<dyn Serve>, limits: Limits) -> Self {
         PluginHost {
             serve,
+            all_plugins: fair::Gate::new(fair::PLUGINS_AT_ONCE),
             limits,
             slots: Arc::default(),
             listener: Arc::default(),
@@ -478,7 +482,7 @@ impl PluginHost {
             slots
                 .iter()
                 .filter(|(_, s)| s.disabled.is_none() && s.listens.contains(&event.name))
-                .filter(|(_, s)| runtime::may_hear(&event.name, &s.grants).is_ok())
+                .filter(|(_, s)| runtime::may_hear_this(&event.name, &event.payload, &s.grants))
                 .filter_map(|(n, s)| s.jobs.clone().map(|j| (n.clone(), (j, Arc::clone(&s.serving)))))
                 .collect()
         };
@@ -559,7 +563,13 @@ impl PluginHost {
     ) -> Jobs {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
-        let (serve, limits, serving) = (Arc::clone(&self.serve), self.limits, Arc::clone(serving));
+        // Its calls into serve go through its own share and the one all Plugins have (fair.rs).
+        let serve: Arc<dyn Serve> = Arc::new(fair::Fair {
+            inner: Arc::clone(&self.serve),
+            mine: fair::Gate::new(fair::PLUGIN_AT_ONCE),
+            all: Arc::clone(&self.all_plugins),
+        });
+        let (limits, serving) = (self.limits, Arc::clone(serving));
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
@@ -601,7 +611,7 @@ impl PluginHost {
                             Job::Call(handler, args, by) => rt.call(handler, &args, by),
                             Job::Answer(id, answer) => rt.answer(id, answer),
                             Job::Event(event) => {
-                                if runtime::may_hear(&event.name, rt.grants()).is_ok() {
+                                if runtime::may_hear_this(&event.name, &event.payload, rt.grants()) {
                                     rt.event(&event)
                                 } else {
                                     Outcome {

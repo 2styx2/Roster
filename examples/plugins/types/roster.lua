@@ -605,7 +605,7 @@
 ---@field pushed boolean Whether the upstream has it, as this Box last fetched.
 
 --- An event a Plugin can listen for
----@alias roster.EventName "lock"|"unlock"|"host_selected"|"session_open"|"session_exit"|"inventory_changed"|"terminal_output"
+---@alias roster.EventName "lock"|"unlock"|"host_selected"|"session_open"|"session_exit"|"inventory_changed"|"terminal_output"|"job_progress"
 
 --- The payload of `lock`, `unlock` and `inventory_changed`: an empty table
 ---@class roster.EmptyEvent
@@ -624,6 +624,18 @@
 ---@field session integer The Session's id.
 ---@field host? string The Host's name; `nil` for a Quick Connect Session. A tab closed while it ran has it too (since api 3).
 ---@field code? integer ssh's exit code; `nil` when it failed to start or its tab was closed.
+
+--- `job_progress`'s payload: serve's `job.progress` notification
+---@class roster.JobProgressEvent
+---@field kind string `"mesh"` or `"discover"`.
+---@field job integer|string Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`).
+---@field action string `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover.
+---@field state string `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`.
+---@field done integer How far it has got: Hosts visited, addresses scanned.
+---@field total integer Of how many.
+---@field at? string The Host it's on, when it's on one.
+---@field host? string A cut's Host.
+---@field error? table How it failed: `{ code, message, data? }`, as serve's error.
 
 --- `terminal_output`'s payload
 ---@class roster.TerminalOutputEvent
@@ -646,7 +658,7 @@ function roster.notify(text, level, opts) end
 
 --- Runs a function on an event.
 --- Permission: none. Since: api 2.
----@param event roster.EventName The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`.
+---@param event roster.EventName The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.
 ---@param listener fun(e: table) Runs with the event's payload (see Events) each time it happens. Its return value is ignored.
 ---@overload fun(event: "lock", listener: fun(e: roster.EmptyEvent))
 ---@overload fun(event: "unlock", listener: fun(e: roster.EmptyEvent))
@@ -655,6 +667,7 @@ function roster.notify(text, level, opts) end
 ---@overload fun(event: "session_exit", listener: fun(e: roster.SessionExitEvent))
 ---@overload fun(event: "inventory_changed", listener: fun(e: roster.EmptyEvent))
 ---@overload fun(event: "terminal_output", listener: fun(e: roster.TerminalOutputEvent))
+---@overload fun(event: "job_progress", listener: fun(e: roster.JobProgressEvent))
 function roster.on(event, listener) end
 
 --- Asks the user to confirm, then runs a function.

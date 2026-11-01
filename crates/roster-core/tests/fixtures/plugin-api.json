@@ -98,6 +98,14 @@
         "terminal.read"
       ],
       "payload": "TerminalOutputEvent"
+    },
+    {
+      "name": "job_progress",
+      "needs": [
+        "serve:mesh.job",
+        "serve:discover.status"
+      ],
+      "payload": "JobProgressEvent"
     }
   ],
   "functions": [
@@ -1119,6 +1127,7 @@
     "roster-HttpResponse": "plugin-api#httpresponse",
     "roster-InventoryError": "plugin-api#inventoryerror",
     "roster-InventoryInfo": "plugin-api#inventoryinfo",
+    "roster-JobProgressEvent": "plugin-api#jobprogressevent",
     "roster-KeyContext": "plugin-api#keycontext",
     "roster-LastCommit": "plugin-api#lastcommit",
     "roster-Lesson": "plugin-api#lesson",
@@ -1570,7 +1579,7 @@
       "open": false
     },
     "EventName": {
-      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\""
+      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\""
     },
     "Fact": {
       "fields": [
@@ -2329,6 +2338,56 @@
           "name": "api_version",
           "required": true,
           "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "JobProgressEvent": {
+      "fields": [
+        {
+          "name": "kind",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "job",
+          "required": true,
+          "type": "integer|string"
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "done",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "at",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "table"
         }
       ],
       "open": false

@@ -178,3 +178,12 @@ def test_the_server_answers_a_quick_read_while_every_worker_is_busy(state, monke
     gate.set()
     assert server.drain(5)
     assert sorted(r["id"] for r in out) == [0, 1, 2, 9]
+
+
+def test_serve_exits_well_within_the_apps_grace_with_a_slow_request_under_way(serve, infra):
+    s = serve("-c", str(infra / "roster.yml"))
+    s.request("changes.publish", {"message": "Add new-1"})
+    time.sleep(0.5)                                                     # pushing, for 3 s
+    t = time.monotonic()
+    code, _, _ = s.close()
+    assert code == 0 and time.monotonic() - t < 2.5                     # the app kills it after 3 s (rpc.rs)

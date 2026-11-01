@@ -365,3 +365,107 @@ roster.serve.request("hosts.list", {}, function() roster.notify("answered " .. r
     publish.join().unwrap();
     assert!(notices(&rx, 1).is_empty());
 }
+
+/// A stand-in serve that answers several requests at once (API 20), each `hosts.list` taking
+/// 150 ms, and counts how many it had at once, in all and from each Plugin (`params.who`).
+#[derive(Default)]
+struct ConcurrentServe {
+    now: Mutex<(usize, std::collections::HashMap<String, usize>)>,
+    most: Mutex<(usize, std::collections::HashMap<String, usize>)>,
+    answered: std::sync::atomic::AtomicUsize,
+}
+
+impl Serve for ConcurrentServe {
+    fn call(&self, _method: &str, params: Value) -> Result<Value, String> {
+        let who = params["who"].as_str().unwrap_or("app").to_string();
+        {
+            let mut now = self.now.lock().unwrap();
+            now.0 += 1;
+            *now.1.entry(who.clone()).or_default() += 1;
+            let mut most = self.most.lock().unwrap();
+            most.0 = most.0.max(now.0);
+            let mine = now.1[&who];
+            let m = most.1.entry(who.clone()).or_default();
+            *m = (*m).max(mine);
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        {
+            let mut now = self.now.lock().unwrap();
+            now.0 -= 1;
+            *now.1.get_mut(&who).unwrap() -= 1;
+        }
+        self.answered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(json!({ "hosts": [], "groups": {} }))
+    }
+}
+
+/// Ticket 101 (decision Q112g): serve answers several requests at once, and can't tell a Plugin's
+/// from the app's, so the core gives each Plugin 2 at a time and all of them 4. Every request
+/// still answers, and nobody is disabled for the wait.
+#[test]
+fn one_plugin_cant_take_every_serve_worker_and_none_is_disabled_while_queued() {
+    let serve = Arc::new(ConcurrentServe::default());
+    let host = PluginHost::new(
+        Arc::clone(&serve) as Arc<dyn Serve>,
+        Limits {
+            grace: Duration::from_millis(300),
+            ..Limits::default()
+        },
+    );
+    let names = ["fair-a", "fair-b", "fair-c"];
+    let mut sync = 0;
+    for who in names {
+        let dir = plugin_dir(
+            who,
+            &["serve:hosts.list"],
+            &format!(
+                r#"
+for i = 1, 8 do roster.serve.request("hosts.list", {{ who = "{who}" }}, function() end) end
+roster.commands.add("sync", {{ run = function()
+  for i = 1, 6 do roster.serve.call("hosts.list", {{ who = "{who}" }}) end
+  return "done"
+end }})
+"#
+            ),
+        );
+        let manifest = std::fs::read_to_string(dir.join("roster-plugin.lua"))
+            .unwrap()
+            .replace("\"waiter\"", &format!("\"{who}\""));
+        std::fs::write(dir.join("roster-plugin.lua"), manifest).unwrap();
+        let (_, reply) = host
+            .load(&Source::Dir(dir), &[Permission::parse("serve:hosts.list").unwrap()])
+            .unwrap();
+        ok(&reply);
+        sync = command(&reply.ops, "sync");
+    }
+    assert_eq!(host.list().len(), 3);
+    // fair-c's looping call: 6 calls behind its 8 requests, 150 ms each, 2 at a time and sharing
+    // 4 with the others: far past its budget plus grace, and never given up on for it.
+    let started = Instant::now();
+    let r = host.call("fair-c", sync, json!({ "args": "", "words": [] }));
+    ok(&r);
+    assert_eq!(r.result, "done");
+    assert!(
+        started.elapsed() > Duration::from_millis(900),
+        "{:?}",
+        started.elapsed()
+    );
+    let want = 3 * 8 + 6;
+    while serve.answered.load(std::sync::atomic::Ordering::SeqCst) < want {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "the requests never all answered"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let most = serve.most.lock().unwrap().clone();
+    assert!(
+        most.0 <= 4,
+        "all Plugins together had {} calls into serve at once",
+        most.0
+    );
+    for (who, n) in &most.1 {
+        assert!(*n <= 2, "{who} had {n} calls into serve at once");
+    }
+    assert!(host.list().iter().all(|s| s.disabled.is_none()));
+}
