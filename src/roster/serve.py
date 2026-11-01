@@ -2505,19 +2505,20 @@ UNDO_TIME = 15              # s: taking a new Vault item back out gets this much
 # ---------------------------------------------------------------- jobs (ticket 101, decision Q112)
 
 def jobs_list(state, params):
-    """The background jobs: each kind's latest, running or not (a Mesh run, a scan). Never connects.
+    """The background jobs: each kind's latest, running or not (a Mesh run, a scan; each Host's latest check). Never connects.
 
     Params: none
-    Result: `{jobs: [{kind, job, action, state, done, total, at, host?, error?}]}`: `kind` is `mesh` or
-        `discover`, `job` its id there (the Mesh's job number, the scan's `scan-N`), `state` `running`,
-        `stopping`, `done`, `stopped` or `failed`. The same shape as the `job.progress` notification
+    Result: `{jobs: [{kind, job, action, state, done, total, at, host?, error?}]}`: `kind` is `mesh`,
+        `discover` or `check` (API 21), `job` its id there (the Mesh's job number, the scan's `scan-N`, the
+        check's `check-N`), `host` the Host a check checks, `state` `running`, `stopping`, `done`, `stopped`
+        or `failed`. The same shape as the `job.progress` notification
     Since: API 20
     """
     return {"jobs": state.jobs.list()}
 
 
 def jobs_stop(state, params):
-    """Stop a job, as `mesh.stop` or `discover.stop` would.
+    """Stop a job, as `mesh.stop` or `discover.stop` would, or a Host's check at its next step.
 
     Params: `{kind, job}`
     Result: `{kind, job, stopping}`: `stopping: false` when that job isn't running (over, or not the latest)

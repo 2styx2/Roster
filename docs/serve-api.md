@@ -1,6 +1,6 @@
 # `roster serve` API
 
-`roster serve` is the backend for the desktop app (the roster app, [`app/`](../app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, answers several requests at once (API 20; [Ordering, locks and jobs](#ordering-locks-and-jobs)), and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+`roster serve` is the backend for the desktop app (the roster app, [`app/`](../app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, answers several requests at once (API 20; [Ordering, locks and jobs](#ordering-locks-and-jobs)), and exits with code 0 when stdin closes. It is the app's backend, not a public API: scripts and other tools use the CLI's `--json` ([Machine-readable output](cli-reference.md#machine-readable-output)). Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
 
 Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
 
@@ -53,7 +53,7 @@ A Plugin can never send `$/cancel` (it isn't a method a Plugin may be granted), 
 
 | Method | Params | Result | Errors | Since API |
 |---|---|---|---|---|
-| `jobs.list` | none | `{jobs: [{kind, job, action, state, done, total, at, host?, error?}]}`: `kind` is `mesh` or `discover`, `job` its id there (the Mesh's job number, the scan's `scan-N`), `state` `running`, `stopping`, `done`, `stopped` or `failed`. The same shape as the `job.progress` notification |  | 20 |
+| `jobs.list` | none | `{jobs: [{kind, job, action, state, done, total, at, host?, error?}]}`: `kind` is `mesh`, `discover` or `check` (API 21), `job` its id there (the Mesh's job number, the scan's `scan-N`, the check's `check-N`), `host` the Host a check checks, `state` `running`, `stopping`, `done`, `stopped` or `failed`. The same shape as the `job.progress` notification |  | 20 |
 | `jobs.stop` | `{kind, job}` | `{kind, job, stopping}`: `stopping: false` when that job isn't running (over, or not the latest) | `-32602` | 20 |
 
 <!-- END generated:methods -->

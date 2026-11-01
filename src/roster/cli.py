@@ -779,7 +779,7 @@ def build_parser():
     p = Parser(prog="roster",
                description="Give this box (and Claude) access to the hosts in roster.yml.")
     p.add_argument("--version", action="version", version=f"roster {__version__}")
-    p.add_argument("-c", "--config", metavar="PATH", help="path to roster.yml (default: ./roster.yml, then ~/.config/roster/)")
+    p.add_argument("-c", "--config", metavar="PATH", help="path to roster.yml (default: $ROSTER_CONFIG, ./roster.yml, then ~/.config/roster/roster.yml)")
     sub = p.add_subparsers(dest="cmd", required=True)
     only = {"metavar": "LIST", "help": "only these hosts, groups, types or products (comma-separated)"}
     as_json = {"action": "store_true", "help": "print JSON for scripts and tools, never a secret (see "

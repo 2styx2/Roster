@@ -1,6 +1,6 @@
 # Design decisions log (2026-10-29)
 
-These came from a grilling session in which each question was asked with a recommended answer. The lasting, hard-to-reverse ones are also ADRs.
+These came from a grilling session in which each question was asked with a recommended answer. The lasting, hard-to-reverse ones are also ADRs. Numbers are given as questions are asked; a skipped number was never used.
 
 | # | Question | Decision |
 |---|---|---|

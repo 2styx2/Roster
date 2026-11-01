@@ -136,8 +136,16 @@ _Avoid_: page, screen, window
 How much of the app shows around the terminal: **Standard** (Sidebar and title bar) or **Focus** (fullscreen, fuzzy finders, optional session bar).
 _Avoid_: layout, zen mode, presentation mode
 
+**Panel**:
+Anything that opens beside the terminal: `:help`, Host details, the forms, `:check`, `:plugins`, a Plugin's View. Docked at a width you choose (`␣ <`, `␣ >`, a drag of its edge) or full window (`␣ z`), remembered per panel.
+_Avoid_: drawer, split (roster has none), sidebar (that's the Sidebar)
+
+**Message line**:
+The line at the bottom that answers a command: errors, warnings, answers and results that need attention. Routine confirmations are quiet unless `ui.messages = "all"`; `:messages` lists the recent ones, quiet ones too.
+_Avoid_: toast, notification (a Plugin's notice is one), status bar
+
 **Health**:
-How this Box stands for roster, as `:check` with no Host (or `roster check --box`) finds it: a section at a time (`roster.yml`, ssh, the vault, askpass, the infra repo, `init.lua`, the font), each check OK, WARNING or ERROR with its fix. Every check is local; checking one Host is `:check HOST`.
+How this Box stands for roster, as `:check` with no Host (or `roster check --box`) finds it: a section at a time (`roster.yml`, ssh, the vault, askpass, the infra repo, `init.lua`, the font, and each Plugin's own section), each check OK, WARNING or ERROR with its fix. Every check is local; checking one Host is `:check HOST`.
 _Avoid_: diagnostics (that's `:check HOST`), doctor, status page
 
 **Help topic**:
@@ -153,7 +161,7 @@ What `:tutor` runs: lessons with steps that tick themselves from what the app do
 _Avoid_: walkthrough, tour, onboarding
 
 **Plugin**:
-A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, views, Host-details sections, help pages, event hooks), with only the permissions the user granted. It never sees secrets.
+A folder of Lua code (a manifest, `roster-plugin.lua`, and `init.lua`) that extends the app through its registries (commands, keys, themes, Sidebar sections, finder sources, status segments, badges, floats, views (tables and graphs), Host-details and `:check` sections, toolbar controls, questions and progress, help pages, event hooks), with its own data folder and only the permissions the user granted. It never sees secrets.
 _Avoid_: extension, addon, mod
 
 **Permission**:
