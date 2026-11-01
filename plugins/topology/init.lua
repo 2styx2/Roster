@@ -191,7 +191,7 @@ end
 -- ------------------------------------------------------------------- what a node does
 
 function check(e)
-  if not e.host then return roster.notify("That's this Box: pick a Host to check.") end
+  if not e.host then return roster.notify("That's this Box: pick a Host to check.", "info", { quiet = false }) end
   -- The app's own :check HOST: its diagnostics panel shows each step. (It takes seconds; a
   -- Plugin's call may take two at most, so the app runs it, not this Plugin.)
   roster.cmd("check " .. e.host)
@@ -210,7 +210,7 @@ local function cut_done(host, r)
   if waiting > 0 then
     roster.notify("Cut " .. host .. ": cut pending on " .. build.plural(waiting, "Host") .. " that didn't answer.", "warn")
   else
-    roster.notify("Cut " .. host .. " from " .. build.plural(#(r.confirmed or {}), "Host") .. ".")
+    roster.notify("Cut " .. host .. " from " .. build.plural(#(r.confirmed or {}), "Host") .. ".", "info", { quiet = false })
   end
 end
 
@@ -250,11 +250,11 @@ local function cut_poll()
 end
 
 function cut(e)
-  if not e.host then return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.") end
+  if not e.host then return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.", "info", { quiet = false }) end
   local h = e.host
   local m = mesh or {}
   if not (s.involved[h] or (m.cut_pending or {})[h]) then
-    return roster.notify(h .. " isn't in the Mesh: there's nothing to cut.")
+    return roster.notify(h .. " isn't in the Mesh: there's nothing to cut.", "info", { quiet = false })
   end
   roster.confirm({
     title = "Cut " .. h .. " from the Mesh?",

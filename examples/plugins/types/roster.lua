@@ -111,6 +111,11 @@
 --- What else a notice has (`roster.notify`, since api 3)
 ---@class roster.NoticeOptions
 ---@field actions? roster.NoticeAction[] Buttons under its text, at most 2.
+---@field quiet? boolean An info notice's: whether it follows `ui.messages` (since api 4). Left out, it's quiet unless it has buttons; a warning or an error always shows.
+
+--- How a line on the message line is said (`roster.echo`, since api 4)
+---@class roster.EchoOptions
+---@field quiet? boolean A routine confirmation (`true`): shown only with `ui.messages = "all"`, heard by a screen reader and kept by `:messages` either way. Left out or `false`, it shows.
 
 --- A button on a notice
 ---@class roster.NoticeAction
@@ -663,7 +668,7 @@ roster = {}
 --- Permission: none. Since: api 2.
 ---@param text string What to say. It's shown after the Plugin's name (`pinned: …`).
 ---@param level? roster.Level `"info"` (the default), `"warn"` or `"error"`.
----@param opts? roster.NoticeOptions Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`.
+---@param opts? roster.NoticeOptions Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`; whether an info notice is quiet (since api 4): `{ quiet = false }`.
 function roster.notify(text, level, opts) end
 
 --- Runs a function on an event.
@@ -694,7 +699,8 @@ function roster.cmd(line) end
 --- Answers on the message line, as roster's own commands do.
 --- Permission: none. Since: api 3.
 ---@param text string What to say, on one line.
-function roster.echo(text) end
+---@param opts? roster.EchoOptions `{ quiet = true }` for a routine confirmation (since api 4).
+function roster.echo(text, opts) end
 
 --- Opens the command line with text typed in.
 --- Permission: none. Since: api 3.

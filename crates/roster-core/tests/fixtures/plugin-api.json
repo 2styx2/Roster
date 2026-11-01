@@ -190,6 +190,11 @@
           "name": "text",
           "optional": false,
           "type": "string"
+        },
+        {
+          "name": "opts",
+          "optional": true,
+          "type": "EchoOptions"
         }
       ],
       "path": "roster.echo",
@@ -1122,6 +1127,7 @@
     "roster-CommandSpec": "plugin-api#commandspec",
     "roster-Confirm": "plugin-api#confirm",
     "roster-DetailsSection": "plugin-api#detailssection",
+    "roster-EchoOptions": "plugin-api#echooptions",
     "roster-EdgeDir": "plugin-api#edgedir",
     "roster-EdgeStyle": "plugin-api#edgestyle",
     "roster-EdgeTone": "plugin-api#edgetone",
@@ -1225,7 +1231,7 @@
     "roster.details": "plugin-api#rosterdetails",
     "roster.details.remove()": "plugin-api#rosterdetailsremoveid",
     "roster.details.set()": "plugin-api#rosterdetailssetid-host-section",
-    "roster.echo()": "plugin-api#rosterechotext",
+    "roster.echo()": "plugin-api#rosterechotext-opts",
     "roster.every()": "plugin-api#rostereveryms-fn",
     "roster.finders": "plugin-api#rosterfinders",
     "roster.finders.remove()": "plugin-api#rosterfindersremoveid",
@@ -1619,6 +1625,16 @@
           "name": "table",
           "required": false,
           "type": "Table"
+        }
+      ],
+      "open": false
+    },
+    "EchoOptions": {
+      "fields": [
+        {
+          "name": "quiet",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "open": false
@@ -2692,6 +2708,11 @@
           "name": "actions",
           "required": false,
           "type": "NoticeAction[]"
+        },
+        {
+          "name": "quiet",
+          "required": false,
+          "type": "boolean"
         }
       ],
       "open": false
