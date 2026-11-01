@@ -791,6 +791,17 @@ fn user_only(shared: &Shared, what: &str) -> mlua::Result<()> {
     }
 }
 
+/// `opts.quiet`, when a Plugin gives it (`roster.echo`, `roster.notify`; api 4): true, false or
+/// left out.
+fn quiet_opt(opts: Option<&Table>, what: &str) -> mlua::Result<Option<bool>> {
+    let Some(t) = opts else { return Ok(None) };
+    match t.raw_get::<Value>("quiet")? {
+        Value::Nil => Ok(None),
+        Value::Boolean(b) => Ok(Some(b)),
+        _ => Err(mlua::Error::runtime(format!("{what}: quiet is true or false"))),
+    }
+}
+
 /// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
 /// the vault): never a Plugin's own, whatever it named its commands. The app refuses a Plugin's
 /// command named after any of roster's and checks every line again (`plugins/cmd.ts`); this is the
@@ -1441,12 +1452,21 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
     });
 
     // A line on the message line, as roster's own commands answer (api 3): only in a call the
-    // user started, so it always answers something they did.
-    func!(roster, "echo", |_lua, s, text: mlua::LuaString| {
-        user_only(s, "roster.echo")?;
-        let text = text.to_string_lossy();
-        push(s, json!({ "op": "echo", "text": text }))
-    });
+    // user started, so it always answers something they did. `quiet = true` (api 4) marks a
+    // routine confirmation, which follows `ui.messages` as roster's own do (ticket 118).
+    func!(
+        roster,
+        "echo",
+        |_lua, s, (text, opts): (mlua::LuaString, Option<Table>)| {
+            user_only(s, "roster.echo")?;
+            let text = text.to_string_lossy();
+            let mut op = json!({ "op": "echo", "text": text });
+            if quiet_opt(opts.as_ref(), "roster.echo")? == Some(true) {
+                op["quiet"] = Json::Bool(true);
+            }
+            push(s, op)
+        }
+    );
 
     // Opens the command line with text typed in (api 3), for the user to finish: only the
     // Plugin's own commands, and only in a call the user started.
@@ -1482,7 +1502,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         // Buttons on the notice (ticket 91): plain data, each a command line the user's click
         // runs (`view mesh-plan`), so a notice holds no function that would outlive it.
         let actions = match opts {
-            Some(t) => {
+            Some(ref t) => {
                 let v: Value = t.raw_get("actions")?;
                 if v.is_nil() {
                     Json::Null
@@ -1500,6 +1520,11 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         let mut op = json!({ "op": "notify", "text": text, "level": level });
         if !actions.is_null() {
             op["actions"] = actions;
+        }
+        // Whether an info notice follows `ui.messages` (api 4, ticket 117): the app decides,
+        // so only what the Plugin said is passed on.
+        if let Some(q) = quiet_opt(opts.as_ref(), "roster.notify")? {
+            op["quiet"] = Json::Bool(q);
         }
         push(s, op)
     });

@@ -8,6 +8,6 @@ return {
   version = "1.0.0",
   description = "The Sidebar's Folders: your own groupings of Hosts",
   author = "roster",
-  api = 3,
+  api = 4,
   permissions = { "inventory.read" },
 }

@@ -369,3 +369,30 @@ fn removing_it_isnt_possible_but_its_data_folder_is_its_own() {
     assert!(d.join("plugin-data/folders/folders.json").is_file());
     assert!(!d.join("folders.yml").exists());
 }
+
+/// Its confirmations are quiet, as roster's own "Saved esx-02" (ticket 118): they follow
+/// `ui.messages`. What went wrong and what it was asked show; so does the move from folders.yml,
+/// a result that needs attention (ticket 117).
+#[test]
+fn its_confirmations_are_quiet_and_its_errors_are_not() {
+    let d = data("quiet");
+    let h = host(&d);
+    let first = load(&h, json!({}));
+    let quiet = |r: &Reply| {
+        op(r, "echo")
+            .iter()
+            .map(|o| o["quiet"] == json!(true))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(quiet(&folder(&h, &first, args("new Lab"))), [true]);
+    assert_eq!(quiet(&folder(&h, &first, args("add esx-02 Lab"))), [true]);
+    assert_eq!(quiet(&folder(&h, &first, args("add esx-02 Lab"))), [false]);
+    assert_eq!(quiet(&folder(&h, &first, args("add nope-01 Lab"))), [false]);
+    let d = data("quiet-import");
+    let h = host(&d);
+    let r = load(
+        &h,
+        json!({ "import": [{ "name": "Lab", "hosts": [] }], "import_from": "folders.yml" }),
+    );
+    assert_eq!(op(&r, "notify")[0]["quiet"], json!(false));
+}

@@ -175,7 +175,7 @@ local function add()
   if not scan then return end
   local picks = keeping()
   if #picks == 0 then
-    roster.notify("Keep a Host first: m on its row, or :discover keep all")
+    roster.notify("Keep a Host first: m on its row, or :discover keep all", "info", { quiet = false })
     return
   end
   if not roster.has(ADDS) then
@@ -220,7 +220,7 @@ local function add()
         end
         redraw(touched)
         roster.notify("Added " .. model.plural(#r.added, "Host", "Hosts") .. " to " .. r.group
-          .. " as Pending changes: review them in :changes, then Publish")
+          .. " as Pending changes: review them in :changes, then Publish", "info", { quiet = false })
       end)
     end,
   })
@@ -280,7 +280,7 @@ local function heard(ok, r)
     else
       local new = counts()
       roster.notify((scan.state == "stopped" and "Stopped: " or "Scan done: ") .. model.plural(scan.count, "Host", "Hosts")
-        .. " answered, " .. model.count(new) .. " new")
+        .. " answered, " .. model.count(new) .. " new", "info", { quiet = false })
     end
   end
 end
@@ -400,7 +400,7 @@ local function ask(targets)
     return
   end
   if planning then
-    roster.notify("Still waiting for roster serve to size the last range: a moment")
+    roster.notify("Still waiting for roster serve to size the last range: a moment", "info", { quiet = false })
     return
   end
   planning = true
@@ -454,7 +454,7 @@ roster.commands.add("discover", {
   run = function(a)
     local what = a.words[1]
     if what == "stop" then
-      if scan and scan.state == "running" then stop() else roster.notify("No scan is going") end
+      if scan and scan.state == "running" then stop() else roster.notify("No scan is going", "info", { quiet = false }) end
     elseif what == "add" then
       add()
     elseif what == "keep" then
