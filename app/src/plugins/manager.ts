@@ -70,6 +70,8 @@ export interface PluginUi {
   onScreen?(): { session: number; host: string | null } | null;
   /** Closes view `id` if it's the one open (`roster.views.close`). */
   closeView?(id: string): void;
+  /** Opens view `id` with its node or row `select` selected (`roster.views.open(id, { select })`, T99). */
+  openView?(id: string, select: string): void;
   /** Goes to Session `id` and, with `line`, finds that text up its scrollback
    * (`roster.sessions.show`). False when there's no such Session. */
   showSession?(id: number, line: string | null): boolean;
@@ -1436,7 +1438,9 @@ export class PluginManager {
       case "view_open":
       case "view_close": {
         if (r.views.get(op.id)?.source !== plugin) return refuse(`${op.op === "view_open" ? "roster.views.open" : "roster.views.close"}: there's no view ${op.id} of yours`);
-        return op.op === "view_open" ? this.ui.run(`view ${op.id}`) : this.ui.closeView?.(op.id);
+        if (op.op === "view_close") return this.ui.closeView?.(op.id);
+        if (op.select !== undefined && this.ui.openView) return this.ui.openView(op.id, op.select);
+        return this.ui.run(`view ${op.id}`);
       }
       case "details": {
         const id = detailsId(op.id, op.host);

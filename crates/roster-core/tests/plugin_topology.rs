@@ -577,6 +577,21 @@ fn it_draws_this_box_and_every_host_by_group_with_the_mesh_as_clusters_and_few_e
         appliance["spec"]["facts"][3]["value"],
         "2 Links from it: roster doesn't write on a password Host"
     );
+    // Its button opens the map at that Host (api 4, T99).
+    let show = &esx["spec"]["actions"][0];
+    assert_eq!(
+        (show["label"].clone(), show["icon"].clone()),
+        (json!("Show esx-01 on the map"), json!("map"))
+    );
+    let r = w.call(
+        handler(&show["run"]),
+        json!({ "section": "topology", "host": "esx-01" }),
+    );
+    ok(&r);
+    assert_eq!(
+        r.ops,
+        [json!({ "op": "view_open", "id": "topology", "select": "esx-01" })]
+    );
     // It refreshes the Mesh on a slow timer, and only reads.
     let timers = find(&reply.ops, "timer");
     let every: Vec<&&Value> = timers.iter().filter(|t| t["every"] == true).collect();

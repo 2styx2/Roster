@@ -114,11 +114,15 @@ export function sectionsFor(entries: readonly DetailsSectionDef[], host: string)
 export interface ViewSnapshot {
   /** The open view's id. */
   at: string | null;
+  /** The node or row it opened at (`roster.views.open(id, { select })`), and which opening that
+   * was: each such opening counts, so asking again while it's open selects again. */
+  select?: { id: string; n: number };
 }
 
 /** Which view is open. */
 export class ViewHost {
   private snap: ViewSnapshot = { at: null };
+  private openings = 0;
   private readonly listeners = new Set<() => void>();
 
   snapshot = (): ViewSnapshot => this.snap;
@@ -128,9 +132,10 @@ export class ViewHost {
     return () => this.listeners.delete(listener);
   };
 
-  open(id: string) {
-    if (this.snap.at === id) return;
-    this.set(id);
+  /** Opens view `id`; with `select`, at that node or row, even when it's already open. */
+  open(id: string, select?: string) {
+    if (select === undefined && this.snap.at === id) return;
+    this.set(id, select);
   }
 
   /** Closes the open view; with `id`, only if it's that one. */
@@ -139,8 +144,8 @@ export class ViewHost {
     this.set(null);
   }
 
-  private set(at: string | null) {
-    this.snap = { at };
+  private set(at: string | null, select?: string) {
+    this.snap = select === undefined ? { at } : { at, select: { id: select, n: ++this.openings } };
     for (const l of this.listeners) l();
   }
 }
