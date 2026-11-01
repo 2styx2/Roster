@@ -11,6 +11,8 @@ from . import providers
 INVENTORY_ERROR = 1         # roster.yml wasn't found or doesn't load (catalog row 1)
 UNKNOWN_HOST = 2            # no Host by that name
 ROSTER_ERROR = 3            # any other refusal roster gives on the command line ("error: ...")
+BUSY = 4                    # serve: another request held what this one needs (roster.yml, the vault) past its wait;
+                            #   nothing was done. data.busy: what, data.method: the request holding it (API 20)
 
 WRONG_PASSWORD = 10         # vault.*: the master password didn't unlock the vault
 NOT_LOGGED_IN = 11          # the vault CLI isn't logged in on this box (row 6)

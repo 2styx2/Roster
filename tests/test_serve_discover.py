@@ -280,3 +280,52 @@ def test_a_scan_works_out_each_hosts_entry_once(monkeypatch):
     monkeypatch.setattr(discover, "guess_identity", lambda rec: calls.append(rec["ip"]) or guess(rec))
     scan = builtin_scan_of(monkeypatch, ["10.0.0.0/28"], {("10.0.0.7", 443), ("10.0.0.9", 22)})
     assert scan.status()["count"] == 2 and calls == ["10.0.0.7", "10.0.0.9"]
+
+
+# ---------------------------------------------------------------- the job manager (ticket 101, decision Q112)
+
+def pushed(s, kind, job, until="done", seconds=10):
+    """The job.progress notifications for KIND's JOB, once one says UNTIL (asking jobs.list meanwhile, so serve's
+    notifications are read)."""
+    end = time.monotonic() + seconds
+    while True:
+        mine = [n["params"] for n in s.notes if n["method"] == "job.progress" and n["params"]["kind"] == kind
+                and n["params"]["job"] == job]
+        if any(p["state"] == until for p in mine) or time.monotonic() > end:
+            return mine
+        s.call("jobs.list")
+        time.sleep(0.05)
+
+
+def test_a_scan_is_a_job_that_pushes_its_progress_and_its_end(serve, net, inventory):
+    s = serve("-c", str(inventory))
+    scan = s.call("discover.start", {"targets": ["10.0.0.0/24"]})["result"]["scan"]
+    notes = pushed(s, "discover", scan)
+    assert notes[0] == {"kind": "discover", "job": scan, "action": "scan", "state": "running", "done": 0,
+                        "total": 254, "at": None}
+    assert notes[-1]["state"] == "done" and notes[-1]["done"] == 254
+    listed = s.call("jobs.list")["result"]["jobs"]
+    assert [(j["kind"], j["job"], j["state"]) for j in listed] == [("discover", scan, "done")]
+
+
+@pytest.mark.skipif(WINDOWS, reason="stop kills nmap's process; the Windows shim is two")
+def test_serve_closing_mid_scan_stops_it_at_once_and_says_so(serve, net, inventory, monkeypatch):
+    monkeypatch.setenv("FAKE_NMAP_DELAY", "30")
+    s = serve("-c", str(inventory))
+    scan = s.call("discover.start", {"targets": ["10.0.0.0/24"]})["result"]["scan"]
+    t = time.monotonic()
+    code, _, err = s.close()
+    assert code == 0 and time.monotonic() - t < 5
+    assert f"serve: closing: discover {scan} (scan) stopped" in err
+
+
+@pytest.mark.skipif(WINDOWS, reason="stop kills nmap's process; the Windows shim is two")
+def test_jobs_stop_stops_a_scan_as_discover_stop_does(serve, net, inventory, monkeypatch):
+    monkeypatch.setenv("FAKE_NMAP_DELAY", "30")
+    s = serve("-c", str(inventory))
+    scan = s.call("discover.start", {"targets": ["10.0.0.0/24"]})["result"]["scan"]
+    assert s.call("jobs.stop", {"kind": "discover", "job": scan})["result"] == {"kind": "discover", "job": scan,
+                                                                               "stopping": True}
+    assert finished(s, scan)["state"] == "stopped"
+    assert s.call("jobs.stop", {"kind": "discover", "job": scan})["result"]["stopping"] is False
+    assert s.call("jobs.stop", {"kind": "discover", "job": True})["error"]["code"] == -32602

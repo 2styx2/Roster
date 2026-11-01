@@ -91,6 +91,8 @@ class Serve:
         self.next_id = 0
         self.responses = []             # every line serve wrote to stdout, as read
         self.notes = []                 # the notifications (no id) serve sent before a response, in order
+        self.answered = {}              # id -> its response, as read
+        self.order = []                 # the ids in the order serve answered them
 
     def send(self, line):
         self.p.stdin.write(line + "\n")
@@ -103,12 +105,33 @@ class Serve:
             self.notes.append(msg)
 
     def call(self, method, params=None):
+        return self.answer(self.request(method, params))
+
+    def request(self, method, params=None):
+        """Send a request without waiting for its answer (serve answers concurrently, API 20): its id."""
         self.next_id += 1
         msg = {"jsonrpc": "2.0", "id": self.next_id, "method": method}
         if params is not None:
             msg["params"] = params
-        r = self.send(json.dumps(msg))
-        assert r["jsonrpc"] == "2.0" and r["id"] == self.next_id
+        self.p.stdin.write(json.dumps(msg) + "\n")
+        self.p.stdin.flush()
+        return self.next_id
+
+    def answer(self, rid):
+        """The answer to request RID, reading (and keeping, in self.answered and its order in self.order) whatever
+        answers come before it: serve may answer in another order than it was asked."""
+        while rid not in self.answered:
+            self.responses.append(self.p.stdout.readline())
+            if not self.responses[-1]:
+                raise EOFError(f"serve closed stdout before answering {rid}")
+            msg = json.loads(self.responses[-1])
+            if "id" not in msg and "method" in msg:
+                self.notes.append(msg)
+                continue
+            self.answered[msg["id"]] = msg
+            self.order.append(msg["id"])
+        r = self.answered[rid]
+        assert r["jsonrpc"] == "2.0" and r["id"] == rid
         return r
 
     def close(self):
