@@ -249,9 +249,6 @@ export class PluginManager {
   /** The Plugin commands running now (`PLUGIN NAME`): a line that runs one of them again would
    * never end (a command whose line names itself, or two naming each other). */
   private readonly runningCommands = new Set<string>();
-  /** The Plugins whose own `roster.cmd` line runs now: a command of theirs it runs is their
-   * doing, not the user's, so it isn't a new user's call (the user's call carries one hop, Q103). */
-  private readonly byPlugin = new Set<string>();
   private readonly waiting = new Map<string, Prompt>();
   private readonly uses = new Map<string, Use[]>();
   private prompts: Prompt[] = [];
@@ -954,8 +951,7 @@ export class PluginManager {
             const running = `${plugin} ${op.name}`;
             this.runningCommands.add(running);
             try {
-              const context = { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext;
-              this.runFor(plugin, run, context, !this.byPlugin.has(plugin));
+              this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext);
             } finally {
               this.runningCommands.delete(running);
             }
@@ -1173,14 +1169,8 @@ export class PluginManager {
           }),
         );
       }
-      case "cmd": {
-        this.byPlugin.add(plugin);
-        try {
-          return this.runLine(plugin, op.line);
-        } finally {
-          this.byPlugin.delete(plugin);
-        }
-      }
+      case "cmd":
+        return this.runLine(plugin, op.line);
       case "echo":
         return this.ui.say ? this.ui.say(op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
       case "cmdline": {

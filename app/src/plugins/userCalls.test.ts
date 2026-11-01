@@ -97,26 +97,6 @@ describe("the user's call", () => {
   });
 });
 
-describe("roster.cmd", () => {
-  it("running the Plugin's own command doesn't make a new user's call, so it can't carry one on", async () => {
-    const said: string[] = [];
-    const chain = plugin("chain", (roster) => {
-      roster.commands.add("start", { run: () => roster.cmd("then") });
-      roster.commands.add("then", { run: () => said.push(`then ${tried(roster)}`) });
-    });
-    const { manager, registries } = setup({ chain });
-    await manager.start();
-    registries.commands.get("start")?.run({} as never, "");
-    await settle();
-    await settle();
-    expect(said).toEqual(["then copy refused"]);
-    // Typed by the user, the same command is theirs.
-    registries.commands.get("then")?.run({} as never, "");
-    await settle();
-    expect(said).toEqual(["then copy refused", "then copy ok"]);
-  });
-});
-
 describe("loading", () => {
   it("an answer to what init.lua asked, arriving before the load's reply, is applied after it", async () => {
     let loads = 0;
