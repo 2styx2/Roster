@@ -59,6 +59,7 @@ roster.commands.add("scan", { run = function() roster.views.open("scan") end })
 roster.commands.add("done", { run = function() roster.views.close("scan") end })
 roster.commands.add("at", { run = function(a) roster.views.open("scan", { select = a.args }) end })
 roster.commands.add("bad", { run = function() roster.views.open("scan", { select = 7 }) end })
+roster.commands.add("bad2", { run = function() roster.views.open("scan", "b") end })
 local opened = pcall(roster.views.open, "scan")
 roster.status.set("load", { text = tostring(opened) })
 roster.on("lock", function() roster.views.open("scan") end)
@@ -125,6 +126,12 @@ fn only_the_user_opens_a_view_but_the_plugin_may_close_it() {
     let message = &r.error.as_ref().unwrap().message;
     assert!(
         message.contains("roster.views.open: select is the id of a node or row"),
+        "{message}"
+    );
+    let r = host.call("scan", command("bad2"), json!({ "args": "", "words": [] }));
+    let message = &r.error.as_ref().unwrap().message;
+    assert!(
+        message.contains("roster.views.open: opts is a table, as { select = ID }"),
         "{message}"
     );
 }

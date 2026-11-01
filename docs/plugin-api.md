@@ -1510,6 +1510,7 @@ Nothing.
 **Errors**
 
 - `roster.views.open: "ID" isn't a name like …`: a bad `id`.
+- `roster.views.open: opts is a table, as { select = ID }`: `opts` isn't a table.
 - `roster.views.open: select is the id of a node or row (a string)`: `select` isn't a string.
 - `roster.views.open: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
 - And [those of every function](#errors).

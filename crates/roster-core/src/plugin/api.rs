@@ -1227,6 +1227,10 @@ pub const FUNCTIONS: &[Function] = &[
         errors: &[
             ("roster.views.open: \"ID\" isn't a name like …", "a bad `id`"),
             (
+                "roster.views.open: opts is a table, as { select = ID }",
+                "`opts` isn't a table",
+            ),
+            (
                 "roster.views.open: select is the id of a node or row (a string)",
                 "`select` isn't a string",
             ),
