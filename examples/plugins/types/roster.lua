@@ -415,6 +415,7 @@
 ---@field label string What it does (`"Check"`), in the key hints.
 ---@field key? string One character that runs it on the selected node, not one the graph uses itself.
 ---@field icon? roster.RowIcon Its icon in the node list's buttons.
+---@field when? table<string, string|number|(string|number)[]> Only on the nodes whose fields match, as a table action's `when` (since api 3): `{ state = "live" }`, or a list of values (`{ kind = { "esxi", "linux" } }`). It names a node's own fields (`id`, `label`, `kind`, `shape`, `state`, `mark`, `note`, `cluster`, `host`, `detail`); a field the node leaves out matches nothing. Elsewhere its key does nothing and its hint isn't shown.
 ---@field run roster.NodeRun What it runs.
 
 --- What a graph's node or action runs

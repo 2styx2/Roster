@@ -2483,6 +2483,11 @@
           "type": "RowIcon"
         },
         {
+          "name": "when",
+          "required": false,
+          "type": "table<string, string|number|(string|number)[]>"
+        },
+        {
           "name": "run",
           "required": true,
           "type": "NodeRun"
