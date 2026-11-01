@@ -924,14 +924,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 .session-note.save-offer { padding-right: 4px; }
 .session-note.save-offer > span:first-child { color: var(--text); }
 .session-note.save-offer .key-hint { margin-left: 4px; }
-/* The fill key's offer (ticket 119): a note like Save to vault's, with the same entrance; above it
-   when both are up. Offering nothing (another Host's prompt, maybe), it's muted text only. */
-.session-note.fill-offer { padding-right: 4px; }
-.session-note.fill-offer > span:first-child { color: var(--text); }
-.session-note.fill-offer .key-hint { margin-left: 4px; }
-.session-note.fill-offer.elsewhere { padding-right: 12px; }
-.session-note.fill-offer.elsewhere > span:first-child { color: var(--muted); }
-.session-note.save-offer ~ .session-note.fill-offer { bottom: 54px; }
+/* The fill key's offer (ticket 119) wears Save to vault's look; above it when both are up. */
+.save-offer ~ .fill-offer { bottom: 54px; }
 
 .session-error { margin: 40px auto; width: min(680px, calc(100% - 32px)); }
 .session-error.overlay {

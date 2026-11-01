@@ -445,7 +445,7 @@ function FillOffer({
     );
   }
   return (
-    <div className="session-note fill-offer" role="status" aria-label="Password prompt">
+    <div className="session-note save-offer fill-offer" role="status" aria-label="Password prompt">
       <span>
         Password prompt · fill <span className="connect-name">{host}</span>'s from the vault
       </span>
