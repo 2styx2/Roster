@@ -315,38 +315,59 @@ STOP_POLL = 0.1            # s: how soon a stopped check notices it while its ss
 def login_attempt(argv, env, limit, halted=None):
     """Run the login's ssh ARGV for at most LIMIT s: its CompletedProcess, or None when it ran out of time. Once
     HALTED is set (serve's check was stopped: vault.lock, jobs.stop, its last waiter cancelled) its ssh is ended and
-    Stopped raised, so a lock never waits for a login (decision Q119). Ending it is safe: the login runs `true` and
-    nothing else, so nothing on the Host is left half-done, and the attempt is already made or never will be: a
-    stopped check never tries again, so the Host's rate limiter sees no more attempts than before."""
+    Stopped raised (it isn't started at all if HALTED is set already), so a lock never waits for a login (decision
+    Q119). Ending it is safe: the login runs `true` and nothing else, so nothing on the Host is left half-done, and the
+    attempt is already made or never will be: a stopped check never tries again, so the Host's rate limiter sees no
+    more attempts than before. On POSIX ssh runs in a process group of its own, so ending it ends what it started too
+    (a ProxyJump's ssh)."""
+    if halted is not None and halted.is_set():
+        raise Stopped
     proc = subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True)
+                            text=True, start_new_session=os.name != "nt")
     end = time.monotonic() + limit
-    while True:
-        left = end - time.monotonic()
-        try:
-            out, err = proc.communicate(timeout=max(0.0, min(left, STOP_POLL) if halted is not None else left))
-            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
-        except subprocess.TimeoutExpired:
-            if halted is not None and halted.is_set():
-                end_process(proc)
-                raise Stopped from None
-            if time.monotonic() >= end:
-                end_process(proc)
-                return None
+    try:
+        while True:
+            left = end - time.monotonic()
+            try:
+                out, err = proc.communicate(timeout=max(0.0, min(left, STOP_POLL) if halted is not None else left))
+                return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+            except subprocess.TimeoutExpired:
+                if halted is not None and halted.is_set():
+                    raise Stopped from None
+                if time.monotonic() >= end:
+                    return None
+    finally:
+        if proc.returncode is None:         # stopped, out of time, or interrupted (Ctrl+C): it doesn't outlive us
+            end_process(proc)
 
 
 def end_process(proc):
-    """End PROC (SIGTERM first, so ssh closes its connection and any ProxyJump it started), then kill it; never waits
-    long for pipes a child of it may still hold."""
-    for stop in (proc.terminate, proc.kill):
+    """End PROC and everything in its process group on POSIX (SIGTERM first, so ssh closes its connection, then
+    SIGKILL), and always reap it; our ends of its pipes are closed, so a child of it that still holds them can't keep
+    us waiting."""
+    import signal
+
+    def send(sig):
         try:
-            stop()
-            proc.communicate(timeout=2)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+            if os.name == "nt":
+                proc.kill() if sig == "kill" else proc.terminate()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL if sig == "kill" else signal.SIGTERM)
         except OSError:
-            return
+            pass
+    send("term")
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    send("kill")                            # the group too, even once the leader has gone
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+    proc.wait()                             # SIGKILL can't be refused: this returns
 
 
 def login_failure(h, password, stderr):

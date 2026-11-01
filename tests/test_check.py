@@ -364,6 +364,59 @@ def test_locking_mid_login_ends_the_checks_ssh_rather_than_wait_for_it(serve, bo
     s.close()
 
 
+def test_a_login_isnt_started_once_the_check_is_stopped(tmp_path):
+    # review of #216, 6: the ssh started even when the stop came before it
+    import sys
+    import threading
+
+    from roster import diagnose
+    halted = threading.Event()
+    halted.set()
+    ran = tmp_path / "ran"
+    with pytest.raises(diagnose.Stopped):
+        diagnose.login_attempt([sys.executable, "-c", f"open({str(ran)!r}, 'w')"], dict(os.environ), 30, halted)
+    assert not ran.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a process group: POSIX")
+def test_a_stopped_login_ends_what_its_ssh_started_and_reaps_it(tmp_path):
+    # review of #216, 6: a ProxyJump child kept the pipes open, so the killed ssh was never waited for (a zombie)
+    # and the child ran on
+    import threading
+
+    from roster import diagnose
+    child = tmp_path / "child"
+    halted = threading.Event()
+    argv = ["/bin/sh", "-c", f"sleep 60 & echo $! > {child}; wait"]       # ssh and the ProxyJump it started
+    timer = threading.Timer(0.5, halted.set)
+    timer.start()
+    started = time.monotonic()
+    procs = []
+    real = diagnose.subprocess.Popen
+
+    def popen(*a, **k):
+        procs.append(real(*a, **k))
+        return procs[-1]
+    try:
+        diagnose.subprocess.Popen = popen
+        with pytest.raises(diagnose.Stopped):
+            diagnose.login_attempt(argv, dict(os.environ), 30, halted)
+    finally:
+        diagnose.subprocess.Popen = real
+        timer.cancel()
+    assert time.monotonic() - started < 5
+    assert procs[0].returncode is not None                          # reaped
+    pid = int(child.read_text())
+    end = time.monotonic() + 2
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        assert time.monotonic() < end, "the child outlived the stopped login"
+        time.sleep(0.02)
+
+
 def test_the_waiting_form_answers_as_it_always_did(check):
     result = check("typo")["result"]
     assert result["host"] == "typo" and result["ok"] is False
