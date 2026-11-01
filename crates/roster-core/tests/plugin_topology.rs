@@ -236,16 +236,11 @@ impl Serve for FakeServe {
     }
 }
 
-/// The app's limits. A test build is unoptimised, and its Lua runs about six times slower than the
-/// app's (2,000 Hosts: 60 ms in a release build, 350 ms in a test one), so it gets the time a
-/// release build would need, scaled.
+/// The app's own limits, unscaled: Lua is built optimised in test builds too (the workspace's
+/// `Cargo.toml`), so a test times the interpreter the app runs (2,000 Hosts: its longest call is
+/// about half the budget in a test build, a quarter in a release one).
 fn limits() -> Limits {
-    let l = Limits::default();
-    if cfg!(debug_assertions) {
-        Limits { call: l.call * 6, ..l }
-    } else {
-        l
-    }
+    Limits::default()
 }
 
 fn perms(names: &[&str]) -> Vec<Permission> {
