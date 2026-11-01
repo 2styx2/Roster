@@ -18,7 +18,7 @@
 //   old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginData, PluginReply, SiteRequests } from "../backend/types";
+import type { Backend, Host, OpenSession, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginData, PluginReply, SiteRequests } from "../backend/types";
 import { themeOf } from "../config/apply";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { sectionFinder, type FinderItem, type FinderSourceDef } from "../finder/sources";
@@ -223,6 +223,7 @@ type PluginBackend = Pick<
   | "pluginLoad"
   | "pluginCall"
   | "pluginEvent"
+  | "pluginSessions"
   | "pluginUnload"
   | "pluginForget"
   | "pluginBuiltins"
@@ -331,6 +332,8 @@ export class PluginManager {
   private outputTimer: ReturnType<typeof setTimeout> | null = null;
   /** The flush running, if any: the next waits for it (a Session's events stay in order). */
   private flushing: Promise<void> = Promise.resolve();
+  /** The last list of open Sessions sent to the core, once it's there. */
+  private sessionsSent: Promise<unknown> = Promise.resolve();
   private started = false;
   /** Every built-in command id seen so far (issue #184): it only grows, so a built-in an effect
    * takes out and puts back is never a Plugin's own in between. */
@@ -785,7 +788,16 @@ export class PluginManager {
     return this.send(name, payload);
   }
 
+  /** The Sessions open now, in the order they opened: the whole list, which replaces the core's
+   * (`roster.sessions.list()`, ticket 96). Sent even while no Plugin runs, so one loaded later
+   * knows them; a Session event sent after it waits for it, so a listener's list agrees. */
+  sessions(open: OpenSession[]): void {
+    if (this.stopped) return;
+    this.sessionsSent = this.sessionsSent.then(() => this.backend.pluginSessions(open)).catch(() => {});
+  }
+
   private async send(name: PluginEventName, payload: Record<string, unknown>): Promise<void> {
+    if (name === "session_open" || name === "session_exit") await this.sessionsSent;
     if (this.loaded.size === 0) return;
     const replies = await this.backend.pluginEvent(name, payload).catch(() => []);
     for (const r of replies) {
@@ -979,6 +991,8 @@ export class PluginManager {
       const builtin = path.startsWith("builtin:") ? path.slice("builtin:".length) : null;
       const settings = builtin === null ? null : ((await this.ui.builtinSettings?.(builtin).catch(() => null)) ?? null);
       if (builtin !== null) this.builtinConfig.set(builtin, JSON.stringify(settings));
+      // The list of open Sessions sent last is in the core first: the Plugin may read it at load.
+      await this.sessionsSent;
       result = await this.backend.pluginLoad(path, granted ?? ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"], settings);
     } catch (e) {
       await this.unload(name);

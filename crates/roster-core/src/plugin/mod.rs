@@ -292,6 +292,8 @@ pub struct PluginHost {
     /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
     /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
     offline: bool,
+    /// The Sessions open now, as the app last listed them ([`PluginHost::set_sessions`]).
+    sessions: Arc<OpenSessions>,
     /// The app's built-in commands, as it last said ([`PluginHost::set_builtins`]): shared with
     /// every Plugin's runtime, so none is a Plugin's own to run (issue #184).
     builtins: Builtins,
@@ -314,6 +316,7 @@ impl PluginHost {
             data: std::sync::OnceLock::new(),
             logs: Mutex::default(),
             offline: false,
+            sessions: Arc::default(),
             builtins: Builtins::default(),
         }
     }
@@ -549,6 +552,13 @@ impl PluginHost {
         self.settle(plugin, answer)
     }
 
+    /// The Sessions open now, in the order the app saw them open (`roster.sessions.list()`,
+    /// decision Q127): the app's whole list, which replaces the last one. The app sends it on
+    /// start, whenever it changes, and before the `session_open` or `session_exit` that changed it.
+    pub fn set_sessions(&self, open: Vec<(u64, Option<String>)>) {
+        *self.sessions.0.lock().expect("open sessions") = open;
+    }
+
     /// Sends `event` to every Plugin that listens and may hear it, all at once; the slow ones
     /// are given up on together. Only Plugins that changed something or failed answer.
     pub fn event(&self, event: Event) -> Vec<Reply> {
@@ -682,13 +692,19 @@ impl PluginHost {
             all: Arc::clone(&self.all_plugins),
         });
         let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
+        let sessions = Arc::clone(&self.sessions);
         let builtins = Arc::clone(&self.builtins);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let network = network::Setup {
             proxy: Arc::clone(proxy),
             log: Arc::clone(self.logs.lock().expect("plugin logs").entry(name.clone()).or_default()),
         };
-        let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
+        let asks = |p: &Permission| {
+            matches!(
+                p,
+                Permission::Network(_) | Permission::Serve(_) | Permission::InventoryRead
+            )
+        };
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
             let waits = Arc::clone(&serving);
@@ -715,6 +731,7 @@ impl PluginHost {
                     serving,
                     generation,
                     network,
+                    sessions,
                     builtins,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
@@ -865,6 +882,20 @@ fn wait(rx: &Receiver<Answer>, start: Instant, wall: Duration, serving: &ServeWa
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
         }
+    }
+}
+
+/// The Sessions open now, each one's id and Host (`None`: a Quick Connect Session), in the order
+/// the app saw them open: what `roster.sessions.list()` gives (decision Q127). The app sends the
+/// whole list on start and whenever it changes, and each list replaces the last, so nothing here
+/// depends on the order its events arrive in, and a reloaded webview's tab ids start clean.
+#[derive(Default)]
+pub(crate) struct OpenSessions(Mutex<Vec<(u64, Option<String>)>>);
+
+impl OpenSessions {
+    /// Every open Session, in the app's order.
+    pub(crate) fn list(&self) -> Vec<(u64, Option<String>)> {
+        self.0.lock().expect("open sessions").clone()
     }
 }
 

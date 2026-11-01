@@ -107,6 +107,7 @@ describe("what a fake Plugin gets has its cmd:/env: Login references cut (decisi
       roster.commands.add("look", {
         run: () => {
           seen.push(JSON.stringify(roster.inventory?.hosts()), JSON.stringify(roster.inventory?.host("esx-02")));
+          roster.inventory?.request((list) => seen.push(JSON.stringify(list)));
           seen.push(JSON.stringify(roster.serve?.call("changes.diff")));
           try {
             roster.serve?.call("host.check", { host: "esx-02" });
@@ -160,7 +161,7 @@ describe("what a fake Plugin gets has its cmd:/env: Login references cut (decisi
     expect(all).toContain("bw:esx-02 web");
     expect(all).toContain("roster.serve.call host.check: cmd: (code 31)");
     expect(all).toContain("roster.serve.request host.check: cmd: (code 31)");
-    expect(seen).toHaveLength(9);
+    expect(seen).toHaveLength(10);
   });
 });
 
