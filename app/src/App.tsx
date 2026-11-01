@@ -1114,6 +1114,15 @@ function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmId]);
 
+  // A Plugin's float (opened from a table's action, say) takes the keys; closing it puts them back
+  // where they were, in the table (ticket 91).
+  const floatKey = pluginSnap.float ? `${pluginSnap.float.plugin}:${pluginSnap.float.title}` : null;
+  useLayoutEffect(() => {
+    if (floatKey !== null && !document.activeElement?.closest(".plugin-float")) rememberFocus();
+    // Only when a new float comes up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floatKey]);
+
   const closeOverlay = () => {
     setOverlay(null);
     setMode(terminalMode);
@@ -1345,7 +1354,10 @@ function Workspace({
         plugins.answerConfirm(false);
         return restoreFocus();
       }
-      if (pluginSnap.float) return plugins.closeFloat();
+      if (pluginSnap.float) {
+        plugins.closeFloat();
+        return restoreFocus();
+      }
       if (openView) return viewHost.close();
       if (helpAt.at) return helpView.close();
       if (pluginsOpen) return closePlugins();

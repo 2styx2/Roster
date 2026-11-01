@@ -55,7 +55,8 @@ describe("the Mesh controls", () => {
     const plan = await screen.findByRole("grid", { name: "Mesh plan" });
     const esx = rowOf(plan, "esx-02") as HTMLElement;
     expect(esx).toHaveTextContent("make key; write ssh config");
-    await user.click(esx);
+    // Focus is in the plan's table once it's there (ticket 91): `a` works without a click.
+    expect(plan).toHaveFocus();
     await user.keyboard("a");
     const dialog = await screen.findByRole("alertdialog", { name: /Apply the Mesh\?/ });
     expect(dialog).toHaveTextContent("Asked by mesh");

@@ -102,9 +102,18 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // A table that takes focus does so when its grid first draws, which may be after it mounted
+  // (rows that came later: a plan that finished, ticket 91); then only if focus is on the view
+  // around it, never taken from elsewhere.
+  const hasGrid = rows.length > 0;
+  const focusedOnce = useRef(false);
   useEffect(() => {
-    if (autoFocus) grid.current?.focus();
-  }, [autoFocus]);
+    const el = grid.current;
+    if (!autoFocus || !el) return;
+    const at = document.activeElement;
+    if (!focusedOnce.current || at === null || at === document.body || (at !== el && at.contains(el))) el.focus();
+    focusedOnce.current = true;
+  }, [autoFocus, hasGrid]);
   // A row selected from the start is scrolled to, once.
   const scrolled = useRef(false);
   useLayoutEffect(() => {

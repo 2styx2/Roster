@@ -1,7 +1,7 @@
 // What a view and a Host-details section hold (ticket 76), drawn the app's way: text in the app's
 // voice (Inter), facts as Host details shows its own, then a table. Nothing here is markup from a
 // Plugin: it's text, set where the app puts it.
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
 import { PanelButton, usePanel } from "../panel/PanelFrame";
 import { DataTable } from "../ui/DataTable";
@@ -85,6 +85,12 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
     };
     // Once per view: setting it again keeps focus where it is.
   }, [view.id]);
+  // Focus that lands on the view itself (its table came after it opened, a question or a float
+  // handed focus back to it) goes on into its table or graph, where the keys are (ticket 91).
+  const onFocus = (e: FocusEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget) return;
+    e.currentTarget.querySelector<HTMLElement>(".dt-grid, .graph-canvas")?.focus();
+  };
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Escape") return;
     e.preventDefault();
@@ -98,6 +104,7 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
       className={full ? "side-panel view-panel view-full" : "side-panel view-panel"}
       aria-label={`${view.title} (from ${view.source})`}
       onKeyDown={onKeyDown}
+      onFocus={onFocus}
     >
       <header>
         <h2>
