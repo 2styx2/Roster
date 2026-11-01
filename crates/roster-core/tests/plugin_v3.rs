@@ -3,9 +3,10 @@
 //! Plugins, errors that name the function, `coroutine`, removals that check their ids, and
 //! handlers that hear which thing ran them. Driven through `PluginHost`, as the Tauri shell does.
 
+mod common;
+
 use roster_core::plugin::{Limits, Permission, PluginHost, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct FakeServe;
@@ -45,10 +46,8 @@ impl Serve for FakeServe {
 /// quoted and not, in a block and a flow mapping.
 const DIFF: &str = "--- a/roster.yml\n+++ b/roster.yml\n@@ -3,2 +3,4 @@\n   esx-02:\n-    auth: \"cmd:pass show lab/esx-02 --hunter2\"\n+    auth: cmd:pass show lab/esx-03 --hunter3  # rotated\n+    login: { user: admin, auth: env:ESX_PASSWORD }\n+    ssh: { auth: 'env:SSH_PW' }\n";
 
-fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-v3-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-v3-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     let manifest = format!(
         "return {{ name = \"t\", version = \"1.0.0\", api = 3, permissions = {{ {} }} }}",
@@ -60,13 +59,12 @@ fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
 }
 
 /// Loads `init` with `permissions` granted; gives the host and the load's ops.
-fn load(test: &str, permissions: &[&str], init: &str) -> (PluginHost, Vec<Value>, Option<String>) {
+fn load(test: &str, permissions: &[&str], init: &str) -> (PluginHost, Vec<Value>, Option<String>, common::Temp) {
     let host = PluginHost::new(Arc::new(FakeServe), Limits::default());
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir(test, permissions, init)), &grants)
-        .unwrap();
-    (host, reply.ops, reply.error.map(|e| e.to_string()))
+    let folder = plugin_dir(test, permissions, init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
+    (host, reply.ops, reply.error.map(|e| e.to_string()), folder)
 }
 
 /// The text of the status segment `id` the ops set.
@@ -80,7 +78,7 @@ fn said(ops: &[Value], id: &str) -> String {
 
 #[test]
 fn the_api_version_is_3() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "version",
         &[],
         r#"roster.status.set("v", { text = tostring(roster.api_version) })"#,
@@ -91,7 +89,7 @@ fn the_api_version_is_3() {
 
 #[test]
 fn an_unknown_host_is_nil_and_a_known_one_a_table() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "host-nil",
         &["inventory.read"],
         r#"
@@ -106,7 +104,7 @@ fn an_unknown_host_is_nil_and_a_known_one_a_table() {
 
 #[test]
 fn a_plugin_with_inventory_read_gets_the_groups() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "groups",
         &["inventory.read"],
         r#"
@@ -122,7 +120,7 @@ fn a_plugin_with_inventory_read_gets_the_groups() {
 /// line would show): a Plugin sees only which kind it is (decision Q92).
 #[test]
 fn cmd_and_env_references_reach_a_plugin_without_their_text() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "redact",
         &["inventory.read", "serve:hosts.list"],
         r#"
@@ -142,7 +140,7 @@ fn error_of(test: &str, call: &str) -> String {
     let init = format!(
         "local ok, err = pcall(function() {call} end)\nroster.status.set(\"v\", {{ text = tostring(ok) .. \" \" .. tostring(err) }})"
     );
-    let (_, ops, error) = load(test, &[], &init);
+    let (_, ops, error, _folder) = load(test, &[], &init);
     assert_eq!(error, None);
     said(&ops, "v")
 }
@@ -181,7 +179,7 @@ fn removing_checks_the_id_like_setting_does() {
 
 #[test]
 fn a_plugin_takes_away_its_theme_and_key_binding() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "removals",
         &[],
         r#"
@@ -203,7 +201,7 @@ fn a_plugin_takes_away_its_theme_and_key_binding() {
 
 #[test]
 fn coroutines_work_and_cant_outrun_the_budget() {
-    let (_, ops, error) = load(
+    let (_, ops, error, _folder) = load(
         "coroutine",
         &[],
         r#"
@@ -214,7 +212,7 @@ fn coroutines_work_and_cant_outrun_the_budget() {
     assert_eq!(error, None);
     assert_eq!(said(&ops, "v"), "123");
     // An endless loop inside a coroutine is stopped, and resume can't swallow that.
-    let (_, _, error) = load(
+    let (_, _, error, _folder) = load(
         "coroutine-loop",
         &[],
         r#"
@@ -256,7 +254,7 @@ fn the_stubs_are_written_into_a_plugins_folder() {
 /// by the same global hook, and `roster.has` answers in it.
 #[test]
 fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
-    let (host, ops, error) = load(
+    let (host, ops, error, _folder) = load(
         "timer-loop",
         &["inventory.read"],
         r#"
@@ -281,7 +279,7 @@ fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
         // A failed run's UI changes are dropped, so `has` is checked on its own below.
         assert!(r.ops.is_empty());
     }
-    let (_, ops, _) = load(
+    let (_, ops, _, _folder) = load(
         "has",
         &["inventory.read"],
         r#"roster.status.set("has", { text = tostring(roster.has("inventory.read")) .. " " .. tostring(roster.has("terminal.read")) })"#,
@@ -295,7 +293,7 @@ fn a_timer_that_loops_is_stopped_even_inside_a_coroutine() {
 #[test]
 fn cmd_and_env_references_in_raw_text_reach_a_plugin_cut() {
     // host.check connects to the Host: only ever the user's call (decision Q100), a command here.
-    let (host, loaded, error) = load(
+    let (host, loaded, error, _folder) = load(
         "redact-text",
         &["serve:changes.diff", "serve:host.check"],
         r#"

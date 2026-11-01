@@ -5,9 +5,10 @@
 //! user started, as `roster.clipboard.copy` does; `roster.cmd` reaches only what the Plugin's
 //! permissions allow.
 
+mod common;
+
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct NoServe;
@@ -18,10 +19,8 @@ impl Serve for NoServe {
     }
 }
 
-fn plugin_dir(test: &str, permissions: &str, init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-interactions-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &str, init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-interactions-{test}"));
     std::fs::write(
         dir.join("roster-plugin.lua"),
         format!(
@@ -82,7 +81,8 @@ fn a_confirmation_is_the_users_call_and_its_answer_runs_the_plugins_function() {
     roster.on("lock", ask)
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("confirm", "", init)), &[]).unwrap();
+    let folder = plugin_dir("confirm", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let load = status_text(&reply.ops, "load");
     assert!(
@@ -136,9 +136,8 @@ fn a_confirmation_needs_a_run_function() {
     roster.commands.add("bad", { run = function() roster.confirm({ title = "Sure?", run = "publish" }) end })
     "#;
     let host = host();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir("confirm-bad", "", init)), &[])
-        .unwrap();
+    let folder = plugin_dir("confirm-bad", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     let r = host.call("mesh", command(&reply.ops, "bad"), ARGS());
     let message = r.error.unwrap().message;
     assert!(
@@ -158,7 +157,8 @@ fn progress_is_set_any_time_and_cancel_is_a_function() {
     roster.status.set("e", { text = tostring(err) })
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("progress", "", init)), &[]).unwrap();
+    let folder = plugin_dir("progress", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(reply.ops[0]["op"], "progress");
     assert_eq!(reply.ops[0]["id"], "scan");
@@ -182,7 +182,8 @@ fn a_toolbar_control_runs_a_function_or_a_command_line() {
     roster.toolbar.remove("topology")
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("toolbar", "", init)), &[]).unwrap();
+    let folder = plugin_dir("toolbar", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(reply.ops[0]["op"], "toolbar");
     assert_eq!(reply.ops[0]["spec"]["text"], "Scan");
@@ -206,7 +207,8 @@ fn section_and_float_actions_are_functions() {
       links = { { label = "Runbook", url = "https://wiki.example.com/disk-full" } } })
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("actions", "", init)), &[]).unwrap();
+    let folder = plugin_dir("actions", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let dismiss = handler(&reply.ops[0]["spec"]["actions"][0]["run"]);
     assert_eq!(host.call("mesh", dismiss, json!({})).result, "dismissed");
@@ -242,7 +244,8 @@ roster.status.set("load", { text = tostring(err) })
 #[test]
 fn roster_cmd_runs_only_in_a_users_call_and_only_what_its_permissions_allow() {
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("cmd", "", CMD)), &[]).unwrap();
+    let folder = plugin_dir("cmd", "", CMD);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert!(status_text(&reply.ops, "load").contains("roster.cmd: only while the user runs"));
     let r = host.call("mesh", command(&reply.ops, "try"), ARGS());
@@ -300,11 +303,9 @@ fn roster_cmd_runs_only_in_a_users_call_and_only_what_its_permissions_allow() {
 #[test]
 fn roster_cmd_with_sessions_open_may_open_a_host() {
     let host = host();
+    let folder = plugin_dir("cmd-open", "\"sessions.open\"", CMD);
     let (_, reply) = host
-        .load(
-            &Source::Dir(plugin_dir("cmd-open", "\"sessions.open\"", CMD)),
-            &[Permission::SessionsOpen],
-        )
+        .load(&Source::Dir(folder.to_path_buf()), &[Permission::SessionsOpen])
         .unwrap();
     let r = host.call("mesh", command(&reply.ops, "try"), ARGS());
     let out = r.result.as_str().unwrap();
@@ -321,9 +322,8 @@ fn a_removed_command_is_no_longer_the_plugins_own() {
     roster.commands.add("go", { run = function() roster.cmd("alerts") end })
     "#;
     let host = host();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir("cmd-removed", "", init)), &[])
-        .unwrap();
+    let folder = plugin_dir("cmd-removed", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     let r = host.call("mesh", command(&reply.ops, "go"), ARGS());
     assert!(r.error.unwrap().message.contains("isn't one a Plugin may run"));
 }
@@ -338,7 +338,8 @@ fn going_to_a_session_and_a_line_is_the_users_call() {
     roster.status.set("load", { text = tostring(err) .. " " .. tostring(roster.sessions.open) })
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("show", "", init)), &[]).unwrap();
+    let folder = plugin_dir("show", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let load = status_text(&reply.ops, "load");
     assert!(
@@ -373,7 +374,8 @@ fn a_view_update_may_change_columns_sort_and_actions() {
     roster.status.set("e", { text = tostring(err) })
     "#;
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("update", "", init)), &[]).unwrap();
+    let folder = plugin_dir("update", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let set = &reply.ops[0]["spec"]["table"];
     assert_eq!(set["actions"][0]["when"], json!({ "state": "up" }));
@@ -408,9 +410,8 @@ fn a_new_update_or_removing_the_view_drops_the_actions_an_update_gave() {
     roster.commands.add("remove", { run = function() roster.views.remove("mesh") end })
     "#;
     let host = host();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir("update-drop", "", init)), &[])
-        .unwrap();
+    let folder = plugin_dir("update-drop", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     let check = handler(&reply.ops[1]["changes"]["actions"][0]["run"]);
     assert_eq!(host.call("mesh", check, json!({})).result, "check");
     // A second update's actions replace the first's.

@@ -2,9 +2,11 @@
 //! → its default profile's font, size, weight, cell height, cursor and colour scheme → a block of
 //! `roster.set` calls and a Theme in init.lua, shown as a diff before anything is written.
 
+mod common;
+
 use roster_core::config::{self, FontSize};
 use roster_core::wt::{self, DiffKind};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(
@@ -15,11 +17,8 @@ fn fixture(name: &str) -> String {
     .unwrap()
 }
 
-fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-wt-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp_dir(name: &str) -> common::Temp {
+    common::temp(&format!("wt-{name}"))
 }
 
 #[test]

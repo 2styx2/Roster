@@ -1,6 +1,8 @@
 //! Packages (ticket 24, decision Q83): Plugins from git repos, pinned in `roster.lock`. The
 //! sources here are local bare repos in a temp dir, so nothing touches the network.
 
+mod common;
+
 use roster_core::config::{self, PackageSpec};
 use roster_core::package::{Packages, check_specs, name_of, url_of};
 use roster_core::plugin::{Limits, PluginHost, Serve, Source};
@@ -9,11 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-package-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("package-{test}"))
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

@@ -10,6 +10,8 @@
 //! Plugin's behaviour, not a guess at it. `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core
 //! --test plugin_mesh` rewrites the file.
 
+mod common;
+
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
@@ -517,8 +519,7 @@ fn started(world: World) -> Run {
 
 #[test]
 fn it_installs_from_roster_s_repo_with_dir_and_asks_for_exactly_its_permissions() {
-    let root = std::env::temp_dir().join(format!("roster-core-plugin-mesh-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let root = common::temp("plugin-mesh");
     let (bare, work) = (root.join("roster.git"), root.join("work"));
     std::fs::create_dir_all(&bare).unwrap();
     std::fs::create_dir_all(work.join("plugins")).unwrap();

@@ -5,9 +5,10 @@
 //! never as the user's call; serve's errors reach a Plugin cut as its answers do (Q92); a failed
 //! call leaves nothing behind in the core; and one call can't keep roster serve busy for ever.
 
+mod common;
+
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -39,10 +40,8 @@ impl Recorded {
     }
 }
 
-fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-user-calls-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-user-calls-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     std::fs::write(
         dir.join("roster-plugin.lua"),
@@ -66,13 +65,12 @@ fn listening(serve: &Arc<Recorded>, limits: Limits) -> (PluginHost, Receiver<Rep
     (host, rx)
 }
 
-fn load(host: &PluginHost, test: &str, permissions: &[&str], init: &str) -> Reply {
+fn load(host: &PluginHost, test: &str, permissions: &[&str], init: &str) -> (Reply, common::Temp) {
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir(test, permissions, init)), &grants)
-        .unwrap();
+    let folder = plugin_dir(test, permissions, init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
     ok(&reply);
-    reply
+    (reply, folder)
 }
 
 fn ok(r: &Reply) {
@@ -163,7 +161,7 @@ roster.defer(50, function() all("timer") end)
 roster.commands.add("go", {{ run = function() all("user") end }})
 "#
     );
-    let loaded = load(&host, "flagged", &permissions, &init);
+    let (loaded, _folder) = load(&host, "flagged", &permissions, &init);
     let mut said = notices(&loaded.ops);
     let timer = handler(&op(&loaded.ops, "timer")["run"]);
     let fired = host.call("guarded", timer, json!({}));
@@ -200,7 +198,7 @@ roster.commands.add("go", {{ run = function() all("user") end }})
 fn an_inventory_write_waits_for_the_users_call() {
     let serve = Arc::new(Recorded::default());
     let (host, _rx) = listening(&serve, Limits::default());
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "write",
         &["inventory.write"],
@@ -255,7 +253,7 @@ end }})
 roster.commands.add("go", {{ run = function() roster.notify("command: " .. tried()) end }})
 "#
     );
-    let loaded = load(&host, "app-calls", &["serve:discover.start"], &init);
+    let (loaded, _folder) = load(&host, "app-calls", &["serve:discover.start"], &init);
     let finder = op(&loaded.ops, "finder");
     let items = host.call("guarded", handler(&finder["spec"]["items"]), json!({}));
     ok(&items);
@@ -290,7 +288,7 @@ fn serves_errors_reach_a_plugin_cut_as_its_answers_do() {
     let serve = Arc::new(Recorded::default());
     let (host, rx) = listening(&serve, Limits::default());
     // host.get fails with a message that echoes a Login reference (Recorded's).
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "errors",
         &["serve:host.get"],
@@ -331,7 +329,7 @@ fn a_failed_call_leaves_nothing_behind_in_the_core() {
             ..Limits::default()
         },
     );
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "failed",
         &[],
@@ -381,7 +379,7 @@ end })
 fn a_command_named_after_roster_s_isnt_the_plugins_own() {
     let serve = Arc::new(Recorded::default());
     let (host, _rx) = listening(&serve, Limits::default());
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "names",
         &[],
@@ -427,7 +425,7 @@ fn one_call_can_ask_roster_serve_only_so_many_times() {
         ..Recorded::default()
     });
     let (host, _rx) = listening(&serve, Limits::default());
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "loop",
         &["serve:mesh.status"],
@@ -518,7 +516,7 @@ link("b", "c")
 link("c", "a")
 "#
     );
-    let loaded = load(&host, "chain", &["serve:discover.start", "serve:mesh.cut"], &init);
+    let (loaded, _folder) = load(&host, "chain", &["serve:discover.start", "serve:mesh.cut"], &init);
     let mut said = Vec::new();
     let mut r = host.call("guarded", command(&loaded.ops, "a"), ARGS());
     for _ in 0..5 {
@@ -572,7 +570,7 @@ end }})
 roster.commands.add("next", {{ run = function() roster.notify("next: " .. tried()) end }})
 "#
     );
-    let loaded = load(
+    let (loaded, _folder) = load(
         &host,
         "hops",
         &["serve:mesh.status", "serve:discover.start", "serve:mesh.cut"],
