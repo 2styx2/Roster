@@ -6,9 +6,11 @@
 --
 -- Every Mesh run (plan, apply, cut) is a job in roster serve (`background = true`, API 17): a
 -- Mesh of many Hosts takes minutes. Every call into serve is a `roster.serve.request` that
--- doesn't wait (decision Q103): serve answers one request at a time, and the app's Publish can
--- hold it for a minute or two, while the Mesh's controls keep answering. A timer asks `mesh.job`
--- once a second while a job runs, for the progress, one question at a time.
+-- doesn't wait (decision Q103): the app's Publish can hold serve for a minute or two, while the
+-- Mesh's controls keep answering. serve pushes a job's
+-- progress (`job_progress`, serve API 20), and the Plugin asks `mesh.job` once when it ends, for
+-- the result. Until the first `job_progress` comes (an older serve sends none), a timer asks
+-- `mesh.job` once a second instead, one question at a time.
 --
 -- Install it as a Package (plugins/README.md):
 --   packages = { { "https://github.com/2styx2/roster", dir = "plugins/mesh" } }
@@ -38,6 +40,8 @@ local state = {
   job = nil, ---@type MeshJob? the job being followed
   starting = nil, ---@type string? the job asked for, until serve answers
   asking = false, -- a mesh.job question is out
+  recheck = false, -- the job ended while that question was out: ask again once it's back
+  pushed = false, -- serve pushes job_progress: no timer needed
   refreshing = false, -- a refresh is out
   again = false, -- refresh again once it's back
   timer = nil, ---@type roster.Timer?
@@ -108,7 +112,7 @@ refresh = function()
     state.jobs = true
     if j and j.state == "running" and not state.job then
       state.job = { job = j.job, action = j.action, host = j.host, total = j.total }
-      state.timer = roster.every(POLL, function() poll() end)
+      if not state.pushed then state.timer = roster.every(POLL, function() poll() end) end
     end
     ask_status()
   end)
@@ -174,25 +178,52 @@ local function stop(job)
   ask("mesh.stop", { job = job }, function() end)
 end
 
--- The timer's function, while a job runs: one question out at a time, however long serve takes.
+-- The job's progress in the status bar: from mesh.job's answer or a job_progress event.
+local function draw(j)
+  state.done = j.done
+  roster.progress.set("mesh", {
+    title = (ACTIONS[j.action] or j.action) .. (state.job.host and (" " .. state.job.host .. " out") or ""),
+    text = j.at and ("At " .. j.at) or nil,
+    done = j.done,
+    total = j.total,
+    cancel = can("mesh.stop") and function() stop(state.job.job) end or nil,
+  })
+  if j.action == "plan" then show() end
+end
+
+-- Asks mesh.job how the job is getting on (the timer's function, and once a job starts or ends):
+-- one question out at a time, however long serve takes.
 poll = function()
-  if not state.job or state.asking then return end
-  state.asking = true
+  if not state.job then return end
+  if state.asking then
+    state.recheck = true
+    return
+  end
+  state.asking, state.recheck = true, false
   local following = state.job.job
   ask("mesh.job", { job = following, brief = true }, function(ok, j)
     state.asking = false
     -- serve is busy or gone for a moment (try again on the next tick), or the job was let go.
     if not ok or not state.job or state.job.job ~= following then return end
     if j == nil or j.state ~= "running" then return over(j) end
-    state.done = j.done
-    roster.progress.set("mesh", {
-      title = (ACTIONS[j.action] or j.action) .. (j.host and (" " .. j.host .. " out") or ""),
-      text = j.at and ("At " .. j.at) or nil,
-      done = j.done,
-      total = j.total,
-      cancel = can("mesh.stop") and function() stop(j.job) end or nil,
-    })
-    if j.action == "plan" then show() end
+    draw(j)
+    if state.recheck then poll() end
+  end)
+end
+
+-- serve's job_progress (API 20): the progress as it moves, and mesh.job asked once it's over.
+-- The first one means serve pushes, so the timer goes.
+if can("mesh.job") then
+  roster.on("job_progress", function(e)
+    if e.kind ~= "mesh" then return end
+    state.pushed = true
+    if state.timer then
+      roster.cancel(state.timer)
+      state.timer = nil
+    end
+    if not state.job or state.job.job ~= e.job then return end
+    if e.state == "running" or e.state == "stopping" then return draw(e) end
+    poll()
   end)
 end
 
@@ -240,7 +271,9 @@ local function start(action, params)
       total = r.total,
       cancel = can("mesh.stop") and function() stop(r.job) end or nil,
     })
-    state.timer = roster.every(POLL, poll)
+    -- Pushed progress follows it from here, after one question (it may be over already: its
+    -- end was pushed before this answer came); until serve has pushed any, a timer asks.
+    if state.pushed then poll() else state.timer = roster.every(POLL, poll) end
     show()
   end)
   return true

@@ -74,6 +74,13 @@ describe("the discover stand-in", () => {
         case "timer":
           reply = await host.pluginCall("discover", timer, {});
           break;
+        case "push": {
+          // serve's job.progress, as the app hands it to the Plugins (API 20).
+          const payload = { kind: "discover", job: "scan-1", action: "scan", state: step.state, done: step.done, total: 254, at: null };
+          const [heard] = await host.pluginEvent("job_progress", payload);
+          reply = heard ?? { plugin: "discover", result: null, ops: [], error: null, disabled: null };
+          break;
+        }
         case "action": {
           const actions = ((view?.spec as Op).table as Op).actions as Op[];
           const action = actions.find((a) => a.label === step.label);

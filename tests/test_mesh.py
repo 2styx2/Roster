@@ -1085,7 +1085,7 @@ def test_serve_closing_mid_job_stops_it_and_records_what_it_didnt_finish(net, se
 
 
 def test_a_background_run_works_out_the_mesh_once_while_serve_waits(net, monkeypatch):
-    # review 8 #10: serve answers nothing while it starts a job (state.lock), and the graph of a big meshed group is
+    # review 8 #10: serve answered nothing while it started a job (one request at a time), and the graph of a big meshed group is
     # every pair in it; starting the job worked it out twice (and the run a third time)
     from roster import serve as rpc
     state = rpc.State(str(net.cfg_path))
@@ -1096,6 +1096,85 @@ def test_a_background_run_works_out_the_mesh_once_while_serve_waits(net, monkeyp
         r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "mesh.apply",
                                           "params": {"background": True}}))
         assert len(calls) == 1
-    state.mesh_job.thread.join(20)
-    assert len(calls) == 1 and state.mesh_job.result["pending"] == {}
-    assert r["result"]["total"] == state.mesh_job.total == state.mesh_job.done
+    job = state.jobs.latest("mesh")
+    assert job.wait(20)
+    assert len(calls) == 1 and job.result["pending"] == {}
+    assert r["result"]["total"] == job.total == job.done
+
+
+# ---------------------------------------------------------------- serve answers concurrently (ticket 101, Q112)
+
+def test_a_quick_read_answers_while_a_waiting_plan_is_on_a_slow_host(net, serve):
+    import time
+    s = serve("-c", str(net.cfg_path))
+    s.call("inventory.info")
+    (net.host("orion-2") / "slow").write_text("3")                      # the stand-in slow Host
+    plan = s.request("mesh.plan")                                       # the waiting form: no background
+    time.sleep(0.5)
+    t = time.monotonic()
+    assert s.call("mesh.status")["result"]["out_of_date"] is True
+    assert s.call("hosts.list")["result"]["hosts"]
+    took = time.monotonic() - t
+    assert took < 1, f"two quick reads took {took:.2f} s behind a Mesh plan"
+    busy = s.call("mesh.apply", {"background": True})["error"]          # the waiting plan is a job too
+    assert busy["code"] == 111
+    assert s.answer(plan)["result"]["applied"] is False
+    assert s.order[-1] == plan
+
+
+def test_a_mesh_job_pushes_its_progress_and_its_end(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("0.5")
+    started = s.call("mesh.apply", {"background": True})["result"]
+    j = wait_for(s, started["job"])
+    assert j["state"] == "done"
+    s.call("jobs.list")
+    notes = [n["params"] for n in s.notes if n["method"] == "job.progress"]
+    assert notes[0] == {"kind": "mesh", "job": started["job"], "action": "apply", "state": "running", "done": 0,
+                        "total": started["total"], "at": None}
+    assert any(n["at"] == "orion-2" for n in notes)                     # where it was, as it went
+    assert notes[-1]["state"] == "done" and notes[-1]["done"] == notes[-1]["total"]
+    assert all("result" not in n for n in notes)                        # mesh.job has it
+    assert s.call("jobs.list")["result"]["jobs"] == [{**notes[-1]}]
+
+
+def test_jobs_stop_stops_a_mesh_job_as_mesh_stop_does(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    (net.host("orion-2") / "slow").write_text("1")
+    started = s.call("mesh.apply", {"background": True})["result"]
+    wait_for(s, started["job"], until=lambda j: j["at"] == "orion-2")
+    assert s.call("jobs.stop", {"kind": "mesh", "job": started["job"]})["result"]["stopping"] is True
+    j = wait_for(s, started["job"])
+    assert j["state"] == "done" and j["stopped"] is True and j["result"]["pending"]
+
+
+def test_a_cut_whose_write_waits_too_long_for_roster_yml_says_so_and_still_cut(net, monkeypatch):
+    # review 6: a cut's write waited for roster.yml with no limit, so mesh: false landed long after anyone asked
+    import threading
+
+    from roster import serve as rpc
+    monkeypatch.setattr(rpc, "LOCK_WAIT", 0.2)
+    state = rpc.State(str(net.cfg_path))
+    held, release = threading.Event(), threading.Event()
+
+    def publish():                                  # the app's Publish takes roster.yml once the cut is done
+        state.lock.acquire(False, None, "changes.publish")
+        held.set()
+        release.wait(10)
+        state.lock.release()
+    cut = mesh.cut
+
+    def cut_then_publish(*a, **k):
+        result = cut(*a, **k)
+        threading.Thread(target=publish, daemon=True).start()
+        held.wait(5)
+        return result
+    monkeypatch.setattr(mesh, "cut", cut_then_publish)
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "mesh.cut",
+                                      "params": {"host": "orion-2", "background": True}}))
+    job = state.jobs.latest("mesh")
+    assert job.wait(10), r
+    release.set()
+    change = job.result["change"]
+    assert change["written"] is False and "roster.yml is busy: changes.publish is still running" in change["error"]
+    assert "mesh: false" in change["fix"]

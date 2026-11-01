@@ -25,6 +25,7 @@ import { hostRow } from "../sidebar/sections";
 import { parseMarkdown } from "../help/markdown";
 import { pluginTutorial } from "../tutor/plugin";
 import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
+import { HEALTH_LATER_MS, SECTION_WAIT_MS } from "../health/health";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
@@ -282,6 +283,10 @@ export class PluginManager {
   /** A Plugin command's last completions (api 3), by plugin and command: what Tab shows while the
    * next answer comes. */
   private readonly completions = new Map<string, { arg: string; list: string[] }>();
+  /** The `:check` runs whose `check` returned "later", by `PLUGIN:RUN`: what takes their lines
+   * (`roster.health.answer`, decision Q112h). */
+  private readonly laterChecks = new Map<string, (checks: unknown) => void>();
+  private lastCheck = 0;
 
   constructor(
     private readonly backend: PluginBackend,
@@ -1125,7 +1130,14 @@ export class PluginManager {
             : "command" in check
               ? () => [{ section: op.id, level: "error" as const, message: "check must be a function" }]
               : async () => this.healthCheck(plugin, op.id, check.handler);
-        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: run }));
+        // A check may answer later, from a request's answer: :check waits for it that long.
+        const wait = check === undefined ? undefined : HEALTH_LATER_MS + SECTION_WAIT_MS;
+        return this.put(l, `health:${op.id}`, r.health.register({ id: op.id, source: plugin, title: op.title, order: 500, checks: run, ...(wait ? { wait } : {}) }));
+      }
+      case "health_answer": {
+        // Only the Plugin whose run it is can answer it; one for a run that's over is dropped.
+        this.laterChecks.get(`${plugin}:${op.check}`)?.(op.checks);
+        return;
       }
       case "badge": {
         const id = `${plugin}:${op.host}`;
@@ -1278,11 +1290,31 @@ export class PluginManager {
   private async healthCheck(plugin: string, id: string, handler: number) {
     const error = (message: string) => [{ section: id, level: "error" as const, message, fix: `:plugins says how ${plugin} is doing; :plugins reload ${plugin} runs it again` }];
     if (!this.loaded.has(plugin)) return error(`${plugin} isn't running`);
-    const reply = await this.backend.pluginCall(plugin, handler, { health: id, ...this.onScreen(plugin) }, false).catch((e: unknown) => this.lost(plugin, e));
-    this.used(plugin, "ran its :check section");
-    this.apply(reply);
-    if (reply.error) return error(`check failed: ${describeError(reply.error)}`);
-    const parsed = parseHealthChecks(reply.result, `roster.health.set ${id}: check`);
+    // Waiting for its answer before it runs: it may answer in the same reply.
+    const run = ++this.lastCheck;
+    const key = `${plugin}:${run}`;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const answered = new Promise<{ checks: unknown } | "late">((resolve) => {
+      this.laterChecks.set(key, (checks) => resolve({ checks }));
+      timer = setTimeout(() => resolve("late"), HEALTH_LATER_MS);
+    });
+    let result: unknown;
+    try {
+      const reply = await this.backend.pluginCall(plugin, handler, { health: id, check: run, ...this.onScreen(plugin) }, false).catch((e: unknown) => this.lost(plugin, e));
+      this.used(plugin, "ran its :check section");
+      this.apply(reply);
+      if (reply.error) return error(`check failed: ${describeError(reply.error)}`);
+      result = reply.result;
+      if (result === "later") {
+        const later = await answered;
+        if (later === "late") return error(`check said it would answer later, and didn't within ${HEALTH_LATER_MS / 1000} seconds`);
+        result = later.checks;
+      }
+    } finally {
+      clearTimeout(timer);
+      this.laterChecks.delete(key);
+    }
+    const parsed = parseHealthChecks(result, `roster.health.set ${id}: check`);
     if ("invalid" in parsed) return error(parsed.invalid);
     return parsed.map((c) => ({ section: id, ...c }));
   }

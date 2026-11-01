@@ -385,6 +385,61 @@ fn events_reach_only_plugins_that_may_hear_them() {
     assert_eq!(replies.len(), 2);
 }
 
+/// serve's job progress (ticket 101, decision Q112f): a Plugin hears a job only of a kind it may
+/// already ask about, a Mesh job with `serve:mesh.job`, a scan with `serve:discover.status`.
+#[test]
+fn job_progress_reaches_only_plugins_that_may_ask_about_that_kind_of_job() {
+    let listener = r#"
+        local ok, err = pcall(roster.on, "job_progress", function(e)
+          roster.notify(e.kind .. " " .. tostring(e.job) .. " " .. e.state .. " " .. e.done .. "/" .. e.total)
+        end)
+        if not ok then roster.notify(err) end
+    "#;
+    let meshy = plugin_dir("meshy-ev", &manifest("meshy", &["serve:mesh.job"]), listener);
+    let scanny = plugin_dir("scanny-ev", &manifest("scanny", &["serve:discover.status"]), listener);
+    let neither = plugin_dir("neither-ev", &manifest("neither", &["serve:mesh.status"]), listener);
+    let (host, _) = host();
+    host.load(&Source::Dir(meshy), &perms(&["serve:mesh.job"])).unwrap();
+    host.load(&Source::Dir(scanny), &perms(&["serve:discover.status"]))
+        .unwrap();
+    let (_, deaf) = host
+        .load(&Source::Dir(neither), &perms(&["serve:mesh.status"]))
+        .unwrap();
+    assert!(
+        deaf.ops[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("the job_progress event needs the serve:mesh.job or serve:discover.status permission"),
+        "{:?}",
+        deaf.ops
+    );
+    let heard = |payload: serde_json::Value| -> Vec<(String, String)> {
+        host.event(Event {
+            name: "job_progress".into(),
+            payload,
+        })
+        .into_iter()
+        .map(|r| (r.plugin, r.ops[0]["text"].as_str().unwrap().to_string()))
+        .collect()
+    };
+    assert_eq!(
+        heard(
+            json!({ "kind": "mesh", "job": 3, "action": "apply", "state": "running", "done": 1, "total": 4, "at": "orion-2" })
+        ),
+        vec![("meshy".to_string(), "mesh 3 running 1/4".to_string())]
+    );
+    assert_eq!(
+        heard(
+            json!({ "kind": "discover", "job": "scan-1", "action": "scan", "state": "done", "done": 254, "total": 254 })
+        ),
+        vec![("scanny".to_string(), "discover scan-1 done 254/254".to_string())]
+    );
+    assert!(
+        heard(json!({ "kind": "backup", "job": 1, "action": "x", "state": "running", "done": 0, "total": 1 }))
+            .is_empty()
+    );
+}
+
 #[test]
 fn an_error_while_loading_names_the_plugin_and_line_and_disables_it() {
     let dir = plugin_dir("loaderr", &manifest("broken", &[]), "local x = nil\n\nx.y = 1\n");

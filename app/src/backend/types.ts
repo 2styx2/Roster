@@ -461,6 +461,23 @@ export const SIGN_OUT_API_VERSION = 14;
  * `mesh.cut`, `mesh.status`, and a Host's `mesh`. The app's controls for them are T50's Plugin. */
 export const MESH_API_VERSION = 15;
 
+/** serve API 20 (ticket 101, decision Q112): serve answers requests concurrently, its jobs push
+ * `job.progress`, and `host.get` takes `settled`. */
+export const JOBS_API_VERSION = 20;
+
+/** serve's `job.progress` notification: a job started, moved on or ended. Never its result. */
+export type JobProgress = {
+  kind: string;
+  job: number | string;
+  action: string;
+  state: "running" | "stopping" | "done" | "stopped" | "failed";
+  done: number;
+  total: number;
+  at: string | null;
+  host?: string;
+  error?: { code: number; message: string; data?: unknown };
+};
+
 /** roster's code for the Mesh (ticket 39): `rotate` names a Host that isn't a Mesh source. */
 export const MeshError = { notASource: 110, busy: 111 } as const;
 
@@ -755,8 +772,10 @@ export interface Backend {
   connect(options?: { restart?: boolean }): Promise<BackendInfo>;
   /** Every Host and group, in roster.yml order. */
   listHosts(): Promise<HostList>;
-  /** One Host by exact name. */
-  getHost(name: string): Promise<Host>;
+  /** One Host by exact name. `settled` (serve API 20) waits for a write to roster.yml under way
+   * first: serve answers concurrently, so a check after a timed-out `host.add` needs it. An older
+   * serve answers in order, which settles it anyway. */
+  getHost(name: string, options?: { settled?: boolean }): Promise<Host>;
   /** Where the vault stands. */
   vaultStatus(): Promise<VaultStatus>;
   /** Unlock the vault with its master password. Rejects with BackendCallError (VaultError codes). */
@@ -850,6 +869,9 @@ export interface Backend {
   watchInventory(auto: boolean): Promise<{ watching: boolean; auto: boolean }>;
   /** Calls `onChange` for each `inventory.changed`; returns stop. */
   onInventoryChanged(onChange: (change: InventoryChanged) => void): () => void;
+  /** Calls `onProgress` for each `job.progress` (serve API 20): a Mesh run's or a scan's progress,
+   * for the Plugins' `job_progress` event. Returns stop. */
+  onJobProgress(onProgress: (job: JobProgress) => void): () => void;
   /** `host.scan_key`: the host key an address offers, for the user to confirm before a first login. */
   scanKey(address: string, port: number): Promise<ScannedKey>;
   /** `host.scan_key {host}`: the key a Host offers, for the question before a Session to a Host
@@ -998,5 +1020,6 @@ export const PLUGIN_EVENTS = [
   "session_exit",
   "inventory_changed",
   "terminal_output",
+  "job_progress",
 ] as const;
 export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

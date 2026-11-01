@@ -339,7 +339,7 @@ pub const MODULES: &[Module] = &[
     Module {
         name: "roster.serve",
         summary: "roster serve's methods, by name",
-        doc: "`nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers one request at a time, so a call can wait behind the app's own (a Publish: a minute or two). [`roster.serve.request`](#rosterserverequestmethod-params-done) doesn't wait: prefer it in anything the user starts, and for a job's progress. [`roster.serve.call`](#rosterservecallmethod-params) waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.",
+        doc: "`nil` unless the Plugin was granted at least one `serve:<method>` permission. roster serve answers several requests at once, but a call can still wait: for its turn (2 calls into serve at a time for each Plugin, 4 for all of them) or behind the app's own write (a Publish: a minute or two). [`roster.serve.request`](#rosterserverequestmethod-params-done) doesn't wait: prefer it in anything the user starts. A job's progress comes as the `job_progress` event (serve API 20). [`roster.serve.call`](#rosterservecallmethod-params) waits, and the user's next action in the Plugin waits behind it; the wait never counts against the Plugin.",
     },
     Module {
         name: "roster.http",
@@ -459,7 +459,7 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "event",
                 "EventName",
-                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed` or `terminal_output`.",
+                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.",
             ),
             p(
                 "listener",
@@ -951,6 +951,25 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 2,
         example: "roster.health.set(\"recent-alerts\", {\n  title = \"Recent alerts\",\n  check = function()\n    if not granted(\"terminal.read\") then\n      return { { level = \"warn\", message = \"terminal.read isn't granted\", fix = \"Allow it in :plugins\" } }\n    end\n    return { { level = \"ok\", message = #alerts .. \" alerts so far\" } }\n  end,\n})",
+    },
+    Function {
+        path: "roster.health.answer",
+        params: &[
+            p(
+                "check",
+                "integer",
+                "The `check` field of what the section's `check` was called with.",
+            ),
+            p("lines", "HealthCheck[]", "The section's lines for that run."),
+        ],
+        summary: "Answers a `:check` section's check that returned `\"later\"`",
+        doc: "A `check` that needs roster serve returns `\"later\"` at once and answers with this from the request's `done`, so it never waits for serve on the Plugin's thread. The app shows the section once it answers, or an `ERROR` line if it hasn't within 30 seconds; an answer for a run that's over (answered, or timed out) is dropped. Any run of the Plugin may answer, not only a call the user started.",
+        returns: ("", ""),
+        errors: &[("roster.health.answer: lines: …", "lines that aren't plain data")],
+        refused: &["lines whose `level` isn't `ok`, `warn` or `error`, or without a `message`"],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "check = function(e)\n  roster.serve.request(\"discover.plan\", { targets = { \"10.0.0.0/30\" } }, function(plan, err)\n    roster.health.answer(e.check, plan and { { level = \"ok\", message = \"scans with \" .. plan.scanner } }\n      or { { level = \"error\", message = err } })\n  end)\n  return \"later\"\nend",
     },
     Function {
         path: "roster.health.remove",
@@ -1665,7 +1684,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Asks roster serve without waiting: `done` gets the answer",
-        doc: "Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (it answers one request at a time: a Publish holds it for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, a flagged one (`mesh.apply`, `discover.start`, …) only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for a flagged method. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.",
+        doc: "Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (a Publish holds `roster.yml` for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, a flagged one (`mesh.apply`, `discover.start`, …) only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for a flagged method. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.",
         returns: ("", ""),
         errors: &[
             (
@@ -1798,6 +1817,12 @@ pub const EVENTS: &[Event] = &[
         needs: &["terminal.read"],
         payload: "TerminalOutputEvent",
         when: "A Session printed something: a few times a second, in batches.",
+    },
+    Event {
+        name: "job_progress",
+        needs: &["serve:mesh.job", "serve:discover.status"],
+        payload: "JobProgressEvent",
+        when: "One of roster serve's jobs (a Mesh run, a Discover scan) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes). A Plugin hears a Mesh job only with `serve:mesh.job` and a scan only with `serve:discover.status`: what it could ask anyway. The result isn't in it: ask `mesh.job` or `discover.status` once it ends.",
     },
 ];
 
@@ -1967,6 +1992,11 @@ pub const TYPES: &[Type] = &[
             o("item", "string", "The item's `id` (its place, if it has none)."),
             o("segment", "string", "The status segment's id."),
             o("health", "string", "The `:check` section's id, for its `check`."),
+            o(
+                "check",
+                "integer",
+                "This `:check` run of the section, for its `check`: a check that returns `\"later\"` answers with [`roster.health.answer`](#rosterhealthanswercheck-lines)`(e.check, lines)` (since api 3).",
+            ),
             o("toolbar", "string", "The toolbar control's id."),
             o("progress", "string", "The progress's id, for its `cancel`."),
             o(
@@ -2331,8 +2361,8 @@ pub const TYPES: &[Type] = &[
             ),
             o(
                 "check",
-                "fun(ctx: HandlerContext): HealthCheck[]",
-                "Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`.",
+                "fun(ctx: HandlerContext): HealthCheck[]|\"later\"",
+                "Called on each `:check` (since api 3): returns the section's lines, or `\"later\"` and answers with [`roster.health.answer`](#rosterhealthanswercheck-lines) within 30 seconds, from a `roster.serve.request`'s `done` say. Wins over `checks`.",
             ),
         ],
         open: false,
@@ -3569,7 +3599,7 @@ pub const TYPES: &[Type] = &[
         name: "EventName",
         summary: "An event a Plugin can listen for",
         doc: "",
-        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"",
+        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\"",
         fields: &[],
         open: false,
     },
@@ -3624,6 +3654,44 @@ pub const TYPES: &[Type] = &[
                 "code",
                 "integer",
                 "ssh's exit code; `nil` when it failed to start or its tab was closed.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "JobProgressEvent",
+        summary: "`job_progress`'s payload: serve's `job.progress` notification",
+        doc: "",
+        alias: "",
+        fields: &[
+            f("kind", "string", "`\"mesh\"` or `\"discover\"`."),
+            f(
+                "job",
+                "integer|string",
+                "Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `\"scan-N\"` (`discover.status { scan = ... }`).",
+            ),
+            f(
+                "action",
+                "string",
+                "`\"plan\"`, `\"apply\"` or `\"cut\"` for the Mesh; `\"scan\"` for Discover.",
+            ),
+            f(
+                "state",
+                "string",
+                "`\"running\"`, `\"stopping\"`, or how it ended: `\"done\"`, `\"stopped\"`, `\"failed\"`.",
+            ),
+            f(
+                "done",
+                "integer",
+                "How far it has got: Hosts visited, addresses scanned.",
+            ),
+            f("total", "integer", "Of how many."),
+            o("at", "string", "The Host it's on, when it's on one."),
+            o("host", "string", "A cut's Host."),
+            o(
+                "error",
+                "table",
+                "How it failed: `{ code, message, data? }`, as serve's error.",
             ),
         ],
         open: false,

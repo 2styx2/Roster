@@ -34,7 +34,7 @@ export interface FakeRoster {
   status: { set(id: string, spec: Spec): void; remove(id: string): void };
   finders: { set(id: string, spec: Spec): void; remove(id: string): void };
   help: { set(id: string, spec: Spec): void; remove(id: string): void };
-  health: { set(id: string, spec: Spec): void; remove(id: string): void };
+  health: { set(id: string, spec: Spec): void; remove(id: string): void; answer(check: number, lines: unknown): void };
   tutor: { set(id: string, spec: Spec): void; remove(id: string): void };
   badges: { set(host: string, text: string | null): void };
   float: { open(spec: Spec): void; close(): void };
@@ -100,6 +100,16 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   session_exit: ["inventory.read", "terminal.read"],
   inventory_changed: ["inventory.read"],
   terminal_output: ["terminal.read"],
+  job_progress: ["serve:mesh.job", "serve:discover.status"],
+};
+
+/** As runtime.rs's JOB_KINDS: a `job_progress` reaches a Plugin only for a kind of job it may ask
+ * about (decision Q112f). */
+const JOB_KINDS: Record<string, string> = { mesh: "serve:mesh.job", discover: "serve:discover.status" };
+const hearsThis = (name: PluginEventName, payload: Record<string, unknown>, grants: Set<string>): boolean => {
+  if (name !== "job_progress") return true;
+  const needs = typeof payload.kind === "string" ? JOB_KINDS[payload.kind] : undefined;
+  return needs !== undefined && grants.has(needs);
 };
 
 const isName = (s: string) => /^[a-z0-9_.]*$/.test(s);
@@ -434,7 +444,7 @@ export function fakePluginHost(
       status: piece("status"),
       finders: piece("finder"),
       help: piece("help"),
-      health: piece("health"),
+      health: { ...piece("health"), answer: (check, lines) => push({ op: "health_answer", check, checks: lines }) },
       tutor: piece("tutor"),
       badges: { set: (host, text) => push({ op: "badge", host, text }) },
       float: { open: (spec) => push({ op: "float", spec }), close: () => push({ op: "float", spec: null }) },
@@ -671,7 +681,7 @@ export function fakePluginHost(
       for (const [plugin, r] of running) {
         const fs = r.listeners.get(name);
         const needs = EVENT_NEEDS[name];
-        if (!fs || r.disabled || (needs.length && !needs.some((p) => r.grants.has(p)))) continue;
+        if (!fs || r.disabled || (needs.length && !needs.some((p) => r.grants.has(p))) || !hearsThis(name, payload, r.grants)) continue;
         const reply = run(plugin, r, () => fs.forEach((f) => f(payload)));
         if (reply.ops.length || reply.error) replies.push(reply);
       }

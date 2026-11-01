@@ -30,6 +30,7 @@ import {
   EDIT_API_VERSION,
   PUBLISH_API_VERSION,
   LIVE_API_VERSION,
+  JOBS_API_VERSION,
   LiveError,
   BackendCallError,
   type Backend,
@@ -806,6 +807,7 @@ function Workspace({
   const canPublish = apiVersion >= PUBLISH_API_VERSION;
   const canAdd = apiVersion >= ADD_API_VERSION;
   const canLive = apiVersion >= LIVE_API_VERSION;
+  const canJobs = apiVersion >= JOBS_API_VERSION;
   const canSave = apiVersion >= SAVE_TO_VAULT_API_VERSION && vault.view.state === "unlocked";
   const refreshPending = useCallback(() => {
     if (!canEdit) return;
@@ -865,6 +867,12 @@ function Workspace({
     backend.watchInventory(autoReload).catch(() => {});
     return stop;
   }, [backend, conn.state, canLive, autoReload, reloadHosts, refreshPending, setStale]);
+  // serve's jobs push their progress (API 20, decision Q112): each is a `job_progress` for the
+  // Plugins that may ask about that kind of job (the core checks which), so they needn't poll.
+  useEffect(() => {
+    if (conn.state !== "ready" || !canJobs) return;
+    return backend.onJobProgress((job) => void plugins.event("job_progress", job));
+  }, [backend, conn.state, canJobs, plugins]);
   // `:source` reloads roster.yml too.
   useEffect(() => {
     if (!canLive) return;

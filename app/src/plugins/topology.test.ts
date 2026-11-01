@@ -71,9 +71,15 @@ describe("the Topology stand-in", () => {
           timer = -1;
           break;
         }
-        case "event":
+        case "event": {
           replies = await Promise.all((await host.pluginEvent(step.name as PluginEventName, step.payload as Record<string, unknown>)).map(settle));
+          // An event it only asked serve about (a job's end) has no reply of its own: its answers'.
+          if (replies.length === 0) {
+            const answer = await settle({ plugin: "topology", result: null, ops: [], error: null, disabled: null });
+            if (answer.ops.length > 0) replies = [answer];
+          }
           break;
+        }
         case "action": {
           const action = ((view?.spec as Op).graph as { actions: Op[] }).actions.find((a) => a.label === step.label);
           replies = [await settle(await host.pluginCall("topology", handlerOf(action?.run), { view: "topology", node: step.node, host: step.node }))];

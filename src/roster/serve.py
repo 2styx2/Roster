@@ -3,7 +3,9 @@ one JSON object per line. Only responses go to stdout; anything else roster prin
 The one other channel is askpass (roster/askpass.py): a private Unix socket, open while serve runs, that
 hands a password Session's ssh its password.
 It answers with the Host, group and resource objects load_config already builds - no new schema.
-Logins come back as references (bw:ITEM), never as values. Requests are handled one at a time.
+Logins come back as references (bw:ITEM), never as values. Requests are handled concurrently (API 20, decision Q112):
+a pool of workers, two more for the quick reads (QUICK), and a lock per resource each method claims (LOCKS), so
+answers can come back in another order than asked. Background work (a Mesh run, a scan) is a job (jobs.py).
 
 Add a method by writing a function (state, params) -> result and listing it in METHODS. Its docstring's
 `Params:`, `Result:`, `Errors:` and `Since:` fields are its row in docs/serve-api.md: name it in one of that
@@ -14,6 +16,7 @@ doc's `<!-- BEGIN generated:methods ... -->` markers and run `uv run python scri
 import hashlib
 import json
 import os
+import queue
 import re
 import secrets
 import shutil
@@ -22,12 +25,13 @@ import sys
 import threading
 import time
 
-from . import __version__, askpass, changes, diagnose, discover, edit, health, mesh, providers
+from . import __version__, askpass, changes, diagnose, discover, edit, health, jobs, mesh, providers
 from .claude import write_claude_files
-from .common import deadline, not_reviewed, ssh_config_file, ssh_path
+from .common import current_deadline, deadline, deadline_at, not_reviewed, ssh_config_file, ssh_path
 from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     ALREADY_SIGNED_OUT,
+    BUSY,
     CANT_ADD,
     CANT_WRITE,
     CLI_MISSING,
@@ -75,7 +79,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 19            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 20            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -99,19 +103,25 @@ class State:
         self.auto = False                   # inventory.watch: apply outside edits as they're saved
         self.watcher = None                 # the Watcher thread, once inventory.watch started it
         self.notify = None                  # fn(method, params): a JSON-RPC notification to the app (serve() sets it)
-        self.lock = threading.RLock()       # one request, or one reload by the watcher, at a time
+        # roster.yml, its repo and the loaded Inventory: every write holds it for its whole request, a reload for
+        # itself (LOCKS). Reentrant for its holder, so a write may reload.
+        self.lock = Lock("roster.yml")
+        self.vault = Lock("the vault")      # unlocking and locking alone; looking up, saving, minting tokens shared
         self.unlocked = set()               # providers vault.unlock opened (vault.lock locks them again)
         self.askpass = None                 # the askpass Channel, while serve() runs
         self.login = None                   # the sign-in in progress (vault.login): SignIn
         self.created = {}                   # item id -> provider, for the items vault.create_item made (undo)
-        self.mesh_job = None                # the latest Mesh job (mesh.* with background: true): MeshJob
+        self.jobs = jobs.Jobs(log=log_line)  # background work: Mesh runs and scans (its notify is serve's)
         self.verified = {}                  # host.verify_login successes: login_key -> (time, host key to pin)
         self.held = {}                      # typed passwords held for "Save to vault", by id: Held (T15, T16)
         # state.held is also changed on the askpass channel's threads (a login report), so it has a lock of its own:
-        # never state.lock, which a long request holds for up to its deadline and would hold up askpass's answers.
+        # never a resource lock, which a long request holds for up to its deadline and would hold up askpass's answers.
         self.held_lock = threading.RLock()
-        self.scan = None                    # the latest discover.start's Scan (discover.Scan), going or not
+        self.scan = None                    # the latest discover.start's Scan (discover.Scan); its job is in jobs
         self.scans = 0                      # how many discover.start started: the next one's id
+        self.scan_lock = threading.Lock()   # held while one starts
+        self.watch_lock = threading.Lock()  # held while inventory.watch starts the watcher (it's a quick read)
+        self.closing = False                # serve's stdin closed: nothing new starts (a sign-in least of all)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -123,14 +133,15 @@ class State:
     def reload(self):
         """Load roster.yml again (after a pull, an edit, a discard, `:source` or an outside edit, so hosts.list shows
         the file as it is). A file that doesn't load keeps the last good Inventory, with the error beside it."""
-        self.digest, self.noticed = file_digest(self.path), None
-        try:
-            cfg = load_config(self.path)
-        except SystemExit as e:
-            self.error = die_message(e)
-            return
-        self.cfg, self.path, self.error = cfg, cfg["path"], None
-        setup_providers(cfg)
+        with self.lock:                     # a write holding it may reload; anyone else waits for the write
+            self.digest, self.noticed = file_digest(self.path), None
+            try:
+                cfg = load_config(self.path)
+            except SystemExit as e:
+                self.error = die_message(e)
+                return
+            self.cfg, self.path, self.error = cfg, cfg["path"], None
+            setup_providers(cfg)
 
     def problem(self):
         """Why roster.yml doesn't load right now (code 1, with its line), or None."""
@@ -142,12 +153,14 @@ class State:
 
     def fresh(self):
         """roster.yml loaded again, for an edit: refuses (code 1) when the file as it is now doesn't load, even
-        though the last good Inventory is still shown."""
-        self.reload()
-        p = self.problem()
-        if p:
-            raise p
-        return self.cfg
+        though the last good Inventory is still shown. It waits for a write under way at most what's left of the
+        request's deadline (LOCK_WAIT without one): then 4, as a write's own claim would be."""
+        with claimed(self, [("inventory", False)], "a reload"):
+            self.reload()
+            p = self.problem()
+            if p:
+                raise p
+            return self.cfg
 
     def inventory(self):
         if self.cfg is None:
@@ -210,9 +223,21 @@ def host_get(state, params):
     Result: one Host
     Errors: 2
     Since: API 1
+    Params: `{name, settled: true}`
+    Result: the Host once no write to `roster.yml` is under way: it waits for one as another write would (the
+        app's check after a `host.add` it stopped waiting for)
+    Errors: 2, 4
+    Since: API 20
     """
     name = text_param(params, "name")
-    h = state.inventory()["hosts"].get(name)
+    settled = params.get("settled", False)
+    if not isinstance(settled, bool):
+        raise RpcError(INVALID_PARAMS, "params.settled must be true or false")
+    if settled:
+        with claimed(state, [("inventory", False)], "host.get"):
+            h = state.inventory()["hosts"].get(name)
+    else:
+        h = state.inventory()["hosts"].get(name)
     if h is None:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
     return h
@@ -382,8 +407,7 @@ def box_check(state, params):
             load_config(state.path)
         except SystemExit as e:
             error = die_message(e)
-    with state.lock:
-        checks = health.check_box(state.path, state.cfg, error, health.askpass_state(state.askpass), API_VERSION)
+    checks = health.check_box(state.path, state.cfg, error, health.askpass_state(state.askpass), API_VERSION)
     return {"checks": checks, "ok": not any(c["level"] == "error" for c in checks), **versions()}
 
 
@@ -464,7 +488,10 @@ def host_verify_login(state, params):
     Since: API 5
     """
     h, new, _ = edited_host(state, params)
-    result = diagnose.verify_login(new, state.cfg["key"], previous=h)
+    # The vault only now, after the reload: roster.yml before the vault, always (LOCKS' order), or a write holding
+    # roster.yml and waiting behind a vault.lock that waits for this request would never end.
+    with claimed(state, [("vault", True)], "host.verify_login"):
+        result = diagnose.verify_login(new, state.cfg["key"], previous=h)
     if result["ok"]:
         state.verified[login_key(new)] = (time.monotonic(), result.pop("host_key", None))
     return result
@@ -1434,9 +1461,10 @@ def inventory_watch(state, params):
     state.auto = auto
     if state.notify is None or state.path is None:
         return {"watching": False, "auto": auto}
-    if state.watcher is None:
-        state.watcher = Watcher(state)
-        state.watcher.start()
+    with state.watch_lock:                  # two at once start one watcher
+        if state.watcher is None:
+            state.watcher = Watcher(state)
+            state.watcher.start()
     return {"watching": True, "auto": auto, "path": str(state.path)}
 
 
@@ -1577,14 +1605,32 @@ ON_VAULT_LOCK.append(forget_held)
 
 def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
-    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails.
+    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails. It forgets first and
+    then waits for the requests holding a secret (forgotten_for_good): never refused, whatever runs.
 
     Params: none
     Result: `{locked: [names]}`. Never fails
     Since: API 1
     """
-    names = forget_everything(state)
+    names = forgotten_for_good(state)
     return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+
+
+def forgotten_for_good(state, signing_out=None, then=None):
+    """vault.lock's and vault.logout's order (decision Q112): forget everything at once, so a lookup from now on finds
+    the vault locked; then wait, with no limit and never refused, for the requests that already hold a secret, a token
+    or a typed password (they share the vault's lock; a waiting lock goes before new ones); then forget again what
+    they held or made meanwhile, and run THEN() while still holding it (vault.logout's sign-out). Returns the
+    providers locked."""
+    names = forget_everything(state, signing_out)
+    state.vault.acquire(False, None, "vault.logout" if signing_out else "vault.lock")
+    try:
+        names |= forget_everything(state, signing_out)
+        if then is not None:
+            then()
+        return names
+    finally:
+        state.vault.release()
 
 
 def forget_everything(state, signing_out=None):
@@ -1621,11 +1667,13 @@ def vault_logout(state, params):
         _, account = providers.vault_account(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
-    forget_everything(state, signing_out=name)
-    try:
-        providers.logout(name)
-    except providers.SecretError as e:
-        raise sign_out_error(e) from None
+
+    def sign_out():
+        try:
+            providers.logout(name)
+        except providers.SecretError as e:
+            raise sign_out_error(e) from None
+    forgotten_for_good(state, signing_out=name, then=sign_out)
     # Signed out: no second `bw status` to say so (each bw call takes about a second). The server stays set.
     return {**status_result(name, "unauthenticated", None, server=(account or {}).get("server", providers.ASK)),
             "signed_out": account}
@@ -1761,15 +1809,15 @@ def vault_undo_create(state, params):
     Since: API 4
     """
     item_id = text_param(params, "id")
-    provider = state.created.get(item_id)
+    provider = state.created.pop(item_id, None)     # taken at once: two undos at once delete it once
     if provider is None:
         raise RpcError(NOT_CREATED_HERE, f"item {item_id} wasn't created by this roster serve (or is already "
                        "undone) - roster only takes back the items it just saved")
     try:
         providers.delete_item(provider, item_id)
     except providers.SecretError as e:
+        state.created[item_id] = provider       # not deleted: it can be undone again
         raise write_problem(e) from None
-    del state.created[item_id]
     return {"provider": provider, "id": item_id}
 
 
@@ -1898,8 +1946,22 @@ def vault_login(state, params):
         flow = providers.login(name)
     except providers.SecretError as e:
         raise sign_in_problem(e) from None
-    state.login = SignIn(name, flow)
-    return sign_in_step(state, state.login, lambda: flow.start({**params, "method": method}))
+    state.login = login = SignIn(name, flow)
+    closing(state, login)
+    step = sign_in_step(state, login, lambda: flow.start({**params, "method": method}))
+    closing(state, login)
+    return step
+
+
+def closing(state, login):
+    """A sign-in that started (or took a step) while serve was closing ends now: its `bw login` mustn't outlive serve
+    with the credentials in its environment."""
+    if state.closing:
+        if state.login is login:
+            end_sign_in(state)
+        else:
+            login.flow.close()
+        raise RpcError(ROSTER_ERROR, "roster serve is closing")
 
 
 METHODS["vault.login"] = vault_login
@@ -1929,86 +1991,69 @@ def brief_param(params):
     return v
 
 
-class MeshJob:
-    """A Mesh run in a thread of its own (API 17), so serve answers other requests meanwhile and the Mesh controls
-    Plugin can show how far it has got (mesh.job) and stop it (mesh.stop). One at a time; serve keeps the latest."""
+def mesh_view(job, brief=False):
+    """mesh.job's answer for JOB (a jobs.Job of kind mesh): as API 17 had it, `state` running, done or failed, and
+    `stopped` when it was asked to stop (a stopped job is done, with its Hosts not visited pending)."""
+    v = job.view()
+    out = {"job": job.job, "action": job.action, "state": "running" if job.running() else
+           "failed" if job.error is not None else "done", "done": v["done"], "total": v["total"], "at": v["at"],
+           "stopped": job.halted.is_set()}
+    if job.host is not None:
+        out["host"] = job.host
+    if out["state"] == "done":
+        result = job.result
+        out["result"] = mesh.brief(result) if brief and isinstance(result, dict) and "links" in result else result
+    elif out["state"] == "failed":
+        out["error"] = job.error
+    return out
 
-    def __init__(self, number, action, host=None):
-        self.number, self.action, self.host = number, action, host
-        self.done, self.total, self.at = 0, 0, None
-        self.result, self.error = None, None
-        self.stop = threading.Event()
-        self.thread = None
-        self.lock = threading.Lock()
 
-    def running(self):
-        return self.thread is not None and self.thread.is_alive()
-
-    def progress(self, done, total, host):
-        with self.lock:
-            self.done, self.total, self.at = done, total, host
-
-    def view(self, brief=False):
-        with self.lock:
-            out = {"job": self.number, "action": self.action, "state": "running", "done": self.done,
-                   "total": self.total, "at": self.at, "stopped": self.stop.is_set()}
-            if self.host is not None:
-                out["host"] = self.host
-            if self.result is not None:
-                out.update(state="done", result=mesh.brief(self.result) if brief and "links" in self.result
-                           else self.result)
-            elif self.error is not None:
-                out.update(state="failed", error=self.error)
-            return out
+def busy_mesh(job):
+    return RpcError(MESH_BUSY, f"a Mesh {job.action} is still running (job {job.job}): wait for it, or stop it",
+                    {"job": job.job, "action": job.action})
 
 
 def mesh_idle(state):
     """Problem 111 while a Mesh job runs: two runs at once would fight over the Hosts and mesh.json."""
-    job = state.mesh_job
+    job = state.jobs.latest("mesh")
     if job is not None and job.running():
-        raise RpcError(MESH_BUSY, f"a Mesh {job.action} is still running (job {job.number}): wait for it, or stop it",
-                       {"job": job.number, "action": job.action})
+        raise busy_mesh(job)
 
 
-def start_mesh_job(state, action, total, work, host=None):
-    """Runs WORK(job) in a thread and answers at once: `{job, action, total, host?}`."""
-    number = state.mesh_job.number + 1 if state.mesh_job else 1
-    job = MeshJob(number, action, host)
-    job.total = total
+def start_mesh_job(state, action, total, work, host=None, background=True):
+    """Runs WORK(job) as a Mesh job. In the background it answers at once: `{job, action, total, host?}`; else it
+    waits for the job (under this request's deadline) and answers with its result, or its error."""
+    at = None if background else current_deadline()
 
-    def main():
-        try:
-            result = work(job)
-        except Problem as e:
-            job.error = {"code": e.code, "message": e.message, **({"data": e.data} if e.data is not None else {})}
-        except SystemExit as e:
-            job.error = {"code": ROSTER_ERROR, "message": die_message(e)}
-        except Exception as e:
-            print(f"serve: mesh.{action} job failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-            job.error = {"code": INTERNAL_ERROR, "message": f"{type(e).__name__}: {e}"}
-        else:
-            with job.lock:
-                job.done, job.at = job.total, None
-                job.result = result
-    job.thread = threading.Thread(target=main, name=f"mesh-{action}-{number}", daemon=True)
-    state.mesh_job = job
-    job.thread.start()
-    return {"job": number, "action": action, "total": total, **({"host": host} if host else {})}
+    def run(job):
+        with deadline_at(at):                   # a background job has no deadline (nothing waits for it)
+            return work(job)
+    try:
+        job = state.jobs.start("mesh", action, run, total=total, host=host, on_close=mesh.close)
+    except jobs.Busy as e:
+        raise busy_mesh(e.job) from None
+    except jobs.Closed:
+        raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+    if not background:
+        job.wait()
+        if job.error is not None:
+            raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
+        return job.result
+    return {"job": job.job, "action": action, "total": total, **({"host": host} if host else {})}
 
 
 def mesh_run(state, params, apply):
-    """mesh.plan and mesh.apply: at once, or (background: true) as a job."""
+    """mesh.plan and mesh.apply: waiting for the result, or (background: true) answering at once. A job either way."""
     rotate, background = rotate_param(params), background_param(params)
     mesh_idle(state)
     cfg = state.fresh()
-    if not background:
-        return mesh.run(cfg, apply=apply, rotate=rotate)
     visits = mesh.visits_of(cfg, mesh.with_mesh_dirs(cfg))     # once: a big meshed group's graph is every pair
     g, _, _, _, _, hop_only, hosts = visits
     mesh.check_rotate(g, rotate)                # refused at once, as without background
     return start_mesh_job(state, "apply" if apply else "plan", len(g["sources"]) + len(hop_only) + len(hosts),
                           lambda job: mesh.run(cfg, apply=apply, rotate=rotate, progress=job.progress,
-                                               stopped=job.stop.is_set, visits=visits))
+                                               stopped=job.halted.is_set, visits=visits),
+                          background=background)
 
 
 def mesh_plan(state, params):
@@ -2054,19 +2099,20 @@ def mesh_cut(state, params):
     cfg = state.fresh()
     if name not in cfg["hosts"]:
         raise RpcError(UNKNOWN_HOST, f"unknown host {name!r}")
-    if not background:
-        result = mesh.cut(cfg, name, cfg["workers"])
-        result["change"] = mesh.write_cut(cfg, name)
-        state.reload()
-        return result
 
     def work(job):
-        result = mesh.cut(cfg, name, cfg["workers"], progress=job.progress, stopped=job.stop.is_set)
-        with state.lock:                        # roster.yml is written between requests, never during one
-            result["change"] = mesh.write_cut(state.fresh(), name)
-            state.reload()
+        result = mesh.cut(cfg, name, cfg["workers"], progress=job.progress, stopped=job.halted.is_set)
+        try:                                    # roster.yml's lock, as any other write, waited for only so long
+            with claimed(state, [("inventory", False)], "mesh.cut"):
+                result["change"] = mesh.write_cut(state.fresh(), name)
+                state.reload()
+        except RpcError as e:
+            if e.code != BUSY:
+                raise
+            result["change"] = {"written": False, "error": e.message,
+                                "fix": f"write mesh: false for {name} in roster.yml, or run the cut again"}
         return result
-    return start_mesh_job(state, "cut", len(mesh.cut_hosts(cfg, name)), work, host=name)
+    return start_mesh_job(state, "cut", len(mesh.cut_hosts(cfg, name)), work, host=name, background=background)
 
 
 def mesh_job(state, params):
@@ -2080,11 +2126,11 @@ def mesh_job(state, params):
         `at` the Host it's on. `stopped`: `mesh.stop` asked it to stop; the Hosts it hadn't got to are pending
     Since: API 17
     """
-    job = state.mesh_job
+    job = state.jobs.latest("mesh")
     want = params.get("job")
-    if job is None or (want is not None and want != job.number):
+    if job is None or (want is not None and want != job.job):
         return None
-    return job.view(brief=brief_param(params))
+    return mesh_view(job, brief=brief_param(params))
 
 
 def mesh_stop(state, params):
@@ -2097,11 +2143,7 @@ def mesh_stop(state, params):
     want = params.get("job")
     if not isinstance(want, int) or isinstance(want, bool):
         raise RpcError(INVALID_PARAMS, "params.job must be a job's number (mesh.job)")
-    job = state.mesh_job
-    stopping = job is not None and job.number == want and job.running()
-    if stopping:
-        job.stop.set()
-    return {"job": want, "stopping": stopping}
+    return {"job": want, "stopping": state.jobs.stop("mesh", want)}
 
 
 def mesh_status(state, params):
@@ -2198,15 +2240,28 @@ def discover_start(state, params):
     Since: API 18
     """
     targets, _, ports = scan_params(params)
-    if state.scan is not None and state.scan.state in ("running", "stopping"):
-        raise RpcError(SCAN_RUNNING, f"a scan of {', '.join(state.scan.targets)} is going already",
-                       {"scan": state.scan.sid}, fix="wait for it, or stop it first (discover.stop)")
     cfg = state.inventory()
     known = {h["ip"]: h["name"] for h in cfg["hosts"].values()}
-    state.scans += 1
-    state.scan = discover.Scan(f"scan-{state.scans}", targets, ports, discover.scanner(), known, set(cfg["hosts"]))
-    state.scan.start()
-    return state.scan.status()
+    with state.scan_lock:                       # one id per scan, and state.scan always the latest's
+        scan = discover.Scan(f"scan-{state.scans + 1}", targets, ports, discover.scanner(), known, set(cfg["hosts"]))
+
+        def work(job):
+            scan.on_progress = job.progress
+            scan.run()
+            if scan.error:
+                raise jobs.Failed(ROSTER_ERROR, scan.error)
+            return {"count": len(scan.found)}
+        try:
+            state.jobs.start("discover", "scan", work, total=scan.total, job=scan.sid, on_stop=scan.stop)
+        except jobs.Busy:
+            going = state.scan
+            raise RpcError(SCAN_RUNNING, f"a scan of {', '.join(going.targets)} is going already",
+                           {"scan": going.sid}, fix="wait for it, or stop it first (discover.stop)") from None
+        except jobs.Closed:
+            raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+        state.scans += 1
+        state.scan = scan
+    return scan.status()
 
 
 def discover_status(state, params):
@@ -2239,7 +2294,7 @@ def discover_stop(state, params):
     Since: API 18
     """
     scan = the_scan(state, params)
-    return {"scan": scan.sid, "stopping": scan.stop()}
+    return {"scan": scan.sid, "stopping": state.jobs.stop("discover", scan.sid)}
 
 
 def discover_add(state, params):
@@ -2316,31 +2371,199 @@ AFTER_DEADLINE = 40
 UNDO_TIME = 15              # s: taking a new Vault item back out gets this much, even past the deadline
 
 
+# ---------------------------------------------------------------- jobs (ticket 101, decision Q112)
+
+def jobs_list(state, params):
+    """The background jobs: each kind's latest, running or not (a Mesh run, a scan). Never connects.
+
+    Params: none
+    Result: `{jobs: [{kind, job, action, state, done, total, at, host?, error?}]}`: `kind` is `mesh` or
+        `discover`, `job` its id there (the Mesh's job number, the scan's `scan-N`), `state` `running`,
+        `stopping`, `done`, `stopped` or `failed`. The same shape as the `job.progress` notification
+    Since: API 20
+    """
+    return {"jobs": state.jobs.list()}
+
+
+def jobs_stop(state, params):
+    """Stop a job, as `mesh.stop` or `discover.stop` would.
+
+    Params: `{kind, job}`
+    Result: `{kind, job, stopping}`: `stopping: false` when that job isn't running (over, or not the latest)
+    Errors: -32602
+    Since: API 20
+    """
+    kind = text_param(params, "kind")
+    job = params.get("job")
+    if not isinstance(job, (int, str)) or isinstance(job, bool):
+        raise RpcError(INVALID_PARAMS, "params.job must be a job's id (jobs.list)")
+    return {"kind": kind, "job": job, "stopping": state.jobs.stop(kind, job)}
+
+
+METHODS["jobs.list"] = jobs_list
+METHODS["jobs.stop"] = jobs_stop
+
+
+# ---------------------------------------------------------------- locks (ticket 101, decision Q112)
+
+class Lock:
+    """A resource's lock: held alone (a write), or shared by readers. Reentrant for the thread holding it alone, so a
+    write may reload. A waiting writer goes before new readers. It knows which request holds it, to say so."""
+
+    def __init__(self, name):
+        self.name = name
+        self.cond = threading.Condition()
+        self.owner, self.depth, self.readers, self.writers_waiting = None, 0, 0, 0
+        self.holders = {}                       # thread -> the method holding it
+
+    def acquire(self, shared=False, timeout=None, who=None):
+        me = threading.get_ident()
+        end = None if timeout is None else time.monotonic() + timeout
+        with self.cond:
+            if self.owner == me:
+                self.depth += 1
+                return True
+
+            def wait(blocked):
+                while blocked():
+                    left = None if end is None else end - time.monotonic()
+                    if left is not None and left <= 0:
+                        return False
+                    self.cond.wait(left)
+                return True
+            if shared:
+                if not wait(lambda: self.owner is not None or self.writers_waiting):
+                    return False
+                self.readers += 1
+            else:
+                self.writers_waiting += 1
+                try:
+                    if not wait(lambda: self.owner is not None or self.readers):
+                        return False
+                finally:
+                    self.writers_waiting -= 1
+                    self.cond.notify_all()      # the readers it held back go ahead if it gave up
+                self.owner, self.depth = me, 1
+            self.holders[me] = who
+            return True
+
+    def release(self):
+        me = threading.get_ident()
+        with self.cond:
+            if self.owner == me:
+                self.depth -= 1
+                if self.depth:
+                    return
+                self.owner = None
+            else:
+                self.readers -= 1
+            self.holders.pop(me, None)
+            self.cond.notify_all()
+
+    def holder(self):
+        with self.cond:
+            return next((m for m in self.holders.values() if m), None)
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+# What each method claims, in this order (never the other way round, so two requests can't wait for each other):
+# "inventory" (roster.yml, its repo, the loaded Inventory: every write, for its whole request) and "vault" (shared:
+# it looks a secret up, makes an item, or mints an askpass token; alone: it unlocks, signs in, configures). A method
+# not listed claims nothing: it reads what's in memory, or does its own locking (a reload, a job's write,
+# host.verify_login's vault after its reload, vault.lock's wait).
+LOCKS = {
+    **{m: [("inventory", False)] for m in (
+        "host.update", "host.remove", "host.rename", "host.move", "host.review", "group.new", "group.rename",
+        "group.delete", "discover.add", "changes.diff", "changes.discard", "changes.publish", "inventory.pull",
+        "inventory.reload")},
+    **{m: [("inventory", False), ("vault", True)] for m in ("host.add", "quick.save", "host.save_login")},
+    **{m: [("vault", True)] for m in (
+        "session.prepare", "quick.prepare", "host.check", "vault.status", "vault.targets", "vault.create_item",
+        "vault.undo_create")},
+    # vault.lock and vault.logout aren't here: they forget first and then wait, never refused (vault_lock)
+    **{m: [("vault", False)] for m in ("vault.unlock", "vault.login", "vault.configure")},
+}
+LOCK_WAIT = 50              # s: the longest a method without a deadline waits for a lock (the app waits 60 s)
+NAMES = {"inventory": "roster.yml", "vault": "the vault"}
+
+
+class claimed:
+    """Hold CLAIMS ([(resource, shared)]) for METHOD, each waited for at most what's left of its deadline (LOCK_WAIT
+    without one); one that isn't free by then is 4, and nothing was done."""
+
+    def __init__(self, state, claims, method):
+        self.state, self.claims, self.method, self.held = state, claims, method, []
+
+    def __enter__(self):
+        at = current_deadline()
+        for resource, shared in self.claims:
+            lock = self.state.lock if resource == "inventory" else self.state.vault
+            wait = LOCK_WAIT if at is None else max(0.0, at - time.monotonic())
+            if not lock.acquire(shared, wait, self.method):
+                self.__exit__()
+                who = lock.holder()
+                raise RpcError(BUSY, f"{NAMES[resource]} is busy" + (f": {who} is still running" if who else "")
+                               + " - nothing was done", {"busy": NAMES[resource], "method": who},
+                               fix="try again once it has finished")
+            self.held.append(lock)
+        return self
+
+    def __exit__(self, *exc):
+        while self.held:
+            self.held.pop().release()
+
+
+# ---------------------------------------------------------------- the loop
+
+WORKERS = 8                 # requests answered at once (the core lets the Plugins have 4 of them)
+QUICK_WORKERS = 2           # and for the quick reads, which never wait for a lock a long request holds
+QUICK = {"inventory.info", "hosts.list", "host.get", "mesh.status", "mesh.job", "mesh.stop", "discover.plan",
+         "discover.status", "discover.stop", "jobs.list", "jobs.stop", "inventory.watch", "vault.forget_typed"}
+
+
+def quick(req):
+    """Whether REQ is a quick read: it touches only memory and takes no lock a long request holds."""
+    params = req.get("params")
+    return req.get("method") in QUICK and not (isinstance(params, dict) and params.get("settled") is True)
+
+
 def handle(state, line):
     """One request line -> the response object, or None for a notification."""
     try:
         req = json.loads(line)
     except ValueError as e:
         return error_response(None, RpcError(PARSE_ERROR, f"not valid JSON: {e}"))
+    return respond(state, req)
+
+
+def respond(state, req):
+    """One parsed request -> the response object, or None for a notification."""
     if not isinstance(req, dict) or req.get("jsonrpc") != "2.0" or not isinstance(req.get("method"), str):
         rid = req.get("id") if isinstance(req, dict) else None
         return error_response(rid, RpcError(INVALID_REQUEST, "expected a JSON-RPC 2.0 request object"))
     rid, notification = req.get("id"), "id" not in req
+    method = req["method"]
     try:
-        fn = METHODS.get(req["method"])
+        fn = METHODS.get(method)
         if fn is None:
-            raise RpcError(METHOD_NOT_FOUND, f"unknown method {req['method']!r}")
+            raise RpcError(METHOD_NOT_FOUND, f"unknown method {method!r}")
         params = req.get("params", {})
         if not isinstance(params, dict):
             raise RpcError(INVALID_PARAMS, "params must be an object")
-        with deadline(DEADLINES.get(req["method"])):
+        with deadline(DEADLINES.get(method)), claimed(state, LOCKS.get(method, []), method):
             result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
     except RpcError as e:
         result = error_response(rid, e)
     except SystemExit as e:                     # a die() inside roster: its message is the answer
         result = error_response(rid, RpcError(ROSTER_ERROR, die_message(e)))
     except Exception as e:
-        print(f"serve: {req['method']} failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        print(f"serve: {method} failed: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         result = error_response(rid, RpcError(INTERNAL_ERROR, f"{type(e).__name__}: {e}"))
     return None if notification else result
 
@@ -2358,6 +2581,76 @@ def log_line(msg):
     print(f"serve: {msg}", file=sys.stderr, flush=True)
 
 
+class Pool:
+    """N daemon threads answering what's put in: a request still running when serve exits doesn't keep it open."""
+
+    def __init__(self, n, name):
+        self.queue = queue.Queue()
+        for i in range(n):
+            threading.Thread(target=self.work, name=f"{name}-{i}", daemon=True).start()
+
+    def work(self):
+        while True:
+            job = self.queue.get()
+            try:
+                job()
+            except Exception as e:              # a worker outlives whatever its request raised: never one less
+                log_line(f"a worker's request failed: {type(e).__name__}")
+
+
+class Server:
+    """Answers requests concurrently: each goes to a worker (a quick read to one of its own), its answer goes out
+    when it's ready, so answers may come in another order than asked (JSON-RPC's id says which is which)."""
+
+    def __init__(self, state, send, workers=WORKERS, quick_workers=QUICK_WORKERS):
+        self.state, self.send = state, send
+        self.general, self.quick = Pool(workers, "serve"), Pool(quick_workers, "serve-quick")
+        self.busy = threading.Condition()
+        self.running = 0
+
+    def submit(self, line):
+        try:
+            req = json.loads(line)
+        except ValueError as e:
+            self.send(error_response(None, RpcError(PARSE_ERROR, f"not valid JSON: {e}")))
+            return
+        with self.busy:
+            self.running += 1
+        pool = self.quick if isinstance(req, dict) and quick(req) else self.general
+        pool.queue.put(lambda: self.run(req))
+
+    def run(self, req):
+        try:
+            if self.state.closing:             # queued when stdin closed: refused, never run
+                if isinstance(req, dict) and "id" in req:
+                    self.send(error_response(req.get("id"), RpcError(ROSTER_ERROR, "roster serve is closing")))
+                return
+            response = respond(self.state, req)
+            if response is not None:
+                self.send(response)
+        finally:
+            with self.busy:
+                self.running -= 1
+                self.busy.notify_all()
+
+    def close(self, wait):
+        """stdin closed: refuse what's queued (it never runs), and wait up to WAIT s for what's running. Before any
+        clean-up, so nothing starts after it (a sign-in's `bw login`, a job)."""
+        self.state.closing = True
+        return self.drain(wait)
+
+    def drain(self, wait):
+        """Wait up to WAIT s for the requests still running: True if none is."""
+        end = time.monotonic() + wait
+        with self.busy:
+            while self.running:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return False
+                self.busy.wait(left)
+        return True
+
+
 def serve(config_arg):
     # The app speaks UTF-8 JSON lines, whatever this box's locale (Windows' is often cp1252 for a pipe), and "\n"
     # ends a line on Windows too. A password with an accent comes through as typed.
@@ -2370,41 +2663,28 @@ def serve(config_arg):
     out_lock = threading.Lock()
 
     def send(message):
-        with out_lock:
-            out.write(json.dumps(message, default=str) + "\n")
+        line = json.dumps(message, default=str) + "\n"
+        with out_lock:                  # one whole line at a time, whichever worker answers
+            out.write(line)
             out.flush()
 
-    # the one message serve sends unasked: a JSON-RPC notification (no id), e.g. inventory.changed
+    # the messages serve sends unasked: JSON-RPC notifications (no id): inventory.changed, job.progress, ...
     state.notify = lambda method, params: send({"jsonrpc": "2.0", "method": method, "params": params})
+    state.jobs.notify = state.notify
+    server = Server(state, send)
     with open_channel(state) as state.askpass:
         try:
             for line in sys.stdin:
-                if not line.strip():
-                    continue
-                with state.lock:
-                    response = handle(state, line)
-                if response is not None:
-                    send(response)
+                if line.strip():
+                    server.submit(line)
         finally:
             if state.watcher is not None:
                 state.watcher.stop.set()
+            server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
-            if state.scan is not None:
-                state.scan.stop()           # nor does a scan (its nmap is killed)
-            stop_mesh_job(state)
+            state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, a scan's nmap ends
     return 0
 
 
-CLOSE_WAIT = 0.8            # s: the app waits a second after closing serve's stdin, then kills it (rpc.rs)
-
-
-def stop_mesh_job(state):
-    """Serve is closing: a Mesh job stops now, as mesh.stop would but without finishing its Host's step (its ssh is
-    ended, mesh.close), and records what it did in mesh.json (pending: what it didn't) before serve exits. Each file
-    on a Host is replaced whole, so a step cut short leaves it as before or after, and the next run finishes it."""
-    job = state.mesh_job
-    if job is None or not job.running():
-        return
-    job.stop.set()
-    mesh.close()
-    job.thread.join(CLOSE_WAIT)
+DRAIN_WAIT = 1.0            # s: the requests running when stdin closes get this long to answer
+CLOSE_WAIT = 0.8            # s: then the jobs get this long to wind down; the app waits 3 s after closing stdin (rpc.rs)

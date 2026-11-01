@@ -30,7 +30,7 @@ pub(crate) const MAX_SERVE_REQUESTS: usize = 8;
 /// The most times one call (a load, an event, an answer) may wait for roster serve
 /// (`roster.serve.call`, `roster.inventory`), and the most it may wait in all: serve's wait isn't
 /// the Plugin's time (Q103), so without these a call asking serve in a loop would never run out of
-/// time and would keep serve, which answers one request at a time, from the app. 300 s is serve's
+/// time and would keep serve from the app. 300 s is serve's
 /// own longest deadline for one method, so one call merely queued behind a Publish still gets its
 /// answer; a call that passes either gets an error.
 pub(crate) const MAX_SERVE_CALLS: u32 = 100;
@@ -94,32 +94,51 @@ pairs = function(t)
 end
 "#;
 
-/// The events a Plugin can subscribe to, and the permissions that let it (any one of them; none
-/// listed means every Plugin may).
-pub const EVENTS: &[(&str, &[Permission])] = &[
+/// The events a Plugin can subscribe to, and the permissions that let it (any one of them, as a
+/// manifest writes it; none listed means every Plugin may).
+pub const EVENTS: &[(&str, &[&str])] = &[
     ("lock", &[]),
     ("unlock", &[]),
-    ("host_selected", &[Permission::InventoryRead, Permission::TerminalRead]),
-    ("session_open", &[Permission::InventoryRead, Permission::TerminalRead]),
-    ("session_exit", &[Permission::InventoryRead, Permission::TerminalRead]),
-    ("inventory_changed", &[Permission::InventoryRead]),
-    ("terminal_output", &[Permission::TerminalRead]),
+    ("host_selected", &["inventory.read", "terminal.read"]),
+    ("session_open", &["inventory.read", "terminal.read"]),
+    ("session_exit", &["inventory.read", "terminal.read"]),
+    ("inventory_changed", &["inventory.read"]),
+    ("terminal_output", &["terminal.read"]),
+    ("job_progress", &["serve:mesh.job", "serve:discover.status"]),
 ];
+
+/// The kinds of serve's jobs a `job_progress` event can be about, and the permission that lets a
+/// Plugin hear one (decision Q112f): the method it would ask about that job with anyway, so the
+/// event tells it nothing a poll wouldn't.
+pub const JOB_KINDS: &[(&str, &str)] = &[("mesh", "serve:mesh.job"), ("discover", "serve:discover.status")];
 
 /// Whether a Plugin with `grants` may get `event`.
 pub(crate) fn may_hear(event: &str, grants: &BTreeSet<Permission>) -> Result<(), String> {
+    let granted = |p: &str| grants.iter().any(|g| g.to_string() == p);
     match EVENTS.iter().find(|(name, _)| *name == event) {
         None => Err(format!(
             "there's no event {event:?} (there's {})",
             EVENTS.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
         )),
         Some((_, [])) => Ok(()),
-        Some((_, needs)) if needs.iter().any(|p| grants.contains(p)) => Ok(()),
-        Some((_, needs)) => Err(format!(
-            "the {event} event needs the {} permission",
-            needs.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" or ")
-        )),
+        Some((_, needs)) if needs.iter().any(|p| granted(p)) => Ok(()),
+        Some((_, needs)) => Err(format!("the {event} event needs the {} permission", needs.join(" or "))),
     }
+}
+
+/// Whether a Plugin with `grants` may get this `event` with this `payload`: a `job_progress` only
+/// for a kind of job it may ask about ([`JOB_KINDS`]).
+pub(crate) fn may_hear_this(event: &str, payload: &Json, grants: &BTreeSet<Permission>) -> bool {
+    if may_hear(event, grants).is_err() {
+        return false;
+    }
+    if event != "job_progress" {
+        return true;
+    }
+    let kind = payload.get("kind").and_then(Json::as_str);
+    JOB_KINDS
+        .iter()
+        .any(|(k, p)| Some(*k) == kind && grants.iter().any(|g| g.to_string() == *p))
 }
 
 /// The Inventory write methods `inventory.write` gives, by their Lua name: every one of them
@@ -1197,6 +1216,16 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             push(s, json!({ "op": "remove", "kind": kind, "id": id }))
         });
         roster.raw_set(module, t)?;
+    }
+
+    // A `:check` section's lines for a run whose `check` returned "later" (decision Q112h): from a
+    // request's answer, so the check never waits for serve on the Plugin's thread.
+    {
+        let health: Table = roster.raw_get("health")?;
+        func!(health, "answer", |_lua, s, (check, lines): (u64, Value)| {
+            let checks = plain(s, "roster.health.answer: lines", &lines)?;
+            push(s, json!({ "op": "health_answer", "check": check, "checks": checks }))
+        });
     }
 
     // A badge on a Host's rows ("2 alerts"); nil takes it off.

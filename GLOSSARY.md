@@ -65,8 +65,12 @@ Taking one Host out of the Mesh at once, on every Host in parallel (`roster mesh
 _Avoid_: revoke (that removes the Box's own key), ban
 
 **Mesh job**:
-A plan, apply or cut that roster serve runs in the background (`background: true`), so the app or a Plugin follows it (`mesh.job`) and can stop it (`mesh.stop`) instead of waiting minutes for an answer. One at a time.
+A plan, apply or cut that roster serve runs in the background (`background: true`), so the app or a Plugin follows it (`mesh.job`) and can stop it (`mesh.stop`) instead of waiting minutes for an answer. One at a time. A kind of **Job**.
 _Avoid_: task, background run
+
+**Job**:
+Background work roster serve owns: a Mesh run or a Discover scan. It has a kind and an id, a state, progress, a result and a stop, pushes its progress (`job.progress`, the Plugins' `job_progress`), and is stopped and recorded when serve exits. One of each kind at a time.
+_Avoid_: task, worker (serve's workers answer requests; a Job runs beside them)
 
 ## The app
 

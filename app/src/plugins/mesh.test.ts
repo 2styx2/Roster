@@ -86,6 +86,10 @@ describe("the Mesh controls stand-in", () => {
         case "event":
           replies = await host.pluginEvent(step.name as PluginEventName, {});
           break;
+        case "push":
+          // serve's job.progress, as the app hands it to the Plugins (API 20).
+          replies = await host.pluginEvent("job_progress", step.payload as Record<string, unknown>);
+          break;
         default:
           throw new Error(`no step ${step.do}`);
       }

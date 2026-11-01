@@ -504,8 +504,9 @@ export function topologyPlugin(): FakePlugin {
         if (!e.host) return roster.notify("That's this Box: pick a Host to check.");
         roster.cmd(`check ${String(e.host)}`);
       };
-      type Cutting = { job?: unknown; host: string; timer?: number; polling?: boolean };
+      type Cutting = { job?: unknown; host: string; timer?: number | undefined; polling?: boolean; again?: boolean };
       let cutting: Cutting | null = null;
+      let pushed = false;
       const cutDone = (host: string, r: Obj) => {
         const waiting = keys(r.pending).length;
         if (waiting > 0) roster.notify(`Cut ${host}: cut pending on ${plural(waiting, "Host")} that didn't answer.`, "warn");
@@ -518,8 +519,13 @@ export function topologyPlugin(): FakePlugin {
         refresh();
       };
       const cutPoll = () => {
-        if (!cutting || cutting.polling) return;
+        if (!cutting) return;
+        if (cutting.polling) {
+          cutting.again = true;
+          return;
+        }
         cutting.polling = true;
+        cutting.again = false;
         ask("mesh.job", { job: cutting.job }, (r) => {
           if (!cutting) return;
           cutting.polling = false;
@@ -530,6 +536,7 @@ export function topologyPlugin(): FakePlugin {
           }
           if (j.state === "running") {
             roster.progress.set("topology-cut", { title: `Cutting ${cutting.host} from the Mesh`, done: j.done ?? 0, total: j.total ?? 0 });
+            if (cutting.again) cutPoll();
             return;
           }
           if (j.state === "done") cutDone(cutting.host, (j.result ?? {}) as Obj);
@@ -561,7 +568,8 @@ export function topologyPlugin(): FakePlugin {
                 const job = r as Obj;
                 c.job = job.job;
                 roster.progress.set("topology-cut", { title: `Cutting ${h} from the Mesh`, done: 0, total: job.total ?? 0 });
-                c.timer = roster.every(1000, cutPoll);
+                if (pushed) cutPoll();
+                else c.timer = roster.every(1000, cutPoll);
                 return;
               }
               cutting = null;
@@ -693,6 +701,23 @@ export function topologyPlugin(): FakePlugin {
         roster.on("inventory_changed", () => {
           hosts = null;
           refresh();
+        });
+      }
+      // serve's job_progress (API 20): a cut's progress, mesh.job asked once it's over.
+      if (canJob) {
+        roster.on("job_progress", (e) => {
+          if (e.kind !== "mesh") return;
+          pushed = true;
+          if (cutting?.timer !== undefined) {
+            roster.cancel(cutting.timer);
+            cutting.timer = undefined;
+          }
+          if (!cutting || cutting.job !== e.job) return;
+          if (e.state === "running" || e.state === "stopping") {
+            roster.progress.set("topology-cut", { title: `Cutting ${cutting.host} from the Mesh`, done: e.done ?? 0, total: e.total ?? 0 });
+            return;
+          }
+          cutPoll();
         });
       }
       if (canMesh) roster.every(settings.refresh * 1000, () => refresh());

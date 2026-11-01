@@ -27,6 +27,7 @@ import {
   type TypedPassword,
   type HostUpdate,
   type InventoryChanged,
+  type JobProgress,
   type InventoryReload,
   type PendingChanges,
   type PackageChecked,
@@ -161,7 +162,7 @@ export function tauriBackend(): Backend {
       }
     },
     listHosts: () => call<HostList>("hosts_list"),
-    getHost: (name) => call<Host>("host_get", { name }),
+    getHost: (name, options) => call<Host>("host_get", { name, settled: options?.settled ?? false }),
     vaultStatus: () => call<VaultStatus>("vault_status"),
     unlockVault: (password) => call<ProviderStatus>("vault_unlock", { password }),
     lockVault: () => call<{ locked: string[] }>("vault_lock"),
@@ -228,6 +229,12 @@ export function tauriBackend(): Backend {
       const stop = listen<{ method: string; params: { held?: unknown } }>("roster-notification", (e) => {
         const held = e.payload.params?.held;
         if (e.payload.method === "session.logged_in" && typeof held === "string") onLogin(held);
+      });
+      return () => void stop.then((f) => f());
+    },
+    onJobProgress(onProgress) {
+      const stop = listen<{ method: string; params: unknown }>("roster-notification", (e) => {
+        if (e.payload.method === "job.progress") onProgress(e.payload.params as JobProgress);
       });
       return () => void stop.then((f) => f());
     },

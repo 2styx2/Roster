@@ -7,7 +7,9 @@ uv run ruff check src tests scripts app/scripts
 uv build                 # wheel + sdist in dist/
 ```
 
-The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), stand-in Hosts for the Mesh (the `ssh` one runs commands in a directory per Host when `FAKE_HOSTS` is set: down Hosts, blocked ports, ESXi's paths), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/` (the `bw` one also creates and deletes items like `bw create item` / `bw delete item`, and signs in like `bw login`: prompts on its terminal, every two-step method, new-device codes, API key, SSO through `xdg-open`) (the `ssh` one asks `SSH_ASKPASS` for a password as real ssh does), stand-in Hosts for the Mesh (the `ssh` one runs commands in a directory per Host when `FAKE_HOSTS` is set: down Hosts, blocked ports, ESXi's paths, and a slow Host, `DIR/NAME/slow`, for a request that takes a while), and a local paramiko server for `roster check HOST`'s port and host-key steps, and give each test its own temporary HOME, so they never touch your real `~/.ssh` or vaults.
+
+`roster serve` answers requests concurrently (decision Q112), so a test that drives it can send several at once: the `serve` fixture's `request(method, params)` sends one without waiting and `answer(id)` waits for that one, keeping whatever answered first (`order` is the order serve answered in, `notes` its notifications). `tests/test_serve_concurrency.py` has a Publish whose upstream's hook takes a few seconds; `tests/test_jobs.py` tests the job manager on its own.
 
 ```text
 src/roster/
@@ -20,7 +22,10 @@ src/roster/
   claude.py         ROSTER.md, CLAUDE.md import, .claude/settings.json
   discover.py       nmap / built-in scanning, type guessing, merging into roster.yml; Scan: serve's discover.* scan
   serve.py          `roster serve`: JSON-RPC API for the desktop app, method table, the roster.yml watcher (inventory.changed);
+                    requests answered concurrently on workers, a lock per resource each method claims (LOCKS, decision Q112);
                     each method's docstring is its row in docs/serve-api.md (scripts/gen-serve-api.py)
+  jobs.py           serve's job manager: background work (a Mesh run, a scan) with ids, state, progress, a stop, and
+                    the job.progress notification; serve's exit stops every job and records it
   edit.py           editing one Host in roster.yml as text, adding, removing, renaming or moving one, and groups (comments and other entries kept), checked before it's written
   changes.py        Pending changes: the infra repo's git (pull fast-forward only, roster.yml's diff, discard, the .bak, publish)
   manpage.py        roster(1): generated from the parser (cli.build_parser) and docs/cli-reference.md into

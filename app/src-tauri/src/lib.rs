@@ -71,7 +71,8 @@ async fn backend_connect(
 ) -> Result<BackendInfo, BackendError> {
     let s = Arc::clone(&state);
     let loader = config.0.clone();
-    // serve's notifications (`inventory.changed`, ticket 28) go to the frontend as one event.
+    // serve's notifications (`inventory.changed`, ticket 28; `job.progress`, API 20) go to the
+    // frontend as one event.
     let notify: Notify = Arc::new(move |method: &str, params: Value| {
         use tauri::Emitter;
         let _ = app.emit("roster-notification", json!({ "method": method, "params": params }));
@@ -257,9 +258,20 @@ async fn hosts_list(state: tauri::State<'_, Arc<BackendState>>) -> Result<Value,
     call(&state, "hosts.list", json!({})).await
 }
 
+/// `host.get`; `settled` (serve API 20) waits for a write to roster.yml under way, for the check
+/// after a timed-out `host.add`. Sent only when true, so an older serve gets what it always did.
 #[tauri::command]
-async fn host_get(state: tauri::State<'_, Arc<BackendState>>, name: String) -> Result<Value, CallError> {
-    call(&state, "host.get", json!({ "name": name })).await
+async fn host_get(
+    state: tauri::State<'_, Arc<BackendState>>,
+    name: String,
+    settled: Option<bool>,
+) -> Result<Value, CallError> {
+    let params = if settled == Some(true) {
+        json!({ "name": name, "settled": true })
+    } else {
+        json!({ "name": name })
+    };
+    call(&state, "host.get", params).await
 }
 
 #[tauri::command]

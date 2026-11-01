@@ -496,6 +496,7 @@ class Scan(threading.Thread):
         self.total = sum(address_count(ipaddress.ip_network(t, strict=False)) for t in targets)
         self.found = []                         # [(rec, the result's record)], in address order
         self.today = datetime.date.today().isoformat()
+        self.on_progress = None                 # fn(done, total) after each batch (serve's job, its job.progress)
 
     # -- the thread
 
@@ -513,6 +514,8 @@ class Scan(threading.Thread):
                     self.found += [x for x in made if x]
                     self.quiet += made.count(None)
                     self.done += len(batch)
+                if self.on_progress is not None:
+                    self.on_progress(self.done, self.total)
         except ScanFailed as e:
             self.error = str(e)
         except SystemExit as e:                 # parse_nmap_xml's die()

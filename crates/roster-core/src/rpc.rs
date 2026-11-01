@@ -1,6 +1,7 @@
 //! A JSON-RPC 2.0 client over a child process's stdin/stdout, one JSON object per line: the
 //! `roster serve` protocol. Calls may be made from several threads; responses are matched to
-//! callers by id, so the order the child answers in doesn't matter. Whatever the child writes to
+//! callers by id, so the order the child answers in doesn't matter (serve answers several at
+//! once since API 20, decision Q112). Whatever the child writes to
 //! stderr is kept (the tail of it) so a failed start can be explained.
 
 use serde::Serialize;
@@ -19,8 +20,8 @@ const STDERR_TAIL: usize = 4096;
 /// How long one call may take before it's given up on.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// How long closing the client waits for serve to exit on its own before killing it: serve stops
-/// a running background Mesh job then and records what it didn't finish (decision Q101), which
-/// takes it about half a second.
+/// every running job then and records what it didn't finish (decisions Q101, Q112), up to 0.8 s,
+/// and gives the requests still running up to 1 s more to answer: 1.8 s at most.
 pub const EXIT_GRACE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

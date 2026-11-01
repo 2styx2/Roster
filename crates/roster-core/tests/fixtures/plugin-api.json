@@ -98,6 +98,14 @@
         "terminal.read"
       ],
       "payload": "TerminalOutputEvent"
+    },
+    {
+      "name": "job_progress",
+      "needs": [
+        "serve:mesh.job",
+        "serve:discover.status"
+      ],
+      "payload": "JobProgressEvent"
     }
   ],
   "functions": [
@@ -500,6 +508,24 @@
       "permission": null,
       "returns": "",
       "since": 2
+    },
+    {
+      "params": [
+        {
+          "name": "check",
+          "optional": false,
+          "type": "integer"
+        },
+        {
+          "name": "lines",
+          "optional": false,
+          "type": "HealthCheck[]"
+        }
+      ],
+      "path": "roster.health.answer",
+      "permission": null,
+      "returns": "",
+      "since": 3
     },
     {
       "params": [
@@ -1119,6 +1145,7 @@
     "roster-HttpResponse": "plugin-api#httpresponse",
     "roster-InventoryError": "plugin-api#inventoryerror",
     "roster-InventoryInfo": "plugin-api#inventoryinfo",
+    "roster-JobProgressEvent": "plugin-api#jobprogressevent",
     "roster-KeyContext": "plugin-api#keycontext",
     "roster-LastCommit": "plugin-api#lastcommit",
     "roster-Lesson": "plugin-api#lesson",
@@ -1199,6 +1226,7 @@
     "roster.float.open()": "plugin-api#rosterfloatopenfloat",
     "roster.has()": "plugin-api#rosterhaspermission",
     "roster.health": "plugin-api#rosterhealth",
+    "roster.health.answer()": "plugin-api#rosterhealthanswercheck-lines",
     "roster.health.remove()": "plugin-api#rosterhealthremoveid",
     "roster.health.set()": "plugin-api#rosterhealthsetid-section",
     "roster.help": "plugin-api#rosterhelp",
@@ -1570,7 +1598,7 @@
       "open": false
     },
     "EventName": {
-      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\""
+      "alias": "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\""
     },
     "Fact": {
       "fields": [
@@ -1956,6 +1984,11 @@
           "type": "string"
         },
         {
+          "name": "check",
+          "required": false,
+          "type": "integer"
+        },
+        {
           "name": "toolbar",
           "required": false,
           "type": "string"
@@ -2018,7 +2051,7 @@
         {
           "name": "check",
           "required": false,
-          "type": "fun(ctx: HandlerContext): HealthCheck[]"
+          "type": "fun(ctx: HandlerContext): HealthCheck[]|\"later\""
         }
       ],
       "open": false
@@ -2329,6 +2362,56 @@
           "name": "api_version",
           "required": true,
           "type": "integer"
+        }
+      ],
+      "open": false
+    },
+    "JobProgressEvent": {
+      "fields": [
+        {
+          "name": "kind",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "job",
+          "required": true,
+          "type": "integer|string"
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "done",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "total",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "name": "at",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "host",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "table"
         }
       ],
       "open": false

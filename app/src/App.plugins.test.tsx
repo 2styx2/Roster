@@ -170,3 +170,47 @@ describe("session_exit", () => {
     await waitFor(() => expect(heard).toEqual([{ open: host }, { host, code: null }]));
   });
 });
+
+// Ticket 101 (decision Q112): serve's jobs push their progress (API 20), and the app hands each
+// to the Plugins as `job_progress`, a Mesh job only to one that may ask `mesh.job`.
+describe("job_progress", () => {
+  async function watching(apiVersion: number) {
+    const heard: unknown[] = [];
+    const follower: FakePlugin = {
+      manifest: { name: "follower", version: "1.0.0", description: "", author: null, api: 3, permissions: ["serve:mesh.job"] },
+      load(roster) {
+        roster.on("job_progress", (e) => void heard.push({ kind: e.kind, job: e.job, state: e.state, done: e.done }));
+      },
+    };
+    const user = userEvent.setup();
+    const backend = fakeBackend({ hosts: makeHosts(3), apiVersion, plugins: { "~/plugins/follower": follower } });
+    render(<App backend={backend} terminalView={StubTerminal} platform={memoryPlatform()} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await install(user, "~/plugins/follower");
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    return { heard, backend };
+  }
+  const job = { action: "apply", total: 4, at: null } as const;
+
+  it("reaches a Plugin that may ask about that kind of job, and only that kind", async () => {
+    const { heard, backend } = await watching(20);
+    backend.jobProgress({ kind: "discover", job: "scan-1", state: "running", done: 0, ...job, action: "scan" });
+    backend.jobProgress({ kind: "mesh", job: 3, state: "running", done: 1, ...job });
+    backend.jobProgress({ kind: "mesh", job: 3, state: "done", done: 4, ...job });
+    await waitFor(() =>
+      expect(heard).toEqual([
+        { kind: "mesh", job: 3, state: "running", done: 1 },
+        { kind: "mesh", job: 3, state: "done", done: 4 },
+      ]),
+    );
+  });
+
+  it("isn't listened for from a serve before API 20", async () => {
+    const { heard, backend } = await watching(19);
+    backend.jobProgress({ kind: "mesh", job: 3, state: "running", done: 1, ...job });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(heard).toEqual([]);
+  });
+});

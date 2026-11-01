@@ -205,6 +205,9 @@ export type PluginOp =
   | { op: "finder"; id: string; title: string; prompt: string; items: PluginFinderItem[] | { handler: number } | { section: string } }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
   | { op: "health"; id: string; title: string; checks: PluginHealthCheck[]; check?: Run }
+  /** `roster.health.answer` (decision Q112h): the lines for a `:check` run whose `check` returned
+   * "later". Checked when the app takes them, so bad lines are that section's ERROR line. */
+  | { op: "health_answer"; check: number; checks: unknown }
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
   | { op: "badge"; host: string; text: string | null }
   | { op: "float"; spec: PluginFloat | null }
@@ -695,6 +698,10 @@ function parse(raw: unknown): PluginOp {
         lessons,
         outro: optStr(spec, "outro", what, MAX_HELP) ?? "",
       };
+    }
+    case "health_answer": {
+      if (typeof raw.check !== "number" || !Number.isInteger(raw.check)) throw new Invalid("roster.health.answer: check must be the run's e.check");
+      return { op: "health_answer", check: raw.check, checks: raw.checks };
     }
     case "badge":
       return { op: "badge", host: str(raw, "host", "roster.badges.set", 200), text: raw.text === null ? null : str(raw, "text", "roster.badges.set", 40) };

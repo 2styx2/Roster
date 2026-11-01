@@ -24,6 +24,7 @@ import {
   type HostList,
   type GroupChange,
   type InventoryChanged,
+  type JobProgress,
   type InventoryFileError,
   LiveError,
   LOGIN_FIELDS,
@@ -159,7 +160,7 @@ export interface FakeScenario {
   relockAfterMs?: number;
   /** `vault.unlock` with the right password takes `completesAfterMs`, but the call gives up
    * after `failAfterMs` (roster-core's timeout) while serve carries on and unlocks anyway. Like
-   * serve, the fake then answers vault calls in order, so later ones wait for that unlock. */
+   * serve, the fake then holds the vault's lock until it's done, so later vault calls wait for it. */
   slowUnlock?: { failAfterMs: number; completesAfterMs: number };
   /** The account `vault.login` signs in to, when the vault is `not-logged-in` (ticket 31). Without
    * it, `vault.status` has no `sign_in` (a roster older than api 3). */
@@ -951,6 +952,10 @@ export interface FakeBackend extends Backend {
   /** roster.yml saved outside the app: new Hosts and groups, or a file that doesn't load. serve's
    * watcher then applies it (auto) or only reports it, as `inventory.changed`. */
   outsideEdit(next: HostList | { error: InventoryFileError }): void;
+  /** serve pushes a job's progress (`job.progress`, API 20). */
+  jobProgress(job: JobProgress): void;
+  /** Every `host.get` asked with `settled` so far: the Host's name. */
+  settledGets(): string[];
   /** Whether `inventory.watch` asked to apply outside edits (null: not watching). */
   watching(): boolean | null;
   /** What `vault.configure` was last sent (null: never). */
@@ -995,6 +1000,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let onDisk: HostList | { error: InventoryFileError } | null = null;
   let broken: InventoryFileError | null = null;
   const changeWatchers = new Set<(c: InventoryChanged) => void>();
+  const jobWatchers = new Set<(j: JobProgress) => void>();
+  const settled: string[] = [];
   const applyDisk = () => {
     if (!onDisk) return;
     if ("error" in onDisk) broken = onDisk.error;
@@ -1138,7 +1145,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
     });
   const wait = () => new Promise((r) => setTimeout(r, scenario.delay ?? 0));
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  /** serve answers one request at a time: vault calls queue behind a slow unlock. */
+  /** The vault's lock (serve API 20): vault calls wait behind a slow unlock, which holds it alone. */
   let serveBusy: Promise<unknown> = Promise.resolve();
   const inOrder = <T>(job: () => Promise<T>): Promise<T> => {
     const run = serveBusy.then(job, job);
@@ -1309,7 +1316,8 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       await wait();
       return { hosts, groups, error: broken };
     },
-    async getHost(name: string) {
+    async getHost(name: string, options?: { settled?: boolean }) {
+      if (options?.settled) settled.push(name);
       await wait();
       const h = hosts.find((x) => x.name === name);
       if (!h) throw new BackendCallError(`unknown host '${name}'`, 2);
@@ -1921,6 +1929,14 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       changeWatchers.add(onChange);
       return () => changeWatchers.delete(onChange);
     },
+    onJobProgress(onProgress) {
+      jobWatchers.add(onProgress);
+      return () => jobWatchers.delete(onProgress);
+    },
+    jobProgress(job) {
+      for (const w of jobWatchers) w(job);
+    },
+    settledGets: () => [...settled],
     outsideEdit(next) {
       onDisk = next;
       if (watchAuto === null) return;

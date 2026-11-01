@@ -87,6 +87,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 41 | 73 | The fetch or the fast-forward failed: network, access, a file in the way | Network, infra repo | "couldn't fetch origin/main for the infra repo" | Check the network and access; git's words under Details |
 | 42 | 74 | The edit's result wouldn't load, would load differently, or would change another entry (a YAML alias) | `roster.yml` | "can't make that edit: the result wouldn't load - nothing was written" | Make the edit by hand; nothing was written |
 | 43 | 75 | An address, user or Login change without a test login that just succeeded | roster | "esx's new address, user or Login hasn't passed a test login" | Test the login, then save again |
+| 113 | 4 | roster serve answers several requests at once, but two writes to `roster.yml` (or a write and a Publish), or unlocking and a lookup in the vault, never overlap: this one waited for the other past its time | roster | "roster.yml is busy: changes.publish is still running - nothing was done" | Try again once it has finished; nothing was done |
 
 ## Adding a Host
 
@@ -268,7 +269,7 @@ What a Plugin with a `network:SITE` permission gets back from `roster.http` (see
 
 ## A Plugin's roster serve requests
 
-What a Plugin's `roster.serve.request` can run into ([Asking roster serve](../plugins.md#asking-roster-serve)). roster serve answers one request at a time, so a request can wait behind the app's own Publish for a minute or two; that's never the Plugin's fault, and nothing is disabled for it. A method's own failure comes to `done` as `nil` and `roster.serve.request METHOD: MESSAGE (code N)`, with the codes in [serve-api.md](../serve-api.md).
+What a Plugin's `roster.serve.request` can run into ([Asking roster serve](../plugins.md#asking-roster-serve)). roster serve answers several requests at once, but a request can still wait: for its turn (a Plugin has 2 calls into serve at a time, all Plugins 4), or for `roster.yml` behind the app's own Publish, for a minute or two; that's never the Plugin's fault, and nothing is disabled for it. A method's own failure comes to `done` as `nil` and `roster.serve.request METHOD: MESSAGE (code N)`, with the codes in [serve-api.md](../serve-api.md).
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|

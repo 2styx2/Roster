@@ -11,7 +11,7 @@
 
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
-use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
+use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
 use serde_json::{Map, Value, json};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -272,6 +272,32 @@ impl World {
         reply
     }
 
+    /// serve's `job.progress` for the scan, as the app hands it to the Plugins (API 20): what
+    /// the Plugin did, its answers' ops included.
+    fn push(&self, state: &str, done: u64) -> Reply {
+        let replies = self.host.event(Event {
+            name: "job_progress".into(),
+            payload: json!({ "kind": "discover", "job": "scan-1", "action": "scan", "state": state, "done": done,
+                             "total": 254, "at": null }),
+        });
+        let mut own = Reply {
+            plugin: NAME.into(),
+            result: Value::Null,
+            ops: Vec::new(),
+            error: None,
+            disabled: None,
+        };
+        for r in replies {
+            ok(&r);
+            own.ops.extend(r.ops);
+        }
+        self.settled(own)
+    }
+
+    fn pushed(&self, state: &str, done: u64) -> Vec<Value> {
+        self.push(state, done).ops
+    }
+
     fn command(&self, loaded: &Reply, args: &str) -> Reply {
         let words: Vec<&str> = args.split_whitespace().collect();
         self.call(command(&loaded.ops), json!({ "args": args, "words": words }))
@@ -494,6 +520,44 @@ fn results_come_in_as_the_scan_finds_them_and_the_progress_ends_with_it() {
     assert_eq!(op(&second.ops, "notify")["text"], "Scan done: 3 Hosts answered, 2 new");
 }
 
+/// serve API 20 pushes the scan's progress (decision Q112f): each push brings a question for the
+/// results, the timer goes at the first, and the next scan needs none.
+#[test]
+fn it_follows_the_scan_by_job_progress_and_stops_polling() {
+    let w = World::new("pushed", json!({}));
+    let loaded = w.load(ALL);
+    let (started, _) = scanned(&w, &loaded);
+    assert!(has(&started.ops, "timer"), "no push yet: it polls");
+    let before = w.serve.methods().len();
+    let first = w.pushed("running", 128);
+    assert!(first.iter().any(|o| o["op"] == "remove" && o["kind"] == "timer"));
+    assert_eq!(&w.serve.methods()[before..], ["discover.status"]);
+    assert_eq!(rows(&first).keys().collect::<Vec<_>>(), ["10.0.0.5", "10.0.0.7"]);
+    let end = w.pushed("done", 254);
+    assert_eq!(&w.serve.methods()[before..], ["discover.status", "discover.status"]);
+    assert_eq!(op(&end, "notify")["text"], "Scan done: 3 Hosts answered, 2 new");
+    // Over: another push asks nothing.
+    w.pushed("done", 254);
+    assert_eq!(w.serve.methods().len(), before + 2);
+    // The next scan asks once and sets no timer: serve pushes.
+    let asked = w.command(&loaded, "10.0.0.0/24");
+    let again = w.call(handler(&op(&asked.ops, "confirm")["spec"]["run"]), json!({}));
+    assert!(!has(&again.ops, "timer"));
+    assert_eq!(w.serve.methods().last().unwrap(), "discover.status");
+}
+
+/// A Mesh job's progress isn't the scan's.
+#[test]
+fn a_mesh_jobs_progress_isnt_heard() {
+    let w = World::new("meshpush", json!({}));
+    w.load(ALL);
+    let replies = w.host.event(Event {
+        name: "job_progress".into(),
+        payload: json!({ "kind": "mesh", "job": 1, "action": "apply", "state": "running", "done": 0, "total": 3, "at": null }),
+    });
+    assert!(replies.is_empty());
+}
+
 #[test]
 fn stopping_calls_discover_stop() {
     let w = World::new("stop", json!({}));
@@ -605,7 +669,12 @@ fn check_says_whether_this_boxs_roster_can_scan_and_connects_nowhere() {
     let w = World::new("health", json!({}));
     let loaded = w.load(&ALL[..4]);
     let check = handler(&op(&loaded.ops, "health")["spec"]["check"]);
-    let lines = w.call(check, json!({ "health": NAME })).result;
+    // It answers later (decision Q112h): it never waits for serve on its own thread.
+    let r = w.call(check, json!({ "health": NAME, "check": 7 }));
+    assert_eq!(r.result, "later");
+    let answer = op(&r.ops, "health_answer");
+    assert_eq!(answer["check"], 7);
+    let lines = &answer["checks"];
     assert_eq!(lines[0]["level"], "ok");
     assert_eq!(lines[0]["message"], "roster serve can scan, with nmap");
     assert_eq!(lines[1]["level"], "warn");
@@ -673,6 +742,10 @@ fn steps() -> Value {
         { "do": "confirm" },
         { "do": "command", "args": "10.0.0.0/19" },
         { "do": "command", "args": "stop" },
+        { "do": "command", "args": "10.0.0.0/24" },
+        { "do": "confirm" },
+        { "do": "push", "state": "running", "done": 128 },
+        { "do": "push", "state": "done", "done": 254 },
         { "do": "load", "grants": [], "config": {} },
         { "do": "command", "args": "10.0.0.0/24" }
     ])
@@ -723,6 +796,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
             "command" => w.command(loaded.as_ref().unwrap(), step["args"].as_str().unwrap()),
             "confirm" => w.call(confirm.take().expect("a question"), json!({})),
             "timer" => w.call(timer.expect("a timer"), json!({})),
+            "push" => w.push(step["state"].as_str().unwrap(), step["done"].as_u64().unwrap()),
             "action" => {
                 let h = action(&loaded.as_ref().unwrap().ops, step["label"].as_str().unwrap());
                 w.call(h, json!({ "row": step["row"], "view": NAME }))

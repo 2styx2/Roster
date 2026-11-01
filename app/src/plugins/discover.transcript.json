@@ -205,6 +205,145 @@
           "10.0.0.0/19"
         ]
       }
+    ],
+    [
+      "discover.plan",
+      {
+        "force": true,
+        "targets": [
+          "10.0.0.0/24"
+        ]
+      },
+      {
+        "addresses": 254,
+        "limit": 4096,
+        "max": 65536,
+        "ports": 47,
+        "scanner": "nmap",
+        "targets": [
+          "10.0.0.0/24"
+        ]
+      }
+    ],
+    [
+      "discover.start",
+      {
+        "force": false,
+        "targets": [
+          "10.0.0.0/24"
+        ]
+      },
+      {
+        "count": 0,
+        "done": 0,
+        "error": null,
+        "found": [],
+        "quiet": 0,
+        "scan": "scan-1",
+        "scanner": "nmap",
+        "state": "running",
+        "targets": [
+          "10.0.0.0/24"
+        ],
+        "total": 254
+      }
+    ],
+    [
+      "discover.status",
+      {
+        "scan": "scan-1",
+        "since": 0
+      },
+      {
+        "count": 3,
+        "done": 254,
+        "error": null,
+        "found": [
+          {
+            "added": null,
+            "address": "10.0.0.5",
+            "hostname": "",
+            "known": "esx-02",
+            "mac": "",
+            "name": null,
+            "os": "",
+            "ports": [
+              {
+                "name": "ssh",
+                "port": 22,
+                "product": "OpenSSH 9.6",
+                "title": ""
+              },
+              {
+                "name": "https",
+                "port": 443,
+                "product": "VMware ESXi",
+                "title": ""
+              }
+            ],
+            "title": "",
+            "type": "server",
+            "vendor": "",
+            "web": "https://10.0.0.5"
+          },
+          {
+            "added": null,
+            "address": "10.0.0.7",
+            "hostname": "appliance.lab",
+            "known": null,
+            "mac": "",
+            "name": "appliance",
+            "os": "",
+            "ports": [
+              {
+                "name": "https",
+                "port": 443,
+                "product": "lighttpd",
+                "title": "Appliance login"
+              }
+            ],
+            "title": "Appliance login",
+            "type": "appliance",
+            "vendor": "",
+            "web": "https://10.0.0.7"
+          },
+          {
+            "added": null,
+            "address": "10.0.0.9",
+            "hostname": "",
+            "known": null,
+            "mac": "",
+            "name": "db-10-0-0-9",
+            "os": "",
+            "ports": [
+              {
+                "name": "ssh",
+                "port": 22,
+                "product": "OpenSSH 9.6",
+                "title": ""
+              },
+              {
+                "name": "postgresql",
+                "port": 5432,
+                "product": "",
+                "title": ""
+              }
+            ],
+            "title": "",
+            "type": "db",
+            "vendor": "",
+            "web": null
+          }
+        ],
+        "quiet": 0,
+        "scan": "scan-1",
+        "scanner": "nmap",
+        "state": "done",
+        "targets": [
+          "10.0.0.0/24"
+        ],
+        "total": 254
+      }
     ]
   ],
   "steps": [
@@ -999,6 +1138,242 @@
           "text": "No scan is going"
         }
       ]
+    },
+    {
+      "answers": [
+        [
+          {
+            "op": "confirm",
+            "spec": {
+              "action": "Scan",
+              "danger": false,
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Addresses",
+                  "value": "254"
+                },
+                {
+                  "label": "Ports",
+                  "value": "47"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                }
+              ],
+              "run": "fn",
+              "text": "roster scans from this computer: it connects to each of the 254 addresses on 47 TCP ports, with nmap. Scan only networks you may: their security tools may take a scan for an attack.\n\nNothing is added until you pick what to keep.",
+              "title": "Scan 10.0.0.0/24?"
+            }
+          }
+        ]
+      ],
+      "args": "10.0.0.0/24",
+      "do": "command",
+      "ops": []
+    },
+    {
+      "answers": [
+        [
+          {
+            "changes": {
+              "remove": [
+                "10.0.0.5",
+                "10.0.0.7",
+                "10.0.0.9"
+              ]
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "0 new, 0 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "text": "Scanning 10.0.0.0/24 with nmap: 0 of 254 addresses. Hosts show here as they're found."
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "id": "discover",
+            "op": "view_open"
+          },
+          {
+            "id": "scan",
+            "op": "progress",
+            "spec": {
+              "cancel": "fn",
+              "done": 0,
+              "text": "0 Hosts found so far",
+              "title": "Scanning 10.0.0.0/24",
+              "total": 254
+            }
+          },
+          {
+            "every": true,
+            "id": "N",
+            "ms": 1000,
+            "op": "timer",
+            "run": "fn"
+          }
+        ]
+      ],
+      "do": "confirm",
+      "ops": []
+    },
+    {
+      "answers": [
+        [
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "2 new, 1 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "rows": [
+                {
+                  "cells": {
+                    "address": "10.0.0.5",
+                    "keep": "",
+                    "name": "esx-02",
+                    "pick": "no",
+                    "ports": "22 ssh · 443 https",
+                    "state": "known",
+                    "status": "in the Inventory as esx-02",
+                    "title": "",
+                    "type": "server"
+                  },
+                  "host": "esx-02",
+                  "id": "10.0.0.5",
+                  "tone": "muted"
+                },
+                {
+                  "cells": {
+                    "address": "10.0.0.7",
+                    "keep": "",
+                    "name": "appliance",
+                    "pick": "no",
+                    "ports": "443 https",
+                    "state": "new",
+                    "status": "new",
+                    "title": "Appliance login",
+                    "type": "appliance"
+                  },
+                  "id": "10.0.0.7"
+                },
+                {
+                  "cells": {
+                    "address": "10.0.0.9",
+                    "keep": "",
+                    "name": "db-10-0-0-9",
+                    "pick": "no",
+                    "ports": "22 ssh · 5432 postgresql",
+                    "state": "new",
+                    "status": "new",
+                    "title": "",
+                    "type": "db"
+                  },
+                  "id": "10.0.0.9"
+                }
+              ],
+              "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "id": "scan",
+            "kind": "progress",
+            "op": "remove"
+          },
+          {
+            "changes": {
+              "facts": [
+                {
+                  "data": true,
+                  "label": "Range",
+                  "value": "10.0.0.0/24"
+                },
+                {
+                  "label": "Scanner",
+                  "value": "nmap"
+                },
+                {
+                  "label": "Found",
+                  "value": "2 new, 1 in the Inventory"
+                },
+                {
+                  "label": "Kept",
+                  "value": "0"
+                }
+              ],
+              "text": "Scanned 10.0.0.0/24: 3 Hosts answered.\n\nKeep the ones you want (m, or :discover keep all), then add them (A): they go in unreviewed, as Pending changes you review in :changes and Publish."
+            },
+            "id": "discover",
+            "op": "view_update"
+          },
+          {
+            "level": "info",
+            "op": "notify",
+            "text": "Scan done: 3 Hosts answered, 2 new"
+          }
+        ]
+      ],
+      "do": "push",
+      "done": 128,
+      "ops": [
+        {
+          "id": "N",
+          "kind": "timer",
+          "op": "remove"
+        }
+      ],
+      "state": "running"
+    },
+    {
+      "answers": [],
+      "do": "push",
+      "done": 254,
+      "ops": [],
+      "state": "done"
     },
     {
       "answers": [],

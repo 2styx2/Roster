@@ -11,6 +11,8 @@ The first argument picks a behaviour:
   no-inventory       every method returns error code 1, like serve without a roster.yml
   unknown-command    exits 2 at once with argparse's "invalid choice: 'serve'" (a roster from before serve)
   reverse            holds two requests, then answers them in reverse order
+  shuffle            as serve's workers do (API 20): holds four requests, then answers them 3rd, 1st, 4th, 2nd, with a
+                     job.progress notification before each answer
   die-on-hosts       exits without answering hosts.list
   locked             session.prepare for a password Host refuses with 14 (vault locked)
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
@@ -151,6 +153,17 @@ for line in sys.stdin:
         if len(held) < 2:
             continue
         reqs, held = list(reversed(held)), []
+    elif mode == "shuffle":
+        held.append(req)
+        if len(held) < 4:
+            continue
+        reqs, held = [held[2], held[0], held[3], held[1]], []
+        for i, r in enumerate(reqs):
+            print(json.dumps({"jsonrpc": "2.0", "method": "job.progress",
+                              "params": {"kind": "mesh", "job": 1, "action": "apply", "state": "running", "done": i,
+                                         "total": 4, "at": None}}), flush=True)
+            print(json.dumps({"jsonrpc": "2.0", "id": r["id"], **answer(r)}), flush=True)
+        continue
     else:
         reqs = [req]
     for r in reqs:
