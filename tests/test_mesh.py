@@ -1146,3 +1146,35 @@ def test_jobs_stop_stops_a_mesh_job_as_mesh_stop_does(net, serve):
     assert s.call("jobs.stop", {"kind": "mesh", "job": started["job"]})["result"]["stopping"] is True
     j = wait_for(s, started["job"])
     assert j["state"] == "done" and j["stopped"] is True and j["result"]["pending"]
+
+
+def test_a_cut_whose_write_waits_too_long_for_roster_yml_says_so_and_still_cut(net, monkeypatch):
+    # review 6: a cut's write waited for roster.yml with no limit, so mesh: false landed long after anyone asked
+    import threading
+
+    from roster import serve as rpc
+    monkeypatch.setattr(rpc, "LOCK_WAIT", 0.2)
+    state = rpc.State(str(net.cfg_path))
+    held, release = threading.Event(), threading.Event()
+
+    def publish():                                  # the app's Publish takes roster.yml once the cut is done
+        state.lock.acquire(False, None, "changes.publish")
+        held.set()
+        release.wait(10)
+        state.lock.release()
+    cut = mesh.cut
+
+    def cut_then_publish(*a, **k):
+        result = cut(*a, **k)
+        threading.Thread(target=publish, daemon=True).start()
+        held.wait(5)
+        return result
+    monkeypatch.setattr(mesh, "cut", cut_then_publish)
+    r = rpc.handle(state, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "mesh.cut",
+                                      "params": {"host": "orion-2", "background": True}}))
+    job = state.jobs.latest("mesh")
+    assert job.wait(10), r
+    release.set()
+    change = job.result["change"]
+    assert change["written"] is False and "roster.yml is busy: changes.publish is still running" in change["error"]
+    assert "mesh: false" in change["fix"]

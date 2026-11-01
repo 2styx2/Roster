@@ -271,6 +271,9 @@ pub struct PluginHost {
     serve: Arc<dyn Serve>,
     /// The share of roster serve all Plugins together may take at once ([`fair`]).
     all_plugins: Arc<fair::Gate>,
+    /// Each Plugin's own share, by name: kept across reloads, so the calls a load left running
+    /// still count against the next one.
+    plugin_gates: Mutex<BTreeMap<String, Arc<fair::Gate>>>,
     limits: Limits,
     slots: Arc<Slots>,
     listener: Arc<Mutex<Option<Listener>>>,
@@ -285,6 +288,7 @@ impl PluginHost {
         PluginHost {
             serve,
             all_plugins: fair::Gate::new(fair::PLUGINS_AT_ONCE),
+            plugin_gates: Mutex::default(),
             limits,
             slots: Arc::default(),
             listener: Arc::default(),
@@ -566,7 +570,13 @@ impl PluginHost {
         // Its calls into serve go through its own share and the one all Plugins have (fair.rs).
         let serve: Arc<dyn Serve> = Arc::new(fair::Fair {
             inner: Arc::clone(&self.serve),
-            mine: fair::Gate::new(fair::PLUGIN_AT_ONCE),
+            mine: Arc::clone(
+                self.plugin_gates
+                    .lock()
+                    .expect("plugin gates")
+                    .entry(manifest.name.clone())
+                    .or_insert_with(|| fair::Gate::new(fair::PLUGIN_AT_ONCE)),
+            ),
             all: Arc::clone(&self.all_plugins),
         });
         let (limits, serving) = (self.limits, Arc::clone(serving));

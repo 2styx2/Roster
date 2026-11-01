@@ -114,3 +114,32 @@ def test_closing_waits_only_so_long_for_a_job_that_wont_stop():
     t = time.monotonic()
     m.close(0.3)
     assert time.monotonic() - t < 1
+
+
+def test_closing_while_a_job_is_starting_waits_for_it_and_stops_it():
+    # review 4: start() made the job visible and told about it before starting its thread; close() in that window
+    # joined a thread not started yet (RuntimeError) and the rest of the clean-up never ran
+    told, go = threading.Event(), threading.Event()
+
+    def notify(method, params):
+        if params["state"] == "running" and not told.is_set():
+            told.set()
+            go.wait(2)
+    m = jobs.Jobs(notify)
+    starting = threading.Thread(target=lambda: m.start("mesh", "apply", lambda job: job.halted.wait(5)), daemon=True)
+    starting.start()
+    told.wait(5)
+    failed = []
+
+    def close():
+        try:
+            m.close(1)
+        except Exception as e:
+            failed.append(e)
+    closer = threading.Thread(target=close, daemon=True)
+    closer.start()
+    closer.join(0.2)
+    go.set()
+    starting.join(5)
+    closer.join(5)
+    assert failed == [] and m.latest("mesh").view()["state"] == "stopped"

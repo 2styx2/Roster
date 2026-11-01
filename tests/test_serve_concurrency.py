@@ -130,11 +130,6 @@ def test_a_write_that_cant_get_roster_yml_in_time_is_busy_and_does_nothing(state
 
 
 def test_vault_lock_waits_for_whoever_holds_a_secret(state, monkeypatch):
-    monkeypatch.setattr(rpc, "LOCK_WAIT", 0.3)
-    holding(state.vault, "session.prepare", 1, shared=True)
-    err = call(state, "vault.lock")["error"]
-    assert err["code"] == 4 and "the vault is busy: session.prepare is still running" in err["message"]
-    monkeypatch.setattr(rpc, "LOCK_WAIT", 5)
     holding(state.vault, "session.prepare", 0.5, shared=True)
     t = time.monotonic()
     assert "result" in call(state, "vault.lock")
@@ -203,3 +198,206 @@ def test_two_requests_recording_the_same_host_key_at_once_record_it_once(isolate
         t.join()
     lines = sshops.known_hosts_file().read_text().splitlines()
     assert lines.count("10.0.0.30 ssh-ed25519 AAAAC3Nza") == 1
+
+
+# ---------------------------------------------------------------- the review of PR #188 (decision Q112, amended)
+
+def wait_until(cond, seconds=5):
+    end = time.monotonic() + seconds
+    while not cond():
+        assert time.monotonic() < end, "never happened"
+        time.sleep(0.005)
+
+
+def holder(lock, method, shared=False):
+    """Hold LOCK as METHOD would, on a thread of its own, until the returned Event is set."""
+    held, done = threading.Event(), threading.Event()
+
+    def run():
+        lock.acquire(shared, None, method)
+        held.set()
+        done.wait(10)
+        lock.release()
+    threading.Thread(target=run, daemon=True).start()
+    held.wait(5)
+    return done
+
+
+def test_vault_lock_forgets_at_once_then_waits_for_the_holders_and_never_fails(state, monkeypatch):
+    # review 1: vault.lock waited for the vault's lock first, and after LOCK_WAIT answered 4 with every secret still
+    # in memory while the app showed its lock screen
+    monkeypatch.setattr(rpc, "LOCK_WAIT", 0)                       # any wait at all would have been 4
+    forgot = []
+    monkeypatch.setattr(rpc, "ON_VAULT_LOCK", [lambda st: forgot.append(time.monotonic())])
+    release = holder(state.vault, "session.prepare", shared=True)   # a request holding a secret
+    answer = []
+    t = threading.Thread(target=lambda: answer.append(call(state, "vault.lock")), daemon=True)
+    t.start()
+    wait_until(lambda: len(forgot) == 1)                            # forgotten while the holder still holds it
+    wait_until(lambda: state.vault.writers_waiting == 1)            # then waiting: new lookups wait behind it
+    assert not state.vault.acquire(True, 0.05, "session.prepare")
+    release.set()
+    t.join(5)
+    assert "result" in answer[0], answer
+    assert len(forgot) == 2                                         # and again, for what the holder made meanwhile
+
+
+def test_vault_logout_never_waits_with_a_busy_answer_either(state):
+    assert "vault.logout" not in rpc.LOCKS and "vault.lock" not in rpc.LOCKS
+
+
+def test_a_writer_that_gives_up_lets_the_readers_it_held_back_go(state):
+    # review 2: the writer's timeout lowered writers_waiting without waking the readers waiting behind it
+    release = holder(state.vault, "host.check", shared=True)
+    gave_up = threading.Event()
+    threading.Thread(target=lambda: state.vault.acquire(False, 0.3, "vault.unlock") or gave_up.set(),
+                     daemon=True).start()
+    wait_until(lambda: state.vault.writers_waiting == 1)
+    got = []
+    reader = threading.Thread(target=lambda: got.append(state.vault.acquire(True, 30, "session.prepare")), daemon=True)
+    reader.start()
+    gave_up.wait(5)
+    reader.join(3)                                                  # not at its own 30 s timeout
+    assert got == [True]
+    state.vault.release()
+    release.set()
+
+
+def test_host_verify_login_reloads_before_it_shares_the_vault(state, monkeypatch):
+    # review 3: verify_login shared the vault, then waited for roster.yml: with host.add holding roster.yml and
+    # waiting for the vault behind a vault.lock that waited for verify_login, none of them ever ended
+    from roster import diagnose
+    monkeypatch.setattr(diagnose, "verify_login", lambda *a, **k: {"host": "nas-1", "ok": False, "steps": []})
+    release = holder(state.lock, "host.add")                       # host.add holds roster.yml
+    verify = threading.Thread(target=lambda: call(state, "host.verify_login",
+                                                  {"host": "nas-1", "changes": {"user": "root"}}), daemon=True)
+    verify.start()
+    wait_until(lambda: state.lock.writers_waiting == 1)             # verify_login waits for roster.yml...
+    assert state.vault.readers == 0                                 # ...holding nothing of the vault
+    locked = []
+    t = threading.Thread(target=lambda: locked.append(call(state, "vault.lock")), daemon=True)
+    t.start()
+    t.join(5)
+    assert locked and "result" in locked[0]                         # so vault.lock doesn't wait for it
+    release.set()
+    verify.join(5)
+
+
+def test_a_reload_for_a_read_waits_only_so_long_for_a_write(state, monkeypatch):
+    # review 6: mesh.plan's and mesh.apply's reload waited for roster.yml with no limit, never answering 4
+    monkeypatch.setitem(rpc.DEADLINES, "mesh.plan", 0.1)          # what's left of its deadline is its wait
+    release = holder(state.lock, "changes.publish")
+    answer = []
+    t = threading.Thread(target=lambda: answer.append(call(state, "mesh.plan")), daemon=True)
+    t.start()
+    t.join(3)
+    release.set()
+    assert answer and answer[0]["error"]["code"] == 4
+    assert answer[0]["error"]["data"]["method"] == "changes.publish"
+
+
+def test_two_inventory_watch_at_once_start_one_watcher(state, monkeypatch):
+    # review 7: inventory.watch is a quick read, and checked then set state.watcher with no lock
+    made, entered, go = [], threading.Event(), threading.Event()
+
+    class Slow(rpc.Watcher):
+        def __init__(self, st):
+            made.append(1)
+            entered.set()
+            go.wait(1)
+            super().__init__(st)
+
+        def run(self):
+            pass
+    monkeypatch.setattr(rpc, "Watcher", Slow)
+    state.notify = lambda *a: None
+    first = threading.Thread(target=lambda: call(state, "inventory.watch", {"auto": True}), daemon=True)
+    first.start()
+    entered.wait(5)
+    second = threading.Thread(target=lambda: call(state, "inventory.watch", {"auto": True}), daemon=True)
+    second.start()
+    second.join(0.3)                                                # a second watcher would be made in this time
+    go.set()
+    first.join(5)
+    second.join(5)
+    assert made == [1]
+
+
+def test_two_undos_of_one_item_at_once_delete_it_once(state, monkeypatch):
+    # review 8: both undos found the item, both deleted it, and the second's `del` was a KeyError (-32603)
+    from roster import providers
+    deleting, go, deleted = threading.Event(), threading.Event(), []
+
+    def delete_item(provider, item_id):
+        deleted.append(item_id)
+        deleting.set()
+        go.wait(2)
+    monkeypatch.setattr(providers, "delete_item", delete_item)
+    state.created["item-1"] = "bw"
+    answers = []
+    first = threading.Thread(target=lambda: answers.append(call(state, "vault.undo_create", {"id": "item-1"})),
+                             daemon=True)
+    first.start()
+    deleting.wait(5)
+    answers.append(call(state, "vault.undo_create", {"id": "item-1"}))
+    go.set()
+    first.join(5)
+    assert answers[0]["error"]["code"] == 63 and "result" in answers[1]
+    assert deleted == ["item-1"]
+
+
+def test_an_undo_the_vault_refused_can_be_tried_again(state, monkeypatch):
+    from roster import providers
+
+    def refuse(provider, item_id):
+        raise providers.SecretError("bw refused")
+    monkeypatch.setattr(providers, "delete_item", refuse)
+    state.created["item-1"] = "bw"
+    assert call(state, "vault.undo_create", {"id": "item-1"})["error"]["code"] != 63
+    assert state.created == {"item-1": "bw"}
+
+
+def test_a_worker_outlives_a_request_that_raises(state):
+    # review 9: an exception out of a request killed its worker for good, and the pool ran dry
+    pool = rpc.Pool(1, "test")
+    pool.queue.put(lambda: 1 / 0)
+    ran = threading.Event()
+    pool.queue.put(ran.set)
+    assert ran.wait(5)
+
+
+def test_closing_refuses_whats_queued_before_any_clean_up(state, monkeypatch):
+    # review 5: a vault.login queued when stdin closed ran after end_sign_in, and its `bw login` outlived serve
+    gate, started, ran, out = threading.Event(), threading.Event(), [], []
+    monkeypatch.setitem(rpc.METHODS, "test.slow", lambda st, params: started.set() or gate.wait(5) and {})
+    monkeypatch.setitem(rpc.METHODS, "vault.login", lambda st, params: ran.append(1) or {})
+    server = rpc.Server(state, out.append, workers=1, quick_workers=1)
+    server.submit(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "test.slow"}))
+    started.wait(5)
+    server.submit(json.dumps({"jsonrpc": "2.0", "id": 2, "method": "vault.login", "params": {}}))
+    assert server.close(0.05) is False                              # test.slow still runs
+    gate.set()
+    assert server.drain(5)
+    assert ran == []
+    assert {r["id"]: r.get("error", {}).get("message") for r in out}[2] == "roster serve is closing"
+
+
+def test_a_sign_in_that_starts_while_serve_closes_ends_its_cli(state, monkeypatch):
+    from roster import providers
+
+    class Flow:
+        closed = False
+        touched = 0
+        step = {"step": "master_password"}
+
+        def start(self, params):
+            state.closing = True                    # stdin closed while `bw login` started
+            return {"step": "master_password"}
+
+        def close(self):
+            Flow.closed = True
+    monkeypatch.setattr(providers, "login", lambda name: Flow())
+    monkeypatch.setattr(rpc, "vault_provider", lambda st, params: "bw")
+    r = call(state, "vault.login", {"action": "start", "method": "sso"})
+    assert r["error"]["message"] == "roster serve is closing"
+    assert Flow.closed and state.login is None

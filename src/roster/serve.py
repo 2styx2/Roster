@@ -120,6 +120,8 @@ class State:
         self.scan = None                    # the latest discover.start's Scan (discover.Scan); its job is in jobs
         self.scans = 0                      # how many discover.start started: the next one's id
         self.scan_lock = threading.Lock()   # held while one starts
+        self.watch_lock = threading.Lock()  # held while inventory.watch starts the watcher (it's a quick read)
+        self.closing = False                # serve's stdin closed: nothing new starts (a sign-in least of all)
         only_vault_unlock_unlocks()
         try:
             self.path = find_config(config_arg)
@@ -151,8 +153,9 @@ class State:
 
     def fresh(self):
         """roster.yml loaded again, for an edit: refuses (code 1) when the file as it is now doesn't load, even
-        though the last good Inventory is still shown."""
-        with self.lock:
+        though the last good Inventory is still shown. It waits for a write under way at most what's left of the
+        request's deadline (LOCK_WAIT without one): then 4, as a write's own claim would be."""
+        with claimed(self, [("inventory", False)], "a reload"):
             self.reload()
             p = self.problem()
             if p:
@@ -485,7 +488,10 @@ def host_verify_login(state, params):
     Since: API 5
     """
     h, new, _ = edited_host(state, params)
-    result = diagnose.verify_login(new, state.cfg["key"], previous=h)
+    # The vault only now, after the reload: roster.yml before the vault, always (LOCKS' order), or a write holding
+    # roster.yml and waiting behind a vault.lock that waits for this request would never end.
+    with claimed(state, [("vault", True)], "host.verify_login"):
+        result = diagnose.verify_login(new, state.cfg["key"], previous=h)
     if result["ok"]:
         state.verified[login_key(new)] = (time.monotonic(), result.pop("host_key", None))
     return result
@@ -1455,9 +1461,10 @@ def inventory_watch(state, params):
     state.auto = auto
     if state.notify is None or state.path is None:
         return {"watching": False, "auto": auto}
-    if state.watcher is None:
-        state.watcher = Watcher(state)
-        state.watcher.start()
+    with state.watch_lock:                  # two at once start one watcher
+        if state.watcher is None:
+            state.watcher = Watcher(state)
+            state.watcher.start()
     return {"watching": True, "auto": auto, "path": str(state.path)}
 
 
@@ -1598,14 +1605,32 @@ ON_VAULT_LOCK.append(forget_held)
 
 def vault_lock(state, params):
     """Forget every cached secret and session key, and run each provider's own lock: the ones vault.unlock
-    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails.
+    opened and the ones the Inventory uses. Memory is cleared even if a provider's lock fails. It forgets first and
+    then waits for the requests holding a secret (forgotten_for_good): never refused, whatever runs.
 
     Params: none
     Result: `{locked: [names]}`. Never fails
     Since: API 1
     """
-    names = forget_everything(state)
+    names = forgotten_for_good(state)
     return {"locked": sorted(n for n in names if PROVIDERS[n].get("lock"))}
+
+
+def forgotten_for_good(state, signing_out=None, then=None):
+    """vault.lock's and vault.logout's order (decision Q112): forget everything at once, so a lookup from now on finds
+    the vault locked; then wait, with no limit and never refused, for the requests that already hold a secret, a token
+    or a typed password (they share the vault's lock; a waiting lock goes before new ones); then forget again what
+    they held or made meanwhile, and run THEN() while still holding it (vault.logout's sign-out). Returns the
+    providers locked."""
+    names = forget_everything(state, signing_out)
+    state.vault.acquire(False, None, "vault.logout" if signing_out else "vault.lock")
+    try:
+        names |= forget_everything(state, signing_out)
+        if then is not None:
+            then()
+        return names
+    finally:
+        state.vault.release()
 
 
 def forget_everything(state, signing_out=None):
@@ -1642,11 +1667,13 @@ def vault_logout(state, params):
         _, account = providers.vault_account(name)
     except providers.SecretError as e:
         raise secret_error(e) from None
-    forget_everything(state, signing_out=name)
-    try:
-        providers.logout(name)
-    except providers.SecretError as e:
-        raise sign_out_error(e) from None
+
+    def sign_out():
+        try:
+            providers.logout(name)
+        except providers.SecretError as e:
+            raise sign_out_error(e) from None
+    forgotten_for_good(state, signing_out=name, then=sign_out)
     # Signed out: no second `bw status` to say so (each bw call takes about a second). The server stays set.
     return {**status_result(name, "unauthenticated", None, server=(account or {}).get("server", providers.ASK)),
             "signed_out": account}
@@ -1782,15 +1809,15 @@ def vault_undo_create(state, params):
     Since: API 4
     """
     item_id = text_param(params, "id")
-    provider = state.created.get(item_id)
+    provider = state.created.pop(item_id, None)     # taken at once: two undos at once delete it once
     if provider is None:
         raise RpcError(NOT_CREATED_HERE, f"item {item_id} wasn't created by this roster serve (or is already "
                        "undone) - roster only takes back the items it just saved")
     try:
         providers.delete_item(provider, item_id)
     except providers.SecretError as e:
+        state.created[item_id] = provider       # not deleted: it can be undone again
         raise write_problem(e) from None
-    del state.created[item_id]
     return {"provider": provider, "id": item_id}
 
 
@@ -1919,8 +1946,22 @@ def vault_login(state, params):
         flow = providers.login(name)
     except providers.SecretError as e:
         raise sign_in_problem(e) from None
-    state.login = SignIn(name, flow)
-    return sign_in_step(state, state.login, lambda: flow.start({**params, "method": method}))
+    state.login = login = SignIn(name, flow)
+    closing(state, login)
+    step = sign_in_step(state, login, lambda: flow.start({**params, "method": method}))
+    closing(state, login)
+    return step
+
+
+def closing(state, login):
+    """A sign-in that started (or took a step) while serve was closing ends now: its `bw login` mustn't outlive serve
+    with the credentials in its environment."""
+    if state.closing:
+        if state.login is login:
+            end_sign_in(state)
+        else:
+            login.flow.close()
+        raise RpcError(ROSTER_ERROR, "roster serve is closing")
 
 
 METHODS["vault.login"] = vault_login
@@ -2061,9 +2102,15 @@ def mesh_cut(state, params):
 
     def work(job):
         result = mesh.cut(cfg, name, cfg["workers"], progress=job.progress, stopped=job.halted.is_set)
-        with state.lock:                        # roster.yml's lock, as any other write: never during one
-            result["change"] = mesh.write_cut(state.fresh(), name)
-            state.reload()
+        try:                                    # roster.yml's lock, as any other write, waited for only so long
+            with claimed(state, [("inventory", False)], "mesh.cut"):
+                result["change"] = mesh.write_cut(state.fresh(), name)
+                state.reload()
+        except RpcError as e:
+            if e.code != BUSY:
+                raise
+            result["change"] = {"written": False, "error": e.message,
+                                "fix": f"write mesh: false for {name} in roster.yml, or run the cut again"}
         return result
     return start_mesh_job(state, "cut", len(mesh.cut_hosts(cfg, name)), work, host=name, background=background)
 
@@ -2395,6 +2442,7 @@ class Lock:
                         return False
                 finally:
                     self.writers_waiting -= 1
+                    self.cond.notify_all()      # the readers it held back go ahead if it gave up
                 self.owner, self.depth = me, 1
             self.holders[me] = who
             return True
@@ -2426,8 +2474,9 @@ class Lock:
 
 # What each method claims, in this order (never the other way round, so two requests can't wait for each other):
 # "inventory" (roster.yml, its repo, the loaded Inventory: every write, for its whole request) and "vault" (shared:
-# it looks a secret up, makes an item, or mints an askpass token; alone: it unlocks, locks, signs in or out). A
-# method not listed claims nothing: it reads what's in memory, or does its own locking (a reload, a job's write).
+# it looks a secret up, makes an item, or mints an askpass token; alone: it unlocks, signs in, configures). A method
+# not listed claims nothing: it reads what's in memory, or does its own locking (a reload, a job's write,
+# host.verify_login's vault after its reload, vault.lock's wait).
 LOCKS = {
     **{m: [("inventory", False)] for m in (
         "host.update", "host.remove", "host.rename", "host.move", "host.review", "group.new", "group.rename",
@@ -2435,10 +2484,10 @@ LOCKS = {
         "inventory.reload")},
     **{m: [("inventory", False), ("vault", True)] for m in ("host.add", "quick.save", "host.save_login")},
     **{m: [("vault", True)] for m in (
-        "session.prepare", "quick.prepare", "host.check", "host.verify_login", "vault.status", "vault.targets",
-        "vault.create_item", "vault.undo_create")},
-    **{m: [("vault", False)] for m in ("vault.unlock", "vault.lock", "vault.logout", "vault.login",
-                                       "vault.configure")},
+        "session.prepare", "quick.prepare", "host.check", "vault.status", "vault.targets", "vault.create_item",
+        "vault.undo_create")},
+    # vault.lock and vault.logout aren't here: they forget first and then wait, never refused (vault_lock)
+    **{m: [("vault", False)] for m in ("vault.unlock", "vault.login", "vault.configure")},
 }
 LOCK_WAIT = 50              # s: the longest a method without a deadline waits for a lock (the app waits 60 s)
 NAMES = {"inventory": "roster.yml", "vault": "the vault"}
@@ -2542,7 +2591,11 @@ class Pool:
 
     def work(self):
         while True:
-            self.queue.get()()
+            job = self.queue.get()
+            try:
+                job()
+            except Exception as e:              # a worker outlives whatever its request raised: never one less
+                log_line(f"a worker's request failed: {type(e).__name__}")
 
 
 class Server:
@@ -2568,6 +2621,10 @@ class Server:
 
     def run(self, req):
         try:
+            if self.state.closing:             # queued when stdin closed: refused, never run
+                if isinstance(req, dict) and "id" in req:
+                    self.send(error_response(req.get("id"), RpcError(ROSTER_ERROR, "roster serve is closing")))
+                return
             response = respond(self.state, req)
             if response is not None:
                 self.send(response)
@@ -2575,6 +2632,12 @@ class Server:
             with self.busy:
                 self.running -= 1
                 self.busy.notify_all()
+
+    def close(self, wait):
+        """stdin closed: refuse what's queued (it never runs), and wait up to WAIT s for what's running. Before any
+        clean-up, so nothing starts after it (a sign-in's `bw login`, a job)."""
+        self.state.closing = True
+        return self.drain(wait)
 
     def drain(self, wait):
         """Wait up to WAIT s for the requests still running: True if none is."""
@@ -2617,11 +2680,11 @@ def serve(config_arg):
         finally:
             if state.watcher is not None:
                 state.watcher.stop.set()
+            server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
             state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, a scan's nmap ends
-            server.drain(DRAIN_WAIT)        # a request under way gets a moment to answer
     return 0
 
 
-CLOSE_WAIT = 0.8            # s: the jobs get this long to wind down; the app waits 3 s after closing stdin (rpc.rs)
-DRAIN_WAIT = 1.0            # s: then the requests still running get this long to answer
+DRAIN_WAIT = 1.0            # s: the requests running when stdin closes get this long to answer
+CLOSE_WAIT = 0.8            # s: then the jobs get this long to wind down; the app waits 3 s after closing stdin (rpc.rs)

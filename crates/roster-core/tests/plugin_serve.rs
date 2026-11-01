@@ -469,3 +469,53 @@ end }})
     }
     assert!(host.list().iter().all(|s| s.disabled.is_none()));
 }
+
+/// A stand-in serve whose calls wait until it's let go, counting how many it holds at once.
+#[derive(Default)]
+struct HeldServe {
+    now: Mutex<(usize, usize)>,
+    go: (Mutex<bool>, std::sync::Condvar),
+}
+
+impl Serve for HeldServe {
+    fn call(&self, _method: &str, _params: Value) -> Result<Value, String> {
+        {
+            let mut n = self.now.lock().unwrap();
+            n.0 += 1;
+            n.1 = n.1.max(n.0);
+        }
+        let mut go = self.go.0.lock().unwrap();
+        while !*go {
+            go = self.go.1.wait(go).unwrap();
+        }
+        drop(go);
+        self.now.lock().unwrap().0 -= 1;
+        Ok(json!({ "hosts": [], "groups": {} }))
+    }
+}
+
+/// The review of PR #188: each load had a share of its own, so the calls a Plugin's last load
+/// left waiting on serve didn't count against the next one, and a Plugin reloading could take
+/// more than its 2.
+#[test]
+fn a_reloaded_plugins_calls_still_count_against_its_share() {
+    let serve = Arc::new(HeldServe::default());
+    let host = PluginHost::new(Arc::clone(&serve) as Arc<dyn Serve>, Limits::default());
+    let init = r#"for i = 1, 4 do roster.serve.request("hosts.list", {}, function() end) end"#;
+    for _ in 0..3 {
+        load(&host, "reloads", &["serve:hosts.list"], init);
+    }
+    let started = Instant::now();
+    while serve.now.lock().unwrap().0 < 2 {
+        assert!(started.elapsed() < Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        serve.now.lock().unwrap().1,
+        2,
+        "one Plugin had more than 2 calls into serve at once"
+    );
+    *serve.go.0.lock().unwrap() = true;
+    serve.go.1.notify_all();
+}

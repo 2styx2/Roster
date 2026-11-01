@@ -168,8 +168,12 @@ class Jobs:
             new = Job(self, kind, job if job is not None else self.counts[kind], action, total, host, on_stop, on_close)
             new.thread = threading.Thread(target=new.run, args=(work,), name=f"job-{kind}-{new.job}", daemon=True)
             self.latest_of[kind] = new
-        self.push(new)
-        new.thread.start()
+            # Started before anyone can see it (close() joins it), and its start told before anything it pushes.
+            with new.push_lock:
+                first = new.view()              # as it starts: its work may move on before this goes out
+                new.thread.start()
+                if self.notify is not None:
+                    self.notify("job.progress", first)
         return new
 
     def latest(self, kind):

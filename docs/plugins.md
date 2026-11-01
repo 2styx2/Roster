@@ -154,7 +154,7 @@ No permission reaches a secret, nor how one is fetched: a `cmd:COMMAND` or `env:
 
 ### Asking roster serve
 
-roster serve answers several requests at once, but a Plugin's question can still wait: for its turn (each Plugin has 2 calls into serve at a time, and all Plugins together 4, so one Plugin can't take serve from the others or from the app), or for `roster.yml` behind the app's own Publish, for a minute or two. `roster.serve.request` doesn't wait; the Plugin keeps answering the user, and `done` gets the answer when it comes:
+roster serve answers several requests at once, but a Plugin's question can still wait: for its turn (each Plugin has 2 calls into serve at a time, across reloads too, and all Plugins together 4, taken in the order asked, so one Plugin can't take serve from the others or from the app), or for `roster.yml` behind the app's own Publish, for a minute or two. `roster.serve.request` doesn't wait; the Plugin keeps answering the user, and `done` gets the answer when it comes:
 
 ```lua
 roster.commands.add("count", { run = function()
