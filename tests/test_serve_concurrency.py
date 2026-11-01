@@ -191,3 +191,15 @@ def test_serve_exits_well_within_the_apps_grace_with_a_slow_request_under_way(se
     t = time.monotonic()
     code, _, _ = s.close()
     assert code == 0 and time.monotonic() - t < 2.5                     # the app kills it after 3 s (rpc.rs)
+
+
+def test_two_requests_recording_the_same_host_key_at_once_record_it_once(isolated):
+    from roster import sshops
+    h = {"name": "nas-1", "ip": "10.0.0.30", "ssh": {"port": 22}}
+    threads = [threading.Thread(target=sshops.record_host_key, args=(h, "ssh-ed25519", "AAAAC3Nza")) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    lines = sshops.known_hosts_file().read_text().splitlines()
+    assert lines.count("10.0.0.30 ssh-ed25519 AAAAC3Nza") == 1
