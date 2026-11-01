@@ -59,7 +59,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
-**serve API (API 23)**
+**serve API (API 24)**
 
 - `mesh.cut`'s result has `warnings`: an earlier `mesh_dir:` the cut Host still holds a Mesh key in, which roster never removes. The Mesh controls show each as a warning after the cut. See [Cut](mesh.md#cut).
 

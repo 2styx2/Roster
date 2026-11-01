@@ -797,7 +797,7 @@ fn cut_asks_for_the_hosts_name_and_warns_about_each_host_that_was_down() {
     let said = texts(&ops);
     assert_eq!(said[0], "orion-2 is cut from the Mesh on 2 Hosts.");
     assert!(said[1].starts_with("CUT PENDING on nas-1: no answer"), "{said:?}");
-    // What roster left on the cut Host's own side (serve API 23).
+    // What roster left on the cut Host's own side (serve API 24).
     assert_eq!(
         (said[2].as_str(), ops_level(&ops, 2)),
         (

@@ -82,7 +82,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 23            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 24            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -2228,7 +2228,7 @@ def mesh_cut(state, params):
 
     Params: `{host, background?: bool}` (`background` since API 17)
     Result: `{host, confirmed: [host], pending: {host: why}, warnings: [text], change}`: HOST's key off every peer
-        and every peer's off HOST, at once. `warnings` (since API 23): what roster left on HOST's own side, an
+        and every peer's off HOST, at once. `warnings` (since API 24): what roster left on HOST's own side, an
         earlier `mesh_dir:` that still holds a Mesh key (roster never removes one), one sentence each. `change` is the `mesh: false` written for HOST as a Pending change: `{written: true,
         backup}` (`backup: null` and a `note` when `roster.yml` isn't in a git repo), `{written: false, note}` when
         it already was, or `{written: false, error, fix}` when it couldn't be written (the cut still happened).
