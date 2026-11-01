@@ -402,13 +402,14 @@ def host_check(state, params):
     a password Login's steps that fetch a secret or mint a token (API 22), and sends `job.progress` as each step
     starts. The waiting form answers with its result; `background: true` (API 21) answers at once, and
     `host.check_job` has the result once it's over. `vault.lock` stops a running check. Cancelling a waiting form
-    stops the check only when no other request waits for it and none asked for it in the background (API 22).
+    stops the check only when no other request waits for it and none asked for it in the background (API 22); when
+    the check goes on for them, the cancelled request answers 5 at once.
 
     Params: `{host, background?}` (exact Host name; `background` since API 21)
     Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`; with `background: true`
         the job: `{kind: "check", job, action: "check", state, done, total, at, host, joined}`: `joined` (API 22) is
         true when it joined a check already running, which only its starter should stop
-    Errors: -32602, 4
+    Errors: -32602, 4, 5
     Since: API 2
     """
     name = text_param(params, "host")
@@ -417,8 +418,18 @@ def host_check(state, params):
     job.hold(waiting=not background)
     if background:
         return {**job.view(), "joined": joined}
-    on_cancel(job.let_go)           # a cancel stops it only if no other request wants it (one may have joined)
-    job.wait()
+    gone = threading.Event()
+
+    def cancel():
+        # a cancel stops the check only if no other request wants it (one may have joined); if it goes on for them,
+        # this request answers at once (5) rather than keep its worker until the check ends
+        if not job.let_go():
+            gone.set()
+            job.wake()
+    on_cancel(cancel)
+    if not job.wait_unless(gone.is_set):
+        raise cancelled("host.check")
+    job.wait()                      # its thread is done with it
     if job.error is not None:
         raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
     return job.result

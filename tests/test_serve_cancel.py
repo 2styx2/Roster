@@ -373,6 +373,23 @@ def test_a_waiter_that_joined_a_check_cancelled_leaves_it_running(state, held_ch
     assert held_check.calls == ["esx-02"]
 
 
+def test_a_cancelled_joiner_answers_at_once_and_frees_its_worker(state, held_check):
+    # #198 (a): it kept its worker until the check it joined ended (up to 45 s)
+    out = Out()
+    server = rpc.Server(state, out, workers=2)
+    server.submit(req(1, "host.check", {"host": "esx-02"}))
+    held_check.stepped.wait(5)
+    server.submit(req(2, "host.check", {"host": "esx-02"}))         # joins it
+    wait_until(lambda: running(server, 2))
+    cancel(server, 2)
+    assert out.answer(2)["error"]["code"] == 5                      # never go.set(): the check still runs
+    server.submit(req(3, "inventory.reload"))                       # its worker is free again
+    assert "result" in out.answer(3)
+    assert state.jobs.latest("check", "esx-02").view()["state"] == "running"
+    held_check.go.set()
+    assert out.answer(1)["result"]["ok"] is True
+
+
 def test_the_last_waiter_cancelled_stops_the_check(state, held_check):
     out = Out()
     server = rpc.Server(state, out)
