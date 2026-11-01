@@ -68,12 +68,19 @@ pairs = function(t)
   local mt = getmetatable(t)
   if type(mt) == "table" and mt.__pairs then return mt.__pairs(t) end
   if type(t) ~= "table" then error("bad argument #1 to 'pairs' (table expected, got " .. type(t) .. ")", 2) end
-  local keys, n = {}, 0
+  -- The order is fixed; the cost is kept down: a sequence (1..n, as the array part gives it) is in
+  -- order already, and keys all numbers or all strings sort with Lua's own comparison.
+  local keys, n, kind, ordered = {}, 0, nil, true
   for k in next, t do
     n = n + 1
     keys[n] = k
+    if k ~= n then ordered = false end
+    local tk = type(k)
+    if kind == nil then kind = tk elseif kind ~= tk then kind = false end
   end
-  sort(keys, before)
+  if not ordered then
+    if kind == "number" or kind == "string" then sort(keys) else sort(keys, before) end
+  end
   local i = 0
   return function()
     while i < n do
