@@ -373,3 +373,47 @@ end })
         ]
     );
 }
+
+/// A Plugin naming one of its commands after roster's (the app refuses it) doesn't make roster's
+/// its own: `roster.cmd` still holds it to the permission roster's needs, and never runs
+/// `:plugins`.
+#[test]
+fn a_command_named_after_roster_s_isnt_the_plugins_own() {
+    let serve = Arc::new(Recorded::default());
+    let (host, _rx) = listening(&serve, Limits::default());
+    let loaded = load(
+        &host,
+        "names",
+        &[],
+        r#"
+for _, name in ipairs({ "open", "check", "plugins", "mine" }) do
+  roster.commands.add(name, { run = function() end })
+end
+roster.commands.add("go", { run = function()
+  for _, line in ipairs({ "open esx-02", "check esx-02", "plugins grant guarded terminal.write", "mine" }) do
+    local ok, err = pcall(roster.cmd, line)
+    roster.notify(ok and (line .. ": ran") or tostring(err))
+  end
+  local ok, err = pcall(roster.cmdline, "plugins grant guarded terminal.write")
+  roster.notify(ok and "cmdline: typed" or tostring(err))
+end })
+"#,
+    );
+    let go = host.call("guarded", command(&loaded.ops, "go"), ARGS());
+    ok(&go);
+    let said = notices(&go.ops);
+    assert_eq!(
+        said[..3],
+        [
+            "roster.cmd: :open needs the sessions.open permission",
+            "roster.cmd: :check needs the serve:host.check permission",
+            "roster.cmd: :plugins isn't one a Plugin may run (its own commands, and finder, view, help, find, info, changes, session, next, prev, check, open, connect)",
+        ]
+    );
+    assert_eq!(said[3], "mine: ran");
+    assert!(
+        said[4].starts_with("roster.cmdline: \"plugins\" isn't one of your commands"),
+        "{}",
+        said[4]
+    );
+}

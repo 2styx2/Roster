@@ -116,6 +116,11 @@ function serveMethodAllowed(method: string): boolean {
  * every method the install prompt flags (decision Q100). */
 const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.includes(method);
 
+/** As runtime.rs's own_command: one the Plugin added, and not one of roster's. */
+const ROSTER_ONLY = ["plugins", "packages", "publish", "source", "config", "vault"];
+const ownCommand = (r: { commands: Set<string> }, word: string): boolean =>
+  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word);
+
 // ------------------------------------------------------------------ network:<site> (Q97)
 // As roster-core's plugin/network.rs Site::parse, on the same table of cases.
 
@@ -460,7 +465,7 @@ export function fakePluginHost(
       cmdline: (text) => {
         userOnly("roster.cmdline");
         const word = text.trim().split(/\s+/)[0] ?? "";
-        if (!r.commands.has(word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
+        if (!ownCommand(r, word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
         push({ op: "cmdline", text });
       },
       storage: {
@@ -496,7 +501,7 @@ export function fakePluginHost(
         userOnly("roster.cmd");
         const word = line.trim().split(/\s+/)[0] ?? "";
         if (!word) throw new Error('roster.cmd: which command? (a line such as "finder alerts")');
-        if (!r.commands.has(word)) {
+        if (!ownCommand(r, word)) {
           const rule = PLUGIN_COMMANDS.find((c) => c.name === word);
           if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
           if (rule.permission && !r.grants.has(rule.permission)) throw new Error(`roster.cmd: :${word} needs the ${rule.permission} permission`);
