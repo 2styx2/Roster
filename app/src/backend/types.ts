@@ -910,6 +910,9 @@ export interface Backend {
   /** Removes a Plugin's data folder with everything in it (decision Q93), when the Plugin is
    * removed: `:plugins remove`, `:packages clean`. True if it had one. */
   pluginForget(plugin: string): Promise<boolean>;
+  /** The app's built-in commands (issue #184), at the start and when one registers later: none is
+   * a Plugin's own to run with `roster.cmd` or a `run` line, whatever it named its commands. */
+  pluginBuiltins(names: readonly string[]): Promise<void>;
   /** Each loaded Plugin's network requests by site since the app started, by its name (decision
    * Q116), for `:plugins`. */
   pluginRequests(): Promise<Record<string, SiteRequests[]>>;
@@ -968,7 +971,7 @@ export interface PackageStatus {
 }
 
 /** The demo's Plugin host (`Backend.demoPlugins`): the Plugin methods, on the demo's own host. */
-export type DemoPluginHost = Pick<Backend, "pluginManifest" | "pluginTypes" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginUnload" | "pluginForget" | "onPluginReply"> & {
+export type DemoPluginHost = Pick<Backend, "pluginManifest" | "pluginTypes" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginUnload" | "pluginForget" | "pluginBuiltins" | "onPluginReply"> & {
   close(): Promise<void>;
 };
 

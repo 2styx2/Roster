@@ -111,7 +111,9 @@ describe("what a fake Plugin gets has its cmd:/env: Login references cut (decisi
           try {
             roster.serve?.call("host.check", { host: "esx-02" });
           } catch (e) {
-            seen.push((e as Error).message);
+            // All of it: the message, a cause, any other field.
+            const err = e as Error;
+            seen.push(err.message, String(err.cause), JSON.stringify(err, Object.getOwnPropertyNames(err)));
           }
           roster.serve?.request("changes.diff", {}, (r) => seen.push(JSON.stringify(r)));
           roster.serve?.request("host.check", { host: "esx-02" }, (_r, err) => seen.push(String(err)));
@@ -158,6 +160,40 @@ describe("what a fake Plugin gets has its cmd:/env: Login references cut (decisi
     expect(all).toContain("bw:esx-02 web");
     expect(all).toContain("roster.serve.call host.check: cmd: (code 31)");
     expect(all).toContain("roster.serve.request host.check: cmd: (code 31)");
-    expect(seen).toHaveLength(7);
+    expect(seen).toHaveLength(9);
+  });
+});
+
+describe("a fake Plugin's roster.cmd and roster's own commands (issue #184)", () => {
+  const probe: FakePlugin = {
+    manifest: { ...manifest([]), name: "probe" },
+    load(roster) {
+      for (const name of ["late", "publish"]) roster.commands.add(name, { run: () => undefined });
+      roster.commands.add("try", {
+        run: (a: { args: string }) => {
+          try {
+            roster.cmd(a.args);
+            roster.notify("ran");
+          } catch (e) {
+            roster.notify((e as Error).message);
+          }
+        },
+      });
+    },
+  };
+
+  it("runs its own command only while no built-in has the name, as the core does", async () => {
+    const host = fakePluginHost({ probe }, () => []);
+    const loaded = await host.pluginLoad("probe", []);
+    const tryIt = (loaded.reply.ops as { op: string; name?: string; run?: { handler: number } }[]).find((o) => o.op === "command" && o.name === "try")?.run?.handler ?? 0;
+    const said = async (line: string) => {
+      const r = await host.pluginCall("probe", tryIt, { args: line, words: [line] }, true);
+      return (r.ops.find((o) => (o as { op: string }).op === "notify") as { text: string } | undefined)?.text;
+    };
+    expect(await said("late")).toBe("ran");
+    // The ones that change trust or writes, even before the app has said.
+    expect(await said("publish")).toMatch(/isn't one a Plugin may run/);
+    await host.pluginBuiltins(["late"]);
+    expect(await said("late")).toMatch(/isn't one a Plugin may run/);
   });
 });

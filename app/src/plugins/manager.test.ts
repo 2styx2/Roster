@@ -588,3 +588,23 @@ describe("a finder's prompt", () => {
     expect(registries.finders.get("plain")).toMatchObject({ title: "Plain", prompt: "Plain" });
   });
 });
+
+describe("roster's own commands, to the core (issue #184)", () => {
+  it("are sent when the Plugins start and again when one registers later, never taken back", async () => {
+    const { manager, registries, backend } = setup();
+    const sent = vi.spyOn(backend, "pluginBuiltins");
+    await manager.start();
+    const first = sent.mock.calls.at(-1)?.[0] ?? [];
+    expect(first).toContain("publish");
+    expect(first).toContain("lock");
+    expect(first).not.toContain("late");
+    // A built-in that registers later (App's `:tutor`, `:panel`, …) reaches the core too.
+    const remove = registries.commands.register({ id: "late", source: "builtin", area: "Other", label: () => "Late", run: () => undefined });
+    await vi.waitFor(() => expect(sent.mock.calls.at(-1)?.[0]).toContain("late"));
+    // Taken out again (an effect re-running), the core keeps refusing it.
+    const calls = sent.mock.calls.length;
+    remove();
+    registries.commands.register({ id: "probe-own", source: "probe", area: "Other", label: () => "", run: () => undefined });
+    expect(sent.mock.calls.length).toBe(calls);
+  });
+});

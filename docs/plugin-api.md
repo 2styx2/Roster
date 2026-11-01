@@ -2149,7 +2149,7 @@ Calls a roster serve method the Plugin was granted. Waits for the answer, howeve
 
 - `roster.serve.call: not granted (serve:METHOD)`: the Plugin wasn't granted that method.
 - `roster.serve.call METHOD: only while the user runs one of your actions, commands or finder items`: a flagged method (`mesh.apply`, `host.check`, `discover.start`, …) at load, in an event listener, a timer, a finder's `items` or a `:check`.
-- `roster.serve.call METHOD: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)`: the call asked roster serve 100 times already (or waited 300 s in all: `waited more than 300 s for roster serve in one go`).
+- `roster.serve.call METHOD: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)`: the call asked roster serve 100 times already (or waited 300 s in all: `waited 300 s or more for roster serve in one go`).
 - `roster.serve.call METHOD: MESSAGE (code N)`: the method failed (its codes are in [serve-api.md](serve-api.md)).
 - And [those of every function](#errors).
 

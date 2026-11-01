@@ -292,7 +292,13 @@ pub struct PluginHost {
     /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
     /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
     offline: bool,
+    /// The app's built-in commands, as it last said ([`PluginHost::set_builtins`]): shared with
+    /// every Plugin's runtime, so none is a Plugin's own to run (issue #184).
+    builtins: Builtins,
 }
+
+/// The app's built-in command names, shared by a host and its Plugins' runtimes.
+pub(crate) type Builtins = Arc<std::sync::RwLock<BTreeSet<String>>>;
 
 impl PluginHost {
     pub fn new(serve: Arc<dyn Serve>, limits: Limits) -> Self {
@@ -307,6 +313,7 @@ impl PluginHost {
             data: std::sync::OnceLock::new(),
             logs: Mutex::default(),
             offline: false,
+            builtins: Builtins::default(),
         }
     }
 
@@ -315,6 +322,15 @@ impl PluginHost {
     pub fn offline(mut self) -> Self {
         self.offline = true;
         self
+    }
+
+    /// The app's built-in commands (every `:` command roster itself registers), at the start and
+    /// whenever one registers later: none of them is a Plugin's own to run with `roster.cmd` or a
+    /// `run` line, whatever the Plugin named its commands (issue #184). Each replaces the last and
+    /// reaches the Plugins running at once. Before the app says, api.rs's
+    /// [`api::ROSTER_ONLY`](crate::plugin::api::ROSTER_ONLY) are refused all the same.
+    pub fn set_builtins(&self, names: impl IntoIterator<Item = String>) {
+        *self.builtins.write().expect("builtin commands") = names.into_iter().collect();
     }
 
     /// A new proxy setting (`plugin_proxy` in init.lua changed, decision Q116) for every Plugin
@@ -664,6 +680,7 @@ impl PluginHost {
             all: Arc::clone(&self.all_plugins),
         });
         let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
+        let builtins = Arc::clone(&self.builtins);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let network = network::Setup {
             proxy: Arc::clone(proxy),
@@ -696,6 +713,7 @@ impl PluginHost {
                     serving,
                     generation,
                     network,
+                    builtins,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {

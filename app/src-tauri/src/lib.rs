@@ -828,6 +828,19 @@ fn plugin_unload(
     plugin_host(&plugins, &demo, on_demo).is_ok_and(|h| h.unload(&plugin))
 }
 
+/// The app's built-in commands (issue #184): none is a Plugin's own to run with `roster.cmd`. The
+/// app sends them when its Plugin host starts and again when one registers later.
+#[tauri::command]
+fn plugin_builtins(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    demo: tauri::State<'_, DemoPlugins>,
+    names: Vec<String>,
+    on_demo: Option<u64>,
+) -> Result<(), String> {
+    plugin_host(&plugins, &demo, on_demo)?.set_builtins(names);
+    Ok(())
+}
+
 /// `plugin_proxy` from a Config (decision Q116); the Config's check refused a bad one, so a
 /// value here parses.
 fn plugin_proxy(config: &roster_core::config::Config) -> Option<plugin::network::Proxy> {
@@ -1234,6 +1247,7 @@ pub fn run() {
             plugin_event,
             plugin_unload,
             plugin_forget,
+            plugin_builtins,
             plugin_demo_start,
             plugin_demo_stop,
             plugin_requests,

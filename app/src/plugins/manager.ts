@@ -29,6 +29,7 @@ import { DEFAULT_TUTORIAL, tutorPage } from "../tutor/tutor";
 import { HEALTH_LATER_MS, SECTION_WAIT_MS } from "../health/health";
 import { bindingId, type KeymapContext } from "../keymap";
 import type { Registries } from "../registries";
+import { BUILTIN } from "../registry";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
 import { lineRefused } from "./cmd";
@@ -222,6 +223,7 @@ type PluginBackend = Pick<
   | "pluginEvent"
   | "pluginUnload"
   | "pluginForget"
+  | "pluginBuiltins"
   | "pluginRequests"
   | "pluginData"
   | "packagesSync"
@@ -328,6 +330,12 @@ export class PluginManager {
   /** The flush running, if any: the next waits for it (a Session's events stay in order). */
   private flushing: Promise<void> = Promise.resolve();
   private started = false;
+  /** Every built-in command id told to the core so far (issue #184): it only grows, so a built-in
+   * an effect takes out and puts back is never a Plugin's own in between. */
+  private readonly builtinsSent = new Set<string>();
+  /** The last send of them: each waits for the one before, so the core gets them in order. */
+  private builtinsSending: Promise<void> = Promise.resolve();
+  private stopBuiltins: (() => void) | null = null;
   /** Stopped for good (`stop`): nothing loads, no event or call reaches the core. */
   private stopped = false;
   /** What each built-in Plugin was last loaded with, so a change reloads it (`reloadBuiltin`). */
@@ -387,6 +395,10 @@ export class PluginManager {
   private async startNow(): Promise<void> {
     if (this.started || this.stopped) return;
     this.started = true;
+    // roster's own commands, before any Plugin runs and whenever one registers later (App's
+    // effects register some after this): none is a Plugin's own to run (issue #184).
+    this.stopBuiltins = this.registries.commands.subscribe(() => void this.sendBuiltins());
+    await this.sendBuiltins();
     const list = this.installed();
     for (const path of BUILTIN_PLUGINS) {
       const name = path.slice("builtin:".length);
@@ -885,6 +897,8 @@ export class PluginManager {
    * the caller's to stop (the demo's host goes with the demo). */
   stop(): void {
     this.stopped = true;
+    this.stopBuiltins?.();
+    this.stopBuiltins = null;
     for (const [name, l] of [...this.loaded]) {
       for (const d of l.disposers.values()) d();
       this.loaded.delete(name);
@@ -900,6 +914,17 @@ export class PluginManager {
   /** Every loaded or known Plugin's name (`:plugins remove` completes them). */
   names(): string[] {
     return this.snap.plugins.map((p) => p.name);
+  }
+
+  /** Tells the core the built-in commands it hasn't heard of yet. A core that can't take them
+   * still refuses the ones that change trust or writes, and the app checks every line itself. */
+  private sendBuiltins(): Promise<void> {
+    const ids = this.registries.commands.list().filter((c) => c.source === BUILTIN).map((c) => c.id);
+    if (ids.every((id) => this.builtinsSent.has(id))) return this.builtinsSending;
+    for (const id of ids) this.builtinsSent.add(id);
+    const names = [...this.builtinsSent].sort();
+    this.builtinsSending = this.builtinsSending.then(() => this.backend.pluginBuiltins(names)).catch(() => undefined);
+    return this.builtinsSending;
   }
 
   // ---------------------------------------------------------------- loading

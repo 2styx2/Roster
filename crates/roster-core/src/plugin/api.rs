@@ -194,58 +194,12 @@ pub const COMMANDS: &[CommandRule] = &[
     },
 ];
 
-/// Every other command roster itself has: never a Plugin's own, whatever it named its commands,
-/// so `roster.cmd` and a `run` line refuse them as they refuse any of roster's not in
-/// [`COMMANDS`] (the iteration 8 review, issue #184). The app refuses a Plugin's command named
-/// after any of roster's too and checks every line again (`plugins/cmd.ts`); its test
-/// `App.rosterOnly.test.tsx` fails when a built-in command is in neither list.
-pub const ROSTER_ONLY: &[&str] = &[
-    "bottom",
-    "cancel",
-    "choose",
-    "close",
-    "cmdline",
-    "config",
-    "details",
-    "discard",
-    "down",
-    "edit",
-    "focus",
-    "fold",
-    "group",
-    "helpgrep",
-    "here",
-    "hidepanel",
-    "hints",
-    "host",
-    "keys",
-    "lock",
-    "lookup",
-    "messages",
-    "mode",
-    "packages",
-    "panel",
-    "plugins",
-    "publish",
-    "pull",
-    "quick",
-    "reconnect",
-    "review",
-    "save",
-    "sidebar",
-    "so",
-    "source",
-    "statusbar",
-    "terminal",
-    "theme",
-    "togglefold",
-    "top",
-    "tutor",
-    "unfold",
-    "unreview",
-    "up",
-    "vault",
-];
+/// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
+/// the vault): never a Plugin's own, whatever it named its commands, even before the app has told
+/// the core its built-in commands (`PluginHost::set_builtins`, which covers every other one; issue
+/// #184). The app refuses a Plugin's command named after any of roster's too and checks every
+/// line again (`plugins/cmd.ts`).
+pub const ROSTER_ONLY: &[&str] = &["plugins", "packages", "publish", "source", "config", "vault"];
 
 const fn p(name: &'static str, ty: &'static str, doc: &'static str) -> Param {
     Param {
@@ -1719,7 +1673,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
             (
                 "roster.serve.call METHOD: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)",
-                "the call asked roster serve 100 times already (or waited 300 s in all: `waited more than 300 s for roster serve in one go`)",
+                "the call asked roster serve 100 times already (or waited 300 s in all: `waited 300 s or more for roster serve in one go`)",
             ),
             (
                 "roster.serve.call METHOD: MESSAGE (code N)",

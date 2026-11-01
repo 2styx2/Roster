@@ -132,9 +132,10 @@ function serveMethodAllowed(method: string): boolean {
  * every method the install prompt flags (decision Q100). */
 const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.includes(method);
 
-/** As runtime.rs's own_command: one the Plugin added, and not one of roster's. */
-const ownCommand = (r: { commands: Set<string> }, word: string): boolean =>
-  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word);
+/** As runtime.rs's own_command: one the Plugin added that no built-in has (the app's, as it last
+ * said, the ones a Plugin may run, and the ones that change trust or writes, issue #184). */
+const ownCommand = (r: { commands: Set<string> }, word: string, builtins: ReadonlySet<string>): boolean =>
+  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word) && !builtins.has(word);
 
 // ------------------------------------------------------------------ network:<site> (Q97)
 // As roster-core's plugin/network.rs Site::parse, on the same table of cases.
@@ -416,6 +417,7 @@ export function fakePluginHost(
   pluginTypes(path: string): Promise<string>;
   pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   pluginForget(plugin: string): Promise<boolean>;
+  pluginBuiltins(names: readonly string[]): Promise<void>;
   pluginData(names: readonly string[]): Promise<Record<string, PluginData>>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
@@ -441,6 +443,8 @@ export function fakePluginHost(
    * section's check): never a user's call. */
   const quiet = new Set<number>();
   const running = new Map<string, Running>();
+  /** The app's built-in commands, as it last said (PluginHost::set_builtins). */
+  let builtins: ReadonlySet<string> = new Set();
   let next = 0;
   let ops: unknown[] = [];
   /** Whether the run is a call the user started: only then may a Plugin copy. */
@@ -544,7 +548,7 @@ export function fakePluginHost(
       cmdline: (text) => {
         userOnly("roster.cmdline");
         const word = text.trim().split(/\s+/)[0] ?? "";
-        if (!ownCommand(r, word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
+        if (!ownCommand(r, word, builtins)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
         push({ op: "cmdline", text });
       },
       storage: {
@@ -580,7 +584,7 @@ export function fakePluginHost(
         userOnly("roster.cmd");
         const word = line.trim().split(/\s+/)[0] ?? "";
         if (!word) throw new Error('roster.cmd: which command? (a line such as "finder alerts")');
-        if (!ownCommand(r, word)) {
+        if (!ownCommand(r, word, builtins)) {
           const rule = PLUGIN_COMMANDS.find((c) => c.name === word);
           if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
           if (rule.permission && !r.grants.has(rule.permission)) throw new Error(`roster.cmd: :${word} needs the ${rule.permission} permission`);
@@ -631,7 +635,8 @@ export function fakePluginHost(
           try {
             return redact(serve(method, params));
           } catch (e) {
-            throw new Error(`roster.serve.call ${method}: ${errorText(e)}`, { cause: e });
+            // No `cause`: serve's own error is uncut, and a Plugin could read it there (Q92).
+            throw new Error(`roster.serve.call ${method}: ${errorText(e)}`);
           }
         },
         // serve is asked now (the core's thread asks at once); `done` runs later, as a call of its
@@ -748,12 +753,12 @@ export function fakePluginHost(
     },
     async pluginEvent(name, payload) {
       const replies: PluginReply[] = [];
+      // serve's own text (job_progress) is cut as its answers are, as runtime.rs's heard_payload.
+      const heard = name === "job_progress" ? redact(payload) : payload;
       for (const [plugin, r] of running) {
         const fs = r.listeners.get(name);
         const needs = EVENT_NEEDS[name];
         if (!fs || r.disabled || (needs.length && !needs.some((p) => r.grants.has(p))) || !hearsThis(name, payload, r.grants)) continue;
-        // serve's own text (job_progress) is cut as its answers are, as runtime.rs's heard_payload.
-        const heard = name === "job_progress" ? redact(payload) : payload;
         const reply = run(plugin, r, () => fs.forEach((f) => f(heard)));
         if (reply.ops.length || reply.error) replies.push(reply);
       }
@@ -761,6 +766,9 @@ export function fakePluginHost(
     },
     async pluginUnload(plugin) {
       return running.delete(plugin);
+    },
+    async pluginBuiltins(names) {
+      builtins = new Set(names);
     },
     async pluginForget(plugin) {
       return files.delete(plugin);
