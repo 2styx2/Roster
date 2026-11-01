@@ -522,9 +522,9 @@ export function PluginNotices({ notices, onClose, onAction }: { notices: readonl
 }
 
 /** What a Package is doing, in a word or two. */
-function packageState(p: PackageStatus, plugin: PluginStatus | undefined): { text: string; problem: boolean } {
+function packageState(p: PackageStatus, plugin: PluginStatus | undefined, declined: boolean): { text: string; problem: boolean } {
   if (p.error) return { text: "can't fetch", problem: true };
-  if (!p.pinned) return { text: "not installed", problem: false };
+  if (!p.pinned) return { text: declined ? "cancelled" : "not installed", problem: false };
   if (!plugin) return { text: "installed", problem: false };
   if (plugin.waiting) return { text: "waiting for you", problem: false };
   if (plugin.problem) return { text: "stopped", problem: true };
@@ -570,7 +570,8 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
         <ul className="plugin-list">
           {snapshot.packages.map((p) => {
             const plugin = snapshot.plugins.find((x) => x.path === `${PACKAGE_PREFIX}${p.name}`);
-            const state = packageState(p, plugin);
+            const declined = snapshot.declined.includes(p.name);
+            const state = packageState(p, plugin, declined);
             return (
               <li key={p.name} className="plugin-row" aria-label={`${p.name}, ${state.text}`}>
                 <div className="plugin-head">
@@ -581,6 +582,11 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
                 <div className="plugin-source muted mono">{p.dir ? `${p.url}, folder ${p.dir}` : p.url}</div>
                 <div className="muted">{p.wants}</div>
                 {p.note && <div className="muted">{p.note}</div>}
+                {declined && (
+                  <div className="muted">
+                    You cancelled its install. <code>:packages install {p.name}</code> asks again.
+                  </div>
+                )}
                 {(p.error ?? plugin?.problem) && <div className="plugin-problem">{p.error ?? plugin?.problem}</div>}
               </li>
             );
