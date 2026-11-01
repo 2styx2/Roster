@@ -2416,7 +2416,9 @@ A button on a row.
 
 A row action's icon.
 
-One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy"`
+`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.
+
+One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy" \| "plan" \| "apply" \| "cut"`
 
 ### `RowGlyph`
 
@@ -2631,7 +2633,8 @@ Drawn top to bottom: the text, the facts, then the table or the graph (one or th
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
-| `place` | [`ViewPlace`](#viewplace) | no | Where it goes: `"panel"` (the default) or `"full"`. |
+| `place` | [`ViewPlace`](#viewplace) | no | Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it. |
+| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3). |
 | `text` | `string` | no | A few lines above the rest, in the app's voice; a blank line starts a paragraph. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs, as a Host's details show them. |
 | `table` | [`Table`](#table) | no | A table of rows. |
@@ -2676,6 +2679,7 @@ Drawn after roster's own sections, with your Plugin's name under its heading: th
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
 | `order` | `number` | no | Where it goes among the Plugins' sections, lowest first; 500 if left out. |
+| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3). |
 | `text` | `string` | no | A few lines, in the app's voice. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs. |
 | `table` | [`Table`](#table) | no | A table of rows. |

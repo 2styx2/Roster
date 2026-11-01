@@ -7,7 +7,19 @@ import { PanelButton, usePanel } from "../panel/PanelFrame";
 import { DataTable } from "../ui/DataTable";
 import { GraphView } from "../graph/GraphView";
 import type { GraphMemory } from "../graph/memory";
-import type { Content, ViewDef } from "./views";
+import type { Content, HeadActionDef, ViewDef } from "./views";
+import { RowActionGlyph } from "../sidebar/Sidebar";
+
+/** The buttons on a view's or a Host-details section's heading (ticket 91): an icon with the
+ * label as its name and tooltip, quiet like the panel's own close. */
+export function HeadActions({ actions }: { actions: readonly HeadActionDef[] | undefined }) {
+  if (!actions?.length) return null;
+  return actions.map((a) => (
+    <button key={a.label} type="button" className="icon-button head-action" aria-label={a.label} title={a.label} onMouseDown={(e) => e.preventDefault()} onClick={() => a.run()}>
+      <RowActionGlyph name={a.icon} />
+    </button>
+  ));
+}
 
 export function ViewContent({
   content,
@@ -93,6 +105,7 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
           <span className="view-source muted"> · {view.source}</span>
         </h2>
         <span className="panel-head-buttons">
+          <HeadActions actions={view.content.actions} />
           <PanelButton />
           <button type="button" className="icon-button close" aria-label={`Close ${view.title}`} onMouseDown={(e) => e.preventDefault()} onClick={onClose}>
             <CloseGlyph />

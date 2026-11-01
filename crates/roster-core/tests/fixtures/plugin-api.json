@@ -1527,6 +1527,11 @@
           "type": "number"
         },
         {
+          "name": "actions",
+          "required": false,
+          "type": "RowAction[]"
+        },
+        {
           "name": "text",
           "required": false,
           "type": "string"
@@ -2737,7 +2742,7 @@
       "alias": "\"folder\"|\"group\""
     },
     "RowIcon": {
-      "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\""
+      "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\""
     },
     "RowTone": {
       "alias": "\"muted\"|\"warn\"|\"error\""
@@ -3238,6 +3243,11 @@
           "name": "place",
           "required": false,
           "type": "ViewPlace"
+        },
+        {
+          "name": "actions",
+          "required": false,
+          "type": "RowAction[]"
         },
         {
           "name": "text",

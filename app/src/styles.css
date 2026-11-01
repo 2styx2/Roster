@@ -1488,3 +1488,6 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
   padding-inline: max(14px, calc((100% - 960px) / 2));
 }
 .panel-frame[data-place="full"] .help-doc { margin-inline: auto; }
+/* A view's or section's own buttons (ticket 91), by its heading: quiet icons, never the accent. */
+.details-head-actions { margin-left: auto; display: inline-flex; gap: 2px; text-transform: none; letter-spacing: 0; }
+.details-head-actions .icon-button { width: 22px; height: 22px; }

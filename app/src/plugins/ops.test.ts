@@ -15,6 +15,7 @@ describe("a view's table", () => {
       view: {
         title: "Scan",
         place: "panel",
+        actions: [],
         facts: [],
         table: {
           columns: [{ id: "name", label: "Host", kind: "data" }],
@@ -56,8 +57,17 @@ describe("a view update and a Host-details section", () => {
 
   it("a section is per Host, and nil takes it away", () => {
     const op = parseOp({ op: "details", id: "mesh", host: "esx-02", spec: { facts: [{ label: "reach", value: "can reach 7 Hosts" }] } });
-    expect(op).toEqual({ op: "details", id: "mesh", host: "esx-02", section: { title: "mesh", order: 500, facts: [{ label: "reach", value: "can reach 7 Hosts" }] } });
+    expect(op).toEqual({ op: "details", id: "mesh", host: "esx-02", section: { title: "mesh", order: 500, actions: [], facts: [{ label: "reach", value: "can reach 7 Hosts" }] } });
     expect(parseOp({ op: "details", id: "mesh", host: "esx-02", spec: null })).toEqual({ op: "details", id: "mesh", host: "esx-02", section: null });
+  });
+
+  it("a view and a section take buttons for their heading, at most 4, with plan, apply and cut icons (ticket 91)", () => {
+    const op = parseOp({ op: "view", id: "mesh", spec: { actions: [{ label: "Plan", icon: "plan", run: { handler: 1 } }, { label: "Apply", icon: "apply", run: "mesh apply" }] } });
+    expect(op).toMatchObject({ view: { actions: [{ label: "Plan", icon: "plan", run: { handler: 1 } }, { label: "Apply", icon: "apply", run: { command: "mesh apply" } }] } });
+    const section = parseOp({ op: "details", id: "mesh", host: "esx-02", spec: { actions: [{ label: "Cut esx-02", icon: "cut", run: { handler: 2 } }] } });
+    expect(section).toMatchObject({ section: { actions: [{ label: "Cut esx-02", icon: "cut" }] } });
+    const five = Array.from({ length: 5 }, (_, i) => ({ label: `A${i}`, run: "x" }));
+    expect((parseOp({ op: "view", id: "v", spec: { actions: five } }) as { invalid: string }).invalid).toContain("actions has more than 4");
   });
 
   it("a view's place is a panel or full", () => {

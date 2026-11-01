@@ -62,7 +62,16 @@ export interface GraphModel {
   actions: readonly NodeActionDef[];
 }
 
+/** A button on a view's or section's heading (ticket 91): what the whole of it can do. */
+export interface HeadActionDef {
+  label: string;
+  icon: RowAction["icon"];
+  run(): void;
+}
+
 export interface Content {
+  /** Buttons on its heading, at most 4. */
+  actions?: readonly HeadActionDef[];
   text?: string;
   facts: readonly Fact[];
   table?: TableModel;

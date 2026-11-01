@@ -102,6 +102,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
       spec: typed("View", {
         title: "V",
         place: "full",
+        actions: [typed("RowAction", { label: "Plan", icon: "plan", run: { handler: 9 } })],
         text: "t",
         facts: [typed("Fact", { label: "l", value: "v", data: true })],
         table: typed("Table", {
@@ -158,7 +159,7 @@ describe("the Plugin API reference and ops.ts agree", () => {
       op: "details",
       id: "d",
       host: "esx-02",
-      spec: typed("DetailsSection", { title: "D", order: 1, text: "t", facts: [], table: { columns: [{ id: "a", label: "A" }] } }),
+      spec: typed("DetailsSection", { title: "D", order: 1, actions: [{ label: "Cut", icon: "cut", run: { handler: 10 } }], text: "t", facts: [], table: { columns: [{ id: "a", label: "A" }] } }),
     },
   ];
 

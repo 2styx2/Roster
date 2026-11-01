@@ -2171,8 +2171,8 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "RowIcon",
         summary: "A row action's icon",
-        doc: "",
-        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"",
+        doc: "`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.",
+        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\"",
         fields: &[],
         open: false,
     },
@@ -2513,7 +2513,12 @@ pub const TYPES: &[Type] = &[
             o(
                 "place",
                 "ViewPlace",
-                "Where it goes: `\"panel\"` (the default) or `\"full\"`.",
+                "Where it opens first: `\"panel\"` (the default) or `\"full\"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it.",
+            ),
+            o(
+                "actions",
+                "RowAction[]",
+                "Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3).",
             ),
             o(
                 "text",
@@ -2596,6 +2601,11 @@ pub const TYPES: &[Type] = &[
                 "order",
                 "number",
                 "Where it goes among the Plugins' sections, lowest first; 500 if left out.",
+            ),
+            o(
+                "actions",
+                "RowAction[]",
+                "Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3).",
             ),
             o("text", "string", "A few lines, in the app's voice."),
             o("facts", "Fact[]", "Label and value pairs."),

@@ -114,7 +114,7 @@
 ---@field run roster.Run What pressing it runs.
 
 --- A row action's icon
----@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"
+---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"
 
 --- A Sidebar row's glyph (since api 3)
 ---@alias roster.RowGlyph "folder"|"group"
@@ -235,7 +235,8 @@
 --- A side panel or a full view (`roster.views.set`)
 ---@class roster.View
 ---@field title? string Its heading; the id if left out.
----@field place? roster.ViewPlace Where it goes: `"panel"` (the default) or `"full"`.
+---@field place? roster.ViewPlace Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it.
+---@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3).
 ---@field text? string A few lines above the rest, in the app's voice; a blank line starts a paragraph.
 ---@field facts? roster.Fact[] Label and value pairs, as a Host's details show them.
 ---@field table? roster.Table A table of rows.
@@ -265,6 +266,7 @@
 ---@class roster.DetailsSection
 ---@field title? string Its heading; the id if left out.
 ---@field order? number Where it goes among the Plugins' sections, lowest first; 500 if left out.
+---@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3).
 ---@field text? string A few lines, in the app's voice.
 ---@field facts? roster.Fact[] Label and value pairs.
 ---@field table? roster.Table A table of rows.

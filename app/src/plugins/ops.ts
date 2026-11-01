@@ -153,6 +153,8 @@ export interface PluginTable {
 
 /** What a view and a Host-details section hold, drawn top to bottom. */
 export interface PluginContent {
+  /** Buttons on its heading (ticket 91): what the whole view or section can do, at most 4. */
+  actions: PluginRowAction[];
   text?: string;
   facts: PluginFact[];
   table?: PluginTable;
@@ -228,7 +230,7 @@ export type PluginOp =
 export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer", "toolbar", "progress"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
-const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
+const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy", "plan", "apply", "cut"];
 const LEVELS = ["info", "warn", "error"] as const;
 const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
@@ -534,6 +536,7 @@ function table(v: unknown, what: string): PluginTable {
 /** The text, facts and table a view or a Host-details section holds. */
 function content(spec: Obj, what: string): PluginContent {
   return defined<PluginContent>({
+    actions: headActions(spec, what),
     text: optStr(spec, "text", what, MAX_VIEW_TEXT),
     facts: facts(spec, what),
     table: spec.table === undefined || spec.table === null ? undefined : table(spec.table, what),
