@@ -2995,7 +2995,7 @@ def serve(config_arg):
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed
+    exit_on_signals()                   # so the askpass folder is still removed
     state = State(config_arg)
     out_lock = threading.Lock()
 
@@ -3015,12 +3015,26 @@ def serve(config_arg):
                 if line.strip():
                     server.submit(line)
         finally:
+            exit_on_signals(ignore=True)    # asked to end already: a second signal mustn't cut the clean-up short
             if state.watcher is not None:
                 state.watcher.stop.set()
             server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
             end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
             state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, a scan's nmap ends
     return 0
+
+
+def exit_on_signals(ignore=False):
+    """SIGTERM, SIGHUP (the terminal went away) and SIGINT end serve the way closed stdin does, so the askpass
+    folder (and its socket) is removed and the jobs are stopped and recorded; IGNORE them once that has begun (with a
+    handler that does nothing, not SIG_IGN, which a program started meanwhile would inherit). Only
+    SIGKILL, or the interpreter dying, can skip it: the next serve removes what that left (askpass.sweep)."""
+    if threading.current_thread() is not threading.main_thread():
+        return                          # serve() run by a test on a thread of its own: Python sets them in main only
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        sig = getattr(signal, name, None)   # Windows has no SIGHUP
+        if sig is not None:
+            signal.signal(sig, (lambda *_: None) if ignore else lambda *_: sys.exit(0))
 
 
 DRAIN_WAIT = 1.0            # s: the requests running when stdin closes get this long to answer
