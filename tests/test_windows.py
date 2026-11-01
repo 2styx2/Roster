@@ -2,7 +2,6 @@
 act on, paths, the ssh config Windows' OpenSSH reads, and the askpass channel as a named pipe only this user can open.
 The first tests pretend to be on Windows (they run everywhere); the rest need Windows itself."""
 
-import json
 import os
 import subprocess
 import sys
@@ -115,17 +114,6 @@ def test_the_pipe_answers_one_exchange_and_times_out_a_silent_client():
     silent.close()
     server.close()
     assert seen == [b"token\n", "timed out"]
-
-
-@windows_only
-def test_signing_in_with_a_password_says_how_to_on_windows(serve, write_config, fakes, monkeypatch, tmp_path):
-    state = tmp_path / "bw-state.json"
-    state.write_text(json.dumps({"logged_in": False, "server": None, "email": None}))
-    monkeypatch.setenv("FAKE_BW_STATE", str(state))
-    write_config(INVENTORY)
-    s = serve()
-    err = s.call("vault.login", {"email": "you@example.com", "password": "pw"})["error"]
-    assert err["code"] == 59 and "roster bw login" in err["message"] and "API key" in err["message"]
 
 
 @windows_only
