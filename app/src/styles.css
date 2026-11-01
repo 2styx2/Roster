@@ -1355,16 +1355,39 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 }
 .graph-search { width: min(28ch, 100%); height: calc(var(--ui-size) * 1.6); padding: 0 8px; font-size: var(--text-xs); font-family: var(--font-mono); }
 .graph-found { font-size: var(--text-xs); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-/* The filter (`f`): one select per dimension. A chosen one is in the text colour, never the accent
-   (the accent means live). Long cluster titles are cut, so the bar stays one line at 2,000 Hosts. */
+/* The filter (`f`): a menu button per dimension, with a checkbox per value (T89: several at once).
+   A chosen one is in the text colour, never the accent (the accent means live). Long cluster titles
+   are cut, on the button and in the menu (the whole title is its tooltip), so the bar stays one line
+   at 2,000 Hosts. The menu appears without motion: it opens from a key as often as a click. */
 .graph-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.graph-menu-wrap { position: relative; display: inline-flex; min-width: 0; }
 .graph-select {
-  max-width: 22ch; height: calc(var(--ui-size) * 1.6); padding: 0 6px; font-size: var(--text-xs);
+  display: inline-flex; align-items: center; gap: 6px; max-width: 22ch; min-width: 0;
+  height: calc(var(--ui-size) * 1.6); padding: 0 6px; font-size: var(--text-xs);
   background: var(--bg); color: var(--muted); border: 1px solid var(--line-strong); border-radius: var(--radius);
-  text-overflow: ellipsis;
 }
+.graph-select-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-select-caret { flex: none; color: var(--muted); }
 .graph-select[data-on] { color: var(--text); background: var(--raised); }
-.graph-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.graph-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; box-shadow: none; }
+.graph-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 100%; width: max-content; max-width: min(40ch, 80vw);
+  max-height: min(50vh, 360px); overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 8px 24px var(--shadow);
+  font-size: var(--text-xs);
+}
+.graph-menu-item {
+  display: grid; grid-template-columns: 1.4em minmax(0, 1fr); align-items: center; min-height: calc(var(--ui-size) * 1.6);
+  padding: 0 8px 0 4px; border-radius: calc(var(--radius) - 1px); color: var(--text); cursor: default;
+}
+.graph-menu-item:focus { outline: none; background: var(--hover); }
+.graph-menu-tick { text-align: center; color: var(--text); }
+.graph-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-menu-item:first-child { color: var(--muted); }
+.graph-menu-item:first-child[aria-checked="true"] { color: var(--text); }
+@media (hover: hover) and (pointer: fine) {
+  .graph-menu-item:hover { background: var(--hover); }
+}
 .graph-zoom { display: inline-flex; gap: 2px; align-items: center; }
 .graph-zoom .icon-button { font-family: var(--font-mono); font-size: var(--text-md); }
 .graph-fit { height: 24px; padding: 0 8px; font-size: var(--text-xs); background: transparent; border-color: transparent; color: var(--muted); }

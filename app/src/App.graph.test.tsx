@@ -295,12 +295,22 @@ describe("a Plugin's graph", () => {
     await user.keyboard(`${LEADER}:view topo{Enter}`);
     await screen.findByRole("application", { name: "Topology" });
     await user.keyboard("f");
-    const cluster = screen.getByRole("combobox", { name: "Show the cluster" });
+    const cluster = screen.getByRole("button", { name: /^Show the cluster/ });
     expect(cluster).toHaveFocus();
-    await user.selectOptions(cluster, "web");
+    expect(cluster).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard("{Enter}");
+    const menu = screen.getByRole("menu", { name: "Show the cluster" });
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Every cluster" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(cluster).toHaveFocus();
+    expect(cluster).toHaveTextContent("web");
     expect(screen.getByText("Showing 2 of 5 nodes")).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Show the state" }), "down");
+    await user.click(screen.getByRole("button", { name: /^Show the state/ }));
+    await user.click(within(screen.getByRole("menu", { name: "Show the state" })).getByRole("menuitemcheckbox", { name: "down" }));
     expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
     await user.keyboard("{Escape}");
     expect(graph()).toHaveFocus();
     expect(foot()).toMatch(/^appliance/);
@@ -321,7 +331,38 @@ describe("a Plugin's graph", () => {
     await screen.findByRole("application", { name: "Topology" });
     expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
     expect(foot()).toMatch(/^esx-01/);
-    expect(screen.getByRole("combobox", { name: "Show the kind" })).toHaveValue("esxi");
+    expect(screen.getByRole("button", { name: /^Show the kind/ })).toHaveTextContent("esxi");
+  });
+
+  it("the filter takes several values of a dimension: Space ticks each, and the button counts them (T89)", async () => {
+    const { user } = await ready(memoryPlatform(), topoPlugin({ filter: { clusters: ["lab", "web", "gone"] } }));
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    const cluster = screen.getByRole("button", { name: /^Show the cluster/ });
+    // A Plugin's filter may name what isn't there: it's a choice too, so it can be taken off.
+    expect(cluster).toHaveTextContent("3 clusters");
+    expect(screen.getByText("Showing 4 of 5 nodes")).toBeInTheDocument();
+    await user.keyboard("f{Enter}");
+    const menu = screen.getByRole("menu", { name: "Show the cluster" });
+    const item = (name: string) => within(menu).getByRole("menuitemcheckbox", { name });
+    expect(item("lab")).toHaveAttribute("aria-checked", "true");
+    expect(item("gone")).toHaveAttribute("aria-checked", "true");
+    expect(item("Every cluster")).toHaveAttribute("aria-checked", "false");
+    // The focus starts on the first ticked one; Space ticks and the menu stays open.
+    expect(item("lab")).toHaveFocus();
+    await user.keyboard(" ");
+    expect(item("lab")).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Showing 2 of 5 nodes")).toBeInTheDocument();
+    // Typing a letter goes to the next item that starts with it.
+    await user.keyboard("g ");
+    expect(item("gone")).toHaveAttribute("aria-checked", "false");
+    expect(cluster).toHaveTextContent("web");
+    await user.keyboard("{Home} ");
+    expect(item("Every cluster")).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/^Showing/)).toBeNull();
+    await user.keyboard("{Escape}");
+    expect(cluster).toHaveFocus();
+    expect(cluster).toHaveTextContent("Every cluster");
   });
 
   it("reach = \"direct\" counts one hop", async () => {

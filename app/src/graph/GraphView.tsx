@@ -23,6 +23,7 @@ import type { TableRow } from "../ui/table";
 import type { GraphModel } from "../view/views";
 import { drawFrame, easeOut, nodeRadius, readPalette, STAND_IN_RADIUS, toScreen, toWorld, type Camera } from "./draw";
 import { edgeTable, nodeTable, SHAPE_WORDS, stateWords } from "./lists";
+import { FilterMenu } from "./FilterMenu";
 import { GraphPlaces, type GraphMemory } from "./memory";
 import { filterGraph, filtering, graphIndex, nodeActionApplies, type FilterState, type GraphFilter } from "./model";
 import { buildScene, foldsFor, highlightOf, matchesOf, stepFrom, type Direction, type Highlight, type Scene } from "./scene";
@@ -54,8 +55,6 @@ const MAX_DRAWN_IN = 12;
 /** The filter's states in words. */
 const STATE_WORDS: Record<FilterState, string> = { live: "live", down: "down", warn: "warning", error: "error" };
 const ALL_STATES: readonly FilterState[] = ["live", "down", "warn", "error"];
-/** A filter dimension the Plugin gave several values: the select's own option for it. */
-const SEVERAL = "\u0000several";
 
 const clampZoom = (k: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
 
@@ -229,7 +228,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const firstFilter = useRef<HTMLSelectElement>(null);
+  const firstFilter = useRef<HTMLButtonElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [painter] = useState(() => new Painter());
 
@@ -596,10 +595,9 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     { key: "kinds", label: "kind", every: "Every kind", options: kinds.map((k) => ({ value: k, label: k })) },
     { key: "states", label: "state", every: "Every state", options: states.map((st) => ({ value: st, label: STATE_WORDS[st] })) },
   ].filter((c) => c.options.length > 0 || (filter[c.key as keyof GraphFilter]?.length ?? 0) > 0) as typeof choices;
-  const choose = (key: keyof GraphFilter, value: string) => {
-    if (value === SEVERAL) return;
+  const choose = (key: keyof GraphFilter, values: string[]) => {
     const rest = Object.fromEntries(Object.entries(filter).filter(([k]) => k !== key)) as GraphFilter;
-    setFilter(value === "" ? rest : { ...rest, [key]: [value] });
+    setFilter(values.length === 0 ? rest : { ...rest, [key]: values });
   };
   const showing = hiding ? `Showing ${formatCount(shown.nodes.length)} of ${countOf(data.nodes.length, "node")}` : "";
   const helpId = `${base}-help`;
@@ -616,36 +614,18 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
         </div>
         {choices.length > 0 && (
           <div className="graph-filter" role="group" aria-label="Filter">
-            {choices.map((c, i) => {
-              const now = filter[c.key] ?? [];
-              const value = now.length === 0 ? "" : now.length === 1 ? (now[0] as string) : SEVERAL;
-              return (
-                <select
-                  key={c.key}
-                  ref={i === 0 ? firstFilter : undefined}
-                  className="graph-select"
-                  aria-label={`Show the ${c.label}`}
-                  value={value}
-                  data-on={value !== "" || undefined}
-                  onChange={(e) => choose(c.key, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Escape") return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (mode === "graph") box.current?.focus();
-                  }}
-                >
-                  <option value="">{c.every}</option>
-                  {value === SEVERAL && <option value={SEVERAL}>{`${now.length} ${c.label === "kind" ? "kinds" : `${c.label}s`}`}</option>}
-                  {c.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                  {now.length === 1 && !c.options.some((o) => o.value === now[0]) && <option value={now[0]}>{now[0]}</option>}
-                </select>
-              );
-            })}
+            {choices.map((c, i) => (
+              <FilterMenu
+                key={c.key}
+                ref={i === 0 ? firstFilter : undefined}
+                noun={c.label}
+                nouns={c.label === "kind" ? "kinds" : `${c.label}s`}
+                options={c.options}
+                chosen={filter[c.key] ?? []}
+                onChange={(values) => choose(c.key, values)}
+                onLeave={() => mode === "graph" && box.current?.focus()}
+              />
+            ))}
             {showing && <span className="graph-found muted">{showing}</span>}
           </div>
         )}

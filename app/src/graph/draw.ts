@@ -102,9 +102,15 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   const onScreen = (x: number, y: number, pad = 0) => x > -margin - pad && y > -margin - pad && x < w + margin + pad && y < h + margin + pad;
   const font = (px: number, weight = 500) => `${weight} ${px}px ${p.mono}`;
 
-  // Open clusters: a hairline circle, firmer when meshed, its title above.
+  // Where text is already drawn: the clusters' titles first, then the nodes' labels avoid them.
+  const taken = new Boxes();
+  const lh = p.size * 1.3;
+  // Open clusters: a hairline circle, firmer when meshed, its title above. The title of the
+  // selected node's cluster goes first, then the bigger clusters', so a small one gives way.
+  const selCluster = f.selected ? scene.byId.get(f.selected)?.node?.cluster : undefined;
+  const clusterOrder = [...scene.clusters].sort((a, b) => (a.id === selCluster ? -1 : b.id === selCluster ? 1 : b.r - a.r));
   const clusterAt = new Map<string, { x: number; y: number; r: number }>();
-  for (const c of scene.clusters) {
+  for (const c of clusterOrder) {
     if (c.collapsed) continue;
     const s = toScreen(cam, w, h, c.x, c.y);
     const cr = c.r * cam.k;
@@ -123,7 +129,14 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
       ctx.font = font(p.size);
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillText(clip(ctx, c.mesh ? `${c.title} · mesh` : c.title, Math.max(80, cr * 2)), s.x, s.y - cr - 4);
+      // Just above the circle, or a line higher where a neighbour's title is in the way.
+      const tops = [s.y - cr - 4 - lh, s.y - cr - 4 - lh * 2];
+      const freeAt = (tw: number) => tops.find((top) => !taken.hits(s.x - tw / 2 - 2, top, tw + 4, lh));
+      const title = fitTitle((t) => ctx.measureText(t).width, c.title, c.mesh === true, cr * 2, (tw) => freeAt(tw) !== undefined);
+      const tw = ctx.measureText(title).width;
+      const top = freeAt(tw) ?? (tops[0] as number);
+      taken.add(s.x - tw / 2 - 2, top, tw + 4, lh);
+      ctx.fillText(title, s.x, top + lh);
     }
   }
   ctx.globalAlpha = 1;
@@ -272,7 +285,6 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
 
   // Labels where there's room: the selected node's, then its reach's and the matches, then live
   // nodes, then the rest, each skipped if it would cover one already drawn.
-  const taken = new Boxes();
   const order = [...nodeAt.values()].filter((a) => onScreen(a.x, a.y, 0));
   // A collapsed cluster's title is as important as a lit node's: it names a whole group.
   const rank = (a: { n: SceneNode }) =>
@@ -281,12 +293,12 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   ctx.font = font(p.size);
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const lh = p.size * 1.3;
   let drawn = 0;
   for (const a of order) {
     if (drawn > 600) break;
     const isSel = a.n.id === f.selected;
-    const text = clip(ctx, a.n.label, isSel ? 360 : 180);
+    // A collapsed cluster's title names a whole group: it gets the room an open one's does.
+    const text = clip(ctx, a.n.label, isSel ? 360 : a.n.count !== undefined ? TITLE_ROOM : 180);
     const tw = ctx.measureText(text).width;
     // A node's label is to its right; a collapsed cluster's under it, centred.
     const under = a.n.count !== undefined;
@@ -416,16 +428,41 @@ function standIn(ctx: CanvasRenderingContext2D, x: number, y: number, n: SceneNo
 
 /** `text` cut to `max` pixels with an ellipsis, never inside a character. */
 function clip(ctx: CanvasRenderingContext2D, text: string, max: number): string {
-  if (ctx.measureText(text).width <= max) return text;
+  return clipBy((s) => ctx.measureText(s).width, text, max);
+}
+
+function clipBy(measure: (s: string) => number, text: string, max: number): string {
+  if (measure(text) <= max) return text;
   const chars = Array.from(text);
   let lo = 0;
   let hi = chars.length;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
-    if (ctx.measureText(`${chars.slice(0, mid).join("")}…`).width <= max) lo = mid;
+    if (measure(`${chars.slice(0, mid).join("")}…`) <= max) lo = mid;
     else hi = mid - 1;
   }
   return `${chars.slice(0, lo).join("")}…`;
+}
+
+/** How wide a cluster's title may be past its circle, in screen pixels. */
+const TITLE_ROOM = 320;
+
+/**
+ * An open cluster's title (T89): whole, with "· mesh" for a meshed one, when it fits in TITLE_ROOM
+ * (or the circle, if that's wider) and `free` says it covers no title already drawn, even over a
+ * small circle; else without "· mesh"; else cut to that room; else, where even that would cover
+ * another, cut to the circle (at least 80 px), as it was before.
+ */
+export function fitTitle(measure: (s: string) => number, title: string, mesh: boolean, circle: number, free: (width: number) => boolean): string {
+  const room = Math.max(circle, TITLE_ROOM);
+  const tries = mesh ? [`${title} · mesh`, title] : [title];
+  for (const t of tries) {
+    const w = measure(t);
+    if (w <= room && free(w)) return t;
+  }
+  const cut = clipBy(measure, title, room);
+  if (free(measure(cut))) return cut;
+  return clipBy(measure, title, Math.max(80, circle));
 }
 
 /** The app's strong ease-out, `cubic-bezier(0.23, 1, 0.32, 1)` (`--ease-out`), at `t` in 0..1. */
