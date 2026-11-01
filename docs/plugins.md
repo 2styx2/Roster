@@ -316,7 +316,7 @@ end)
 
 **What's typed.** `command` is read off the screen when the shell runs the command (the `C` mark), so a line you erase, or give up with Ctrl-C, is never a `command_done`. What the screen doesn't show (a password at a `sudo` or `ssh` prompt, which doesn't echo) is in neither event. A shell's echo of what you type is in `terminal_output` as it always was, now labelled `"input"`.
 
-**roster only reads.** It never writes to a Session for this: no hooks put into a Host's shell, no keystrokes or escape sequences sent. You turn marks on in the shell on the Host (its own rc file, below), the way you'd set its prompt.
+**roster reads; it writes only if you ask.** It reads the marks from what the Session prints. You turn them on in the shell on the Host (its own rc file, below), the way you'd set its prompt, or let roster send the shell a one-line hook after login ([Shell hooks](#shell-hooks-roster-sets-it-up), off unless you turn it on).
 
 **When there's no `command_done`.** A nested shell with marks (`ssh` from a marked shell to a Host with integration) takes over: its commands come as `command_done`, and the `ssh` itself gets none, since its end can't be told from the nested shell's. Nor does `exit` or `logout`: a shell that exits sends no end mark for it, so the one that follows is another shell's. A `D` with no `C` (an empty line, Ctrl-C) isn't a command.
 
@@ -383,6 +383,42 @@ if ($Host.Name -eq 'ConsoleHost') {
   }
 }
 ```
+
+#### Shell hooks: roster sets it up
+
+Instead of an rc file, roster can send a Session's shell **one line** after login that turns the marks on, and OSC 7 (the folder the shell is in), in **that shell process only**. Nothing is written on the Host: no rc file, no file at all, so the hook is gone when the shell exits and the next Session starts clean. It's **off** unless you turn it on:
+
+- per Host, in `roster.yml`: `shell_hooks: true` on the Host, its group or `defaults` (`shell_hooks: false` keeps a Host out, say a group of network gear);
+- for every Session in `init.lua`: `terminal = { shell_hooks = true }` (Quick Connect too; a Host's `shell_hooks: false` still wins), or `false` to never send it, whatever a Host says ([`terminal.shell_hooks`](app/config.md#fonts-and-the-terminal));
+- for the Session on screen, now: `:integrate`, whatever those say. It tells you when it can't (no empty prompt roster knows, the shell marks its prompts already, the line was sent already).
+
+**When it's sent.** Once, when the login has gone quiet (0.4 s with nothing printed) at an empty prompt roster knows, within 20 seconds of the Session starting: a POSIX shell's `$ `, `# ` or `% ` (bash, zsh), fish's `user@host ~> `, or PowerShell's `PS …> `. **Nothing is sent** if you've typed anything (the terminal's own answers, such as a cursor report, don't count), if the shell already writes marks, or if the login shows anything else: a forced command, a menu, a password prompt, a network appliance's CLI (`switch01#`, `user@router> `, `[admin@appliance] > `), ESXi's busybox shell (`[root@esx-02:~] `). In a POSIX shell that's neither bash nor zsh (dash, busybox ash, ksh) the line does nothing.
+
+**What you see.** roster holds the shell's echo of the line back from the screen until the new prompt comes (its `A` and `B` marks), then draws that prompt where the old one was, so the screen looks as it did. If anything else comes first (an error), or the prompt doesn't come within 2 seconds, or you type meanwhile, everything shows as the shell printed it. A Plugin with `terminal.read` sees the Session's output as it came, the echoed line included (with no `kind`).
+
+**History.** Each line starts with a space, so a shell that leaves such lines out of its history does: bash with `HISTCONTROL=ignorespace` or `ignoreboth` (Debian and Ubuntu's default), zsh with `setopt HIST_IGNORE_SPACE`, fish always. PowerShell keeps it in its history.
+
+**The folder.** With OSC 7, a Session's row in the Sidebar shows the folder its shell is in (the last part of the path; the whole path in its tooltip, and in the tab's in the tab strip). A shell or prompt that writes OSC 7 itself shows it too. It's what the Host says, so it's a hint, like the marks.
+
+**Exactly what's sent**, followed by Enter. bash and zsh (one line; bash runs the first half, zsh the second, after `eval`; the same snippets as above, plus OSC 7 at each prompt):
+
+```bash
+ [ -n "$BASH_VERSION" ] && { __roster_d(){ local c=$?; printf "\e]133;D;%s\a\e]7;file://%s%s\a" $c "$HOSTNAME" "$PWD"; return $c; }; PROMPT_COMMAND="__roster_d${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; PS1="\[\e]133;A\a\]$PS1\[\e]133;B\a\]"; PS0="\e]133;C\a$PS0"; }; [ -n "$ZSH_VERSION" ] && eval '__roster_d(){ printf "\e]133;D;%s\a\e]7;file://%s%s\a" $? "$HOST" "$PWD"; }; __roster_c(){ printf "\e]133;C\a"; }; precmd_functions=(__roster_d $precmd_functions); preexec_functions+=(__roster_c); PS1="%{$(printf "\e]133;A\a")%}$PS1%{$(printf "\e]133;B\a")%}"'
+```
+
+fish:
+
+```fish
+ function __roster_a --on-event fish_prompt; printf '\e]7;file://%s%s\a\e]133;A\a' $hostname $PWD; end; functions -c fish_prompt __roster_p; function fish_prompt; __roster_p; printf '\e]133;B\a'; end; function __roster_c --on-event fish_preexec; printf '\e]133;C\a'; end; function __roster_d --on-event fish_postexec; printf '\e]133;D;%s\a' $status; end
+```
+
+PowerShell (Windows PowerShell 5.1 too: it writes the escape character as `[char]27`):
+
+```powershell
+ $Global:__roster_p=$function:prompt; function Global:prompt { $c=if($?){0}elseif($LASTEXITCODE){$LASTEXITCODE}else{1}; $e=[char]27; $b=[char]7; $d='/'+($PWD.ProviderPath -replace '\\','/').TrimStart('/'); "$e]133;D;$c$b$e]7;file://$([Environment]::MachineName)$d$b$e]133;A$b$(& $Global:__roster_p)$e]133;B$b" }; try { Set-PSReadLineOption -AddToHistoryHandler { param($l) [Console]::Write("$([char]27)]133;C$([char]7)"); try { [Microsoft.PowerShell.PSConsoleReadLine]::GetDefaultAddToHistoryOption($l) } catch { $true } } } catch {}
+```
+
+**Tested:** the bash line in bash 5 (CI runs it, and a POSIX shell that isn't bash, which it leaves alone); the PowerShell prompt function in Windows PowerShell 5.1. The zsh, fish and PowerShell 7 lines follow the snippets above, which aren't tested in those shells either. **Not for csh or tcsh:** their prompt (`% `, `# `) looks like a POSIX shell's, and the line prints an error there, so leave such Hosts off.
 
 ### Health sections
 

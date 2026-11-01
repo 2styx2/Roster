@@ -128,6 +128,21 @@ fn ui_hints_is_unset_by_default_and_takes_a_boolean() {
 }
 
 #[test]
+fn terminal_shell_hooks_is_unset_by_default_and_takes_a_boolean() {
+    // Ticket 121: unset leaves it to each Host's `shell_hooks` in roster.yml.
+    assert_eq!(Config::default().terminal.shell_hooks, None);
+    let dir = with_init("shell-hooks", "return { terminal = { shell_hooks = true } }\n");
+    assert_eq!(config::load(&dir).unwrap().terminal.shell_hooks, Some(true));
+    let dir = with_init(
+        "shell-hooks-bad",
+        "return {\n  terminal = { shell_hooks = \"yes\" },\n}\n",
+    );
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(e.message.contains("terminal.shell_hooks"), "{e}");
+}
+
+#[test]
 fn ui_messages_is_unset_by_default_and_takes_quiet_or_all() {
     // Ticket 111: unset leaves it to `:messages`, whose choice the State keeps (quiet until it
     // makes one).

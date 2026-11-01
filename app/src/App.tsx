@@ -94,6 +94,7 @@ import { SavePanel } from "./quick/SavePanel";
 import { HostDetails } from "./details/HostDetails";
 import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
+import { shellHooksOn, type IntegrateResult } from "./session/shellHooks";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
@@ -238,6 +239,16 @@ interface WorkspaceProps extends AppProps {
  * Inventory's in front of it. The workspace stays mounted behind, hidden and inert, so its
  * Sessions keep running and its vault and State are never touched; leaving the demo throws the
  * demo's workspace (its fake Backend, its State in memory) away and shows yours again. */
+
+/** What `:integrate` says (ticket 121). */
+const INTEGRATE_SAYS: Record<IntegrateResult, (label: string) => string> = {
+  sent: (t) => `Sent ${t}'s shell the hook line: its prompts are marked from now on.`,
+  "sent-already": (t) => `Already sent ${t}'s shell the hook line.`,
+  marked: (t) => `${t}'s shell marks its prompts already: nothing to send.`,
+  "no-prompt": (t) => `${t} isn't at an empty prompt roster knows (bash, zsh, fish, PowerShell): nothing sent.`,
+  "not-open": (t) => `${t}'s Session isn't open: nothing sent.`,
+};
+
 export function App(props: AppProps) {
   const [platform] = useState(() => props.platform ?? memoryPlatform());
   const [store] = useState(() => new StateStore(platform));
@@ -732,6 +743,12 @@ function Workspace({
     else void plugins.event("inventory_changed");
   }, [hosts, plugins]);
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
+  // Shell hooks (ticket 121): init.lua's terminal.shell_hooks and each Host's shell_hooks.
+  const shellHooksInit = config?.terminal.shellHooks ?? null;
+  useEffect(
+    () => tabs.setShellHooks((tab) => shellHooksOn(shellHooksInit, tab.quick ? undefined : hostByName.get(tab.host)?.shell_hooks)),
+    [tabs, shellHooksInit, hostByName],
+  );
   const groupNames = useMemo(() => {
     const names = Object.keys(hosts?.groups ?? {});
     for (const h of hosts?.hosts ?? []) if (!names.includes(h.group)) names.push(h.group);
@@ -1570,6 +1587,11 @@ function Workspace({
       setEditing(null);
       setSaving(null);
       setAdding({ group });
+    },
+    integrate: () => {
+      const tab = sessions.tabs.find((t) => t.id === sessions.active);
+      if (!tab) return setMessage("No Session to integrate: open one first.");
+      setMessage(INTEGRATE_SAYS[tabs.integrate(tab.id)](tab.label));
     },
     saveSession: () => {
       const tab = sessions.tabs.find((t) => t.id === sessions.active);

@@ -81,6 +81,8 @@ export interface CommandContext {
   /** Opens "Save to vault" for the current Session, once it logged in with a password typed for it
    * (tickets 15, 16). */
   saveSession(): void;
+  /** `:integrate` (ticket 121): sends the current Session's shell the hook line now. */
+  integrate(): void;
   /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
    * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
   inventory(op: InventoryOp): void;
@@ -241,6 +243,13 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Sessions",
     label: () => "Save to vault: the password typed for this Session, once it logged in",
     run: (ctx) => ctx.saveSession(),
+  },
+  {
+    id: "integrate",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Turn on shell integration in this Session's shell: one line that marks its prompts and says its folder",
+    run: (ctx) => ctx.integrate(),
   },
   {
     id: "reconnect",

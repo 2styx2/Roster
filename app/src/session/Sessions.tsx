@@ -90,7 +90,7 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
               role="tab"
               aria-selected={selected}
               tabIndex={-1}
-              title={tab.auth ? `${tab.label}\n${tab.auth} login` : tab.label}
+              title={[tab.label, tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n")}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(`session ${i + 1}`)}
             >

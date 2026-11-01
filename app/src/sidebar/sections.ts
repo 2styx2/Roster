@@ -148,6 +148,16 @@ function dotOf(tab: Tab, host: Host | undefined): Dot {
   return host?.enroll ? "key" : "password";
 }
 
+/** The last folder of a path the shell said (OSC 7, ticket 121): `releases`, or `/`. */
+export function folderName(path: string): string {
+  return path.replace(/\/+$/, "").split("/").pop() || "/";
+}
+
+/** A Session row's tooltip: how it logged in, and the folder its shell is in. */
+function sessionTitle(tab: Tab): string {
+  return [tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n");
+}
+
 /** Open Sessions in tab order, with their state dot; rows run `session N` and `close N`. */
 export const sessionsSection: SidebarSectionDef = {
   id: "sessions",
@@ -169,7 +179,8 @@ export const sessionsSection: SidebarSectionDef = {
             dot: dotOf(tab, hostByName.get(tab.host)),
             link: linkOf(tab),
             ...(statusText(tab) ? { note: statusText(tab) } : {}),
-            ...(tab.auth ? { title: `${tab.auth} login` } : {}),
+            ...(tab.cwd ? { detail: folderName(tab.cwd) } : {}),
+            ...(sessionTitle(tab) ? { title: sessionTitle(tab) } : {}),
             raised: tab.id === sessions.active,
             ...(tab.id === sessions.active && isLive(tab) ? { live: true } : {}),
             command: `session ${i + 1}`,
