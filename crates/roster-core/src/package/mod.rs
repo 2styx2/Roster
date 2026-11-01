@@ -584,6 +584,31 @@ impl Packages {
             .collect()
     }
 
+    /// `:packages update NAME`: [`Packages::check`] for the one Package init.lua names `name`,
+    /// fetching only it. An error when init.lua names no such Package or it isn't cloned.
+    pub fn check_named(&self, specs: &[PackageSpec], name: &str) -> Result<Checked, String> {
+        let spec = specs
+            .iter()
+            .find(|s| name_of(s).ok().as_deref() == Some(name))
+            .ok_or_else(|| format!("init.lua names no Package {name}"))?;
+        let _busy = self.busy.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = self.clones.join(name);
+        if !dir.join(".git").exists() {
+            return Err(format!(
+                "{name} isn't installed: :packages install {name} asks to install it"
+            ));
+        }
+        let (update, error) = match self.check_one(spec, &dir, name) {
+            Ok(u) => (u, None),
+            Err(e) => (None, Some(e)),
+        };
+        Ok(Checked {
+            name: name.to_string(),
+            update,
+            error,
+        })
+    }
+
     fn check_one(&self, spec: &PackageSpec, dir: &Path, name: &str) -> Result<Option<Update>, String> {
         self.git.run(
             Some(dir),

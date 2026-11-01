@@ -9,7 +9,7 @@ Every way opening a Session can fail must end in a **clean error**, never a hang
 
 Edits made by hand to `roster.yml` or the vault get the same treatment as anything made in the app. `roster check HOST` and `:check HOST` run the same diagnostics on demand. `:check` with no Host (or `roster check --box`) checks this Box instead (see [This Box's health](#this-boxs-health)).
 
-The # is a row's id, given in the order rows were added and cited by the code (`app/src/errors/catalog.ts`), so a section added to later can hold higher numbers; new rows take the next number (116).
+The # is a row's id, given in the order rows were added and cited by the code (`app/src/errors/catalog.ts`), so a section added to later can hold higher numbers; new rows take the next number (122).
 
 | # | What happened | Typical cause | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
@@ -193,6 +193,19 @@ A Package's line in `init.lua` and its clone (see [Packages](../plugins.md#packa
 | 81 | none (init.lua) | `dir` has `..` or goes into `.git` | init.lua | "dir = \"../x\": \"..\" would leave the repo; name a folder inside it" | Name a folder inside the repo |
 | 82 | none (a Package's error) | The repo has no such folder at the commit it's at: a typo, or a version from before the Plugin was added | init.lua / the repo | "https://git.example.com/team/roster-extras.git at 1a2b3c4 has no folder plugins/alrets: check dir in init.lua" | Fix `dir`, or ask for a version that has it (`tag`, `branch`), then `:source` |
 | 83 | none (a Package's error) | `dir`, or a folder on the way to it, is a symlink that leads outside the clone | The repo | "dir = \"plugins/escape\" leads outside the Package's clone (through a symlink): roster won't load it" | Nothing in roster: a Plugin is only ever loaded from inside its repo. Tell the repo's author; an update that does this is refused and the Package stays where it was |
+| 116 | none (a Package's error) | The repo can't be fetched: the URL is wrong, the network or the git server is down, or it's a private repo your own git setup (an ssh agent, say) doesn't get into. roster hands git no credentials and git may not ask for any. On a new Box, roster.lock can also pin a commit the repo no longer has (force-pushed away) | The network / the repo | "can't fetch https://git.example.com/team/roster-extras.git: fatal: could not read Username …"; "roster.lock pins 1a2b3c4, which https://git.example.com/team/roster-extras.git doesn't have" | `:packages` shows it as "can't fetch" with git's words, and the other Packages load. Check the URL in init.lua, or that `git clone URL` works in a terminal, then `:source`. For a lost commit, take its line out of roster.lock to install the version init.lua asks for (it asks first) |
+| 117 | none (a Package's error) | `git` isn't installed on this Box, or isn't on the app's PATH | This Box | "git isn't installed (or isn't on the PATH): Packages need it" | Install git and restart the app. Nothing else in the app needs it: Plugins from a folder (`:plugins install PATH`) work without it |
+| 118 | none (a Package's error, or `:packages update`'s answer) | git didn't finish within 120 s: a big repo on a slow link, or a server that stopped answering. git is stopped and a half-done clone is removed | The network | "can't fetch https://git.example.com/team/roster-extras.git: git clone took longer than 120 s" | Try again later (`:source`, or `:packages update NAME`) |
+| 119 | none (`:packages update`'s answer) | A new commit can't be checked: the fetch failed (as 116 to 118), or the new version has no manifest or one that doesn't load | The network / the repo | "Couldn't check recent-alerts: …"; "recent-alerts: its new version can't be used: the new version has no roster-plugin.lua" | Nothing changes: the Package stays on the commit it's at and keeps running. Try again, or tell the repo's author |
+
+## A Plugin stops
+
+A Plugin that fails to load, or fails again and again, stops ([plugins.md](../plugins.md#limits)). Everything it added goes away, the rest of the app carries on, and `:plugins` (or `:packages`, for a Package) says why. Each is a notice naming the Plugin, with its file and line when it has them.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 120 | none (a Plugin's error) | The Plugin can't load: its manifest is missing or wrong, `init.lua` has a syntax error or raises one, it takes more than 1 s or 32 MB to load, or it needs a newer `roster.api_version` than this app has | The Plugin | "recent-alerts: init.lua:12: attempt to index a nil value" | It isn't running (`:plugins` says "stopped" and why). Fix the code and `:plugins reload NAME`; for a Package, tell its author or `:packages update NAME` for a fixed version |
+| 121 | none (a Plugin's error) | The Plugin is turned off: a third error after it loaded, or a call that didn't answer within two seconds past its quarter-second budget (a long pattern match, say; waiting for roster serve doesn't count) | The Plugin | "recent-alerts: init.lua:40: attempt to call a nil value. It's disabled."; in `:plugins`, "it failed 3 times" or "it didn't answer within 2250 ms" | `:plugins reload NAME` runs it again, with the count started over. If it keeps stopping, `:plugins remove NAME` and tell its author |
 
 ## Plugin interactions
 
