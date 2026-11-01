@@ -12,7 +12,7 @@ import type { TableModel } from "../view/views";
 import { RowActionGlyph } from "../sidebar/Sidebar";
 import { countOf } from "./format";
 import { Keys } from "./Keys";
-import { actionApplies, filterRows, nextSort, sortRows, windowOf, type Sort, type TableColumn, type TableRow } from "./table";
+import { actionApplies, filterRows, MIN_CH, nextSort, sortRows, splitMiddle, windowOf, type Sort, type TableColumn, type TableRow } from "./table";
 
 export interface DataTableProps {
   model: TableModel;
@@ -38,6 +38,20 @@ function cellText(row: TableRow, c: TableColumn): string {
   const v = row.cells[c.id];
   if (v === undefined) return "";
   return typeof v === "number" && c.kind === "number" ? v.toLocaleString("en-US") : String(v);
+}
+
+/** A cell's text; a data value cut in the middle when it doesn't fit (ticket 91): the head gives
+ * way with an ellipsis, the tail stays. */
+function CellText({ text, column }: { text: string; column: TableColumn }) {
+  if (column.kind !== "data") return text;
+  const [head, tail] = splitMiddle(text);
+  if (!tail) return text;
+  return (
+    <span className="dt-mid">
+      <span className="dt-mid-head">{head}</span>
+      <span className="dt-mid-tail">{tail}</span>
+    </span>
+  );
 }
 
 const ariaSort = (c: TableColumn, sort: Sort | null) => (sort?.by !== c.id ? "none" : sort.desc ? "descending" : "ascending");
@@ -88,9 +102,18 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // A table that takes focus does so when its grid first draws, which may be after it mounted
+  // (rows that came later: a plan that finished, ticket 91); then only if focus is on the view
+  // around it, never taken from elsewhere.
+  const hasGrid = rows.length > 0;
+  const focusedOnce = useRef(false);
   useEffect(() => {
-    if (autoFocus) grid.current?.focus();
-  }, [autoFocus]);
+    const el = grid.current;
+    if (!autoFocus || !el) return;
+    const at = document.activeElement;
+    if (!focusedOnce.current || at === null || at === document.body || (at !== el && at.contains(el))) el.focus();
+    focusedOnce.current = true;
+  }, [autoFocus, hasGrid]);
   // A row selected from the start is scrolled to, once.
   const scrolled = useRef(false);
   useLayoutEffect(() => {
@@ -201,7 +224,10 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
   // when the buttons show: an icon is a square, a label its length.
   const actionsWidth = model.actions.map((a) => (a.icon ? "calc(var(--ui-size) * 1.35)" : `calc(${a.label.length + 2}ch)`));
   const actionsTrack = actionsWidth.length ? ` calc(${actionsWidth.join(" + ")} + ${(actionsWidth.length - 1) * 4}px)` : "";
-  const template = model.columns.map((c) => (c.width ? `${c.width}ch` : "minmax(0, 1fr)")).join(" ") + actionsTrack;
+  // A column without a width shares the room but keeps a few characters; past that the table
+  // scrolls sideways (a narrow panel, ticket 91) instead of cutting columns to nothing.
+  const template = model.columns.map((c) => (c.width ? `${c.width}ch` : `minmax(${MIN_CH[c.kind]}ch, 1fr)`)).join(" ") + actionsTrack;
+  const minWidth = `calc(${model.columns.reduce((n, c) => n + (c.width ?? MIN_CH[c.kind]), 0)}ch${actionsTrack ? ` +${actionsTrack}` : ""} + ${model.columns.length * 12 + 24}px)`;
   const sortedBy = sort && model.columns.find((c) => c.id === sort.by);
   // What the selected row can do: an action whose `when` it doesn't match isn't offered.
   const usable = current ? model.actions.filter((a) => actionApplies(a.when, current)) : model.actions;
@@ -209,7 +235,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
   const filtering = filter.open || filter.query !== "";
 
   return (
-    <div className="data-table">
+    <div className="data-table" style={{ "--dt-min": minWidth } as React.CSSProperties}>
       {filtering && (
         <div className="dt-filter">
           <span className="dt-filter-slash mono" aria-hidden="true">
@@ -310,7 +336,7 @@ export function DataTable({ model, label, autoFocus = false, leader, selectedId,
                   {model.columns.map((c, ci) => (
                     <div key={c.id} role="gridcell" className={`dt-td kind-${c.kind}`} title={cellText(row, c) || undefined} dir={c.kind === "text" ? "auto" : undefined}>
                       {ci === 0 && row.tone && row.tone !== "muted" && <span className="dt-mark" aria-label={row.tone === "warn" ? "warning" : "error"} role="img" />}
-                      {cellText(row, c)}
+                      <CellText text={cellText(row, c)} column={c} />
                     </div>
                   ))}
                   {model.actions.length > 0 && (

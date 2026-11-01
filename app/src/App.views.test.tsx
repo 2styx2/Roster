@@ -25,6 +25,7 @@ function scanPlugin(count = 3, place: "panel" | "full" = "panel"): FakePlugin {
       roster.views.set("scan", {
         title: "Scan",
         place,
+        actions: [{ label: "Scan again", icon: "plan", run: (e: Record<string, unknown>) => roster.notify(`again for ${String(e.view)}`) }],
         text: "Found on 10.0.0.0/24.",
         table: {
           columns: [
@@ -46,9 +47,13 @@ function scanPlugin(count = 3, place: "panel" | "full" = "panel"): FakePlugin {
       });
       roster.keymap.set("leader", "y v", "view scan");
       roster.commands.add("scan", { desc: "Scan", run: () => roster.views.open("scan") });
+      roster.commands.add("scan-clear", { desc: "Clear", run: () => roster.views.update("scan", { clear: true, rows: [{ id: "10.0.0.9", cells: { address: "10.0.0.9", ports: 1, state: "new" } }] }) });
       roster.commands.add("scan-done", { desc: "Done", run: () => roster.views.close("scan") });
+      // A background job that ends says so with a button that opens its view (ticket 91).
+      roster.commands.add("scan-finish", { desc: "Finish", run: () => roster.notify("Scan done", "info", { actions: [{ label: "Show the scan", run: "view scan" }] }) });
       roster.details.set("ports", "linux-1-000", {
         title: "Open ports",
+        actions: [{ label: "Forget linux-1-000", icon: "cut", run: (e: Record<string, unknown>) => roster.notify(`forget ${String(e.section)} of ${String(e.host)}`) }],
         facts: [{ label: "seen", value: "2 ports", data: true }],
         table: { columns: [{ id: "port", label: "Port", kind: "number" }], rows: [{ id: "22", cells: { port: 22 } }] },
       });
@@ -111,6 +116,16 @@ describe("a Plugin's view", () => {
     expect(await screen.findByRole("region", { name: "Scan (from scan)" })).toHaveClass("view-full");
   });
 
+  it("a notice's button opens the view: the click is the user's call (ticket 91)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:scan-finish{Enter}`);
+    const notice = await screen.findByRole("status", { name: "From scan" });
+    expect(notice).toHaveTextContent("scan: Scan done");
+    await user.click(within(notice).getByRole("button", { name: "Show the scan" }));
+    expect(await screen.findByRole("grid", { name: "Scan" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "From scan" })).toBeNull();
+  });
+
   it("says so for a view that isn't there", async () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:view nope{Enter}`);
@@ -158,6 +173,15 @@ describe("a table", () => {
     expect(await screen.findByText("scan: opened 10.0.0.2")).toBeInTheDocument();
   });
 
+  it("clear takes every row away in one update, and its rows fill it again (ticket 91)", async () => {
+    const user = await ready(scanPlugin(600));
+    await user.keyboard(`${LEADER}:view scan{Enter}`);
+    await screen.findByRole("grid", { name: "Scan" });
+    await user.keyboard(`${LEADER}:scan-clear{Enter}`);
+    expect(await screen.findByText("1 row")).toBeInTheDocument();
+    expect(grid()).toHaveTextContent("10.0.0.9");
+  });
+
   it("a click selects a row and shows its buttons; the button runs the action", async () => {
     const user = await ready();
     await user.keyboard(`${LEADER}:view scan{Enter}`);
@@ -194,6 +218,18 @@ describe("a Plugin's section in Host details", () => {
     await user.keyboard(`${LEADER}:info nas-4-007{Enter}`);
     const other = await screen.findByRole("complementary", { name: "Details of nas-4-007" });
     expect(within(other).queryByRole("region", { name: /Open ports/ })).toBeNull();
+  });
+
+  it("a view's and a section's heading buttons run with the view, or the section and its Host (ticket 91)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:view scan{Enter}`);
+    const view = await screen.findByRole("region", { name: "Scan (from scan)" });
+    await user.click(within(view).getByRole("button", { name: "Scan again" }));
+    expect(await screen.findByText("scan: again for scan")).toBeInTheDocument();
+    await user.keyboard(`${LEADER}:info linux-1-000{Enter}`);
+    const section = within(await screen.findByRole("complementary", { name: "Details of linux-1-000" })).getByRole("region", { name: "Open ports (from scan)" });
+    await user.click(within(section).getByRole("button", { name: "Forget linux-1-000" }));
+    expect(await screen.findByText("scan: forget ports of linux-1-000")).toBeInTheDocument();
   });
 
   it("removing the Plugin takes its view (closing it) and its sections away", async () => {

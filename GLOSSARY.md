@@ -125,7 +125,7 @@ A named set of colour tokens. The Config can pick one, change any token, or defi
 _Avoid_: skin, colour scheme
 
 **View**:
-A panel a Plugin adds (`roster.views`), opened with `:view ID`: a side panel beside the terminal, or a full view over the whole window. It holds text, facts and a table whose rows are plain data, or a graph (nodes, edges and clusters, also plain data). Not a View mode.
+A panel a Plugin adds (`roster.views`), opened with `:view ID`: a side panel beside the terminal, or a full view over the whole window. Its `place` is where it opens first; the user can dock it or make it full window, as any panel (`␣ z`). It holds text, facts and a table whose rows are plain data, or a graph (nodes, edges and clusters, also plain data). Not a View mode.
 _Avoid_: page, screen, window
 
 **View mode**:

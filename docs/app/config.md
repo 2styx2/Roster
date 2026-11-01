@@ -116,6 +116,8 @@ Contexts: `leader` (after the Leader), `list` and `list_vim` (the Sidebar), `pic
 | `default_mode` | `"standard"` | The view mode at start: `"standard"` or `"focus"`. Read at start only |
 | `sessions` | `"sidebar"` | Open Sessions in the Sidebar, or `"tabs"` for a tab strip |
 | `modes.standard`, `modes.focus` | as prototyped | Each mode's pieces. A piece left out keeps that mode's default |
+| `panel.width` | unset | A docked panel's width in percent of the window, 10 to 95, for every panel and view that `views` doesn't give one (ticket 95). Unset, each keeps its own (Key bindings 320 px, help up to 600 px, a view up to 640 px). It's a default: a width you pick with `␣ <` / `␣ >` or by dragging a panel's edge is kept in the State per panel and wins, until `:panel reset`. Whatever is set, a docked panel stays between 280 px and what leaves the terminal about 50 columns ([Panels](keyboard.md#panels-docked-or-full-window)) |
+| `views` | `{}` | Per panel or view id, `{ place = "panel"\|"full", width = N }`: where it opens first (docked beside the terminal, or full window) and its docked width in percent, 10 to 95. Ids: `help`, `details`, `edit`, `add`, `save`, `changes`, `plugins`, `packages`, `keys`, `check`, and a Plugin's view by its id (`views = { topology = { place = "panel", width = 60 } }`). A Plugin's own `place` is only where its view opens until this or your choice says otherwise. Defaults, as `panel.width`: `␣ z` and the rest are kept in the State and win, until `:panel reset` (decision Q106) |
 
 The pieces of a mode:
 

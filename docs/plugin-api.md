@@ -25,7 +25,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.api_version`](#rosterapi_version) | The version of the `roster` module this app has | none |
 | [`roster.os`](#rosteros) | The OS the app runs on | none |
 | [`roster.plugin`](#rosterplugin) | The Plugin itself: its name, version, what it was granted and its settings | none |
-| [`roster.notify(text, level)`](#rosternotifytext-level) | Shows a notice, naming the Plugin | none |
+| [`roster.notify(text, level, opts)`](#rosternotifytext-level-opts) | Shows a notice, naming the Plugin | none |
 | [`roster.on(event, listener)`](#rosteronevent-listener) | Runs a function on an event | none |
 | [`roster.confirm(question)`](#rosterconfirmquestion) | Asks the user to confirm, then runs a function | none |
 | [`roster.cmd(line)`](#rostercmdline) | Runs a command line | none |
@@ -105,6 +105,8 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Theme`](#theme) | A Theme, as `init.lua`'s `themes` takes one |
 | [`Section`](#section) | A Sidebar section (`roster.sidebar.set`) |
 | [`Row`](#row) | A row of a Sidebar section |
+| [`NoticeOptions`](#noticeoptions) | What else a notice has (`roster.notify`, since api 3) |
+| [`NoticeAction`](#noticeaction) | A button on a notice |
 | [`RowAction`](#rowaction) | A button on a row |
 | [`RowIcon`](#rowicon) | A row action's icon |
 | [`RowGlyph`](#rowglyph) | A Sidebar row's glyph (since api 3) |
@@ -247,14 +249,15 @@ roster.notify(roster.plugin.name .. " " .. roster.plugin.version)
 local leader = roster.plugin.config.leader or "w w"
 ```
 
-### `roster.notify(text, level)`
+### `roster.notify(text, level, opts)`
 
-Shows a notice, naming the Plugin.
+Shows a notice, naming the Plugin. A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.
 
 **Parameters**
 
 - `text` (`string`): What to say. It's shown after the Plugin's name (`pinned: …`).
 - `level` ([`Level`](#level)`?`, optional): `"info"` (the default), `"warn"` or `"error"`.
+- `opts` ([`NoticeOptions`](#noticeoptions)`?`, optional): Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`.
 
 **Returns**
 
@@ -263,7 +266,12 @@ Nothing.
 **Errors**
 
 - `roster.notify: the level is "info", "warn" or "error"`: `level` is something else.
+- `roster.notify: actions… (a notice's action runs a command line, not a function)`: a function in `opts`.
 - And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- more than 2 actions, or one whose `run` isn't a command line.
 
 **Permission:** none · **Since:** api 2
 
@@ -272,6 +280,7 @@ Nothing.
 ```lua
 roster.notify("3 new alerts")
 roster.notify("leader: not a key sequence, using w w", "warn")
+roster.notify("Plan ready: 4 Hosts change", "info", { actions = { { label = "Show the plan", run = "view mesh-plan" } } })
 ```
 
 ### `roster.on(event, listener)`
@@ -374,7 +383,7 @@ end })
 
 ### `roster.echo(text)`
 
-Answers on the message line, as roster's own commands do. For what a command did ("Added esx-02 to Lab"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level) for anything else.
+Answers on the message line, as roster's own commands do. For what a command did ("Added esx-02 to Lab"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.
 
 **Parameters**
 
@@ -2402,6 +2411,23 @@ Text is cut to 500 characters.
 | `drop` | [`Run`](#run) | no | Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged. |
 | `drag_out` | [`Run`](#run) | no | Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3). |
 
+### `NoticeOptions`
+
+What else a notice has (`roster.notify`, since api 3).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `actions` | [`NoticeAction`](#noticeaction)`[]` | no | Buttons under its text, at most 2. |
+
+### `NoticeAction`
+
+A button on a notice.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `label` | `string` | yes | What it says (`"Show the plan"`). |
+| `run` | `string` | yes | The command line a click runs, as `roster.cmd` would (`"view mesh-plan"`); then the notice goes. |
+
 ### `RowAction`
 
 A button on a row.
@@ -2416,7 +2442,9 @@ A button on a row.
 
 A row action's icon.
 
-One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy"`
+`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.
+
+One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy" \| "plan" \| "apply" \| "cut"`
 
 ### `RowGlyph`
 
@@ -2632,7 +2660,8 @@ Drawn top to bottom: the text, the facts, then the table or the graph (one or th
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
-| `place` | [`ViewPlace`](#viewplace) | no | Where it goes: `"panel"` (the default) or `"full"`. |
+| `place` | [`ViewPlace`](#viewplace) | no | Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it. |
+| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3). |
 | `text` | `string` | no | A few lines above the rest, in the app's voice; a blank line starts a paragraph. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs, as a Host's details show them. |
 | `table` | [`Table`](#table) | no | A table of rows. |
@@ -2657,6 +2686,7 @@ Plain data, but for `actions`. A field left out stays as it is.
 | `facts` | [`Fact`](#fact)`[]` | no | New facts, all of them. |
 | `rows` | [`TableRow`](#tablerow)`[]` | no | Rows to add or replace, by `id` (at most 2,000 at once). |
 | `remove` | `string[]` | no | The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose). |
+| `clear` | `boolean` | no | `true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3). |
 | `nodes` | [`GraphNode`](#graphnode)`[]` | no | A graph's nodes to add or replace, by `id`. |
 | `edges` | [`GraphEdge`](#graphedge)`[]` | no | A graph's edges to add or replace, by `id`. |
 | `clusters` | [`GraphCluster`](#graphcluster)`[]` | no | A graph's clusters to add or replace, by `id`. |
@@ -2677,6 +2707,7 @@ Drawn after roster's own sections, with your Plugin's name under its heading: th
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
 | `order` | `number` | no | Where it goes among the Plugins' sections, lowest first; 500 if left out. |
+| `actions` | [`RowAction`](#rowaction)`[]` | no | Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3). |
 | `text` | `string` | no | A few lines, in the app's voice. |
 | `facts` | [`Fact`](#fact)`[]` | no | Label and value pairs. |
 | `table` | [`Table`](#table) | no | A table of rows. |

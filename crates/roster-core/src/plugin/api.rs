@@ -429,18 +429,29 @@ pub const FUNCTIONS: &[Function] = &[
                 "What to say. It's shown after the Plugin's name (`pinned: …`).",
             ),
             opt("level", "Level", "`\"info\"` (the default), `\"warn\"` or `\"error\"`."),
+            opt(
+                "opts",
+                "NoticeOptions",
+                "Buttons on the notice (since api 3): `{ actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } }`.",
+            ),
         ],
         summary: "Shows a notice, naming the Plugin",
-        doc: "",
+        doc: "A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.",
         returns: ("", ""),
-        errors: &[(
-            "roster.notify: the level is \"info\", \"warn\" or \"error\"",
-            "`level` is something else",
-        )],
-        refused: &[],
+        errors: &[
+            (
+                "roster.notify: the level is \"info\", \"warn\" or \"error\"",
+                "`level` is something else",
+            ),
+            (
+                "roster.notify: actions… (a notice's action runs a command line, not a function)",
+                "a function in `opts`",
+            ),
+        ],
+        refused: &["more than 2 actions, or one whose `run` isn't a command line"],
         needs: Needs::Nothing,
         since: 2,
-        example: "roster.notify(\"3 new alerts\")\nroster.notify(\"leader: not a key sequence, using w w\", \"warn\")",
+        example: "roster.notify(\"3 new alerts\")\nroster.notify(\"leader: not a key sequence, using w w\", \"warn\")\nroster.notify(\"Plan ready: 4 Hosts change\", \"info\", { actions = { { label = \"Show the plan\", run = \"view mesh-plan\" } } })",
     },
     Function {
         path: "roster.on",
@@ -533,7 +544,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.echo",
         params: &[p("text", "string", "What to say, on one line.")],
         summary: "Answers on the message line, as roster's own commands do",
-        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level) for anything else.",
+        doc: "For what a command did (\"Added esx-02 to Lab\"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.",
         returns: ("", ""),
         errors: &[(
             "roster.echo: only while the user runs one of your actions, commands or finder items",
@@ -2153,6 +2164,29 @@ pub const TYPES: &[Type] = &[
         open: false,
     },
     Type {
+        name: "NoticeOptions",
+        summary: "What else a notice has (`roster.notify`, since api 3)",
+        doc: "",
+        alias: "",
+        fields: &[o("actions", "NoticeAction[]", "Buttons under its text, at most 2.")],
+        open: false,
+    },
+    Type {
+        name: "NoticeAction",
+        summary: "A button on a notice",
+        doc: "",
+        alias: "",
+        fields: &[
+            f("label", "string", "What it says (`\"Show the plan\"`)."),
+            f(
+                "run",
+                "string",
+                "The command line a click runs, as `roster.cmd` would (`\"view mesh-plan\"`); then the notice goes.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
         name: "RowAction",
         summary: "A button on a row",
         doc: "",
@@ -2171,8 +2205,8 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "RowIcon",
         summary: "A row action's icon",
-        doc: "",
-        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"",
+        doc: "`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.",
+        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\"",
         fields: &[],
         open: false,
     },
@@ -2522,7 +2556,12 @@ pub const TYPES: &[Type] = &[
             o(
                 "place",
                 "ViewPlace",
-                "Where it goes: `\"panel\"` (the default) or `\"full\"`.",
+                "Where it opens first: `\"panel\"` (the default) or `\"full\"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it.",
+            ),
+            o(
+                "actions",
+                "RowAction[]",
+                "Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3).",
             ),
             o(
                 "text",
@@ -2566,6 +2605,11 @@ pub const TYPES: &[Type] = &[
                 "string[]",
                 "The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).",
             ),
+            o(
+                "clear",
+                "boolean",
+                "`true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3).",
+            ),
             o("nodes", "GraphNode[]", "A graph's nodes to add or replace, by `id`."),
             o("edges", "GraphEdge[]", "A graph's edges to add or replace, by `id`."),
             o(
@@ -2605,6 +2649,11 @@ pub const TYPES: &[Type] = &[
                 "order",
                 "number",
                 "Where it goes among the Plugins' sections, lowest first; 500 if left out.",
+            ),
+            o(
+                "actions",
+                "RowAction[]",
+                "Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3).",
             ),
             o("text", "string", "A few lines, in the app's voice."),
             o("facts", "Fact[]", "Label and value pairs."),

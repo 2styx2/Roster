@@ -107,6 +107,15 @@
 ---@field drop? roster.Run Takes a Host dragged onto the row: it runs with `{ section, row, dropped = HOST }` (since api 3). A row with a `host` can always be dragged.
 ---@field drag_out? roster.Run Runs when the row is dragged out of the section onto another part of the Sidebar, as a Host dragged out of a Folder leaves it (since api 3).
 
+--- What else a notice has (`roster.notify`, since api 3)
+---@class roster.NoticeOptions
+---@field actions? roster.NoticeAction[] Buttons under its text, at most 2.
+
+--- A button on a notice
+---@class roster.NoticeAction
+---@field label string What it says (`"Show the plan"`).
+---@field run string The command line a click runs, as `roster.cmd` would (`"view mesh-plan"`); then the notice goes.
+
 --- A button on a row
 ---@class roster.RowAction
 ---@field label string What it does, for its tooltip and screen readers (`"Unpin esx-02"`).
@@ -114,7 +123,7 @@
 ---@field run roster.Run What pressing it runs.
 
 --- A row action's icon
----@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"
+---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"
 
 --- A Sidebar row's glyph (since api 3)
 ---@alias roster.RowGlyph "folder"|"group"
@@ -236,7 +245,8 @@
 --- A side panel or a full view (`roster.views.set`)
 ---@class roster.View
 ---@field title? string Its heading; the id if left out.
----@field place? roster.ViewPlace Where it goes: `"panel"` (the default) or `"full"`.
+---@field place? roster.ViewPlace Where it opens first: `"panel"` (the default) or `"full"`. The user can move it to the other and widen or narrow it (`␣ z`, `␣ <`, `␣ >`); their choice, and init.lua's `views.ID`, win over it.
+---@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the whole view does (`Plan`, `Apply`): each runs with `{ view }` (since api 3).
 ---@field text? string A few lines above the rest, in the app's voice; a blank line starts a paragraph.
 ---@field facts? roster.Fact[] Label and value pairs, as a Host's details show them.
 ---@field table? roster.Table A table of rows.
@@ -252,6 +262,7 @@
 ---@field facts? roster.Fact[] New facts, all of them.
 ---@field rows? roster.TableRow[] Rows to add or replace, by `id` (at most 2,000 at once).
 ---@field remove? string[] The ids of rows to take away; in a graph, of nodes (their edges go too) and clusters (their nodes stay, loose).
+---@field clear? boolean `true` takes every row of the table away first, in one go (a new scan); `rows` then fill it again (since api 3).
 ---@field nodes? roster.GraphNode[] A graph's nodes to add or replace, by `id`.
 ---@field edges? roster.GraphEdge[] A graph's edges to add or replace, by `id`.
 ---@field clusters? roster.GraphCluster[] A graph's clusters to add or replace, by `id`.
@@ -266,6 +277,7 @@
 ---@class roster.DetailsSection
 ---@field title? string Its heading; the id if left out.
 ---@field order? number Where it goes among the Plugins' sections, lowest first; 500 if left out.
+---@field actions? roster.RowAction[] Buttons on its heading, at most 4, for what the section does about this Host (`Cut`): each runs with `{ section, host }` (since api 3).
 ---@field text? string A few lines, in the app's voice.
 ---@field facts? roster.Fact[] Label and value pairs.
 ---@field table? roster.Table A table of rows.
@@ -629,7 +641,8 @@ roster = {}
 --- Permission: none. Since: api 2.
 ---@param text string What to say. It's shown after the Plugin's name (`pinned: …`).
 ---@param level? roster.Level `"info"` (the default), `"warn"` or `"error"`.
-function roster.notify(text, level) end
+---@param opts? roster.NoticeOptions Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`.
+function roster.notify(text, level, opts) end
 
 --- Runs a function on an event.
 --- Permission: none. Since: api 2.

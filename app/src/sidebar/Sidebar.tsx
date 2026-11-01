@@ -30,7 +30,7 @@ export type { Dot } from "../ui/StateDot";
 export interface RowAction {
   /** The accessible name, e.g. "Close esxi-02". */
   label: string;
-  icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview" | "info" | "copy";
+  icon: "close" | "edit" | "add" | "addGroup" | "review" | "unreview" | "info" | "copy" | "plan" | "apply" | "cut";
   command: CommandLine;
   /** Always shown, not only on the selected row (the Inventory's "Add a Host"). */
   pinned?: boolean;
@@ -239,6 +239,12 @@ const ICONS: Record<RowAction["icon"], string> = {
   info: "M8 2.25a5.75 5.75 0 110 11.5 5.75 5.75 0 010-11.5zM8 7.25v3.5M8 5.25v.01",
   // Two sheets, one over the other: copy (a Plugin's row, ticket 56).
   copy: "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7",
+  // A dashed arrow: what would change, not changed yet (a Mesh plan, ticket 91).
+  plan: "M2 8h2.5M6.5 8H9M11 8h2.5M10.5 5l3 3-3 3",
+  // A solid arrow into a bar: carry it out (a Mesh apply).
+  apply: "M2 8h9M8 5l3 3-3 3M13.5 3.5v9",
+  // An edge broken by a cross, as a cut edge is drawn in a graph (a Mesh cut).
+  cut: "M1.5 8h3.5M11 8h3.5M6.5 5.5l3 5M9.5 5.5l-3 5",
 };
 
 /** A row action's icon (a Sidebar row's, a table's action). */

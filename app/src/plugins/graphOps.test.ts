@@ -21,6 +21,7 @@ describe("a view's graph, checked", () => {
       view: {
         title: "Topology",
         place: "full",
+        actions: [],
         facts: [],
         graph: {
           data: {

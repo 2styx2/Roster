@@ -41,7 +41,7 @@ export interface FakeRoster {
   views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string): void; close(id: string): void; remove(id: string): void };
   details: { set(id: string, host: string, spec: Spec | null): void; remove(id: string): void };
   clipboard: { copy(text: string): void };
-  notify(text: string, level?: "info" | "warn" | "error"): void;
+  notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[] }): void;
   on(event: PluginEventName, f: Fn): void;
   /** Timers (ticket 79): the app keeps the clock and calls back, as the core does. */
   defer(ms: number, f: () => void): number;
@@ -441,7 +441,7 @@ export function fakePluginHost(
           push({ op: "copy", text });
         },
       },
-      notify: (text, level = "info") => push({ op: "notify", text, level }),
+      notify: (text, level = "info", opts) => push({ op: "notify", text, level, ...(opts?.actions ? { actions: opts.actions } : {}) }),
       echo: (text) => {
         userOnly("roster.echo");
         push({ op: "echo", text });

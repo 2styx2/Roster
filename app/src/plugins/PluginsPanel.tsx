@@ -5,6 +5,7 @@
 // confirms itself), like the other side panels.
 import { useEffect, useRef, useState } from "react";
 import { CloseGlyph } from "../ui/CloseGlyph";
+import { PanelButton } from "../panel/PanelFrame";
 import { Keys } from "../ui/Keys";
 import type { PackageStatus, PackageUpdate } from "../backend/types";
 import { kindOf, SIGN_WORD } from "../edit/ChangesPanel";
@@ -230,9 +231,12 @@ export function PluginsPanel({
     >
       <header>
         <h2>Plugins</h2>
-        <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       {snapshot.plugins.length === 0 ? (
         <p className="panel-empty">
@@ -485,7 +489,7 @@ export function PluginProgressItems({ progress, onCancel }: { progress: readonly
 }
 
 /** What Plugins said, and their errors (naming the Plugin, file and line). */
-export function PluginNotices({ notices, onClose }: { notices: readonly Notice[]; onClose(id: number): void }) {
+export function PluginNotices({ notices, onClose, onAction }: { notices: readonly Notice[]; onClose(id: number): void; onAction?(id: number, index: number): void }) {
   if (notices.length === 0) return null;
   return (
     <div className="plugin-notices">
@@ -502,6 +506,15 @@ export function PluginNotices({ notices, onClose }: { notices: readonly Notice[]
               <CloseGlyph />
             </button>
           </div>
+          {n.actions && onAction && (
+            <div className="notice-actions">
+              {n.actions.map((a, i) => (
+                <button key={a.label} type="button" onClick={() => onAction(n.id, i)}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -542,9 +555,12 @@ export function PackagesPanel({ snapshot, onClose }: { snapshot: Snapshot; onClo
     >
       <header>
         <h2>Packages</h2>
-        <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
-          <CloseGlyph />
-        </button>
+        <span className="panel-head-buttons">
+          <PanelButton />
+          <button type="button" className="icon-button close" aria-label="Close" onClick={onClose}>
+            <CloseGlyph />
+          </button>
+        </span>
       </header>
       {snapshot.packages.length === 0 ? (
         <p className="panel-empty">

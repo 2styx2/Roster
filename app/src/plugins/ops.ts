@@ -153,6 +153,8 @@ export interface PluginTable {
 
 /** What a view and a Host-details section hold, drawn top to bottom. */
 export interface PluginContent {
+  /** Buttons on its heading (ticket 91): what the whole view or section can do, at most 4. */
+  actions: PluginRowAction[];
   text?: string;
   facts: PluginFact[];
   table?: PluginTable;
@@ -175,6 +177,8 @@ export interface PluginViewUpdate {
   rows: TableRow[];
   /** Rows' ids, or in a graph, nodes' and clusters'. */
   remove: string[];
+  /** Every row goes first (ticket 91); `rows` then fill the table again. */
+  clear?: true;
   /** Nodes, edges and clusters, in a graph (ticket 77). */
   graph?: PluginGraphUpdate;
   /** New columns, all of them (ticket 78). */
@@ -209,7 +213,8 @@ export type PluginOp =
   | { op: "view_open"; id: string }
   | { op: "view_close"; id: string }
   | { op: "details"; id: string; host: string; section: PluginDetails | null }
-  | { op: "notify"; text: string; level: "info" | "warn" | "error" }
+  /** `actions` (ticket 91): buttons whose click runs a command line, as `roster.cmd` would. */
+  | { op: "notify"; text: string; level: "info" | "warn" | "error"; actions: { label: string; command: string }[] }
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
   | { op: "copy"; text: string }
@@ -228,7 +233,7 @@ export type PluginOp =
 export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer", "toolbar", "progress"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
-const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy"];
+const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy", "plan", "apply", "cut"];
 const LEVELS = ["info", "warn", "error"] as const;
 const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
@@ -247,6 +252,8 @@ export const TABLE_KEYS = ["j", "k", "g", "G", "s", "S", "/", "?", "q"] as const
 const MAX_HELP = 200_000;
 /** Most buttons on a section's heading, and actions and links in a float. */
 const MAX_HEAD_ACTIONS = 4;
+/** Most buttons on a notice. */
+const MAX_NOTICE_ACTIONS = 2;
 /** Most cells an action's `when` may test. */
 const MAX_WHEN = 8;
 const MAX_URL = 2000;
@@ -534,10 +541,18 @@ function table(v: unknown, what: string): PluginTable {
 /** The text, facts and table a view or a Host-details section holds. */
 function content(spec: Obj, what: string): PluginContent {
   return defined<PluginContent>({
+    actions: headActions(spec, what),
     text: optStr(spec, "text", what, MAX_VIEW_TEXT),
     facts: facts(spec, what),
     table: spec.table === undefined || spec.table === null ? undefined : table(spec.table, what),
   });
+}
+
+/** `clear = true` in a view update (ticket 91). */
+function clearOf(c: Obj, what: string): true | undefined {
+  if (c.clear === undefined || c.clear === null || c.clear === false) return undefined;
+  if (c.clear !== true) throw new Invalid(`${what}: clear must be true or false`);
+  return true;
 }
 
 /** The op, checked; or why it can't be used. */
@@ -738,6 +753,7 @@ function parse(raw: unknown): PluginOp {
             return r;
           }),
           graph: parseGraphUpdate(c, what),
+          clear: clearOf(c, what),
         }),
       };
     }
@@ -752,7 +768,14 @@ function parse(raw: unknown): PluginOp {
     }
     case "notify": {
       const level = LEVELS.find((l) => l === raw.level) ?? "info";
-      return { op: "notify", text: str(raw, "text", "roster.notify"), level };
+      const actions = list(raw, "actions", "roster.notify").map((a, i) => {
+        const at = `roster.notify action ${i + 1}`;
+        if (!isObj(a)) throw new Invalid(`${at}: must be a table`);
+        if (typeof a.run !== "string") throw new Invalid(`${at}: run must be a command line`);
+        return { label: str(a, "label", at, 100), command: str(a, "run", at) };
+      });
+      if (actions.length > MAX_NOTICE_ACTIONS) throw new Invalid(`roster.notify: actions has more than ${MAX_NOTICE_ACTIONS}`);
+      return { op: "notify", text: str(raw, "text", "roster.notify"), level, actions };
     }
     case "open":
       return { op: "open", host: str(raw, "host", "roster.sessions.open", 200) };

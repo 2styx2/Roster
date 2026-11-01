@@ -129,6 +129,9 @@ app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in
 app/src/view/status.ts  the status segment and Host-badge registries Plugins add to
 app/src/view/views.ts   views and Host-details sections as registries (ticket 76): `:view`, the `views` finder, the open
                       view (ViewHost); ViewContent.tsx draws a view or section (text, facts, a table) and the view panel
+app/src/panel/          every panel and view docked, at any width, or full window (ticket 95, Q106): layout.ts (the
+                      choice per panel in the State over init.lua's defaults, limits, which panel keys act on),
+                      PanelFrame.tsx (the frame, its draggable edge, the header's button), command.ts (`:panel`)
 app/src/ui/table.ts     a table's model: sort, updates in place, which rows are on screen; ui/DataTable.tsx draws it
 app/src/graph/          a view's graph (ticket 77): model.ts (data, updates, reach), layout.ts (where nodes go), scene.ts
                       (collapsed clusters, keys, search, highlight), memory.ts (places in the State), draw.ts (the

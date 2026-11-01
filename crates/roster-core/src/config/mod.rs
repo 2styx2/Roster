@@ -458,6 +458,30 @@ fn validate(c: &Config) -> Result<(), Invalid> {
             format!("{} is out of range (1 to 1440)", c.idle_lock_minutes),
         ));
     }
+    if let Some(w) = c.panel.width
+        && !(10..=95).contains(&w)
+    {
+        return Err(at(
+            &["panel", "width"],
+            format!("{w} is out of range (10 to 95, percent of the window)"),
+        ));
+    }
+    for (id, v) in &c.views {
+        if id.is_empty() || id.len() > 64 || !id.chars().all(|ch| ch.is_ascii_alphanumeric() || "-_".contains(ch)) {
+            return Err(at(
+                &["views", id],
+                format!("{id:?} isn't a panel or view id (letters, digits, - and _)"),
+            ));
+        }
+        if let Some(w) = v.width
+            && !(10..=95).contains(&w)
+        {
+            return Err(at(
+                &["views", id, "width"],
+                format!("{w} is out of range (10 to 95, percent of the window)"),
+            ));
+        }
+    }
     if c.pull_fresh_minutes > 1440 {
         return Err(at(
             &["pull_fresh_minutes"],

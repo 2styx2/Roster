@@ -138,8 +138,10 @@ local function over(j)
     for _, h in ipairs(r.hosts) do
       if #h.changes > 0 then n = n + 1 end
     end
+    -- The plan ran in the background: the notice's button opens it (the click is the user's call).
     roster.notify(r.already and "Plan ready: the Mesh is as roster.yml says, nothing to apply."
-      or ("Plan ready: " .. words.plural(n, "Host", "Hosts") .. " would change" .. stopped .. ". Press a in :view mesh-plan to apply it."))
+      or ("Plan ready: " .. words.plural(n, "Host", "Hosts") .. " would change" .. stopped .. ". Press a in :view mesh-plan to apply it."),
+      "info", { actions = { { label = "Show the plan", run = "view mesh-plan" } } })
   elseif action == "apply" then
     state.plan = nil
     local changed, pending = 0, #words.keys(r.pending)
@@ -399,9 +401,11 @@ local function draw_details(names)
           if x then explain(x) end
         end,
         actions = {
-          { label = "Cut", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
+          { label = "Cut", key = "x", icon = "cut", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
         },
       }
+      -- Cut on the section's heading too: it's about this Host, not one of its rows.
+      section.actions = { { label = "Cut " .. h .. " from the Mesh", icon = "cut", run = function(e) cut(e.host) end } }
     end
     roster.details.set("mesh", h, section)
     state.detailed[h] = true
@@ -504,6 +508,10 @@ local function views()
   roster.views.set("mesh", {
     title = "Mesh",
     place = "full",
+    actions = {
+      { label = "Plan", icon = "plan", run = plan },
+      { label = "Apply", icon = "apply", run = apply },
+    },
     text = table.concat(text, "\n\n"),
     facts = facts,
     table = {
@@ -518,10 +526,10 @@ local function views()
       empty = st and "No Hosts in the Mesh." or (state.problem or "Loading…"),
       open = function(e) info(e) end,
       actions = {
-        { label = "Plan", key = "p", run = plan },
-        { label = "Apply", key = "a", run = apply },
+        { label = "Plan", key = "p", icon = "plan", run = plan },
+        { label = "Apply", key = "a", icon = "apply", run = apply },
         { label = "Links", key = "l", run = function() roster.views.open("mesh-links") end },
-        { label = "Cut", key = "x", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
+        { label = "Cut", key = "x", icon = "cut", when = { member = "yes" }, run = function(e) cut(by_host(e)) end },
       },
     },
   })
@@ -596,6 +604,10 @@ local function views()
   roster.views.set("mesh-plan", {
     title = "Mesh plan",
     place = "full",
+    actions = {
+      { label = "Apply", icon = "apply", run = apply },
+      { label = "Plan again", icon = "plan", run = plan },
+    },
     text = table.concat(ptext, "\n\n"),
     facts = pfacts,
     table = {
@@ -609,8 +621,8 @@ local function views()
       empty = "Nothing planned yet.",
       open = function(e) info(e) end,
       actions = {
-        { label = "Apply", key = "a", run = apply },
-        { label = "Plan again", key = "p", run = plan },
+        { label = "Apply", key = "a", icon = "apply", run = apply },
+        { label = "Plan again", key = "p", icon = "plan", run = plan },
         { label = "Links", key = "l", run = function() roster.views.open("mesh-links") end },
       },
     },

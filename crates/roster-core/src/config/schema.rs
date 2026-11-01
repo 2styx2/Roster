@@ -28,6 +28,10 @@ pub struct Config {
     pub fonts: Fonts,
     /// The rest of the UI's look.
     pub ui: Ui,
+    /// Every panel's default width (ticket 95, decision Q106): `panel.width`.
+    pub panel: Panel,
+    /// Per panel or view id (`help`, `details`, a Plugin view's id): its default place and width.
+    pub views: BTreeMap<String, ViewLayout>,
     pub terminal: Terminal,
     /// The chord that takes the keyboard back from a terminal.
     pub leader: String,
@@ -112,6 +116,8 @@ impl Default for Config {
             colors: ThemeColors::default(),
             fonts: Fonts::default(),
             ui: Ui::default(),
+            panel: Panel::default(),
+            views: BTreeMap::new(),
             terminal: Terminal::default(),
             leader: "Ctrl+Space".into(),
             vim: true,
@@ -142,6 +148,32 @@ pub struct Ui {
     /// Show the keycap hints (status bar, empty states, panels, Picker footers, menus). Unset:
     /// `:hints` decides and the State keeps its choice; set, it wins.
     pub hints: Option<bool>,
+}
+
+/// `panel`: what every panel and view starts with (ticket 95). The user's own choice, kept in the
+/// State, wins over these: they're defaults (decision Q106).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct Panel {
+    /// A docked panel's width in percent of the window (10 to 95). Unset: each panel's own.
+    pub width: Option<u32>,
+}
+
+/// `views.ID`: one panel's or view's default place and width.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all(serialize = "camelCase"))]
+pub struct ViewLayout {
+    /// Docked beside the terminal (`"panel"`) or over the whole window (`"full"`).
+    pub place: Option<PanelPlace>,
+    /// Docked width in percent of the window (10 to 95).
+    pub width: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PanelPlace {
+    Panel,
+    Full,
 }
 
 /// What init.lua says about the vault: this Box's own settings, which win over roster.yml's

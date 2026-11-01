@@ -68,7 +68,8 @@ describe("the Topology view", () => {
     for (const name of scenario.app?.openAtStart ?? []) expect(row(name)).toHaveTextContent("live");
     // A meshed Host reaches the rest of its group, and what they reach.
     expect(row(meshed)).toHaveTextContent("subnet-1");
-    expect(within(grid).getAllByText(/subnet-1 · password peers|subnet-1 · not in the Mesh/).length).toBeGreaterThan(0);
+    // A long cluster name is cut in the middle (ticket 91): its cell holds it whole, in two parts.
+    expect(within(grid).getAllByRole("gridcell").some((c) => /subnet-1 · password peers|subnet-1 · not in the Mesh/.test(c.textContent ?? ""))).toBe(true);
   }, TEST);
 
   it(":topology GROUP shows only that group, and :topology alone everything again", async () => {

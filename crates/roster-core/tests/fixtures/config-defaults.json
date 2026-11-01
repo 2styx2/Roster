@@ -83,6 +83,9 @@
       }
     },
     "packages": [],
+    "panel": {
+      "width": null
+    },
     "pullFreshMinutes": 5,
     "rosterCommand": null,
     "sessions": "sidebar",
@@ -118,6 +121,7 @@
       },
       "saveTo": null
     },
+    "views": {},
     "vim": true
   },
   "terminalColors": [

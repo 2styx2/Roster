@@ -292,6 +292,8 @@ function load(roster: FakeRoster) {
         p.already
           ? "Plan ready: the Mesh is as roster.yml says, nothing to apply."
           : `Plan ready: ${words.plural(n, "Host", "Hosts")} would change${stopped}. Press a in :view mesh-plan to apply it.`,
+        "info",
+        { actions: [{ label: "Show the plan", run: "view mesh-plan" }] },
       );
     } else if (action === "apply") {
       state.plan = null;
@@ -532,8 +534,9 @@ function load(roster: FakeRoster) {
             const x = i === undefined ? undefined : (mine.get(e.host as string) ?? [])[i - 1];
             if (x) explain(x);
           },
-          actions: [{ label: "Cut", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) }],
+          actions: [{ label: "Cut", key: "x", icon: "cut", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) }],
         };
+        section.actions = [{ label: `Cut ${h} from the Mesh`, icon: "cut", run: (e: Obj) => cut(e.host as string) }];
       }
       roster.details.set("mesh", h, section);
       state.detailed.add(h);
@@ -626,6 +629,10 @@ function load(roster: FakeRoster) {
     roster.views.set("mesh", {
       title: "Mesh",
       place: "full",
+      actions: [
+        { label: "Plan", icon: "plan", run: plan },
+        { label: "Apply", icon: "apply", run: apply },
+      ],
       text: text.join("\n\n"),
       facts,
       table: {
@@ -640,10 +647,10 @@ function load(roster: FakeRoster) {
         empty: st ? "No Hosts in the Mesh." : (state.problem ?? "Loading…"),
         open: info,
         actions: [
-          { label: "Plan", key: "p", run: plan },
-          { label: "Apply", key: "a", run: apply },
+          { label: "Plan", key: "p", icon: "plan", run: plan },
+          { label: "Apply", key: "a", icon: "apply", run: apply },
           { label: "Links", key: "l", run: () => roster.views.open("mesh-links") },
-          { label: "Cut", key: "x", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) },
+          { label: "Cut", key: "x", icon: "cut", when: { member: "yes" }, run: (e: Obj) => cut(byHost(e)) },
         ],
       },
     });
@@ -727,6 +734,10 @@ function load(roster: FakeRoster) {
     roster.views.set("mesh-plan", {
       title: "Mesh plan",
       place: "full",
+      actions: [
+        { label: "Apply", icon: "apply", run: apply },
+        { label: "Plan again", icon: "plan", run: plan },
+      ],
       text: ptext.join("\n\n"),
       facts: pfacts,
       table: {
@@ -740,8 +751,8 @@ function load(roster: FakeRoster) {
         empty: "Nothing planned yet.",
         open: info,
         actions: [
-          { label: "Apply", key: "a", run: apply },
-          { label: "Plan again", key: "p", run: plan },
+          { label: "Apply", key: "a", icon: "apply", run: apply },
+          { label: "Plan again", key: "p", icon: "plan", run: plan },
           { label: "Links", key: "l", run: () => roster.views.open("mesh-links") },
         ],
       },

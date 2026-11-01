@@ -66,11 +66,18 @@ describe("scanning from the app", () => {
     await user.keyboard(`${LEADER}:discover 10.0.0.0/24{Enter}`);
     await user.keyboard("{Enter}");
     await notice(/Scan done/);
+    // After the question, focus is in the view's table, not on the view (ticket 91).
+    const grid = screen.getByRole("grid", { name: "Discover" });
+    await waitFor(() => expect(grid).toHaveFocus());
     await user.click(within(await row("10.0.0.7")).getAllByRole("gridcell")[1]!);
     await user.keyboard("i");
     const float = await screen.findByRole("complementary", { name: "appliance (from discover)" });
     expect(float).toHaveTextContent("Appliance login");
     expect(within(float).getByRole("link", { name: /Its web page/ })).toBeInTheDocument();
+    // Esc closes the float, and focus goes back to the table it was opened from.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "appliance (from discover)" })).toBeNull();
+    expect(screen.getByRole("grid", { name: "Discover" })).toHaveFocus();
   });
 
   it(":help discover is the Plugin's page, and :check has its section", { timeout: 20000 }, async () => {

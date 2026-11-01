@@ -195,3 +195,37 @@ fn a_details_section_keeps_its_actions_until_it_is_set_again_for_that_host() {
     );
     assert_eq!(r.result, "esx-02");
 }
+
+/// Ticket 91: a view's heading buttons are functions like a table's actions, and a notice's
+/// buttons are command lines only, so a notice holds no function.
+#[test]
+fn heading_actions_are_functions_and_a_notices_actions_are_command_lines() {
+    let host = host();
+    let init = r#"
+    local roster = require("roster")
+    roster.views.set("plan", {
+      title = "Plan",
+      actions = { { label = "Apply", icon = "apply", run = function(e) return "apply " .. e.view end } },
+    })
+    roster.notify("Plan ready", "info", { actions = { { label = "Show the plan", run = "view plan" } } })
+    roster.notify("plain")
+    local ok, err = pcall(roster.notify, "x", "info", { actions = { { label = "Go", run = function() end } } })
+    roster.status.set("e", { text = tostring(err) })
+    "#;
+    let (_, reply) = host.load(&Source::Dir(plugin_dir("head", init)), &[]).unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let view = &reply.ops[0];
+    let apply = handler(&view["spec"]["actions"][0]["run"]);
+    assert_eq!(host.call("scan", apply, json!({ "view": "plan" })).result, "apply plan");
+    assert_eq!(
+        reply.ops[1],
+        json!({ "op": "notify", "text": "Plan ready", "level": "info",
+                "actions": [{ "label": "Show the plan", "run": "view plan" }] })
+    );
+    assert_eq!(
+        reply.ops[2],
+        json!({ "op": "notify", "text": "plain", "level": "info" })
+    );
+    let text = reply.ops[3]["spec"]["text"].as_str().unwrap();
+    assert!(text.contains("a command line, not a function"), "{text}");
+}
