@@ -4,16 +4,18 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
-from conftest import posix_shell
+from conftest import POSIX_SH, WINDOWS, stand_in_hosts
 
 from roster import mesh
 from roster.cli import main
 from roster.config import load_config
 
-# The stand-in Hosts run their side with sh (tests/fakes/ssh, FAKE_HOSTS), and ESXi's datastore is a symlink.
-pytestmark = posix_shell
+# The stand-in Hosts run their side with sh (tests/fakes/ssh, FAKE_HOSTS; Git for Windows' sh on native Windows, ticket
+# 63), and ESXi's datastore is a symlink.
+pytestmark = stand_in_hosts
 
 HOSTS = {"orion-2": "10.0.0.2", "orion-3": "10.0.0.3", "esx-02": "10.0.0.12", "sw-1": "10.0.0.20",
          "nas-1": "10.0.0.30", "db-9": "10.0.9.9", "new-1": "10.0.0.40", "jump-1": "10.0.5.1"}
@@ -58,6 +60,14 @@ class Net:
     def host(self, name):
         return self.root / name
 
+    @staticmethod
+    def seen(path):
+        """PATH as a stand-in Host's sh names it: as is, or on Windows as Git's sh does (C:\\x\\y is /c/x/y)."""
+        if not WINDOWS:
+            return str(path)
+        p = Path(path).as_posix()
+        return f"/{p[0].lower()}{p[2:]}" if p[1:2] == ":" else p
+
     def ak(self, name):
         d = self.host(name)
         p = d / "etc/ssh/keys-root/authorized_keys" if (d / "esxi").exists() else d / "home/.ssh/authorized_keys"
@@ -71,7 +81,11 @@ class Net:
         p = self.host(name) / rel
         if not p.exists():
             return None
-        return p.read_text().replace(str(self.host(name)), "") if (self.host(name) / "esxi").exists() else p.read_text()
+        text = p.read_text()
+        if (self.host(name) / "esxi").exists():
+            for form in {str(self.host(name)), self.host(name).as_posix(), self.seen(self.host(name))}:
+                text = text.replace(form, "")
+        return text
 
     def down(self, name, is_down=True):
         f = self.host(name) / "down"
@@ -111,13 +125,18 @@ def net(fakes, isolated, write_config, monkeypatch, host_key):
     (esx / "etc/ssh/keys-root").mkdir(parents=True)
     (esx / "etc/ssh/keys-root/authorized_keys").write_text("ssh-ed25519 AAAAbox roster-managed:box\n")
     (esx / "vmfs/volumes/5f0e-uuid").mkdir(parents=True)
-    (esx / "vmfs/volumes/datastore1").symlink_to("5f0e-uuid")
+    if WINDOWS:     # a junction: Git's sh reads it as a symlink, and it needs no privilege (a symlink does on Windows)
+        import _winapi
+        _winapi.CreateJunction(str(esx / "vmfs/volumes/5f0e-uuid"), str(esx / "vmfs/volumes/datastore1"))
+    else:
+        (esx / "vmfs/volumes/datastore1").symlink_to("5f0e-uuid")
     (root / "orion-2/home/.claude").mkdir()
     (root / "orion-2/home/.claude/CLAUDE.md").write_text("# my notes\n")
     kh = isolated["home"] / ".ssh"
     kh.mkdir()
     (kh / "roster_known_hosts").write_text("".join(f"{ip} ssh-ed25519 {host_key}\n" for ip in HOSTS.values()))
     monkeypatch.setenv("FAKE_HOSTS", str(root))
+    monkeypatch.setenv("FAKE_SH", POSIX_SH)
     return Net(root, write_config(CONFIG))
 
 
@@ -260,7 +279,7 @@ def test_apply_installs_tagged_keys_and_writes_each_sources_files(net):
     assert "StrictHostKeyChecking yes" in config
     assert (o2 / "known_hosts").read_text().count("ssh-ed25519") == 4
     main_config = net.file("orion-2", "home/.ssh/config")
-    assert main_config.splitlines()[:2] == [mesh.MARK, f"Include {o2}/config"]
+    assert main_config.splitlines()[:2] == [mesh.MARK, f"Include {net.seen(o2)}/config"]
     assert main_config.endswith("Host *\n    ServerAliveInterval 60\n")
     md = net.file("orion-2", "home/ROSTER.md")
     assert "| sw-1 | admin@10.0.0.20:22 | password |" in md and "ask the user to log in" in md
@@ -451,7 +470,7 @@ DEFAULT = {"orion-2": "home/.ssh/roster-mesh", "esx-02": "vmfs/volumes/5f0e-uuid
 
 
 def as_the_host_sees_it(net, host, rel):
-    return f"/{rel}" if (net.host(host) / "esxi").exists() else str(net.host(host) / rel)
+    return f"/{rel}" if (net.host(host) / "esxi").exists() else net.seen(net.host(host) / rel)
 
 
 def leaving_the_mesh(net, host, mesh_dir=None):
@@ -752,7 +771,7 @@ def test_an_apply_finishes_with_selinux_tools_that_work_or_fail(net, tmp_path, m
     assert r["pending"] == {}
     assert net.mesh_lines("nas-1") == [key_line_of(net, "orion-2", "10.0.0.2")]
     calls = log.read_text().splitlines()
-    assert f"restorecon -F {net.host('nas-1')}/home/.ssh/authorized_keys" in calls
+    assert f"restorecon -F {net.seen(net.host('nas-1'))}/home/.ssh/authorized_keys" in calls
     assert any(c.startswith("chcon --reference=") and "nas-1/home/.ssh/authorized_keys" in c for c in calls)
 
 
