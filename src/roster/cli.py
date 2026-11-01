@@ -213,6 +213,8 @@ def cmd_mesh(cfg, args):
             say(f"warning: mesh: false not written: {change['error']} - {change['fix']}")
         for n, why in r["pending"].items():
             say(f"  not confirmed  {n}: {why}")
+        for w in r["warnings"]:
+            say(f"warning: {w}")
         warn_cut({args.target: sorted(r["pending"])} if r["pending"] else {})
         return 1 if r["pending"] or change.get("error") else 0
     if args.target:

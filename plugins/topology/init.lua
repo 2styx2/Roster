@@ -68,6 +68,9 @@ local function restructure()
   s = build.structure(hosts, groups, mesh)
 end
 
+-- A reach section's button (api 4): the map, at its Host.
+local function show_on_map(e) roster.views.open(VIEW, { select = e.host }) end
+
 -- The reach sections in Hosts' details, a few hundred a call so a big Inventory stays inside the
 -- host's limit of UI changes per call.
 local function flush()
@@ -75,7 +78,11 @@ local function flush()
   local n = 0
   while #queued > 0 and n < 400 do
     local name = table.remove(queued, 1)
-    roster.details.set("topology", name, s.hosts[name] and build.details(s, name) or nil)
+    local d = s.hosts[name] and build.details(s, name) or nil
+    if d and roster.api_version >= 4 then
+      d.actions = { { label = "Show " .. name .. " on the map", icon = "map", run = show_on_map } }
+    end
+    roster.details.set("topology", name, d)
     n = n + 1
   end
   if #queued > 0 then

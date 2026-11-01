@@ -168,6 +168,7 @@ impl FakeMesh {
                 let confirmed: Vec<&String> = peers.iter().copied().filter(|h| h.as_str() != "nas-1").collect();
                 json!({ "host": host, "confirmed": confirmed,
                         "pending": { "nas-1": "no answer: ssh: connect to host nas-1 port 22: Connection timed out" },
+                        "warnings": [format!("{host}: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand")],
                         "change": { "written": true, "backup": "/home/you/.config/roster/backup/roster.yml" } })
             }
             action => {
@@ -499,6 +500,10 @@ fn of<'a>(ops: &'a [Value], op: &str) -> Vec<&'a Value> {
     ops.iter().filter(|o| o["op"] == op).collect()
 }
 
+fn ops_level(ops: &[Value], i: usize) -> &str {
+    of(ops, "notify")[i]["level"].as_str().unwrap()
+}
+
 fn texts(ops: &[Value]) -> Vec<String> {
     of(ops, "notify")
         .iter()
@@ -589,7 +594,7 @@ fn it_installs_from_roster_s_repo_with_dir_and_asks_for_exactly_its_permissions(
     let (dir, _) = packages.loadable(&specs, NAME).unwrap();
     let m = read_manifest(&dir).unwrap();
     assert_eq!(m.name, NAME);
-    assert_eq!(m.api, 3);
+    assert_eq!(m.api, 4);
     let mut asked: Vec<String> = m.permissions.iter().map(|p| p.to_string()).collect();
     asked.sort();
     let mut want: Vec<String> = ALL.iter().map(|s| s.to_string()).collect();
@@ -797,6 +802,14 @@ fn cut_asks_for_the_hosts_name_and_warns_about_each_host_that_was_down() {
     let said = texts(&ops);
     assert_eq!(said[0], "orion-2 is cut from the Mesh on 2 Hosts.");
     assert!(said[1].starts_with("CUT PENDING on nas-1: no answer"), "{said:?}");
+    // What roster left on the cut Host's own side (serve API 24).
+    assert_eq!(
+        (said[2].as_str(), ops_level(&ops, 2)),
+        (
+            "orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand",
+            "warn"
+        )
+    );
     let badge = run.last(|o| o["op"] == "badge" && o["host"] == "nas-1");
     assert_eq!(badge["text"], "cut pending");
     assert_eq!(run.last(|o| o["op"] == "status")["spec"]["text"], "Cut pending");

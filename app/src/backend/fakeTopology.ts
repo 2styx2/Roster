@@ -478,7 +478,10 @@ export function topologyPlugin(): FakePlugin {
         let n = 0;
         while (queued.length > 0 && n < 400) {
           const name = queued.shift() as string;
-          roster.details.set("topology", name, s.hosts.has(name) ? detailsOf(s, name) : null);
+          const d = s.hosts.has(name) ? detailsOf(s, name) : null;
+          // A reach section's button (api 4): the map, at its Host.
+          if (d) d.actions = [{ label: `Show ${name} on the map`, icon: "map", run: (e: Obj) => roster.views.open(VIEW, { select: String(e.host) }) }];
+          roster.details.set("topology", name, d);
           n++;
         }
         if (queued.length > 0) {

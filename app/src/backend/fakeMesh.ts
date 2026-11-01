@@ -163,7 +163,7 @@ export function meshPlugin(): FakePlugin {
       version: "1.0.0",
       description: "The Mesh's controls: who reaches whom, plan and apply it, and Cut a Host out",
       author: "roster",
-      api: 3,
+      api: 4,
       permissions: MESH_PERMISSIONS,
     },
     load,
@@ -320,6 +320,7 @@ function load(roster: FakeRoster) {
         }
         roster.notify(`CUT PENDING on ${h}: ${pendingOf[h] ?? ""}. Until it's done there, ${h} may still let ${host} in. Cut again once it answers.`, "warn");
       }
+      for (const w of (r.warnings ?? []) as string[]) roster.notify(w, "warn", { quiet: false });
       const c = (r.change ?? {}) as { error?: string; fix?: string };
       if (c.error) roster.notify(`mesh: false for ${host} wasn't written: ${c.error} (${c.fix ?? ""})`, "warn");
     }
@@ -880,6 +881,7 @@ export function meshServe(world: MeshWorld): (method: string, params: Obj) => un
         host: j.host,
         confirmed: peers.filter((h) => h !== "nas-1"),
         pending: { "nas-1": "no answer: ssh: connect to host nas-1 port 22: Connection timed out" },
+        warnings: [`${j.host ?? ""}: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand`],
         change: { written: true, backup: "/home/you/.config/roster/backup/roster.yml" },
       };
     }

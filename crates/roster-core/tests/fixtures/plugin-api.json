@@ -726,6 +726,11 @@
           "name": "id",
           "optional": false,
           "type": "string"
+        },
+        {
+          "name": "opts",
+          "optional": true,
+          "type": "ViewOpenOptions"
         }
       ],
       "path": "roster.views.open",
@@ -1256,6 +1261,7 @@
     "roster-Tutorial": "plugin-api#tutorial",
     "roster-UpdateResult": "plugin-api#updateresult",
     "roster-View": "plugin-api#view",
+    "roster-ViewOpenOptions": "plugin-api#viewopenoptions",
     "roster-ViewPlace": "plugin-api#viewplace",
     "roster-ViewUpdate": "plugin-api#viewupdate",
     "roster.api_version": "plugin-api#rosterapi_version",
@@ -1345,7 +1351,7 @@
     "roster.tutor.set()": "plugin-api#rostertutorsetid-tutorial",
     "roster.views": "plugin-api#rosterviews",
     "roster.views.close()": "plugin-api#rosterviewscloseid",
-    "roster.views.open()": "plugin-api#rosterviewsopenid",
+    "roster.views.open()": "plugin-api#rosterviewsopenid-opts",
     "roster.views.remove()": "plugin-api#rosterviewsremoveid",
     "roster.views.set()": "plugin-api#rosterviewssetid-view",
     "roster.views.update()": "plugin-api#rosterviewsupdateid-changes"
@@ -2963,6 +2969,11 @@
           "type": "table<string, string>"
         },
         {
+          "name": "warnings",
+          "required": false,
+          "type": "string[]"
+        },
+        {
           "name": "change",
           "required": true,
           "type": "MeshCutChange"
@@ -3637,7 +3648,7 @@
       "alias": "\"folder\"|\"group\""
     },
     "RowIcon": {
-      "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\""
+      "alias": "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\"|\"map\""
     },
     "RowTone": {
       "alias": "\"muted\"|\"warn\"|\"error\""
@@ -4203,6 +4214,16 @@
           "name": "graph",
           "required": false,
           "type": "Graph"
+        }
+      ],
+      "open": false
+    },
+    "ViewOpenOptions": {
+      "fields": [
+        {
+          "name": "select",
+          "required": false,
+          "type": "string"
         }
       ],
       "open": false

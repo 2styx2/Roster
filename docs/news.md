@@ -21,6 +21,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - **What a Plugin can read without waiting for an event** (Plugin API 4): `roster.sessions.list()` gives the Sessions open now, the ones that opened before the Plugin loaded too (with `inventory.read` or `terminal.read`); `roster.inventory.request(done)` reads every Host and group without waiting for roster serve; and `roster.inventory.hosts()` and `.groups()` in one call are one read of the Inventory, not two. A Plugin with `serve:host.check_job` can read how any check of a Host came out (the new [`CheckJob`](plugin-api.md#checkjob) type). topology shows the Sessions open before it loaded as live, and a Host whose check failed as down ("check failed at tcp"); it asks for `serve:host.check_job` for that, so updating it asks you once. See [`roster.sessions.list()`](plugin-api.md#rostersessionslist) and [Asking roster serve](plugins.md#asking-roster-serve).
 - **Shell integration for Plugins:** if the shell on a Host prints OSC 133 marks (a few lines in its rc file; `:help shell-integration` has them for bash, zsh, fish and PowerShell), a Plugin with `terminal.read` hears `command_done` when each command ends, with its command line, its output and its exit code, and each run of `terminal_output` says what the marks call it (its new `kind`: `prompt`, `input` or `output`; a hint, since the Host prints the marks). roster only reads the marks: it never puts hooks on a Host or types into a Session. recent-alerts never alerts on a line the marks call a prompt or what you typed, and keeps its guess at your own echoed command for the rest. Plugin API 4 (`roster.api_version` 4). See [Shell integration](plugins.md#shell-integration).
 - **`:check HOST` shows each step as it runs:** the step under way is lit, with how long it has taken once it takes a while, and a stopped or abandoned check shows the step it stopped at. Needs roster serve API 21. See [Errors](app/errors.md).
+- `roster.views.open(id, { select = ID })` (Plugin API 4) opens a view at a node of its graph or a row of its table; Topology's Reach section in a Host's details has a **Show esx-01 on the map** button that does. Row and heading buttons take a `map` icon. See [Views](plugins.md#views-tables-and-host-details-sections).
 - Search on the docs website: the box at the top of every page (`/` goes to it) finds topics as `:help` does and text as `:helpgrep` does, opens one with the keyboard, and lists every match on `search.html?q=WORDS`. It runs in the page; nothing is sent anywhere. See [On the web and on paper](app/help.md#on-the-web-and-on-paper).
 - **Every panel and view docked, at your width, or full window:** `:help`, Host details, the forms, `:plugins` and every Plugin view (Topology, Discover, the Mesh controls). `␣ z` (or the button by a panel's close) makes the panel you're in full window and back, `␣ <` and `␣ >` narrow and widen it, and its edge drags; the terminal fits its new size once, when the drag ends. Each panel remembers what you chose; `init.lua` sets the defaults with `panel.width` and `views = { topology = { place = "panel", width = 60 } }`, and `:panel reset` forgets your choice. A Plugin's `place` is now only where its view opens first. See [Panels](app/keyboard.md#panels-docked-or-full-window).
 - **Several docked panels share one limit:** however many are docked, the terminal keeps 400 px (about 50 columns) beside them; they narrow in proportion, and when even their minimums don't fit they float over the terminal, side by side, as in a narrow window, where several panels on one side no longer lie on top of each other. See [Panels](app/keyboard.md#panels-docked-or-full-window).
@@ -61,6 +62,10 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
+
+**serve API (API 24)**
+
+- `mesh.cut`'s result has `warnings`: an earlier `mesh_dir:` the cut Host still holds a Mesh key in, which roster never removes. The Mesh controls show each as a warning after the cut. See [Cut](mesh.md#cut).
 
 **serve API (API 23)**
 
@@ -110,6 +115,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- `roster mesh cut HOST` warns about an earlier `mesh_dir:` it leaves on HOST, where it said nothing. See [Cut](mesh.md#cut).
 - `ROSTER.md` tells Claude to run `roster check <name> --json` when a Host doesn't respond, to see which step fails and its fix, rather than `roster check --only <name>`.
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
 - Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).
@@ -137,6 +143,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- A Mesh source moved back to roster's own directory (its `mesh_dir:` removed) that still holds the key from before the `mesh_dir:` gets a warning that roster uses that old key again, with `roster mesh --rotate HOST` to replace it; it was used again without a word. See [`mesh_dir:`](mesh.md#esxi).
 - On native Windows, closing `roster serve` during a Mesh run ends the run's ssh with everything it started, as a step that times out does, so `mesh.json` records which Hosts were left to do (an ssh that is a batch file kept running before).
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.

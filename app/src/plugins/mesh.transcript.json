@@ -5504,6 +5504,12 @@
             "level": "warn",
             "op": "notify",
             "text": "CUT PENDING on nas-1: no answer: ssh: connect to host nas-1 port 22: Connection timed out. Until it's done there, nas-1 may still let orion-2 in. Cut again once it answers."
+          },
+          {
+            "level": "warn",
+            "op": "notify",
+            "quiet": false,
+            "text": "orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"
           }
         ],
         [
@@ -6077,7 +6083,10 @@
               "host": "orion-2",
               "pending": {
                 "nas-1": "no answer: ssh: connect to host nas-1 port 22: Connection timed out"
-              }
+              },
+              "warnings": [
+                "orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"
+              ]
             },
             "state": "done",
             "stopped": false,
