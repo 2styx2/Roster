@@ -50,6 +50,12 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
+**serve API (API 21)**
+
+- `$/cancel {id}` stops a request sent earlier: one still queued or waiting for a lock never runs (code 5, nothing done), a running `host.check` or waiting Mesh run stops its job, and anything else that runs finishes, so nothing is half-written; `vault.lock` is never cancelled. The app's core sends it whenever it gives up waiting. See [Cancelling](serve-api.md#ordering-locks-and-jobs).
+- `host.check` runs as a job (kind `check`, one per Host): `background: true` answers at once, `job.progress` says which step it's on, and `host.check_job` has the result (code 49: no such check); the waiting form answers as before. `vault.lock` stops a running check instead of waiting up to 45 s for it. The app checks a Host this way, so a check no longer holds one of serve's workers. Plugins hear check jobs with `serve:host.check_job`. See [Diagnostics](serve-api.md#diagnostics-hostcheck).
+- An unlock has a worker of its own, so it never waits behind 8 busy requests, and `vault.status` waits for an unlock sent before it, so the app's check after an unlock it stopped waiting for sees what the unlock did. Vault items are made one at a time per vault (bw's and pass's CLIs aren't known to take two writes at once).
+
 **serve API (API 17)**
 
 - Mesh jobs: `background: true` on `mesh.plan`, `mesh.apply` and `mesh.cut` answers at once and runs the Mesh in the background; `mesh.job` says how far it has got and how it ended, and `mesh.stop` stops it before its next Host. `brief: true` on `mesh.status` and `mesh.job` keeps the answer small when a meshed group of hundreds of Hosts makes every pair a Link, and marks a `no-via` Link without connecting. Error code 111: a Mesh run while a job runs. See [The Mesh](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus).
