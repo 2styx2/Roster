@@ -15,7 +15,14 @@
 //!   The connection then goes to exactly the addresses that were checked, so a name can't be
 //!   re-pointed between the check and the connection (DNS rebinding). Such an address is reached
 //!   only when the manifest lists the address itself (`network:http://10.0.0.5:8080`).
-//! - **Nothing of roster's goes along**: no cookie jar, no proxy (so no proxy credentials), no
+//! - **Private sites** (`network:private:nas.lan`, decision Q116) reach only private-network
+//!   addresses, and a name one lists is judged only by the private sites.
+//! - **A pin** (`#sha256:FINGERPRINT`, Q116) trusts exactly one certificate for that one https
+//!   site, on a client of its own that no redirect leads to or from.
+//! - **The user's proxy** (`plugin_proxy`, Q116) carries requests to public names only, with no
+//!   credentials; the proxy then resolves the name.
+//! - **Counts**, per Plugin and site, for `:plugins`: never a path, query, header or body.
+//! - **Nothing of roster's goes along**: no cookie jar, no proxy but the user's, no
 //!   `Referer`, no retries, no credentials; only the headers the Plugin sets, minus the ones
 //!   that steer the connection.
 //! - **Caps:** a request body of 256 KB, a response body of 1 MB, 10 s to connect, 30 s in all,
@@ -940,6 +947,12 @@ fn pinned_tls(site: &Site) -> Result<rustls::ClientConfig, String> {
         .with_no_client_auth())
 }
 
+/// A certificate the pin refuses: "the certificate isn't the one pinned: WHY" (`describe` drops
+/// rustls's "unexpected error: " before a general error).
+fn refused(why: String) -> rustls::Error {
+    rustls::Error::General(format!("the certificate isn't the one pinned: {why}"))
+}
+
 #[derive(Debug)]
 struct Pinned {
     name: rustls::pki_types::ServerName<'static>,
@@ -957,7 +970,7 @@ impl rustls::client::danger::ServerCertVerifier for Pinned {
         _now: rustls::pki_types::UnixTime,
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         if *server_name != self.name {
-            return Err(rustls::Error::General(format!(
+            return Err(refused(format!(
                 "the pin is for {}, not {}",
                 self.name.to_str(),
                 server_name.to_str()
@@ -966,8 +979,8 @@ impl rustls::client::danger::ServerCertVerifier for Pinned {
         let got = Pin::of(end_entity.as_ref());
         // Both are public; the comparison needn't be constant-time.
         if got != self.pin {
-            return Err(rustls::Error::General(format!(
-                "its certificate's SHA-256 is {got}, not the {} the manifest pins",
+            return Err(refused(format!(
+                "its SHA-256 is {got}, not the {} the manifest pins",
                 self.pin
             )));
         }
@@ -1058,7 +1071,8 @@ fn describe(e: &reqwest::Error, timeout: Duration) -> String {
     let mut causes = Vec::new();
     let mut source = std::error::Error::source(e);
     while let Some(s) = source {
-        let text = s.to_string();
+        let shown = s.to_string();
+        let text = shown.strip_prefix("unexpected error: ").unwrap_or(&shown).to_string();
         if !causes.iter().any(|c: &String| c.contains(&text)) && text != "client error (Connect)" {
             causes.push(text);
         }

@@ -39,6 +39,7 @@ const snap = (plugins: PluginStatus[]): Snapshot => ({
   float: null,
   confirm: null,
   progress: [],
+  declined: [],
   settled: true,
 });
 
