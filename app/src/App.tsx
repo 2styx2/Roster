@@ -97,7 +97,7 @@ import { Tabs } from "./session/tabs";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
-import { PluginManager } from "./plugins/manager";
+import { PluginManager, type DemoPlugins } from "./plugins/manager";
 import { ViewPanel } from "./view/ViewContent";
 import { NO_DEFAULTS, PanelLayout, type PanelPlace } from "./panel/layout";
 import { PanelFrame } from "./panel/PanelFrame";
@@ -212,8 +212,17 @@ export interface AppProps {
  * how to start a tutorial (the real workspace) or the one running on the demo Inventory. */
 interface TutorLink {
   progress: TutorProgress;
-  start?(tutorial: TutorialDef): void;
-  demo?: { tutorial: TutorialDef; leave(): void; switchTo(tutorial: TutorialDef): void };
+  /** Starts `tutorial` on the demo, with `plugins` (the ones running here) loaded there too. */
+  start?(tutorial: TutorialDef, plugins?: DemoPlugins): void;
+  demo?: {
+    tutorial: TutorialDef;
+    leave(): void;
+    switchTo(tutorial: TutorialDef): void;
+    /** Registers what stops this workspace's Plugins when the demo ends (ticket 66). */
+    onStop(stop: () => void): () => void;
+    /** Why your Plugins aren't in the demo, said once; null when they are. */
+    problem: string | null;
+  };
 }
 
 interface WorkspaceProps extends AppProps {
@@ -233,28 +242,51 @@ export function App(props: AppProps) {
   const [platform] = useState(() => props.platform ?? memoryPlatform());
   const [store] = useState(() => new StateStore(platform));
   const [progress] = useState(() => new TutorProgress(store));
-  // The tutorial asked for, and the demo it runs on once its fake Backend has loaded.
+  // The tutorial asked for, the Plugins of yours it brings along (ticket 66), and the demo it
+  // runs on once its fake Backend has loaded.
   const [tutorial, setTutorial] = useState<TutorialDef | null>(null);
-  const [loaded, setLoaded] = useState<{ backend: Backend; platform: Platform } | null>(null);
+  const [plugins, setPlugins] = useState<DemoPlugins | null>(null);
+  const [loaded, setLoaded] = useState<{ backend: Backend; platform: Platform; problem: string | null; close(): Promise<void> } | null>(null);
+  // What stops the demo's Plugin manager (its workspace registers it), run before the demo goes.
+  const [stoppers] = useState(() => new Set<() => void>());
+  const realBackend = props.backend;
   useEffect(() => {
     if (!tutorial || loaded) return;
     let live = true;
-    void demoBackend().then((backend) => {
-      if (live) setLoaded({ backend, platform: demoPlatform(platform, (k) => store.get(k)) });
+    void demoBackend(realBackend, plugins ?? undefined).then((demo) => {
+      if (live) setLoaded({ backend: demo.backend, platform: demoPlatform(platform, (k) => store.get(k), demo.plugins ?? undefined), problem: demo.problem, close: demo.close });
+      else void demo.close();
     });
     return () => {
       live = false;
     };
-  }, [tutorial, loaded, platform, store]);
+  }, [tutorial, loaded, platform, store, realBackend, plugins]);
   // Another tutorial while one runs: the same demo, the new tutorial.
-  const start = useCallback((def: TutorialDef) => setTutorial(def), []);
-  const leave = useCallback(() => {
-    setTutorial(null);
-    setLoaded(null);
+  const start = useCallback((def: TutorialDef, yours?: DemoPlugins) => {
+    setTutorial(def);
+    if (yours) setPlugins(yours);
   }, []);
+  // Leaving stops the demo's Plugins and throws their files away (the core does it too when the
+  // app quits).
+  const leave = useCallback(() => {
+    for (const stop of [...stoppers]) stop();
+    stoppers.clear();
+    void loaded?.close();
+    setTutorial(null);
+    setPlugins(null);
+    setLoaded(null);
+  }, [loaded, stoppers]);
+  const onStop = useCallback(
+    (stop: () => void) => {
+      stoppers.add(stop);
+      return () => void stoppers.delete(stop);
+    },
+    [stoppers],
+  );
   const demo = tutorial && loaded ? { tutorial, ...loaded } : null;
   const real = useMemo(() => ({ progress, start }), [progress, start]);
-  const inDemo = useMemo(() => (tutorial ? { progress, demo: { tutorial, leave, switchTo: start } } : null), [tutorial, progress, leave, start]);
+  const problem = loaded?.problem ?? null;
+  const inDemo = useMemo(() => (tutorial ? { progress, demo: { tutorial, leave, switchTo: start, onStop, problem } } : null), [tutorial, progress, leave, start, onStop, problem]);
   return (
     <>
       <div className="app-slot" hidden={demo !== null} inert={demo !== null}>
@@ -519,6 +551,14 @@ function Workspace({
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  // On the demo: its Plugins stop for good when the tutorial ends (ticket 66).
+  const demoStop = tutor?.demo?.onStop;
+  useEffect(() => demoStop?.(() => plugins.stop()), [demoStop, plugins]);
+  // And why your Plugins aren't there, if they aren't: one notice.
+  const demoProblem = tutor?.demo?.problem ?? null;
+  useEffect(() => {
+    if (demoProblem && !plugins.snapshot().notices.some((n) => n.text === demoProblem)) plugins.notify("tutor", "warn", demoProblem);
+  }, [demoProblem, plugins]);
   // Views (ticket 76): the one open, and each Host's sections from Plugins.
   const viewAt = useSyncExternalStore(viewHost.subscribe, viewHost.snapshot);
   useEffect(() => registerViews(registries, viewHost), [registries, viewHost]);
@@ -548,7 +588,7 @@ function Workspace({
     if (!tutor) return;
     return registries.commands.register(
       tutorCommand(registries.tutorials, {
-        start: (def) => (tutor.demo ? (def.id === tutor.demo.tutorial.id ? openTutorial.current(def) : tutor.demo.switchTo(def)) : tutor.start?.(def)),
+        start: (def) => (tutor.demo ? (def.id === tutor.demo.tutorial.id ? openTutorial.current(def) : tutor.demo.switchTo(def)) : tutor.start?.(def, plugins.forDemo())),
         quit: () => {
           if (!tutor.demo) return false;
           tutor.demo.leave();
@@ -560,7 +600,7 @@ function Workspace({
         },
       }),
     );
-  }, [registries, tutor]);
+  }, [registries, tutor, plugins]);
   // Packages (ticket 24): `:packages`, and a sync whenever init.lua's `packages` change.
   const [packagesOpen, setPackagesOpen] = useState(false);
   const openPackages = useRef(() => {});

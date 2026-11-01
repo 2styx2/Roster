@@ -25,6 +25,7 @@
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod api;
+pub mod demo;
 pub mod fair;
 pub mod folder;
 pub mod network;
@@ -32,6 +33,7 @@ pub mod permission;
 mod runtime;
 
 use crate::config::lua;
+pub use demo::DemoHost;
 pub use permission::Permission;
 pub use runtime::EVENTS;
 use serde::Serialize;
@@ -287,6 +289,9 @@ pub struct PluginHost {
     data: std::sync::OnceLock<PathBuf>,
     /// Each Plugin's network requests by site, by name: kept across reloads (decision Q116).
     logs: Mutex<BTreeMap<String, Arc<network::Log>>>,
+    /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
+    /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
+    offline: bool,
 }
 
 impl PluginHost {
@@ -301,7 +306,15 @@ impl PluginHost {
             generation: AtomicU64::new(0),
             data: std::sync::OnceLock::new(),
             logs: Mutex::default(),
+            offline: false,
         }
+    }
+
+    /// The host, with no Plugin reaching the network ([`demo`]): a `roster.http` request is checked
+    /// as ever, then never sent, and its function hears why.
+    pub fn offline(mut self) -> Self {
+        self.offline = true;
+        self
     }
 
     /// A new proxy setting (`plugin_proxy` in init.lua changed, decision Q116) for every Plugin
@@ -650,7 +663,7 @@ impl PluginHost {
             ),
             all: Arc::clone(&self.all_plugins),
         });
-        let (limits, serving) = (self.limits, Arc::clone(serving));
+        let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let network = network::Setup {
             proxy: Arc::clone(proxy),
@@ -678,6 +691,7 @@ impl PluginHost {
                     limits.memory,
                     limits.call,
                     post,
+                    offline,
                     storage,
                     serving,
                     generation,
