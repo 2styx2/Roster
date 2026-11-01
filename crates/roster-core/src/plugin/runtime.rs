@@ -278,6 +278,7 @@ impl Runtime {
         memory: usize,
         budget: Duration,
         post: Option<Post>,
+        offline: bool,
         storage: Option<Result<Storage, String>>,
         serving: Arc<ServeWait>,
         generation: u64,
@@ -293,6 +294,8 @@ impl Runtime {
             .collect();
         let net = if sites.is_empty() {
             None
+        } else if offline {
+            Some(Net::offline(sites, network).map_err(|e| PluginError::new(plugin, None, None, e))?)
         } else {
             Some(Net::new(sites, network).map_err(|e| PluginError::new(plugin, None, None, e))?)
         };
@@ -1818,6 +1821,7 @@ mod tests {
             8 * 1024 * 1024,
             Duration::from_millis(250),
             None,
+            false,
             None,
             Arc::new(ServeWait::default()),
             1,

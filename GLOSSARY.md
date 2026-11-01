@@ -153,7 +153,7 @@ A name `:help` opens: a page (`options`), an entry on one (`terminal.size`, `:co
 _Avoid_: tag (Neovim's word; fine in code, not in the UI), help article, doc id
 
 **Demo Inventory**:
-The made-up Inventory `:tutor` runs on (`demo-01` to `demo-06`): the fake Backend the tests use, whose Sessions are pretend shells in the app, under a "Demo Inventory" banner. Nothing done there reaches a network, a vault, `roster.yml` or your State, except the tutorial's progress.
+The made-up Inventory `:tutor` runs on (`demo-01` to `demo-06`): the fake Backend the tests use, whose Sessions are pretend shells in the app, under a "Demo Inventory" banner. Nothing done there reaches a network, a vault, `roster.yml` or your State, except the tutorial's progress. Your running Plugins load there too, with their grants, against the demo's Hosts, offline, with throwaway files (decision Q123).
 _Avoid_: sandbox (that's `init.lua`'s), playground, test mode
 
 **Tutorial**:

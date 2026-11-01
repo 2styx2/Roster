@@ -19,7 +19,7 @@ import re
 import subprocess
 import threading
 
-from .common import current_deadline, deadline_at, past_deadline, program_argv, time_left, user_config_dir
+from .common import current_deadline, deadline_at, kill_tree, past_deadline, program_argv, time_left, user_config_dir
 from .sshops import hk_name, recorded_host_keys
 
 TAG = "roster-mesh"
@@ -428,7 +428,7 @@ def on_host(h, script, timeout=STEP_TIMEOUT):
     try:
         raw_out, raw_err = p.communicate(script.encode(), timeout=time_left(timeout))
     except subprocess.TimeoutExpired:
-        p.kill()
+        kill_tree(p)
         p.communicate()
         return None, "didn't answer in time"
     finally:
@@ -456,7 +456,7 @@ def close():
     with _ssh["lock"]:
         _ssh["closed"] = True
         for p in _ssh["live"]:
-            p.kill()
+            kill_tree(p)            # Windows: an ssh run through a batch file (ssh.cmd) is cmd.exe and its child
 
 
 def report(lines, prefix):

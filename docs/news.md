@@ -16,6 +16,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **App**
 
+- **Your Plugins in `:tutor`'s demo:** the Plugins running in your workspace load in the demo too, with the permissions you granted them, so a Plugin's tutorial (`roster.tutor.set`) can teach the Plugin itself. There they see the demo's Hosts; roster serve answers only the demo's Host list, nothing reaches the network, and their files start empty and go when you leave. One that fails to load there doesn't stop the tutorial. See [A Plugin's tutorial](plugins.md#a-plugins-tutorial).
 - `:plugins` shows how full each Plugin's data folder is against its limits: "Data: 2.1 MB in 34 files (of 10 MB, 1,000 files)", or "Data: none yet". It's counted when the panel opens, from the folder's listing alone. See [A Plugin's own files](plugins.md#a-plugins-own-files).
 - **Shell integration for Plugins:** if the shell on a Host prints OSC 133 marks (a few lines in its rc file; `:help shell-integration` has them for bash, zsh, fish and PowerShell), a Plugin with `terminal.read` hears `command_done` when each command ends, with its command line, its output and its exit code, and each run of `terminal_output` says what the marks call it (its new `kind`: `prompt`, `input` or `output`; a hint, since the Host prints the marks). roster only reads the marks: it never puts hooks on a Host or types into a Session. recent-alerts never alerts on a line the marks call a prompt or what you typed, and keeps its guess at your own echoed command for the rest. Plugin API 4 (`roster.api_version` 4). See [Shell integration](plugins.md#shell-integration).
 - **`:check HOST` shows each step as it runs:** the step under way is lit, with how long it has taken once it takes a while, and a stopped or abandoned check shows the step it stopped at. Needs roster serve API 21. See [Errors](app/errors.md).
@@ -64,6 +65,10 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **serve API (API 24)**
 
 - `mesh.cut`'s result has `warnings`: an earlier `mesh_dir:` the cut Host still holds a Mesh key in, which roster never removes. The Mesh controls show each as a warning after the cut. See [Cut](mesh.md#cut).
+
+**serve API (API 23)**
+
+- On native Windows, `vault.login` signs bw in with a password or SSO too: it drives `bw login` on a pseudoconsole (ConPTY), where it answered `59` before. There the `sso` step's `url` is `null`, because bw opens the sign-in page in the default browser itself; the app says so instead of showing a link. See [Signing in](serve-api.md#signing-in-vaultlogin).
 
 **serve API (API 21)**
 
@@ -138,6 +143,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **CLI**
 
 - A Mesh source moved back to roster's own directory (its `mesh_dir:` removed) makes a new key there, as [`mesh_dir:`](mesh.md#esxi) says, instead of quietly using again the key that directory still held from before the `mesh_dir:`.
+- On native Windows, closing `roster serve` during a Mesh run ends the run's ssh with everything it started, as a step that times out does, so `mesh.json` records which Hosts were left to do (an ssh that is a batch file kept running before).
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.
 - `roster serve` started with a temp dir whose path leaves a Unix socket's no room puts its askpass folder in `/tmp` rather than fail.

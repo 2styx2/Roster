@@ -581,8 +581,9 @@ export type SignInStep = { login: string } & (
   /** `method` is null when the account has one method and bw picked it; `sent`: emailed just now. */
   | { step: "two_factor_code"; method: TwoFactorMethod | null; sent: boolean }
   | { step: "new_device_code"; email: string | null }
-  /** Open `url` in a browser; answer `{}` to wait for it (roster waits up to 20 s per call). */
-  | { step: "sso"; url: string; expires_in: number }
+  /** Open `url` in a browser; answer `{}` to wait for it (roster waits up to 20 s per call). `url` is null on
+   * native Windows (API 23), where bw opened the page itself and there's no link to hand over. */
+  | { step: "sso"; url: string | null; expires_in: number }
   /** After an API key or SSO, which only log in: the vault still needs the master password. */
   | { step: "master_password"; email: string | null }
   | { step: "done"; provider: string; status: "unlocked" }
@@ -917,6 +918,13 @@ export interface Backend {
   /** The replies nobody asked for: what a Plugin did when one of its HTTP requests answered
    * (the `network` permission, decision Q97). The core sends them as they come. */
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
+  /** `:tutor`'s demo (ticket 66, decision Q123): a Plugin host of its own, beside this one, over
+   * the demo Inventory's `hosts`. Its Plugins run with the grants they have here, but roster serve
+   * answers only `hosts.list` and `host.get` from `hosts` (any other method is refused), no
+   * request reaches the network, and each Plugin's files are a throwaway folder, empty at the
+   * start. `close` stops them all and throws the folder away. Absent: the demo has only its own
+   * built-in Plugins. */
+  demoPlugins?(hosts: HostList): Promise<DemoPluginHost>;
   /** Packages (ticket 24, docs/plugins.md): clones what init.lua names and isn't cloned yet, and
    * checks out what roster.lock pins. A Package loads as the Plugin `package:NAME`. */
   packagesSync(): Promise<PackageStatus[]>;
@@ -957,6 +965,17 @@ export interface PackageStatus {
   config: Record<string, unknown>;
   note: string | null;
   error: string | null;
+}
+
+/** The demo's Plugin host (`Backend.demoPlugins`): the Plugin methods, on the demo's own host. */
+export type DemoPluginHost = Pick<Backend, "pluginManifest" | "pluginTypes" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginUnload" | "pluginForget" | "onPluginReply"> & {
+  close(): Promise<void>;
+};
+
+/** The words a Plugin on the demo gets for a serve method the demo has no stand-in for (errors.md
+ * row 135; the core's plugin/demo.rs says the same). */
+export function notOnDemo(method: string): string {
+  return `${method} isn't on the demo Inventory: the tutorial's demo answers only hosts.list and host.get`;
 }
 
 /** A newer commit, shown before it's applied. */

@@ -479,6 +479,28 @@ describe("timers", () => {
   });
   const installed = { [STATE_KEY]: [{ path: "/p/ticker", name: "ticker", granted: [], asked: [] }] };
 
+  it("stop (the demo's manager when the tutorial ends): no timer fires, no event or call reaches the core, its UI goes", async () => {
+    vi.useFakeTimers();
+    try {
+      const log: string[] = [];
+      const { manager, registries, backend } = setup({ "/p/ticker": ticker(log) }, { ...installed });
+      await manager.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(log).toEqual(["once", "tick 1"]);
+      const calls = vi.spyOn(backend, "pluginCall");
+      const events = vi.spyOn(backend, "pluginEvent");
+      manager.stop();
+      expect(registries.status.get("ticks")).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await manager.event("inventory_changed");
+      expect(log).toEqual(["once", "tick 1"]);
+      expect(calls).not.toHaveBeenCalled();
+      expect(events).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("run in the Plugin when it's time: once, or again until cancelled", async () => {
     vi.useFakeTimers();
     try {

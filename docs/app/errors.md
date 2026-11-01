@@ -54,7 +54,7 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 30 | 56 | SSO failed in the browser or wasn't finished within 5 minutes | Vault | "the SSO sign-in failed in the browser - try again" | Start SSO again |
 | 31 | 57 | The self-hosted address isn't one | Sign-in form | "'vault example com' isn't a server address - …" | Pick cloud or EU, or type an https:// address |
 | 32 | 58 | API key not accepted, or an organization key | Sign-in form | "Bitwarden didn't accept that API key (client_id or client_secret)" | Copy the personal key again from the web vault |
-| 33 | 59 | Anything else; bw's own words. On Windows without WSL, also a password or SSO sign-in, which roster can't drive there yet | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same. On Windows: `roster bw login` in a terminal, or the API key, then unlock |
+| 33 | 59 | Anything else; bw's own words | Vault | "Bitwarden sign-in failed: …" | See Details; `bw login` in a terminal shows the same |
 
 ## Signing out
 
@@ -309,6 +309,15 @@ What a Plugin's `roster.serve.request` can run into ([Asking roster serve](../pl
 | 110 | none (a Plugin's notice) | A Mesh plan, apply or cut asked for again before roster serve answered the last (serve busy with a Publish, say) | The Mesh controls | "A Mesh plan is starting: wait for roster serve to answer." | Wait: the progress shows once serve answers |
 | 111 | none (a Plugin's notice) | `:discover RANGE` again before roster serve said how big the last range is | Discover | "Still waiting for roster serve to size the last range: a moment" | Wait: the question comes once serve answers |
 | 112 | none (a Lua error) | One call (an action, a load, an event, an answer) asked roster serve with `roster.serve.call` or `roster.inventory` a 101st time, or after waiting 300 s for it in all | The Plugin | "mesh: init.lua:40: roster.serve.call mesh.status: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)" | The Plugin's to fix: ask once and keep the answer, or use `roster.serve.request` and a timer |
+
+## A Plugin on the demo Inventory
+
+What a Plugin running in `:tutor`'s demo gets instead of the real thing ([the tutor](help.md#the-tutor)). Nothing is wrong with the Plugin: the demo has no roster serve and no network, on purpose.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 135 | none (a Lua error, or `done`'s reason) | On the demo, the Plugin asked roster serve for a method other than `hosts.list` and `host.get` (`roster.serve.call`, `roster.serve.request`, or `roster.inventory`'s writes) | The demo | "coach: init.lua:12: roster.serve.call mesh.status: mesh.status isn't on the demo Inventory: the tutorial's demo answers only hosts.list and host.get (code 3)" | None needed: `:tutor quit` and use it on your own Inventory. A tutorial's author teaches what works on the demo's Hosts |
+| 136 | none (`done`'s reason) | On the demo, the Plugin made a `roster.http` request to a site it may reach (one it may not, or a bad header, body or timeout, is refused at once as on your Inventory: [A Plugin's network requests](#a-plugins-network-requests)) | The demo | "https://api.example.com/status wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)" | None needed: `:tutor quit` and use it on your own Inventory |
 
 ## See also
 
