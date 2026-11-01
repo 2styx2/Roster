@@ -442,16 +442,24 @@ describe("Tabs", () => {
   });
 
   it("can reconnect an ended tab to another Host (the Picker's open-here key)", async () => {
-    const { tabs, attach, screen } = setup();
-    const id = tabs.open(reviewed[0]!);
-    attach(id);
-    await settle();
-    tabs.write(id, "exit\r");
-    await settle();
-    tabs.reconnect(id, reviewed[1]!);
-    await settle();
-    expect(tabs.snapshot().tabs).toEqual([expect.objectContaining({ id, host: reviewed[1], status: { state: "open" } })]);
-    expect(screen(id)).toContain(`Connected to ${reviewed[1]}`);
+    // Fake timers (ticket 84): the fake Session's banner comes after a chain of timers (the
+    // Backend's wait, then the login), so a fixed real sleep lost the race on a busy machine.
+    vi.useFakeTimers();
+    try {
+      const { tabs, attach, screen } = setup();
+      const id = tabs.open(reviewed[0]!);
+      attach(id);
+      await vi.runAllTimersAsync();
+      tabs.write(id, "exit\r");
+      await vi.runAllTimersAsync();
+      expect(tabs.snapshot().tabs[0]?.status.state).toBe("ended");
+      tabs.reconnect(id, reviewed[1]!);
+      await vi.runAllTimersAsync();
+      expect(tabs.snapshot().tabs).toEqual([expect.objectContaining({ id, host: reviewed[1], status: { state: "open" } })]);
+      expect(screen(id)).toContain(`Connected to ${reviewed[1]}`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("holds several Sessions to the same Host, told apart by their labels", async () => {

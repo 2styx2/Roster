@@ -132,7 +132,7 @@ app/src/view/views.ts   views and Host-details sections as registries (ticket 76
 app/src/ui/table.ts     a table's model: sort, updates in place, which rows are on screen; ui/DataTable.tsx draws it
 app/src/graph/          a view's graph (ticket 77): model.ts (data, updates, reach), layout.ts (where nodes go), scene.ts
                       (collapsed clusters, keys, search, highlight), memory.ts (places in the State), draw.ts (the
-                      canvas), lists.ts (the node and edge tables), GraphView.tsx; plugins/graphOps.ts checks a Plugin's graph
+                      canvas), lists.ts (the node and edge tables), FilterMenu.tsx (a filter dimension's checkbox menu), GraphView.tsx; plugins/graphOps.ts checks a Plugin's graph
 examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
 examples/plugins/recent-alerts the worked example in docs/plugins.md, a third-party Plugin end to end (ticket 56): crates/roster-core/tests/recent_alerts.rs
                       installs it from a git repo and records app/src/plugins/recent-alerts.transcript.json, which

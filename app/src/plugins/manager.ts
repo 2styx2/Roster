@@ -1287,7 +1287,7 @@ export class PluginManager {
       ...(g.reach ? { reach: g.reach } : {}),
       ...(g.filter ? { filter: g.filter } : {}),
       ...(g.open ? { open: go(g.open) } : g.data.nodes.some((n) => n.host) ? { open: openHost } : {}),
-      actions: g.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), run: go(a.run) })),
+      actions: g.actions.map((a) => ({ label: a.label, ...(a.key ? { key: a.key } : {}), ...(a.icon ? { icon: a.icon } : {}), ...(a.when ? { when: a.when } : {}), run: go(a.run) })),
     };
   }
 

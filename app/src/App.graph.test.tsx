@@ -47,6 +47,7 @@ function topoPlugin(extra: Record<string, unknown> = {}): FakePlugin {
           actions: [
             { label: "Check", key: "c", run: (e: Record<string, unknown>) => roster.notify(`checked ${String(e.node)}`) },
             { label: "Connect", key: "w", run: (e: Record<string, unknown>) => roster.views.update("topo", { nodes: [{ id: e.node, cluster: "web", host: e.node, state: "live" }] }) },
+            { label: "Disconnect", key: "d", when: { state: "live" }, run: (e: Record<string, unknown>) => roster.notify(`disconnected ${String(e.node)}`) },
           ],
         },
       });
@@ -124,6 +125,29 @@ describe("a Plugin's graph", () => {
     expect(await screen.findByText(/checked esx-01/)).toBeInTheDocument();
   });
 
+  it("an action with when runs only on the nodes it names, and its key shows only there (T89)", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    const keys = () => document.querySelector(".graph-foot .dt-keys")?.textContent ?? "";
+    await user.keyboard("/web-1{Enter}");
+    expect(keys()).not.toContain("disconnect");
+    await user.keyboard("d");
+    await user.keyboard("w");
+    await waitFor(() => expect(foot()).toMatch(/^web-1, filled, live/));
+    expect(screen.queryByText(/disconnected/)).toBeNull();
+    expect(keys()).toContain("disconnect");
+    await user.keyboard("d");
+    expect(await screen.findByText(/disconnected web-1/)).toBeInTheDocument();
+    // The nodes' list asks the same of each row.
+    await user.keyboard("t");
+    const nodes = screen.getByRole("grid", { name: "Topology: nodes" });
+    expect(within(nodes).getByRole("row", { selected: true })).toHaveTextContent("web-1");
+    expect(within(nodes).getByRole("button", { name: /Disconnect/ })).toBeInTheDocument();
+    await user.keyboard("k");
+    expect(within(nodes).queryByRole("button", { name: /Disconnect/ })).toBeNull();
+  });
+
   it("o collapses the selected node's cluster to its count and opens it again", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}:view topo{Enter}`);
@@ -185,6 +209,42 @@ describe("a Plugin's graph", () => {
     });
   });
 
+  it("m moves the selected node from the keyboard: Enter keeps the place, Esc puts it back (T89)", async () => {
+    const { user, platform } = await ready();
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    const at = async (id: string) => {
+      const state = (await platform.loadState()) as Record<string, unknown>;
+      const graphs = state[GRAPHS_KEY] as { nodes: Record<string, [number, number]> }[] | undefined;
+      return graphs?.[0]?.nodes[id];
+    };
+    await user.keyboard("/esx-01{Enter}");
+    await waitFor(async () => expect(await at("esx-01")).toBeDefined());
+    const [x0, y0] = (await at("esx-01")) as [number, number];
+    await user.keyboard("m");
+    await said(/Moving esx-01/);
+    expect(document.querySelector(".graph-foot .dt-keys")?.textContent).toMatch(/move it.*keep.*put back/);
+    await user.keyboard("llj");
+    // h j k l move the node now, not the selection.
+    expect(foot()).toMatch(/^esx-01/);
+    await waitFor(async () => {
+      const [x, y] = (await at("esx-01")) as [number, number];
+      expect(x).toBeGreaterThan(x0);
+      expect(y).toBeGreaterThan(y0);
+    });
+    await user.keyboard("{Enter}");
+    await said(/esx-01 placed/);
+    const [x1, y1] = (await at("esx-01")) as [number, number];
+    // Moving again and Esc puts it back where it was, and the view stays open.
+    await user.keyboard("mLL{Escape}");
+    await said(/esx-01 put back/);
+    await waitFor(async () => expect(await at("esx-01")).toEqual([x1, y1]));
+    expect(screen.getByRole("region", { name: "Topology (from topo)" })).toBeInTheDocument();
+    // Out of moving, l goes to another node again.
+    await user.keyboard("h");
+    expect(foot()).not.toMatch(/^esx-01/);
+  });
+
   it("an empty graph says so, and one node counts in the singular", async () => {
     const tiny = (nodes: Record<string, unknown>[]): FakePlugin => ({
       manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 2, permissions: [] },
@@ -208,17 +268,49 @@ describe("a Plugin's graph", () => {
     expect(foot()).toBe("lab: 1 node, collapsed. Reaches 0 nodes; reached by 0");
   });
 
+  it("an empty node or edge list keeps the focus, so t still goes on (T89)", async () => {
+    const empty: FakePlugin = {
+      manifest: { name: "topo", version: "1.0.0", description: "A map", author: "A. Author", api: 2, permissions: [] },
+      load(roster) {
+        roster.views.set("topo", { title: "Topology", place: "full", graph: { nodes: [] } });
+      },
+    };
+    const { user } = await ready(memoryPlatform(), empty);
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    const list = () => screen.getByRole("group", { name: /^Topology: (nodes|edges)$/ });
+    await user.keyboard("t");
+    expect(list()).toHaveAccessibleName("Topology: nodes");
+    expect(list()).toHaveFocus();
+    expect(within(list()).getByText("No nodes yet.")).toBeInTheDocument();
+    await user.keyboard("t");
+    expect(list()).toHaveAccessibleName("Topology: edges");
+    expect(list()).toHaveFocus();
+    await user.keyboard("t");
+    expect(graph()).toHaveFocus();
+  });
+
   it("f goes to the filter; a cluster, kind or state chosen there hides the rest, and Esc clears it", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}:view topo{Enter}`);
     await screen.findByRole("application", { name: "Topology" });
     await user.keyboard("f");
-    const cluster = screen.getByRole("combobox", { name: "Show the cluster" });
+    const cluster = screen.getByRole("button", { name: /^Show the cluster/ });
     expect(cluster).toHaveFocus();
-    await user.selectOptions(cluster, "web");
+    expect(cluster).toHaveAttribute("aria-expanded", "false");
+    await user.keyboard("{Enter}");
+    const menu = screen.getByRole("menu", { name: "Show the cluster" });
+    expect(within(menu).getByRole("menuitemcheckbox", { name: "Every cluster" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(cluster).toHaveFocus();
+    expect(cluster).toHaveTextContent("web");
     expect(screen.getByText("Showing 2 of 5 nodes")).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Show the state" }), "down");
+    await user.click(screen.getByRole("button", { name: /^Show the state/ }));
+    await user.click(within(screen.getByRole("menu", { name: "Show the state" })).getByRole("menuitemcheckbox", { name: "down" }));
     expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
     await user.keyboard("{Escape}");
     expect(graph()).toHaveFocus();
     expect(foot()).toMatch(/^appliance/);
@@ -239,7 +331,38 @@ describe("a Plugin's graph", () => {
     await screen.findByRole("application", { name: "Topology" });
     expect(screen.getByText("Showing 1 of 5 nodes")).toBeInTheDocument();
     expect(foot()).toMatch(/^esx-01/);
-    expect(screen.getByRole("combobox", { name: "Show the kind" })).toHaveValue("esxi");
+    expect(screen.getByRole("button", { name: /^Show the kind/ })).toHaveTextContent("esxi");
+  });
+
+  it("the filter takes several values of a dimension: Space ticks each, and the button counts them (T89)", async () => {
+    const { user } = await ready(memoryPlatform(), topoPlugin({ filter: { clusters: ["lab", "web", "gone"] } }));
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    const cluster = screen.getByRole("button", { name: /^Show the cluster/ });
+    // A Plugin's filter may name what isn't there: it's a choice too, so it can be taken off.
+    expect(cluster).toHaveTextContent("3 clusters");
+    expect(screen.getByText("Showing 4 of 5 nodes")).toBeInTheDocument();
+    await user.keyboard("f{Enter}");
+    const menu = screen.getByRole("menu", { name: "Show the cluster" });
+    const item = (name: string) => within(menu).getByRole("menuitemcheckbox", { name });
+    expect(item("lab")).toHaveAttribute("aria-checked", "true");
+    expect(item("gone")).toHaveAttribute("aria-checked", "true");
+    expect(item("Every cluster")).toHaveAttribute("aria-checked", "false");
+    // The focus starts on the first ticked one; Space ticks and the menu stays open.
+    expect(item("lab")).toHaveFocus();
+    await user.keyboard(" ");
+    expect(item("lab")).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Showing 2 of 5 nodes")).toBeInTheDocument();
+    // Typing a letter goes to the next item that starts with it.
+    await user.keyboard("g ");
+    expect(item("gone")).toHaveAttribute("aria-checked", "false");
+    expect(cluster).toHaveTextContent("web");
+    await user.keyboard("{Home} ");
+    expect(item("Every cluster")).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/^Showing/)).toBeNull();
+    await user.keyboard("{Escape}");
+    expect(cluster).toHaveFocus();
+    expect(cluster).toHaveTextContent("Every cluster");
   });
 
   it("reach = \"direct\" counts one hop", async () => {
