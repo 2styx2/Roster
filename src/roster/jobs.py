@@ -83,11 +83,14 @@ class Job:
 
     def let_go(self):
         """A waiting request was cancelled: stop the job if nothing else wants it (no other waiter, never asked
-        for in the background). True if it stopped."""
+        for in the background). True if nothing else does (it's stopped, or was stopping or over already); False if
+        it goes on for another."""
         with self.lock:
             self.waiters -= 1
             last = self.waiters <= 0 and not self.kept
-        return last and self.stop()
+        if last:
+            self.stop()
+        return last
 
     def progress(self, done, total=None, at=None):
         """WORK says how far it has got: DONE of TOTAL, at AT (a Host's name, or None)."""
