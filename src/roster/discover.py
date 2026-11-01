@@ -1,7 +1,9 @@
 """Network discovery with nmap (or a built-in scanner) feeding roster.yml."""
 
 import concurrent.futures as cf
+import contextlib
 import datetime
+import io
 import ipaddress
 import json
 import os
@@ -14,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from . import jsonout
 from .common import die, oneline, say, tcp_ok
 from .config import find_config, load_config
 
@@ -268,7 +271,9 @@ def render_group(group, entries, note, needs_user, indent):
 
 
 def cmd_discover(args):
-    import datetime
+    """`roster discover`: scan, then preview (or --write) the new Hosts as a group. With --json, the preview is one
+    JSON document (discover.plan's numbers and discover.status's Found records) and say()'s lines are dropped."""
+    from .errors import TOO_MANY_ADDRESSES, Problem, inventory_problem
     nets = []
     for t in args.targets:
         try:
@@ -277,8 +282,11 @@ def cmd_discover(args):
             die(f"{t!r} isn't an IP address or network (e.g. 10.0.1.0/24)")
     nets = distinct(nets)                       # an address in two targets is scanned (and written) once
     targets = [str(n) for n in nets]
-    total = sum(n.num_addresses for n in nets)
-    if total > 4096 and not args.force:
+    total = sum(address_count(n) for n in nets)
+    if total > LIMIT and not args.force:
+        if args.json:
+            raise Problem(TOO_MANY_ADDRESSES, f"that's {total} addresses; a scan visits at most {LIMIT}",
+                          fix="narrow it down, or pass --force to scan them all")
         die(f"that's {total} addresses; narrow it down or pass --force")
 
     cfg_path, cfg = None, None
@@ -288,24 +296,34 @@ def cmd_discover(args):
         try:
             cfg_path = find_config(args.config)
             cfg = load_config(cfg_path)
-        except SystemExit:
+        except SystemExit as e:
+            if args.config and args.json:
+                raise inventory_problem(str(e.code).removeprefix("error: "), cfg_path) from None
             if args.config:
                 raise
-    known_ips = {h["ip"] for h in cfg["hosts"].values()} if cfg else set()
+    known = {h["ip"]: h["name"] for h in cfg["hosts"].values()} if cfg else {}
     taken = set(cfg["hosts"]) if cfg else set()
 
     use_nmap = not args.builtin and shutil.which("nmap") is not None
-    if not use_nmap and not args.builtin:
-        say("note         nmap isn't installed - using the built-in scanner. For service versions,")
-        say("             web page titles and hardware vendors: apt install nmap / brew install nmap")
-    found = nmap_scan(targets, args) if use_nmap else builtin_scan(targets, args)
+    with contextlib.redirect_stdout(io.StringIO()) if args.json else contextlib.nullcontext():
+        if not use_nmap and not args.builtin:
+            say("note         nmap isn't installed - using the built-in scanner. For service versions,")
+            say("             web page titles and hardware vendors: apt install nmap / brew install nmap")
+        found = nmap_scan(targets, args) if use_nmap else builtin_scan(targets, args)
 
     quiet = [r for r in found if not r["ports"]]
-    found = [r for r in found if r["ports"]]
-    already = [r for r in found if r["ip"] in known_ips]
-    new = [r for r in found if r["ip"] not in known_ips]
-    new.sort(key=lambda r: address_order(r["ip"]))
+    found = sorted((r for r in found if r["ports"]), key=lambda r: address_order(r["ip"]))
+    already = [r for r in found if r["ip"] in known]
+    new = [r for r in found if r["ip"] not in known]
     today = datetime.date.today().isoformat()
+    group = args.group or f"discovered-{today.replace('-', '')}"
+    group = unique(group, set(cfg["groups"]) if cfg else set())
+    if args.json:
+        jsonout.emit({"targets": [str(n) if n.num_addresses > 1 else str(n.network_address) for n in nets],
+                      "addresses": total, "ports": args.top_ports or len([p for p in args.ports.split(",") if p.strip()]),
+                      "scanner": "nmap" if use_nmap else "built-in", "count": len(found), "quiet": len(quiet),
+                      "found": [found_record(r, known, taken, today) for r in found], "group": group})
+        return 0
     entries = [scan_entry(r, taken, today) for r in new]
     say(f"\nfound        {len(found)} hosts with open ports: {len(new)} new, {len(already)} already in roster.yml"
         + (f" ({len(quiet)} more answered but had none of the scanned ports open)" if quiet else ""))
@@ -316,11 +334,6 @@ def cmd_discover(args):
         kinds[e["type"]] = kinds.get(e["type"], 0) + 1
     say("guessed      " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
 
-    group = args.group or f"discovered-{today.replace('-', '')}"
-    existing_groups = set(cfg["groups"]) if cfg else set()
-    base, n = group, 2
-    while group in existing_groups:
-        group, n = f"{base}-{n}", n + 1
     note = f"Found by scanning {', '.join(targets)} on {today} - rename, fill in titles, then set reviewed: true"
     needs_user = not _defaults_user(cfg_path)   # the new group inherits only from defaults
 
@@ -550,20 +563,7 @@ class Scan(threading.Thread):
         the scan's thread calls it (self.taken)."""
         if not rec["ports"]:
             return None
-        known = self.known.get(rec["ip"])
-        base, entry = scan_entry(rec, set(), self.today)
-        name = None
-        if known is None:
-            name = unique(base, self.taken)
-            self.taken.add(name)
-        return (rec, {
-            "address": rec["ip"], "name": name, "type": entry["type"], "hostname": rec["hostname"],
-            "title": entry["title"],
-            "web": entry.get("web"), "known": known, "added": None, "vendor": rec["vendor"], "os": rec["os"],
-            "mac": rec["mac"],
-            "ports": [{"port": p["port"], "name": p["name"], "product": p["product"], "title": p["title"]}
-                      for p in rec["ports"]],
-        })
+        return rec, found_record(rec, self.known, self.taken, self.today)
 
     # -- what serve asks
 
@@ -599,6 +599,22 @@ class Scan(threading.Thread):
             for _, r in self.found:
                 if r["address"] in names:
                     r["added"] = names[r["address"]]
+
+
+def found_record(rec, known, taken, today):
+    """discover.status's Found for the scan record REC, as serve and `roster discover --json` give it. KNOWN:
+    {address: the Inventory's Host there}; a new Host gets the first name not in TAKEN, which is added to it."""
+    host = known.get(rec["ip"])
+    base, entry = scan_entry(rec, set(), today)
+    name = None
+    if host is None:
+        name = unique(base, taken)
+        taken.add(name)
+    return {"address": rec["ip"], "name": name, "type": entry["type"], "hostname": rec["hostname"],
+            "title": entry["title"], "web": entry.get("web"), "known": host, "added": None, "vendor": rec["vendor"],
+            "os": rec["os"], "mac": rec["mac"],
+            "ports": [{"port": p["port"], "name": p["name"], "product": p["product"], "title": p["title"]}
+                      for p in rec["ports"]]}
 
 
 def defaults_user(text):

@@ -11,6 +11,8 @@ The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/`
 
 `roster serve` answers requests concurrently (decision Q112), so a test that drives it can send several at once: the `serve` fixture's `request(method, params)` sends one without waiting and `answer(id)` waits for that one, keeping whatever answered first (`order` is the order serve answered in, `notes` its notifications). `tests/test_serve_concurrency.py` has a Publish whose upstream's hook holds the push until the test lets it go (an sh hook, which Git for Windows runs too); `tests/test_serve_cancel.py` forces each `$/cancel` case with events; `tests/test_jobs.py` tests the job manager on its own.
 
+The `cmd:`/`env:` cut (decision Q92) is written twice, in `src/roster/jsonout.py` (the CLI's `--json`) and `crates/roster-core/src/plugin/runtime.rs` (what Plugins get). Its cases are one file, `tests/vectors/redaction.json` (`in`, `out` and a `note` each; `"error": true` for an error message, which keeps its `(code N)`), read by `tests/test_json.py` and runtime.rs's tests: add a case there, not in either test, and change both implementations until both pass.
+
 ```text
 src/roster/
   cli.py            commands and argument parsing

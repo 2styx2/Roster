@@ -3,11 +3,12 @@ group and resource objects `roster serve` answers with, and never a secret: Logi
 `env:` ones cut to their kind as Plugins get them (Q92). Errors go to stderr as JSON, with the usual exit status."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 from roster.cli import main
-from roster.jsonout import JSON_VERSION, redact
+from roster.jsonout import JSON_VERSION, redact, redact_error, redact_text
 
 
 def run(capsys, *argv):
@@ -43,22 +44,14 @@ resources:
 
 # ---------------------------------------------------------------- the cut, as runtime.rs's redact_text
 
-@pytest.mark.parametrize(("text", "cut"), [
-    ("cmd:pass show esx", "cmd:"),
-    ("env:LAB_PW", "env:"),
-    ("bw:esx ssh", "bw:esx ssh"),
-    ("prompt", "prompt"),
-    ('auth: "cmd:printf x y"', 'auth: "cmd:"'),
-    ("-    auth: 'cmd:echo pw'\n+    auth: bw:x", "-    auth: 'cmd:'\n+    auth: bw:x"),
-    ("cmd:pass show x resolves to one item", "cmd:"),
-    ("uses env:WIFI_PW, then", "uses env:, then"),
-    ("CMD:echo hi", "cmd:"),
-    ("cmd: is ready", "cmd: is ready"),
-    ("xcmd:not-a-ref", "xcmd:not-a-ref"),
-    ("(env:A_1)", "(env:)"),
-])
-def test_cmd_and_env_references_are_cut_to_their_kind(text, cut):
-    assert redact(text) == cut
+VECTORS = json.loads((Path(__file__).parent / "vectors" / "redaction.json").read_text(encoding="utf-8"))["cases"]
+
+
+@pytest.mark.parametrize("case", VECTORS, ids=[c["note"] for c in VECTORS])
+def test_the_shared_redaction_vectors(case):
+    """tests/vectors/redaction.json, which runtime.rs's tests read too: the CLI and Plugins cut alike (Q92)."""
+    cut = redact_error if case.get("error") else redact_text
+    assert cut(case["in"]) == case["out"]
 
 
 def test_the_cut_reaches_every_string_inside(capsys):
@@ -256,6 +249,7 @@ groups:
   lab:
     user: ops
     enroll: false
+    mesh: true
     port: {closed}
     hosts:
       by-bw: {{ip: 127.0.0.1, auth: "bw:Orion servers"}}
@@ -272,7 +266,7 @@ resources:
 """
 
 
-def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkeypatch, capsys):
+def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkeypatch, capsys, tmp_path):
     import socket
     gone = socket.create_server(("127.0.0.1", 0))
     closed = gone.getsockname()[1]
@@ -281,10 +275,17 @@ def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkey
     monkeypatch.setenv("BW_PASSWORD", "hunter2")
     monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", "tok-s3cret")
     monkeypatch.setenv("LAB_PW", "s3cret-in-env")
+    page = tmp_path / "found" / "page"                  # what the stand-in nmap finds: a web page that names one
+    page.mkdir(parents=True)
+    (page / "address").write_text("10.0.0.7")
+    (page / "ports").write_text("443 https\n")
+    (page / "title").write_text("sign in with cmd:printf s3cret-in-cmd")
+    monkeypatch.setenv("FAKE_HOSTS", str(tmp_path / "found"))
     assert main(["sync"]) == 0
     capsys.readouterr()
     commands = [["hosts", "--all"], ["hosts", "--long"], ["resources"], ["providers"], ["auth-check"], ["check"],
-                ["check", "--box"], ["mesh", "status"], ["info", "nope"], ["check", "nope"]]
+                ["check", "--box"], ["mesh", "status"], ["mesh", "--dry-run"], ["info", "nope"], ["check", "nope"],
+                ["discover", "10.0.0.0/29", "--ports", "443"], ["discover", "10.0.0.0/8"]]
     for name in ["by-bw", "by-op", "by-env", "by-cmd", "guest", "portal"]:
         commands.append(["info", name])
     for name in ["by-bw", "by-op", "by-env", "by-cmd"]:
@@ -299,5 +300,8 @@ def test_no_secret_value_ever_appears_in_json_output(write_config, fakes, monkey
     assert [(argv, s) for argv, text in seen for s in SECRETS if s in text] == []
     everything = "".join(text for _, text in seen)
     assert "cmd:" in everything and "env:" in everything and "bw:Orion servers" in everything
+    by_command = {" ".join(argv): text for argv, text in seen}
+    assert '"title": "sign in with cmd:"' in by_command["discover 10.0.0.0/29 --ports 443"]
+    assert '"applied": false' in by_command["mesh --dry-run"]
     vault = next(text for argv, text in seen if argv == ["check", "by-bw"])
     assert '"vault-item", "status": "ok"' in vault       # the secret was really fetched, and still isn't shown

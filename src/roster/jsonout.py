@@ -10,6 +10,7 @@ JSON_VERSION goes up when a field is removed, renamed or changes meaning (docs/c
 output"); a new field doesn't change it."""
 
 import json
+import re
 import sys
 
 JSON_VERSION = 1
@@ -17,6 +18,7 @@ JSON_VERSION = 1
 _SPACE = " \t\n\x0c\r"                       # Rust's is_ascii_whitespace
 _BEFORE = _SPACE + "\"'=:,({["
 _KINDS = ("cmd:", "env:")
+_CODE = re.compile(r" \(code -?[0-9]+\)\Z")      # serve's error code, last in a message
 
 
 def _kind_at(text, i):
@@ -56,6 +58,14 @@ def redact_text(text):
     return "".join(out) + text[copied:] if out else text
 
 
+def redact_error(message):
+    """An error MESSAGE with its references cut, as redact_text, but a trailing ` (code N)` stays even after a
+    `cmd:` reference that runs to the end of the line: it tells errors apart (Q92; runtime.rs redact_error)."""
+    m = _CODE.search(message)
+    at = m.start() if m else len(message)
+    return redact_text(message[:at]) + message[at:]
+
+
 def redact(v):
     """A copy of V (JSON data) with every string cut by redact_text."""
     if isinstance(v, str):
@@ -75,4 +85,4 @@ def emit(payload, stream=None):
 
 def fail(code, message, fix=None):
     """An error on stderr: {"version", "error": {code, message, fix}}. code is errors.py's (serve's) number."""
-    emit({"error": {"code": code, "message": message, "fix": fix}}, sys.stderr)
+    emit({"error": {"code": code, "message": redact_error(message), "fix": fix}}, sys.stderr)

@@ -864,17 +864,13 @@ fn redacted(result: Result<Json, String>) -> Result<Json, String> {
 /// An error's message with its references cut. serve's `(code N)` at the end stays, even after a
 /// `cmd:` reference that runs to the end of the line: a Plugin tells errors apart by it.
 fn redact_error(message: &str) -> String {
+    // ` (code N)` last: one optional `-`, then at least one digit
+    let is_code = |n: &str| {
+        let digits = n.strip_prefix('-').unwrap_or(n);
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    };
     let (text, code) = match message.rfind(" (code ") {
-        Some(at)
-            if message.ends_with(')')
-                && at + 8 < message.len()
-                && message[at + 7..message.len() - 1]
-                    .trim_start_matches('-')
-                    .chars()
-                    .all(|c| c.is_ascii_digit()) =>
-        {
-            message.split_at(at)
-        }
+        Some(at) if message.ends_with(')') && is_code(&message[at + 7..message.len() - 1]) => message.split_at(at),
         _ => (message, ""),
     };
     match redact_text(text) {
@@ -1799,5 +1795,27 @@ mod tests {
             assert!(r.error.is_none(), "{:?}", r.error);
         }
         assert_eq!(rt.shared.quiet.borrow().len(), 3);
+    }
+
+    /// tests/vectors/redaction.json, which the CLI's tests (tests/test_json.py) read too, so the
+    /// Q92 cut is one rule in both languages: a change to one fails the other's tests.
+    #[test]
+    fn the_shared_redaction_vectors() {
+        let vectors: Json = serde_json::from_str(include_str!("../../../../tests/vectors/redaction.json")).unwrap();
+        let cases = vectors["cases"].as_array().unwrap();
+        assert!(cases.len() > 20);
+        let wrong: Vec<String> = cases
+            .iter()
+            .filter_map(|case| {
+                let input = case["in"].as_str().unwrap();
+                let got = if case["error"] == true {
+                    redact_error(input)
+                } else {
+                    redact_text(input).unwrap_or_else(|| input.to_string())
+                };
+                (got != case["out"].as_str().unwrap()).then(|| format!("{}: {input:?} gave {got:?}", case["note"]))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 }

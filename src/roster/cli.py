@@ -217,6 +217,10 @@ def cmd_mesh(cfg, args):
         return 1 if r["pending"] or change.get("error") else 0
     if args.target:
         die(f"unexpected {args.target!r}: roster mesh [--dry-run] [--rotate HOST], or roster mesh cut HOST")
+    if args.json:                       # --dry-run: mesh.plan's result; a Problem is the JSON error (main)
+        r = mesh.run(cfg, apply=False, rotate=args.rotate or ())
+        jsonout.emit(r)
+        return 1 if r["pending"] else 0
     try:
         r = mesh.run(cfg, apply=not args.dry_run, rotate=args.rotate or (), say=say)
     except Problem as e:
@@ -827,6 +831,7 @@ def build_parser():
     s.add_argument("--timeout", type=float, default=0.5, metavar="SECONDS",
                    help="built-in scanner connect timeout (default: 0.5)")
     s.add_argument("--force", action="store_true", help="allow scanning more than 4096 addresses")
+    s.add_argument("--json", **as_json)
     s = sub.add_parser("bw", help="run the Bitwarden CLI with this box's vault session (bw-session file)")
     s.add_argument("args", nargs=argparse.REMAINDER, metavar="BW_ARGS", help="arguments for bw")
     s = sub.add_parser("providers", help="list password providers (built-in, plugins, roster.yml)")
@@ -849,7 +854,8 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true", help="show the plan; change nothing on any Host")
     s.add_argument("--rotate", action="append", metavar="HOST", help="replace HOST's Mesh key (repeatable)")
     s.add_argument("-y", "--yes", action="store_true", help="with cut: don't ask first")
-    s.add_argument("--json", action="store_true", help="with status: print JSON for scripts and tools")
+    s.add_argument("--json", action="store_true", help="with status or --dry-run: print JSON for scripts and "
+                   "tools, never a secret (see Machine-readable output in docs/cli-reference.md)")
     s = sub.add_parser("revoke", help="remove this box's key from all hosts")
     s.add_argument("--only", **only)
     s.add_argument("-y", "--yes", action="store_true", help="don't ask first")
@@ -888,11 +894,13 @@ def _main(argv=None):
         from .manpage import cmd_man
         return cmd_man(args)
     if args.cmd == "discover":
+        if args.json and args.write:
+            build_parser().error("--json goes with discover's preview, not --write: drop one of them")
         return cmd_discover(args)
     if args.cmd == "bw":
         return cmd_bw(args)
-    if args.cmd == "mesh" and args.json and args.action != "status":
-        build_parser().error("--json goes with mesh status only: roster mesh status --json")
+    if args.cmd == "mesh" and args.json and args.action != "status" and not (args.dry_run and not args.action):
+        build_parser().error("--json goes with mesh status or mesh --dry-run: it never applies the Mesh")
     if args.cmd == "check" and args.box:
         if args.host or args.only:
             build_parser().error("check --box takes no HOST or --only: it checks this Box, not its Hosts")
