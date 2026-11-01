@@ -125,6 +125,7 @@ impl Permission {
             Permission::Serve(m) if m == "discover.add" => {
                 "Can add the Hosts a scan found to your Inventory, unreviewed, as Pending changes you review and Publish.".into()
             }
+            Permission::Serve(m) if m == "host.check" => "Can check your Hosts as :check HOST does: roster connects to the Host and signs in once with its Login, then leaves (the Plugin never sees the password). It changes nothing there or in the Inventory, but a failed sign-in counts like any other.".into(),
             Permission::Serve(m) if !READS.contains(&m.as_str()) => {
                 format!("Can run roster's {m}, which can change things on your Hosts or in the Inventory.")
             }
