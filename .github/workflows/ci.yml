@@ -75,8 +75,9 @@ jobs:
           path: report.xml
           retention-days: 7
 
-  # roster natively on Windows (ticket 19): the same suite with Windows' Python, OpenSSH and named pipes. Tests that
-  # run a POSIX shell script on the machine (the remote half of a command, stand-in Hosts) skip themselves there.
+  # roster natively on Windows (ticket 19): the same suite with Windows' Python, OpenSSH, named pipes and ConPTY (vault
+  # sign-in, ticket 63). Tests that run a POSIX shell script on the machine (the remote half of a command) skip
+  # themselves there; the Mesh's stand-in Hosts run theirs with Git for Windows' sh, which the runner has.
   cli-test-windows:
     name: CLI tests (Windows)
     runs-on: windows-latest

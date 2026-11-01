@@ -4,16 +4,18 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
-from conftest import posix_shell
+from conftest import POSIX_SH, WINDOWS, stand_in_hosts
 
 from roster import mesh
 from roster.cli import main
 from roster.config import load_config
 
-# The stand-in Hosts run their side with sh (tests/fakes/ssh, FAKE_HOSTS), and ESXi's datastore is a symlink.
-pytestmark = posix_shell
+# The stand-in Hosts run their side with sh (tests/fakes/ssh, FAKE_HOSTS; Git for Windows' sh on native Windows, ticket
+# 63), and ESXi's datastore is a symlink.
+pytestmark = stand_in_hosts
 
 HOSTS = {"orion-2": "10.0.0.2", "orion-3": "10.0.0.3", "esx-02": "10.0.0.12", "sw-1": "10.0.0.20",
          "nas-1": "10.0.0.30", "db-9": "10.0.9.9", "new-1": "10.0.0.40", "jump-1": "10.0.5.1"}
@@ -58,6 +60,14 @@ class Net:
     def host(self, name):
         return self.root / name
 
+    @staticmethod
+    def seen(path):
+        """PATH as a stand-in Host's sh names it: as is, or on Windows as Git's sh does (C:\\x\\y is /c/x/y)."""
+        if not WINDOWS:
+            return str(path)
+        p = Path(path).resolve().as_posix()
+        return f"/{p[0].lower()}{p[2:]}" if p[1:2] == ":" else p
+
     def ak(self, name):
         d = self.host(name)
         p = d / "etc/ssh/keys-root/authorized_keys" if (d / "esxi").exists() else d / "home/.ssh/authorized_keys"
@@ -71,7 +81,11 @@ class Net:
         p = self.host(name) / rel
         if not p.exists():
             return None
-        return p.read_text().replace(str(self.host(name)), "") if (self.host(name) / "esxi").exists() else p.read_text()
+        text = p.read_text()
+        if (self.host(name) / "esxi").exists():
+            for form in {str(self.host(name)), self.host(name).as_posix(), self.seen(self.host(name))}:
+                text = text.replace(form, "")
+        return text
 
     def down(self, name, is_down=True):
         f = self.host(name) / "down"
@@ -90,7 +104,7 @@ class Net:
         return load_config(self.cfg_path)
 
     def snapshot(self):
-        return {str(p.relative_to(self.root)): p.read_bytes() for p in sorted(self.root.rglob("*"))
+        return {p.relative_to(self.root).as_posix(): p.read_bytes() for p in sorted(self.root.rglob("*"))
                 if p.is_file() and p.name != "connections"}
 
 
@@ -98,7 +112,7 @@ class Net:
 def net(fakes, isolated, write_config, monkeypatch, host_key):
     for f in (fakes / "host").iterdir():
         f.chmod(0o755)
-    root = isolated["home"].parent / "hosts"
+    root = isolated["home"].parent.resolve() / "hosts"        # Windows: its long name (no RUNNER~1), as the Host's sh says it
     for name in HOSTS:
         d = root / name
         (d / "home/.ssh").mkdir(parents=True)
@@ -111,13 +125,18 @@ def net(fakes, isolated, write_config, monkeypatch, host_key):
     (esx / "etc/ssh/keys-root").mkdir(parents=True)
     (esx / "etc/ssh/keys-root/authorized_keys").write_text("ssh-ed25519 AAAAbox roster-managed:box\n")
     (esx / "vmfs/volumes/5f0e-uuid").mkdir(parents=True)
-    (esx / "vmfs/volumes/datastore1").symlink_to("5f0e-uuid")
+    if WINDOWS:     # a junction: Git's sh reads it as a symlink, and it needs no privilege (a symlink does on Windows)
+        import _winapi
+        _winapi.CreateJunction(str(esx / "vmfs/volumes/5f0e-uuid"), str(esx / "vmfs/volumes/datastore1"))
+    else:
+        (esx / "vmfs/volumes/datastore1").symlink_to("5f0e-uuid")
     (root / "orion-2/home/.claude").mkdir()
     (root / "orion-2/home/.claude/CLAUDE.md").write_text("# my notes\n")
     kh = isolated["home"] / ".ssh"
     kh.mkdir()
     (kh / "roster_known_hosts").write_text("".join(f"{ip} ssh-ed25519 {host_key}\n" for ip in HOSTS.values()))
     monkeypatch.setenv("FAKE_HOSTS", str(root))
+    monkeypatch.setenv("FAKE_SH", POSIX_SH)
     return Net(root, write_config(CONFIG))
 
 
@@ -260,7 +279,7 @@ def test_apply_installs_tagged_keys_and_writes_each_sources_files(net):
     assert "StrictHostKeyChecking yes" in config
     assert (o2 / "known_hosts").read_text().count("ssh-ed25519") == 4
     main_config = net.file("orion-2", "home/.ssh/config")
-    assert main_config.splitlines()[:2] == [mesh.MARK, f"Include {o2}/config"]
+    assert main_config.splitlines()[:2] == [mesh.MARK, f"Include {net.seen(o2)}/config"]
     assert main_config.endswith("Host *\n    ServerAliveInterval 60\n")
     md = net.file("orion-2", "home/ROSTER.md")
     assert "| sw-1 | admin@10.0.0.20:22 | password |" in md and "ask the user to log in" in md
@@ -284,6 +303,7 @@ def test_esxi_keeps_its_key_on_a_datastore_and_takes_keys_in_etc_ssh(net):
     assert "ssh -F /vmfs/volumes/5f0e-uuid/.roster-mesh/config <name>" in md
 
 
+@pytest.mark.skipif(WINDOWS, reason="NTFS has no mode bits to keep")
 def test_a_new_authorized_keys_on_esxi_gets_the_sticky_bit_so_it_survives_a_reboot(net):
     net.cfg_path.write_text(CONFIG.replace("esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: ops }"))
     mesh.run(net.cfg(), apply=True)
@@ -360,13 +380,13 @@ def test_mesh_dir_drift_is_reported_by_check(net, capsys):
 def test_mesh_dir_works_on_linux_too_and_cascades_from_its_group(net):
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", f"    mesh: true\n    mesh_dir: {d}\n", 1).replace(
+    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", f"    mesh: true\n    mesh_dir: {net.seen(d)}\n", 1).replace(
         "esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: root, mesh_dir: null }"))
     cfg = net.cfg()
-    assert cfg["mesh_dirs"]["orion-2"] == str(d) and "esx-02" not in cfg["mesh_dirs"]
+    assert cfg["mesh_dirs"]["orion-2"] == net.seen(d) and "esx-02" not in cfg["mesh_dirs"]
     assert mesh.run(cfg, apply=True)["pending"] == {}
     assert (d / "id_ed25519").exists() and not (net.host("orion-2") / "home/.ssh/roster-mesh").exists()
-    assert f"Include {d}/config" in net.file("orion-2", "home/.ssh/config")
+    assert f"Include {net.seen(d)}/config" in net.file("orion-2", "home/.ssh/config")
 
 
 @pytest.mark.parametrize("value, message", [
@@ -395,7 +415,7 @@ def test_a_mesh_dir_whose_parent_is_missing_is_refused_on_the_host(net):
 
 def test_a_mesh_dir_holding_files_that_are_not_rosters_is_refused_and_left_alone(net):
     d = net.host("orion-2") / "home/.ssh"
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     (d / "id_ed25519").write_text("my own key\n")
     before = net.snapshot()
     r = mesh.run(net.cfg(), apply=True)
@@ -403,7 +423,7 @@ def test_a_mesh_dir_holding_files_that_are_not_rosters_is_refused_and_left_alone
     assert (d / "id_ed25519").read_text() == "my own key\n"
     assert net.file("orion-2", "home/.ssh/config") == before["orion-2/home/.ssh/config"].decode()
     net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", "").split("links:")[0]
-                            .replace("orion-2: 10.0.0.2", f"orion-2: {{ ip: 10.0.0.2, mesh_dir: {d} }}"))
+                            .replace("orion-2: 10.0.0.2", f"orion-2: {{ ip: 10.0.0.2, mesh_dir: {net.seen(d)} }}"))
     mesh.cut(net.cfg(), "orion-2")                                    # removing never touches what isn't roster's
     assert (d / "id_ed25519").read_text() == "my own key\n" and (d / "config").exists()
 
@@ -421,15 +441,15 @@ def test_moving_to_a_mesh_dir_warns_about_the_old_one(net):
 def test_removing_a_mesh_dir_warns_about_it_and_drops_its_include(net):
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     mesh.run(net.cfg(), apply=True)
     net.cfg_path.write_text(CONFIG)
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
     assert [w for w in r["warnings"] if w.startswith("orion-2:")] == [
-        f"orion-2: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+        f"orion-2: {net.seen(d)} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
     config = net.file("orion-2", "home/.ssh/config")
-    assert f"Include {d}/config" not in config and config.count("Include ") == 1
+    assert f"Include {net.seen(d)}/config" not in config and config.count("Include ") == 1
     assert (d / "id_ed25519").exists()                      # never removed by roster
     assert mesh.run(net.cfg())["already"]
 
@@ -437,11 +457,11 @@ def test_removing_a_mesh_dir_warns_about_it_and_drops_its_include(net):
 def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
     a, b = net.host("orion-2") / "srv/a", net.host("orion-2") / "srv/b"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(a), host="orion-2")
+    with_mesh_dir(net, net.seen(a), host="orion-2")
     mesh.run(net.cfg(), apply=True)
-    with_mesh_dir(net, str(b), host="orion-2")
+    with_mesh_dir(net, net.seen(b), host="orion-2")
     r = mesh.run(net.cfg(), apply=True)
-    assert any(w.startswith(f"orion-2: {a} holds an earlier Mesh key") for w in r["warnings"])
+    assert any(w.startswith(f"orion-2: {net.seen(a)} holds an earlier Mesh key") for w in r["warnings"])
     assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
 
 
@@ -451,7 +471,7 @@ DEFAULT = {"orion-2": "home/.ssh/roster-mesh", "esx-02": "vmfs/volumes/5f0e-uuid
 
 
 def as_the_host_sees_it(net, host, rel):
-    return f"/{rel}" if (net.host(host) / "esxi").exists() else str(net.host(host) / rel)
+    return f"/{rel}" if (net.host(host) / "esxi").exists() else net.seen(net.host(host) / rel)
 
 
 def leaving_the_mesh(net, host, mesh_dir=None):
@@ -721,6 +741,7 @@ def test_an_interrupted_cut_never_leaves_a_file_half_written(net, monkeypatch, t
     assert_no_file_was_damaged(net, before)
 
 
+@pytest.mark.skipif(WINDOWS, reason="NTFS has no mode bits to keep")
 def test_rewriting_a_file_keeps_its_mode(net):
     ak = net.host("orion-2") / "home/.ssh/authorized_keys"
     ak.chmod(0o640)
@@ -747,12 +768,12 @@ def test_an_apply_finishes_with_selinux_tools_that_work_or_fail(net, tmp_path, m
     for tool in ("chcon", "restorecon"):
         (d / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit {0 if ok else 1}\n')
         (d / tool).chmod(0o755)
-    monkeypatch.setenv("PATH", f"{d}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_HOST_PATH", str(d))                      # before the Host's own (Git's sh has a chcon)
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
     assert net.mesh_lines("nas-1") == [key_line_of(net, "orion-2", "10.0.0.2")]
     calls = log.read_text().splitlines()
-    assert f"restorecon -F {net.host('nas-1')}/home/.ssh/authorized_keys" in calls
+    assert f"restorecon -F {net.seen(net.host('nas-1'))}/home/.ssh/authorized_keys" in calls
     assert any(c.startswith("chcon --reference=") and "nas-1/home/.ssh/authorized_keys" in c for c in calls)
 
 

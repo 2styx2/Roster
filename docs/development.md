@@ -18,6 +18,7 @@ src/roster/
   cli.py            commands and argument parsing
   jsonout.py        `--json` on the read commands: one document with a version, `cmd:`/`env:` references cut (Q92, Q110)
   common.py         small shared helpers: output, paths, text, starting programs
+  conpty.py         a program on a Windows pseudoconsole (ConPTY, ctypes), in a job object: native Windows' PTY for bw_login
   config.py         loading/validating roster.yml, search, --only
   example.py        the `roster init` template
   sshops.py         keys, fingerprints, ssh config, key install/removal, password logins
@@ -45,7 +46,7 @@ src/roster/
   winpipe.py        Windows named pipes for askpass: a pipe only this user can open (its DACL), the client end (ctypes, stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
                     keepassxc (a local .kdbx through keepassxc-cli);
-                    bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
+                    bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login); ConPTY on Windows
 examples/           commented roster.yml and init.lua, provider plugin template, example Plugins and the Plugin API's types
 plugins/            the first-party Plugins (mesh, discover, topology), installed as Packages with dir = "plugins/NAME" (Q94)
 scripts/            gen-serve-api.py: docs/serve-api.md's method tables from serve's docstrings (Params:, Result:,
