@@ -873,8 +873,10 @@ export interface Backend {
   /** Loads (or reloads) a Plugin with what the user granted (`builtin:NAME` for a built-in one).
    * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
   pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
-  /** Calls a function the Plugin handed over (`{handler}` in its ops). */
-  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  /** Calls a function the Plugin handed over (`{handler}` in its ops). `user` (default true): the
+   * user chose it; false for what the app runs on its own (a finder's items, a `:check`, a timer,
+   * a question's cancel because another took its place), which is never the user's call. */
+  pluginCall(plugin: string, handler: number, args: unknown, user?: boolean): Promise<PluginReply>;
   /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   /** Takes a Plugin out of the core. */

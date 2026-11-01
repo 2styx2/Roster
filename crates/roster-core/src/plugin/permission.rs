@@ -43,10 +43,15 @@ const READS: &[&str] = &[
     "discover.status",
     "discover.stop",
 ];
-/// The grantable methods that act on the network or the Inventory: a Plugin may call them only
-/// while the user runs one of its actions, commands or finder items (a question's answer
-/// included), never at load, on an event or from a timer (decision Q100).
-pub const SERVE_USER_ONLY: &[&str] = &["discover.start", "discover.add"];
+/// Whether a Plugin may call `method` only while the user runs one of its actions, commands or
+/// finder items (a question's answer included), never at load, on an event, from a timer or as the
+/// app asks (a finder's `items`, a `:check` section's `check`): every grantable method the install
+/// prompt flags, the ones that act on the network or the Inventory (decision Q100). Derived from
+/// the flag, not listed, so a method added under `mesh.` or `discover.` waits for the user unless
+/// it's made a read; `inventory.write`'s methods (`host.update`, …) are none of the reads either.
+pub fn serve_user_only(method: &str) -> bool {
+    !READS.contains(&method)
+}
 /// Families a Plugin may be granted methods of (the mesh and discover Plugins, decision Q80).
 pub const SERVE_PREFIXES: &[&str] = &["mesh.", "discover."];
 
@@ -174,7 +179,6 @@ mod tests {
         assert_eq!(list(&t, "serve_methods"), SERVE_METHODS);
         assert_eq!(list(&t, "serve_prefixes"), SERVE_PREFIXES);
         assert_eq!(list(&t, "serve_reads"), READS);
-        assert_eq!(list(&t, "serve_user_only"), SERVE_USER_ONLY);
         let names: Vec<String> = [
             Permission::InventoryRead,
             Permission::InventoryWrite,

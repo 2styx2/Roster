@@ -18,6 +18,10 @@ use std::time::Duration;
 const STDERR_TAIL: usize = 4096;
 /// How long one call may take before it's given up on.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long closing the client waits for serve to exit on its own before killing it: serve stops
+/// a running background Mesh job then and records what it didn't finish (decision Q101), which
+/// takes it about half a second.
+pub const EXIT_GRACE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -181,13 +185,11 @@ impl RpcClient {
 }
 
 impl Drop for RpcClient {
-    /// Closing stdin is how serve is told to exit. Give it a moment, then make sure.
+    /// Closing stdin is how serve is told to exit. Give it [`EXIT_GRACE`], then make sure.
     fn drop(&mut self) {
         self.stdin.lock().unwrap().take();
-        for _ in 0..40 {
-            if self.is_dead() {
-                break;
-            }
+        let deadline = std::time::Instant::now() + EXIT_GRACE;
+        while !self.is_dead() && std::time::Instant::now() < deadline {
             thread::sleep(Duration::from_millis(25));
         }
         if !self.is_dead() {

@@ -16,6 +16,8 @@ The first argument picks a behaviour:
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
   notify             before answering inventory.watch, sends an inventory.changed notification
   bad-prepare        session.prepare for a password Host answers a numeric askpass token (a malformed result)
+  slow-exit FILE     once stdin closes, takes 1.5 s to wind down (as serve stopping a Mesh job and recording
+                     it), then writes FILE and exits on its own
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
 """
 import json
@@ -157,3 +159,9 @@ for line in sys.stdin:
             print(json.dumps({"jsonrpc": "2.0", "id": r["id"], "result": {"watching": True}}), flush=True)
             continue
         print(json.dumps({"jsonrpc": "2.0", "id": r["id"], **answer(r)}), flush=True)
+
+if mode == "slow-exit":
+    import time
+    time.sleep(1.5)
+    with open(sys.argv[2], "w") as f:
+        f.write("exited on its own\n")

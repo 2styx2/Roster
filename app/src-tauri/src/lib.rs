@@ -681,9 +681,19 @@ async fn plugin_call(
     plugin: String,
     handler: u64,
     args: Value,
+    user: Option<bool>,
 ) -> Result<plugin::Reply, ()> {
     let host = Arc::clone(&plugins);
-    blocking(move || Ok(host.call(&plugin, handler, args))).await
+    // `user: false`: the app runs it on its own (a finder's items, a `:check`, a timer, a
+    // question's cancel because another took its place), never the user's call.
+    blocking(move || {
+        Ok(if user == Some(false) {
+            host.call_by_app(&plugin, handler, args)
+        } else {
+            host.call(&plugin, handler, args)
+        })
+    })
+    .await
 }
 
 #[tauri::command]

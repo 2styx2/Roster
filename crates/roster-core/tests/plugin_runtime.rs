@@ -275,6 +275,43 @@ fn pairs_visits_keys_in_order_so_the_same_state_makes_the_same_ops() {
     assert_eq!(notices(&reply), ["a,b,c", "only"]);
 }
 
+/// `pairs` skips the sort for a sequence and sorts keys of one kind with Lua's own comparison (the
+/// iteration 8 review, for speed); every shape still comes out in the same order.
+#[test]
+fn pairs_keeps_its_order_for_every_shape_of_table() {
+    let init = r#"
+        local function walk(t)
+          local out = {}
+          for k, v in pairs(t) do out[#out + 1] = tostring(k) .. "=" .. tostring(v) end
+          roster.notify(table.concat(out, " "))
+        end
+        walk({ "a", "b", "c" })
+        local backwards = {}
+        for i = 5, 1, -1 do backwards[i * 10] = i end
+        walk(backwards)
+        walk({ [2.5] = "x", [1] = "y", [-3] = "z", [2] = "w" })
+        local holes = { "a", "b", "c" }
+        holes[2] = nil
+        holes[5] = "e"
+        walk(holes)
+        walk({ [true] = 1, [false] = 2, [3] = 3, x = 4 })
+        walk({ "a", "b", n = 2 })
+    "#;
+    let (_, reply) = load("pairs-shapes", &[], init);
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    assert_eq!(
+        notices(&reply),
+        [
+            "1=a 2=b 3=c",
+            "10=1 20=2 30=3 40=4 50=5",
+            "-3=z 1=y 2=w 2.5=x",
+            "1=a 3=c 5=e",
+            "3=3 x=4 false=2 true=1",
+            "1=a 2=b n=2",
+        ]
+    );
+}
+
 // --------------------------------------------------------------------------- lazy finders
 
 #[test]

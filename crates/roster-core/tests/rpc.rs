@@ -86,3 +86,20 @@ fn notifications_go_to_the_notify_callback_and_answers_still_reach_their_caller(
     assert_eq!(method, "inventory.changed");
     assert_eq!(params["applied"], true);
 }
+
+/// Closing the client closes serve's stdin and waits for it to exit on its own before killing it:
+/// serve stops a running background Mesh job then and records what it didn't finish (decision
+/// Q101), which takes it a moment, so the wait is longer than that.
+#[test]
+fn dropping_the_client_gives_serve_time_to_wind_down_on_its_own() {
+    let marker = std::env::temp_dir().join(format!("roster-core-rpc-slow-exit-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let mut c = Command::new("python3");
+    c.arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py"))
+        .arg("slow-exit")
+        .arg(&marker);
+    let client = RpcClient::spawn(c).expect("spawn fake serve");
+    drop(client);
+    assert!(marker.exists(), "serve was killed before it could finish winding down");
+    let _ = std::fs::remove_file(&marker);
+}

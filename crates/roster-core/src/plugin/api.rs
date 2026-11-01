@@ -493,7 +493,7 @@ pub const FUNCTIONS: &[Function] = &[
             "What to ask, the button that confirms, and what runs when the user does.",
         )],
         summary: "Asks the user to confirm, then runs a function",
-        doc: "The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc` or Cancel, or another Plugin's question taking its place). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question: the earlier one's `cancel` isn't called (your Plugin asked the new one, so it knows), and its functions are dropped.",
+        doc: "The app draws the question in its own style, with your Plugin's name on it, and only the user answers it: `run` is called when they confirm, `cancel` (if any) when they don't (`Esc` or Cancel, or another Plugin's question taking its place, which isn't a call the user started). Nothing a Plugin does can answer it or draw one of its own. Only while the user runs one of your actions, commands or finder items, so a question never comes up on its own. With `danger`, it's the stronger form for what can't be undone easily (a Mesh Cut): the confirming button is the danger colour and the keys start on Cancel, so a stray `Enter` only declines; with `typed` too, the user types that word (a Host's name) before the button works. Asking again replaces the question: the earlier one's `cancel` isn't called (your Plugin asked the new one, so it knows), and its functions are dropped.",
         returns: ("", ""),
         errors: &[
             (
@@ -941,7 +941,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Adds a section to `:check` (this Box's health), or replaces it",
-        doc: "Like Neovim's `vim.health`: with `check`, each `:check` calls it and shows the lines it returns, under the Plugin's name on `:help health`. It runs with the Plugin's permissions and the time budget of any call (a quarter of a second); one that fails or doesn't answer in time is an `ERROR` line of its section, and `:check` goes on without it. With `checks` and no `check`, `:check` shows them as the Plugin last set them.",
+        doc: "Like Neovim's `vim.health`: with `check`, each `:check` calls it and shows the lines it returns, under the Plugin's name on `:help health`. It runs with the Plugin's permissions and the time budget of any call (a quarter of a second), but it isn't a call the user started (no clipboard, questions, command lines or flagged serve methods in it); one that fails or doesn't answer in time is an `ERROR` line of its section, and `:check` goes on without it. With `checks` and no `check`, `:check` shows them as the Plugin last set them.",
         returns: ("", ""),
         errors: &[("roster.health.set: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[
@@ -1428,9 +1428,13 @@ pub const FUNCTIONS: &[Function] = &[
             p("changes", "Change", "The fields to change, and their new values."),
         ],
         summary: "Changes a Host's fields, as a Pending change",
-        doc: "serve's [`host.update`](serve-api.md#editing-pending-changes): `roster.yml` is edited as text (comments and every other entry stay) and the change waits for you to review and Publish it. A change to `ip`, `user`, `port` or `auth` needs a test login of exactly those values first (`host.verify_login`), which a Plugin can't make: from a Plugin those fail with code 75. Only `title`, `description` and `type` go through.",
+        doc: "serve's [`host.update`](serve-api.md#editing-pending-changes): `roster.yml` is edited as text (comments and every other entry stay) and the change waits for you to review and Publish it. A change to `ip`, `user`, `port` or `auth` needs a test login of exactly those values first (`host.verify_login`), which a Plugin can't make: from a Plugin those fail with code 75. Only `title`, `description` and `type` go through. Only while the user runs one of your actions, commands or finder items (decision Q100).",
         returns: ("UpdateResult", "What was written."),
         errors: &[
+            (
+                "roster.inventory.update: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener, a timer, a finder's `items` or a `:check`: it changes the Inventory",
+            ),
             (
                 "roster.inventory.update: params.changes: … (code -32602)",
                 "a field that can't be edited here, or a value of the wrong kind",
@@ -1460,9 +1464,13 @@ pub const FUNCTIONS: &[Function] = &[
             p("to", "string", "Its new name."),
         ],
         summary: "Renames a Host, as a Pending change",
-        doc: "serve's [`host.rename`](serve-api.md#the-live-inventory-hosts-and-groups-and-outside-edits): only its key in `roster.yml` and its name in `links:` change. Its vault item keeps its name.",
+        doc: "serve's [`host.rename`](serve-api.md#the-live-inventory-hosts-and-groups-and-outside-edits): only its key in `roster.yml` and its name in `links:` change. Its vault item keeps its name. Only while the user runs one of your actions, commands or finder items (decision Q100).",
         returns: ("RenameResult", "What was written."),
         errors: &[
+            (
+                "roster.inventory.rename: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener, a timer, a finder's `items` or a `:check`: it changes the Inventory",
+            ),
             ("roster.inventory.rename: … (code 2)", "no Host has that name"),
             (
                 "roster.inventory.rename: … (code 80 or 100)",
@@ -1485,12 +1493,16 @@ pub const FUNCTIONS: &[Function] = &[
             p("group", "string", "The group to move it to (at its end)."),
         ],
         summary: "Moves a Host to another group, as a Pending change",
-        doc: "serve's [`host.move`](serve-api.md#the-live-inventory-hosts-and-groups-and-outside-edits): what it inherited from its old group and wouldn't from the new one is written on the Host, so it stays the same Host.",
+        doc: "serve's [`host.move`](serve-api.md#the-live-inventory-hosts-and-groups-and-outside-edits): what it inherited from its old group and wouldn't from the new one is written on the Host, so it stays the same Host. Only while the user runs one of your actions, commands or finder items (decision Q100).",
         returns: (
             "MoveResult",
             "What was written, and which fields were pinned on the Host.",
         ),
         errors: &[
+            (
+                "roster.inventory.move: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener, a timer, a finder's `items` or a `:check`: it changes the Inventory",
+            ),
             ("roster.inventory.move: … (code 2)", "no Host has that name"),
             ("roster.inventory.move: … (code 101)", "no such group"),
             (
@@ -1518,9 +1530,13 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Marks a Host reviewed (or not), as a Pending change",
-        doc: "serve's [`host.review`](serve-api.md#adding-a-host-hostadd).",
+        doc: "serve's [`host.review`](serve-api.md#adding-a-host-hostadd). Only while the user runs one of your actions, commands or finder items (decision Q100).",
         returns: ("ReviewResult", "What was written."),
         errors: &[
+            (
+                "roster.inventory.review: only while the user runs one of your actions, commands or finder items",
+                "at load, in an event listener, a timer, a finder's `items` or a `:check`: it changes the Inventory",
+            ),
             ("roster.inventory.review: … (code 2)", "no Host has that name"),
             (
                 "roster.inventory.review: params.reviewed must be true or false (code -32602)",
@@ -1604,7 +1620,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Calls a roster serve method the Plugin was granted",
-        doc: "Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. `discover.start` (a scan of a network) and `discover.add` (Hosts into the Inventory) only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event or from a timer. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.",
+        doc: "Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. Every method the install prompt flags, the ones that act on the network or the Inventory (all but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`; `mesh.apply`, `mesh.cut`, `host.check`, `discover.start` and `discover.add` among them), only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check`. One call may ask roster serve this way (and through `roster.inventory`) at most 100 times, waiting 300 s in all. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.",
         returns: ("any", "The method's result, as Lua tables (JSON `null` is `nil`)."),
         errors: &[
             (
@@ -1613,7 +1629,11 @@ pub const FUNCTIONS: &[Function] = &[
             ),
             (
                 "roster.serve.call METHOD: only while the user runs one of your actions, commands or finder items",
-                "`discover.start` or `discover.add` at load, in an event listener or a timer",
+                "a flagged method (`mesh.apply`, `host.check`, `discover.start`, …) at load, in an event listener, a timer, a finder's `items` or a `:check`",
+            ),
+            (
+                "roster.serve.call METHOD: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)",
+                "the call asked roster serve 100 times already (or waited 300 s in all: `waited more than 300 s for roster serve in one go`)",
             ),
             (
                 "roster.serve.call METHOD: MESSAGE (code N)",
@@ -1645,7 +1665,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Asks roster serve without waiting: `done` gets the answer",
-        doc: "Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (it answers one request at a time: a Publish holds it for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, `discover.start` and `discover.add` only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for `discover.start` or `discover.add`. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.",
+        doc: "Returns at once; `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (it answers one request at a time: a Publish holds it for a minute or two). The same rules as [`roster.serve.call`](#rosterservecallmethod-params): the method must be granted, a flagged one (`mesh.apply`, `discover.start`, …) only in a call the user started, and a `cmd:` or `env:` Login reference in the result is cut to its kind. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question, copy or run a command line, as the call could, and may ask for a flagged method. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. An answer for a Plugin unloaded or reloaded since is dropped. At most 8 wait at once.",
         returns: ("", ""),
         errors: &[
             (
@@ -1654,7 +1674,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
             (
                 "roster.serve.request METHOD: only while the user runs one of your actions, commands or finder items",
-                "`discover.start` or `discover.add` at load, in an event listener or a timer",
+                "a flagged method (`mesh.apply`, `host.check`, `discover.start`, …) at load, in an event listener, a timer, a finder's `items` or a `:check`",
             ),
             (
                 "roster.serve.request METHOD: 8 requests are waiting for roster serve already: wait for one to answer",
@@ -2249,7 +2269,7 @@ pub const TYPES: &[Type] = &[
             o(
                 "items",
                 "FinderItem[]|fun(): FinderItem[]",
-                "What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.",
+                "What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens (not a call the user started, whoever opened it; choosing an item is). Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.",
             ),
             o(
                 "section",

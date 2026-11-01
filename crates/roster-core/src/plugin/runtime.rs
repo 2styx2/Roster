@@ -27,6 +27,14 @@ const REQUESTS: &str = "roster.plugin.requests";
 const REQUEST_KEYS: &[&str] = &["url", "method", "headers", "body", "timeout"];
 /// How many `roster.serve.request` calls one Plugin may have waiting at once (decision Q103).
 pub(crate) const MAX_SERVE_REQUESTS: usize = 8;
+/// The most times one call (a load, an event, an answer) may wait for roster serve
+/// (`roster.serve.call`, `roster.inventory`), and the most it may wait in all: serve's wait isn't
+/// the Plugin's time (Q103), so without these a call asking serve in a loop would never run out of
+/// time and would keep serve, which answers one request at a time, from the app. 300 s is serve's
+/// own longest deadline for one method, so one call merely queued behind a Publish still gets its
+/// answer; a call that passes either gets an error.
+pub(crate) const MAX_SERVE_CALLS: u32 = 100;
+pub(crate) const MAX_SERVE_WAIT: Duration = Duration::from_secs(300);
 /// The most UI ops one call may produce.
 pub(crate) const MAX_OPS: usize = 1000;
 /// The most text `roster.clipboard.copy` takes.
@@ -60,12 +68,19 @@ pairs = function(t)
   local mt = getmetatable(t)
   if type(mt) == "table" and mt.__pairs then return mt.__pairs(t) end
   if type(t) ~= "table" then error("bad argument #1 to 'pairs' (table expected, got " .. type(t) .. ")", 2) end
-  local keys, n = {}, 0
+  -- The order is fixed; the cost is kept down: a sequence (1..n, as the array part gives it) is in
+  -- order already, and keys all numbers or all strings sort with Lua's own comparison.
+  local keys, n, kind, ordered = {}, 0, nil, true
   for k in next, t do
     n = n + 1
     keys[n] = k
+    if k ~= n then ordered = false end
+    local tk = type(k)
+    if kind == nil then kind = tk elseif kind ~= tk then kind = false end
   end
-  sort(keys, before)
+  if not ordered then
+    if kind == "number" or kind == "string" then sort(keys) else sort(keys, before) end
+  end
   local i = 0
   return function()
     while i < n do
@@ -142,12 +157,28 @@ struct Shared {
     carried: Cell<bool>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
-    /// The handlers that run as the app asks, not as the user's call: a command's `complete`.
+    /// The handlers that run as the app asks, not as the user's call: a command's `complete`, a
+    /// finder's `items`, a `:check` section's `check`.
     quiet: RefCell<BTreeSet<u64>>,
     /// Its data folder (`roster.storage`, decision Q93): None when the host has no data folder.
     storage: Option<Result<Storage, String>>,
     /// How long this thread has waited for roster serve: the host doesn't count it.
     serving: Arc<ServeWait>,
+    /// During a run, the handlers it let go of: gone only once it succeeds, since a failed run's
+    /// ops never reach the app, which still shows (and calls) what they replaced.
+    dropping: RefCell<Option<Vec<u64>>>,
+    /// This run's calls into roster serve so far, and how long they waited in all.
+    served: Cell<(u32, Duration)>,
+}
+
+/// What a run may change in the core, as it was before: put back when the run fails, as its ops
+/// are dropped (the iteration 8 review: a failed call left timers that never reached the app
+/// counting toward the cap, and the buttons it replaced dead).
+struct Before {
+    handlers: Handlers,
+    timers: HashMap<u64, bool>,
+    commands: BTreeSet<String>,
+    quiet: BTreeSet<u64>,
 }
 
 /// Hands a request's answer back to the host (request id, answer), from a network or serve thread.
@@ -165,7 +196,7 @@ pub(crate) enum Arrival {
 /// 2^32 handlers a load, and the ids stay below 2^53, a whole number to JavaScript, for 2^21 loads.
 const HANDLER_BITS: u32 = 32;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Handlers {
     /// The last handler's number: the load's generation in the high bits.
     next: u64,
@@ -234,6 +265,8 @@ impl Runtime {
             quiet: RefCell::default(),
             storage,
             serving,
+            dropping: RefCell::default(),
+            served: Cell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -264,22 +297,23 @@ impl Runtime {
     }
 
     /// Calls a function the Plugin handed over, with `args`; its return value comes back as data.
-    /// A timer's function runs as the timer firing, not as something the user started; a
-    /// deferred one is gone once it has run.
-    pub(crate) fn call(&self, handler: u64, args: &Json) -> Outcome {
+    /// It's the user's call only when `user` (they chose it) and the handler isn't one the app
+    /// runs as it likes: a timer, a command's `complete`, a finder's `items`, a `:check` section's
+    /// `check`. A deferred timer's function is gone once it has run.
+    pub(crate) fn call(&self, handler: u64, args: &Json, user: bool) -> Outcome {
         let shared = Rc::clone(&self.shared);
         let timer = self.shared.timers.borrow().get(&handler).copied();
-        // A timer, or the app asking for completions, isn't something the user did.
         let quiet = self.shared.quiet.borrow().contains(&handler);
-        self.shared.user_call.set(timer.is_none() && !quiet);
+        self.shared.user_call.set(user && timer.is_none() && !quiet);
+        // A deferred timer is gone before it runs, so it can defer itself again; gone whether its
+        // run succeeds or not, as the app has let go of it already.
+        let taken = match timer {
+            Some(false) => Some(take_timer(&self.lua, &self.shared, handler)),
+            _ => None,
+        };
         let outcome = self.run(self.budget, move |lua| {
-            let f = match timer {
-                // Gone before it runs, so it can defer itself again.
-                Some(false) => Some(take_timer(lua, &shared, handler)?),
-                _ => None,
-            };
-            let f: Option<Function> = match f {
-                Some(f) => f,
+            let f: Option<Function> = match taken {
+                Some(f) => f?,
                 None => lua.named_registry_value::<Table>(HANDLERS)?.raw_get(handler)?,
             };
             let Some(f) = f else {
@@ -391,8 +425,23 @@ impl Runtime {
     fn run(&self, budget: Duration, body: impl FnOnce(&Lua) -> mlua::Result<Json>) -> Outcome {
         self.shared.clock.start(budget);
         self.shared.budget.set(Budget::default());
+        self.shared.served.set(Default::default());
         self.shared.ops.borrow_mut().clear();
+        let s = &self.shared;
+        let before = Before {
+            handlers: s.handlers.borrow().clone(),
+            timers: s.timers.borrow().clone(),
+            commands: s.commands.borrow().clone(),
+            quiet: s.quiet.borrow().clone(),
+        };
+        *s.dropping.borrow_mut() = Some(Vec::new());
         let result = body(&self.lua);
+        let dropped = s.dropping.borrow_mut().take().unwrap_or_default();
+        let settled = match &result {
+            Ok(_) => dropped.into_iter().try_for_each(|id| forget(&self.lua, s, id)),
+            Err(_) => self.undo(before),
+        };
+        let result = result.and_then(|v| settled.map(|()| v));
         let ops = std::mem::take(&mut *self.shared.ops.borrow_mut());
         match result {
             Ok(result) => Outcome {
@@ -424,6 +473,42 @@ impl Runtime {
             }
         }
     }
+}
+
+impl Runtime {
+    /// Puts the core back as it was before a failed run: the functions it handed over are let
+    /// go, the ones it replaced kept, and its timers, commands and quiet handlers as they were.
+    /// What Lua itself changed (a variable, a listener) stays, as a failed `init.lua`'s would.
+    fn undo(&self, before: Before) -> mlua::Result<()> {
+        let s = &self.shared;
+        let made = (before.handlers.next + 1)..=s.handlers.borrow().next;
+        let table: Table = self.lua.named_registry_value(HANDLERS)?;
+        for id in made {
+            table.raw_set(id, Value::Nil)?;
+        }
+        *s.handlers.borrow_mut() = before.handlers;
+        *s.timers.borrow_mut() = before.timers;
+        *s.commands.borrow_mut() = before.commands;
+        *s.quiet.borrow_mut() = before.quiet;
+        Ok(())
+    }
+}
+
+/// Lets handler `id` go: at once outside a run, else once the run has succeeded.
+fn let_go(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<()> {
+    match shared.dropping.borrow_mut().as_mut() {
+        Some(later) => {
+            later.push(id);
+            Ok(())
+        }
+        None => forget(lua, shared, id),
+    }
+}
+
+/// Handler `id` is gone: its function, and its place among the quiet ones.
+fn forget(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<()> {
+    shared.quiet.borrow_mut().remove(&id);
+    lua.named_registry_value::<Table>(HANDLERS)?.raw_set(id, Value::Nil)
 }
 
 /// `coroutine` (api 3), which Neovim authors expect: within the same memory limit and time budget.
@@ -467,7 +552,7 @@ fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> m
     let handlers: Table = lua.named_registry_value(HANDLERS)?;
     let old = shared.handlers.borrow_mut().owners.remove(owner).unwrap_or_default();
     for id in &old {
-        handlers.raw_set(*id, Value::Nil)?;
+        let_go(lua, shared, *id)?;
     }
     shared.handlers.borrow_mut().count -= old.len();
     let mut ids = Vec::new();
@@ -491,16 +576,17 @@ fn data(lua: &Lua, shared: &Shared, what: &str, value: &Value, owner: &str) -> m
 /// Drops the functions every owner `which` picks handed over (a view or a Host-details section
 /// taken away).
 fn drop_owners(lua: &Lua, shared: &Shared, which: impl Fn(&str) -> bool) -> mlua::Result<()> {
-    let handlers: Table = lua.named_registry_value(HANDLERS)?;
-    let mut h = shared.handlers.borrow_mut();
-    let owners: Vec<String> = h.owners.keys().filter(|k| which(k)).cloned().collect();
-    for owner in owners {
-        for id in h.owners.remove(&owner).unwrap_or_default() {
-            handlers.raw_set(id, Value::Nil)?;
-            h.count -= 1;
-        }
-    }
-    Ok(())
+    let ids: Vec<u64> = {
+        let mut h = shared.handlers.borrow_mut();
+        let owners: Vec<String> = h.owners.keys().filter(|k| which(k)).cloned().collect();
+        let ids: Vec<u64> = owners
+            .iter()
+            .flat_map(|o| h.owners.remove(o).unwrap_or_default())
+            .collect();
+        h.count -= ids.len();
+        ids
+    };
+    ids.into_iter().try_for_each(|id| let_go(lua, shared, id))
 }
 
 /// A view's spec without its table's `actions`, and those actions (`nil` for none). The
@@ -553,13 +639,14 @@ fn convert_error(what: &str, e: &lua::ConvertError) -> mlua::Error {
 /// Takes timer `id` out (and its function, returned): it won't run again.
 fn take_timer(lua: &Lua, shared: &Shared, id: u64) -> mlua::Result<Option<Function>> {
     shared.timers.borrow_mut().remove(&id);
-    let handlers: Table = lua.named_registry_value(HANDLERS)?;
-    let f: Option<Function> = handlers.raw_get(id)?;
-    let mut h = shared.handlers.borrow_mut();
-    if h.owners.remove(&format!("timer:{id}")).is_some() {
-        h.count -= 1;
+    let f: Option<Function> = lua.named_registry_value::<Table>(HANDLERS)?.raw_get(id)?;
+    {
+        let mut h = shared.handlers.borrow_mut();
+        if h.owners.remove(&format!("timer:{id}")).is_some() {
+            h.count -= 1;
+        }
     }
-    handlers.raw_set(id, Value::Nil)?;
+    let_go(lua, shared, id)?;
     Ok(f)
 }
 
@@ -630,15 +717,30 @@ fn check_id(what: &str, id: &str) -> mlua::Result<()> {
     }
 }
 
+/// Why a call refused something only the user's call may do.
+const USER_ONLY: &str = "only while the user runs one of your actions, commands or finder items";
+
 /// Errors unless the run is a call the user started (an action, a command, a finder item).
 fn user_only(shared: &Shared, what: &str) -> mlua::Result<()> {
     if shared.user_call.get() {
         Ok(())
     } else {
-        Err(mlua::Error::runtime(format!(
-            "{what}: only while the user runs one of your actions, commands or finder items"
-        )))
+        Err(mlua::Error::runtime(format!("{what}: {USER_ONLY}")))
     }
+}
+
+/// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
+/// the vault): never a Plugin's own, whatever it named its commands. The app refuses a Plugin's
+/// command named after any of roster's and checks every line again (`plugins/cmd.ts`); this is the
+/// core's side of it for the ones that matter most (the iteration 8 review).
+const ROSTER_ONLY: &[&str] = &["plugins", "packages", "publish", "source", "config", "vault"];
+
+/// Whether `word` is one of the Plugin's own commands: one it added, and not one of roster's that
+/// a Plugin may run ([`super::api::COMMANDS`], which keep the permission they need) or never may.
+fn own_command(s: &Shared, word: &str) -> bool {
+    s.commands.borrow().contains(word)
+        && !ROSTER_ONLY.contains(&word)
+        && !super::api::COMMANDS.iter().any(|c| c.name == word)
 }
 
 /// Whether a Plugin with `grants` may run roster's command `word` (api.rs's COMMANDS). Its own
@@ -676,17 +778,65 @@ fn serve(lua: &Lua, shared: &Shared, what: &str, method: &str, params: Json) -> 
     answer(lua, what, ask_serve(shared, method, params))
 }
 
-/// roster serve's answer, before it's Lua.
+/// roster serve's answer, before it's Lua. A method that acts on the network or the Inventory
+/// (`roster.serve.call`'s and `inventory.write`'s alike) is asked only in the user's call (Q100).
 fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String> {
+    if super::permission::serve_user_only(method) && !shared.user_call.get() {
+        return Err(USER_ONLY.into());
+    }
+    let (calls, waited) = shared.served.get();
+    if calls >= MAX_SERVE_CALLS {
+        return Err(format!(
+            "more than {MAX_SERVE_CALLS} calls into roster serve in one go (roster.serve.request doesn't wait)"
+        ));
+    }
+    if waited >= MAX_SERVE_WAIT {
+        return Err(format!(
+            "waited more than {} s for roster serve in one go (roster.serve.request doesn't wait)",
+            MAX_SERVE_WAIT.as_secs()
+        ));
+    }
     let started = Instant::now();
     shared.serving.begin();
     let result = shared.serve.call(method, params);
     shared.serving.end();
     shared.clock.extend(started.elapsed());
-    result.map(|mut v| {
-        redact(&mut v);
-        v
-    })
+    shared.served.set((calls + 1, waited + started.elapsed()));
+    redacted(result)
+}
+
+/// serve's answer as a Plugin gets it: `cmd:`/`env:` references cut in the answer and in an
+/// error's message alike (Q92), since serve's messages echo what they were given.
+fn redacted(result: Result<Json, String>) -> Result<Json, String> {
+    match result {
+        Ok(mut v) => {
+            redact(&mut v);
+            Ok(v)
+        }
+        Err(message) => Err(redact_error(&message)),
+    }
+}
+
+/// An error's message with its references cut. serve's `(code N)` at the end stays, even after a
+/// `cmd:` reference that runs to the end of the line: a Plugin tells errors apart by it.
+fn redact_error(message: &str) -> String {
+    let (text, code) = match message.rfind(" (code ") {
+        Some(at)
+            if message.ends_with(')')
+                && at + 8 < message.len()
+                && message[at + 7..message.len() - 1]
+                    .trim_start_matches('-')
+                    .chars()
+                    .all(|c| c.is_ascii_digit()) =>
+        {
+            message.split_at(at)
+        }
+        _ => (message, ""),
+    };
+    match redact_text(text) {
+        Some(cut) => format!("{cut}{code}"),
+        None => message.to_string(),
+    }
 }
 
 /// The Login references that say how a secret is fetched, `cmd:COMMAND` and `env:VAR`, cut to
@@ -831,7 +981,7 @@ fn request(
 fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, done: Function) -> mlua::Result<()> {
     let what = format!("roster.serve.request {method}");
     need(s, &Permission::Serve(method.clone()), "roster.serve.request")?;
-    if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
+    if super::permission::serve_user_only(&method) {
         user_only(s, &what)?;
     }
     let params = match params {
@@ -854,10 +1004,7 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
     std::thread::Builder::new()
         .name(format!("plugin:{} serve", s.plugin))
         .spawn(move || {
-            let result = serve.call(&asked, params).map(|mut v| {
-                redact(&mut v);
-                v
-            });
+            let result = redacted(serve.call(&asked, params));
             post(id, Arrival::Serve(result));
         })
         .map_err(|e| {
@@ -1010,6 +1157,17 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         func!(t, "set", |lua, s, (id, spec): (String, Table)| {
             check_id(&what, &id)?;
             let spec = data(lua, s, &what, &Value::Table(spec), &format!("{kind}:{id}"))?;
+            // What the app runs on its own, never the user's choice: a finder's `items` as it
+            // opens (whoever opened it, another Plugin's `roster.cmd` included) and a `:check`
+            // section's `check`.
+            let unasked = match kind {
+                "finder" => spec.get("items"),
+                "health" => spec.get("check"),
+                _ => None,
+            };
+            if let Some(id) = unasked.and_then(|f| f.get("handler")).and_then(Json::as_u64) {
+                s.quiet.borrow_mut().insert(id);
+            }
             let mut op = Map::new();
             op.insert("op".into(), kind.into());
             op.insert("id".into(), id.into());
@@ -1196,7 +1354,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         if line.len() > 500 {
             return Err(mlua::Error::runtime("roster.cmd: the line is over 500 characters"));
         }
-        if !s.commands.borrow().contains(word) {
+        if !own_command(s, word) {
             command_allowed(word, &s.grants).map_err(|m| mlua::Error::runtime(format!("roster.cmd: {m}")))?;
         }
         push(s, json!({ "op": "cmd", "line": line }))
@@ -1219,7 +1377,7 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             return Err(mlua::Error::runtime("roster.cmdline: the line is over 500 characters"));
         }
         let word = text.split_whitespace().next().unwrap_or("");
-        if !s.commands.borrow().contains(word) {
+        if !own_command(s, word) {
             return Err(mlua::Error::runtime(format!(
                 "roster.cmdline: {word:?} isn't one of your commands (a line such as \"alerts \")"
             )));
@@ -1435,9 +1593,6 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         let t = lua.create_table()?;
         func!(t, "call", |lua, s, (method, params): (String, Option<Value>)| {
             need(s, &Permission::Serve(method.clone()), "roster.serve.call")?;
-            if super::permission::SERVE_USER_ONLY.contains(&method.as_str()) {
-                user_only(s, &format!("roster.serve.call {method}"))?;
-            }
             let params = match params {
                 Some(v) => plain(s, "roster.serve.call", &v)?,
                 None => json!({}),
@@ -1523,4 +1678,67 @@ pub(crate) fn to_lua(lua: &Lua, v: &Json) -> mlua::Result<Value> {
             Value::Table(t)
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoServe;
+
+    impl Serve for NoServe {
+        fn call(&self, method: &str, _params: Json) -> Result<Json, String> {
+            Err(format!("unknown method {method}"))
+        }
+    }
+
+    fn runtime() -> Runtime {
+        Runtime::new(
+            "quiet",
+            "1.0.0",
+            Path::new(""),
+            &Json::Null,
+            BTreeSet::new(),
+            Arc::new(NoServe),
+            8 * 1024 * 1024,
+            Duration::from_millis(250),
+            None,
+            None,
+            Arc::new(ServeWait::default()),
+            1,
+        )
+        .unwrap()
+    }
+
+    /// The set of quiet handlers (a command's `complete`, a finder's `items`) holds only the ones
+    /// still there: a Plugin adding a command again and again, from a timer say, doesn't grow it
+    /// outside Lua's memory limit (the iteration 8 review).
+    #[test]
+    fn replaced_quiet_handlers_are_let_go() {
+        let rt = runtime();
+        let loaded = rt.load(
+            r#"
+            local function again()
+              roster.commands.add("pick", { run = function() end, complete = function() return {} end })
+              roster.finders.set("picks", { title = "Picks", items = function() return {} end })
+              roster.health.set("lab", { title = "Lab", check = function() return {} end })
+            end
+            again()
+            roster.commands.add("again", { run = again })
+            "#,
+            Duration::from_secs(1),
+        );
+        assert!(loaded.error.is_none(), "{:?}", loaded.error);
+        let again = loaded
+            .ops
+            .iter()
+            .find(|o| o["op"] == "command" && o["name"] == "again")
+            .and_then(|o| o["run"]["handler"].as_u64())
+            .unwrap();
+        for _ in 0..50 {
+            let r = rt.call(again, &json!({}), true);
+            assert!(r.error.is_none(), "{:?}", r.error);
+        }
+        assert_eq!(rt.shared.quiet.borrow().len(), 3);
+    }
 }

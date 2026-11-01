@@ -112,6 +112,15 @@ function serveMethodAllowed(method: string): boolean {
   );
 }
 
+/** Whether a Plugin may call `method` only in the user's call, as permission.rs's serve_user_only:
+ * every method the install prompt flags (decision Q100). */
+const userOnlyMethod = (method: string): boolean => !PERMISSIONS.serve_reads.includes(method);
+
+/** As runtime.rs's own_command: one the Plugin added, and not one of roster's. */
+const ROSTER_ONLY = ["plugins", "packages", "publish", "source", "config", "vault"];
+const ownCommand = (r: { commands: Set<string> }, word: string): boolean =>
+  r.commands.has(word) && !ROSTER_ONLY.includes(word) && !PLUGIN_COMMANDS.some((c) => c.name === word);
+
 // ------------------------------------------------------------------ network:<site> (Q97)
 // As roster-core's plugin/network.rs Site::parse, on the same table of cases.
 
@@ -333,7 +342,7 @@ export function fakePluginHost(
   pluginForget(plugin: string): Promise<boolean>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
-  pluginCall(plugin: string, handler: number, args: unknown): Promise<PluginReply>;
+  pluginCall(plugin: string, handler: number, args: unknown, user?: boolean): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   pluginUnload(plugin: string): Promise<boolean>;
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
@@ -351,7 +360,8 @@ export function fakePluginHost(
     if (!f) files.set(name, (f = new Map()));
     return f;
   };
-  /** The handlers the app calls as it likes (a command's complete): never a user's call. */
+  /** The handlers the app calls as it likes (a command's complete, a finder's items, a :check
+   * section's check): never a user's call. */
   const quiet = new Set<number>();
   const running = new Map<string, Running>();
   let next = 0;
@@ -389,7 +399,13 @@ export function fakePluginHost(
   const module = (r: Running, config: Record<string, unknown> = {}): FakeRoster => {
     const push = (op: Record<string, unknown>) => ops.push(data(r, op));
     const piece = (kind: string) => ({
-      set: (id: string, spec: Spec) => push({ op: kind, id, spec }),
+      set: (id: string, spec: Spec) => {
+        const op = data(r, { op: kind, id, spec }) as { spec: Record<string, { handler?: number } | undefined> };
+        // As runtime.rs: what the app runs on its own is never the user's call.
+        const unasked = kind === "finder" ? op.spec.items : kind === "health" ? op.spec.check : undefined;
+        if (unasked?.handler !== undefined) quiet.add(unasked.handler);
+        ops.push(op);
+      },
       remove: (id: string) => push({ op: "remove", kind, id }),
     });
     const m: FakeRoster = {
@@ -449,7 +465,7 @@ export function fakePluginHost(
       cmdline: (text) => {
         userOnly("roster.cmdline");
         const word = text.trim().split(/\s+/)[0] ?? "";
-        if (!r.commands.has(word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
+        if (!ownCommand(r, word)) throw new Error(`roster.cmdline: ${JSON.stringify(word)} isn't one of your commands`);
         push({ op: "cmdline", text });
       },
       storage: {
@@ -485,7 +501,7 @@ export function fakePluginHost(
         userOnly("roster.cmd");
         const word = line.trim().split(/\s+/)[0] ?? "";
         if (!word) throw new Error('roster.cmd: which command? (a line such as "finder alerts")');
-        if (!r.commands.has(word)) {
+        if (!ownCommand(r, word)) {
           const rule = PLUGIN_COMMANDS.find((c) => c.name === word);
           if (!rule) throw new Error(`roster.cmd: :${word} isn't one a Plugin may run (its own commands, and ${PLUGIN_COMMANDS.map((c) => c.name).join(", ")})`);
           if (rule.permission && !r.grants.has(rule.permission)) throw new Error(`roster.cmd: :${word} needs the ${rule.permission} permission`);
@@ -530,7 +546,7 @@ export function fakePluginHost(
       m.serve = {
         call: (method, params = {}) => {
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.call: not granted (serve:${method})`);
-          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(`roster.serve.call ${method}`);
+          if (userOnlyMethod(method)) userOnly(`roster.serve.call ${method}`);
           try {
             return serve(method, params);
           } catch (e) {
@@ -542,7 +558,7 @@ export function fakePluginHost(
         request: (method, params, done) => {
           const what = `roster.serve.request ${method}`;
           if (!r.grants.has(`serve:${method}`)) throw new Error(`roster.serve.request: not granted (serve:${method})`);
-          if (PERMISSIONS.serve_user_only.includes(method)) userOnly(what);
+          if (userOnlyMethod(method)) userOnly(what);
           if (r.requests >= MAX_SERVE_REQUESTS) {
             throw new Error(`${what}: ${MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer`);
           }
@@ -627,7 +643,7 @@ export function fakePluginHost(
       const reply = run(manifest.name, r, () => p.load(module(r, config)), true);
       return { manifest, dir: path, reply };
     },
-    async pluginCall(plugin, handler, args) {
+    async pluginCall(plugin, handler, args, user = true) {
       const r = running.get(plugin);
       if (!r || r.disabled) {
         const message = r?.disabled ? `it's disabled: ${r.disabled}` : "it isn't loaded";
@@ -641,7 +657,7 @@ export function fakePluginHost(
         r.timers.delete(handler);
         r.handlers.delete(handler);
       }
-      userCall = timer === undefined && !quiet.has(handler);
+      userCall = user && timer === undefined && !quiet.has(handler);
       try {
         return run(plugin, r, () => f((args ?? {}) as Record<string, unknown>));
       } finally {
