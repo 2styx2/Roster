@@ -232,6 +232,8 @@ pub struct Status {
     pub granted: Vec<Permission>,
     pub errors: u32,
     pub disabled: Option<String>,
+    /// Its network requests by site since the app started (decision Q116).
+    pub requests: Vec<network::SiteCount>,
 }
 
 enum Job {
@@ -266,6 +268,8 @@ struct Slot {
     generation: u64,
     /// How long its thread has waited for roster serve.
     serving: Arc<ServeWait>,
+    /// Its proxy setting, which its client reads at each request.
+    proxy: Arc<network::ProxyCell>,
 }
 
 /// Every loaded Plugin. Cheap to share: calls into different Plugins run at the same time.
@@ -283,6 +287,8 @@ pub struct PluginHost {
     /// The app's data folder: each Plugin keeps its data in `plugin-data/NAME` there
     /// ([`folder::Storage`], decision Q93). None: `roster.storage` says there's no data folder.
     data: std::sync::OnceLock<PathBuf>,
+    /// Each Plugin's network requests by site, by name: kept across reloads (decision Q116).
+    logs: Mutex<BTreeMap<String, Arc<network::Log>>>,
     /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
     /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
     offline: bool,
@@ -299,15 +305,25 @@ impl PluginHost {
             listener: Arc::default(),
             generation: AtomicU64::new(0),
             data: std::sync::OnceLock::new(),
+            logs: Mutex::default(),
             offline: false,
         }
     }
 
-    /// The host, with no Plugin reaching the network ([`demo`]): a `roster.http` request is never
-    /// sent, and its function hears why.
+    /// The host, with no Plugin reaching the network ([`demo`]): a `roster.http` request is checked
+    /// as ever, then never sent, and its function hears why.
     pub fn offline(mut self) -> Self {
         self.offline = true;
         self
+    }
+
+    /// A new proxy setting (`plugin_proxy` in init.lua changed, decision Q116) for every Plugin
+    /// running: each one's next request uses it; one already going finishes as it began. A
+    /// Plugin loaded later gets the setting it's handed ([`PluginHost::load_with_proxy`]).
+    pub fn set_proxy(&self, proxy: Option<network::Proxy>) {
+        for slot in self.slots.lock().expect("plugin slots").values() {
+            slot.proxy.set(proxy.clone());
+        }
     }
 
     /// The host, with each Plugin's data folder under `data` (the app's data folder, next to the
@@ -327,6 +343,8 @@ impl PluginHost {
     /// removed (`:plugins remove`, `:packages clean`): true if there was one. Not for a reload
     /// or a revoked permission, which keep it.
     pub fn forget(&self, plugin: &str) -> Result<bool, String> {
+        // A new Plugin by the same name starts its counts at nothing (decision Q116).
+        self.logs.lock().expect("plugin logs").remove(plugin);
         match self.data.get() {
             Some(data) => folder::forget(data, plugin),
             None => Ok(false),
@@ -352,6 +370,18 @@ impl PluginHost {
         source: &Source,
         grants: &[Permission],
         config: &Json,
+    ) -> Result<(Manifest, Reply), PluginError> {
+        self.load_with_proxy(source, grants, config, None)
+    }
+
+    /// [`PluginHost::load_with`], with the user's proxy for its requests to public names
+    /// (`plugin_proxy`, decision Q116). [`PluginHost::set_proxy`] changes it later.
+    pub fn load_with_proxy(
+        &self,
+        source: &Source,
+        grants: &[Permission],
+        config: &Json,
+        proxy: Option<network::Proxy>,
     ) -> Result<(Manifest, Reply), PluginError> {
         let (manifest, dir, code) = match source {
             Source::Dir(dir) => {
@@ -392,7 +422,16 @@ impl PluginHost {
             .collect();
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let serving = Arc::new(ServeWait::default());
-        let jobs = self.spawn(&manifest, &dir, grants.clone(), config.clone(), generation, &serving);
+        let proxy = Arc::new(network::ProxyCell::new(proxy));
+        let jobs = self.spawn(
+            &manifest,
+            &dir,
+            grants.clone(),
+            config.clone(),
+            generation,
+            &serving,
+            &proxy,
+        );
         // In the slots before init.lua runs: a request it makes may answer while it still loads.
         self.slots.lock().expect("plugin slots").insert(
             name.clone(),
@@ -406,6 +445,7 @@ impl PluginHost {
                 disabled: None,
                 generation,
                 serving: Arc::clone(&serving),
+                proxy,
             },
         );
         let answer = send(&jobs, Job::Load(source))
@@ -533,6 +573,17 @@ impl PluginHost {
             .map_or(0, |s| s.serving.requests.load(Ordering::SeqCst))
     }
 
+    /// The Plugin's network requests by site since the app started, for `:plugins`: counts and
+    /// a time only (decision Q116). Empty for one that made none or isn't there.
+    pub fn requests_by_site(&self, plugin: &str) -> Vec<network::SiteCount> {
+        self.logs
+            .lock()
+            .expect("plugin logs")
+            .get(plugin)
+            .map(|l| l.counts())
+            .unwrap_or_default()
+    }
+
     /// Every Plugin loaded, in name order.
     pub fn list(&self) -> Vec<Status> {
         self.slots
@@ -540,6 +591,7 @@ impl PluginHost {
             .expect("plugin slots")
             .values()
             .map(|s| Status {
+                requests: self.requests_by_site(&s.manifest.name),
                 manifest: s.manifest.clone(),
                 dir: s.dir.clone(),
                 granted: s.grants.iter().cloned().collect(),
@@ -573,6 +625,7 @@ impl PluginHost {
         settle(&self.slots, self.limits, plugin, None, answer)
     }
 
+    #[allow(clippy::too_many_arguments)] // each is one fact about this load, from its own place
     fn spawn(
         &self,
         manifest: &Manifest,
@@ -581,6 +634,7 @@ impl PluginHost {
         config: Json,
         generation: u64,
         serving: &Arc<ServeWait>,
+        proxy: &Arc<network::ProxyCell>,
     ) -> Jobs {
         let (tx, rx) = channel::<(Job, Sender<Answer>)>();
         let (name, version, dir) = (manifest.name.clone(), manifest.version.clone(), dir.to_path_buf());
@@ -598,6 +652,10 @@ impl PluginHost {
         });
         let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
+        let network = network::Setup {
+            proxy: Arc::clone(proxy),
+            log: Arc::clone(self.logs.lock().expect("plugin logs").entry(name.clone()).or_default()),
+        };
         let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
@@ -624,6 +682,7 @@ impl PluginHost {
                     storage,
                     serving,
                     generation,
+                    network,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -934,6 +993,14 @@ fn parse_manifest(v: &Json) -> Result<Manifest, String> {
         Some(Json::Object(o)) if o.is_empty() => {}
         Some(_) => return Err("permissions: a list of names such as \"inventory.read\"".into()),
     }
+    let sites: Vec<network::Site> = permissions
+        .iter()
+        .filter_map(|p| match p {
+            Permission::Network(site) => Some(site.clone()),
+            _ => None,
+        })
+        .collect();
+    network::check_together(&sites).map_err(|e| format!("permissions: {e}"))?;
     Ok(Manifest {
         name,
         version,

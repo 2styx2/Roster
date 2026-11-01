@@ -282,6 +282,7 @@ impl Runtime {
         storage: Option<Result<Storage, String>>,
         serving: Arc<ServeWait>,
         generation: u64,
+        network: network::Setup,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -294,9 +295,9 @@ impl Runtime {
         let net = if sites.is_empty() {
             None
         } else if offline {
-            Some(Net::offline(sites).map_err(|e| PluginError::new(plugin, None, None, e))?)
+            Some(Net::offline(sites, network).map_err(|e| PluginError::new(plugin, None, None, e))?)
         } else {
-            Some(Net::new(sites).map_err(|e| PluginError::new(plugin, None, None, e))?)
+            Some(Net::new(sites, network).map_err(|e| PluginError::new(plugin, None, None, e))?)
         };
         let (lua, clock) =
             lua::sandboxed(memory, (!dir.as_os_str().is_empty()).then_some(dir), plugin.to_string()).map_err(fail)?;
@@ -1025,11 +1026,9 @@ fn request(
         return Err(fail("not granted (network:<site>)".into()));
     };
     let req = net.check(method, url, headers, body, timeout).map_err(fail)?;
-    if !s
-        .grants
-        .iter()
-        .any(|g| matches!(g, Permission::Network(site) if site.allows(&req.url)))
-    {
+    // Again against the sites granted, by the same rule (a private: name only through its
+    // private: site): the client holds exactly those, built from the grants at load.
+    if !network::allowed(net.sites(), &req.url) {
         return Err(fail("not granted (network:<site>)".into()));
     }
     let id = s.next_request.get() + 1;
@@ -1788,6 +1787,7 @@ mod tests {
             None,
             Arc::new(ServeWait::default()),
             1,
+            network::Setup::default(),
         )
         .unwrap()
     }

@@ -150,12 +150,11 @@ async fn config_open(
 /// `:source` (and `:config reload`): reads init.lua again now, and tells every listener.
 #[tauri::command]
 async fn config_reload(app: tauri::AppHandle, config: tauri::State<'_, ConfigState>) -> Result<Option<Report>, ()> {
-    use tauri::Emitter;
     let Some(loader) = config.0.clone() else {
         return Ok(None);
     };
     let report = blocking(move || Ok::<_, ()>(loader.reload())).await?;
-    let _ = app.emit("config-changed", &report);
+    config_changed(&app, &report);
     Ok(Some(report))
 }
 
@@ -222,7 +221,7 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
         if let Some(e) = &report.error {
             eprintln!("roster: {e}");
         }
-        let _ = handle.emit("config-changed", report);
+        config_changed(&handle, &report);
     });
     let handle = app.handle().clone();
     let l = Arc::clone(loader);
@@ -231,9 +230,7 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     // folders.yml (decision Q46) is only read once now, to move its Folders into the Folders
     // Plugin (ticket 61, decision Q93), and isn't watched.
     match config::watch(loader.dir(), move || match l.on_save() {
-        Some(report) => {
-            let _ = handle.emit("config-changed", report);
-        }
+        Some(report) => config_changed(&handle, &report),
         None => {
             let _ = handle.emit("config-stale", ());
         }
@@ -664,6 +661,9 @@ async fn plugin_load(
     let host = plugin_host(&plugins, &demo, on_demo)?;
     let (config, packages) = (config.inner().clone(), packages.inner().clone());
     blocking(move || {
+        // The user's proxy for its requests to public names, from the Config in effect (decision
+        // Q116), handed to this load; a reload that changes it reaches it later (set_proxy).
+        let proxy = config.0.as_ref().and_then(|l| plugin_proxy(&l.settled()));
         let (source, mut handed, shown) = plugin_source(&config, &packages, &path)?;
         // A built-in Plugin's settings come from the app (Folders: init.lua's Folders, and
         // folders.yml's to move in once); a Package's from init.lua, and a folder has none.
@@ -672,7 +672,9 @@ async fn plugin_load(
         {
             handed = given;
         }
-        let (manifest, reply) = host.load_with(&source, &grants, &handed).map_err(|e| e.to_string())?;
+        let (manifest, reply) = host
+            .load_with_proxy(&source, &grants, &handed, proxy)
+            .map_err(|e| e.to_string())?;
         Ok(json!({ "manifest": manifest, "dir": shown, "reply": reply }))
     })
     .await
@@ -824,6 +826,37 @@ fn plugin_unload(
     on_demo: Option<u64>,
 ) -> bool {
     plugin_host(&plugins, &demo, on_demo).is_ok_and(|h| h.unload(&plugin))
+}
+
+/// `plugin_proxy` from a Config (decision Q116); the Config's check refused a bad one, so a
+/// value here parses.
+fn plugin_proxy(config: &roster_core::config::Config) -> Option<plugin::network::Proxy> {
+    config
+        .plugin_proxy
+        .as_deref()
+        .and_then(|p| plugin::network::Proxy::parse(p).ok())
+}
+
+/// A reload's Config reaches the running Plugins' proxy setting, then the frontend hears of it.
+fn config_changed(handle: &tauri::AppHandle, report: &Report) {
+    use tauri::{Emitter, Manager};
+    if let Some(plugins) = handle.try_state::<Arc<PluginHost>>() {
+        plugins.set_proxy(plugin_proxy(&report.config));
+    }
+    let _ = handle.emit("config-changed", report);
+}
+
+/// Each loaded Plugin's network requests by site since the app started, by its name, for
+/// `:plugins` (decision Q116): counts and a time, never a path, a query or a body.
+#[tauri::command]
+fn plugin_requests(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+) -> std::collections::BTreeMap<String, Vec<plugin::network::SiteCount>> {
+    plugins
+        .list()
+        .into_iter()
+        .map(|s| (s.manifest.name, s.requests))
+        .collect()
 }
 
 /// Removes a Plugin's data folder with everything in it (decision Q93): `:plugins remove` and
@@ -1185,6 +1218,7 @@ pub fn run() {
             plugin_forget,
             plugin_demo_start,
             plugin_demo_stop,
+            plugin_requests,
             packages_sync,
             packages_pin,
             packages_discard,

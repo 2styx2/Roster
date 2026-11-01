@@ -2392,7 +2392,7 @@ function Workspace({
             }}
           />
         )}
-        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} />)}
+        {pluginsOpen && framed("plugins", "Plugins", "plugins", <PluginsPanel snapshot={pluginSnap} onGrant={(name, perm, on) => void plugins.setGrant(name, perm, on)} onClose={closePlugins} onRefresh={() => void plugins.refreshRequests()} />)}
         {packagesOpen && framed("packages", "Packages", "packages", <PackagesPanel snapshot={pluginSnap} onClose={closePackages} />)}
         {pluginSnap.confirm && (
           <PluginConfirmPanel

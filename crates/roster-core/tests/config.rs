@@ -205,6 +205,28 @@ fn pull_fresh_minutes_defaults_to_five_and_takes_zero_to_a_day() {
 }
 
 #[test]
+fn plugin_proxy_is_unset_by_default_and_never_carries_credentials() {
+    // Decision Q116: the user's proxy for Plugins' requests, an http://HOST:PORT and nothing more.
+    assert_eq!(Config::default().plugin_proxy, None);
+    let dir = with_init("proxy", "return { plugin_proxy = \"http://10.0.0.5:3128\" }\n");
+    assert_eq!(
+        config::load(&dir).unwrap().plugin_proxy.as_deref(),
+        Some("http://10.0.0.5:3128")
+    );
+    let dir = with_init(
+        "proxy-creds",
+        "return {\n  plugin_proxy = \"http://someone:hunter2@10.0.0.5:3128\",\n}\n",
+    );
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, Some(2), "{e}");
+    assert!(
+        e.message.contains("plugin_proxy") && e.message.contains("no user or password"),
+        "{e}"
+    );
+    assert!(!e.message.contains("hunter2"), "{e}");
+}
+
+#[test]
 fn returning_something_other_than_a_table_is_an_error() {
     let dir = with_init("notable", "return 42\n");
     assert!(config::load(&dir).unwrap_err().message.contains("must return a table"));
