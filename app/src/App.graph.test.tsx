@@ -226,6 +226,21 @@ describe("a Plugin's graph", () => {
     });
   });
 
+  it("m on a collapsed cluster says how to move one of its nodes, and moves nothing (T99)", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:view topo{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    await user.keyboard("/web-1{Enter}o");
+    expect(foot()).toMatch(/^web: 2 nodes, collapsed/);
+    await user.keyboard("m");
+    await said("web is collapsed: o opens it, then m moves one of its nodes");
+    expect(foot()).toBe("web is collapsed: o opens it, then m moves one of its nodes");
+    // Not placing (h j k l still go between nodes), and the next key clears it.
+    await user.keyboard("k");
+    expect(foot()).not.toMatch(/is collapsed: o opens it|^Moving/);
+    expect(document.querySelector(".graph-foot .dt-keys")?.textContent).not.toMatch(/put back/);
+  });
+
   it("m moves the selected node from the keyboard: Enter keeps the place, Esc puts it back (T89)", async () => {
     const { user, platform } = await ready();
     await user.keyboard(`${LEADER}:view topo{Enter}`);

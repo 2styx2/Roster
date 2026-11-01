@@ -218,6 +218,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   // Placing a node from the keyboard (`m`, T89): which, and where it was, for Esc.
   const [moving, setMoving] = useState<{ id: string; from: { x: number; y: number } } | null>(null);
   const [moveSays, setMoveSays] = useState("");
+  // Why a key did nothing (m on a collapsed cluster, T99): shown under the graph until the next key.
+  const [notice, setNotice] = useState("");
   // The selection follows its node: into its cluster when that collapses, back out when it opens.
   const selected = useMemo(() => {
     if (chosen !== null && scene.byId.has(chosen)) return chosen;
@@ -348,6 +350,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     reveal(x, y);
   };
   const startMoving = () => {
+    if (current?.count !== undefined) return setNotice(`${current.label} is collapsed: o opens it, then m moves one of its nodes`);
     const n = currentNode && layout.nodes.get(currentNode.id);
     if (!currentNode || !n) return;
     setMoving({ id: currentNode.id, from: { x: n.x, y: n.y } });
@@ -488,6 +491,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const act = keyAction(e);
     if (!act) return;
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) setNotice("");
     e.preventDefault();
     e.stopPropagation();
     act();
@@ -718,10 +722,10 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
           {mode === "edges" && edgesModel && <DataTable key="edges" model={edgesModel} label={`${label}: edges`} leader={leader} autoFocus />}
         </div>
       )}
-      <Announce text={mode === "graph" ? (moving ? moveSays : [moveSays, about, searchSays].filter(Boolean).join(". ")) : ""} delay={150} />
+      <Announce text={mode === "graph" ? (moving ? moveSays : notice || [moveSays, about, searchSays].filter(Boolean).join(". ")) : ""} delay={150} />
       <p className="dt-foot muted key-hint graph-foot">
         <span className="graph-about" aria-hidden="true">
-          {mode !== "graph" ? "" : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
+          {mode !== "graph" ? "" : notice ? notice : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
         </span>
         <span className="dt-keys">
           {mode === "graph" && moving && (
