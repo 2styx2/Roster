@@ -11,7 +11,7 @@ type Edge = { id: string; from: string; to: string; dir?: string; style?: string
 type Cluster = { id: string; title: string; mesh?: boolean; members: string[] };
 type Link = { from: string; to: string; kind?: string; via?: string; skip?: string };
 
-export const TOPOLOGY_PERMISSIONS = ["inventory.read", "serve:mesh.status", "serve:host.check", "serve:mesh.cut", "serve:mesh.job"];
+export const TOPOLOGY_PERMISSIONS = ["inventory.read", "serve:mesh.status", "serve:host.check", "serve:mesh.cut", "serve:mesh.job", "serve:host.check_job"];
 
 const BOX = ":box";
 const MAX_HOSTS = 4999;
@@ -418,10 +418,10 @@ export function topologyPlugin(): FakePlugin {
   return {
     manifest: {
       name: "topology",
-      version: "1.0.0",
+      version: "1.1.0",
       description: "The Topology view: this Box, your Hosts by group, the Mesh and its Links as a map",
       author: "roster",
-      api: 3,
+      api: 4,
       permissions: TOPOLOGY_PERMISSIONS,
     },
     load(roster: FakeRoster) {
@@ -432,6 +432,7 @@ export function topologyPlugin(): FakePlugin {
       const canCheck = roster.has("serve:host.check");
       const canCut = roster.has("serve:mesh.cut");
       const canJob = roster.has("serve:mesh.job");
+      const canHearChecks = roster.has("serve:host.check_job");
       const VIEW = "topology";
       const live = new Map<string, Set<number>>();
       const down = new Map<string, string>();
@@ -680,6 +681,13 @@ export function topologyPlugin(): FakePlugin {
         },
       });
       if (reads) {
+        // The Sessions open before it loaded (api 4).
+        for (const open of roster.sessions.list?.() ?? []) {
+          if (!open.host) continue;
+          const set = live.get(open.host) ?? new Set<number>();
+          set.add(open.session);
+          live.set(open.host, set);
+        }
         roster.on("session_open", (e) => {
           if (!e.host) return;
           const host = String(e.host);
@@ -706,9 +714,35 @@ export function topologyPlugin(): FakePlugin {
           refresh();
         });
       }
-      // serve's job_progress (API 20): a cut's progress, mesh.job asked once it's over.
-      if (canJob) {
+      // How a check came out (serve API 21), asked once it's done: a failed one shows its Host down.
+      // Only the answer for a Host's latest finished check counts (by when it ended, not its id).
+      const latest = new Map<string, number>();
+      let tokens = 0;
+      const checkDone = (e: Obj) => {
+        if (typeof e.host !== "string") return;
+        const host = e.host;
+        const token = ++tokens;
+        latest.set(host, token);
+        ask("host.check_job", { job: e.job }, (j) => {
+          if (latest.get(host) !== token) return;
+          const job = j as { state?: string; result?: { ok?: boolean; steps?: { step: string; status: string }[] } } | undefined;
+          const r = job?.result;
+          if (!r || job.state !== "done") return;
+          if (r.ok) down.delete(host);
+          else {
+            const failed = (r.steps ?? []).find((step) => step.status === "fail")?.step;
+            down.set(host, failed ? `check failed at ${failed}` : "check failed");
+          }
+          draw();
+        });
+      };
+      // serve's job_progress (API 20): a cut's progress, mesh.job asked once it's over; a check's result.
+      if (canJob || canHearChecks) {
         roster.on("job_progress", (e) => {
+          if (e.kind === "check") {
+            if (e.state === "done") checkDone(e);
+            return;
+          }
           if (e.kind !== "mesh") return;
           pushed = true;
           if (cutting?.timer !== undefined) {
@@ -735,7 +769,7 @@ function helpPage(leader: string): string {
     "",
     `A map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. \`:topology\` opens it (\`:topology GROUP\` shows one group), and so does \`␣ ${leader}\`; Esc goes back.`,
     "",
-    "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.",
+    "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down (its Session couldn't connect, or a check of it failed) is crossed out.",
     "- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.",
     "- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.",
     "- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.",
@@ -744,7 +778,7 @@ function helpPage(leader: string): string {
     "",
     "Keys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).",
     "",
-    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
+    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, **serve:host.check_job** to show a Host down when a check of it fails, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
   ].join("\n");
 }
 

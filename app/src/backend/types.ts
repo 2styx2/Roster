@@ -908,6 +908,9 @@ export interface Backend {
   pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
   /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  /** The Sessions open now, in the order the app saw them open: the whole list, which replaces
+   * the core's (`roster.sessions.list()`, ticket 96, decision Q127). */
+  pluginSessions(open: OpenSession[]): Promise<void>;
   /** Takes a Plugin out of the core. */
   pluginUnload(plugin: string): Promise<boolean>;
   /** Removes a Plugin's data folder with everything in it (decision Q93), when the Plugin is
@@ -971,7 +974,7 @@ export interface PackageStatus {
 }
 
 /** The demo's Plugin host (`Backend.demoPlugins`): the Plugin methods, on the demo's own host. */
-export type DemoPluginHost = Pick<Backend, "pluginManifest" | "pluginTypes" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginUnload" | "pluginForget" | "onPluginReply"> & {
+export type DemoPluginHost = Pick<Backend, "pluginManifest" | "pluginTypes" | "pluginLoad" | "pluginCall" | "pluginEvent" | "pluginSessions" | "pluginUnload" | "pluginForget" | "onPluginReply"> & {
   close(): Promise<void>;
 };
 
@@ -1069,4 +1072,10 @@ export const PLUGIN_EVENTS = [
   "command_done",
   "job_progress",
 ] as const;
+/** An open Session as the core's `roster.sessions.list()` gets it: a Quick Connect Session's host is null. */
+export interface OpenSession {
+  session: number;
+  host: string | null;
+}
+
 export type PluginEventName = (typeof PLUGIN_EVENTS)[number];

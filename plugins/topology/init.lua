@@ -20,10 +20,11 @@ local can_mesh = roster.has("serve:mesh.status")
 local can_check = roster.has("serve:host.check")
 local can_cut = roster.has("serve:mesh.cut")
 local can_job = roster.has("serve:mesh.job")
+local can_hear_checks = roster.has("serve:host.check_job")
 
 local VIEW = "topology"
 local live = {} -- Host -> { [session] = true }
-local down = {} -- Host -> why it's down (its Session failed to connect, or a Check)
+local down = {} -- Host -> why it's down (its Session failed to connect, or a check failed)
 local ended = {} -- Host -> true: its last Session ended
 local mesh, mesh_error -- mesh.status's last answer, or why there's none
 local s -- build.structure's
@@ -335,7 +336,7 @@ roster.help.set("topology", {
       .. (settings.leader and (", and so does `␣ " .. settings.leader .. "`") or "")
       .. "; Esc goes back.",
     "",
-    "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.",
+    "- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down (its Session couldn't connect, or a check of it failed) is crossed out.",
     "- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.",
     "- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.",
     "- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.",
@@ -344,7 +345,7 @@ roster.help.set("topology", {
     "",
     "Keys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).",
     "",
-    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
+    "It needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, **serve:host.check_job** to show a Host down when a check of it fails, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
   }, "\n"),
 })
 
@@ -384,6 +385,13 @@ roster.health.set("topology", {
 -- ------------------------------------------------------------------- events and the clock
 
 if reads then
+  -- The Sessions open before it loaded (api 4): it hears of the rest as they open and end.
+  for _, open in ipairs(roster.sessions.list and roster.sessions.list() or {}) do
+    if open.host then
+      live[open.host] = live[open.host] or {}
+      live[open.host][open.session] = true
+    end
+  end
   roster.on("session_open", function(e)
     if not e.host then return end -- a Quick Connect Session isn't on a Host
     live[e.host] = live[e.host] or {}
@@ -407,10 +415,48 @@ if reads then
     refresh()
   end)
 end
--- serve's job_progress (API 20): a cut's progress as it moves, and mesh.job asked once it's over.
--- The first one means serve pushes, so the timer goes.
-if can_job then
+-- How a check came out (serve API 21: a check is a job), asked once it's done, the app's :check
+-- and Check from the map alike: a failed one shows its Host down, a passed one clears that.
+-- Answers can come back in any order, so only the answer for a Host's latest finished check counts
+-- (by when serve said each ended, not by its id, which starts again with a new roster serve).
+local latest = {} -- Host -> the token of its latest finished check
+local tokens = 0
+local function check_done(e)
+  if not e.host then return end
+  tokens = tokens + 1
+  local token = tokens
+  latest[e.host] = token
+  ask("host.check_job", { job = e.job }, function(j)
+    if latest[e.host] ~= token then return end -- a later check of it ended meanwhile
+    local r = type(j) == "table" and j.result
+    if type(r) ~= "table" or j.state ~= "done" then return end -- lost: no verdict
+    local host = e.host
+    if r.ok then
+      down[host] = nil
+    else
+      local failed
+      for _, step in ipairs(r.steps or {}) do
+        if step.status == "fail" then
+          failed = step.step
+          break
+        end
+      end
+      down[host] = failed and ("check failed at " .. failed) or "check failed"
+    end
+    draw()
+  end)
+end
+
+-- serve's job_progress (API 20): a cut's progress as it moves, and mesh.job asked once it's over
+-- (the first one means serve pushes, so the timer goes); a check's result once it's over.
+if can_job or can_hear_checks then
   roster.on("job_progress", function(e)
+    if e.kind == "check" then
+      -- Only a check that ran to its end says something about the Host: one stopped (the vault
+      -- locked) or failed (serve's own error) isn't asked about.
+      if e.state == "done" then check_done(e) end
+      return
+    end
     if e.kind ~= "mesh" then return end
     pushed = true
     if cutting and cutting.timer then

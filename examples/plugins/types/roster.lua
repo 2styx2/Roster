@@ -582,6 +582,19 @@
 ---@field ok boolean Whether every step passed.
 ---@field steps roster.CheckStep[] Every step, in order: `inventory`, `ssh-config`, `provider`, `vault-item`, `dns`, `tcp`, `host-key`, `auth`.
 
+--- `host.check_job`'s result: a Host's check, and how it came out
+---@class roster.CheckJob
+---@field kind "check" Always `"check"`.
+---@field job string Its id, `"check-N"`.
+---@field action "check" Always `"check"`.
+---@field state string `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`.
+---@field done integer Steps started.
+---@field total integer Steps in all (8).
+---@field at? string The step under way (`"dns"`, `"auth"`, ...).
+---@field host string The Host it checks.
+---@field result? roster.HostCheck Once `done` or `stopped`: `host.check`'s result. `ok` is false for a stopped check, its later steps `skipped`.
+---@field error? roster.ServeError Once `failed`: why.
+
 --- One step of a `host.check`
 ---@class roster.CheckStep
 ---@field step string Its name.
@@ -786,6 +799,11 @@
 --- `host_selected`'s payload
 ---@class roster.HostSelectedEvent
 ---@field host string The Host whose Session is on screen now.
+
+--- An open Session, as `roster.sessions.list` gives it
+---@class roster.Session
+---@field session integer The Session's id, as its events name it: `roster.terminal.send` and `roster.sessions.show` take it.
+---@field host? string The Host's name; `nil` for a Quick Connect Session (`:quick`), which isn't on a Host.
 
 --- `session_open`'s payload
 ---@class roster.SessionOpenEvent
@@ -1174,7 +1192,7 @@ function roster.storage.read_json(name) end
 ---@param value any Plain data: tables, text, numbers and booleans (no functions).
 function roster.storage.write_json(name, value) end
 
---- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on.
+--- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call. `roster.inventory.request` doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
 roster.inventory = {}
 
 --- Every Host, in `roster.yml` order.
@@ -1192,6 +1210,11 @@ function roster.inventory.host(name) end
 --- Permission: inventory.read. Since: api 3.
 ---@return table<string, roster.Group> # The groups, by name.
 function roster.inventory.groups() end
+
+--- Reads every Host and group without waiting: `done` gets them.
+--- Permission: inventory.read. Since: api 4.
+---@param done fun(list: roster.HostList?, err: string?) Runs once with the answer: every Host and group (`list.hosts`, `list.groups`), or `nil` and why (`roster.inventory.request: MESSAGE (code N)`). Its return value is ignored; an error in it counts like an action's.
+function roster.inventory.request(done) end
 
 --- Changes a Host's fields, as a Pending change.
 --- Permission: inventory.write. Since: api 2.
@@ -1221,7 +1244,7 @@ function roster.inventory.move(host, group) end
 ---@return roster.ReviewResult # What was written.
 function roster.inventory.review(host, reviewed) end
 
---- Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.
+--- Going to Sessions, and opening them. Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `list` is there with `inventory.read` or `terminal.read` (the permissions that hear `session_open` and `session_exit`), and `open` only with `sessions.open`.
 roster.sessions = {}
 
 --- Goes to a Session, and to a line in its scrollback.
@@ -1229,6 +1252,11 @@ roster.sessions = {}
 ---@param session integer The Session's id, from an event (`e.session`).
 ---@param line? string Text of a line it printed: the app searches its scrollback from the bottom for the latest line with it, and shows it highlighted.
 function roster.sessions.show(session, line) end
+
+--- The Sessions open now, in the order they opened.
+--- Permission: inventory.read or terminal.read. Since: api 4.
+---@return roster.Session[] # Each open Session's id and Host, oldest open first.
+function roster.sessions.list() end
 
 --- Opens a Session on a Host, as `:connect HOST`.
 --- Permission: sessions.open. Since: api 2.
