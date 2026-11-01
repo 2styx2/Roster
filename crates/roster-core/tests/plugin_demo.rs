@@ -200,3 +200,45 @@ fn its_files_are_a_throwaway_folder_empty_at_the_start_and_gone_with_the_demo() 
     drop(host);
     assert!(!folder.exists(), "the demo's files outlived it");
 }
+
+#[test]
+fn an_offline_request_is_checked_as_online_and_the_in_flight_cap_holds() {
+    let perms = ["network:api.example.com"];
+    let dir = plugin_dir(
+        "network-checks",
+        &perms,
+        r#"
+        local roster = require("roster")
+        local function try(f) local ok, err = pcall(f); roster.notify(ok and "sent" or err) end
+        try(function() roster.http.request({ url = "https://api.example.com/", headers = { Host = "x" } }, function() end) end)
+        try(function() roster.http.request({ url = "https://api.example.com/", method = "BREW" }, function() end) end)
+        try(function() roster.http.request({ url = "https://api.example.com/", body = string.rep("x", 300000) }, function() end) end)
+        try(function() roster.http.request({ url = "https://api.example.com/", timeout = -1 }, function() end) end)
+        try(function() roster.http.get("https://you:secret@api.example.com/", function() end) end)
+        try(function() roster.http.get("https://elsewhere.example.com/", function() end) end)
+        for i = 1, 5 do try(function() roster.http.get("https://api.example.com/" .. i, function() end) end) end
+        "#,
+    );
+    let scratch = common::temp("plugin-demo-scratch");
+    let (host, _rx) = listening(&scratch);
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &grants(&perms)).unwrap();
+    ok(&reply);
+    let said = notices(&reply.ops);
+    let want = [
+        "the Host header is roster's to set",
+        "isn't a method",
+        "the body is over",
+        "the timeout is a number of seconds above 0",
+        "a user or password",
+        "isn't a site this Plugin may reach",
+        "sent",
+        "sent",
+        "sent",
+        "sent",
+        "4 requests are going already",
+    ];
+    assert_eq!(said.len(), want.len(), "{said:?}");
+    for (got, want) in said.iter().zip(want) {
+        assert!(got.contains(want), "{got:?} should say {want:?}; all: {said:?}");
+    }
+}

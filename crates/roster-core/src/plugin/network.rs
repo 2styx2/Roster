@@ -372,6 +372,9 @@ pub struct Net {
     client: Client,
     in_flight: Arc<AtomicUsize>,
     tasks: std::cell::RefCell<Vec<tokio::task::AbortHandle>>,
+    /// Never sends (`:tutor`'s demo, decision Q123): every check runs and the in-flight cap holds,
+    /// but each request answers "not sent" instead of going out.
+    offline: bool,
 }
 
 impl Net {
@@ -406,7 +409,16 @@ impl Net {
             client,
             in_flight: Arc::new(AtomicUsize::new(0)),
             tasks: std::cell::RefCell::default(),
+            offline: false,
         })
+    }
+
+    /// [`Net::new`] for `:tutor`'s demo: the same checks and cap, but nothing is ever sent; each
+    /// request's answer says so.
+    pub fn offline(sites: Vec<Site>) -> Result<Net, String> {
+        let mut net = Net::new(sites)?;
+        net.offline = true;
+        Ok(net)
     }
 
     pub fn sites(&self) -> &[Site] {
@@ -485,6 +497,19 @@ impl Net {
             ));
         }
         let in_flight = Arc::clone(&self.in_flight);
+        if self.offline {
+            let why = format!(
+                "{} wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)",
+                request.url
+            );
+            // Counted as going until the Plugin has heard the answer, so the cap holds as online.
+            let task = rt.spawn_blocking(move || {
+                done(Answer::Failed(why));
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+            });
+            drop(task);
+            return Ok(());
+        }
         let client = self.client.clone();
         let task = rt.spawn(async move {
             let answer = fetch(&client, request).await;

@@ -188,8 +188,6 @@ struct Shared {
     net: Option<Net>,
     /// Where an answer goes: to the host, which runs it on this Plugin's thread.
     post: Option<Post>,
-    /// No request reaches the network (`:tutor`'s demo, decision Q123): each answers "not sent".
-    offline: bool,
     next_request: Cell<u64>,
     /// The `roster.serve.request` calls waiting, by request id: the method, and whether it was
     /// made in a call the user started (its answer runs as part of that call, decision Q103).
@@ -292,8 +290,10 @@ impl Runtime {
                 _ => None,
             })
             .collect();
-        let net = if sites.is_empty() || offline {
+        let net = if sites.is_empty() {
             None
+        } else if offline {
+            Some(Net::offline(sites).map_err(|e| PluginError::new(plugin, None, None, e))?)
         } else {
             Some(Net::new(sites).map_err(|e| PluginError::new(plugin, None, None, e))?)
         };
@@ -314,7 +314,6 @@ impl Runtime {
             commands: RefCell::default(),
             net,
             post,
-            offline,
             next_request: Cell::new(0),
             serving_requests: RefCell::default(),
             carried: Cell::new(false),
@@ -1021,9 +1020,6 @@ fn request(
     done: Function,
 ) -> mlua::Result<()> {
     let fail = |m: String| mlua::Error::runtime(format!("{what}: {m}"));
-    if s.offline {
-        return refuse_offline(lua, s, what, url, done);
-    }
     let (Some(net), Some(post)) = (&s.net, &s.post) else {
         return Err(fail("not granted (network:<site>)".into()));
     };
@@ -1043,32 +1039,6 @@ fn request(
         .map_err(fail)?;
     s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     requests.raw_set(id, done)
-}
-
-/// A request on a host that reaches no network (`:tutor`'s demo, decision Q123): checked against
-/// the grants as ever, never sent; `done` hears why, later, as it would hear a failed request.
-fn refuse_offline(lua: &Lua, s: &Shared, what: &str, url: &str, done: Function) -> mlua::Result<()> {
-    let fail = |m: String| mlua::Error::runtime(format!("{what}: {m}"));
-    let Some(post) = &s.post else {
-        return Err(fail("not granted (network:<site>)".into()));
-    };
-    let allowed = url::Url::parse(url).is_ok_and(|u| {
-        s.grants
-            .iter()
-            .any(|g| matches!(g, Permission::Network(site) if site.allows(&u)))
-    });
-    if !allowed {
-        return Err(fail("not granted (network:<site>)".into()));
-    }
-    let id = s.next_request.get() + 1;
-    s.next_request.set(id);
-    let requests: Table = lua.named_registry_value(REQUESTS)?;
-    requests.raw_set(id, done)?;
-    s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let post = Arc::clone(post);
-    let why = format!("{url} wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)");
-    std::thread::spawn(move || post(id, Arrival::Http(Answer::Failed(why))));
-    Ok(())
 }
 
 /// Checks and starts `roster.serve.request`: roster serve is asked on a thread of its own, and
