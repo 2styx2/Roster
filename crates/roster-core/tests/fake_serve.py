@@ -18,6 +18,10 @@ The first argument picks a behaviour:
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
   notify             before answering inventory.watch, sends an inventory.changed notification
   bad-prepare        session.prepare for a password Host answers a numeric askpass token (a malformed result)
+  hang               never answers host.get; a `$/cancel` (ticket 108) is echoed back as the notification
+                     test.cancelled {params, had_id} so a test can see the client sent it
+  checks             speaks API 21: host.check {background: true} starts a check job (counted in inventory.info's
+                     `checks`), host.check_job says running twice, then done with the waiting form's result
   slow-exit FILE     once stdin closes, takes 1.5 s to wind down (as serve stopping a Mesh job and recording
                      it), then writes FILE and exits on its own
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
@@ -49,6 +53,8 @@ TOKEN = "tok-3b1f9e2a7c-"
 minted = 0
 FINGERPRINT = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"
 trusted = mode != "unknown-key"
+CHECKED = {"host": "esxi-02", "ok": True, "steps": [{"step": "inventory", "status": "ok", "message": "root@10.19.77.10"}]}
+checks, polls = [], []
 
 
 def answer(req):
@@ -60,7 +66,24 @@ def answer(req):
     if m == "inventory.info":
         return {"result": {"path": "/home/u/infra/roster.yml", "box": "box1", "host_count": len(HOSTS),
                            "providers": ["bw"], "roster_version": "0.1.0",
-                           "api_version": 0 if mode == "old-api" else 1, "argv": sys.argv[2:]}}
+                           "api_version": 0 if mode == "old-api" else 21 if mode == "checks" else 1,
+                           "argv": sys.argv[2:], "checks": checks}}
+    if m == "host.check":
+        p = req.get("params", {})
+        if p.get("background") is True and mode == "checks":
+            checks.append(p["host"])
+            return {"result": {"kind": "check", "job": f"check-{len(checks)}", "action": "check", "state": "running",
+                               "done": 0, "total": 8, "at": None, "host": p["host"]}}
+        if "background" in p:
+            return {"error": {"code": -32602, "message": "an older serve has no background check"}}
+        return {"result": CHECKED}
+    if m == "host.check_job":
+        polls.append(req["params"]["job"])
+        if len(polls) < 3:
+            return {"result": {"kind": "check", "job": req["params"]["job"], "state": "running", "done": len(polls),
+                               "total": 8, "at": "dns", "host": "esxi-02"}}
+        return {"result": {"kind": "check", "job": req["params"]["job"], "state": "done", "done": 8, "total": 8,
+                           "at": None, "host": "esxi-02", "result": CHECKED}}
     if m == "hosts.list":
         if mode == "die-on-hosts":
             sys.exit(5)
@@ -167,6 +190,13 @@ for line in sys.stdin:
     else:
         reqs = [req]
     for r in reqs:
+        if r["method"] == "$/cancel":
+            if mode == "hang":
+                print(json.dumps({"jsonrpc": "2.0", "method": "test.cancelled",
+                                  "params": {"params": r.get("params"), "had_id": "id" in r}}), flush=True)
+            continue
+        if mode == "hang" and r["method"] == "host.get":
+            continue
         if mode == "notify" and r["method"] == "inventory.watch":
             print(json.dumps({"jsonrpc": "2.0", "method": "inventory.changed", "params": {"applied": True}}), flush=True)
             print(json.dumps({"jsonrpc": "2.0", "id": r["id"], "result": {"watching": True}}), flush=True)

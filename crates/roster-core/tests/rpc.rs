@@ -142,3 +142,32 @@ fn dropping_the_client_gives_serve_time_to_wind_down_on_its_own() {
     assert!(marker.exists(), "serve was killed before it could finish winding down");
     let _ = std::fs::remove_file(&marker);
 }
+
+/// When the client gives up waiting it tells serve with the notification `$/cancel {id}` (ticket
+/// 108): a request that hasn't started never runs. No id of its own, so serve doesn't answer it.
+#[test]
+fn a_call_that_times_out_is_cancelled_in_serve() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    let mut c = Command::new("python3");
+    c.arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_serve.py"))
+        .arg("hang");
+    let notify: roster_core::rpc::Notify = std::sync::Arc::new(move |method: &str, params| {
+        let _ = tx.lock().unwrap().send((method.to_string(), params));
+    });
+    let client = RpcClient::spawn_with(c, Some(notify)).expect("spawn fake serve");
+    client.call("inventory.info", json!({})).unwrap();
+    let err = client
+        .call_timeout(
+            "host.get",
+            json!({"name": "esxi-02"}),
+            std::time::Duration::from_millis(200),
+        )
+        .unwrap_err();
+    assert_eq!(err, CallError::Timeout);
+    let (method, params) = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    assert_eq!(method, "test.cancelled");
+    assert_eq!(params, json!({"params": {"id": 2}, "had_id": false}));
+    // the client still works, and the cancelled call's late answer (if any) reaches no one
+    assert_eq!(client.call("inventory.info", json!({})).unwrap()["box"], "box1");
+}

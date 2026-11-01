@@ -103,7 +103,8 @@
       "name": "job_progress",
       "needs": [
         "serve:mesh.job",
-        "serve:discover.status"
+        "serve:discover.status",
+        "serve:host.check_job"
       ],
       "payload": "JobProgressEvent"
     }

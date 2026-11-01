@@ -496,6 +496,23 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     fix: () => "Try again once it has finished: nothing was done.",
     actions: [],
   }),
+  // $/cancel (API 21, ticket 108): the core gave up waiting and cancelled a request that hadn't
+  // started; docs/app/errors.md row 114. Nothing was done.
+  row("serve-cancelled", {
+    row: 114,
+    codes: [5],
+    where: ["roster"],
+    fix: () => "Nothing was done: do it again if you still want it.",
+    actions: [],
+  }),
+  // host.check_job (API 21, ticket 108): no such check in this serve; docs/app/errors.md row 115.
+  row("check-gone", {
+    row: 115,
+    codes: [49],
+    where: ["roster"],
+    fix: () => "Check the Host again.",
+    actions: [],
+  }),
   // Adding a Host (ticket 11). A failed test login uses the failing step's own row.
   row("add-invalid", {
     row: 44,

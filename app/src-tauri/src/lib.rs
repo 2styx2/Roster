@@ -329,9 +329,12 @@ async fn vault_targets(state: tauri::State<'_, Arc<BackendState>>) -> Result<Val
 
 /// roster's diagnostics for one Host (`host.check`, api 2): its steps in order, stopping at the
 /// first failure. roster makes at most one connection and one login, so this is safe on 10.19.
+/// From serve API 21 it's a job in serve, followed by the core (`Backend::check_host`), so no
+/// worker of serve waits for it.
 #[tauri::command]
 async fn host_check(state: tauri::State<'_, Arc<BackendState>>, host: String) -> Result<Value, CallError> {
-    call(&state, "host.check", json!({ "host": host })).await
+    let backend = state.get()?;
+    blocking(move || backend.check_host(&host)).await
 }
 
 /// This Box's health (`box.check`, api 16, ticket 49): roster.yml, ssh, the vault CLIs, askpass and the
