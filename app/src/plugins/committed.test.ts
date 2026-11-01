@@ -3,7 +3,7 @@
 // after a resize isn't output, a rewritten line (a progress bar) arrives as it ended up, and a
 // full-screen program's drawing isn't sent at all.
 import { afterEach, describe, expect, it } from "vitest";
-import { CommittedLines, DONE_OUTPUT_MAX, PROMPT_LINES_MAX } from "./committed";
+import { CommittedLines, OUTPUT_MAX } from "./committed";
 
 const screens: CommittedLines[] = [];
 function screen(cols = 40, rows = 6) {
@@ -89,8 +89,7 @@ describe("a shell that marks its prompts (OSC 133)", () => {
     await s.write(`${A}esx-02$ ${B}`);
     await s.write("grep ERROR /var/log/syslog");
     await s.write(`\r\n${C}ERROR disk full\r\nERROR again\r\n${D(1)}${A}esx-02$ ${B}`);
-    expect(s.take()).toBe("ERROR disk full\nERROR again\n");
-    expect(s.marked()).toBe(true);
+    expect(s.takeRuns()).toEqual([{ text: "ERROR disk full\nERROR again\n", marks: true }]);
     expect(s.takeDone()).toEqual([{ command: "grep ERROR /var/log/syslog", output: "ERROR disk full\nERROR again\n", code: 1 }]);
     expect(s.takeDone()).toEqual([]);
   });
@@ -120,19 +119,86 @@ describe("a shell that marks its prompts (OSC 133)", () => {
     expect(s.take()).toBe("");
   });
 
-  it("a shell that never says C: after the line limit its marks are ignored, and what was held back is never sent", async () => {
+  // Review of #215, finding 1: held lines must never swallow output for good.
+  it("a shell that marks prompts but never says C: at most 20 rows are held back, then everything is sent", async () => {
     const s = screen(40, 6);
-    await s.write(`${A}$ ${B}secret-ish\r\n`);
-    for (let i = 0; i < PROMPT_LINES_MAX; i++) await s.write(`held ${i}\r\n`);
-    expect(s.take()).toBe("");
-    expect(s.marked()).toBe(false);
-    await s.write(`${A}$ ${B}ls\r\nERROR one\r\n`);
-    expect(s.take()).toBe("$ ls\nERROR one\n");
-    // A C puts the marks back in use.
-    await s.write(`${C}two\r\n${D(0)}${A}$ ${B}`);
-    expect(s.marked()).toBe(true);
-    expect(s.take()).toBe("two\n");
-    expect(s.takeDone()).toEqual([{ command: null, output: "two\n", code: 0 }]);
+    for (let i = 0; i < 10; i++) await s.write(`${A}$ ${B}ls ${i}\r\nf${i}a\r\nf${i}b\r\nf${i}c\r\n`);
+    // Five prompts of four rows each look like input given up; the sixth is one too many, so it
+    // and all after it are sent as a shell without marks would have them.
+    const sent = Array.from({ length: 5 }, (_, k) => k + 5).map((i) => `$ ls ${i}\nf${i}a\nf${i}b\nf${i}c\n`).join("");
+    await s.write(`${A}`);
+    expect(s.take()).toBe(sent);
+    expect(s.takeDone()).toEqual([]);
+  });
+
+  it("a shell that sends A every few lines can't keep them from Plugins past the limit, even after a real command", async () => {
+    const s = screen(40, 6);
+    await s.write(`${A}$ ${B}ls\r\n${C}file\r\n${D(0)}`);
+    s.take();
+    for (let i = 0; i < 30; i++) await s.write(`${A}$ ${B}hidden ${i}\r\n`);
+    expect(s.take()).toBe(Array.from({ length: 10 }, (_, k) => `$ hidden ${k + 20}\n`).join(""));
+  });
+
+  it("one prompt that holds more than 20 rows with no C sends them all and carries on without marks", async () => {
+    const s = screen(40, 6);
+    await s.write(`${A}$ ${B}tail -f app.log\r\n`);
+    for (let i = 0; i < 25; i++) await s.write(`line ${i}\r\n`);
+    expect(s.take()).toBe(`$ tail -f app.log\n${Array.from({ length: 25 }, (_, i) => `line ${i}\n`).join("")}`);
+  });
+
+  it("a C puts the marks back in use after they were ignored", async () => {
+    const s = screen(40, 6);
+    for (let i = 0; i < 25; i++) await s.write(`${A}$ ${B}x\r\n`);
+    s.take();
+    await s.write(`${A}$ ${B}uptime\r\n${C}up\r\n${D(0)}${A}$ ${B}ls\r\n${C}file\r\n${D(0)}`);
+    expect(s.takeRuns().at(-1)).toEqual({ text: "file\n", marks: true });
+  });
+
+  // Finding 2: `marks` vouches only for lines nobody typed into: a running ssh or nested shell's
+  // prompt and echo aren't the outer shell's to classify.
+  it("once you type into a running command (ssh, a nested shell), its lines aren't vouched for", async () => {
+    const s = screen();
+    await s.write(`${A}$ ${B}ssh esx-02\r\n${C}Welcome\r\n`);
+    s.typed();
+    await s.write("esx-02$ grep ERROR x\r\nERROR found\r\n");
+    expect(s.takeRuns()).toEqual([
+      { text: "Welcome\n", marks: true },
+      { text: "esx-02$ grep ERROR x\nERROR found\n", marks: false },
+    ]);
+  });
+
+  // Finding 4: a nested shell with marks takes over; the outer command's end can't be told apart.
+  it("a nested marked shell's prompt drops the outer command's command_done; its own commands come", async () => {
+    const s = screen();
+    await s.write(`${A}$ ${B}ssh esx-02\r\n${C}Welcome\r\n`);
+    await s.write(`${A}esx-02$ ${B}ls\r\n${C}file\r\n${D(0)}`);
+    await s.write(`${A}esx-02$ ${B}exit\r\n${C}logout\r\n${D(0)}`);
+    expect(s.take()).toBe("Welcome\nfile\nlogout\n");
+    expect(s.takeDone()).toEqual([
+      { command: "ls", output: "file\n", code: 0 },
+      { command: "exit", output: "logout\n", code: 0 },
+    ]);
+  });
+
+  // Finding 5: at D only what the command printed before it is output, never what comes after on
+  // that row (zsh's PROMPT_SP mark, the next prompt).
+  it("zsh's PROMPT_SP after output with no line feed isn't output", async () => {
+    const s = screen(40, 6);
+    await s.write(`${A}% ${B}printf done\r\n${C}done${D(0)}\x1b[7m%\x1b[27m${" ".repeat(39)}\r${A}% ${B}ls\r\n${C}f\r\n${D(0)}`);
+    expect(s.take()).toBe("done\nf\n");
+    expect(s.takeDone()).toEqual([
+      { command: "printf done", output: "done\n", code: 0 },
+      { command: "ls", output: "f\n", code: 0 },
+    ]);
+  });
+
+  // Finding 6: a C with no prompt marked before it (a preexec-only hook): its echo was sent as
+  // output already, so the command's lines aren't vouched for.
+  it("a C with no A or B before it doesn't vouch for its lines", async () => {
+    const s = screen();
+    await s.write(`$ ls\r\n${C}file\r\n${D(0)}`);
+    expect(s.takeRuns()).toEqual([{ text: "$ ls\nfile\n", marks: false }]);
+    expect(s.takeDone()).toEqual([{ command: null, output: "file\n", code: 0 }]);
   });
 
   it("keeps each command's last 16 KB of output", async () => {
@@ -141,8 +207,8 @@ describe("a shell that marks its prompts (OSC 133)", () => {
     await s.write(`${A}$ ${B}yes\r\n${C}${`${line}\r\n`.repeat(400)}tail\r\n${D(130)}`);
     const [done] = s.takeDone();
     expect(done?.output.endsWith(`${line}\ntail\n`)).toBe(true);
-    expect(done?.output.length).toBeLessThanOrEqual(DONE_OUTPUT_MAX);
-    expect(done?.output.length).toBeGreaterThan(DONE_OUTPUT_MAX - 200);
+    expect(done?.output.length).toBeLessThanOrEqual(OUTPUT_MAX);
+    expect(done?.output.length).toBeGreaterThan(OUTPUT_MAX - 200);
     expect(done?.code).toBe(130);
   });
 
@@ -176,8 +242,7 @@ describe("a shell that marks its prompts (OSC 133)", () => {
   it("a shell with no marks is read as before", async () => {
     const s = screen();
     await s.write("esx-02$ ls\r\nfile\r\n");
-    expect(s.marked()).toBe(false);
-    expect(s.take()).toBe("esx-02$ ls\nfile\n");
+    expect(s.takeRuns()).toEqual([{ text: "esx-02$ ls\nfile\n", marks: false }]);
     expect(s.takeDone()).toEqual([]);
   });
 });

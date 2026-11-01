@@ -720,6 +720,20 @@ describe("Quick Connect (ticket 14)", () => {
     expect([...hostsSeen]).toEqual([null]);
   });
 
+  // Ticket 94: the tap hears that something was typed (never what), so a shell's OSC 133 marks
+  // stop vouching for a running command's lines once the user types into it.
+  it("tells the Plugins' tap that something was typed, never what", async () => {
+    const { tabs } = quick();
+    const typed: unknown[][] = [];
+    tabs.setOutputTap({ output: () => {}, typed: (...args: unknown[]) => void typed.push(args) });
+    const id = tabs.openQuick(to);
+    await asked(tabs);
+    tabs.connectQuick(id, PASSWORD);
+    await vi.waitFor(() => expect(status(tabs)).toEqual({ state: "open" }));
+    tabs.write(id, "hunter2\r");
+    expect(typed).toEqual([[id]]);
+  });
+
   it("logs in with this Box's keys when the password is left empty", async () => {
     const { backend, tabs } = quick();
     const id = tabs.openQuick(to);

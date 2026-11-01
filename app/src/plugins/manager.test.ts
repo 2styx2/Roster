@@ -149,6 +149,31 @@ describe("running", () => {
     ]);
   });
 
+  // Review of #215, finding 3: `marks` is per line, so one batch whose lines differ is sent as
+  // one terminal_output per run, in order; and typing into a running command stops vouching.
+  it("a batch with lines from before the marks and after them is split by marks", async () => {
+    const heard: Record<string, unknown>[] = [];
+    const listener: FakePlugin = {
+      manifest: { name: "listener", version: "1.0.0", description: "Hears output", author: "A. Author", api: 4, permissions: ["terminal.read"] },
+      load(roster) {
+        roster.on("terminal_output", (e) => void heard.push(e));
+      },
+    };
+    const state = { [STATE_KEY]: [{ path: "~/plugins/listener", name: "listener", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    const { manager } = setup({ "~/plugins/listener": listener }, state);
+    await manager.start();
+    const say = (t: string) => manager.output(4, "esx-02", new TextEncoder().encode(t), SIZE);
+    say("booting\r\n\x1b]133;A\x07$ \x1b]133;B\x07ssh esx-03\r\n\x1b]133;C\x07Welcome\r\n");
+    manager.typed(4);
+    say("esx-03$ grep ERROR x\r\n");
+    await manager.flushOutput();
+    expect(heard).toEqual([
+      { session: 4, host: "esx-02", text: "booting\n", marks: false },
+      { session: 4, host: "esx-02", text: "Welcome\n", marks: true },
+      { session: 4, host: "esx-02", text: "esx-03$ grep ERROR x\n", marks: false },
+    ]);
+  });
+
   it("a function it handed over runs through `plugins call`, and its float shows", async () => {
     const { manager, registries } = setup({ [ALERTS]: alerts(["esx-02: ERROR"]) }, { ...installed });
     await manager.start();

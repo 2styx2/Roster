@@ -32,7 +32,7 @@ import type { Registries } from "../registries";
 import type { SidebarRow } from "../sidebar/Sidebar";
 import pluginApi from "../../../crates/roster-core/tests/fixtures/plugin-api.json";
 import { lineRefused } from "./cmd";
-import { CommittedLines, type ScreenSize } from "./committed";
+import { CommittedLines, lastLines, OUTPUT_MAX, type Run as OutputRun, type ScreenSize } from "./committed";
 import {
   MAX_TABLE_ROWS,
   parseFinderItems,
@@ -224,7 +224,6 @@ const MAX_USES = 8;
 const MAX_NOTICES = 4;
 /** How often the Sessions' output goes to the Plugins that read it, and how much at once. */
 const OUTPUT_EVERY_MS = 200;
-const OUTPUT_MAX = 16 * 1024;
 
 /** The Installed entries in the State (untrusted): anything malformed is dropped. */
 export function parseInstalled(json: unknown): Installed[] {
@@ -766,19 +765,36 @@ export class PluginManager {
     this.outputTimer ??= setTimeout(() => void this.flushOutput(), OUTPUT_EVERY_MS);
   }
 
+  /** The user typed into Session `session` (only that, never what): a running command's lines
+   * from here on aren't vouched for by its shell's marks (ticket 94). In order with its output. */
+  typed(session: number) {
+    const s = this.screens.get(session);
+    if (!s) return;
+    const { lines } = s;
+    s.done = s.done.then(() => lines.typed());
+  }
+
   /** Sends the lines committed so far (tests call it rather than wait). */
   async flushOutput(): Promise<void> {
     if (this.outputTimer) clearTimeout(this.outputTimer);
     this.outputTimer = null;
     const screens = [...this.screens.entries()];
     await Promise.all(screens.map(([, s]) => s.done));
-    // Each Session's output, then the commands that ended in it (ticket 94: a marked shell's).
+    // Each Session's output, one event per run of lines the marks vouch for alike, then the
+    // commands that ended in it (ticket 94: a marked shell's).
     const sends = screens.map(async ([session, s]) => {
-      const all = s.lines.take();
+      const runs = s.lines.takeRuns();
       const done = s.lines.takeDone();
-      // Too much at once: the last whole lines that fit.
-      const text = all.length > OUTPUT_MAX ? all.slice(all.indexOf("\n", all.length - OUTPUT_MAX - 1) + 1) : all;
-      if (text) await this.event("terminal_output", { session, host: s.host, text, marks: s.lines.marked() });
+      // Too much at once: the last whole lines that fit, in all the runs together.
+      let room = OUTPUT_MAX;
+      const kept: OutputRun[] = [];
+      for (let i = runs.length - 1; i >= 0 && room > 0; i--) {
+        const r = runs[i] as OutputRun;
+        const text = lastLines(r.text, room);
+        if (text) kept.unshift({ text, marks: r.marks });
+        room -= r.text.length;
+      }
+      for (const r of kept) await this.event("terminal_output", { session, host: s.host, text: r.text, marks: r.marks });
       for (const d of done) await this.event("command_done", { session, host: s.host, ...d });
     });
     await Promise.all(sends);

@@ -643,7 +643,7 @@
 ---@field session integer The Session's id.
 ---@field host? string The Host's name; `nil` for a Quick Connect Session.
 ---@field text string The lines it finished since the last one, each ending in `\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.
----@field marks? boolean `true` when the Session's shell writes OSC 133 marks: its prompts and the command lines typed at them aren't in `text` (a command's line comes in `command_done`, once it runs). `false` (or `nil` before api 4) when it doesn't, and the shell's echo of a command is in `text` like any output.
+---@field marks? boolean `true` when the Session's shell writes OSC 133 marks and every line in `text` is a command's output as they place it: no prompt, no command line (that comes in `command_done`, once it runs), and nothing typed into the Session since the command started (a running `ssh` or nested shell may echo what you type, which the marks can't tell apart). `false` (or `nil` before api 4) otherwise: a shell without marks, a prompt's other lines, or a command you typed into; then the shell's echo of what you typed may be in `text` like any output. One batch with lines of both kinds comes as two events, in order.
 
 --- `command_done`'s payload
 ---@class roster.CommandDoneEvent

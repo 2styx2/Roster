@@ -3727,7 +3727,7 @@ pub const TYPES: &[Type] = &[
             o(
                 "marks",
                 "boolean",
-                "`true` when the Session's shell writes OSC 133 marks: its prompts and the command lines typed at them aren't in `text` (a command's line comes in `command_done`, once it runs). `false` (or `nil` before api 4) when it doesn't, and the shell's echo of a command is in `text` like any output.",
+                "`true` when the Session's shell writes OSC 133 marks and every line in `text` is a command's output as they place it: no prompt, no command line (that comes in `command_done`, once it runs), and nothing typed into the Session since the command started (a running `ssh` or nested shell may echo what you type, which the marks can't tell apart). `false` (or `nil` before api 4) otherwise: a shell without marks, a prompt's other lines, or a command you typed into; then the shell's echo of what you typed may be in `text` like any output. One batch with lines of both kinds comes as two events, in order.",
             ),
         ],
         open: false,
@@ -3735,7 +3735,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "CommandDoneEvent",
         summary: "`command_done`'s payload",
-        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. Never what's typed: the command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased never comes, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't.",
+        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. Never what's typed: the command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased never comes, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't. A command a nested shell with marks took over (`ssh` to a Host with integration) has none: its end can't be told from the nested shell's; the nested shell's own commands do.",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),

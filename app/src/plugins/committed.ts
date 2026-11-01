@@ -11,20 +11,33 @@
 // A shell with integration (ticket 94, #167; decision Q121) writes OSC 133 marks: `A` its prompt
 // starts, `B` the command line starts (the prompt ended), `C` the command's output starts, `D;CODE`
 // the command ended. Read only, from what the shell prints; roster never writes to the Session.
-// With marks, the rows from `A` to `C` (the prompt and what's typed at it) are never taken as
-// output; the command line is read off the screen only at `C`, once the shell has run it (so input
-// that's erased, or a line given up with Ctrl-C, never leaves), and `D` makes a Done: that line,
-// the output since `C` and the exit code. A shell that marks prompts but never says `C` would hide
-// all its output: after PROMPT_LINES_MAX lines with no `C` the marks are ignored (until a `C`), and
-// the lines held back are dropped, never sent, since they may be what was typed.
+//
+// - The rows from `B` to `C` (what's typed at the prompt) are held back. At `C` the shell has run
+//   the command: its line is read off the screen for the Done and the held rows go. A prompt given
+//   up (an `A`, `B` or `D` with no `C`: Ctrl-C, an erased line) drops them: they're typed input.
+// - Held rows can't swallow output for good: more than HELD_MAX rows in one prompt, or dropped
+//   since the last command that ran, and the marks are doubted: what's held is sent, and so is
+//   everything after, as with no marks, until a `B` then a `C` show the shell does say `C`.
+// - Each line says whether the marks vouch for it (`marks`): only a command's output, from a `C`
+//   whose prompt was held back, until you type into the Session (then a running ssh or nested
+//   shell may be echoing you, and that isn't the marks' to say).
+// - `D` makes a Done: the command line, its output (as sent, plus what it printed before `D` on
+//   the cursor's row, never what comes after it there) and the exit code. An `A` while a command
+//   runs is a nested shell's (ssh to a Host with integration): it takes over, and the outer
+//   command gets no Done, since its end can't be told from the nested shell's.
 import { Terminal } from "@xterm/xterm";
 
-/** The most one Done's `output` holds: its last whole lines. */
-export const DONE_OUTPUT_MAX = 16 * 1024;
+/** The most text one `terminal_output` or one Done's `output` carries: its last whole lines. */
+export const OUTPUT_MAX = 16 * 1024;
 /** Dones kept between takes: the last ones. */
 export const DONES_MAX = 20;
-/** Lines a prompt may take before a `C` (a long prompt, a command typed over several lines). */
-export const PROMPT_LINES_MAX = 20;
+/** Rows held back in one prompt, or dropped since the last command ran, before the marks are doubted. */
+export const HELD_MAX = 20;
+
+/** The last whole lines of `text` that fit in `max` characters. */
+export function lastLines(text: string, max = OUTPUT_MAX): string {
+  return text.length > max ? text.slice(text.indexOf("\n", text.length - max - 1) + 1) : text;
+}
 
 /** A command a marked shell ran, from its `C` to its `D`. */
 export interface Done {
@@ -37,29 +50,37 @@ export interface Done {
   code: number | null;
 }
 
-type Phase = "none" | "prompt" | "output" | "idle";
-
-export interface ScreenSize {
-  cols: number;
-  rows: number;
+/** Lines in a row that the marks vouch for alike, each ending in a newline. */
+export interface Run {
+  text: string;
+  marks: boolean;
 }
+
+type Phase = "none" | "prompt" | "input" | "output" | "idle";
 
 export class CommittedLines {
   private readonly term: Terminal;
   /** Per row of the screen: the text taken from the line that starts there. */
   private taken: (string | undefined)[];
-  private lines: string[] = [];
+  private runs: Run[] = [];
   /** Where the Session is between OSC 133 marks: "none" until it sends one. */
   private phase: Phase = "none";
+  /** Whether the marks are believed: rows typed at a prompt are held back. */
+  private trusted = true;
+  /** Rows held back in this prompt (since `B`), and dropped since the last command ran. */
+  private held: string[] = [];
+  private dropped = 0;
+  /** Whether this prompt's rows are being held (the marks were believed at its `B`). */
+  private holding = false;
   /** Where the command line starts (`B`), as a row of the screen and a column. */
   private start: { row: number; col: number } | null = null;
   private command: string | null = null;
-  /** Lines held back in a prompt since its `A`. */
-  private held = 0;
-  /** The marks didn't add up (no `C`): ignored until a `C` comes. */
-  private ignoring = false;
-  private output: string[] = [];
-  private outputSize = 0;
+  /** Whether the marks vouch for the running command's lines. */
+  private vouch = false;
+  /** The running command's output since `C`: its lines from `outFrom` on, `outSize` characters. */
+  private out: string[] = [];
+  private outFrom = 0;
+  private outSize = 0;
   private dones: Done[] = [];
 
   constructor(size: ScreenSize) {
@@ -98,11 +119,24 @@ export class CommittedLines {
     }
   }
 
+  /** The user typed into the Session (not what: only that). A running command's lines from here
+   * on may be echoing it, so the marks don't vouch for them. */
+  typed() {
+    if (this.phase === "output") this.vouch = false;
+  }
+
+  /** The lines committed since the last take, in runs the marks vouch for alike. */
+  takeRuns(): Run[] {
+    const r = this.runs;
+    this.runs = [];
+    return r;
+  }
+
   /** The lines committed since the last take, each ending in a newline. */
   take(): string {
-    const text = this.lines.map((l) => `${l}\n`).join("");
-    this.lines = [];
-    return text;
+    return this.takeRuns()
+      .map((r) => r.text)
+      .join("");
   }
 
   /** The commands that ended since the last take (a marked shell's), oldest first. */
@@ -110,11 +144,6 @@ export class CommittedLines {
     const d = this.dones;
     this.dones = [];
     return d;
-  }
-
-  /** Whether the shell's OSC 133 marks are in use: its prompts and command lines aren't taken. */
-  marked(): boolean {
-    return this.phase !== "none" && !this.ignoring;
   }
 
   dispose() {
@@ -153,22 +182,62 @@ export class CommittedLines {
     const text = this.lineAt(y);
     if (this.taken[y] === text) return;
     this.taken[y] = text;
-    if (this.marked() && this.phase === "prompt") {
-      // The prompt, or what's typed at it: held back, never sent.
-      if (++this.held > PROMPT_LINES_MAX) this.ignoring = true;
+    if (this.phase === "input" && this.holding) {
+      this.held.push(text);
+      // Too much for what's typed at a prompt: doubt the marks, and send it all.
+      if (this.held.length > HELD_MAX) this.doubt();
       return;
     }
     this.push(text);
   }
 
+  /** Takes a line: vouched for only as a command's output the marks placed. */
   private push(text: string) {
-    this.lines.push(text);
-    if (this.phase !== "output") return;
-    this.output.push(text);
-    this.outputSize += text.length + 1;
-    while (this.outputSize > DONE_OUTPUT_MAX && this.output.length > 1) {
-      this.outputSize -= (this.output.shift() ?? "").length + 1;
+    const marks = this.phase === "output" && this.vouch;
+    const last = this.runs[this.runs.length - 1];
+    if (last && last.marks === marks) last.text += `${text}\n`;
+    else this.runs.push({ text: `${text}\n`, marks });
+    if (this.phase === "output") this.collect(text);
+  }
+
+  /** Keeps a line of the running command's output, its last OUTPUT_MAX characters only. */
+  private collect(text: string) {
+    this.out.push(text);
+    this.outSize += text.length + 1;
+    while (this.outSize > OUTPUT_MAX && this.outFrom < this.out.length) {
+      this.outSize -= (this.out[this.outFrom] ?? "").length + 1;
+      this.outFrom++;
     }
+    // Drop the lines gone by now and then, not each time: amortized, no shifting every line.
+    if (this.outFrom > 1024 && this.outFrom * 2 > this.out.length) {
+      this.out = this.out.slice(this.outFrom);
+      this.outFrom = 0;
+    }
+  }
+
+  private resetOutput() {
+    this.out = [];
+    this.outFrom = 0;
+    this.outSize = 0;
+  }
+
+  /** The marks don't add up: send what's held, and hold nothing until a `B` then a `C`. */
+  private doubt() {
+    const held = this.held;
+    this.held = [];
+    this.holding = false;
+    this.trusted = false;
+    for (const text of held) this.push(text);
+  }
+
+  /** A prompt given up with no `C` (Ctrl-C, an erased line): what was typed at it is dropped,
+   * unless that's more than the marks are believed for. */
+  private abandon() {
+    if (!this.holding) return;
+    if (this.dropped + this.held.length > HELD_MAX) return this.doubt();
+    this.dropped += this.held.length;
+    this.held = [];
+    this.holding = false;
   }
 
   /** An OSC 133 mark: `A`, `B`, `C`, or `D` with the exit code after a `;`. */
@@ -178,52 +247,85 @@ export class CommittedLines {
     switch (kind) {
       case "A":
       case "N":
-        if (this.ignoring || !this.normal()) return;
+        if (!this.normal()) return;
+        // While a command runs: a nested shell's prompt (ssh to a Host with integration). It takes
+        // over; the outer command gets no Done (its end can't be told from the nested shell's).
+        if (this.phase === "output") this.resetOutput();
+        if (this.phase === "input") this.abandon();
         this.phase = "prompt";
         this.start = null;
-        this.held = 0;
         return;
       case "B":
-        if (this.ignoring || !this.normal()) return;
-        this.phase = "prompt";
+        if (!this.normal()) return;
+        // Again in the same prompt (a redraw): it starts where the cursor is now.
+        if (this.phase !== "input") {
+          if (this.phase === "output") this.resetOutput();
+          this.phase = "input";
+          this.holding = this.trusted;
+          this.held = [];
+        }
         this.start = { row: b.cursorY, col: b.cursorX };
         return;
-      case "C":
+      case "C": {
         // Twice (a shell's own mark and a snippet's): the first one counts.
         if (!this.normal() || this.phase === "output") return;
-        this.command = this.ignoring ? null : this.commandLine();
-        // A `C` before the line feed (pwsh's): the row with the command line isn't output either.
+        const prompted = this.phase === "input";
+        this.command = prompted ? this.commandLine() : null;
+        // It ran: what was typed is in the command line now, not held. Only a prompt whose rows
+        // were held vouches for the output; a `B` then a `C` shows the marks can be believed.
+        this.vouch = prompted && this.holding;
+        if (prompted) {
+          this.trusted = true;
+          this.dropped = 0;
+        }
+        this.held = [];
+        this.holding = false;
+        // A `C` before the line feed (pwsh's): the row with the command line isn't output.
         if (b.cursorX > 0) {
           const y = this.lineStart(b.cursorY);
           this.taken[y] = this.lineAt(y);
         }
-        this.ignoring = false;
         this.phase = "output";
         this.start = null;
-        this.output = [];
-        this.outputSize = 0;
+        this.resetOutput();
         return;
+      }
       case "D": {
-        if (this.phase !== "output") return;
-        // What it printed with no line feed after it (`printf done`) is output too.
+        if (this.phase === "input") this.abandon();
+        if (this.phase !== "output") {
+          this.phase = "idle";
+          return;
+        }
+        // What it printed with no line feed after it (`printf done`): only what's before the
+        // cursor now, never what comes after on that row (zsh's PROMPT_SP, the next prompt).
         if (this.normal() && b.cursorX > 0) {
-          const y = this.lineStart(b.cursorY);
-          const text = this.lineAt(y);
-          if (this.taken[y] !== text) {
-            this.taken[y] = text;
-            this.push(text);
-          }
+          const text = this.before(b.cursorY, b.cursorX);
+          if (text) this.push(text);
         }
         const code = arg !== undefined && /^-?\d+$/.test(arg) ? Number(arg) : null;
-        this.dones.push({ command: this.command, output: this.output.map((l) => `${l}\n`).join(""), code });
+        const output = lastLines(
+          this.out
+            .slice(this.outFrom)
+            .map((l) => `${l}\n`)
+            .join(""),
+        );
+        this.dones.push({ command: this.command, output, code });
         if (this.dones.length > DONES_MAX) this.dones.shift();
         this.phase = "idle";
         this.command = null;
-        this.output = [];
-        this.outputSize = 0;
+        this.resetOutput();
         return;
       }
     }
+  }
+
+  /** The text of the line through row `y`, up to column `x` of that row. */
+  private before(y: number, x: number): string {
+    const from = this.lineStart(y);
+    let text = "";
+    for (let r = from; r < y; r++) text += this.row(r)?.translateToString(false) ?? "";
+    text += this.row(y)?.translateToString(false, 0, x) ?? "";
+    return text.trimEnd();
   }
 
   /** The command line, from where `B` left the cursor to where it is at `C`; null if it's gone. */
@@ -249,4 +351,9 @@ export class CommittedLines {
     }
     return text.trimEnd();
   }
+}
+
+export interface ScreenSize {
+  cols: number;
+  rows: number;
 }
