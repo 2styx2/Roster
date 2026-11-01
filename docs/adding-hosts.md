@@ -8,6 +8,7 @@ The usual flow for bringing a new network or box into roster: scan it, review it
 cd ~/infra
 roster discover 10.19.77.0/24             # preview, nothing written
 roster discover 10.19.77.0/24 --write     # adds a discovered-YYYYMMDD group
+roster discover 10.19.77.0/24 --json      # the preview as JSON, for a script
 ```
 
 `--write` does the following:
@@ -18,6 +19,8 @@ roster discover 10.19.77.0/24 --write     # adds a discovered-YYYYMMDD group
 - Refuses to write a file that wouldn't load.
 
 Each host gets a guessed `type`, a `title` from its web page, its services, and a description of every open port.
+
+From the app, the first-party [discover](../plugins/discover/README.md) Plugin does the same scan: `:discover 10.19.77.0/24`, keep the Hosts you want, and they're added unreviewed as Pending changes for you to Publish.
 
 Tell your security team before scanning big ranges.
 

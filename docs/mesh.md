@@ -70,7 +70,11 @@ roster mesh                  # apply it, one Host at a time
 roster mesh --rotate esx-02  # replace esx-02's Mesh key everywhere
 roster mesh status           # who reaches whom and what's unfinished, without connecting
 roster mesh cut orion-2      # take orion-2 out of the Mesh now, everywhere
+roster mesh status --json    # the same as status, as JSON for scripts
+roster mesh --dry-run --json # the plan, as JSON
 ```
+
+See [Machine-readable output](cli-reference.md#machine-readable-output) for the JSON.
 
 `roster mesh` connects to each Host it needs, through this Box's own key, **one connection at a time** (rate limiters). It runs in two passes:
 
@@ -98,7 +102,7 @@ from="10.0.0.2",no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… roster
 
 **Links across networks are tested, not assumed.** A peer whose port the source can't reach is reported (`orion-3 can't reach 10.0.9.9:22`) and left out of that source's files and of the peer's `authorized_keys`. A peer whose host key this Box hasn't recorded is left out too (`roster setup --only PEER` records it). If the source has neither `nc` nor bash, the Link is written and shown as not tested. A source behind NAT reaches its peers from another address than the one in `roster.yml`, which `from=` refuses: give it a [`seen_as:`](#other-addresses) with that address, or give the Link a [`via:`](#through-a-jump-host) hop. `from=` also holds the address as `roster.yml` writes it: a DNS name matches only where sshd has `UseDNS yes`, so give meshed Hosts their addresses.
 
-**Down Hosts.** A Host that doesn't answer is *pending*: everything else is applied, its Sources' keys stay on their peers as they were, and the next `roster mesh` finishes it. `roster mesh` and `roster mesh status` list what's pending until then. From the app, an apply or a cut that runs out of time (serve's deadline for it) stops there rather than outlast the app's wait: the Hosts it didn't get to are pending, `out of time`, and the next run finishes them. Quitting the app mid-apply stops it the same way, at once: the Host it was on and those it hadn't got to are pending, recorded on this Box, and the next run finishes them.
+**Down Hosts.** A Host that doesn't answer is *pending*: everything else is applied, its Sources' keys stay on their peers as they were, and the next `roster mesh` finishes it. `roster mesh` and `roster mesh status` list what's pending until then. From the app, a run is a background job with no deadline: `mesh.stop` (the progress's stop button, `:cancel`) stops it before its next Host, and the Hosts it didn't get to are pending, `stopped`, until the next run. Quitting the app mid-apply stops it the same way, at once: the Host it was on and those it hadn't got to are pending, recorded on this Box, and the next run finishes them.
 
 **Removing.** Taking a Host out of `roster.yml`, a Link, or `mesh: true` removes exactly its tagged entries on the next apply, and a Host that is no longer a source loses its Mesh files (the key, known hosts, config, the two `Include` lines, `ROSTER.md` and the import line). A Host taken out of `roster.yml` altogether can't be reached any more, so its own Mesh files stay there; `roster mesh` says so.
 
@@ -147,7 +151,7 @@ packages = {
 },
 ```
 
-Then `:mesh` shows every Host in the Mesh with what it can reach, the status bar says **Mesh out of date** after a Publish that changed it, `:mesh plan` shows what an apply would change and `a` applies it after a question, and `:mesh cut HOST` cuts a Host once you've typed its name, with a warning for each Host that was down. Each Host's details (`:info HOST`) get a Mesh section with its reach. It runs everything through `roster serve` as background jobs (API 17), one connection at a time as `roster mesh` does, and asks before anything that changes a Host. `:help mesh-controls` once it's installed.
+Then `:mesh` shows every Host in the Mesh with what it can reach, the status bar says **Mesh out of date** after a Publish that changed it, `:mesh plan` shows what an apply would change and `a` applies it after a question, and `:mesh cut HOST` cuts a Host once you've typed its name, with a warning for each Host that was down. Each Host's details (`:info HOST`) get a Mesh section with its reach. It runs everything through `roster serve` as background jobs (API 17) and follows them by the `job_progress` event (API 20), so it never polls; one connection at a time as `roster mesh` does, and asks before anything that changes a Host. `:help mesh-controls` once it's installed.
 
 ### Seeing the Mesh in Topology
 

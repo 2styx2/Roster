@@ -1,6 +1,6 @@
 # `roster serve` API
 
-`roster serve` is the backend for the desktop app (the roster app, [`app/`](../app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, answers several requests at once (API 20; [Ordering, locks and jobs](#ordering-locks-and-jobs)), and exits with code 0 when stdin closes. Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
+`roster serve` is the backend for the desktop app (the roster app, [`app/`](../app/README.md)). It speaks JSON-RPC 2.0 on stdin/stdout, one JSON object per line, answers several requests at once (API 20; [Ordering, locks and jobs](#ordering-locks-and-jobs)), and exits with code 0 when stdin closes. It is the app's backend, not a public API: scripts and other tools use the CLI's `--json` ([Machine-readable output](cli-reference.md#machine-readable-output)). Its one other channel is the private askpass socket for password Sessions (below). Only responses go to stdout; warnings and logs go to stderr. It finds `roster.yml` the same way every other command does (`-c PATH`, `$ROSTER_CONFIG`, ...).
 
 Results are the objects roster builds when it loads `roster.yml`, with no extra schema. Logins come back as references (`bw:esxi-02 ssh+web`), never as values.
 

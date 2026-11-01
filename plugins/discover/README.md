@@ -54,7 +54,18 @@ packages = {
 
 Then `:source`. The app clones roster's repo, loads the Plugin from `plugins/discover` and asks first, with every permission above. Allow pins the commit in `roster.lock`. Add `tag = "vX.Y.Z"` to stay on a release.
 
-It needs `roster serve` API 18 on the Box (a roster with `discover.*`). With an older one, a scan says to update roster, and `:check` says so too. A setting it can't use is named in a notice, and the default is used instead.
+It needs `roster serve` API 18 on the Box (a roster with `discover.*`). With an older one, a scan says to update roster, and `:check` says so too.
+
+## Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ranges` | none | What `:discover` alone offers to scan; with none, you name a range each time |
+| `leader` | `"y d"` | The keys after the Leader that open its view |
+| `ports` | `roster discover`'s list | The TCP ports to try |
+| `group` | `discovered-YYYYMMDD` | The new group the kept Hosts go into |
+
+A setting it can't use is named in a notice, and the default is used instead.
 
 ## How it's made
 
