@@ -351,6 +351,34 @@ class Channel:
         for base in runtime_bases():         # what a serve that was killed outright left behind
             sweep(base)
         self.dir = runtime_dir()
+        try:
+            self._open()
+        except BaseException:               # a failure, or a signal's SystemExit, before it's open: no folder left
+            self._abandon()
+            raise
+
+    def _abandon(self):
+        """Undo a half-done __init__: close what it opened and remove the folder."""
+        server = getattr(self, "server", None)
+        if server is not None:
+            try:
+                server.close()
+            except OSError:
+                pass
+        for fd in (getattr(self, "wake_r", None), getattr(self, "wake_w", None)):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        try:
+            for name in os.listdir(self.dir):
+                os.unlink(os.path.join(self.dir, name))
+            os.rmdir(self.dir)
+        except OSError:
+            pass
+
+    def _open(self):
         os.chmod(self.dir, 0o700)
         self.known_hosts = os.path.join(self.dir, "quick_known_hosts")   # Quick Connect's keys (serve writes it)
         self.stopping = threading.Event()

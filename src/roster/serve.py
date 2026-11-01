@@ -3006,7 +3006,6 @@ def serve(config_arg):
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
-    exit_on_signals()                   # so the askpass folder is still removed
     state = State(config_arg)
     out_lock = threading.Lock()
 
@@ -3020,18 +3019,25 @@ def serve(config_arg):
     state.notify = lambda method, params: send({"jsonrpc": "2.0", "method": method, "params": params})
     state.jobs.notify = state.notify
     server = Server(state, send)
-    with open_channel(state) as state.askpass:
-        try:
-            for line in sys.stdin:
-                if line.strip():
-                    server.submit(line)
-        finally:
-            exit_on_signals(ignore=True)    # asked to end already: a second signal mustn't cut the clean-up short
-            if state.watcher is not None:
-                state.watcher.stop.set()
-            server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
-            end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
-            state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, a scan's nmap ends
+    # From here a signal ends serve the way closed stdin does, so the askpass folder is still removed: a signal while
+    # the channel opens is undone by the channel itself, and after that by the `with`. The handlers serve found are
+    # put back when it returns.
+    found = exit_on_signals()
+    try:
+        with open_channel(state) as state.askpass:
+            try:
+                for line in sys.stdin:
+                    if line.strip():
+                        server.submit(line)
+            finally:
+                exit_on_signals(ignore=True)    # asked to end already: a second signal mustn't cut the clean-up short
+                if state.watcher is not None:
+                    state.watcher.stop.set()
+                server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
+                end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
+                state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, nmap ends
+    finally:
+        restore_signals(found)
     return 0
 
 
@@ -3039,13 +3045,21 @@ def exit_on_signals(ignore=False):
     """SIGTERM, SIGHUP (the terminal went away) and SIGINT end serve the way closed stdin does, so the askpass
     folder (and its socket) is removed and the jobs are stopped and recorded; IGNORE them once that has begun (with a
     handler that does nothing, not SIG_IGN, which a program started meanwhile would inherit). Only
-    SIGKILL, or the interpreter dying, can skip it: the next serve removes what that left (askpass.sweep)."""
+    SIGKILL, or the interpreter dying, can skip it: the next serve removes what that left (askpass.sweep).
+    Returns the handlers that were there before, for restore_signals."""
+    found = {}
     if threading.current_thread() is not threading.main_thread():
-        return                          # serve() run by a test on a thread of its own: Python sets them in main only
+        return found                    # serve() run by a test on a thread of its own: Python sets them in main only
     for name in ("SIGTERM", "SIGHUP", "SIGINT"):
         sig = getattr(signal, name, None)   # Windows has no SIGHUP
         if sig is not None:
-            signal.signal(sig, (lambda *_: None) if ignore else lambda *_: sys.exit(0))
+            found[sig] = signal.signal(sig, (lambda *_: None) if ignore else lambda *_: sys.exit(0))
+    return found
+
+
+def restore_signals(found):
+    for sig, handler in found.items():
+        signal.signal(sig, handler if handler is not None else signal.SIG_DFL)
 
 
 DRAIN_WAIT = 1.0            # s: the requests running when stdin closes get this long to answer

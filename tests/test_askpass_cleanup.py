@@ -209,3 +209,32 @@ def test_a_socket_just_bound_isnt_taken_for_dead(runtime_dir):
     os.utime(d / "socket")                                  # just now
     askpass.sweep(str(runtime_dir))
     assert d.exists()
+
+
+def test_serve_puts_back_the_signal_handlers_it_found(write_config, runtime_dir, monkeypatch):
+    # review 7: its handlers (the do-nothing ones above all) stayed installed after serve() returned
+    import io
+
+    from roster import serve as rpc
+    write_config(INVENTORY)
+    mine = lambda *_: None                                  # noqa: E731
+    before = {name: signal.signal(getattr(signal, name), mine) for name in ("SIGTERM", "SIGHUP", "SIGINT")}
+    try:
+        monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"")))
+        monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO()))
+        assert rpc.serve(None) == 0
+        assert all(signal.getsignal(getattr(signal, name)) is mine for name in before)
+    finally:
+        for name, handler in before.items():
+            signal.signal(getattr(signal, name), handler)
+    assert folders(runtime_dir) == []
+
+
+def test_a_channel_that_fails_to_open_leaves_no_folder(runtime_dir, monkeypatch):
+    # review 7: a signal (or any failure) after the folder was made but before the channel was open left it
+    def fail(*a, **k):
+        raise SystemExit(0)                                 # as the SIGTERM handler raises
+    monkeypatch.setattr(askpass, "write_helper", fail)
+    with pytest.raises(SystemExit):
+        askpass.Channel(lambda login: "x")
+    assert folders(runtime_dir) == []
