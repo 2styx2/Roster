@@ -19,6 +19,7 @@ import {
   type Host,
   type HostChange,
   type HostChanges,
+  type CheckStepName,
   type HostCheck,
   type HostFields,
   type HostList,
@@ -114,6 +115,13 @@ export interface FakeScenario {
   sshFailures?: Record<string, string>;
   /** Per Host: what `host.check` answers (default: every step ok). */
   checks?: Record<string, HostCheck>;
+  /** `host.check` runs as serve's job (API 21, ticket 110): `job.progress` as each step starts,
+   * `stepMs` apart, up to the step it fails or stops at, then the answer. `hangAt`: that step never
+   * ends (a step that hangs to its timeout), so the check never answers. Without it, no progress. */
+  checkSteps?: { stepMs: number; hangAt?: string };
+  /** Hosts whose `host.check` waits until the test answers it (`answerCheck`), so it can push the
+   * check's `job.progress` (`jobProgress`) in between. */
+  heldChecks?: string[];
   /** `box.check`'s checks (default: HEALTHY_BOX, every one ok). */
   boxChecks?: HealthCheck[];
   /** `inventory.info`'s api_version (default 2; editing needs 5). */
@@ -233,7 +241,19 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 const refuse = (r: Refusal) => new BackendCallError(r.message, r.code, r.data ?? null);
 
 /** A `host.check` answer with every step ok (a key Host's provider and vault-item skipped). */
-export function passingCheck(host: Host): HostCheck {
+export /** A check a lock stopped as `at` was to start: the steps before it ok, the rest skipped. */
+function stoppedCheck(host: string, at: CheckStepName): HostCheck {
+  const stop = CHECK_STEPS.indexOf(at);
+  return {
+    host,
+    ok: false,
+    steps: CHECK_STEPS.map((step, i) =>
+      i < stop ? { step, status: "ok" as const, message: `${step} fine` } : { step, status: "skipped" as const, message: "the check was stopped" },
+    ),
+  };
+}
+
+function passingCheck(host: Host): HostCheck {
   const password = authOf(host) === "password";
   return {
     host: host.name,
@@ -544,6 +564,17 @@ export const fixtures: Record<string, FakeScenario> = {
   "sign-out": { hosts: makeHosts(12), apiVersion: SIGN_OUT_API_VERSION },
   /** Ticket 49 (API 16): `:check` with no Host shows this Box's health, with an error and two warnings. */
   health: { hosts: makeHosts(12), apiVersion: BOX_CHECK_API_VERSION, boxChecks: [...UNHEALTHY_BOX] },
+  /** Ticket 110: `:check HOST` as serve's job (API 21): each step starts 0.7 s after the last. */
+  "check-live": { hosts: makeHosts(12), apiVersion: 22, checkSteps: { stepMs: 700 } },
+  /** Ticket 110: the TCP step never ends (a Host that doesn't answer, up to its timeout). */
+  "check-hang": { hosts: makeHosts(12), apiVersion: 22, checkSteps: { stepMs: 300, hangAt: "tcp" } },
+  /** Ticket 110: every Host's check is stopped at its Host key step (a lock stopped it). */
+  "check-stopped": {
+    hosts: makeHosts(12),
+    apiVersion: 22,
+    checkSteps: { stepMs: 300 },
+    checks: Object.fromEntries(makeHosts(12).hosts.map((h) => [h.name, stoppedCheck(h.name, "host-key")])),
+  },
   "sign-in-rate-limited": signingIn({
     refuse: {
       code: SignInError.rateLimited,
@@ -954,6 +985,9 @@ export interface FakeBackend extends Backend {
   outsideEdit(next: HostList | { error: InventoryFileError }): void;
   /** serve pushes a job's progress (`job.progress`, API 20). */
   jobProgress(job: JobProgress): void;
+  /** Answers a held `host.check` (`heldChecks`) with its result, or fails it with an error (the
+   * core giving up after 90 s, serve going away). */
+  answerCheck(host: string, outcome: HostCheck | Error): void;
   /** Every `host.get` asked with `settled` so far: the Host's name. */
   settledGets(): string[];
   /** Whether `inventory.watch` asked to apply outside edits (null: not watching). */
@@ -1001,6 +1035,28 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
   let broken: InventoryFileError | null = null;
   const changeWatchers = new Set<(c: InventoryChanged) => void>();
   const jobWatchers = new Set<(j: JobProgress) => void>();
+  const pushJob = (job: JobProgress) => {
+    for (const w of jobWatchers) w(job);
+  };
+  const heldChecks = new Map<string, { resolve(c: HostCheck): void; reject(e: Error): void }>();
+  let checkJobs = 0;
+  /** serve's check job (ticket 108): progress as each step starts, up to where `result` failed or
+   * stopped. Never a step's message. */
+  const runCheckJob = async (result: HostCheck, { stepMs, hangAt }: { stepMs: number; hangAt?: string }) => {
+    const job = `check-${++checkJobs}`;
+    const base = { kind: "check", job, action: "check", total: CHECK_STEPS.length, host: result.host };
+    pushJob({ ...base, state: "running", done: 0, at: null });
+    const last = result.steps.findIndex((s) => s.status === "fail" || s.message === "the check was stopped");
+    const end = last < 0 ? result.steps.length - 1 : last;
+    for (const [i, s] of result.steps.entries()) {
+      if (i > end) break;
+      pushJob({ ...base, state: "running", done: i, at: s.step });
+      if (s.step === hangAt) await new Promise(() => {});
+      await new Promise((r) => setTimeout(r, stepMs));
+    }
+    const stopped = !result.ok && !result.steps.some((s) => s.status === "fail");
+    pushJob({ ...base, state: stopped ? "stopped" : "done", done: CHECK_STEPS.length, at: result.steps[end]?.step ?? null });
+  };
   const settled: string[] = [];
   const applyDisk = () => {
     if (!onDisk) return;
@@ -1628,19 +1684,33 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       return { checks, ok: !checks.some((c) => c.level === "error"), roster_version: "0.1.0", api_version: scenario.apiVersion ?? 2 };
     },
     async checkHost(host) {
-      await wait();
-      const given = scenario.checks?.[host];
-      if (given) return given;
-      const h = hosts.find((x) => x.name === host);
-      if (!h) {
-        const steps = CHECK_STEPS.map((step, i) =>
-          i === 0
-            ? { step, status: "fail" as const, code: 2, message: `unknown host '${host}'`, fix: "check the name" }
-            : { step, status: "skipped" as const, message: "an earlier step failed" },
-        );
-        return { host, ok: false, steps };
+      if (scenario.heldChecks?.includes(host)) {
+        return new Promise<HostCheck>((resolve, reject) => heldChecks.set(host, { resolve, reject }));
       }
-      return passingCheck(h);
+      await wait();
+      const result = ((): HostCheck => {
+        const given = scenario.checks?.[host];
+        if (given) return given;
+        const h = hosts.find((x) => x.name === host);
+        if (!h) {
+          const steps = CHECK_STEPS.map((step, i) =>
+            i === 0
+              ? { step, status: "fail" as const, code: 2, message: `unknown host '${host}'`, fix: "check the name" }
+              : { step, status: "skipped" as const, message: "an earlier step failed" },
+          );
+          return { host, ok: false, steps };
+        }
+        return passingCheck(h);
+      })();
+      if (scenario.checkSteps) await runCheckJob(result, scenario.checkSteps);
+      return result;
+    },
+    answerCheck(host, outcome) {
+      const held = heldChecks.get(host);
+      if (!held) throw new Error(`no held check of ${host}`);
+      heldChecks.delete(host);
+      if (outcome instanceof Error) held.reject(outcome);
+      else held.resolve(outcome);
     },
     async pullInventory() {
       await new Promise((r) => setTimeout(r, scenario.pullDelay ?? scenario.delay ?? 0));
@@ -1933,9 +2003,7 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       jobWatchers.add(onProgress);
       return () => jobWatchers.delete(onProgress);
     },
-    jobProgress(job) {
-      for (const w of jobWatchers) w(job);
-    },
+    jobProgress: pushJob,
     settledGets: () => [...settled],
     outsideEdit(next) {
       onDisk = next;
