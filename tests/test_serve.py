@@ -526,9 +526,8 @@ def test_a_wrong_token_gets_nothing(serve, write_config, capsys, fakes):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a named pipe on Windows: test_windows.py")
-def test_the_askpass_socket_is_the_users_alone_and_goes_away(serve, write_config, capsys, fakes, isolated):
-    run = isolated["home"].parent / "run"
-    run.mkdir(mode=0o700)                                        # $XDG_RUNTIME_DIR, as systemd/WSL make it
+def test_the_askpass_socket_is_the_users_alone_and_goes_away(serve, write_config, capsys, fakes, runtime_dir):
+    run = runtime_dir                                            # short: pytest's tmp_path under a long $TMPDIR
     s = unlocked_serve(serve, write_config, capsys)
     env = s.call("session.prepare", {"host": "esx"})["result"]["env"]
     sock, helper = env["ROSTER_ASKPASS_SOCKET"], env["SSH_ASKPASS"]

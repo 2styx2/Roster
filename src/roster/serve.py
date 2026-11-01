@@ -402,13 +402,14 @@ def host_check(state, params):
     a password Login's steps that fetch a secret or mint a token (API 22), and sends `job.progress` as each step
     starts. The waiting form answers with its result; `background: true` (API 21) answers at once, and
     `host.check_job` has the result once it's over. `vault.lock` stops a running check. Cancelling a waiting form
-    stops the check only when no other request waits for it and none asked for it in the background (API 22).
+    stops the check only when no other request waits for it and none asked for it in the background (API 22); when
+    the check goes on for them, the cancelled request answers 5 at once.
 
     Params: `{host, background?}` (exact Host name; `background` since API 21)
     Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`; with `background: true`
         the job: `{kind: "check", job, action: "check", state, done, total, at, host, joined}`: `joined` (API 22) is
         true when it joined a check already running, which only its starter should stop
-    Errors: -32602, 4
+    Errors: -32602, 4, 5
     Since: API 2
     """
     name = text_param(params, "host")
@@ -417,8 +418,18 @@ def host_check(state, params):
     job.hold(waiting=not background)
     if background:
         return {**job.view(), "joined": joined}
-    on_cancel(job.let_go)           # a cancel stops it only if no other request wants it (one may have joined)
-    job.wait()
+    gone = threading.Event()
+
+    def cancel():
+        # a cancel stops the check only if no other request wants it (one may have joined); if it goes on for them,
+        # this request answers at once (5) rather than keep its worker until the check ends
+        if not job.let_go():
+            gone.set()
+            job.wake()
+    on_cancel(cancel)
+    if not job.wait_unless(gone.is_set):
+        raise cancelled("host.check")
+    job.wait()                      # its thread is done with it
     if job.error is not None:
         raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
     return job.result
@@ -2995,7 +3006,6 @@ def serve(config_arg):
     sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     out = sys.stdout
     sys.stdout = sys.stderr             # whatever else roster prints (warnings, say()) must not corrupt the stream
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))      # so the askpass directory is still removed
     state = State(config_arg)
     out_lock = threading.Lock()
 
@@ -3009,18 +3019,47 @@ def serve(config_arg):
     state.notify = lambda method, params: send({"jsonrpc": "2.0", "method": method, "params": params})
     state.jobs.notify = state.notify
     server = Server(state, send)
-    with open_channel(state) as state.askpass:
-        try:
-            for line in sys.stdin:
-                if line.strip():
-                    server.submit(line)
-        finally:
-            if state.watcher is not None:
-                state.watcher.stop.set()
-            server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
-            end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
-            state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, a scan's nmap ends
+    # From here a signal ends serve the way closed stdin does, so the askpass folder is still removed: a signal while
+    # the channel opens is undone by the channel itself, and after that by the `with`. The handlers serve found are
+    # put back when it returns.
+    found = exit_on_signals()
+    try:
+        with open_channel(state) as state.askpass:
+            try:
+                for line in sys.stdin:
+                    if line.strip():
+                        server.submit(line)
+            finally:
+                exit_on_signals(ignore=True)    # asked to end already: a second signal mustn't cut the clean-up short
+                if state.watcher is not None:
+                    state.watcher.stop.set()
+                server.close(DRAIN_WAIT)        # first: what's queued is refused, what runs gets a moment to answer
+                end_sign_in(state)              # a half-done `bw login` doesn't outlive serve
+                state.jobs.close(CLOSE_WAIT)    # nor does a job: a Mesh run records what it didn't do, nmap ends
+    finally:
+        restore_signals(found)
     return 0
+
+
+def exit_on_signals(ignore=False):
+    """SIGTERM, SIGHUP (the terminal went away) and SIGINT end serve the way closed stdin does, so the askpass
+    folder (and its socket) is removed and the jobs are stopped and recorded; IGNORE them once that has begun (with a
+    handler that does nothing, not SIG_IGN, which a program started meanwhile would inherit). Only
+    SIGKILL, or the interpreter dying, can skip it: the next serve removes what that left (askpass.sweep).
+    Returns the handlers that were there before, for restore_signals."""
+    found = {}
+    if threading.current_thread() is not threading.main_thread():
+        return found                    # serve() run by a test on a thread of its own: Python sets them in main only
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        sig = getattr(signal, name, None)   # Windows has no SIGHUP
+        if sig is not None:
+            found[sig] = signal.signal(sig, (lambda *_: None) if ignore else lambda *_: sys.exit(0))
+    return found
+
+
+def restore_signals(found):
+    for sig, handler in found.items():
+        signal.signal(sig, handler if handler is not None else signal.SIG_DFL)
 
 
 DRAIN_WAIT = 1.0            # s: the requests running when stdin closes get this long to answer
