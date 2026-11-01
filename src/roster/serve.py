@@ -75,7 +75,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 18            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 19            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -2105,15 +2105,25 @@ def mesh_stop(state, params):
 def mesh_status(state, params):
     """No connections: who reaches whom, what's pending, and whether the Mesh is out of date on this Box.
 
-    Params: `{brief?: bool}` (`brief` since API 17)
+    Params: `{brief?: bool, grouped?: bool}` (`brief` since API 17, `grouped` since API 19)
     Result: `{links, excluded, reach, members, pending, cut_pending, out_of_date}`: the Links as `roster.yml` asks
         for them (no `status`), `members` the Hosts roster visits, `out_of_date: true` when `roster.yml` changed the
         Mesh since the last complete apply on this Box. `brief: true` keeps it small when every pair of hundreds of
         Hosts is a Link: `links` only those worth a look (with a `via`, `no-via` marked), at most 1000
-        (`links_more` counts the rest), and `link_count`, `link_statuses` and `reached` for the rest
+        (`links_more` counts the rest), and `link_count`, `link_statuses` and `reached` for the rest. `grouped: true`
+        (for a map, such as the Topology Plugin's, that draws who reaches whom) keeps every Link but says each
+        meshed group once: `meshed: {group: [host]}`, the Hosts of each meshed group that reach each other both
+        ways (two or more, in `roster.yml` order), and `links` without the pairs those cover, so 2,000 meshed
+        Hosts are 2,000 names, not 98,000 Links. Not with `brief`
+    Errors: -32602
     Since: API 15
     """
-    out = mesh.status(state.inventory())
+    grouped = (params or {}).get("grouped", False) if isinstance(params, dict) else False
+    if not isinstance(grouped, bool):
+        raise RpcError(INVALID_PARAMS, "params.grouped must be true or false")
+    if grouped and brief_param(params):
+        raise RpcError(INVALID_PARAMS, "params.grouped and params.brief don't go together")
+    out = mesh.status(state.inventory(), grouped=grouped)
     return mesh.brief(out) if brief_param(params) else out
 
 

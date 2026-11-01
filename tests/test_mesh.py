@@ -974,3 +974,20 @@ def test_private_keys_never_leave_their_host_and_no_secret_is_looked_up(net, mon
         for p in net.host(h).rglob("*"):
             if p.is_file() and h != "orion-2":
                 assert body[-60:-20] not in p.read_text(errors="replace")
+
+
+def test_status_grouped_gives_each_meshed_group_once_and_only_the_links_it_doesnt_cover(net):
+    """For a map (the Topology Plugin): a meshed group of 50 is 2,450 Links one by one, and one entry grouped."""
+    st = mesh.status(net.cfg(), grouped=True)
+    assert st["meshed"] == {"lab": ["orion-2", "orion-3", "esx-02", "sw-1"]}
+    assert [(x["from"], x["to"]) for x in st["links"]] == [("db-9", "orion-3"), ("orion-2", "nas-1"), ("orion-3", "db-9")]
+    full = mesh.status(net.cfg())
+    assert "meshed" not in full and len(full["links"]) == 12 + 3
+    assert {k: v for k, v in st.items() if k not in ("links", "meshed")} == {k: v for k, v in full.items() if k != "links"}
+
+
+def test_serve_mesh_status_grouped(net, serve):
+    s = serve("-c", str(net.cfg_path))
+    assert s.call("mesh.status", {"grouped": True})["result"]["meshed"] == {"lab": ["orion-2", "orion-3", "esx-02", "sw-1"]}
+    assert s.call("mesh.status", {"grouped": "yes"})["error"]["code"] == -32602
+    assert s.call("mesh.status", {"grouped": True, "brief": True})["error"]["code"] == -32602

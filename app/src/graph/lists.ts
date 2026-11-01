@@ -14,10 +14,12 @@ export function stateWords(n: GraphNode): string {
   return [n.state, n.mark === "warn" ? "warning" : n.mark === "error" ? "error" : undefined, n.note].filter(Boolean).join(", ");
 }
 
-export function nodeTable(model: GraphModel, ix: GraphIndex): TableModel {
+/** The nodes' table: `nodes` (those the filter shows; every node if left out), with their reach
+ * counted on the whole graph, as far as the graph's `reach` says. */
+export function nodeTable(model: GraphModel, ix: GraphIndex, nodes: readonly GraphNode[] = model.data.nodes): TableModel {
   const titles = new Map(model.data.clusters.map((c) => [c.id, c.title]));
-  const counts = reachCounts(ix);
-  const rows: TableRow[] = model.data.nodes.map((n) => {
+  const counts = reachCounts(ix, model.reach ?? "all");
+  const rows: TableRow[] = nodes.map((n) => {
     const r = counts.get(n.id) ?? { out: 0, in: 0 };
     const cells: Record<string, string | number> = { name: n.label, shape: SHAPE_WORDS[n.shape], reaches: r.out, reached: r.in };
     if (n.kind) cells.kind = n.kind;
@@ -38,8 +40,8 @@ export function nodeTable(model: GraphModel, ix: GraphIndex): TableModel {
       { id: "shape", label: "Shape", kind: "text", width: 11 },
       { id: "state", label: "State", kind: "text" },
       { id: "cluster", label: "Cluster", kind: "data" },
-      { id: "reaches", label: "Reaches", kind: "number", width: 9 },
-      { id: "reached", label: "Reached by", kind: "number", width: 11 },
+      { id: "reaches", label: model.reach === "direct" ? "Reaches directly" : "Reaches", kind: "number", width: model.reach === "direct" ? 16 : 9 },
+      { id: "reached", label: model.reach === "direct" ? "Reached directly by" : "Reached by", kind: "number", width: model.reach === "direct" ? 19 : 11 },
     ],
     rows,
     sort: null,

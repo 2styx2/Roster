@@ -69,6 +69,7 @@ import { fakeCommit, fakePackageHost, type FakePackages } from "./fakePackages";
 import { discoverPlugin, fakeDiscoverServe, hugeNet, smallNet, type FakeNet } from "./fakeDiscover";
 import { recentAlerts } from "./fakeRecentAlerts";
 import { MESH_OTHERS, MESH_PERMISSIONS, meshLab, meshPlugin, meshServe, type MeshWorld } from "./fakeMesh";
+import { TOPOLOGY_PERMISSIONS, topologyPlugin, topologyServe, type TopologyWorld } from "./fakeTopology";
 import { described, fakePluginHost, type FakePlugin, type FakeServe } from "./fakePlugins";
 import { formatQuickTarget } from "../quick/target";
 import {
@@ -187,6 +188,8 @@ export interface FakeScenario {
   packages?: FakePackages;
   /** Ticket 50: roster serve's Mesh methods (API 17), for the Mesh controls Plugin. */
   mesh?: MeshWorld;
+  /** Ticket 40: roster serve's Mesh for the Topology Plugin (`?fixture=topology`). */
+  topology?: TopologyWorld;
   /** What the app shows at start beyond the Backend (the dev page reads these; tests pass them
    * as props): the State file's contents, and Hosts to open Sessions to once connected. */
   app?: {
@@ -557,6 +560,14 @@ export const fixtures: Record<string, FakeScenario> = {
   /** Ticket 50: the Mesh controls (plugins/mesh) installed as a Package with every permission, on a
    * meshed group of 4 Hosts that's out of date, with a no-via Link. `:mesh`, `:mesh plan`, `:info esx-02`. */
   mesh: meshCase({ lab: 4, ticks: 3 }),
+  /** Ticket 40: the Topology view (plugins/topology) installed as a Package with every permission,
+   * on 40 Hosts in four subnets, two meshed, with Links, a no-via hop, a cut pending and two live
+   * Sessions. `:topology`, `␣ T`, `:topology subnet-1`. */
+  topology: topologyCase(40),
+  /** The same at 600 Hosts: clusters start collapsed. */
+  "topology-600": topologyCase(600),
+  /** The same at 2,000 Hosts, with long and non-Latin names (break-ui). */
+  "topology-worst": topologyCase(2000, true),
   /** The same, worst case: 500 Hosts in the meshed group (249,501 Links), the long names among them. */
   "mesh-worst": meshCase({ lab: 500, ticks: 3, name: (i) => (i % 97 === 5 ? `${LONG_NAME_OPEN}-${i}` : i % 89 === 7 ? `خادم-الإنتاج-${i}` : `lab-${String(i).padStart(3, "0")}`) }),
   /** Measuring (docs/app/performance.md): the worst case's 1,284 Hosts, no vault, and `&sessions=N`
@@ -606,10 +617,35 @@ function recentAlertsCase(): FakeScenario {
   };
 }
 
-/** roster serve's answers to Plugins (`roster.serve.call`): the Mesh's and Discover's stand-ins,
+/** `?fixture=topology` (ticket 40): plugins/topology installed from roster's repo with `dir`,
+ * granted everything it asks for, with a stand-in serve for its Mesh and two Sessions open. */
+function topologyCase(n: number, worst = false): FakeScenario {
+  const commit = fakeCommit(6);
+  const base = makeHosts(n);
+  const list: HostList = worst
+    ? {
+        hosts: base.hosts.map((h, i) => ({ ...h, name: i % 97 === 5 ? `${LONG_NAME_OPEN}-${i}` : i % 89 === 7 ? `خادم-الإنتاج-${i}` : h.name })),
+        groups: { ...base.groups, "subnet-3": { title: "The storage network in the far building, with a title that keeps on going", description: "" } },
+      }
+    : base;
+  const open = list.hosts.filter((h) => h.reviewed && authOf(h) === "key").slice(0, 2).map((h) => h.name);
+  return {
+    hosts: list,
+    vault: { status: "unsupported" },
+    topology: { list },
+    packages: {
+      named: [{ name: "topology", source: "https://github.com/2styx2/roster", dir: "plugins/topology", versions: [{ commit, subject: "v0.3.0", plugin: topologyPlugin(), diff: "" }] }],
+      lock: { topology: commit },
+      clones: { topology: commit },
+    },
+    app: { state: { plugins: [{ path: "package:topology", name: "topology", granted: TOPOLOGY_PERMISSIONS, asked: TOPOLOGY_PERMISSIONS }] }, openAtStart: open },
+  };
+}
+
+/** roster serve's answers to Plugins (`roster.serve.call`): the Mesh's (or Topology's) and Discover's stand-ins,
  * each only when the scenario has one, as an older roster has neither. */
 function pluginServe(scenario: FakeScenario): FakeServe | undefined {
-  const mesh = scenario.mesh ? meshServe(scenario.mesh) : undefined;
+  const mesh = scenario.mesh ? meshServe(scenario.mesh) : scenario.topology ? topologyServe(scenario.topology) : undefined;
   const discover = scenario.discover ? fakeDiscoverServe(scenario.discover) : undefined;
   if (!mesh && !discover) return undefined;
   return (method, params) => {

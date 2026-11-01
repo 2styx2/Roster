@@ -13,7 +13,7 @@ import type { Registries } from "../registries";
 import { BUILTIN, Registry, type Entry } from "../registry";
 import type { RowAction } from "../sidebar/Sidebar";
 import type { Sort, TableColumn, TableRow } from "../ui/table";
-import type { GraphData, GraphNode } from "../graph/model";
+import type { GraphData, GraphFilter, GraphNode, Reach } from "../graph/model";
 
 export interface Fact {
   label: string;
@@ -53,6 +53,10 @@ export interface NodeActionDef {
 /** A graph (ticket 77): nodes, edges and clusters as plain data, and what a node does. */
 export interface GraphModel {
   data: GraphData;
+  /** How far "reaches" goes: every hop (the default) or one. */
+  reach?: Reach;
+  /** What it shows; the user changes it with `f` (a new one from the Plugin replaces theirs). */
+  filter?: GraphFilter;
   /** Enter or a double click on a node. */
   open?(node: GraphNode): void;
   actions: readonly NodeActionDef[];

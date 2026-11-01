@@ -38,6 +38,10 @@
       "permission": null
     },
     {
+      "name": "check",
+      "permission": "serve:host.check"
+    },
+    {
       "name": "open",
       "permission": "sessions.open"
     },
@@ -1084,6 +1088,7 @@
     "roster-EmptyEvent": "plugin-api#emptyevent",
     "roster-EventName": "plugin-api#eventname",
     "roster-Fact": "plugin-api#fact",
+    "roster-FilterState": "plugin-api#filterstate",
     "roster-Finder": "plugin-api#finder",
     "roster-FinderItem": "plugin-api#finderitem",
     "roster-Float": "plugin-api#float",
@@ -1091,7 +1096,9 @@
     "roster-Graph": "plugin-api#graph",
     "roster-GraphCluster": "plugin-api#graphcluster",
     "roster-GraphEdge": "plugin-api#graphedge",
+    "roster-GraphFilter": "plugin-api#graphfilter",
     "roster-GraphNode": "plugin-api#graphnode",
+    "roster-GraphReach": "plugin-api#graphreach",
     "roster-Group": "plugin-api#group",
     "roster-GroupChange": "plugin-api#groupchange",
     "roster-HandlerContext": "plugin-api#handlercontext",
@@ -1573,6 +1580,9 @@
       ],
       "open": false
     },
+    "FilterState": {
+      "alias": "\"live\"|\"down\"|\"warn\"|\"error\""
+    },
     "Finder": {
       "fields": [
         {
@@ -1691,6 +1701,16 @@
           "type": "GraphCluster[]"
         },
         {
+          "name": "reach",
+          "required": false,
+          "type": "GraphReach"
+        },
+        {
+          "name": "filter",
+          "required": false,
+          "type": "GraphFilter"
+        },
+        {
           "name": "open",
           "required": false,
           "type": "NodeRun"
@@ -1773,6 +1793,26 @@
       ],
       "open": false
     },
+    "GraphFilter": {
+      "fields": [
+        {
+          "name": "clusters",
+          "required": false,
+          "type": "string[]"
+        },
+        {
+          "name": "kinds",
+          "required": false,
+          "type": "string[]"
+        },
+        {
+          "name": "states",
+          "required": false,
+          "type": "FilterState[]"
+        }
+      ],
+      "open": false
+    },
     "GraphNode": {
       "fields": [
         {
@@ -1827,6 +1867,9 @@
         }
       ],
       "open": false
+    },
+    "GraphReach": {
+      "alias": "\"all\"|\"direct\""
     },
     "Group": {
       "fields": [
@@ -3273,6 +3316,11 @@
           "name": "remove_edges",
           "required": false,
           "type": "string[]"
+        },
+        {
+          "name": "filter",
+          "required": false,
+          "type": "GraphFilter"
         },
         {
           "name": "columns",
