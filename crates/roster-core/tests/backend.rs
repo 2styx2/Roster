@@ -407,3 +407,13 @@ fn a_quick_connect_session_has_no_host_to_fill() {
         Some("esxi-02")
     );
 }
+
+#[test]
+fn no_plugin_may_ever_ask_serve_for_a_fill() {
+    assert!(!roster_core::plugin::permission::serve_method_allowed("session.fill"));
+}
+
+#[test]
+fn no_plugin_may_run_the_fill_command() {
+    assert!(!roster_core::plugin::api::COMMANDS.iter().any(|c| c.name == "fill"));
+}
