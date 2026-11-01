@@ -29,7 +29,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.on(event, listener)`](#rosteronevent-listener) | Runs a function on an event | none |
 | [`roster.confirm(question)`](#rosterconfirmquestion) | Asks the user to confirm, then runs a function | none |
 | [`roster.cmd(line)`](#rostercmdline) | Runs a command line | none |
-| [`roster.echo(text)`](#rosterechotext) | Answers on the message line, as roster's own commands do | none |
+| [`roster.echo(text, opts)`](#rosterechotext-opts) | Answers on the message line, as roster's own commands do | none |
 | [`roster.cmdline(text)`](#rostercmdlinetext) | Opens the command line with text typed in | none |
 | [`roster.has(permission)`](#rosterhaspermission) | Whether the Plugin was granted a permission | none |
 | [`roster.defer(ms, fn)`](#rosterdeferms-fn) | Runs a function once, later | none |
@@ -107,6 +107,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Section`](#section) | A Sidebar section (`roster.sidebar.set`) |
 | [`Row`](#row) | A row of a Sidebar section |
 | [`NoticeOptions`](#noticeoptions) | What else a notice has (`roster.notify`, since api 3) |
+| [`EchoOptions`](#echooptions) | How a line on the message line is said (`roster.echo`, since api 4) |
 | [`NoticeAction`](#noticeaction) | A button on a notice |
 | [`RowAction`](#rowaction) | A button on a row |
 | [`HeadAction`](#headaction) | A button on a view's or a Host-details section's heading |
@@ -272,13 +273,15 @@ local leader = roster.plugin.config.leader or "w w"
 
 ### `roster.notify(text, level, opts)`
 
-Shows a notice, naming the Plugin. A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.
+Shows a notice, naming the Plugin. Warnings and errors always show. An info notice is quiet by default, as roster's own routine messages are (`ui.messages`, like Neovim's): unless `ui.messages = "all"`, it isn't drawn, a screen reader still hears it and `:messages` keeps it. An info notice with buttons shows, and `quiet` decides either way: mark `quiet = false` on what the user asked for: the result of something they started ("Scan done: 12 Hosts answered, 3 new"), an answer ("No alerts") or a refusal ("Keep a Host first"), and leave it out for a routine confirmation ("Copied the line"). Every notice, shown or quiet, is in `:messages`.
+
+A notice's button runs a command line when the user clicks it, as [`roster.cmd`](#rostercmdline) would: the click is the user's call, so `view ID` opens your view when a job that ran in the background has finished (a Plugin can't open one on its own, from a timer or an answer). It takes a command line, not a function, so a notice never holds on to one.
 
 **Parameters**
 
 - `text` (`string`): What to say. It's shown after the Plugin's name (`pinned: …`).
 - `level` ([`Level`](#level)`?`, optional): `"info"` (the default), `"warn"` or `"error"`.
-- `opts` ([`NoticeOptions`](#noticeoptions)`?`, optional): Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`.
+- `opts` ([`NoticeOptions`](#noticeoptions)`?`, optional): Buttons on the notice (since api 3): `{ actions = { { label = "Show the plan", run = "view mesh-plan" } } }`; whether an info notice is quiet (since api 4): `{ quiet = false }`.
 
 **Returns**
 
@@ -288,6 +291,7 @@ Nothing.
 
 - `roster.notify: the level is "info", "warn" or "error"`: `level` is something else.
 - `roster.notify: actions… (a notice's action runs a command line, not a function)`: a function in `opts`.
+- `roster.notify: quiet is true or false`: `opts.quiet` is something else.
 - And [those of every function](#errors).
 
 **Refused by the app** (a warning notice, not an error)
@@ -299,9 +303,10 @@ Nothing.
 **Example**
 
 ```lua
-roster.notify("3 new alerts")
+roster.notify("Copied esx-02's address") -- quiet unless ui.messages = "all"
 roster.notify("leader: not a key sequence, using w w", "warn")
 roster.notify("Plan ready: 4 Hosts change", "info", { actions = { { label = "Show the plan", run = "view mesh-plan" } } })
+roster.notify("Scan done: 12 Hosts found", "info", { quiet = false })
 ```
 
 ### `roster.on(event, listener)`
@@ -402,13 +407,16 @@ roster.commands.add("alerts", { run = function(a)
 end })
 ```
 
-### `roster.echo(text)`
+### `roster.echo(text, opts)`
 
-Answers on the message line, as roster's own commands do. For what a command did ("Added esx-02 to Lab"): the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.
+Answers on the message line, as roster's own commands do. For what a command did or found: the line at the bottom of the window that roster's own commands answer on, not a notice to close. Only while the user runs one of your actions, commands or finder items, so it always answers something they did. Use [`roster.notify`](#rosternotifytext-level-opts) for anything else.
+
+It follows `ui.messages` as roster's own messages do (like Neovim's): what went wrong ("No Host named nope-01") and the answer to what was asked ("3 alerts") always show, so a plain `roster.echo` shows. Mark a routine confirmation, when nothing went wrong ("Added esx-02 to Lab"), with `{ quiet = true }`: unless `ui.messages = "all"`, it isn't drawn, a screen reader still hears it and `:messages` keeps it.
 
 **Parameters**
 
 - `text` (`string`): What to say, on one line.
+- `opts` ([`EchoOptions`](#echooptions)`?`, optional): `{ quiet = true }` for a routine confirmation (since api 4).
 
 **Returns**
 
@@ -417,6 +425,7 @@ Nothing.
 **Errors**
 
 - `roster.echo: only while the user runs one of your actions, commands or finder items`: at load, in an event listener or a timer.
+- `roster.echo: quiet is true or false`: `opts.quiet` is something else.
 - And [those of every function](#errors).
 
 **Permission:** none · **Since:** api 3
@@ -425,7 +434,9 @@ Nothing.
 
 ```lua
 roster.commands.add("alerts", { run = function(a)
-  if a.words[1] == "clear" then alerts = {} roster.echo("Cleared the alerts") end
+  if a.words[1] == "clear" then alerts = {} roster.echo("Cleared the alerts", { quiet = true })
+  elseif a.words[1] == nil then roster.echo(#alerts .. " alerts")
+  else roster.echo("alerts takes clear") end
 end })
 ```
 
@@ -2180,7 +2191,7 @@ Nothing.
 roster.commands.add("count", { run = function()
   roster.serve.request("hosts.list", {}, function(r, err)
     if not r then return roster.notify(err, "warn") end
-    roster.notify(#r.hosts .. " Hosts")
+    roster.echo(#r.hosts .. " Hosts")
   end)
 end })
 ```
@@ -2493,6 +2504,15 @@ What else a notice has (`roster.notify`, since api 3).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `actions` | [`NoticeAction`](#noticeaction)`[]` | no | Buttons under its text, at most 2. |
+| `quiet` | `boolean` | no | An info notice's: whether it follows `ui.messages` (since api 4). Left out, it's quiet unless it has buttons; a warning or an error always shows. |
+
+### `EchoOptions`
+
+How a line on the message line is said (`roster.echo`, since api 4).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `quiet` | `boolean` | no | A routine confirmation (`true`): shown only with `ui.messages = "all"`, heard by a screen reader and kept by `:messages` either way. Left out or `false`, it shows. |
 
 ### `NoticeAction`
 

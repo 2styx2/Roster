@@ -219,7 +219,7 @@ export type PluginOp =
   | { op: "view_close"; id: string }
   | { op: "details"; id: string; host: string; section: PluginDetails | null }
   /** `actions` (ticket 91): buttons whose click runs a command line, as `roster.cmd` would. */
-  | { op: "notify"; text: string; level: "info" | "warn" | "error"; actions: { label: string; command: string }[] }
+  | { op: "notify"; text: string; level: "info" | "warn" | "error"; actions: { label: string; command: string }[]; quiet?: boolean }
   | { op: "open"; host: string }
   | { op: "send"; session: number; text: string }
   | { op: "copy"; text: string }
@@ -230,7 +230,7 @@ export type PluginOp =
    * command it names runs as the app's call (issue #183). */
   | { op: "cmd"; line: string; user?: false }
   /** api 3 (ticket 61): a line on the message line, and the command line opened with text. */
-  | { op: "echo"; text: string }
+  | { op: "echo"; text: string; quiet?: boolean }
   | { op: "cmdline"; text: string }
   | { op: "session_show"; session: number; line: string | null }
   /** A timer (ticket 79): run `run` after `ms`, again every `ms` when `every`. */
@@ -812,7 +812,8 @@ function parse(raw: unknown): PluginOp {
         return { label: str(a, "label", at, 100), command: str(a, "run", at) };
       });
       if (actions.length > MAX_NOTICE_ACTIONS) throw new Invalid(`roster.notify: actions has more than ${MAX_NOTICE_ACTIONS}`);
-      return { op: "notify", text: str(raw, "text", "roster.notify"), level, actions };
+      const quiet = typeof raw.quiet === "boolean" ? { quiet: raw.quiet } : {};
+      return { op: "notify", text: str(raw, "text", "roster.notify"), level, actions, ...quiet };
     }
     case "open":
       return { op: "open", host: str(raw, "host", "roster.sessions.open", 200) };
@@ -877,7 +878,7 @@ function parse(raw: unknown): PluginOp {
     case "cmd":
       return { op: "cmd", line: str(raw, "line", "roster.cmd", MAX_TEXT), ...(raw.user === false ? { user: false as const } : {}) };
     case "echo":
-      return { op: "echo", text: str(raw, "text", "roster.echo") };
+      return { op: "echo", text: str(raw, "text", "roster.echo"), ...(raw.quiet === true ? { quiet: true } : {}) };
     case "cmdline":
       return { op: "cmdline", text: str(raw, "text", "roster.cmdline", MAX_TEXT) };
     case "session_show": {

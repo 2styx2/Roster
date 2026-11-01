@@ -9,6 +9,7 @@ import type { FakePlugin } from "../backend/fakePlugins";
 import type { CommandContext } from "../commands/table";
 import { builtinRegistries } from "../registries";
 import type { SidebarContext } from "../sidebar/sections";
+import { quiet, type Message } from "../ui/messages";
 import { PluginManager, STATE_KEY, type PluginUi } from "./manager";
 
 const hosts = makeHosts(3);
@@ -19,7 +20,7 @@ function setup(settings: Record<string, unknown> | null = {}, plugins: Record<st
   const backend = fakeBackend({ hosts, plugins });
   const registries = builtinRegistries();
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
-  const said: string[] = [];
+  const said: Message[] = [];
   const lines: string[] = [];
   const ran: string[] = [];
   const ui: PluginUi = {
@@ -88,7 +89,8 @@ describe("the Folders Plugin in the app", () => {
     const drop = section(registries).rows[0]!.drop!(h2);
     await call(manager, drop!);
     // The drop's `roster.cmd("folder add …")` runs `:folder` as the user's call carried one hop.
-    await vi.waitFor(() => expect(said.at(-1)).toBe(`Added ${h2} to Lab`));
+    // A routine confirmation: quiet, as roster's own (ticket 118).
+    await vi.waitFor(() => expect(said.at(-1)).toEqual(quiet(`Added ${h2} to Lab`)));
     expect(ran).toEqual([`folder add ${h2} Lab`]);
     expect(section(registries).rows.map((r) => r.label)).toEqual(["Lab", h2]);
   });
@@ -100,9 +102,12 @@ describe("the Folders Plugin in the app", () => {
     folder.run(ctx(null, h1), "add");
     await vi.waitFor(() => expect(lines).toEqual([`folder add ${h1} `]));
     folder.run(ctx(), `add ${h1} Lab`);
-    await vi.waitFor(() => expect(said).toEqual([`Added ${h1} to Lab`]));
+    await vi.waitFor(() => expect(said).toEqual([quiet(`Added ${h1} to Lab`)]));
     folder.run(ctx(`folders:Lab/${h1}`), "remove");
-    await vi.waitFor(() => expect(said.at(-1)).toBe(`Removed ${h1} from Lab`));
+    await vi.waitFor(() => expect(said.at(-1)).toEqual(quiet(`Removed ${h1} from Lab`)));
+    // What went wrong shows.
+    folder.run(ctx(), "add nope-01 Lab");
+    await vi.waitFor(() => expect(said.at(-1)).toBe("No Host named nope-01"));
   });
 
   it("completes a moment later, from what the Plugin answers", async () => {

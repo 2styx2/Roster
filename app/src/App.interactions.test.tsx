@@ -80,7 +80,11 @@ function meshPlugin(permissions: string[] = []): FakePlugin {
   };
 }
 
-async function ready(permissions: string[] = [], platform: MemoryPlatform = memoryPlatform()) {
+// Every message on (ticket 117): the Plugin here says what ran with an info notice, which is quiet
+// by default.
+const everyMessage = () => memoryPlatform({ state: { version: 1, recentHosts: [], folded: [], messages: "all" } });
+
+async function ready(permissions: string[] = [], platform: MemoryPlatform = everyMessage()) {
   const user = userEvent.setup();
   const backend = fakeBackend({ hosts: makeHosts(12), plugins: { [PATH]: meshPlugin(permissions) } });
   render(<App backend={backend} terminalView={StubTerminal} platform={platform} />);
@@ -201,7 +205,7 @@ describe("roster.cmd and a Plugin's command lines", () => {
 
 describe("a float's buttons and links", () => {
   it("run the Plugin's function by click or key, and open the link in the browser", async () => {
-    const platform = memoryPlatform();
+    const platform = everyMessage();
     const user = await ready([], platform);
     await user.keyboard(`${LEADER}:pop{Enter}`);
     const float = await screen.findByRole("complementary", { name: "esx-02 (from mesh)" });

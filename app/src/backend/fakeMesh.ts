@@ -306,13 +306,13 @@ function load(roster: FakeRoster) {
       state.last = p.already
         ? "Applied: already in the Mesh."
         : `Applied: ${words.plural(changed, "Host", "Hosts")} changed${pending > 0 ? `, ${words.count(pending)} pending (the next apply finishes them)` : ""}${stopped}.`;
-      roster.notify(state.last, pending > 0 ? "warn" : "info");
+      roster.notify(state.last, pending > 0 ? "warn" : "info", { quiet: false });
     } else {
       state.plan = null;
       const pending = words.keys(pendingOf);
       const confirmed = (r.confirmed ?? []) as string[];
       state.last = `${host} is cut from the Mesh on ${words.plural(confirmed.length, "Host", "Hosts")}.`;
-      roster.notify(state.last, pending.length > 0 ? "warn" : "info");
+      roster.notify(state.last, pending.length > 0 ? "warn" : "info", { quiet: false });
       for (const [i0, h] of pending.entries()) {
         if (i0 + 1 > 5) {
           roster.notify(`CUT PENDING on ${words.count(pending.length - 5)} more Hosts: see :view mesh`, "warn");
@@ -435,10 +435,10 @@ function load(roster: FakeRoster) {
     if (!allowed("apply") || busy()) return;
     const p = state.plan;
     if (!p) {
-      roster.notify("Plan first: here's what an apply would change. Press a when you've looked.");
+      roster.notify("Plan first: here's what an apply would change. Press a when you've looked.", "info", { quiet: false });
       return plan();
     }
-    if (p.already) return roster.notify("Nothing to apply: the plan changes nothing.");
+    if (p.already) return roster.notify("Nothing to apply: the plan changes nothing.", "info", { quiet: false });
     let change = 0;
     let left = 0;
     for (const h of p.hosts) if (h.changes.length > 0) change++;

@@ -211,9 +211,10 @@ function load(roster: FakeRoster, options: RecentAlertsOptions) {
         const n = alerts.length;
         alerts = [];
         show();
-        roster.notify(n === 0 ? "No alerts to clear" : `Dismissed ${plural(n, "alert", "alerts")}`);
+        // "Dismissed 3 alerts" is routine (quiet unless ui.messages = "all"); "No alerts to clear" answers.
+        roster.notify(n === 0 ? "No alerts to clear" : `Dismissed ${plural(n, "alert", "alerts")}`, "info", { quiet: n > 0 });
       } else if (what === undefined) {
-        if (alerts.length === 0) return roster.notify("No alerts");
+        if (alerts.length === 0) return roster.notify("No alerts", "info", { quiet: false });
         roster.float.open({ title: "Recent alerts", lines: [...alerts].reverse().map((x) => `${clock(x.at)}  ${where(x)}  ${x.text}`) });
       } else roster.notify(":alerts shows the alerts, :alerts clear dismisses them all", "warn");
     },

@@ -501,7 +501,7 @@ export function topologyPlugin(): FakePlugin {
       let asking = false;
       let again = false;
       const check = (e: Obj) => {
-        if (!e.host) return roster.notify("That's this Box: pick a Host to check.");
+        if (!e.host) return roster.notify("That's this Box: pick a Host to check.", "info", { quiet: false });
         roster.cmd(`check ${String(e.host)}`);
       };
       type Cutting = { job?: unknown; host: string; timer?: number | undefined; polling?: boolean; again?: boolean };
@@ -510,7 +510,7 @@ export function topologyPlugin(): FakePlugin {
       const cutDone = (host: string, r: Obj) => {
         const waiting = keys(r.pending).length;
         if (waiting > 0) roster.notify(`Cut ${host}: cut pending on ${plural(waiting, "Host")} that didn't answer.`, "warn");
-        else roster.notify(`Cut ${host} from ${plural(((r.confirmed ?? []) as unknown[]).length, "Host")}.`);
+        else roster.notify(`Cut ${host} from ${plural(((r.confirmed ?? []) as unknown[]).length, "Host")}.`, "info", { quiet: false });
       };
       const cutOver = () => {
         if (cutting?.timer !== undefined) roster.cancel(cutting.timer);
@@ -545,10 +545,10 @@ export function topologyPlugin(): FakePlugin {
         });
       };
       const cut = (e: Obj) => {
-        if (!e.host) return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.");
+        if (!e.host) return roster.notify("That's this Box: it's never in the Mesh, so there's nothing to cut.", "info", { quiet: false });
         const h = String(e.host);
         const m = mesh ?? {};
-        if (!(s.involved.has(h) || (m.cut_pending as Obj | undefined)?.[h])) return roster.notify(`${h} isn't in the Mesh: there's nothing to cut.`);
+        if (!(s.involved.has(h) || (m.cut_pending as Obj | undefined)?.[h])) return roster.notify(`${h} isn't in the Mesh: there's nothing to cut.`, "info", { quiet: false });
         roster.confirm({
           title: `Cut ${h} from the Mesh?`,
           text: `Its key comes off every Host it reaches, and every peer's key comes off it, at once. This Box keeps its own access, so you can look into it.\n\nroster writes \`mesh: false\` for ${h} as a Pending change, so the cut lasts after the next Publish.`,
