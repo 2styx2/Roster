@@ -172,6 +172,9 @@ PREFIX = "roster-askpass-"
 FOLDER = re.compile(r"roster-askpass-(?:(\d+)-)?[A-Za-z0-9_]{8}")
 SERVE_FILES = {"socket", "askpass", "logged-in", "quick_known_hosts"}     # all serve ever puts in one
 SOCKET_ROOM = 100           # a Unix socket's path is at most ~107 bytes
+MAX_PID = 2**31 - 1         # a pid beyond this (or not above 0) isn't one: such a folder is left alone
+SOCKET_SETTLE = 10          # s: a socket younger than this may be between bind() and listen(): never taken for dead
+NO_SOCKET_AGE = 600         # s: a folder with no socket goes only once it's this old (a serve between mkdtemp and bind)
 
 
 def runtime_bases():
@@ -204,24 +207,31 @@ def sweep(base):
     with SIGKILL, the interpreter crashed). A folder goes only if all of this holds: it's a real directory (a link
     is never followed or removed), it's this user's, it holds nothing but what serve puts there (no folder in it), the
     serve its name gives is gone, and its socket doesn't answer: no serve listens on it (a pid from another pid
-    namespace, a container sharing /tmp, isn't taken for dead). A folder from before ticket 113, with no pid in its
-    name, goes only once its socket is dead. Each entry is reached through the folder's own descriptor, opened with
+    namespace, a container sharing /tmp, isn't taken for dead). A socket younger than SOCKET_SETTLE may not be
+    listening yet, and a folder with no socket may belong to a serve that hasn't bound it yet, so those go only once
+    they're older (SOCKET_SETTLE, NO_SOCKET_AGE). A folder from before ticket 113, with no pid in its name, goes only
+    once its socket is dead. Each entry is reached through the folder's own descriptor, opened with
     O_NOFOLLOW, so nothing a link points at is touched. Never raises: what it can't tell, it leaves."""
     if WINDOWS:
         return
     try:
         dfd = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
-    except OSError:
+    except Exception:                       # noqa: BLE001 - never raises: serve starts whatever is here
         return
     try:
         for name in os.listdir(dfd):
             m = FOLDER.fullmatch(name)
-            if not m or (m.group(1) and int(m.group(1)) == os.getpid()):
+            if not m:
                 continue
+            pid = int(m.group(1)) if m.group(1) else None
+            if pid is not None and (pid == os.getpid() or not 0 < pid <= MAX_PID):
+                continue                    # ours, or not a pid at all
             try:
-                _sweep_one(base, dfd, name, int(m.group(1)) if m.group(1) else None)
-            except OSError:
+                _sweep_one(base, dfd, name, pid)
+            except Exception:               # noqa: BLE001 - what it can't tell, it leaves
                 pass
+    except Exception:                       # noqa: BLE001
+        pass
     finally:
         os.close(dfd)
 
@@ -245,10 +255,12 @@ def _sweep_one(base, dfd, name, pid):
         if any(stat.S_ISDIR(m) for m in kinds.values()):
             return
         if "socket" in kinds:
-            if not stat.S_ISSOCK(kinds["socket"]) or listening(os.path.join(base, name, "socket")):
-                return
-        elif pid is None:
-            return                          # an older serve's, with nothing to tell whether it's alive
+            sock = os.stat("socket", dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISSOCK(sock.st_mode) or time.time() - sock.st_mtime < SOCKET_SETTLE \
+                    or listening(os.path.join(base, name, "socket")):
+                return                      # not a socket, maybe not listening yet, or a serve answers on it
+        elif pid is None or time.time() - now.st_mtime < NO_SOCKET_AGE:
+            return                          # an older serve's with nothing to tell, or one that may not have bound yet
         for e in entries:
             os.unlink(e, dir_fd=fd)         # a link is removed itself, never what it points at
     finally:
@@ -257,13 +269,13 @@ def _sweep_one(base, dfd, name, pid):
 
 
 def process_alive(pid):
-    """Is there a process PID (any user's)? POSIX only."""
+    """Is there a process PID (any user's)? POSIX only. True when it can't tell."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except OSError:
-        return True                         # another user's: it exists
+    except (OSError, OverflowError, ValueError):
+        return True                         # another user's (it exists), or not a pid the OS takes
     return True
 
 

@@ -52,7 +52,15 @@ def stale(run, pid, files=("socket", "askpass", "logged-in")):
             s.close()                                   # the file stays, with nothing listening
         else:
             (d / name).write_text("#!/bin/sh\n")
+    if "socket" in files:
+        aged(d / "socket")
     return d
+
+
+def aged(path, seconds=None):
+    """PATH as if made SECONDS ago (a minute past what the sweep waits for a fresh socket)."""
+    then = time.time() - (seconds if seconds is not None else askpass.SOCKET_SETTLE + 60)
+    os.utime(path, (then, then), follow_symlinks=False)
 
 
 # ---------------------------------------------------------------- every way serve ends
@@ -94,6 +102,7 @@ def test_a_killed_serves_folder_goes_when_the_next_serve_starts(serve, write_con
     first.p.kill()
     first.p.wait()
     assert left.exists()                                    # SIGKILL: nothing could run
+    aged(left / "socket")                                   # it was killed a while ago
     second = started(serve, runtime_dir)
     assert not left.exists() and len(folders(runtime_dir)) == 1
     third = started(serve, runtime_dir)                     # a live serve's folder stays
@@ -147,6 +156,7 @@ def test_an_older_serves_folder_goes_only_once_its_socket_is_dead(runtime_dir):
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.bind(str(dead / "socket"))
     s.close()
+    aged(dead / "socket")
     alive = runtime_dir / "roster-askpass-old67890"
     alive.mkdir(mode=0o700)
     listening = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -171,3 +181,31 @@ def test_a_pid_from_another_pid_namespace_isnt_taken_for_dead(runtime_dir):
         assert (d / "socket").exists()
     finally:
         listening.close()
+
+
+# ---------------------------------------------------------------- the review of #216
+
+def test_a_pid_too_big_for_the_os_is_left_and_the_sweep_doesnt_raise(runtime_dir):
+    # review 3: os.kill raised OverflowError for it, out of sweep and so out of serve's start
+    huge = stale(runtime_dir, "12345678901234567890")
+    zero = stale(runtime_dir, 0)
+    askpass.sweep(str(runtime_dir))
+    assert huge.exists() and zero.exists()
+
+
+def test_a_folder_with_no_socket_yet_goes_only_once_its_old(runtime_dir):
+    # review 4: a serve in another pid namespace, between making its folder and binding its socket, lost its folder
+    young = stale(runtime_dir, dead_pid(), files=("askpass", "logged-in"))
+    old = stale(runtime_dir, dead_pid(), files=("askpass",))
+    long_ago = time.time() - askpass.NO_SOCKET_AGE - 60
+    os.utime(old, (long_ago, long_ago))
+    askpass.sweep(str(runtime_dir))
+    assert young.exists() and not old.exists()
+
+
+def test_a_socket_just_bound_isnt_taken_for_dead(runtime_dir):
+    # between bind() and listen() a socket refuses too: a fresh one is left
+    d = stale(runtime_dir, dead_pid())
+    os.utime(d / "socket")                                  # just now
+    askpass.sweep(str(runtime_dir))
+    assert d.exists()
