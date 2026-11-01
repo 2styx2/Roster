@@ -105,6 +105,17 @@ fn notices(ops: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// Waits (up to 10 s) until none of `plugin`'s `roster.serve.request`s is still waiting, so a
+/// test that makes many of them stays under the cap on how many may wait at once, however slow the
+/// machine running it (a slow Windows runner once hit "8 requests are waiting" mid-test).
+fn settled(host: &PluginHost, plugin: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host.requests(plugin) > 0 {
+        assert!(Instant::now() < deadline, "{plugin}'s requests never all answered");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// The notices in the replies the Plugin sends on its own, until `want` of them or 3 s.
 fn later(rx: &Receiver<Reply>, want: usize) -> Vec<String> {
     let mut out = Vec::new();
@@ -163,15 +174,18 @@ roster.commands.add("go", {{ run = function() all("user") end }})
     );
     let (loaded, _folder) = load(&host, "flagged", &permissions, &init);
     let mut said = notices(&loaded.ops);
+    settled(&host, "guarded");
     let timer = handler(&op(&loaded.ops, "timer")["run"]);
     let fired = host.call("guarded", timer, json!({}));
     ok(&fired);
     said.extend(notices(&fired.ops));
+    settled(&host, "guarded");
     let heard = host.event(Event {
         name: "host_selected".into(),
         payload: json!({ "host": "esx-02" }),
     });
     said.extend(heard.iter().flat_map(|r| notices(&r.ops)));
+    settled(&host, "guarded");
     let user = host.call("guarded", command(&loaded.ops, "go"), ARGS());
     ok(&user);
     said.extend(notices(&user.ops));
