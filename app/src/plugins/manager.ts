@@ -18,7 +18,7 @@
 //   old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginReply, SiteRequests } from "../backend/types";
+import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginData, PluginReply, SiteRequests } from "../backend/types";
 import { themeOf } from "../config/apply";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { sectionFinder, type FinderItem, type FinderSourceDef } from "../finder/sources";
@@ -142,6 +142,9 @@ export interface PluginStatus {
   /** Its network requests by site since the app started, as the core last counted them
    * (`refreshRequests`, decision Q116). */
   requests: readonly SiteRequests[];
+  /** How full its data folder is, as the core counted it when `:plugins` last opened
+   * (`refreshData`, ticket 98); null before it has. */
+  data: PluginData | null;
 }
 
 /** A question for the user: install this Plugin, or allow what its update newly asks for. */
@@ -207,6 +210,7 @@ type PluginBackend = Pick<
   | "pluginUnload"
   | "pluginForget"
   | "pluginRequests"
+  | "pluginData"
   | "packagesSync"
   | "packagesPin"
   | "packagesDiscard"
@@ -285,6 +289,7 @@ export class PluginManager {
   private readonly waiting = new Map<string, Prompt>();
   private readonly uses = new Map<string, Use[]>();
   private requests: Record<string, SiteRequests[]> = {};
+  private data: Record<string, PluginData> = {};
   private prompts: Prompt[] = [];
   private notices: Notice[] = [];
   private float: Snapshot["float"] = null;
@@ -1587,6 +1592,21 @@ export class PluginManager {
     this.changed();
   }
 
+  /** Asks the core how full each Plugin's data folder is (`:plugins` opening, ticket 98): one
+   * listing per folder, so once per opening rather than with the request counts. A core that
+   * can't say leaves the sizes as they were. */
+  async refreshData(): Promise<void> {
+    let next: Record<string, PluginData>;
+    try {
+      next = await this.backend.pluginData(this.snap.plugins.map((p) => p.name));
+    } catch {
+      return;
+    }
+    if (JSON.stringify(next) === JSON.stringify(this.data)) return;
+    this.data = next;
+    this.changed();
+  }
+
   private used(plugin: string, what: string) {
     const list = this.uses.get(plugin) ?? [];
     this.uses.set(plugin, [{ at: this.now(), what }, ...list].slice(0, MAX_USES));
@@ -1610,6 +1630,7 @@ export class PluginManager {
         waiting: this.waiting.has(name),
         uses: this.uses.get(name) ?? [],
         requests: this.requests[name] ?? [],
+        data: this.data[name] ?? null,
       };
     });
     this.snap = {
