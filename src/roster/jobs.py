@@ -1,6 +1,7 @@
-"""serve's job manager (ticket 101, decision Q112): the one place that owns background work, a Mesh run or a Discover
-scan. Each job has a kind (`mesh`, `discover`) and an id within it, an action, a state, progress (`done` of `total`,
-`at`), a result or an error, and a stop. One job of a kind runs at a time. Every change of state, and its progress a
+"""serve's job manager (ticket 101, decision Q112): the one place that owns background work, a Mesh run, a Discover
+scan or a Host's check (ticket 108). Each job has a kind (`mesh`, `discover`, `check`) and an id within it, an action, a
+state, progress (`done` of `total`, `at`), a result or an error, and a stop. One job of a kind runs at a time, or one
+of a kind per Host for a kind started with `per_host` (a check). Every change of state, and its progress a
 few times a second, goes out as the `job.progress` notification (NOTIFY). Closing stops every running job at once and
 waits a moment for them all to wind down, so serve's exit records what they did (a Mesh job writes mesh.json).
 
@@ -8,6 +9,7 @@ waits a moment for them all to wind down, so serve's exit records what they did 
     job = m.start("mesh", "apply", work, total=12)      # work(job) runs on a thread of its own; Busy if one runs
     job.progress(3, 12, "orion-2")                      # from work
     job.halted.is_set()                                 # work's cue to stop (stop() or close())
+    m.start("check", "check", work, job_prefix="check-", host="esx-02", per_host=True)   # one per Host
     m.stop("mesh", job.job); m.close(0.8)
 """
 
@@ -146,7 +148,7 @@ class Jobs:
     def __init__(self, notify=None, log=None):
         self.notify, self.log = notify, log or (lambda line: None)
         self.lock = threading.Lock()
-        self.latest_of = {}                     # kind -> its latest Job
+        self.latest_of = {}                     # (kind, host or None) -> its latest Job
         self.counts = {}                        # kind -> how many started
         self.closing = False
 
@@ -155,19 +157,23 @@ class Jobs:
             with job.push_lock:                 # what it says and when it's sent in one go: never a stale view last
                 self.notify("job.progress", job.view())
 
-    def start(self, kind, action, work, total=0, job=None, host=None, on_stop=None, on_close=None):
-        """Start WORK(job) on a thread of its own and return the Job at once. Busy if a job of KIND runs; Closed
-        once serve is closing. JOB is its id (the next number of its kind if left out)."""
+    def start(self, kind, action, work, total=0, job=None, host=None, on_stop=None, on_close=None, per_host=False,
+              job_prefix=""):
+        """Start WORK(job) on a thread of its own and return the Job at once. Busy if a job of KIND runs (of KIND for
+        HOST, PER_HOST); Closed once serve is closing. JOB is its id (else JOB_PREFIX and the next number of its
+        kind)."""
+        slot = (kind, host if per_host else None)
         with self.lock:
             if self.closing:
                 raise Closed("roster serve is closing")
-            running = self.latest_of.get(kind)
+            running = self.latest_of.get(slot)
             if running is not None and running.running():
                 raise Busy(running)
             self.counts[kind] = self.counts.get(kind, 0) + 1
-            new = Job(self, kind, job if job is not None else self.counts[kind], action, total, host, on_stop, on_close)
+            new = Job(self, kind, job if job is not None else f"{job_prefix}{self.counts[kind]}" if job_prefix
+                      else self.counts[kind], action, total, host, on_stop, on_close)
             new.thread = threading.Thread(target=new.run, args=(work,), name=f"job-{kind}-{new.job}", daemon=True)
-            self.latest_of[kind] = new
+            self.latest_of[slot] = new
             # Started before anyone can see it (close() joins it), and its start told before anything it pushes.
             with new.push_lock:
                 first = new.view()              # as it starts: its work may move on before this goes out
@@ -176,16 +182,22 @@ class Jobs:
                     self.notify("job.progress", first)
         return new
 
-    def latest(self, kind):
-        return self.latest_of.get(kind)
+    def latest(self, kind, host=None):
+        """KIND's latest job (for HOST, of a kind started per_host)."""
+        return self.latest_of.get((kind, host))
 
     def get(self, kind, job):
-        j = self.latest_of.get(kind)
-        return j if j is not None and j.job == job else None
+        with self.lock:
+            return next((j for (k, _), j in self.latest_of.items() if k == kind and j.job == job), None)
+
+    def running(self, kind):
+        """KIND's jobs still running."""
+        with self.lock:
+            return [j for (k, _), j in self.latest_of.items() if k == kind and j.running()]
 
     def list(self):
         with self.lock:
-            return [j.view() for _, j in sorted(self.latest_of.items())]
+            return [j.view() for _, j in sorted(self.latest_of.items(), key=lambda kv: (kv[0][0], kv[0][1] or ""))]
 
     def stop(self, kind, job):
         j = self.get(kind, job)

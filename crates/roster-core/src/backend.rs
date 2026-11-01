@@ -80,6 +80,11 @@ pub const CALL_SECS: &[(&str, u64)] = &[
     ("mesh.cut", 120),
 ];
 
+/// The first serve API with `host.check {background: true}` and `host.check_job` (ticket 108).
+pub const CHECK_JOBS_API_VERSION: i64 = 21;
+/// How often [`Backend::check_host`] asks a check job how it's going.
+pub const CHECK_POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
 /// How long the app waits for `method` (see [`CALL_SECS`]).
 pub fn timeout_for(method: &str) -> std::time::Duration {
     CALL_SECS
@@ -148,6 +153,55 @@ impl Backend {
                 inventory,
             },
         })
+    }
+
+    /// The `api_version` serve reported at start.
+    pub fn api_version(&self) -> i64 {
+        self.info
+            .inventory
+            .get("api_version")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    }
+
+    /// roster's diagnostics for one Host (`host.check`): `{host, ok, steps}`. From serve API 21
+    /// (ticket 108) the check is a job in serve: it's started in the background and
+    /// `host.check_job` (a quick read) is asked every [`CHECK_POLL`] until it's over, so no worker
+    /// of serve waits for the check meanwhile. An older serve gets the waiting form. Past
+    /// [`timeout_for`] `host.check` the job is stopped and this is [`CallError::Timeout`].
+    pub fn check_host(&self, host: &str) -> Result<Value, CallError> {
+        if self.api_version() < CHECK_JOBS_API_VERSION {
+            return self.call("host.check", json!({ "host": host }));
+        }
+        let started = self.call("host.check", json!({ "host": host, "background": true }))?;
+        let job = started.get("job").cloned().ok_or_else(|| CallError::Io {
+            message: "host.check answered without a job".into(),
+        })?;
+        let end = std::time::Instant::now() + timeout_for("host.check");
+        loop {
+            let r = self.call("host.check_job", json!({ "job": job }))?;
+            match r.get("state").and_then(Value::as_str) {
+                Some("running" | "stopping") => {}
+                Some("failed") => {
+                    let e = r.get("error").cloned().unwrap_or(Value::Null);
+                    return Err(CallError::Rpc {
+                        code: e.get("code").and_then(Value::as_i64).unwrap_or(-32603),
+                        message: e.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
+                        data: e.get("data").cloned(),
+                    });
+                }
+                _ => {
+                    return r.get("result").cloned().ok_or_else(|| CallError::Io {
+                        message: "host.check_job answered without a result".into(),
+                    });
+                }
+            }
+            if std::time::Instant::now() >= end {
+                let _ = self.call("jobs.stop", json!({ "kind": "check", "job": job }));
+                return Err(CallError::Timeout);
+            }
+            std::thread::sleep(CHECK_POLL);
+        }
     }
 
     /// A call, waiting as long as [`timeout_for`] says for that method.

@@ -2104,7 +2104,7 @@ roster serve's methods, by name. `nil` unless the Plugin was granted at least on
 
 ### `roster.serve.call(method, params)`
 
-Calls a roster serve method the Plugin was granted. Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. Every method the install prompt flags, the ones that act on the network or the Inventory (all but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`; `mesh.apply`, `mesh.cut`, `host.check`, `discover.start` and `discover.add` among them), only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check`. One call may ask roster serve this way (and through `roster.inventory`) at most 100 times, waiting 300 s in all. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.
+Calls a roster serve method the Plugin was granted. Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `host.check_job`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. Every method the install prompt flags, the ones that act on the network or the Inventory (all but `inventory.info`, `hosts.list`, `host.get`, `host.check_job`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`; `mesh.apply`, `mesh.cut`, `host.check`, `discover.start` and `discover.add` among them), only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check`. One call may ask roster serve this way (and through `roster.inventory`) at most 100 times, waiting 300 s in all. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.
 
 **Parameters**
 
@@ -2252,7 +2252,7 @@ end)
 | `session_exit` | A Session ended, failed, or its tab was closed while it ran. | [`SessionExitEvent`](#sessionexitevent) | `inventory.read` or `terminal.read` |
 | `inventory_changed` | The app got a new Host list (an edit, a pull, a Publish, an outside edit of `roster.yml`). | [`EmptyEvent`](#emptyevent) | `inventory.read` |
 | `terminal_output` | A Session printed something: a few times a second, in batches. | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal.read` |
-| `job_progress` | One of roster serve's jobs (a Mesh run, a Discover scan) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes). A Plugin hears a Mesh job only with `serve:mesh.job` and a scan only with `serve:discover.status`: what it could ask anyway. The result isn't in it: ask `mesh.job` or `discover.status` once it ends. | [`JobProgressEvent`](#jobprogressevent) | `serve:mesh.job` or `serve:discover.status` |
+| `job_progress` | One of roster serve's jobs (a Mesh run, a Discover scan, a Host's check) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes; a check is a job from serve API 21). A Plugin hears a Mesh job only with `serve:mesh.job`, a scan only with `serve:discover.status` and a check only with `serve:host.check_job`: what it could ask anyway (`serve:host.check` alone isn't enough: a listener may never call it). The result isn't in it: ask `mesh.job`, `discover.status` or `host.check_job` once it ends. | [`JobProgressEvent`](#jobprogressevent) | `serve:mesh.job` or `serve:discover.status` or `serve:host.check_job` |
 
 ## Command lines a Plugin may run
 
@@ -2283,6 +2283,7 @@ What `roster.serve.call(method)` returns, for the methods a Plugin may be grante
 | `hosts.list` | [`HostList`](#hostlist) | [hosts.list](serve-api.md) |
 | `host.get` | [`Host`](#host) | [host.get](serve-api.md) |
 | `host.check` | [`HostCheck`](#hostcheck) | [host.check](serve-api.md#diagnostics-hostcheck) |
+| `host.check_job` | see serve-api.md | [host.check_job](serve-api.md#diagnostics-hostcheck) |
 | `changes.diff` | [`ChangesDiff`](#changesdiff) | [changes.diff](serve-api.md#editing-pending-changes) |
 | `mesh.*` | see serve-api.md | [mesh.*](serve-api.md#the-mesh-meshplan-meshapply-meshcut-meshstatus) |
 | `discover.*` | see serve-api.md | [discover.*](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd) |
@@ -3338,14 +3339,14 @@ No fields.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `kind` | `string` | yes | `"mesh"` or `"discover"`. |
-| `job` | `integer\|string` | yes | Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`). |
-| `action` | `string` | yes | `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover. |
+| `kind` | `string` | yes | `"mesh"`, `"discover"` or `"check"`. |
+| `job` | `integer\|string` | yes | Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`), the check's `"check-N"` (`host.check_job { job = ... }`). |
+| `action` | `string` | yes | `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover; `"check"` for a check. |
 | `state` | `string` | yes | `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`. |
-| `done` | `integer` | yes | How far it has got: Hosts visited, addresses scanned. |
+| `done` | `integer` | yes | How far it has got: Hosts visited, addresses scanned, a check's steps started (of 8). |
 | `total` | `integer` | yes | Of how many. |
-| `at` | `string` | no | The Host it's on, when it's on one. |
-| `host` | `string` | no | A cut's Host. |
+| `at` | `string` | no | The Host it's on, when it's on one; a check's step (`"dns"`, `"auth"`, ...). |
+| `host` | `string` | no | A cut's Host; the Host a check checks. |
 | `error` | `table` | no | How it failed: `{ code, message, data? }`, as serve's error. |
 
 ### `TerminalOutputEvent`

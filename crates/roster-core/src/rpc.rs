@@ -1,7 +1,8 @@
 //! A JSON-RPC 2.0 client over a child process's stdin/stdout, one JSON object per line: the
 //! `roster serve` protocol. Calls may be made from several threads; responses are matched to
 //! callers by id, so the order the child answers in doesn't matter (serve answers several at
-//! once since API 20, decision Q112). Whatever the child writes to
+//! once since API 20, decision Q112). A call given up on is cancelled in serve (`$/cancel`, API
+//! 21). Whatever the child writes to
 //! stderr is kept (the tail of it) so a failed start can be explained.
 
 use serde::Serialize;
@@ -169,8 +170,20 @@ impl RpcClient {
             Ok(reply) => reply,
             Err(_) => {
                 self.shared.lock().unwrap().pending.remove(&id);
+                self.cancel(id);
                 Err(CallError::Timeout)
             }
+        }
+    }
+
+    /// Tells serve the call `id` was given up on: the notification `$/cancel {id}` (serve API 21,
+    /// ticket 108). A request still queued or waiting for a lock never runs, a running check or
+    /// Mesh run stops its job, anything else that runs finishes (serve-api.md, "Cancelling"). An
+    /// older serve ignores it (a notification gets no answer). Best effort: a closed pipe is fine.
+    fn cancel(&self, id: u64) {
+        let line = json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"id": id}}).to_string() + "\n";
+        if let Some(w) = self.stdin.lock().unwrap().as_mut() {
+            let _ = w.write_all(line.as_bytes()).and_then(|_| w.flush());
         }
     }
 

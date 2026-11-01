@@ -97,19 +97,26 @@ def askpass_lookup(h):
 
 # ---------------------------------------------------------------- host.check / `roster check HOST`
 
-def check_host(name, inventory, channel=None):
+def check_host(name, inventory, channel=None, progress=None, halted=None):
     """Run STEPS for Host NAME in order and stop at the first failure; the rest are "skipped". INVENTORY()
     returns the loaded config or raises Problem(1). CHANNEL is an askpass.Channel for a password login
     (without one, the auth step of a password Host is skipped).
     The local steps come first, so nothing touches the network once one fails; then one TCP connection
     (port, then the host key over it) and one ssh login attempt. Returns {host, ok, steps: [...]}, each step
-    {step, status: ok|fail|skipped, message, code?, fix?, details?, data?}."""
+    {step, status: ok|fail|skipped, message, code?, fix?, details?, data?}.
+    serve's check job (ticket 108) passes PROGRESS(done, total, step), called as each step starts, and HALTED (an
+    Event): once it's set no further step starts (the rest are "skipped", and ok is false)."""
     ctx = {"name": name, "inventory": inventory, "channel": channel}
     steps, failed = [], False
-    for step in STEPS:
+    for i, step in enumerate(STEPS):
+        if not failed and halted is not None and halted.is_set():
+            failed = "stopped"
         if failed:
-            steps.append({"step": step, "status": "skipped", "message": "an earlier step failed"})
+            why = "the check was stopped" if failed == "stopped" else "an earlier step failed"
+            steps.append({"step": step, "status": "skipped", "message": why})
             continue
+        if progress is not None:
+            progress(i, len(STEPS), step)
         try:
             outcome = STEP_FNS[step](ctx)
         except Problem as e:

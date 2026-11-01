@@ -1639,7 +1639,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
         ],
         summary: "Calls a roster serve method the Plugin was granted",
-        doc: "Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. Every method the install prompt flags, the ones that act on the network or the Inventory (all but `inventory.info`, `hosts.list`, `host.get`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`; `mesh.apply`, `mesh.cut`, `host.check`, `discover.start` and `discover.add` among them), only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check`. One call may ask roster serve this way (and through `roster.inventory`) at most 100 times, waiting 300 s in all. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.",
+        doc: "Waits for the answer, however long roster serve takes (a call behind the app's Publish waits for it); that time doesn't count against the Plugin's budget, nor toward it being given up on, but the Plugin does nothing else meanwhile. [`roster.serve.request`](#rosterserverequestmethod-params-done) asks without waiting. A Plugin may be granted `inventory.info`, `hosts.list`, `host.get`, `host.check`, `host.check_job`, `changes.diff` and the `mesh.*` and `discover.*` methods; never one that reaches a secret. Every method the install prompt flags, the ones that act on the network or the Inventory (all but `inventory.info`, `hosts.list`, `host.get`, `host.check_job`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`; `mesh.apply`, `mesh.cut`, `host.check`, `discover.start` and `discover.add` among them), only while the user runs one of your actions, commands or finder items, or answers your question: never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check`. One call may ask roster serve this way (and through `roster.inventory`) at most 100 times, waiting 300 s in all. What each returns is under [roster serve's results](#roster-serves-results); in it, as in `roster.inventory`'s, a `cmd:` or `env:` Login reference is cut to its kind ([`LoginRef`](#loginref)), in any text of it: a diff's line or a step's message too.",
         returns: ("any", "The method's result, as Lua tables (JSON `null` is `nil`)."),
         errors: &[
             (
@@ -1820,9 +1820,9 @@ pub const EVENTS: &[Event] = &[
     },
     Event {
         name: "job_progress",
-        needs: &["serve:mesh.job", "serve:discover.status"],
+        needs: &["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
         payload: "JobProgressEvent",
-        when: "One of roster serve's jobs (a Mesh run, a Discover scan) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes). A Plugin hears a Mesh job only with `serve:mesh.job` and a scan only with `serve:discover.status`: what it could ask anyway. The result isn't in it: ask `mesh.job` or `discover.status` once it ends.",
+        when: "One of roster serve's jobs (a Mesh run, a Discover scan, a Host's check) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes; a check is a job from serve API 21). A Plugin hears a Mesh job only with `serve:mesh.job`, a scan only with `serve:discover.status` and a check only with `serve:host.check_job`: what it could ask anyway (`serve:host.check` alone isn't enough: a listener may never call it). The result isn't in it: ask `mesh.job`, `discover.status` or `host.check_job` once it ends.",
     },
 ];
 
@@ -1846,6 +1846,11 @@ pub const SERVE_RESULTS: &[ServeResult] = &[
     ServeResult {
         method: "host.check",
         result: "HostCheck",
+        link: "serve-api.md#diagnostics-hostcheck",
+    },
+    ServeResult {
+        method: "host.check_job",
+        result: "",
         link: "serve-api.md#diagnostics-hostcheck",
     },
     ServeResult {
@@ -3664,16 +3669,16 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[
-            f("kind", "string", "`\"mesh\"` or `\"discover\"`."),
+            f("kind", "string", "`\"mesh\"`, `\"discover\"` or `\"check\"`."),
             f(
                 "job",
                 "integer|string",
-                "Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `\"scan-N\"` (`discover.status { scan = ... }`).",
+                "Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `\"scan-N\"` (`discover.status { scan = ... }`), the check's `\"check-N\"` (`host.check_job { job = ... }`).",
             ),
             f(
                 "action",
                 "string",
-                "`\"plan\"`, `\"apply\"` or `\"cut\"` for the Mesh; `\"scan\"` for Discover.",
+                "`\"plan\"`, `\"apply\"` or `\"cut\"` for the Mesh; `\"scan\"` for Discover; `\"check\"` for a check.",
             ),
             f(
                 "state",
@@ -3683,11 +3688,15 @@ pub const TYPES: &[Type] = &[
             f(
                 "done",
                 "integer",
-                "How far it has got: Hosts visited, addresses scanned.",
+                "How far it has got: Hosts visited, addresses scanned, a check's steps started (of 8).",
             ),
             f("total", "integer", "Of how many."),
-            o("at", "string", "The Host it's on, when it's on one."),
-            o("host", "string", "A cut's Host."),
+            o(
+                "at",
+                "string",
+                "The Host it's on, when it's on one; a check's step (`\"dns\"`, `\"auth\"`, ...).",
+            ),
+            o("host", "string", "A cut's Host; the Host a check checks."),
             o(
                 "error",
                 "table",

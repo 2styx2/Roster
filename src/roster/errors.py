@@ -13,6 +13,8 @@ UNKNOWN_HOST = 2            # no Host by that name
 ROSTER_ERROR = 3            # any other refusal roster gives on the command line ("error: ...")
 BUSY = 4                    # serve: another request held what this one needs (roster.yml, the vault) past its wait;
                             #   nothing was done. data.busy: what, data.method: the request holding it (API 20)
+CANCELLED = 5               # serve: $/cancel stopped the request before it did anything (queued, or waiting for a
+                            #   lock): nothing was done (API 21)
 
 WRONG_PASSWORD = 10         # vault.*: the master password didn't unlock the vault
 NOT_LOGGED_IN = 11          # the vault CLI isn't logged in on this box (row 6)
@@ -51,6 +53,7 @@ PASSWORD_REFUSED = 45       # the Host refused the Login's password (row 11)
 KEY_REFUSED = 46            # the Host refused this box's key (row 12)
 TOO_MANY_AUTH = 47          # the Host cut the connection after too many key attempts (row 19)
 AUTH_FAILED = 48            # the login failed some other way; details has ssh's own message
+NO_CHECK = 49               # host.check_job: no check by that id in this serve (API 21)
 
 # vault.login: signing the vault CLI in on this box (ticket 31; docs/app/dev/vault-auth.md).
 # A wrong email or master password is 10, a provider with no sign-in here 13, no CLI 12.

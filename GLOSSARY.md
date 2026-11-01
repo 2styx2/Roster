@@ -69,7 +69,7 @@ A plan, apply or cut that roster serve runs in the background (`background: true
 _Avoid_: task, background run
 
 **Job**:
-Background work roster serve owns: a Mesh run or a Discover scan. It has a kind and an id, a state, progress, a result and a stop, pushes its progress (`job.progress`, the Plugins' `job_progress`), and is stopped and recorded when serve exits. One of each kind at a time.
+Background work roster serve owns: a Mesh run, a Discover scan or a Host's check. It has a kind and an id, a state, progress, a result and a stop, pushes its progress (`job.progress`, the Plugins' `job_progress`), and is stopped and recorded when serve exits. One of each kind at a time (a check: one per Host).
 _Avoid_: task, worker (serve's workers answer requests; a Job runs beside them)
 
 ## The app
