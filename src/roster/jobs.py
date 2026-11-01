@@ -15,8 +15,10 @@ waits a moment for them all to wind down, so serve's exit records what they did 
 
 import threading
 import time
+from collections import deque
 
 PUSH_EVERY = 0.2            # s: progress goes out at most this often per job (a state change always does)
+KEPT = 32                   # jobs a newer one of their slot replaced, still found by id (a poll after it ended)
 INTERNAL_ERROR = -32603
 
 
@@ -66,6 +68,25 @@ class Job:
         self.pushed = 0.0
         self.push_lock = threading.Lock()
         self.later = None                       # the Timer that sends progress held back by PUSH_EVERY
+        self.waiters = 0                        # requests waiting for it that a cancel may take away (hold)
+        self.kept = False                       # asked for in the background: no waiter's cancel stops it
+
+    def hold(self, waiting):
+        """A request asks for this job: WAITING for it (it may be cancelled: let_go), or in the background (kept
+        until it ends or is stopped by name)."""
+        with self.lock:
+            if waiting:
+                self.waiters += 1
+            else:
+                self.kept = True
+
+    def let_go(self):
+        """A waiting request was cancelled: stop the job if nothing else wants it (no other waiter, never asked
+        for in the background). True if it stopped."""
+        with self.lock:
+            self.waiters -= 1
+            last = self.waiters <= 0 and not self.kept
+        return last and self.stop()
 
     def progress(self, done, total=None, at=None):
         """WORK says how far it has got: DONE of TOTAL, at AT (a Host's name, or None)."""
@@ -149,6 +170,7 @@ class Jobs:
         self.notify, self.log = notify, log or (lambda line: None)
         self.lock = threading.Lock()
         self.latest_of = {}                     # (kind, host or None) -> its latest Job
+        self.replaced = deque(maxlen=KEPT)      # the jobs a newer one of their slot replaced: get() finds them
         self.counts = {}                        # kind -> how many started
         self.closing = False
 
@@ -160,15 +182,17 @@ class Jobs:
     def start(self, kind, action, work, total=0, job=None, host=None, on_stop=None, on_close=None, per_host=False,
               job_prefix=""):
         """Start WORK(job) on a thread of its own and return the Job at once. Busy if a job of KIND runs (of KIND for
-        HOST, PER_HOST); Closed once serve is closing. JOB is its id (else JOB_PREFIX and the next number of its
-        kind)."""
+        HOST, PER_HOST: one that is only stopping doesn't count, it starts nothing more); Closed once serve is
+        closing. JOB is its id (else JOB_PREFIX and the next number of its kind)."""
         slot = (kind, host if per_host else None)
         with self.lock:
             if self.closing:
                 raise Closed("roster serve is closing")
             running = self.latest_of.get(slot)
-            if running is not None and running.running():
+            if running is not None and (running.state == "running" if per_host else running.running()):
                 raise Busy(running)
+            if running is not None:
+                self.replaced.append(running)
             self.counts[kind] = self.counts.get(kind, 0) + 1
             new = Job(self, kind, job if job is not None else f"{job_prefix}{self.counts[kind]}" if job_prefix
                       else self.counts[kind], action, total, host, on_stop, on_close)
@@ -187,8 +211,10 @@ class Jobs:
         return self.latest_of.get((kind, host))
 
     def get(self, kind, job):
+        """KIND's job JOB: a latest one, or one a newer job of its slot replaced not long ago."""
         with self.lock:
-            return next((j for (k, _), j in self.latest_of.items() if k == kind and j.job == job), None)
+            return next((j for j in (*self.latest_of.values(), *reversed(self.replaced))
+                         if j.kind == kind and j.job == job), None)
 
     def running(self, kind):
         """KIND's jobs still running."""
@@ -207,7 +233,7 @@ class Jobs:
         """serve is closing: stop every running job at once, wait up to WAIT s for them all, and log each."""
         with self.lock:
             self.closing = True
-            running = [j for j in self.latest_of.values() if j.running()]
+            running = [j for j in (*self.latest_of.values(), *self.replaced) if j.running()]
         for j in running:
             j.stop()
             if j.on_close is not None:

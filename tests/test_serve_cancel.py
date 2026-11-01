@@ -266,23 +266,27 @@ def test_vault_status_doesnt_wait_for_a_cancelled_unlock(state, monkeypatch):
 
 @pytest.fixture
 def held_check(monkeypatch):
-    """diagnose.check_host stands in: it takes its first step, then waits for `go` (or its stop) before the rest."""
+    """diagnose.check_host stands in: it takes its first step, then a step that shares the vault and waits for `go`
+    (or its stop) before the rest."""
+    from contextlib import nullcontext
+
     from roster import diagnose
     calls, stepped, go = [], threading.Event(), threading.Event()
 
-    def check_host(name, inventory, channel=None, progress=None, halted=None):
+    def check_host(name, inventory, channel=None, progress=None, halted=None, vault=None):
         calls.append(name)
         progress and progress(1, len(diagnose.STEPS), "inventory")
-        stepped.set()
-        while not go.is_set() and not (halted and halted.is_set()):
-            go.wait(0.01)
+        with vault() if vault else nullcontext():
+            stepped.set()
+            while not go.is_set() and not (halted and halted.is_set()):
+                go.wait(0.01)
         stopped = bool(halted and halted.is_set())
         return {"host": name, "ok": not stopped, "steps": []}
     monkeypatch.setattr(diagnose, "check_host", check_host)
     return type("Held", (), {"calls": calls, "stepped": stepped, "go": go})
 
 
-def test_a_background_check_frees_its_worker_and_holds_the_vault_for_its_job(state, held_check):
+def test_a_background_check_frees_its_worker_and_its_job_holds_the_vault_for_a_vault_step(state, held_check):
     out = Out()
     server = rpc.Server(state, out, workers=1, quick_workers=1)
     server.submit(req(1, "host.check", {"host": "esx-02", "background": True}))
@@ -335,3 +339,172 @@ def test_vault_lock_stops_a_running_check_rather_than_wait_for_it(state, held_ch
     t.join(5)                                                       # never go.set(): the lock ended it
     assert locked and "result" in locked[0]
     assert state.jobs.latest("check", "esx-02").view()["state"] == "stopped"
+
+
+# ---------------------------------------------------------------- the iteration 9 review
+
+def wait_until(cond, seconds=5):
+    end = time.monotonic() + seconds
+    while not cond():
+        assert time.monotonic() < end, "never happened"
+        time.sleep(0.005)
+
+
+def running(server, rid):
+    with server.table:
+        r = server.requests.get(rpc.request_key(rid))
+    return r is not None and r.phase == "running"
+
+
+def test_a_waiter_that_joined_a_check_cancelled_leaves_it_running(state, held_check):
+    # review item 2: the joiner's cancel stopped the check the first request was still waiting for
+    out = Out()
+    server = rpc.Server(state, out)
+    server.submit(req(1, "host.check", {"host": "esx-02"}))
+    held_check.stepped.wait(5)
+    server.submit(req(2, "host.check", {"host": "esx-02"}))         # joins it
+    wait_until(lambda: running(server, 2))
+    cancel(server, 2)
+    out.answer("c2")
+    job = state.jobs.latest("check", "esx-02")
+    assert job.view()["state"] == "running"
+    held_check.go.set()
+    assert out.answer(1)["result"]["ok"] is True                    # the first waiter's check ran to its end
+    assert held_check.calls == ["esx-02"]
+
+
+def test_the_last_waiter_cancelled_stops_the_check(state, held_check):
+    out = Out()
+    server = rpc.Server(state, out)
+    server.submit(req(1, "host.check", {"host": "esx-02"}))
+    held_check.stepped.wait(5)
+    server.submit(req(2, "host.check", {"host": "esx-02"}))
+    wait_until(lambda: running(server, 2))
+    cancel(server, 2)
+    out.answer("c2")
+    cancel(server, 1)                                               # nobody waits for it now
+    assert out.answer(1)["result"]["ok"] is False
+    assert state.jobs.latest("check", "esx-02").view()["state"] == "stopped"
+
+
+def test_a_background_check_isnt_stopped_by_a_waiter_that_joined_it(state, held_check):
+    out = Out()
+    server = rpc.Server(state, out)
+    server.submit(req(1, "host.check", {"host": "esx-02", "background": True}))
+    started = out.answer(1)["result"]
+    assert started["joined"] is False
+    held_check.stepped.wait(5)
+    server.submit(req(2, "host.check", {"host": "esx-02"}))
+    wait_until(lambda: running(server, 2))
+    cancel(server, 2)
+    out.answer("c2")
+    server.submit(req(3, "host.check", {"host": "esx-02", "background": True}))
+    assert out.answer(3)["result"]["joined"] is True                # the core never stops a check it joined
+    assert state.jobs.get("check", started["job"]).view()["state"] == "running"
+    held_check.go.set()
+    assert state.jobs.get("check", started["job"]).wait(5)
+    assert state.jobs.get("check", started["job"]).view()["state"] == "done"
+
+
+def test_a_check_after_one_was_stopped_is_a_new_check(state, monkeypatch):
+    # review item 3: the stopping check counted as running, so the new one joined it and answered ok: false
+    from roster import diagnose
+    in_step, go, calls = threading.Event(), threading.Event(), []
+
+    def check_host(name, inventory, channel=None, progress=None, halted=None, vault=None):
+        calls.append(name)
+        if len(calls) == 1:
+            in_step.set()
+            go.wait(10)                                             # a step under way doesn't see the stop
+        return {"host": name, "ok": not (halted and halted.is_set()), "steps": []}
+    monkeypatch.setattr(diagnose, "check_host", check_host)
+    call = lambda rid, params: rpc.respond(state, {"jsonrpc": "2.0", "id": rid, "method": "host.check",  # noqa: E731
+                                                   "params": params})
+    first = call(1, {"host": "esx-02", "background": True})["result"]
+    in_step.wait(5)
+    assert state.jobs.stop("check", first["job"])
+    assert state.jobs.get("check", first["job"]).view()["state"] == "stopping"
+    again = call(2, {"host": "esx-02"})["result"]                   # the waiting form: its own check
+    assert again["ok"] is True and calls == ["esx-02", "esx-02"]
+    go.set()
+    assert state.jobs.get("check", first["job"]).wait(5)
+
+
+def test_a_finished_check_is_still_there_after_a_newer_check_of_its_host(state, held_check):
+    # review item 7: serve kept only each Host's latest check, so the core's poll of a check that had succeeded
+    # got 49 once another check of that Host started
+    call = lambda rid, method, params: rpc.respond(state, {"jsonrpc": "2.0", "id": rid,  # noqa: E731
+                                                           "method": method, "params": params})
+    held_check.go.set()
+    first = call(1, "host.check", {"host": "esx-02", "background": True})["result"]
+    assert state.jobs.get("check", first["job"]).wait(5)
+    second = call(2, "host.check", {"host": "esx-02", "background": True})["result"]
+    assert second["job"] != first["job"]
+    r = call(3, "host.check_job", {"job": first["job"]})
+    assert r["result"]["state"] == "done" and r["result"]["result"]["ok"] is True
+
+
+PASSWORD_HOST = """\
+defaults:
+  user: admin
+groups:
+  lab:
+    hosts:
+      esx-02: {ip: 10.0.0.12, auth: "bw:esx-02", enroll: false}
+"""
+
+
+@pytest.fixture
+def stepped_check(write_config, monkeypatch):
+    """The real check_host over stand-in steps: each says whether the check held the vault while it ran, and dns
+    waits for `go` (or its stop)."""
+    from roster import diagnose
+    st = rpc.State(str(write_config(PASSWORD_HOST)))
+    held, in_dns, go = {}, threading.Event(), threading.Event()
+
+    def step(name):
+        def fn(ctx):
+            held[name] = st.vault.readers
+            if name == "dns":
+                in_dns.set()
+                go.wait(10)
+            return "ok"
+        return fn
+    for name in diagnose.STEPS:
+        if name != "inventory":
+            monkeypatch.setitem(diagnose.STEP_FNS, name, step(name))
+    return type("Stepped", (), {"state": st, "held": held, "in_dns": in_dns, "go": go})
+
+
+def test_a_check_shares_the_vault_only_for_the_steps_that_fetch_a_secret(stepped_check):
+    # review item 6: the check held the vault for all its steps (up to 45 s), so vault.unlock waited behind it and
+    # the vault.status after it gave up
+    st = stepped_check.state
+    started = rpc.respond(st, {"jsonrpc": "2.0", "id": 1, "method": "host.check",
+                               "params": {"host": "esx-02", "background": True}})["result"]
+    stepped_check.in_dns.wait(5)
+    assert st.vault.acquire(False, 1, "vault.unlock")              # an unlock goes ahead during dns
+    st.vault.release()
+    stepped_check.go.set()
+    job = st.jobs.get("check", started["job"])
+    assert job.wait(5) and job.result["ok"] is True, job.view()
+    assert stepped_check.held == {"ssh-config": 0, "provider": 1, "vault-item": 1, "dns": 0, "tcp": 0,
+                                  "host-key": 0, "auth": 1}
+
+
+def test_vault_lock_doesnt_wait_for_a_check_between_its_vault_steps(stepped_check):
+    st = stepped_check.state
+    started = rpc.respond(st, {"jsonrpc": "2.0", "id": 1, "method": "host.check",
+                               "params": {"host": "esx-02", "background": True}})["result"]
+    stepped_check.in_dns.wait(5)
+    answer = []
+    t = threading.Thread(target=lambda: answer.append(rpc.respond(st, {"jsonrpc": "2.0", "id": 2,
+                                                                       "method": "vault.lock"})), daemon=True)
+    t.start()
+    t.join(5)                                                       # never go.set(): dns is still under way
+    assert answer and "result" in answer[0]
+    stepped_check.go.set()
+    job = st.jobs.get("check", started["job"])
+    assert job.wait(5) and job.view()["state"] == "stopped"
+    assert [s["status"] for s in job.result["steps"]][-3:] == ["skipped"] * 3
+    assert "auth" not in stepped_check.held                         # no secret fetched after the lock

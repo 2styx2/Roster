@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import subprocess
+from contextlib import nullcontext
 
 from . import askpass, errors, providers
 from .common import not_reviewed, time_left
@@ -97,7 +98,14 @@ def askpass_lookup(h):
 
 # ---------------------------------------------------------------- host.check / `roster check HOST`
 
-def check_host(name, inventory, channel=None, progress=None, halted=None):
+VAULT_STEPS = ("provider", "vault-item", "auth")    # a password Login's: the steps that fetch a secret or mint a token
+
+
+class Stopped(Exception):
+    """VAULT gave up waiting because the check was stopped: this step and the rest are "skipped"."""
+
+
+def check_host(name, inventory, channel=None, progress=None, halted=None, vault=None):
     """Run STEPS for Host NAME in order and stop at the first failure; the rest are "skipped". INVENTORY()
     returns the loaded config or raises Problem(1). CHANNEL is an askpass.Channel for a password login
     (without one, the auth step of a password Host is skipped).
@@ -105,7 +113,9 @@ def check_host(name, inventory, channel=None, progress=None, halted=None):
     (port, then the host key over it) and one ssh login attempt. Returns {host, ok, steps: [...]}, each step
     {step, status: ok|fail|skipped, message, code?, fix?, details?, data?}.
     serve's check job (ticket 108) passes PROGRESS(done, total, step), called as each step starts, and HALTED (an
-    Event): once it's set no further step starts (the rest are "skipped", and ok is false)."""
+    Event): once it's set no further step starts (the rest are "skipped", and ok is false). And VAULT(), a context
+    manager that shares the vault, held only for a password Login's VAULT_STEPS: between them a lock or an unlock
+    needn't wait for the check (decision Q112 (q)). It raises Stopped when the check was stopped meanwhile."""
     ctx = {"name": name, "inventory": inventory, "channel": channel}
     steps, failed = [], False
     for i, step in enumerate(STEPS):
@@ -117,8 +127,15 @@ def check_host(name, inventory, channel=None, progress=None, halted=None):
             continue
         if progress is not None:
             progress(i, len(STEPS), step)
+        held = vault() if vault is not None and step in VAULT_STEPS and "h" in ctx and uses_password(ctx["h"]) \
+            else nullcontext()
         try:
-            outcome = STEP_FNS[step](ctx)
+            with held:
+                outcome = STEP_FNS[step](ctx)
+        except Stopped:
+            failed = "stopped"
+            steps.append({"step": step, "status": "skipped", "message": "the check was stopped"})
+            continue
         except Problem as e:
             failed = True
             steps.append(problem_step(step, e))
@@ -189,7 +206,7 @@ def step_vault_item(ctx):
     h = ctx["h"]
     if not uses_password(h):
         return "skipped", "key login: no vault needed" if h["enroll"] else "no password Login"
-    ctx["password"] = resolve_password(h)
+    resolve_password(h)                 # not kept: the vault may lock before the auth step (it looks it up again)
     return f"{h['ssh']['auth']} resolves to one item with a value"
 
 
@@ -283,8 +300,13 @@ def step_auth(ctx):
     if r.returncode == 0:
         return f"logged in as {h['ssh']['user']}"
     details = r.stderr.strip()
-    if ctx.get("password"):
-        details = details.replace(ctx["password"], "****")
+    if password:
+        try:
+            secret = resolve_password(h)    # this run's cache: the askpass lookup just fetched it
+        except Problem:
+            secret = None
+        if secret:
+            details = details.replace(secret, "****")
     raise login_failure(h, password, details)
 
 
