@@ -473,7 +473,7 @@ def back_to_the_default_directory(net):
     first = (old / "id_ed25519.pub").read_text()
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     mesh.run(net.cfg(), apply=True)
     assert (old / "id_ed25519").exists()                    # warned about, never removed
     net.cfg_path.write_text(CONFIG)
@@ -488,13 +488,13 @@ def test_back_to_the_default_directory_roster_warns_about_the_old_key_and_leaves
     old, d, first = back_to_the_default_directory(net)
     for _ in range(2):                                      # a plan changes nothing, however often
         plan = mesh.run(net.cfg())
-        assert OLD_KEY.format(old=old) in plan["warnings"]
+        assert OLD_KEY.format(old=net.seen(old)) in plan["warnings"]
         assert "replace key" not in next(h for h in plan["hosts"] if h["host"] == "orion-2")["changes"]
         assert (old / "id_ed25519.pub").read_text() == first
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
-    assert OLD_KEY.format(old=old) in r["warnings"]
-    assert any(w.startswith(f"orion-2: {d} holds an earlier Mesh key") for w in r["warnings"])
+    assert OLD_KEY.format(old=net.seen(old)) in r["warnings"]
+    assert any(w.startswith(f"orion-2: {net.seen(d)} holds an earlier Mesh key") for w in r["warnings"])
     assert (old / "id_ed25519.pub").read_text() == first    # left alone: the owner's call
     again = mesh.run(net.cfg())                             # the Include names it now: nothing more to say
     assert not any("older Mesh key" in w for w in again["warnings"]) and again["already"]
@@ -930,7 +930,7 @@ def cutting_after_dropping_a_mesh_dir(net):
     """orion-2 applied with a mesh_dir:, which roster.yml then drops: a cut's own side finds the old one."""
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     mesh.run(net.cfg(), apply=True)
     net.cfg_path.write_text(CONFIG)
     return d
@@ -940,7 +940,7 @@ def test_cut_reports_an_old_mesh_dir_on_the_cut_host_it_leaves_alone(net, capsys
     d = cutting_after_dropping_a_mesh_dir(net)
     r = mesh.cut(net.cfg(), "orion-2")
     assert r["warnings"] == [
-        f"orion-2: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+        f"orion-2: {net.seen(d)} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
     assert (d / "id_ed25519").exists()                      # never removed by roster
     assert mesh.cut(net.cfg(), "orion-3")["warnings"] == []
 
@@ -948,7 +948,7 @@ def test_cut_reports_an_old_mesh_dir_on_the_cut_host_it_leaves_alone(net, capsys
 def test_the_cli_cut_prints_the_cleanup_warnings(net, capsys):
     d = cutting_after_dropping_a_mesh_dir(net)
     main(["mesh", "cut", "orion-2", "--yes"])
-    assert f"warning: orion-2: {d} holds an earlier Mesh key" in capsys.readouterr().out
+    assert f"warning: orion-2: {net.seen(d)} holds an earlier Mesh key" in capsys.readouterr().out
 
 
 def test_cut_without_a_git_repo_still_writes_mesh_false(net, capsys):
@@ -1107,7 +1107,7 @@ def test_a_background_cut_reports_the_cleanup_warnings(net, serve):
     s = serve("-c", str(net.cfg_path))
     j = wait_for(s, s.call("mesh.cut", {"host": "orion-2", "background": True})["result"]["job"])
     assert j["result"]["warnings"] == [
-        f"orion-2: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+        f"orion-2: {net.seen(d)} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
 
 
 def test_a_background_job_refuses_what_it_would_refuse_at_once(net, serve):
