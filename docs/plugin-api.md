@@ -63,7 +63,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.float.close()`](#rosterfloatclose) | Closes the Plugin's floating window | none |
 | [`roster.views.set(id, view)`](#rosterviewssetid-view) | Adds a view, or replaces it | none |
 | [`roster.views.update(id, changes)`](#rosterviewsupdateid-changes) | Changes some of a view's rows or nodes in place, or its text or facts | none |
-| [`roster.views.open(id)`](#rosterviewsopenid) | Opens a view | none |
+| [`roster.views.open(id, opts)`](#rosterviewsopenid-opts) | Opens a view | none |
 | [`roster.views.close(id)`](#rosterviewscloseid) | Closes a view, if it's open | none |
 | [`roster.views.remove(id)`](#rosterviewsremoveid) | Removes a view | none |
 | [`roster.details.set(id, host, section)`](#rosterdetailssetid-host-section) | Adds a section to a Host's details, or replaces it | none |
@@ -107,6 +107,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`Section`](#section) | A Sidebar section (`roster.sidebar.set`) |
 | [`Row`](#row) | A row of a Sidebar section |
 | [`NoticeOptions`](#noticeoptions) | What else a notice has (`roster.notify`, since api 3) |
+| [`ViewOpenOptions`](#viewopenoptions) | Where a view opens (`roster.views.open`, since api 4) |
 | [`NoticeAction`](#noticeaction) | A button on a notice |
 | [`RowAction`](#rowaction) | A button on a row |
 | [`RowIcon`](#rowicon) | A row action's icon |
@@ -1462,13 +1463,16 @@ roster.views.update("discover", {
 })
 ```
 
-### `roster.views.open(id)`
+### `roster.views.open(id, opts)`
 
 Opens a view. Only while the user runs one of the Plugin's actions, commands or finder items, so a Plugin never takes the screen on its own. One view is open at a time: this replaces the one that is.
+
+With `select`, it opens at that node or row: a graph opens the node's cluster if it's collapsed and centres the node, a table scrolls to the row. Asked again while the view is open, it starts afresh at the new one. An id the view doesn't have opens it as without `select`. A Host-details section's action can so open a graph at its Host's node.
 
 **Parameters**
 
 - `id` (`string`): One of the Plugin's views.
+- `opts` ([`ViewOpenOptions`](#viewopenoptions)`?`, optional): Where it opens (since api 4): `{ select = "esx-02" }` selects that node of its graph or row of its table.
 
 **Returns**
 
@@ -1477,6 +1481,7 @@ Nothing.
 **Errors**
 
 - `roster.views.open: "ID" isn't a name like …`: a bad `id`.
+- `roster.views.open: select is the id of a node or row (a string)`: `select` isn't a string.
 - `roster.views.open: only while the user runs one of your actions, commands or finder items`: at load or in an event listener.
 - And [those of every function](#errors).
 
@@ -1492,6 +1497,10 @@ Nothing.
 roster.commands.add("discover", { desc = "Scan a network", run = function()
   roster.views.open("discover")
 end })
+-- A Host-details section's button: the map, at that Host.
+roster.details.set("reach", "esx-02", { title = "Reach", facts = {}, actions = {
+  { label = "Show on the map", icon = "map", run = function(e) roster.views.open("topology", { select = e.host }) end },
+} })
 ```
 
 ### `roster.views.close(id)`
@@ -2467,6 +2476,14 @@ What else a notice has (`roster.notify`, since api 3).
 |---|---|---|---|
 | `actions` | [`NoticeAction`](#noticeaction)`[]` | no | Buttons under its text, at most 2. |
 
+### `ViewOpenOptions`
+
+Where a view opens (`roster.views.open`, since api 4).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `select` | `string` | no | The id of the node (a graph) or row (a table) to open at. |
+
 ### `NoticeAction`
 
 A button on a notice.
@@ -2490,9 +2507,9 @@ A button on a row.
 
 A row action's icon.
 
-`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.
+`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph. `map` since api 4: three nodes joined, for showing something on a graph.
 
-One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy" \| "plan" \| "apply" \| "cut"`
+One of: `"close" \| "edit" \| "add" \| "addGroup" \| "review" \| "unreview" \| "info" \| "copy" \| "plan" \| "apply" \| "cut" \| "map"`
 
 ### `RowGlyph`
 

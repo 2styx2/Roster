@@ -27,11 +27,14 @@ export function ViewContent({
   leader,
   autoFocus = false,
   graph,
+  select,
 }: {
   content: Content;
   label: string;
   leader: string;
   autoFocus?: boolean;
+  /** The node or row it opens at (`roster.views.open(id, { select })`). */
+  select?: string | undefined;
   /** Where a graph keeps its places, and the view's key there (ticket 77). */
   graph?: { memory?: GraphMemory | undefined; key: string };
 }) {
@@ -55,8 +58,8 @@ export function ViewContent({
           ))}
         </dl>
       )}
-      {content.table && <DataTable model={content.table} label={label} leader={leader} autoFocus={autoFocus} />}
-      {content.graph && graph && <GraphView model={content.graph} label={label} leader={leader} memory={graph.memory} memoKey={graph.key} autoFocus={autoFocus} />}
+      {content.table && <DataTable model={content.table} label={label} leader={leader} autoFocus={autoFocus} selectedId={select} />}
+      {content.graph && graph && <GraphView model={content.graph} label={label} leader={leader} memory={graph.memory} memoKey={graph.key} autoFocus={autoFocus} select={select} />}
     </>
   );
 }
@@ -65,7 +68,7 @@ export function ViewContent({
  * is where it opens first, and the user can move it (its PanelFrame, ticket 95). It opens from a
  * key as often as a click, so, like every side panel, it doesn't animate. Esc closes it; focus goes
  * back where it was. */
-export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; leader: string; onClose(): void; graphs?: GraphMemory }) {
+export function ViewPanel({ view, leader, onClose, graphs, select }: { view: ViewDef; leader: string; onClose(): void; graphs?: GraphMemory; select?: { id: string; n: number } | undefined }) {
   const panel = useRef<HTMLElement>(null);
   const frame = usePanel();
   const full = (frame?.place ?? view.place) === "full";
@@ -120,7 +123,8 @@ export function ViewPanel({ view, leader, onClose, graphs }: { view: ViewDef; le
         </span>
       </header>
       <div className="view-body">
-        <ViewContent key={view.id} content={view.content} label={view.title} leader={leader} autoFocus graph={{ ...(graphs ? { memory: graphs } : {}), key: `${view.source}/${view.id}` }} />
+        {/* Opening at a node or row again starts it afresh there. */}
+        <ViewContent key={select ? `${view.id}:${select.n}` : view.id} select={select?.id} content={view.content} label={view.title} leader={leader} autoFocus graph={{ ...(graphs ? { memory: graphs } : {}), key: `${view.source}/${view.id}` }} />
       </div>
     </section>
   );

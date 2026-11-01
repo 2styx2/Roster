@@ -52,6 +52,8 @@ function topoPlugin(extra: Record<string, unknown> = {}): FakePlugin {
         },
       });
       roster.keymap.set("leader", "y t", "view topo");
+      // As a Host-details section's action would (T99): open the graph at a node.
+      roster.commands.add("topo-at", { desc: "Open at", run: (a: Record<string, unknown>) => roster.views.open("topo", { select: String(a.args) }) });
     },
   };
 }
@@ -146,6 +148,21 @@ describe("a Plugin's graph", () => {
     expect(within(nodes).getByRole("button", { name: /Disconnect/ })).toBeInTheDocument();
     await user.keyboard("k");
     expect(within(nodes).queryByRole("button", { name: /Disconnect/ })).toBeNull();
+  });
+
+  it("roster.views.open with select opens the graph at that node, opening its cluster, and again while it's open (T99)", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:topo-at web-1{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    expect(foot()).toMatch(/^web-1/);
+    await user.keyboard("o");
+    expect(foot()).toMatch(/^web: 2 nodes, collapsed/);
+    await user.keyboard(`${LEADER}:topo-at appliance{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^appliance/));
+    expect(graph()).toHaveFocus();
+    // An id the graph doesn't have selects as an ordinary opening does.
+    await user.keyboard(`${LEADER}:topo-at nowhere{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^devbox/));
   });
 
   it("o collapses the selected node's cluster to its count and opens it again", async () => {

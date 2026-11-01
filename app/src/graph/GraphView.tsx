@@ -38,6 +38,9 @@ export interface GraphViewProps {
   /** The view's key in the State (`source/id`). */
   memoKey: string;
   autoFocus?: boolean;
+  /** The node it opens at (`roster.views.open(id, { select })`, T99): its cluster opens, and it's
+   * centred, at no less than full size. An id the graph doesn't have is ignored. */
+  select?: string | undefined;
 }
 
 type Mode = "graph" | "nodes" | "edges";
@@ -178,11 +181,16 @@ class Painter {
   };
 }
 
-export function GraphView({ model, label, leader, memory, memoKey, autoFocus = false }: GraphViewProps) {
+export function GraphView({ model, label, leader, memory, memoKey, autoFocus = false, select: openAt }: GraphViewProps) {
   const base = useId();
   const data = model.data;
   const [places] = useState(() => new GraphPlaces(memory, memoKey));
-  const [folds, setFolds] = useState(() => places.userFolds());
+  const [folds, setFolds] = useState(() => {
+    // Opened at a node in a collapsed cluster: that cluster opens, as going to it from the list does.
+    const at = openAt === undefined ? undefined : data.nodes.find((n) => n.id === openAt);
+    if (at?.cluster !== undefined && foldsFor(data, places.userFolds()).has(at.cluster)) places.fold(at.cluster, false);
+    return places.userFolds();
+  });
   const [moved, setMoved] = useState(0);
   // `moved` makes a node the user dragged take its new place.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,7 +214,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   useEffect(() => places.persist(), [places, layout, folds]);
 
   const [mode, setMode] = useState<Mode>("graph");
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(openAt ?? null);
   // Placing a node from the keyboard (`m`, T89): which, and where it was, for Esc.
   const [moving, setMoving] = useState<{ id: string; from: { x: number; y: number } } | null>(null);
   const [moveSays, setMoveSays] = useState("");
@@ -267,6 +275,17 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     redraw();
   }, [size, redraw, painter]);
   useEffect(redraw, [scene, highlight, selected, matchSet, moving, redraw]);
+
+  // Opened at a node: centred on it once the canvas has a size, close enough to read its name.
+  const aimed = useRef(false);
+  useLayoutEffect(() => {
+    if (aimed.current || openAt === undefined || size.w === 0) return;
+    aimed.current = true;
+    const n = scene.byId.get(openAt);
+    if (!n) return;
+    painter.setCamera({ x: n.x, y: n.y, k: Math.max(fitted(scene, size.w, size.h).k, 1) });
+    redraw();
+  }, [openAt, size, scene, painter, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
   useEffect(() => {

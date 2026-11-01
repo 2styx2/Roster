@@ -1199,12 +1199,23 @@ pub const FUNCTIONS: &[Function] = &[
     },
     Function {
         path: "roster.views.open",
-        params: &[p("id", "string", "One of the Plugin's views.")],
+        params: &[
+            p("id", "string", "One of the Plugin's views."),
+            opt(
+                "opts",
+                "ViewOpenOptions",
+                "Where it opens (since api 4): `{ select = \"esx-02\" }` selects that node of its graph or row of its table.",
+            ),
+        ],
         summary: "Opens a view",
-        doc: "Only while the user runs one of the Plugin's actions, commands or finder items, so a Plugin never takes the screen on its own. One view is open at a time: this replaces the one that is.",
+        doc: "Only while the user runs one of the Plugin's actions, commands or finder items, so a Plugin never takes the screen on its own. One view is open at a time: this replaces the one that is.\n\nWith `select`, it opens at that node or row: a graph opens the node's cluster if it's collapsed and centres the node, a table scrolls to the row. Asked again while the view is open, it starts afresh at the new one. An id the view doesn't have opens it as without `select`. A Host-details section's action can so open a graph at its Host's node.",
         returns: ("", ""),
         errors: &[
             ("roster.views.open: \"ID\" isn't a name like …", "a bad `id`"),
+            (
+                "roster.views.open: select is the id of a node or row (a string)",
+                "`select` isn't a string",
+            ),
             (
                 "roster.views.open: only while the user runs one of your actions, commands or finder items",
                 "at load or in an event listener",
@@ -1213,7 +1224,7 @@ pub const FUNCTIONS: &[Function] = &[
         refused: &["a view the Plugin hasn't set"],
         needs: Needs::Nothing,
         since: 3,
-        example: "roster.commands.add(\"discover\", { desc = \"Scan a network\", run = function()\n  roster.views.open(\"discover\")\nend })",
+        example: "roster.commands.add(\"discover\", { desc = \"Scan a network\", run = function()\n  roster.views.open(\"discover\")\nend })\n-- A Host-details section's button: the map, at that Host.\nroster.details.set(\"reach\", \"esx-02\", { title = \"Reach\", facts = {}, actions = {\n  { label = \"Show on the map\", icon = \"map\", run = function(e) roster.views.open(\"topology\", { select = e.host }) end },\n} })",
     },
     Function {
         path: "roster.views.close",
@@ -2233,6 +2244,18 @@ pub const TYPES: &[Type] = &[
         open: false,
     },
     Type {
+        name: "ViewOpenOptions",
+        summary: "Where a view opens (`roster.views.open`, since api 4)",
+        doc: "",
+        alias: "",
+        fields: &[o(
+            "select",
+            "string",
+            "The id of the node (a graph) or row (a table) to open at.",
+        )],
+        open: false,
+    },
+    Type {
         name: "NoticeAction",
         summary: "A button on a notice",
         doc: "",
@@ -2266,8 +2289,8 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "RowIcon",
         summary: "A row action's icon",
-        doc: "`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph.",
-        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\"",
+        doc: "`plan`, `apply` and `cut` since api 3 (ticket 91): a dashed arrow, an arrow into a bar, and an edge broken by a cross, as a cut edge is drawn in a graph. `map` since api 4: three nodes joined, for showing something on a graph.",
+        alias: "\"close\"|\"edit\"|\"add\"|\"addGroup\"|\"review\"|\"unreview\"|\"info\"|\"copy\"|\"plan\"|\"apply\"|\"cut\"|\"map\"",
         fields: &[],
         open: false,
     },

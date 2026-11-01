@@ -800,7 +800,10 @@ fn cut_asks_for_the_hosts_name_and_warns_about_each_host_that_was_down() {
     // What roster left on the cut Host's own side (serve API 23).
     assert_eq!(
         (said[2].as_str(), ops_level(&ops, 2)),
-        ("orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand", "warn")
+        (
+            "orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand",
+            "warn"
+        )
     );
     let badge = run.last(|o| o["op"] == "badge" && o["host"] == "nas-1");
     assert_eq!(badge["text"], "cut pending");

@@ -213,7 +213,7 @@ export type PluginOp =
   | { op: "float"; spec: PluginFloat | null }
   | { op: "view"; id: string; view: PluginView }
   | { op: "view_update"; id: string; update: PluginViewUpdate }
-  | { op: "view_open"; id: string }
+  | { op: "view_open"; id: string; select?: string }
   | { op: "view_close"; id: string }
   | { op: "details"; id: string; host: string; section: PluginDetails | null }
   /** `actions` (ticket 91): buttons whose click runs a command line, as `roster.cmd` would. */
@@ -238,7 +238,7 @@ export type PluginOp =
 export const REMOVABLE = ["command", "theme", "section", "status", "finder", "help", "health", "tutor", "view", "details", "timer", "toolbar", "progress"] as const;
 export type RemovableKind = (typeof REMOVABLE)[number];
 
-const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy", "plan", "apply", "cut"];
+const ICONS: readonly RowAction["icon"][] = ["close", "edit", "add", "addGroup", "review", "unreview", "info", "copy", "plan", "apply", "cut", "map"];
 const LEVELS = ["info", "warn", "error"] as const;
 const HEALTH_LEVELS = ["ok", "warn", "error"] as const;
 
@@ -766,7 +766,10 @@ function parse(raw: unknown): PluginOp {
         }),
       };
     }
-    case "view_open":
+    case "view_open": {
+      const select = optStr(raw, "select", "roster.views.open", 200);
+      return { op: "view_open", id, ...(select !== undefined ? { select } : {}) };
+    }
     case "view_close":
       return { op: raw.op, id };
     case "details": {

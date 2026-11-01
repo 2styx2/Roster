@@ -57,6 +57,8 @@ roster.views.set("scan", {
 roster.views.update("scan", { rows = { { id = "b", cells = { name = "10.0.0.7", ports = 1 }, tone = "muted" } }, remove = { "a" } })
 roster.commands.add("scan", { run = function() roster.views.open("scan") end })
 roster.commands.add("done", { run = function() roster.views.close("scan") end })
+roster.commands.add("at", { run = function(a) roster.views.open("scan", { select = a.args }) end })
+roster.commands.add("bad", { run = function() roster.views.open("scan", { select = 7 }) end })
 local opened = pcall(roster.views.open, "scan")
 roster.status.set("load", { text = tostring(opened) })
 roster.on("lock", function() roster.views.open("scan") end)
@@ -116,6 +118,15 @@ fn only_the_user_opens_a_view_but_the_plugin_may_close_it() {
     assert_eq!(r.ops, [json!({ "op": "view_open", "id": "scan" })]);
     let r = host.call("scan", command("done"), json!({ "args": "", "words": [] }));
     assert_eq!(r.ops, [json!({ "op": "view_close", "id": "scan" })]);
+    // At a row or node (T99, api 4).
+    let r = host.call("scan", command("at"), json!({ "args": "b", "words": ["b"] }));
+    assert_eq!(r.ops, [json!({ "op": "view_open", "id": "scan", "select": "b" })]);
+    let r = host.call("scan", command("bad"), json!({ "args": "", "words": [] }));
+    let message = &r.error.as_ref().unwrap().message;
+    assert!(
+        message.contains("roster.views.open: select is the id of a node or row"),
+        "{message}"
+    );
 }
 
 #[test]

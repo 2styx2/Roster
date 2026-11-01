@@ -4,7 +4,7 @@
 // selected row and takes updates in place; 600 rows draw only a screenful; a Plugin's section
 // shows in a Host's details.
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "./App";
 import { FAKE_PASSWORD, fakeBackend, makeHosts } from "./backend/fake";
@@ -48,6 +48,7 @@ function scanPlugin(count = 3, place: "panel" | "full" = "panel"): FakePlugin {
       roster.keymap.set("leader", "y v", "view scan");
       roster.commands.add("scan", { desc: "Scan", run: () => roster.views.open("scan") });
       roster.commands.add("scan-clear", { desc: "Clear", run: () => roster.views.update("scan", { clear: true, rows: [{ id: "10.0.0.9", cells: { address: "10.0.0.9", ports: 1, state: "new" } }] }) });
+      roster.commands.add("scan-at", { desc: "Open at", run: (a: Record<string, unknown>) => roster.views.open("scan", { select: String(a.args) }) });
       roster.commands.add("scan-done", { desc: "Done", run: () => roster.views.close("scan") });
       // A background job that ends says so with a button that opens its view (ticket 91).
       roster.commands.add("scan-finish", { desc: "Finish", run: () => roster.notify("Scan done", "info", { actions: [{ label: "Show the scan", run: "view scan" }] }) });
@@ -109,6 +110,15 @@ describe("a Plugin's view", () => {
     await user.keyboard(`${LEADER}:scan-done{Enter}`);
     await screen.findByText("12 Hosts");
     expect(screen.queryByRole("grid", { name: "Scan" })).toBeNull();
+  });
+
+  it("roster.views.open with select opens the table at that row (T99)", async () => {
+    const user = await ready();
+    await user.keyboard(`${LEADER}:scan-at 10.0.0.3{Enter}`);
+    expect(await screen.findByRole("grid", { name: "Scan" })).toHaveFocus();
+    expect(selectedRow()).toHaveTextContent("10.0.0.3");
+    await user.keyboard(`${LEADER}:scan-at 10.0.0.2{Enter}`);
+    await waitFor(() => expect(selectedRow()).toHaveTextContent("10.0.0.2"));
   });
 
   it("a full view lies over the whole window", async () => {

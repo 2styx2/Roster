@@ -112,6 +112,10 @@
 ---@class roster.NoticeOptions
 ---@field actions? roster.NoticeAction[] Buttons under its text, at most 2.
 
+--- Where a view opens (`roster.views.open`, since api 4)
+---@class roster.ViewOpenOptions
+---@field select? string The id of the node (a graph) or row (a table) to open at.
+
 --- A button on a notice
 ---@class roster.NoticeAction
 ---@field label string What it says (`"Show the plan"`).
@@ -124,7 +128,7 @@
 ---@field run roster.Run What pressing it runs.
 
 --- A row action's icon
----@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"
+---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"|"map"
 
 --- A Sidebar row's glyph (since api 3)
 ---@alias roster.RowGlyph "folder"|"group"
@@ -927,7 +931,8 @@ function roster.views.update(id, changes) end
 --- Opens a view.
 --- Permission: none. Since: api 3.
 ---@param id string One of the Plugin's views.
-function roster.views.open(id) end
+---@param opts? roster.ViewOpenOptions Where it opens (since api 4): `{ select = "esx-02" }` selects that node of its graph or row of its table.
+function roster.views.open(id, opts) end
 
 --- Closes a view, if it's open.
 --- Permission: none. Since: api 3.
