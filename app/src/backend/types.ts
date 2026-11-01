@@ -581,8 +581,9 @@ export type SignInStep = { login: string } & (
   /** `method` is null when the account has one method and bw picked it; `sent`: emailed just now. */
   | { step: "two_factor_code"; method: TwoFactorMethod | null; sent: boolean }
   | { step: "new_device_code"; email: string | null }
-  /** Open `url` in a browser; answer `{}` to wait for it (roster waits up to 20 s per call). */
-  | { step: "sso"; url: string; expires_in: number }
+  /** Open `url` in a browser; answer `{}` to wait for it (roster waits up to 20 s per call). `url` is null on
+   * native Windows (API 24), where bw opened the page itself and there's no link to hand over. */
+  | { step: "sso"; url: string | null; expires_in: number }
   /** After an API key or SSO, which only log in: the vault still needs the master password. */
   | { step: "master_password"; email: string | null }
   | { step: "done"; provider: string; status: "unlocked" }
