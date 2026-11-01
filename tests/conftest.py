@@ -15,6 +15,26 @@ REAL_PATH = os.environ.get("PATH", "")       # before any test put the stand-ins
 # For tests that run a POSIX shell script on this machine (the remote half of a command, a stand-in written in sh):
 # native Windows has no sh to run them with.
 posix_shell = pytest.mark.skipif(WINDOWS, reason="runs a POSIX shell script; native Windows has no sh")
+
+
+def find_posix_sh():
+    """A POSIX sh for the stand-in Hosts (tests/fakes/ssh, FAKE_HOSTS): /bin/sh, or on native Windows Git for Windows'
+    MSYS sh (Git/usr/bin/sh.exe, which has the awk, sed, mktemp and ssh-keygen a Host's side of `roster mesh` uses
+    beside it; not Git/bin/sh.exe, which puts Git's own commands before the PATH it was given). None if there's none."""
+    if not WINDOWS:
+        return "/bin/sh"
+    git = shutil.which("git")
+    for sh in ([Path(git).resolve().parent.parent / "usr" / "bin" / "sh.exe"] if git else []) + \
+              [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "sh.exe"]:
+        if sh.is_file():
+            return str(sh)
+    return None
+
+
+POSIX_SH = find_posix_sh()
+# For the Mesh's stand-in Hosts: they run their side with POSIX_SH, so on Windows they need Git for Windows' sh
+stand_in_hosts = pytest.mark.skipif(POSIX_SH is None, reason="the stand-in Hosts need a POSIX sh (Git for Windows')")
+
 EXAMPLES = Path(__file__).parent.parent / "examples"
 
 
