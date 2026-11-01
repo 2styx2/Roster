@@ -517,18 +517,46 @@ code { font-family: var(--font-mono); font-size: 0.95em; }
 .check-panel header, .side-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .check-panel h2, .side-panel h2 { margin: 0; font-size: var(--text-md); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .side-panel:focus { outline: none; }
-.check-ok { color: var(--accent-ink); margin: 0 0 8px; }
+/* The accent means live (taste.md): a passed check is settled, so it's the text colour; the accent is
+   only the step under way (ticket 110). */
+.check-ok { color: var(--text); margin: 0 0 8px; }
 .check-panel > p { margin: 0 0 8px; }
 .check-steps { list-style: none; margin: 0; padding: 0; }
 .check-step { padding: 6px 0; border-top: 1px solid var(--line); }
 .check-line { display: flex; gap: 8px; align-items: baseline; }
 .check-mark { width: 14px; flex: none; text-align: center; font-family: var(--font-mono); }
-.check-step.ok .check-mark { color: var(--accent-ink); }
+.check-step.ok .check-mark { color: var(--text); }
 .check-step.fail .check-mark { color: var(--error); }
 .check-step.skipped { color: var(--muted); }
 .check-name { flex: none; }
 .check-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 .check-problem { margin: 8px 0 0 22px; }
+/* A check as it runs (ticket 110): every step's row is there from the start, so nothing moves. Its
+   node is a muted ring to come, the accent ring under way (as a Session's while it connects), a
+   muted dot once done; a stopped one is a square. The edge above the step under way is drawn in
+   the accent as it starts (taste.md "Connect": an edge, not a spinner; 120 ms, strong ease-out,
+   from the node's side) and goes at once when the next starts, so steps 200 ms apart never queue
+   motion. Transform only; reduced motion (--dur-draw 0) shows it at once. */
+.check-step { position: relative; }
+.check-step.pending { color: var(--muted); }
+.check-step.stopped .check-mark { color: var(--text); font-size: 0.75em; }
+/* One line while it runs and once it's over, so the rows below never move (the Host's whole name
+   is in the heading, and in the title). An error's message wraps: it's the whole story. */
+.check-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.check-node { display: inline-block; vertical-align: -1px; overflow: visible; }
+.check-node circle { fill: none; stroke: var(--muted); stroke-width: 1.5px; }
+.check-node.done circle { fill: var(--muted); stroke: none; }
+.check-node.running circle { stroke: var(--accent); }
+.check-elapsed {
+  margin-left: auto; flex: none; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.check-step.running::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 1px; pointer-events: none;
+  background: var(--accent); transform-origin: left center; transform: scaleX(1);
+  transition: transform var(--dur-draw) var(--ease-out);
+  @starting-style { transform: scaleX(0); }
+}
 .check-problem .problem-message { margin-bottom: 8px; }
 
 /* ---------- Host details (ticket 18, decision Q71) ---------- */
