@@ -1591,6 +1591,11 @@
           "type": "string"
         },
         {
+          "name": "prompt",
+          "required": false,
+          "type": "string"
+        },
+        {
           "name": "items",
           "required": false,
           "type": "FinderItem[]|fun(): FinderItem[]"

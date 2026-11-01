@@ -442,3 +442,20 @@ describe("a finder whose items come from a function", () => {
     await vi.waitFor(() => expect(source()?.items({} as never).map((i) => i.label)).toEqual(["item 2"]));
   });
 });
+
+describe("a finder's prompt", () => {
+  it("is its own prompt when it gives one, else its title, with no › of its own (the Finder adds it)", async () => {
+    const finders: FakePlugin = {
+      manifest: { name: "finders", version: "1", description: "", author: null, api: 3, permissions: [] },
+      load(roster) {
+        roster.sidebar.set("mine", { title: "Mine", rows: [{ id: "a", label: "a" }] });
+        roster.finders.set("mine", { title: "Find in Mine", prompt: "Mine", section: "mine" });
+        roster.finders.set("plain", { title: "Plain", items: [{ label: "x", run: "plain" }] });
+      },
+    };
+    const { manager, registries } = setup({ "/p/finders": finders }, { [STATE_KEY]: [{ path: "/p/finders", name: "finders", granted: [], asked: [] }] });
+    await manager.start();
+    expect(registries.finders.get("mine")).toMatchObject({ title: "Find in Mine", prompt: "Mine" });
+    expect(registries.finders.get("plain")).toMatchObject({ title: "Plain", prompt: "Plain" });
+  });
+});

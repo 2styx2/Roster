@@ -230,7 +230,7 @@ export const fakeFoldersPlugin: FakePlugin = {
     roster.commands.add("folder", { desc: "Folders: new, rename, delete, add, remove", run, complete });
     roster.keymap.set("leader", "a", "folder add");
     roster.keymap.set("leader", "A", "folder remove");
-    roster.finders.set(SECTION, { title: "Find in the Folders", section: SECTION });
+    roster.finders.set(SECTION, { title: "Find in the Folders", prompt: "Folders", section: SECTION });
     if (roster.has("inventory.read")) {
       roster.on("inventory_changed", () => {
         names = null;

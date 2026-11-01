@@ -136,7 +136,7 @@ export interface CommandDef extends Entry {
 export interface CompletionContext {
   /** Every Host's name, in roster.yml order. */
   hostNames: readonly string[];
-  /** The Sidebar's rows that fold, by id: `section:sessions`, `group:subnet-42`, `folder:Lab`. */
+  /** The Sidebar's rows that fold, by id: `section:sessions`, `group:subnet-42`, `folders:Lab`. */
   foldIds: readonly string[];
   /** The open Sessions' Hosts, in order (what `session N` and `close N` take). */
   sessions: readonly string[];
