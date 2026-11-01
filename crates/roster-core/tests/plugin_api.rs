@@ -3,6 +3,8 @@
 //! and values api.rs declares for them, `roster.plugin` exactly the Plugin type's fields, and
 //! the committed reference, stubs and data are what the generator writes.
 
+mod common;
+
 use roster_core::plugin::api::{self, Needs};
 use roster_core::plugin::{Limits, Permission, PluginHost, Serve, Source};
 use serde_json::{Value, json};
@@ -48,10 +50,8 @@ end
 roster.help.set("walk", { markdown = table.concat(found, "\n") .. "\n--\n" .. table.concat(plugin, "\n") .. "\n--\n" .. errors .. "\n--\n" .. lua })
 "#;
 
-fn plugin_dir(test: &str, permissions: &[&str]) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-api-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str]) -> common::Temp {
+    let dir = common::temp(&format!("plugin-api-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     std::fs::write(
         dir.join("roster-plugin.lua"),
@@ -70,7 +70,8 @@ fn plugin_dir(test: &str, permissions: &[&str]) -> PathBuf {
 fn walk(test: &str, permissions: &[&str]) -> (BTreeSet<String>, Vec<String>, String, String) {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir(test, permissions)), &grants).unwrap();
+    let folder = plugin_dir(test, permissions);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let text = reply.ops[0]["spec"]["markdown"].as_str().unwrap().to_string();
     let mut parts = text.split("\n--\n");

@@ -1,8 +1,10 @@
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,13 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
     monkeypatch.setenv("LOCALAPPDATA", str(home / "AppData" / "Local"))
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    # What a test makes with tempfile, and a program it runs in $TMPDIR (%TEMP% on Windows), such as serve's askpass
+    # folder when there's no $XDG_RUNTIME_DIR or a stand-in Host's mktemp, goes into a folder of the test's own, deleted
+    # when the test ends (ticket 109). Short, under the real temp dir, so a Unix socket's path still fits in it.
+    temp = tempfile.mkdtemp(prefix="roster-test-")
+    monkeypatch.setattr(tempfile, "tempdir", temp)
+    for var in ("TMPDIR", "TMP", "TEMP"):
+        monkeypatch.setenv(var, temp)
     for var in ("BW_SESSION", "BW_PASSWORD", "BW_CLIENTID", "BW_CLIENTSECRET", "OP_SERVICE_ACCOUNT_TOKEN",
                 "OP_SESSION_test", "ROSTER_CONFIG", "OLD_OP"):
         monkeypatch.delenv(var, raising=False)
@@ -52,6 +61,7 @@ def isolated(tmp_path, monkeypatch):
     providers.PROVIDERS.update(saved_providers)
     os.environ.clear()
     os.environ.update(saved_env)
+    shutil.rmtree(temp, ignore_errors=True)
 
 
 @pytest.fixture

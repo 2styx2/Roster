@@ -3,9 +3,10 @@
 //! same state makes the same ops), and a finder whose items come from a function. Driven through
 //! `PluginHost`, as the Tauri shell does.
 
+mod common;
+
 use roster_core::plugin::{Limits, Permission, PluginHost, Reply, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct NoServe;
@@ -16,10 +17,8 @@ impl Serve for NoServe {
     }
 }
 
-fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-runtime-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-runtime-{test}"));
     let list: Vec<String> = permissions.iter().map(|p| format!("{p:?}")).collect();
     std::fs::write(
         dir.join("roster-plugin.lua"),
@@ -33,13 +32,12 @@ fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> PathBuf {
     dir
 }
 
-fn load(test: &str, permissions: &[&str], init: &str) -> (PluginHost, Reply) {
+fn load(test: &str, permissions: &[&str], init: &str) -> (PluginHost, Reply, common::Temp) {
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
     let grants: Vec<Permission> = permissions.iter().map(|p| Permission::parse(p).unwrap()).collect();
-    let (_, reply) = host
-        .load(&Source::Dir(plugin_dir(test, permissions, init)), &grants)
-        .unwrap();
-    (host, reply)
+    let folder = plugin_dir(test, permissions, init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
+    (host, reply, folder)
 }
 
 fn ops_of<'a>(reply: &'a Reply, op: &str) -> Vec<&'a Value> {
@@ -61,7 +59,7 @@ fn timer_id(op: &Value) -> u64 {
 
 #[test]
 fn defer_hands_the_app_a_timer_that_runs_the_function_once_in_the_plugin() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "defer",
         &[],
         r#"
@@ -90,7 +88,7 @@ fn defer_hands_the_app_a_timer_that_runs_the_function_once_in_the_plugin() {
 
 #[test]
 fn every_repeats_until_cancelled_and_cancel_tells_the_app() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "every",
         &[],
         r#"
@@ -119,7 +117,7 @@ fn every_repeats_until_cancelled_and_cancel_tells_the_app() {
 
 #[test]
 fn a_timer_isnt_a_call_the_user_started() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "timer-clipboard",
         &[],
         r#"roster.defer(100, function() roster.clipboard.copy("swapped") end)"#,
@@ -133,7 +131,7 @@ fn a_timer_isnt_a_call_the_user_started() {
 fn timers_have_floors_and_a_ceiling_so_they_cant_starve_the_plugin() {
     // A deferred function waits at least 50 ms; a repeating one at least a second, said as an
     // error since it would run far less often than asked.
-    let (_, reply) = load("floor", &[], r#"roster.defer(0, function() end)"#);
+    let (_, reply, _folder) = load("floor", &[], r#"roster.defer(0, function() end)"#);
     assert_eq!(ops_of(&reply, "timer")[0]["ms"], 50);
     for (code, says) in [
         ("roster.every(10, function() end)", "roster.every: at least 1000 ms"),
@@ -145,12 +143,12 @@ fn timers_have_floors_and_a_ceiling_so_they_cant_starve_the_plugin() {
         ),
         ("roster.cancel(\"x\")", "roster.cancel"),
     ] {
-        let (_, reply) = load("ceiling", &[], code);
+        let (_, reply, _folder) = load("ceiling", &[], code);
         let e = reply.error.unwrap_or_else(|| panic!("{code}: no error"));
         assert!(e.message.contains(says), "{code}: {}", e.message);
     }
     // Cancelling makes room again, and cancelling what's gone is nothing.
-    let (_, reply) = load(
+    let (_, reply, _folder) = load(
         "room",
         &[],
         r#"
@@ -164,7 +162,7 @@ fn timers_have_floors_and_a_ceiling_so_they_cant_starve_the_plugin() {
 
 #[test]
 fn a_timer_that_fails_counts_toward_stopping_the_plugin() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "timer-error",
         &[],
         r#"roster.every(1000, function() error("tick failed") end)"#,
@@ -179,10 +177,11 @@ fn a_timer_that_fails_counts_toward_stopping_the_plugin() {
 
 #[test]
 fn reloading_drops_the_old_timers() {
-    let (host, reply) = load("reload", &[], r#"roster.defer(1000, function() end)"#);
+    let (host, reply, _folder) = load("reload", &[], r#"roster.defer(1000, function() end)"#);
     let id = timer_id(ops_of(&reply, "timer")[0]);
     let grants: Vec<Permission> = Vec::new();
-    host.load(&Source::Dir(plugin_dir("reload", &[], "")), &grants).unwrap();
+    let folder = plugin_dir("reload", &[], "");
+    host.load(&Source::Dir(folder.to_path_buf()), &grants).unwrap();
     let r = host.call("t", id, json!({}));
     assert!(r.error.unwrap().message.contains("gone"));
     assert!(host.list()[0].errors == 0);
@@ -192,7 +191,7 @@ fn reloading_drops_the_old_timers() {
 /// reload can't run a new, unrelated function that happens to have the same number.
 #[test]
 fn a_handler_id_from_before_a_reload_never_reaches_the_new_load() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "stale-id",
         &[],
         r#"roster.defer(1000, function() roster.notify("old") end)"#,
@@ -204,7 +203,7 @@ fn a_handler_id_from_before_a_reload_never_reaches_the_new_load() {
         &[],
         r#"roster.status.set("s", { text = "x", run = function() roster.notify("new") end })"#,
     );
-    let (_, again) = host.load(&Source::Dir(dir), &grants).unwrap();
+    let (_, again) = host.load(&Source::Dir(dir.to_path_buf()), &grants).unwrap();
     let fresh = ops_of(&again, "status")[0]["spec"]["run"]["handler"].as_u64().unwrap();
     assert_ne!(fresh, id, "the new load handed over the old load's number");
     let r = host.call("t", id, json!({}));
@@ -218,7 +217,7 @@ fn a_handler_id_from_before_a_reload_never_reaches_the_new_load() {
 
 #[test]
 fn has_says_whether_a_permission_was_granted() {
-    let (_, reply) = load(
+    let (_, reply, _folder) = load(
         "has",
         &["terminal.read", "serve:mesh.status"],
         r#"
@@ -232,7 +231,7 @@ fn has_says_whether_a_permission_was_granted() {
     );
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(notices(&reply), ["true false true false"]);
-    let (_, reply) = load("has-typo", &[], r#"roster.has("terminal.raed")"#);
+    let (_, reply, _folder) = load("has-typo", &[], r#"roster.has("terminal.raed")"#);
     assert!(
         reply
             .error
@@ -260,7 +259,7 @@ fn pairs_visits_keys_in_order_so_the_same_state_makes_the_same_ops() {
         local proxy = setmetatable({}, { __pairs = function() return function(_, k) if not k then return "only", 1 end end, nil, nil end })
         for k in pairs(proxy) do roster.notify(k) end
     "#;
-    let (_, reply) = load("pairs", &[], init);
+    let (_, reply, _folder) = load("pairs", &[], init);
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let hosts: Vec<&str> = ops_of(&reply, "badge")
         .iter()
@@ -297,7 +296,7 @@ fn pairs_keeps_its_order_for_every_shape_of_table() {
         walk({ [true] = 1, [false] = 2, [3] = 3, x = 4 })
         walk({ "a", "b", n = 2 })
     "#;
-    let (_, reply) = load("pairs-shapes", &[], init);
+    let (_, reply, _folder) = load("pairs-shapes", &[], init);
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(
         notices(&reply),
@@ -316,7 +315,7 @@ fn pairs_keeps_its_order_for_every_shape_of_table() {
 
 #[test]
 fn a_finders_items_can_come_from_a_function_run_when_it_opens() {
-    let (host, reply) = load(
+    let (host, reply, _folder) = load(
         "lazy",
         &[],
         r#"

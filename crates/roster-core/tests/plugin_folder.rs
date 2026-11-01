@@ -3,6 +3,8 @@
 //! symlinks (and, on Windows, junctions), and its data folder holds only what it wrote there,
 //! through `roster.storage`, with no way out. These tests use temp folders only.
 
+mod common;
+
 use roster_core::plugin::{Limits, PluginHost, Serve, Source, read_manifest};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -20,11 +22,8 @@ impl Serve for NoServe {
     }
 }
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-pfolder-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("pfolder-{test}"))
 }
 
 const MANIFEST: &str = r#"return { name = "boxed", version = "1.0.0", api = 3 }"#;

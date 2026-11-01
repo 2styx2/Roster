@@ -9,6 +9,8 @@
 //! Plugin, so the UI tests test this Plugin's behaviour. `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p
 //! roster-core --test plugin_discover` rewrites it.
 
+mod common;
+
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
@@ -29,11 +31,8 @@ const ALL: &[&str] = &[
     "serve:discover.add",
 ];
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-discover-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("plugin-discover-{test}"))
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -189,6 +188,8 @@ struct World {
     replies: Receiver<Reply>,
     /// The ops of each of those answers since the last step, for the transcript.
     answers: RefCell<Vec<Value>>,
+    /// The remote, the clone and the data dir; last, so it's deleted after the host has stopped.
+    _root: common::Temp,
 }
 
 impl World {
@@ -234,6 +235,7 @@ impl World {
             config,
             replies,
             answers: RefCell::default(),
+            _root: root,
         }
     }
 
@@ -712,7 +714,7 @@ roster.commands.add("go", { run = function() roster.serve.call("discover.start",
     let serve = Arc::new(FakeServe::default());
     let host = PluginHost::new(serve.clone(), Limits::default());
     let grants = perms(&["serve:discover.start", "serve:discover.add", "serve:discover.status"]);
-    let (_, loaded) = host.load(&Source::Dir(dir), &grants).unwrap();
+    let (_, loaded) = host.load(&Source::Dir(dir.to_path_buf()), &grants).unwrap();
     ok(&loaded);
     assert_eq!(serve.methods(), ["discover.status"]);
     let timer = handler(&op(&loaded.ops, "timer")["run"]);

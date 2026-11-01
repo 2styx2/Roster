@@ -2,9 +2,10 @@
 //! loaded through `PluginHost` with what the user granted. These tests drive the host the Tauri
 //! shell uses, with real folders in a temp dir and a fake `roster serve` that records each call.
 
+mod common;
+
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Serve, Source, read_manifest};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -42,10 +43,8 @@ impl FakeServe {
     }
 }
 
-fn plugin_dir(test: &str, manifest: &str, init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, manifest: &str, init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-{test}"));
     std::fs::write(dir.join("roster-plugin.lua"), manifest).unwrap();
     std::fs::write(dir.join("init.lua"), init).unwrap();
     dir
@@ -145,7 +144,7 @@ fn a_plugin_adds_commands_keys_sections_status_finders_and_help_as_ops() {
         "##,
     );
     let (host, _) = host();
-    let (m, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (m, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert_eq!(m.name, "hello");
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let kinds: Vec<&str> = reply.ops.iter().map(|o| o["op"].as_str().unwrap()).collect();
@@ -190,7 +189,7 @@ fn a_function_without_its_permission_isnt_there() {
     // Granting more than the manifest asks for changes nothing.
     let (_, reply) = host
         .load(
-            &Source::Dir(dir.clone()),
+            &Source::Dir(dir.to_path_buf()),
             &perms(&["terminal.read", "terminal.write", "sessions.open", "inventory.read"]),
         )
         .unwrap();
@@ -220,7 +219,7 @@ fn granted_functions_reach_only_their_serve_methods_and_writes_stay_pending() {
     let (host, serve) = host();
     let (_, loaded) = host
         .load(
-            &Source::Dir(dir.clone()),
+            &Source::Dir(dir.to_path_buf()),
             &perms(&["inventory.read", "inventory.write", "sessions.open", "terminal.write"]),
         )
         .unwrap();
@@ -248,7 +247,7 @@ fn serve_call_reaches_only_the_methods_granted_by_name() {
     );
     let (host, serve) = host();
     let (_, reply) = host
-        .load(&Source::Dir(dir.clone()), &perms(&["serve:inventory.info"]))
+        .load(&Source::Dir(dir.to_path_buf()), &perms(&["serve:inventory.info"]))
         .unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let text = reply.ops[0]["spec"]["text"].as_str().unwrap();
@@ -306,7 +305,7 @@ fn no_api_path_reaches_a_password_vault_session_or_askpass_token() {
         "#,
     );
     let (host, serve) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &perms(&names)).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &perms(&names)).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let secret_words = [
         "password",
@@ -359,9 +358,9 @@ fn events_reach_only_plugins_that_may_hear_them() {
     let reader = plugin_dir("reader-ev", &manifest("reader", &["terminal.read"]), listener);
     let deaf = plugin_dir("deaf-ev", &manifest("deaf", &["terminal.read"]), listener);
     let (host, _) = host();
-    host.load(&Source::Dir(reader.clone()), &perms(&["terminal.read"]))
+    host.load(&Source::Dir(reader.to_path_buf()), &perms(&["terminal.read"]))
         .unwrap();
-    let (_, deaf_load) = host.load(&Source::Dir(deaf.clone()), &[]).unwrap();
+    let (_, deaf_load) = host.load(&Source::Dir(deaf.to_path_buf()), &[]).unwrap();
     assert!(deaf_load.error.is_none(), "{:?}", deaf_load.error);
     assert!(
         deaf_load.ops[0]["text"]
@@ -399,11 +398,12 @@ fn job_progress_reaches_only_plugins_that_may_ask_about_that_kind_of_job() {
     let scanny = plugin_dir("scanny-ev", &manifest("scanny", &["serve:discover.status"]), listener);
     let neither = plugin_dir("neither-ev", &manifest("neither", &["serve:mesh.status"]), listener);
     let (host, _) = host();
-    host.load(&Source::Dir(meshy), &perms(&["serve:mesh.job"])).unwrap();
-    host.load(&Source::Dir(scanny), &perms(&["serve:discover.status"]))
+    host.load(&Source::Dir(meshy.to_path_buf()), &perms(&["serve:mesh.job"]))
+        .unwrap();
+    host.load(&Source::Dir(scanny.to_path_buf()), &perms(&["serve:discover.status"]))
         .unwrap();
     let (_, deaf) = host
-        .load(&Source::Dir(neither), &perms(&["serve:mesh.status"]))
+        .load(&Source::Dir(neither.to_path_buf()), &perms(&["serve:mesh.status"]))
         .unwrap();
     assert!(
         deaf.ops[0]["text"]
@@ -444,7 +444,7 @@ fn job_progress_reaches_only_plugins_that_may_ask_about_that_kind_of_job() {
 fn an_error_while_loading_names_the_plugin_and_line_and_disables_it() {
     let dir = plugin_dir("loaderr", &manifest("broken", &[]), "local x = nil\n\nx.y = 1\n");
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     let e = reply.error.unwrap();
     assert_eq!(
         (e.plugin.as_str(), e.file.as_deref(), e.line),
@@ -472,7 +472,7 @@ fn a_hook_that_loops_runs_out_of_time_and_a_repeat_offender_is_disabled() {
            roster.commands.add("fine", { run = function() return "ok" end })"#,
     );
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     let (spin, fine) = (handler(&reply.ops[0], "run"), handler(&reply.ops[1], "run"));
     let started = Instant::now();
     let r = host.call("loopy", spin, json!({}));
@@ -499,7 +499,7 @@ fn a_plugin_that_eats_memory_is_stopped() {
         r#"local t = {} for i = 1, 1e9 do t[i] = string.rep("x", 1000) .. i end"#,
     );
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     let e = reply.error.unwrap();
     assert!(e.message.contains("memory") || e.message.contains("took longer"), "{e}");
 }
@@ -525,8 +525,8 @@ fn a_slow_plugin_is_given_up_on_and_the_others_keep_working() {
         &manifest("quick", &[]),
         r#"roster.commands.add("q", { run = function() return 1 end })"#,
     );
-    let (_, slow_load) = host.load(&Source::Dir(slow.clone()), &[]).unwrap();
-    let (_, quick_load) = host.load(&Source::Dir(quick.clone()), &[]).unwrap();
+    let (_, slow_load) = host.load(&Source::Dir(slow.to_path_buf()), &[]).unwrap();
+    let (_, quick_load) = host.load(&Source::Dir(quick.to_path_buf()), &[]).unwrap();
     let started = Instant::now();
     let r = host.call("slow", handler(&slow_load.ops[0], "run"), json!({}));
     assert!(started.elapsed() < Duration::from_secs(1));
@@ -562,9 +562,9 @@ fn a_plugin_waiting_for_a_slow_serve_isnt_given_up_on_and_the_others_keep_workin
         r#"roster.commands.add("q", { run = function() return 1 end })"#,
     );
     let (_, slow_load) = host
-        .load(&Source::Dir(slow.clone()), &perms(&["inventory.read"]))
+        .load(&Source::Dir(slow.to_path_buf()), &perms(&["inventory.read"]))
         .unwrap();
-    let (_, quick_load) = host.load(&Source::Dir(quick.clone()), &[]).unwrap();
+    let (_, quick_load) = host.load(&Source::Dir(quick.to_path_buf()), &[]).unwrap();
     let waiting = {
         let host = Arc::clone(&host);
         let h = handler(&slow_load.ops[0], "run");
@@ -595,7 +595,7 @@ fn setting_a_section_again_replaces_its_actions() {
            end })"#,
     );
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     let again = handler(&reply.ops[0], "run");
     let first = host.call("rows", again, json!({}));
     let old = handler(&first.ops[0]["spec"]["rows"][0], "run");
@@ -619,7 +619,7 @@ fn modules_load_from_the_plugins_own_folder_only() {
     std::fs::create_dir_all(dir.join("lua/mods")).unwrap();
     std::fs::write(dir.join("lua/mods/util.lua"), r#"return { word = "from a module" }"#).unwrap();
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert_eq!(reply.ops[0]["spec"]["text"], "from a module");
     assert_eq!(reply.ops[1]["text"], "false");
 }
@@ -633,11 +633,11 @@ fn unloading_ends_a_plugin_and_reloading_runs_it_again_with_new_grants() {
     );
     let (host, _) = host();
     let (_, r) = host
-        .load(&Source::Dir(dir.clone()), &perms(&["inventory.read"]))
+        .load(&Source::Dir(dir.to_path_buf()), &perms(&["inventory.read"]))
         .unwrap();
     assert_eq!(r.ops[0]["spec"]["text"], "true");
     // Revoking is loading again without the grant: the function is gone at once.
-    let (_, r) = host.load(&Source::Dir(dir.clone()), &[]).unwrap();
+    let (_, r) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert_eq!(r.ops[0]["spec"]["text"], "false");
     assert!(host.unload("re"));
     assert!(host.list().is_empty());
@@ -687,7 +687,7 @@ fn a_folder_plugin_cant_take_a_built_in_or_reserved_name() {
     let dir = plugin_dir("impostor", &manifest("hosts", &[]), "");
     let (host, _) = host();
     assert!(
-        host.load(&Source::Dir(dir), &[])
+        host.load(&Source::Dir(dir.to_path_buf()), &[])
             .unwrap_err()
             .message
             .contains("built into roster")
@@ -753,7 +753,7 @@ fn the_clipboard_is_written_only_in_a_call_the_user_started() {
         "#,
     );
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(reply.ops[0]["spec"]["text"], "false");
     let replies = host.event(Event {
@@ -806,7 +806,7 @@ fn text_that_isnt_utf8_is_shown_with_a_replacement_character_not_an_error() {
         "#,
     );
     let (host, _) = host();
-    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let shown = "\u{fffd} ERROR here";
     for _ in 0..4 {
