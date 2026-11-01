@@ -113,7 +113,7 @@ import { runHealth, type HealthContext, type HealthReport } from "./health/healt
 import { defaultTerminalOptions, zoom, type TerminalOptions, type ZoomAction } from "./terminal/options";
 import { memoryPlatform } from "./platform/memory";
 import type { Platform } from "./platform/types";
-import { setFolded, usedHost } from "./state/appState";
+import { currentFoldId, setFolded, usedHost } from "./state/appState";
 import { StateStore } from "./state/store";
 import { tutorCommand } from "./tutor/command";
 import { DemoBanner } from "./tutor/DemoBanner";
@@ -1166,7 +1166,8 @@ function Workspace({
   const cursorRow = () => rows.find((r) => r.id === cursor) ?? null;
 
   /** h, l and the chevrons: fold or unfold a row, or move to its parent or first child. */
-  const fold = (id: string | null, how: FoldHow) => {
+  const fold = (given: string | null, how: FoldHow) => {
+    const id = given === null ? null : currentFoldId(given);
     const row = id === null ? cursorRow() : (rows.find((r) => r.id === id) ?? null);
     const target = id ?? row?.id;
     if (!target) return;

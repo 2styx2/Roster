@@ -435,7 +435,7 @@ end
 roster.commands.add("folder", { desc = "Folders: new, rename, delete, add, remove", run = run, complete = complete })
 roster.keymap.set("leader", "a", "folder add")
 roster.keymap.set("leader", "A", "folder remove")
-roster.finders.set(SECTION, { title = "Find in the Folders", section = SECTION })
+roster.finders.set(SECTION, { title = "Find in the Folders", prompt = "Folders", section = SECTION })
 
 if roster.has("inventory.read") then
   roster.on("inventory_changed", function() names = nil end)

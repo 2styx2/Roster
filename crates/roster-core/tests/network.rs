@@ -56,6 +56,20 @@ fn serve_one(mut stream: TcpStream, heads: &Mutex<Vec<String>>) {
         }
     }
     let head = String::from_utf8_lossy(&head).into_owned();
+    // Read the body the head announces: on Windows, closing a socket with unread data resets the
+    // connection, and the client sees that (os error 10054) instead of the reply.
+    let length = head
+        .lines()
+        .find_map(|l| {
+            l.split_once(':')
+                .filter(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+        })
+        .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = vec![0u8; length];
+    if stream.read_exact(&mut body).is_err() {
+        return;
+    }
     heads.lock().unwrap().push(head.clone());
     let path = head.split(' ').nth(1).unwrap_or("/").to_string();
     let reply = |status: &str, extra: &str, body: &[u8]| {

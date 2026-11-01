@@ -200,7 +200,7 @@ export type PluginOp =
   | { op: "section"; id: string; title: string; order: number; empty?: string; rows: PluginRow[]; actions: PluginRowAction[]; count?: number; drop?: Run }
   | { op: "status"; id: string; text: string; title?: string; run?: Run }
   /** `items` is a handler when the Plugin hands a function (ticket 79): run as the finder opens. */
-  | { op: "finder"; id: string; title: string; items: PluginFinderItem[] | { handler: number } | { section: string } }
+  | { op: "finder"; id: string; title: string; prompt: string; items: PluginFinderItem[] | { handler: number } | { section: string } }
   | { op: "help"; id: string; title: string; summary: string; markdown: string }
   | { op: "health"; id: string; title: string; checks: PluginHealthCheck[]; check?: Run }
   | { op: "tutor"; id: string; title: string; summary: string; intro: string; lessons: PluginTutorLesson[]; outro: string }
@@ -609,10 +609,12 @@ function parse(raw: unknown): PluginOp {
       const what = `roster.finders.set ${id}`;
       const items = spec.items;
       const section = optStr(spec, "section", what, 64);
+      const title = optStr(spec, "title", what) ?? id;
       return {
         op: "finder",
         id,
-        title: optStr(spec, "title", what) ?? id,
+        title,
+        prompt: optStr(spec, "prompt", what, 64) ?? title,
         items:
           section !== undefined
             ? { section }

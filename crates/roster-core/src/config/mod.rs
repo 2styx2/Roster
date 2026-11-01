@@ -17,7 +17,7 @@ mod watch;
 
 pub use editor::{Ensured, OpenWith, WindowsOpen, ensure_file, open, open_with, starter, windows_open};
 pub use schema::*;
-pub use watch::{Changed, FOLDERS_FILE, Watcher, watch, watch_files};
+pub use watch::{Watcher, watch};
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};

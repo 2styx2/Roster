@@ -136,7 +136,8 @@
 
 --- A finder (`roster.finders.set`)
 ---@class roster.Finder
----@field title? string Its title and prompt; the id if left out.
+---@field title? string Its title (the `:finder` command's label and the dialog's name); the id if left out.
+---@field prompt? string What it shows before the query (`Folders ›`), at most 64 characters; its title if left out (since api 3).
 ---@field items? roster.FinderItem[]|fun(): roster.FinderItem[] What it finds in, at most 2,000; or a function that returns them, run in the Plugin each time the finder opens. Until it first answers the finder says it's loading; after that it shows the last answer while it asks again.
 ---@field section? string Instead of `items`: one of your own Sidebar sections, whose rows it finds in (with their paths, unfolded), as roster's own `inventory` finder does (since api 3).
 
