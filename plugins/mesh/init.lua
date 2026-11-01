@@ -169,7 +169,7 @@ local function over(j)
       roster.notify("CUT PENDING on " .. h .. ": " .. r.pending[h] .. ". Until it's done there, " .. h .. " may still let " .. host .. " in. Cut again once it answers.", "warn")
     end
     -- What roster left on the cut Host's own side: an earlier mesh_dir: (serve API 23; older ones say nothing).
-    for _, w in ipairs(r.warnings or {}) do roster.notify(w, "warn") end
+    for _, w in ipairs(r.warnings or {}) do roster.notify(w, "warn", { quiet = false }) end
     local c = r.change or {}
     if c.error then roster.notify("mesh: false for " .. host .. " wasn't written: " .. c.error .. " (" .. c.fix .. ")", "warn") end
   end

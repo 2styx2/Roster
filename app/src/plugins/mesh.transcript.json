@@ -6548,6 +6548,7 @@
           {
             "level": "warn",
             "op": "notify",
+            "quiet": false,
             "text": "orion-2: /srv/mesh holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"
           }
         ],
