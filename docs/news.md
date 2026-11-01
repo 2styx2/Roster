@@ -107,6 +107,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - An answer to what a Plugin asked while loading is no longer lost (first load) or put on the load before (reload).
 - A Plugin command whose line runs itself, or two that run each other, stop with a notice instead of recursing until the app gives up.
 - A Plugin's `pairs` costs far less on a list (about 7 times faster on 10,000 items) and on tables with only text or only number keys, in the same order as before.
+- Closing the app gives `roster serve` up to 3 s (was 1 s) to stop a running Mesh job and record what it didn't finish before it's killed.
 
 **`roster serve` API**
 
