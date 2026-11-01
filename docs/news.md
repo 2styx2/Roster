@@ -58,7 +58,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
-**serve API (API 24)**
+**serve API (API 23)**
 
 - On native Windows, `vault.login` signs bw in with a password or SSO too: it drives `bw login` on a pseudoconsole (ConPTY), where it answered `59` before. There the `sso` step's `url` is `null`, because bw opens the sign-in page in the default browser itself; the app says so instead of showing a link. See [Signing in](serve-api.md#signing-in-vaultlogin).
 

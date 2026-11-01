@@ -257,7 +257,7 @@ describe("signing in from the lock screen", () => {
     await workspace();
   });
 
-  it("signs in with SSO on native Windows, where bw opens the page itself and there's no link (API 24)", async () => {
+  it("signs in with SSO on native Windows, where bw opens the page itself and there's no link (API 23)", async () => {
     const { user } = await start({ ...(fixtures["sign-in-sso"] as FakeScenario), signIn: { sso: "ok", ssoMs: 50, ssoLink: false } });
     await user.click(within(dialog()).getByRole("button", { name: /use sso/i }));
     await user.type(field(/organization identifier/i), "yourorg{Enter}");

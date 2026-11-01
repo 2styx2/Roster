@@ -28,6 +28,35 @@ def test_a_tool_is_found_by_its_extension_and_an_exe_takes_any_argument(as_windo
         [r"C:\tools\git.exe", "commit", "-m", 'say "hi" & 100%']
 
 
+def test_the_console_sign_in_stops_reading_once_bw_has_exited_even_if_the_console_never_closes():
+    """Ticket 63 review: after bw exits, what the pseudoconsole still shows is read for a bounded time, then roster
+    moves on, never spinning on a console whose output doesn't end."""
+    import threading
+
+    from roster.providers.bw_login import ConsolePty
+
+    class StuckConsole:                         # bw exited, but the console's output never reaches its end
+        reads = 0
+
+        def exitcode(self):
+            return 0
+
+        def finish(self, timeout=3):
+            pass
+
+        def read(self, timeout):
+            StuckConsole.reads += 1
+            return "" if StuckConsole.reads > 1 else "You are logged in!\r\n"
+
+    term = ConsolePty.__new__(ConsolePty)
+    term.con, term.text, term.out, term.answered, term.code = StuckConsole(), "", b"", set(), None
+    got = []
+    t = threading.Thread(target=lambda: got.append(term.ended()), daemon=True)
+    t.start()
+    t.join(5)
+    assert got == [0] and "logged in" in term.text and StuckConsole.reads < 100
+
+
 @pytest.mark.parametrize("arg", ['a"b', "50%", "a^b", "a&b", "a|b", "a<b", "a>b", "a!b", "a\nb"])
 def test_a_batch_file_is_never_handed_what_cmd_would_act_on(as_windows, monkeypatch, arg):
     """npm installs bw as bw.cmd, which runs through cmd.exe: an item name from roster.yml or the vault with one of
@@ -297,3 +326,35 @@ def test_a_pipe_call_that_blocks_past_its_timeout_is_cancelled_and_times_out(win
     with pytest.raises(TimeoutError):
         conn._limited(blocked_read)
     assert log == [("cancel", 7), ("close", 7)]
+
+
+@windows_only
+def test_bws_sso_listener_is_seen_without_touching_its_port_and_without_ipv6(monkeypatch):
+    """Ticket 63 review: roster sees bw's SSO callback server listen by asking Windows' TCP table which process
+    listens on 8065-8070 (one in bw's job), never by binding the port itself, which could take it from bw; and a box
+    without IPv6 is just that, not every port taken."""
+    from roster import conpty
+    table = conpty._listen_table
+    monkeypatch.setattr(conpty, "_listen_table", lambda family: None if family == conpty.AF_INET6 else table(family))
+    import socket
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    con = conpty.ConPty([sys.executable, "-c", f"import socket,time; s=socket.socket(); s.bind(('127.0.0.1', {port})); "
+                         "s.listen(); print('up', flush=True); time.sleep(30)"], dict(os.environ))
+    try:
+        outsider = socket.socket()                                      # this process isn't in bw's job
+        outsider.bind(("127.0.0.1", 0))
+        outsider.listen()
+        other = outsider.getsockname()[1]
+        seen = set()
+        for _ in range(100):
+            seen = con.listening({port, other})
+            if seen:
+                break
+            con.read(0.1)
+        assert seen == {port}
+        outsider.close()
+    finally:
+        con.close()

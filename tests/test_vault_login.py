@@ -83,6 +83,8 @@ def test_password_only_signs_in_and_unlocks(signin):
     r = login(s, email=EMAIL, password=PASSWORD)["result"]
     assert r == {"step": "done", "provider": "bw", "status": "unlocked", "login": r["login"]}
     assert s.call("vault.status")["result"]["status"] == "unlocked"
+    calls = [json.loads(line) for line in files["argv"].read_text().splitlines()]
+    assert not any(c[0] == "unlock" for c in calls)            # the key `bw login --raw` printed, on Windows too
     no_secrets(s, files)
 
 

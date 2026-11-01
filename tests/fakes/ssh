@@ -74,7 +74,7 @@ if hosts:
         env = {**os.environ, "HOME": os.path.join(root, "home"), "FAKE_HOST_ROOT": shroot,
                "PATH": os.pathsep.join([*filter(None, [os.environ.get("FAKE_HOST_PATH")]), os.path.join(os.path.dirname(os.path.abspath(__file__)), "host"),
                                         # Windows: the sh's own commands (sort, find) before Windows' namesakes
-                                        *([os.path.dirname(os.environ["FAKE_SH"])] if os.name == "nt" else []),
+                                        *([os.path.dirname(os.environ.get("FAKE_SH", "/bin/sh"))] if os.name == "nt" else []),
                                         os.environ["PATH"]])}
         sh = os.environ.get("FAKE_SH", "/bin/sh")
         argv = [sh, "-s"] if stdin is not None else [sh, "-c", on_host(line)]

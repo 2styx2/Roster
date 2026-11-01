@@ -10,13 +10,11 @@ an error message is cut from it with the prompts (and their echoed answers) left
 person gave is scrubbed from it on top of that.
 """
 
-import errno
 import os
 import re
 import select
 import shutil
 import signal
-import socket
 import struct
 import subprocess
 import tempfile
@@ -89,22 +87,6 @@ elif [ -n "$WSL_DISTRO_NAME" ] && command -v explorer.exe >/dev/null 2>&1; then 
 elif command -v xdg-open >/dev/null 2>&1; then exec xdg-open "$1"
 fi
 """
-
-
-def callback_ports():
-    """Which of bw's SSO callback ports (localhost:8065-8070) something listens on: binding the port fails then. A
-    bind answers at once, where a refused connection to localhost takes Windows a second or two."""
-    taken = set()
-    for port in SSO_PORTS:
-        for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
-            try:
-                with socket.socket(family) as s:
-                    s.bind((address, port))
-            except OSError as e:
-                if e.errno != errno.EADDRNOTAVAIL:          # no IPv6 here: that says nothing about the port
-                    taken.add(port)
-                    break
-    return taken
 
 
 def sso_timeout():
@@ -246,8 +228,7 @@ def screen_text(vt):
 
 class ConsolePty(Terminal):
     """Native Windows' counterpart of Pty: one bw process on a pseudoconsole (ConPTY, roster/conpty.py). Its
-    stdout is on the console too, so there's no session key apart from what it shows: the password sign-in
-    unlocks with the password it holds once bw has logged in."""
+    stdout is on the console too, so once bw has exited, `out` is the last line it showed: what --raw printed."""
 
     def __init__(self, args, env):
         from ..conpty import ConPty
@@ -266,11 +247,22 @@ class ConsolePty(Terminal):
 
     def ended(self):
         if self.code is None and (code := self.con.exitcode()) is not None:
-            self.con.finish()                           # what bw showed last, before it exited
-            while (got := self.con.read(0)) is not None:
+            self.con.finish()                   # closes the console: it draws what's left, then its output ends
+            got = self.con.read(0)              # all of it, or what came within finish()'s wait: never more waiting
+            if got:
                 self.text += screen_text(got)
+            self.out = self.last_line().encode()
             self.code = code
         return self.code
+
+    def last_line(self):
+        """What bw printed last: with --raw, after a sign-in, the session key (its stdout is this console too)."""
+        lines = [line.strip() for line in self.text.split("\n") if line.strip()]
+        return lines[-1] if lines else ""
+
+    def listening(self, ports):
+        """Which of PORTS bw (or what it started) listens on."""
+        return self.con.listening(ports)
 
     def _write(self, text):
         self.con.write(text)
@@ -465,9 +457,6 @@ class BwLogin:
             if key:
                 os.environ["BW_SESSION"] = key                          # this process only
                 return self.finish()
-            if self.flow == "password" and self.password:              # Windows: no session key apart from the screen
-                _bw_unlock(self.password, self.ctx)
-                return self.finish()
             return self.at({"step": "master_password", "email": self.email})
         e = self.failure(after)
         raise e if isinstance(e, CodeRejected) else self.fail(e)       # a wrong code: restarted() decides
@@ -492,6 +481,8 @@ class BwLogin:
         m = re.search(r'BW_SESSION="([^"]+)"', out)
         if m:
             return m.group(1)
+        if out in self.secrets or out == self.email:        # Windows: a typed answer was the last thing shown
+            return None
         return out if out and not any(c.isspace() for c in out) else None
 
     # ---- API key, SSO
@@ -526,10 +517,9 @@ class BwLogin:
     def sso_login_windows(self, identifier):
         """On Windows bw opens the page itself, with PowerShell's Start by its full path, which no PATH entry can
         stand in for: so there's no link to hand over (`url` null), and bw having opened it is known by its
-        callback server listening (it opens the page as that server starts)."""
-        before = callback_ports()
+        callback server listening (it opens the page as that server starts), as Windows' TCP table shows it."""
         self.bw = terminal(["bw", "login", "--sso", *([identifier] if identifier else [])], self.env())
-        how, what = self.bw.wait(SSO_URL_WAIT, until=lambda: callback_ports() - before)
+        how, what = self.bw.wait(SSO_URL_WAIT, until=lambda: self.bw.listening(SSO_PORTS))
         if how != "until":
             if how == "timeout":
                 raise self.fail(BrowserLoginFailed("bw didn't start the SSO sign-in (its sign-in page didn't open)"))
