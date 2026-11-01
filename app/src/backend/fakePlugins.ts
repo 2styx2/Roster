@@ -53,8 +53,15 @@ export interface FakeRoster {
   cmd(line: string): void;
   progress: { set(id: string, spec: Spec): void; remove(id: string): void };
   toolbar: { set(id: string, spec: Spec): void; remove(id: string): void };
-  inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
-  sessions: { show(session: number, line?: string): void; open?(host: string): void };
+  inventory?: {
+    hosts(): Host[];
+    host(name: string): Host | undefined;
+    groups(): Record<string, { title: string; description: string }>;
+    /** api 4 (decision Q127): every Host and group without waiting; `done` runs later. */
+    request(done: (list: { hosts: Host[]; groups: Record<string, { title: string; description: string }> } | undefined, err?: string) => void): void;
+  };
+  /** `list` (api 4, decision Q127) with inventory.read or terminal.read: the Sessions open now. */
+  sessions: { show(session: number, line?: string): void; list?(): { session: number; host?: string }[]; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
   /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend.
    * `request` doesn't wait: `done` runs later, as the core's does (decision Q103). */
@@ -449,6 +456,8 @@ export function fakePluginHost(
    * ran): a request or a command line made in it doesn't carry it further (issue #183). */
   let carried = false;
   const replyWatchers = new Set<(reply: PluginReply) => void>();
+  /** The Sessions open now, by id (a Quick Connect Session's Host is null), from the app's events. */
+  const open = new Map<number, string | null>();
 
   const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
@@ -610,11 +619,22 @@ export function fakePluginHost(
       },
     };
     if (r.grants.has("inventory.read")) {
+      const groups = () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }]));
       m.inventory = {
         hosts: () => hosts(),
         host: (name) => hosts().find((h) => h.name === name),
-        groups: () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }])),
+        groups,
+        request: (done) => {
+          if (r.requests >= MAX_SERVE_REQUESTS) {
+            throw new Error(`roster.inventory.request: ${MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer`);
+          }
+          const list = { hosts: hosts(), groups: groups() };
+          later(r, () => done(list));
+        },
       };
+    }
+    if (r.grants.has("inventory.read") || r.grants.has("terminal.read")) {
+      m.sessions.list = () => [...open].map(([session, host]) => (host === null ? { session } : { session, host }));
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
@@ -648,24 +668,30 @@ export function fakePluginHost(
           } catch (e) {
             answer = () => done(undefined, `${what}: ${errorText(e)}`);
           }
-          const user = userCall && !carried;
-          r.requests++;
-          setTimeout(() => {
-            r.requests--;
-            if (running.get(r.manifest.name) !== r || r.disabled) return;
-            [userCall, carried] = [user, user];
-            let reply: PluginReply;
-            try {
-              reply = run(r.manifest.name, r, answer);
-            } finally {
-              [userCall, carried] = [false, false];
-            }
-            if (reply.ops.length || reply.error) for (const w of replyWatchers) w(reply);
-          }, 0);
+          later(r, answer);
         },
       };
     }
     return m;
+  };
+
+  /** A request's answer: `answer` runs later as a call of its own, carrying the user's call one
+   * hop when it was made in one, its reply to whoever listens (as runtime.rs's ask_later). */
+  const later = (r: Running, answer: () => void) => {
+    const user = userCall && !carried;
+    r.requests++;
+    setTimeout(() => {
+      r.requests--;
+      if (running.get(r.manifest.name) !== r || r.disabled) return;
+      [userCall, carried] = [user, user];
+      let reply: PluginReply;
+      try {
+        reply = run(r.manifest.name, r, answer);
+      } finally {
+        [userCall, carried] = [false, false];
+      }
+      if (reply.ops.length || reply.error) for (const w of replyWatchers) w(reply);
+    }, 0);
   };
 
   /** As runtime.rs's add_timer: the same floors, ceiling and op. */
@@ -745,6 +771,11 @@ export function fakePluginHost(
       }
     },
     async pluginEvent(name, payload) {
+      // Before any Plugin hears it, as mod.rs's OpenSessions: `roster.sessions.list()` agrees.
+      if (typeof payload.session === "number") {
+        if (name === "session_open") open.set(payload.session, typeof payload.host === "string" ? payload.host : null);
+        if (name === "session_exit") open.delete(payload.session);
+      }
       const replies: PluginReply[] = [];
       for (const [plugin, r] of running) {
         const fs = r.listeners.get(name);

@@ -767,7 +767,10 @@ export class PluginManager {
   }
 
   private async send(name: PluginEventName, payload: Record<string, unknown>): Promise<void> {
-    if (this.loaded.size === 0) return;
+    // The core keeps the open Sessions from these two for `roster.sessions.list()` (ticket 96), so
+    // they go even while no Plugin runs: one loaded later still learns of them.
+    const sessions = name === "session_open" || name === "session_exit";
+    if (this.loaded.size === 0 && !sessions) return;
     const replies = await this.backend.pluginEvent(name, payload).catch(() => []);
     for (const r of replies) {
       this.used(r.plugin, `heard ${name}`);

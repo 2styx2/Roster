@@ -92,6 +92,28 @@ describe("installing", () => {
 describe("running", () => {
   const installed = { [STATE_KEY]: [{ path: ALERTS, name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }] };
 
+  // Ticket 96: Sessions opened while no Plugin ran still reach the core, so one installed later
+  // lists them (roster.sessions.list).
+  it("a Plugin installed after Sessions opened lists the ones still open", async () => {
+    const lister: FakePlugin = {
+      manifest: { name: "lister", version: "1.0.0", description: "Lists Sessions", author: "A. Author", api: 4, permissions: ["inventory.read"] },
+      load(roster) {
+        const open = roster.sessions.list?.() ?? [];
+        roster.status.set("open", { text: open.map((s) => `${s.session}=${s.host ?? "quick"}`).join(" ") });
+      },
+    };
+    const { manager, registries } = setup({ "/p/lister": lister });
+    await manager.start();
+    await manager.event("session_open", { session: 1, host: "esx-02" });
+    await manager.event("session_open", { session: 2, host: null });
+    await manager.event("session_open", { session: 3, host: "web-1" });
+    await manager.event("session_exit", { session: 3, host: "web-1", code: 0 });
+    expect(await manager.install("/p/lister")).toBeNull();
+    const [prompt] = manager.snapshot().prompts;
+    if (prompt) await manager.answer(prompt, true);
+    expect(registries.status.get("open")?.text).toBe("1=esx-02 2=quick");
+  });
+
   it("gets the Sessions' output as plain text, and only with terminal.read", async () => {
     const seen: string[] = [];
     const { manager, registries } = setup({ [ALERTS]: alerts(seen) }, { ...installed });

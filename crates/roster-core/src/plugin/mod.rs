@@ -292,6 +292,8 @@ pub struct PluginHost {
     /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
     /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
     offline: bool,
+    /// The Sessions open now, from the app's `session_open` and `session_exit` (decision Q127).
+    sessions: Arc<OpenSessions>,
 }
 
 impl PluginHost {
@@ -307,6 +309,7 @@ impl PluginHost {
             data: std::sync::OnceLock::new(),
             logs: Mutex::default(),
             offline: false,
+            sessions: Arc::default(),
         }
     }
 
@@ -534,6 +537,8 @@ impl PluginHost {
     /// Sends `event` to every Plugin that listens and may hear it, all at once; the slow ones
     /// are given up on together. Only Plugins that changed something or failed answer.
     pub fn event(&self, event: Event) -> Vec<Reply> {
+        // Before any Plugin hears it, so a listener's `roster.sessions.list()` agrees with it.
+        self.sessions.heard(&event);
         let event = Event {
             payload: runtime::heard_payload(&event.name, event.payload),
             name: event.name,
@@ -664,12 +669,18 @@ impl PluginHost {
             all: Arc::clone(&self.all_plugins),
         });
         let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
+        let sessions = Arc::clone(&self.sessions);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let network = network::Setup {
             proxy: Arc::clone(proxy),
             log: Arc::clone(self.logs.lock().expect("plugin logs").entry(name.clone()).or_default()),
         };
-        let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
+        let asks = |p: &Permission| {
+            matches!(
+                p,
+                Permission::Network(_) | Permission::Serve(_) | Permission::InventoryRead
+            )
+        };
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
             let (slots, listener, plugin) = (Arc::clone(&self.slots), Arc::clone(&self.listener), name.clone());
             let waits = Arc::clone(&serving);
@@ -696,6 +707,7 @@ impl PluginHost {
                     serving,
                     generation,
                     network,
+                    sessions,
                 );
                 // Ends when the host drops the Plugin's sender (unload, disable).
                 for (job, reply) in rx {
@@ -845,6 +857,37 @@ fn wait(rx: &Receiver<Answer>, start: Instant, wall: Duration, serving: &ServeWa
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
         }
+    }
+}
+
+/// The Sessions open now, by id, with each one's Host (`None`: a Quick Connect Session), as the
+/// app's `session_open` and `session_exit` say: what `roster.sessions.list()` gives, so a Plugin
+/// loaded after a Session opened still knows of it (decision Q127). The app sends those two events
+/// even while no Plugin is loaded.
+#[derive(Default)]
+pub(crate) struct OpenSessions(Mutex<BTreeMap<u64, Option<String>>>);
+
+impl OpenSessions {
+    fn heard(&self, event: &Event) {
+        let Some(id) = event.payload["session"].as_u64() else {
+            return;
+        };
+        let mut open = self.0.lock().expect("open sessions");
+        match event.name.as_str() {
+            "session_open" => {
+                open.insert(id, event.payload["host"].as_str().map(str::to_string));
+            }
+            "session_exit" => {
+                open.remove(&id);
+            }
+            _ => {}
+        }
+    }
+
+    /// Every open Session, oldest first.
+    pub(crate) fn list(&self) -> Vec<(u64, Option<String>)> {
+        let open = self.0.lock().expect("open sessions");
+        open.iter().map(|(id, host)| (*id, host.clone())).collect()
     }
 }
 

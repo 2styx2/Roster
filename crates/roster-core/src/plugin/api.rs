@@ -29,6 +29,8 @@ pub enum Needs {
     AnyServe,
     /// Any `network:<site>` permission.
     AnyNetwork,
+    /// Any one of these permissions (`roster.sessions.list`: what its events need).
+    AnyOf(&'static [&'static str]),
 }
 
 impl Needs {
@@ -38,6 +40,7 @@ impl Needs {
             Needs::Permission(p) => format!("`{p}`"),
             Needs::AnyServe => "`serve:<method>` (that method)".into(),
             Needs::AnyNetwork => "`network:<site>` (that site)".into(),
+            Needs::AnyOf(ps) => ps.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(" or "),
         }
     }
 }
@@ -324,12 +327,12 @@ pub const MODULES: &[Module] = &[
     Module {
         name: "roster.inventory",
         summary: "Hosts, and Pending changes to them",
-        doc: "`nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The functions wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on.",
+        doc: "`nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a write in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.",
     },
     Module {
         name: "roster.sessions",
         summary: "Going to Sessions, and opening them",
-        doc: "Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `open` is there only with `sessions.open`.",
+        doc: "Every Plugin may go to a Session the user is shown (`show`), in a call the user started; `list` is there with `inventory.read` or `terminal.read` (the permissions that hear `session_open` and `session_exit`), and `open` only with `sessions.open`.",
     },
     Module {
         name: "roster.terminal",
@@ -1410,7 +1413,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.hosts",
         params: &[],
         summary: "Every Host, in `roster.yml` order",
-        doc: "From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups).",
+        doc: "From serve's [`hosts.list`](serve-api.md): while `roster.yml` doesn't load (an outside edit), the last good Hosts. The groups are [`roster.inventory.groups()`](#rosterinventorygroups), from the same answer when it's called in the same call (since api 4). [`roster.inventory.request`](#rosterinventoryrequestdone) asks without waiting.",
         returns: (
             "Host[]",
             "The Hosts, each with its Login references (a vault item's name, never a password; a `cmd:` or `env:` one cut to its kind).",
@@ -1443,7 +1446,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.groups",
         params: &[],
         summary: "Every group, by name",
-        doc: "From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is. A Host's `group` names one of them.",
+        doc: "From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a write in between reads it again). A Host's `group` names one of them.",
         returns: ("table<string, Group>", "The groups, by name."),
         errors: &[(
             "roster.inventory.groups: MESSAGE (code N)",
@@ -1453,6 +1456,25 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Permission("inventory.read"),
         since: 3,
         example: "local groups = roster.inventory.groups()\nfor _, h in ipairs(roster.inventory.hosts()) do\n  local g = groups[h.group]\n  roster.notify(h.name .. \" is in \" .. (g and g.title ~= \"\" and g.title or h.group))\nend",
+    },
+    Function {
+        path: "roster.inventory.request",
+        params: &[p(
+            "done",
+            "fun(list: HostList?, err: string?)",
+            "Runs once with the answer: every Host and group (`list.hosts`, `list.groups`), or `nil` and why (`roster.inventory.request: MESSAGE (code N)`). Its return value is ignored; an error in it counts like an action's.",
+        )],
+        summary: "Reads every Host and group without waiting: `done` gets them",
+        doc: "Serve's [`hosts.list`](serve-api.md), asked as [`roster.serve.request`](#rosterserverequestmethod-params-done) asks: it returns at once and `done` runs later on the Plugin's thread, as a call of its own, so the Plugin keeps answering the user while roster serve is busy (a Publish holds `roster.yml` for a minute or two). Its answer carries the user's call as a `roster.serve.request`'s does. It counts toward the 8 requests a Plugin may have waiting, and needs no `serve:` permission. A `cmd:` or `env:` Login reference is cut to its kind, as in every read.",
+        returns: ("", ""),
+        errors: &[(
+            "roster.inventory.request: 8 requests are waiting for roster serve already: wait for one to answer",
+            "8 `roster.serve.request` and `roster.inventory.request` calls haven't answered yet",
+        )],
+        refused: &[],
+        needs: Needs::Permission("inventory.read"),
+        since: 4,
+        example: "roster.inventory.request(function(list, err)\n  if not list then return roster.notify(err, \"warn\") end\n  roster.status.set(\"hosts\", { text = #list.hosts .. \" Hosts\" })\nend)",
     },
     Function {
         path: "roster.inventory.update",
@@ -1606,6 +1628,21 @@ pub const FUNCTIONS: &[Function] = &[
         needs: Needs::Nothing,
         since: 3,
         example: "-- An alert's row goes to the line in the Session that printed it.\nopen = function(e) roster.sessions.show(alerts[e.row].session, alerts[e.row].text) end",
+    },
+    Function {
+        path: "roster.sessions.list",
+        params: &[],
+        summary: "The Sessions open now, oldest first",
+        doc: "Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. In a listener for either event the list already has (or no longer has) that Session. It reads what the app has said, never roster serve, so it never waits.",
+        returns: (
+            "Session[]",
+            "Each open Session's id and Host, in the order they opened (their ids).",
+        ),
+        errors: &[],
+        refused: &[],
+        needs: Needs::AnyOf(&["inventory.read", "terminal.read"]),
+        since: 4,
+        example: "local live = {}\nfor _, s in ipairs(roster.sessions.list()) do\n  if s.host then live[s.host] = true end\nend\nroster.on(\"session_open\", function(e) if e.host then live[e.host] = true end end)",
     },
     Function {
         path: "roster.sessions.open",
@@ -1870,7 +1907,7 @@ pub const SERVE_RESULTS: &[ServeResult] = &[
     },
     ServeResult {
         method: "host.check_job",
-        result: "",
+        result: "CheckJob",
         link: "serve-api.md#diagnostics-hostcheck",
     },
     ServeResult {
@@ -3612,6 +3649,33 @@ pub const TYPES: &[Type] = &[
         open: false,
     },
     Type {
+        name: "CheckJob",
+        summary: "`host.check_job`'s result: a Host's check, and how it came out",
+        doc: "Since serve API 21 a check is a job: the `job_progress` event (with `serve:host.check_job`) says when one starts, moves on and ends, the app's `:check` and Check from anywhere alike, and its `job` is what to ask for here once its `state` is `done` or `stopped`. serve keeps a check findable after it ends (the last 32 a newer check replaced too); one it no longer has is code 49.",
+        alias: "",
+        fields: &[
+            f("kind", "\"check\"", "Always `\"check\"`."),
+            f("job", "string", "Its id, `\"check-N\"`."),
+            f("action", "\"check\"", "Always `\"check\"`."),
+            f(
+                "state",
+                "string",
+                "`\"running\"`, `\"stopping\"`, or how it ended: `\"done\"`, `\"stopped\"`, `\"failed\"`.",
+            ),
+            f("done", "integer", "Steps started."),
+            f("total", "integer", "Steps in all (8)."),
+            o("at", "string", "The step under way (`\"dns\"`, `\"auth\"`, ...)."),
+            f("host", "string", "The Host it checks."),
+            o(
+                "result",
+                "HostCheck",
+                "Once `done` or `stopped`: `host.check`'s result. `ok` is false for a stopped check, its later steps `skipped`.",
+            ),
+            o("error", "ServeError", "Once `failed`: why."),
+        ],
+        open: false,
+    },
+    Type {
         name: "CheckStep",
         summary: "One step of a `host.check`",
         doc: "",
@@ -4149,6 +4213,25 @@ pub const TYPES: &[Type] = &[
         doc: "",
         alias: "",
         fields: &[f("host", "string", "The Host whose Session is on screen now.")],
+        open: false,
+    },
+    Type {
+        name: "Session",
+        summary: "An open Session, as `roster.sessions.list` gives it",
+        doc: "",
+        alias: "",
+        fields: &[
+            f(
+                "session",
+                "integer",
+                "The Session's id, as its events name it: `roster.terminal.send` and `roster.sessions.show` take it.",
+            ),
+            o(
+                "host",
+                "string",
+                "The Host's name; `nil` for a Quick Connect Session (`:quick`), which isn't on a Host.",
+            ),
+        ],
         open: false,
     },
     Type {
@@ -4776,7 +4859,7 @@ pub fn json() -> Json {
                 "path": func.path,
                 "params": func.params.iter().map(|p| json!({ "name": p.name, "type": p.ty, "optional": p.optional })).collect::<Vec<_>>(),
                 "returns": func.returns.0,
-                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*"), Needs::AnyNetwork => json!("network:*") },
+                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*"), Needs::AnyNetwork => json!("network:*"), Needs::AnyOf(ps) => json!(ps) },
                 "since": func.since,
             })
         })
@@ -4930,7 +5013,12 @@ mod tests {
             assert!(ours.contains(&format!("\"{p}\"")), "{p} isn't in Permission");
         }
         for func in FUNCTIONS {
-            if let Needs::Permission(p) = func.needs {
+            let named = match func.needs {
+                Needs::Permission(p) => vec![p],
+                Needs::AnyOf(ps) => ps.to_vec(),
+                _ => vec![],
+            };
+            for p in named {
                 assert!(super::super::Permission::parse(p).is_ok(), "{}: {p}", func.path);
             }
         }
