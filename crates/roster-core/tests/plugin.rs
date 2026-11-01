@@ -409,7 +409,7 @@ fn job_progress_reaches_only_plugins_that_may_ask_about_that_kind_of_job() {
         deaf.ops[0]["text"]
             .as_str()
             .unwrap()
-            .contains("the job_progress event needs the serve:mesh.job or serve:discover.status permission"),
+            .contains("the job_progress event needs the serve:mesh.job or serve:discover.status or serve:host.check_job permission"),
         "{:?}",
         deaf.ops
     );
@@ -438,6 +438,48 @@ fn job_progress_reaches_only_plugins_that_may_ask_about_that_kind_of_job() {
         heard(json!({ "kind": "backup", "job": 1, "action": "x", "state": "running", "done": 0, "total": 1 }))
             .is_empty()
     );
+}
+
+/// A Host's check is a job too (serve API 21, ticket 108): a Plugin hears it with
+/// `serve:host.check_job`, the read it would ask about that check with. `serve:host.check` alone
+/// isn't enough: it's asked only in the user's call, never from an event listener. And no Plugin
+/// may ever send serve's `$/cancel`.
+#[test]
+fn a_check_job_reaches_only_plugins_that_may_read_it() {
+    let listener = r#"
+        local ok, err = pcall(roster.on, "job_progress", function(e)
+          roster.notify(e.kind .. " " .. tostring(e.job) .. " " .. e.state .. " " .. tostring(e.at))
+        end)
+        if not ok then roster.notify(err) end
+    "#;
+    let reader = plugin_dir("checky-ev", &manifest("checky", &["serve:host.check_job"]), listener);
+    let caller = plugin_dir("calls-ev", &manifest("calls", &["serve:host.check"]), listener);
+    let (host, _) = host();
+    host.load(&Source::Dir(reader), &perms(&["serve:host.check_job"]))
+        .unwrap();
+    let (_, deaf) = host.load(&Source::Dir(caller), &perms(&["serve:host.check"])).unwrap();
+    assert!(
+        deaf.ops[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("needs the serve:mesh.job"),
+        "{:?}",
+        deaf.ops
+    );
+    let heard: Vec<_> = host
+        .event(Event {
+            name: "job_progress".into(),
+            payload: json!({ "kind": "check", "job": "check-1", "action": "check", "state": "running", "done": 3, "total": 8, "at": "dns", "host": "esx-02" }),
+        })
+        .into_iter()
+        .map(|r| (r.plugin, r.ops[0]["text"].as_str().unwrap().to_string()))
+        .collect();
+    assert_eq!(
+        heard,
+        vec![("checky".to_string(), "check check-1 running dns".to_string())]
+    );
+    assert!(roster_core::plugin::Permission::parse("serve:host.check_job").is_ok());
+    assert!(roster_core::plugin::Permission::parse("serve:$/cancel").is_err());
 }
 
 #[test]

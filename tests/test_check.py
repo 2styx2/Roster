@@ -9,6 +9,7 @@ import json
 import logging
 import socket
 import threading
+import time
 
 import paramiko
 import pytest
@@ -306,3 +307,35 @@ def test_roster_check_without_a_host_is_still_the_fleet_check(box, capsys, monke
 
 def test_the_result_is_json_safe(check):
     json.dumps(check("esx"))
+
+
+# ---------------------------------------------------------------- host.check as a job (ticket 108, Q112 (q))
+
+def test_a_background_check_answers_at_once_and_reports_each_step(serve, box):
+    s = serve()
+    assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
+    started = s.call("host.check", {"host": "esx", "background": True})["result"]
+    assert started["kind"] == "check" and started["host"] == "esx" and started["total"] == len(STEPS)
+    job = started["job"]
+    end = time.monotonic() + 30
+    while True:                                             # the job's own answer, polled as the app's core does
+        r = s.call("host.check_job", {"job": job})["result"]
+        if r["state"] not in ("running", "stopping") or time.monotonic() > end:
+            break
+        time.sleep(0.05)
+    assert r["state"] == "done" and r["done"] == len(STEPS)
+    assert r["result"]["ok"] is True and statuses(r["result"]) == [(step, "ok", None) for step in STEPS]
+    progress = [n["params"] for n in s.notes if n["method"] == "job.progress" and n["params"]["job"] == job]
+    assert progress[0]["state"] == "running" and progress[-1]["state"] == "done"
+    assert {p["kind"] for p in progress} == {"check"} and {p["host"] for p in progress} == {"esx"}
+    assert all("result" not in p and "steps" not in p for p in progress)    # never the steps' messages
+    assert s.call("host.check_job", {"job": "check-99"})["error"]["code"] == 49
+    assert box.sshd.accepts == 1 and len(box.ssh_runs()) == 1               # one check, one connection
+    _, out, err = s.close()
+    assert not [x for x in ALL_SECRETS if x in "".join(s.responses) + out + err]
+
+
+def test_the_waiting_form_answers_as_it_always_did(check):
+    result = check("typo")["result"]
+    assert result["host"] == "typo" and result["ok"] is False
+    assert statuses(result)[3] == ("vault-item", "fail", 32)

@@ -316,3 +316,25 @@ fn a_quick_connect_with_a_key_that_changed_keeps_serves_code_and_never_the_passw
         roster_core::rpc::CallError::Io { .. }
     ));
 }
+
+/// serve API 21 (ticket 108): a Host's check runs as a job in serve, so no worker of serve waits
+/// for it. The core starts it in the background and asks `host.check_job` until it's over; the
+/// UI gets the same result as before.
+#[test]
+fn a_check_runs_as_a_job_when_serve_has_them() {
+    let b = Backend::start(&fake("checks")).unwrap();
+    let r = b.check_host("esxi-02").unwrap();
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["steps"][0]["step"], "inventory");
+    let info = b.call("inventory.info", serde_json::json!({})).unwrap();
+    assert_eq!(info["checks"], serde_json::json!(["esxi-02"]));
+}
+
+#[test]
+fn a_check_waits_for_its_answer_on_an_older_serve() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    let r = b.check_host("esxi-02").unwrap();
+    assert_eq!(r["host"], "esxi-02");
+    let info = b.call("inventory.info", serde_json::json!({})).unwrap();
+    assert_eq!(info["checks"], serde_json::json!([]));
+}

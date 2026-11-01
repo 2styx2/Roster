@@ -88,6 +88,8 @@ The lock screen signs a new Box's vault CLI in through roster's `vault.login` (r
 | 42 | 74 | The edit's result wouldn't load, would load differently, or would change another entry (a YAML alias) | `roster.yml` | "can't make that edit: the result wouldn't load - nothing was written" | Make the edit by hand; nothing was written |
 | 43 | 75 | An address, user or Login change without a test login that just succeeded | roster | "esx's new address, user or Login hasn't passed a test login" | Test the login, then save again |
 | 113 | 4 | roster serve answers several requests at once, but two writes to `roster.yml` (or a write and a Publish), or unlocking and a lookup in the vault, never overlap: this one waited for the other past its time | roster | "roster.yml is busy: changes.publish is still running - nothing was done" | Try again once it has finished; nothing was done |
+| 114 | 5 | The app stopped waiting for a request and cancelled it (`$/cancel`) while it was still queued or waiting for a lock, so it never ran. The app has already said it didn't answer in time; this is what serve answers once it gets to it | roster | "host.add was cancelled before it did anything" | Nothing was done: do it again if you still want it |
+| 115 | 49 | `host.check_job` asked about a check this serve doesn't have (a newer check of the Host replaced it, or serve restarted) | roster | "no check check-3 in this roster serve" | Check the Host again |
 
 ## Adding a Host
 

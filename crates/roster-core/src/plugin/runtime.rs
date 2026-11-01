@@ -104,13 +104,21 @@ pub const EVENTS: &[(&str, &[&str])] = &[
     ("session_exit", &["inventory.read", "terminal.read"]),
     ("inventory_changed", &["inventory.read"]),
     ("terminal_output", &["terminal.read"]),
-    ("job_progress", &["serve:mesh.job", "serve:discover.status"]),
+    (
+        "job_progress",
+        &["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
+    ),
 ];
 
 /// The kinds of serve's jobs a `job_progress` event can be about, and the permission that lets a
 /// Plugin hear one (decision Q112f): the method it would ask about that job with anyway, so the
-/// event tells it nothing a poll wouldn't.
-pub const JOB_KINDS: &[(&str, &str)] = &[("mesh", "serve:mesh.job"), ("discover", "serve:discover.status")];
+/// event tells it nothing a poll wouldn't. A Host's check (ticket 108) is heard with the read
+/// `serve:host.check_job`, not `serve:host.check`, which a listener could never call (user-call only).
+pub const JOB_KINDS: &[(&str, &str)] = &[
+    ("mesh", "serve:mesh.job"),
+    ("discover", "serve:discover.status"),
+    ("check", "serve:host.check_job"),
+];
 
 /// Whether a Plugin with `grants` may get `event`.
 pub(crate) fn may_hear(event: &str, grants: &BTreeSet<Permission>) -> Result<(), String> {

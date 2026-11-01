@@ -628,14 +628,14 @@
 
 --- `job_progress`'s payload: serve's `job.progress` notification
 ---@class roster.JobProgressEvent
----@field kind string `"mesh"` or `"discover"`.
----@field job integer|string Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`).
----@field action string `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover.
+---@field kind string `"mesh"`, `"discover"` or `"check"`.
+---@field job integer|string Its id within its kind, as that kind's methods name it: the Mesh's job number (`mesh.job { job = N }`), the scan's `"scan-N"` (`discover.status { scan = ... }`), the check's `"check-N"` (`host.check_job { job = ... }`).
+---@field action string `"plan"`, `"apply"` or `"cut"` for the Mesh; `"scan"` for Discover; `"check"` for a check.
 ---@field state string `"running"`, `"stopping"`, or how it ended: `"done"`, `"stopped"`, `"failed"`.
----@field done integer How far it has got: Hosts visited, addresses scanned.
+---@field done integer How far it has got: Hosts visited, addresses scanned, a check's steps started (of 8).
 ---@field total integer Of how many.
----@field at? string The Host it's on, when it's on one.
----@field host? string A cut's Host.
+---@field at? string The Host it's on, when it's on one; a check's step (`"dns"`, `"auth"`, ...).
+---@field host? string A cut's Host; the Host a check checks.
 ---@field error? table How it failed: `{ code, message, data? }`, as serve's error.
 
 --- `terminal_output`'s payload

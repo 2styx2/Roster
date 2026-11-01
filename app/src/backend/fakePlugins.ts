@@ -100,12 +100,16 @@ const EVENT_NEEDS: Record<PluginEventName, string[]> = {
   session_exit: ["inventory.read", "terminal.read"],
   inventory_changed: ["inventory.read"],
   terminal_output: ["terminal.read"],
-  job_progress: ["serve:mesh.job", "serve:discover.status"],
+  job_progress: ["serve:mesh.job", "serve:discover.status", "serve:host.check_job"],
 };
 
 /** As runtime.rs's JOB_KINDS: a `job_progress` reaches a Plugin only for a kind of job it may ask
  * about (decision Q112f). */
-const JOB_KINDS: Record<string, string> = { mesh: "serve:mesh.job", discover: "serve:discover.status" };
+const JOB_KINDS: Record<string, string> = {
+  mesh: "serve:mesh.job",
+  discover: "serve:discover.status",
+  check: "serve:host.check_job",
+};
 const hearsThis = (name: PluginEventName, payload: Record<string, unknown>, grants: Set<string>): boolean => {
   if (name !== "job_progress") return true;
   const needs = typeof payload.kind === "string" ? JOB_KINDS[payload.kind] : undefined;

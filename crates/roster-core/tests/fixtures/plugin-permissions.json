@@ -1,9 +1,9 @@
 {
   "about": "What a Plugin may be granted (decisions Q81, Q97): the core's tables (crates/roster-core/src/plugin/permission.rs) and cases both it and the fake Backend (app/src/backend/fakePlugins.ts) are tested against. The fake reads its tables from here (Q100: the discover.* rows).",
   "permissions": ["inventory.read", "inventory.write", "sessions.open", "terminal.read", "terminal.write"],
-  "serve_methods": ["inventory.info", "hosts.list", "host.get", "host.check", "changes.diff"],
+  "serve_methods": ["inventory.info", "hosts.list", "host.get", "host.check", "host.check_job", "changes.diff"],
   "serve_prefixes": ["mesh.", "discover."],
-  "serve_reads": ["inventory.info", "hosts.list", "host.get", "changes.diff", "mesh.status", "mesh.plan", "mesh.job", "mesh.stop", "discover.plan", "discover.status", "discover.stop"],
+  "serve_reads": ["inventory.info", "hosts.list", "host.get", "host.check_job", "changes.diff", "mesh.status", "mesh.plan", "mesh.job", "mesh.stop", "discover.plan", "discover.status", "discover.stop"],
   "serve": {
     "serve:discover.start": { "summary": "Scan a network you name, from this computer", "risk": "Can scan networks from this computer, once you've confirmed it: roster connects to every address in a range, on many ports. A network's security tools may take a scan for an attack, so scan only networks you may." },
     "serve:discover.add": { "summary": "Add the Hosts a scan found, as Pending changes", "risk": "Can add the Hosts a scan found to your Inventory, unreviewed, as Pending changes you review and Publish." },
@@ -27,6 +27,7 @@
     "serve:hosts.list",
     "serve:host.get",
     "serve:host.check",
+    "serve:host.check_job",
     "serve:changes.diff",
     "serve:mesh.status",
     "serve:mesh.plan",
@@ -53,6 +54,7 @@
     "serve:host.save_login",
     "serve:foo.bar",
     "serve:vault.unlock",
+    "serve:$/cancel",
     "serve:vault.status",
     "serve:session.open",
     "serve:quick.connect",
