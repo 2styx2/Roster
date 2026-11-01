@@ -3,11 +3,12 @@ group and resource objects `roster serve` answers with, and never a secret: Logi
 `env:` ones cut to their kind as Plugins get them (Q92). Errors go to stderr as JSON, with the usual exit status."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 from roster.cli import main
-from roster.jsonout import JSON_VERSION, redact
+from roster.jsonout import JSON_VERSION, redact, redact_error, redact_text
 
 
 def run(capsys, *argv):
@@ -43,22 +44,14 @@ resources:
 
 # ---------------------------------------------------------------- the cut, as runtime.rs's redact_text
 
-@pytest.mark.parametrize(("text", "cut"), [
-    ("cmd:pass show esx", "cmd:"),
-    ("env:LAB_PW", "env:"),
-    ("bw:esx ssh", "bw:esx ssh"),
-    ("prompt", "prompt"),
-    ('auth: "cmd:printf x y"', 'auth: "cmd:"'),
-    ("-    auth: 'cmd:echo pw'\n+    auth: bw:x", "-    auth: 'cmd:'\n+    auth: bw:x"),
-    ("cmd:pass show x resolves to one item", "cmd:"),
-    ("uses env:WIFI_PW, then", "uses env:, then"),
-    ("CMD:echo hi", "cmd:"),
-    ("cmd: is ready", "cmd: is ready"),
-    ("xcmd:not-a-ref", "xcmd:not-a-ref"),
-    ("(env:A_1)", "(env:)"),
-])
-def test_cmd_and_env_references_are_cut_to_their_kind(text, cut):
-    assert redact(text) == cut
+VECTORS = json.loads((Path(__file__).parent / "vectors" / "redaction.json").read_text(encoding="utf-8"))["cases"]
+
+
+@pytest.mark.parametrize("case", VECTORS, ids=[c["note"] for c in VECTORS])
+def test_the_shared_redaction_vectors(case):
+    """tests/vectors/redaction.json, which runtime.rs's tests read too: the CLI and Plugins cut alike (Q92)."""
+    cut = redact_error if case.get("error") else redact_text
+    assert cut(case["in"]) == case["out"]
 
 
 def test_the_cut_reaches_every_string_inside(capsys):
