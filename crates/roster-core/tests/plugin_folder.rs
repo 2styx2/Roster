@@ -53,12 +53,14 @@ fn link(target: &Path, at: &Path) {
 
 #[cfg(windows)]
 fn link(target: &Path, at: &Path) {
-    // A symlink needs Developer Mode or admin on Windows; a junction (folders) doesn't.
+    // A symlink needs Developer Mode or admin on Windows; a junction (folders) doesn't. cmd's
+    // mklink reads a `/` in a path (`plugin-data/boxed`) as a switch, so it gets backslashes.
+    let win = |p: &Path| p.to_string_lossy().replace('/', "\\");
     if target.is_dir() {
         let ok = std::process::Command::new("cmd")
             .args(["/C", "mklink", "/J"])
-            .arg(at)
-            .arg(target)
+            .arg(win(at))
+            .arg(win(target))
             .status()
             .unwrap()
             .success();

@@ -1000,7 +1000,7 @@ export class PluginManager {
             id: op.id,
             source: plugin,
             title: op.title,
-            prompt: `${op.title} ›`,
+            prompt: op.prompt,
             items: () => items ?? [],
             ...(items === null ? { empty: "Loading…" } : {}),
             ...(open ? { open } : {}),
@@ -1012,7 +1012,7 @@ export class PluginManager {
         if ("section" in op.items) {
           // One of its own sections' rows (api 3), as roster's own `inventory` finder lists its.
           const own = op.items.section;
-          const finder = sectionFinder(own, op.title, op.title, plugin);
+          const finder = sectionFinder(own, op.title, op.prompt, plugin);
           const def: FinderSourceDef = { ...finder, items: (ctx) => (r.sidebar.get(own)?.source === plugin ? finder.items(ctx) : []) };
           return this.put(l, key, r.finders.register(def));
         }

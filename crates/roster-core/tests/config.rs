@@ -1114,41 +1114,24 @@ fn sourcing_a_broken_file_keeps_the_last_good_config() {
 }
 
 #[test]
-fn folders_yml_is_read_written_and_watched_apart_from_init_lua() {
-    use roster_core::config::{Changed, folders};
+fn folders_yml_is_only_read_and_a_save_of_it_is_no_config_change() {
+    use roster_core::config::folders;
     use std::sync::mpsc;
     use std::time::Duration;
     let dir = temp_dir("folders");
     assert_eq!(folders::read(&dir).unwrap(), None);
     let (tx, rx) = mpsc::channel();
-    let _w = config::watch_files(&dir, move |c| {
-        let _ = tx.send(c);
+    let _w = config::watch(&dir, move || {
+        let _ = tx.send(());
     })
     .unwrap();
-    folders::write(&dir, "Lab:\n  - esx\n").unwrap();
+    // Read once, to move its Folders into the Folders Plugin (decision Q93): saving it reloads nothing.
+    std::fs::write(folders::path(&dir), "Lab:\n  - esx\n").unwrap();
     assert_eq!(folders::read(&dir).unwrap().as_deref(), Some("Lab:\n  - esx\n"));
-    let c = rx
-        .recv_timeout(Duration::from_secs(3))
-        .expect("a write of folders.yml is seen");
-    assert_eq!(
-        c,
-        Changed {
-            lua: false,
-            folders: true
-        }
-    );
-    std::fs::write(dir.join("init.lua"), "return {}").unwrap();
-    assert_eq!(
-        rx.recv_timeout(Duration::from_secs(3)).unwrap(),
-        Changed {
-            lua: true,
-            folders: false
-        }
-    );
-    // folders.yml in a subfolder isn't the Folders file.
-    std::fs::create_dir_all(dir.join("lua")).unwrap();
-    std::fs::write(dir.join("lua").join("folders.yml"), "x").unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+    std::fs::write(dir.join("init.lua"), "return {}").unwrap();
+    rx.recv_timeout(Duration::from_secs(3))
+        .expect("a save of init.lua is seen");
 }
 
 #[test]

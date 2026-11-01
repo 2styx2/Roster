@@ -1,5 +1,6 @@
 """Loading and querying roster.yml."""
 
+import ipaddress
 import os
 import re
 import socket
@@ -58,7 +59,11 @@ def parse_config(text, path):
         die(f"{path} is not valid YAML:\n{e}")
     defaults = {**HOST_DEFAULTS, **(raw.get("defaults") or {})}
     names = web_login_names(raw)
-    hosts, groups, mesh_dirs = {}, {}, {}
+    hosts, groups, mesh_dirs, seen_as = {}, {}, {}, {}
+    for where, layer in (("defaults", raw.get("defaults") or {}),
+                         *((f"group {g!r}", x or {}) for g, x in (raw.get("groups") or {}).items())):
+        if isinstance(layer, dict) and "seen_as" in layer:
+            die(f"{where}: seen_as: goes on a Host (the addresses it connects from), not on a group or defaults")
     for gname, group in (raw.get("groups") or {}).items():
         group = group or {}
         gset = {k: v for k, v in group.items() if k not in GROUP_ONLY}
@@ -93,6 +98,8 @@ def parse_config(text, path):
             m.pop("mesh_dir", None)          # kept beside the Hosts, so serve's Host (and the Plugin API's) is as it was
             if md:
                 mesh_dirs[hname] = md
+            if seen := addresses_seen(hname, m.pop("seen_as", None)):
+                seen_as[hname] = seen
             for k in TEXT_FIELDS:
                 m[k] = oneline(m.get(k))
             m["description"] = m["description"] or oneline(m.get("notes"))   # old name for it
@@ -106,6 +113,7 @@ def parse_config(text, path):
     return {"path": path, "box": box, "tag": f"{KEY_TAG}:{box}", "tag_re": tag_re, "key": key,
             "pub": Path(str(key) + ".pub"), "workers": int(raw.get("workers") or 32),
             "inline_limit": int(raw.get("claude_inline_limit") or 60), "hosts": hosts, "groups": groups, "mesh_dirs": mesh_dirs,
+            "seen_as": seen_as,
             "resources": load_resources(raw, groups, hosts), "links": load_links(raw, hosts, groups),
             "providers": providers_conf(raw), "provider_dirs": list(raw.get("provider_dirs") or [])}
 
@@ -125,6 +133,22 @@ def mesh_dir(hname, v):
         die(f"host {hname!r}: mesh_dir: must be an absolute path of letters, digits and . _ - / (it goes into ssh's "
             f"config as it is), not {v!r}")
     return v.rstrip("/")
+
+def addresses_seen(hname, v):
+    """A Host's `seen_as:` (T83): the other addresses it connects from (an address or a network, one or a list), which
+    a peer's from= takes beside its ip:, as roster.yml has them; [] without one."""
+    if v is None:
+        return []
+    out = []
+    for x in v if isinstance(v, list) else [v]:
+        try:
+            ipaddress.ip_network(str(x).strip(), strict=False)
+        except ValueError:
+            die(f"host {hname!r}: seen_as: must be IP addresses or networks (10.0.9.1, 10.0.9.0/24), one or a list, "
+                f"not {x!r}")
+        out.append(str(x).strip())
+    return out
+
 
 LINK_KEYS = ("from", "to", "both", "via")
 

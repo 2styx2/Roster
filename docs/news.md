@@ -42,6 +42,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - `roster serve` scans a network for the app (API 18): `discover.plan`, `discover.start`, `discover.status`, `discover.stop` and `discover.add`, codes 120-123. The scan runs in the background, a batch at a time, and can be stopped. See [Discover](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd).
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
+- `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
 - `mesh_dir:` on a Host, group or `defaults` says where a Mesh source keeps its files, for an ESXi Host with no datastore roster would pick; roster checks it on the Host first. See [`mesh_dir:`](mesh.md#esxi).
 
 **serve API (API 17)**
@@ -67,14 +68,16 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `terminal_output` sends the lines a Session's terminal commits, read from a terminal of its own, instead of the raw output with a one-second repaint filter: a progress bar arrives as it ended, a wrapped line comes whole, the screen ConPTY prints again after a resize is never output, and what full-screen programs (`vim`, `top`) draw isn't sent. See [Events](plugin-api.md#events).
 - In a Plugin, `pairs` visits keys in order (numbers, then text), so the same state makes the same changes on every machine. An empty table reaches the app as `{}`, which it takes as an empty list.
 - A Plugin's Leader key that's taken is refused with a notice naming what has it and a few free keys like it (`␣ f is taken (by builtin: find). Free after the Leader: a, g, h`).
-- Folders is a built-in Plugin on the public API now, like the Host count: `:plugins` lists `folders`. It works as before (`␣ a`, `␣ A`, `:folder`, drag and drop, init.lua's Folders), and keeps your Folders in its own data folder instead of `folders.yml`. At the first start, `folders.yml`'s Folders move in, every Host included; one that doesn't parse moves nothing until it's fixed. After that the app doesn't read or write `folders.yml`: `:check` says so, and you can delete it. A Folder that was folded opens once (its id is `folders:NAME` now). See [`folders.yml`](app/config.md#foldersyml).
+- Folders is a built-in Plugin on the public API now, like the Host count: `:plugins` lists `folders`. It works as before (`␣ a`, `␣ A`, `:folder`, drag and drop, init.lua's Folders), and keeps your Folders in its own data folder instead of `folders.yml`. At the first start, `folders.yml`'s Folders move in, every Host included; one that doesn't parse moves nothing until it's fixed. After that the app doesn't read or write `folders.yml`: `:check` says so, and you can delete it. A Folder that was folded stays folded (its id is `folders:NAME` now, and the old one still works with `:fold`). See [`folders.yml`](app/config.md#foldersyml).
 - A Plugin whose manifest, `init.lua` or a module is a symlink (or a junction) leading outside its folder doesn't load, for a local Plugin and a Package alike. See [A Plugin's files](app/errors.md#a-plugins-files).
 - `init.lua`'s `modes` no longer warn "no section named …" or "no segment named …" for a Plugin's section or status segment: the names are checked once the Plugins have loaded.
+- A Plugin's finder can have a `prompt` of its own (`Folders ›`); without one it shows its title, once (finders with items showed `›` twice). See [`roster.finders.set`](plugin-api.md#rosterfinderssetid-finder).
 - A Plugin waiting for roster serve (behind a Publish, say) is no longer given up on and disabled after two seconds: waiting for serve never counts against a Plugin, for that call or for the calls queued behind it (`:help plugins`).
 
 **CLI**
 
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
+- Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).
 - Publish's generated commit message names the `links:` that changed (`roster: add link orion-2 -> storage`), as it does Hosts and groups, rather than "roster: edit roster.yml".
 
 ### Deprecated

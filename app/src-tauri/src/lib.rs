@@ -228,18 +228,13 @@ fn start_config(app: &tauri::App, loader: &Arc<Loader>) -> Option<config::Watche
     // A save reloads only with `auto_reload = true` (decision Q58); otherwise the frontend
     // hears that the file changed, and `:source` applies it.
     // folders.yml (decision Q46) is only read once now, to move its Folders into the Folders
-    // Plugin (ticket 61, decision Q93): a save of it changes nothing.
-    match config::watch_files(loader.dir(), move |changed| {
-        if !changed.lua {
-            return;
+    // Plugin (ticket 61, decision Q93), and isn't watched.
+    match config::watch(loader.dir(), move || match l.on_save() {
+        Some(report) => {
+            let _ = handle.emit("config-changed", report);
         }
-        match l.on_save() {
-            Some(report) => {
-                let _ = handle.emit("config-changed", report);
-            }
-            None => {
-                let _ = handle.emit("config-stale", ());
-            }
+        None => {
+            let _ = handle.emit("config-stale", ());
         }
     }) {
         Ok(w) => Some(w),
