@@ -77,6 +77,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 - The Mesh gives a new `authorized_keys` it makes on ESXi (a user other than root) the sticky bit, so ESXi keeps it across a reboot.
 - Moving a Host to another group keeps the `mesh_dir:` it inherited (roster writes it on the Host). Removing a source's `mesh_dir:`, or changing it, warns about the old directory until you delete it, and replaces the old `Include` in `~/.ssh/config`. See [`mesh_dir:`](mesh.md#esxi).
+- A source that stops being one and loses (or changes) its `mesh_dir:` in the same edit is cleaned up from the directory it used until now, the one the `Include` in its `~/.ssh/config` names: an old `mesh_dir:` is warned about and kept (it was roster's default directory that went, with no word about the old one), roster's own default directory is removed, and the old `Include` goes. See [`mesh_dir:`](mesh.md#esxi).
 - Publish's generated commit message names the `links:` that changed (`roster: add link orion-2 -> storage`), as it does Hosts and groups, rather than "roster: edit roster.yml".
 
 ### Deprecated

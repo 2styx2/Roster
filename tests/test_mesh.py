@@ -409,6 +409,66 @@ def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
     assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
 
 
+LINES = {"orion-2": "orion-2: 10.0.0.2", "esx-02": "esx-02: { ip: 10.0.0.12, user: root }"}
+CUSTOM = {"orion-2": "srv/mesh", "esx-02": "vmfs/volumes/data2/mesh"}      # a mesh_dir: on each, from its root
+DEFAULT = {"orion-2": "home/.ssh/roster-mesh", "esx-02": "vmfs/volumes/5f0e-uuid/.roster-mesh"}
+
+
+def as_the_host_sees_it(net, host, rel):
+    return f"/{rel}" if (net.host(host) / "esxi").exists() else str(net.host(host) / rel)
+
+
+def leaving_the_mesh(net, host, mesh_dir=None):
+    """roster.yml with HOST no longer a source (mesh: false, and orion-2's Link gone), with MESH_DIR or none."""
+    extra = f", mesh_dir: {mesh_dir}" if mesh_dir else ""
+    ip = HOSTS[host]
+    line = LINES[host].replace(" }", f", mesh: false{extra} }}") if "{" in LINES[host] else \
+        f"{host}: {{ ip: {ip}, mesh: false{extra} }}"
+    net.cfg_path.write_text(CONFIG.replace(LINES[host], line).replace("  - { from: orion-2, to: storage }\n", ""))
+
+
+def ssh_config_before(net, host):
+    p = net.host(host) / "home/.ssh/config"
+    return p.read_text() if p.exists() else None
+
+
+@pytest.mark.parametrize("host", ["orion-2", "esx-02"])
+def test_a_source_leaving_the_mesh_and_its_mesh_dir_at_once_warns_about_that_dir_and_drops_its_include(net, host):
+    (net.host(host) / CUSTOM[host]).parent.mkdir(parents=True, exist_ok=True)
+    d = as_the_host_sees_it(net, host, CUSTOM[host])
+    config = ssh_config_before(net, host)
+    with_mesh_dir(net, d, host=host)
+    assert mesh.run(net.cfg(), apply=True)["pending"] == {}
+    leaving_the_mesh(net, host)
+    plan = mesh.run(net.cfg())
+    assert f"{host}: {d} holds an earlier Mesh key" in " ".join(plan["warnings"])
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert [w for w in r["warnings"] if w.startswith(f"{host}:")] == [
+        f"{host}: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+    assert (net.host(host) / CUSTOM[host] / "id_ed25519").exists()          # never removed by roster
+    assert ssh_config_before(net, host) == config                         # the Include and roster's mark are gone
+    assert not (net.host(host) / DEFAULT[host]).exists()                  # roster's own pick was never in use
+    assert mesh.run(net.cfg())["already"]
+
+
+@pytest.mark.parametrize("host", ["orion-2", "esx-02"])
+def test_a_source_leaving_the_mesh_as_it_gains_a_mesh_dir_removes_rosters_own_directory(net, host):
+    (net.host(host) / CUSTOM[host]).parent.mkdir(parents=True, exist_ok=True)
+    d = as_the_host_sees_it(net, host, CUSTOM[host])
+    config = ssh_config_before(net, host)
+    assert mesh.run(net.cfg(), apply=True)["pending"] == {}
+    assert (net.host(host) / DEFAULT[host] / "id_ed25519").exists()
+    leaving_the_mesh(net, host, mesh_dir=d)
+    r = mesh.run(net.cfg(), apply=True)
+    assert r["pending"] == {}
+    assert not [w for w in r["warnings"] if w.startswith(f"{host}:")]
+    assert not (net.host(host) / DEFAULT[host]).exists()                  # roster's own pick: roster removes it
+    assert not (net.host(host) / CUSTOM[host]).exists()
+    assert ssh_config_before(net, host) == config
+    assert mesh.run(net.cfg())["already"]
+
+
 def test_unreachable_links_are_reported_and_not_written(net, capsys):
     (net.host("orion-3") / "blocked").write_text("10.0.9.9:22\n")
     r = mesh.run(net.cfg(), apply=True)
