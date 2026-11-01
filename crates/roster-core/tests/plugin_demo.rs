@@ -161,7 +161,12 @@ fn a_network_request_is_never_sent_its_function_hears_why() {
         later[0].starts_with("nil ") && later[0].contains("the tutorial's demo reaches no network"),
         "{later:?}"
     );
-    assert_eq!(host.requests("teacher"), 0);
+    // Nothing is left waiting (the count drops just after the answer is handed on).
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while host.requests("teacher") != 0 {
+        assert!(Instant::now() < deadline, "the refused request is still counted as waiting");
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]
