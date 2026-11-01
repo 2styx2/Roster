@@ -662,6 +662,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show appliance on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -689,6 +696,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show esx-01 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -716,6 +730,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show esx-02 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -739,6 +760,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show jump-1 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -762,6 +790,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show lab-old on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -790,6 +825,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show nas-01 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -813,6 +855,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show nas-02 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",
@@ -840,6 +889,13 @@
           "id": "topology",
           "op": "details",
           "spec": {
+            "actions": [
+              {
+                "icon": "map",
+                "label": "Show web-1 on the map",
+                "run": "fn"
+              }
+            ],
             "facts": [
               {
                 "label": "In the Mesh",

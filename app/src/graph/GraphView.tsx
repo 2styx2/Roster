@@ -38,6 +38,9 @@ export interface GraphViewProps {
   /** The view's key in the State (`source/id`). */
   memoKey: string;
   autoFocus?: boolean;
+  /** The node it opens at (`roster.views.open(id, { select })`, T99): its cluster opens, and it's
+   * centred, at no less than full size. An id the graph doesn't have is ignored. */
+  select?: string | undefined;
 }
 
 type Mode = "graph" | "nodes" | "edges";
@@ -178,11 +181,16 @@ class Painter {
   };
 }
 
-export function GraphView({ model, label, leader, memory, memoKey, autoFocus = false }: GraphViewProps) {
+export function GraphView({ model, label, leader, memory, memoKey, autoFocus = false, select: openAt }: GraphViewProps) {
   const base = useId();
   const data = model.data;
   const [places] = useState(() => new GraphPlaces(memory, memoKey));
-  const [folds, setFolds] = useState(() => places.userFolds());
+  const [folds, setFolds] = useState(() => {
+    // Opened at a node in a collapsed cluster: that cluster opens, as going to it from the list does.
+    const at = openAt === undefined ? undefined : data.nodes.find((n) => n.id === openAt);
+    if (at?.cluster !== undefined && foldsFor(data, places.userFolds()).has(at.cluster)) places.fold(at.cluster, false);
+    return places.userFolds();
+  });
   const [moved, setMoved] = useState(0);
   // `moved` makes a node the user dragged take its new place.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,10 +214,12 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   useEffect(() => places.persist(), [places, layout, folds]);
 
   const [mode, setMode] = useState<Mode>("graph");
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(openAt ?? null);
   // Placing a node from the keyboard (`m`, T89): which, and where it was, for Esc.
   const [moving, setMoving] = useState<{ id: string; from: { x: number; y: number } } | null>(null);
   const [moveSays, setMoveSays] = useState("");
+  // Why a key did nothing (m on a collapsed cluster, T99): shown under the graph until the next key.
+  const [notice, setNotice] = useState("");
   // The selection follows its node: into its cluster when that collapses, back out when it opens.
   const selected = useMemo(() => {
     if (chosen !== null && scene.byId.has(chosen)) return chosen;
@@ -220,6 +230,17 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return scene.nodes[0]?.id ?? null;
   }, [chosen, scene]);
   const highlight = useMemo(() => (selected === null ? null : highlightOf(scene, ix, selected, hops)), [scene, ix, selected, hops]);
+  // The node it was opened at, until it's on the map or the user picks another: one that comes later
+  // in a collapsed cluster opens that cluster.
+  const [awaited, setAwaited] = useState(openAt);
+  if (awaited !== undefined) {
+    const c = ix.nodes.get(awaited)?.cluster;
+    if (scene.byId.has(awaited)) setAwaited(undefined);
+    else if (c !== undefined && collapsed.has(c)) {
+      places.fold(c, false);
+      setFolds(places.userFolds());
+    }
+  }
 
   const [query, setQuery] = useState("");
   const matches = useMemo(() => matchesOf(shown, scene, query), [shown, scene, query]);
@@ -267,6 +288,18 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     redraw();
   }, [size, redraw, painter]);
   useEffect(redraw, [scene, highlight, selected, matchSet, moving, redraw]);
+
+  // Opened at a node: centred on it once the canvas has a size and the node is there (an update may
+  // bring it later), close enough to read its name; given up once the user selects something.
+  const aimed = useRef(false);
+  useLayoutEffect(() => {
+    if (aimed.current || openAt === undefined || size.w === 0) return;
+    const n = scene.byId.get(openAt);
+    if (!n) return;
+    aimed.current = true;
+    painter.setCamera({ x: n.x, y: n.y, k: Math.max(fitted(scene, size.w, size.h).k, 1) });
+    redraw();
+  }, [openAt, size, scene, painter, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
   useEffect(() => {
@@ -316,6 +349,8 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   /** Selects scene node `id` and brings it on screen if it's off. */
   const select = (id: string | null) => {
     if (id === null) return;
+    aimed.current = true;
+    setAwaited(undefined);
     setChosen(id);
     setMoveSays("");
     const n = scene.byId.get(id);
@@ -329,6 +364,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     reveal(x, y);
   };
   const startMoving = () => {
+    if (current?.count !== undefined) return setNotice(`${current.label} is collapsed: o opens it, then m moves one of its nodes`);
     const n = currentNode && layout.nodes.get(currentNode.id);
     if (!currentNode || !n) return;
     setMoving({ id: currentNode.id, from: { x: n.x, y: n.y } });
@@ -467,6 +503,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) setNotice("");
     const act = keyAction(e);
     if (!act) return;
     e.preventDefault();
@@ -498,6 +535,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
   };
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    setNotice("");
     if (e.button !== 0 || drag.current) return;
     box.current?.focus();
     // A click while placing from the keyboard keeps the place.
@@ -699,10 +737,10 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
           {mode === "edges" && edgesModel && <DataTable key="edges" model={edgesModel} label={`${label}: edges`} leader={leader} autoFocus />}
         </div>
       )}
-      <Announce text={mode === "graph" ? (moving ? moveSays : [moveSays, about, searchSays].filter(Boolean).join(". ")) : ""} delay={150} />
+      <Announce text={mode === "graph" ? (moving ? moveSays : notice || [moveSays, about, searchSays].filter(Boolean).join(". ")) : ""} delay={150} />
       <p className="dt-foot muted key-hint graph-foot">
         <span className="graph-about" aria-hidden="true">
-          {mode !== "graph" ? "" : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
+          {mode !== "graph" ? "" : notice ? notice : current ? about : `${countOf(data.nodes.length, "node")}, ${countOf(data.edges.length, "edge")}${data.clusters.length ? `, ${countOf(data.clusters.length, "cluster")}` : ""}`}
         </span>
         <span className="dt-keys">
           {mode === "graph" && moving && (

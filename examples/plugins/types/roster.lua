@@ -117,6 +117,10 @@
 ---@class roster.EchoOptions
 ---@field quiet? boolean A routine confirmation (`true`): shown only with `ui.messages = "all"`, heard by a screen reader and kept by `:messages` either way. Left out or `false`, it shows.
 
+--- Where a view opens (`roster.views.open`, since api 4)
+---@class roster.ViewOpenOptions
+---@field select? string The id of the node (a graph) or row (a table) to open at.
+
 --- A button on a notice
 ---@class roster.NoticeAction
 ---@field label string What it says (`"Show the plan"`).
@@ -136,7 +140,7 @@
 ---@field key? string One character (`"P"`) that runs it: not one a table or graph uses itself (`h j k l H J K L g G n N o O t f m s S / ? q + - = 0`), nor one of the view's table or graph actions' keys, nor another button's (since api 4).
 
 --- A row action's icon
----@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"
+---@alias roster.RowIcon "close"|"edit"|"add"|"addGroup"|"review"|"unreview"|"info"|"copy"|"plan"|"apply"|"cut"|"map"
 
 --- A Sidebar row's glyph (since api 3)
 ---@alias roster.RowGlyph "folder"|"group"
@@ -663,6 +667,7 @@
 ---@field host string The Host cut from the Mesh.
 ---@field confirmed string[] The peers whose keys it took off, and that took its off.
 ---@field pending table<string, string> The peers that didn't answer, and why: the next cut finishes them.
+---@field warnings? string[] What roster left on the cut Host's own side, one sentence each: an earlier `mesh_dir:` that still holds a Mesh key, which roster never removes (serve API 24; absent before).
 ---@field change roster.MeshCutChange The `mesh: false` written for it as a Pending change.
 
 --- The `mesh: false` a `mesh.cut` writes into `roster.yml`
@@ -1095,7 +1100,8 @@ function roster.views.update(id, changes) end
 --- Opens a view.
 --- Permission: none. Since: api 3.
 ---@param id string One of the Plugin's views.
-function roster.views.open(id) end
+---@param opts? roster.ViewOpenOptions Where it opens (since api 4): `{ select = "esx-02" }` selects that node of its graph or row of its table.
+function roster.views.open(id, opts) end
 
 --- Closes a view, if it's open.
 --- Permission: none. Since: api 3.

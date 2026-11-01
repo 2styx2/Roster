@@ -204,6 +204,10 @@ fi
 # the directory the Include after roster's mark in ~/.ssh/config names: an earlier mesh_dir: (or roster's own pick)
 O=$(awk -v m="$MARK" 'p { print; exit } $0 == m { p = 1 }' "$HOME/.ssh/config" 2>/dev/null)
 case "$O" in "Include "/*/config) O=${O#Include }; O=${O%/config}; [ -f "$O/id_ed25519" ] && mine "$O" && stale "$O";; esac
+# a key in $P from before that earlier directory took over: roster stopped using it (and warned then), and uses
+# it again now; said (OLDKEY), never replaced unasked (--rotate does). Only while that directory is still there.
+case "$O" in /*) r=$(cd "$O" 2>/dev/null && pwd -P) && [ -f "$K" ] && [ "$r" != "$(cd "$P" && pwd -P)" ] && [ "$ROTATE" != 1 ] \
+  && echo "OLDKEY $P";; esac
 KG=$(command -v ssh-keygen 2>/dev/null || echo /usr/lib/vmware/openssh/bin/ssh-keygen)
 if [ "$ROTATE" = 1 ] && [ -f "$K" ]; then
   if [ "$MODE" = apply ]; then rm -f "$K" "$K.pub"; fi
@@ -589,6 +593,10 @@ def run(cfg, apply=False, rotate=(), say=None, progress=None, stopped=None, visi
                               "key": report(lines, "KEY "),
                               "reach": dict(x.split(" ", 1) for x in report(lines, "REACH "))}
         stale(out, name, lines)
+        for d in report(lines, "OLDKEY "):
+            out.setdefault("warnings", []).append(
+                f"{name}: {d} still holds an older Mesh key from before mesh_dir: changed, and roster uses it again: "
+                f"run roster mesh --rotate {name} to replace it")
 
     # jump Hosts that aren't sources: whether they reach the peers they're a hop to
     for name in hop_only:                       # a password Host isn't one: the Box can't run anything there
@@ -831,7 +839,8 @@ def cut_hosts(cfg, name):
 
 def cut(cfg, name, workers=16, progress=None, stopped=None):
     """HOST out of the Mesh now, in parallel: its key off every peer, every peer's key off HOST, HOST's own Mesh
-    files gone. The Box's own key (roster-managed) is never touched. Returns {host, confirmed, pending: {host: why}}.
+    files gone. The Box's own key (roster-managed) is never touched. Returns {host, confirmed, pending: {host: why},
+    warnings}: WARNINGS name an earlier mesh_dir: HOST still holds, which roster never removes.
     PROGRESS(done, total, host) is told as each Host answers; STOPPED() true leaves the Hosts not started pending."""
     progress = progress or (lambda done, total, host: None)
     stopped = stopped or (lambda: False)
@@ -843,18 +852,20 @@ def cut(cfg, name, workers=16, progress=None, stopped=None):
         n, own = item
         with deadline_at(at):
             if why := not_now(stopped):
-                return n, why
-            _, err = on_host(hosts[n], cut_script(hosts[n], name, own), timeout=CUT_TIMEOUT)
-        return n, err
+                return n, None, why
+            lines, err = on_host(hosts[n], cut_script(hosts[n], name, own), timeout=CUT_TIMEOUT)
+        return n, lines, err
 
-    confirmed, pending = [], {}
+    confirmed, pending, out = [], {}, {}
     progress(0, len(todo), None)
     with cf.ThreadPoolExecutor(max(1, min(workers, len(todo)))) as ex:
-        for i, (n, err) in enumerate(ex.map(one, todo), 1):
+        for i, (n, lines, err) in enumerate(ex.map(one, todo), 1):
             if err:
                 pending[n] = err
             else:
                 confirmed.append(n)
+            if lines and n == name:
+                stale(out, n, lines)            # HOST's own side: an earlier mesh_dir: it leaves alone
             progress(i, len(todo), n)
     st = load_state()
     if pending:
@@ -865,7 +876,7 @@ def cut(cfg, name, workers=16, progress=None, stopped=None):
     st["members"] = sorted((set(st["members"]) - {name}) | set(pending))
     st["applied"] = None
     save_state(st)
-    return {"host": name, "confirmed": sorted(confirmed), "pending": pending}
+    return {"host": name, "confirmed": sorted(confirmed), "pending": pending, "warnings": out.get("warnings", [])}
 
 
 def write_cut(cfg, name):

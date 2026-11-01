@@ -537,6 +537,7 @@ function Workspace({
         copy: (text) => platform.clipboard.writeText(text),
         onScreen: () => onScreenRef.current,
         closeView: (id) => viewHost.close(id),
+        openView: (id, select) => viewHost.open(id, select),
         showSession: (id, line) => showSessionRef.current(id, line),
         openUrl: (url) => {
           platform.openUrl?.(url).catch(() => undefined);
@@ -2150,7 +2151,7 @@ function Workspace({
           { side: sidebarSide === "right" ? "left" : "right" },
         )}
         {openView &&
-          framed(`view:${openView.id}`, openView.title, "view", <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} graphs={graphMemory} />, {
+          framed(`view:${openView.id}`, openView.title, "view", <ViewPanel view={openView} leader={options.leader} onClose={() => viewHost.close()} graphs={graphMemory} select={viewAt.select} />, {
             fallback: openView.place,
           })}
         {importing && (

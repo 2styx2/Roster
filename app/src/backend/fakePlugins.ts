@@ -38,7 +38,7 @@ export interface FakeRoster {
   tutor: { set(id: string, spec: Spec): void; remove(id: string): void };
   badges: { set(host: string, text: string | null): void };
   float: { open(spec: Spec): void; close(): void };
-  views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string): void; close(id: string): void; remove(id: string): void };
+  views: { set(id: string, spec: Spec): void; update(id: string, changes: Spec): void; open(id: string, opts?: { select?: string }): void; close(id: string): void; remove(id: string): void };
   details: { set(id: string, host: string, spec: Spec | null): void; remove(id: string): void };
   clipboard: { copy(text: string): void };
   notify(text: string, level?: "info" | "warn" | "error", opts?: { actions?: { label: string; run: string }[]; quiet?: boolean }): void;
@@ -518,9 +518,9 @@ export function fakePluginHost(
       views: {
         set: (id, spec) => push({ op: "view", id, spec }),
         update: (id, changes) => push({ op: "view_update", id, changes }),
-        open: (id) => {
+        open: (id, opts) => {
           if (!userCall) throw new Error("roster.views.open: only while the user runs one of your actions, commands or finder items");
-          push({ op: "view_open", id });
+          push({ op: "view_open", id, ...(opts?.select !== undefined ? { select: opts.select } : {}) });
         },
         close: (id) => push({ op: "view_close", id }),
         remove: (id) => push({ op: "remove", kind: "view", id }),

@@ -1345,14 +1345,36 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         }
         push(s, json!({ "op": "view_update", "id": id, "changes": changes }))
     });
-    func!(views, "open", |_lua, s, id: String| {
+    func!(views, "open", |_lua, s, (id, opts): (String, Value)| {
         check_id("roster.views.open", &id)?;
         if !s.user_call.get() {
             return Err(mlua::Error::runtime(
                 "roster.views.open: only while the user runs one of your actions, commands or finder items",
             ));
         }
-        push(s, json!({ "op": "view_open", "id": id }))
+        let mut op = json!({ "op": "view_open", "id": id });
+        // At a node of its graph or a row of its table (T99, api 4).
+        let opts = match opts {
+            Value::Nil => None,
+            Value::Table(t) => Some(t),
+            _ => {
+                return Err(mlua::Error::runtime(
+                    "roster.views.open: opts is a table, as { select = ID }",
+                ));
+            }
+        };
+        if let Some(opts) = opts {
+            match opts.raw_get::<Value>("select")? {
+                Value::Nil => {}
+                Value::String(v) => op["select"] = Json::String(v.to_string_lossy().to_string()),
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "roster.views.open: select is the id of a node or row (a string)",
+                    ));
+                }
+            }
+        }
+        push(s, op)
     });
     func!(views, "close", |_lua, s, id: String| {
         check_id("roster.views.close", &id)?;
