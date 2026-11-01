@@ -659,6 +659,17 @@ fn bad_settings_are_named_and_the_defaults_used() {
 }
 
 #[test]
+fn leader_false_binds_no_key_as_mesh_does() {
+    let w = World::new("no-leader", json!({ "leader": false }));
+    let loaded = w.load(ALL);
+    assert!(!loaded.ops.iter().any(|o| o["op"] == "notify"), "{:?}", loaded.ops);
+    assert!(!loaded.ops.iter().any(|o| o["op"] == "key"));
+    let help = op(&loaded.ops, "help")["spec"]["markdown"].as_str().unwrap();
+    assert!(!help.contains("false"), "{help}");
+    assert!(help.contains("the toolbar's **Scan**"), "{help}");
+}
+
+#[test]
 fn configured_ranges_are_what_discover_alone_offers_to_scan() {
     let w = World::new("ranges", json!({ "ranges": ["10.0.0.0/24"] }));
     let loaded = w.load(ALL);
