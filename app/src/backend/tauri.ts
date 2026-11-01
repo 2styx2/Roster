@@ -217,6 +217,25 @@ export function tauriBackend(): Backend {
       const stop = listen<PluginReply>("plugin-reply", (e) => onReply(e.payload));
       return () => void stop.then((f) => f());
     },
+    // `:tutor`'s demo (ticket 66, decision Q123): the same commands, on the demo's own host.
+    async demoPlugins(hosts) {
+      const id = await call<number>("plugin_demo_start", { hosts });
+      const onDemo = true;
+      return {
+        pluginManifest: (path) => call("plugin_manifest", { path }),
+        pluginTypes: (path) => call<string>("plugin_types", { path }),
+        pluginLoad: (path, grants, settings) => call("plugin_load", { path, grants, settings: settings ?? null, onDemo }),
+        pluginCall: (plugin, handler, args, user) => call<PluginReply>("plugin_call", { plugin, handler, args, user: user !== false, carried: user === "carried", onDemo }),
+        pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload, onDemo }),
+        pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin, onDemo }),
+        pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin, onDemo }),
+        onPluginReply(onReply) {
+          const stop = listen<PluginReply>("plugin-demo-reply", (e) => onReply(e.payload));
+          return () => void stop.then((f) => f());
+        },
+        close: () => call<unknown>("plugin_demo_stop", { id }).then(() => undefined),
+      };
+    },
     // Packages (ticket 24): git runs in the core; init.lua says what may be fetched.
     packagesSync: () => call<PackageStatus[]>("packages_sync"),
     packagesPin: (name) => call<PackageStatus>("packages_pin", { name }),

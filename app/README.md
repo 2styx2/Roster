@@ -155,7 +155,8 @@ app/src/help/         `:help` (ticket 37, docs/app/help.md): pages.ts (the help 
                       keys open: the command typed, the selected result or row, a binding's option, ticket 52), HelpPanel.tsx
 app/src/tutor/        `:tutor` (ticket 55, decision Q76): tutor.ts (the tutorial registry, steps as matches on app events,
                       the progress in the State, each tutorial as a help page, roster's own), demo.ts (the demo
-                      Inventory: the fake Backend's made-up Hosts, a Platform with a State in memory), command.ts,
+                      Inventory: the fake Backend's made-up Hosts, a Platform with a State in memory, and your running
+                      Plugins on the core's demo Plugin host, ticket 66), command.ts,
                       plugin.ts (`roster.tutor.set`'s tutorial), DemoBanner.tsx; App.tsx keeps your workspace mounted
                       and hidden behind the demo's
 app/src/news/         news.ts: what's new after an upgrade, said once in the status line (`newsSeen` in the State, ticket 47)

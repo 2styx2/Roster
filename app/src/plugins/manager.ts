@@ -96,6 +96,13 @@ export interface Installed {
   asked: string[];
 }
 
+/** The Plugins `:tutor`'s demo loads ([`PluginManager.forDemo`]): the State's list for the demo's
+ * State, and the Packages its `packagesSync` gives. */
+export interface DemoPlugins {
+  installed: Installed[];
+  packages: PackageStatus[];
+}
+
 /** The built-in features written as Plugins: always installed, granted what they ask until revoked. */
 export const BUILTIN_PLUGINS = ["builtin:hosts", "builtin:folders"] as const;
 
@@ -816,6 +823,15 @@ export class PluginManager {
     if (this.builtinConfig.get(name) === JSON.stringify(settings)) return;
     const entry = this.installed().find((e) => e.path === path);
     await this.loadPath(path, entry ? entry.granted : null, name);
+  }
+
+  /** What `:tutor`'s demo loads (ticket 66, decision Q123): the Plugins running now, each with what
+   * it was granted (asked about all it asks, so the demo prompts for nothing), and the Packages
+   * among them. A Plugin stopped, waiting for an answer, or not installed doesn't come along. */
+  forDemo(): DemoPlugins {
+    const installed = [...this.loaded.values()].map((l) => ({ path: l.path, name: l.manifest.name, granted: [...l.granted], asked: l.manifest.permissions.map((p) => p.name) }));
+    const paths = new Set(installed.map((e) => e.path));
+    return { installed, packages: this.packages.filter((p) => p.pinned && paths.has(`${PACKAGE_PREFIX}${p.name}`)) };
   }
 
   /** Every loaded or known Plugin's name (`:plugins remove` completes them). */

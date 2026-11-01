@@ -997,7 +997,7 @@ pub const FUNCTIONS: &[Function] = &[
             p("tutorial", "Tutorial", "Its text and lessons."),
         ],
         summary: "Adds a tutorial, or replaces it",
-        doc: "`:tutor ID` runs it on the demo Inventory, where the Plugin itself isn't loaded: a step can wait for the Plugin's command to be run, but the command does nothing there.",
+        doc: "`:tutor ID` runs it on the demo Inventory, where the Plugin is loaded too, with the permissions the user granted it, so a step can wait for the Plugin's own command and the command works there. On the demo, `roster.inventory` sees the demo's Hosts, roster serve answers only `hosts.list` and `host.get`, `roster.http` requests are never sent (their function hears why), and `roster.storage` is a throwaway folder that starts empty.",
         returns: ("", ""),
         errors: &[("roster.tutor.set: \"ID\" isn't a name like …", "a bad `id`")],
         refused: &[

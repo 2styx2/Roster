@@ -25,6 +25,7 @@
 //! [`PluginHost::load_with`] to get its settings from init.lua.
 
 pub mod api;
+pub mod demo;
 pub mod fair;
 pub mod folder;
 pub mod network;
@@ -32,6 +33,7 @@ pub mod permission;
 mod runtime;
 
 use crate::config::lua;
+pub use demo::DemoHost;
 pub use permission::Permission;
 pub use runtime::EVENTS;
 use serde::Serialize;
@@ -281,6 +283,9 @@ pub struct PluginHost {
     /// The app's data folder: each Plugin keeps its data in `plugin-data/NAME` there
     /// ([`folder::Storage`], decision Q93). None: `roster.storage` says there's no data folder.
     data: std::sync::OnceLock<PathBuf>,
+    /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
+    /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
+    offline: bool,
 }
 
 impl PluginHost {
@@ -294,7 +299,15 @@ impl PluginHost {
             listener: Arc::default(),
             generation: AtomicU64::new(0),
             data: std::sync::OnceLock::new(),
+            offline: false,
         }
+    }
+
+    /// The host, with no Plugin reaching the network ([`demo`]): a `roster.http` request is never
+    /// sent, and its function hears why.
+    pub fn offline(mut self) -> Self {
+        self.offline = true;
+        self
     }
 
     /// The host, with each Plugin's data folder under `data` (the app's data folder, next to the
@@ -583,7 +596,7 @@ impl PluginHost {
             ),
             all: Arc::clone(&self.all_plugins),
         });
-        let (limits, serving) = (self.limits, Arc::clone(serving));
+        let (limits, serving, offline) = (self.limits, Arc::clone(serving), self.offline);
         let storage = self.data.get().map(|d| folder::Storage::new(d, &name));
         let asks = |p: &Permission| matches!(p, Permission::Network(_) | Permission::Serve(_));
         let post: Option<runtime::Post> = grants.iter().any(asks).then(|| {
@@ -607,6 +620,7 @@ impl PluginHost {
                     limits.memory,
                     limits.call,
                     post,
+                    offline,
                     storage,
                     serving,
                     generation,

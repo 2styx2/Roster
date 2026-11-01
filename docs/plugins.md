@@ -266,7 +266,28 @@ Lua can't tell an empty list from an empty table of fields: `{}` reaches the app
 
 Text you hand the app (a label, a notice, a float's lines, a badge, what you copy) that isn't valid UTF-8, such as a line you cut in the middle of a character, is shown with `�` where it breaks; it isn't an error. A name that isn't (an id, a table key) is.
 
-A tutorial (`roster.tutor.set`) runs on the demo Inventory, where your Plugin isn't loaded: a step can wait for your command being run there, but your command won't do anything there yet. Its steps wait for the app's own events ([`StepMatch`](plugin-api.md#stepmatch)).
+### A Plugin's tutorial
+
+`roster.tutor.set` adds a tutorial: `:tutor ID` runs it on the demo Inventory ([the tutor](app/help.md#the-tutor)) and `:help tutor-ID` is its page. Its steps wait for the app's own events ([`StepMatch`](plugin-api.md#stepmatch)), such as your own command being run:
+
+```lua
+roster.tutor.set("alerts", {
+  title = "Recent alerts",
+  lessons = {
+    { title = "See them", text = "Your Sessions' trouble, in one list.",
+      steps = { { id = "run", text = "Run `:alerts`", on = { event = "command", id = "alerts" } } } },
+  },
+})
+```
+
+Your Plugin is loaded in the demo too, with the permissions the user granted it, so the tutorial can have them run it. The Plugins running in their workspace come along (local ones and Packages, from the clones they have); one stopped or waiting for a prompt's answer doesn't, and the demo never asks anything. Your Plugin's copy in their workspace keeps running behind the demo, untouched; the demo's copy is a second load, with its own Lua state, stopped when they leave. On the demo:
+
+- **`roster.inventory`** sees the demo's Hosts (`demo-01` to `demo-06`), and the events name them. Write your steps and examples for those.
+- **roster serve** answers only `hosts.list` and `host.get`. Any other method (`roster.inventory.update` and the other writes, `mesh.*`, `discover.*`) is refused with "METHOD isn't on the demo Inventory" ([errors](app/errors.md#a-plugin-on-the-demo-inventory)), after the usual permission checks.
+- **`roster.http`** is there if they granted you a site, but nothing is sent: your function gets `nil` and "URL wasn't sent: the tutorial's demo reaches no network", as for a request that failed.
+- **`roster.storage`** is a throwaway folder that starts empty and is removed when the demo ends; your real files aren't read or written.
+
+A Plugin that fails to load in the demo gets its usual notice there, and the tutorial runs on (decision Q123).
 
 ### Health sections
 
