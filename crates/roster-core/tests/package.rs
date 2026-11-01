@@ -605,3 +605,46 @@ fn init_lua_takes_a_packages_dir() {
     .unwrap_err();
     assert!(e.message.contains("packages.1.dir"), "{}", e.message);
 }
+
+#[test]
+fn update_of_one_package_fetches_only_that_one() {
+    let root = temp("update-one");
+    let mono = Mono::new(&root);
+    let (data, config) = (root.join("data"), root.join("config"));
+    let packages = Packages::new(&data, &config);
+    let specs = vec![
+        in_dir(&mono.url(), "plugins/alpha"),
+        in_dir(&mono.url(), "plugins/beta"),
+    ];
+    packages.sync(&specs);
+    packages.pin(&specs, "alpha").unwrap();
+    packages.pin(&specs, "beta").unwrap();
+    // beta's remote is gone: fetching it fails, so a check that touched it would say so.
+    let gone = root.join("gone.git");
+    git(
+        &data.join("packages/beta"),
+        &["remote", "set-url", "origin", gone.to_str().unwrap()],
+    );
+    mono.write("alpha", "2.0.0", "-- alpha two\n");
+    let second = mono.push("alpha two");
+
+    let alpha = packages.check_named(&specs, "alpha").unwrap();
+    assert_eq!(alpha.name, "alpha");
+    assert_eq!(alpha.error, None);
+    assert_eq!(alpha.update.map(|u| u.to), Some(second));
+    assert!(
+        packages
+            .check(&specs)
+            .iter()
+            .any(|c| c.name == "beta" && c.error.is_some())
+    );
+    assert!(packages.check_named(&specs, "beta").unwrap().error.is_some());
+
+    let none = packages.check_named(&specs, "nope").unwrap_err();
+    assert_eq!(none, "init.lua names no Package nope");
+    let uncloned = vec![in_dir(&mono.url(), "plugins/gamma")];
+    assert_eq!(
+        packages.check_named(&uncloned, "gamma").unwrap_err(),
+        "gamma isn't installed: :packages install gamma asks to install it"
+    );
+}
