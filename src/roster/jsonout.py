@@ -67,20 +67,22 @@ def redact_error(message):
 
 
 def redact(v):
-    """A copy of V (JSON data) with every string cut by redact_text."""
+    """A copy of V (plain JSON data: what json.loads gives) with every string cut by redact_text, a key as much as
+    a value."""
     if isinstance(v, str):
         return redact_text(v)
     if isinstance(v, dict):
-        return {k: redact(x) for k, x in v.items()}
+        return {redact_text(k) if isinstance(k, str) else k: redact(x) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return [redact(x) for x in v]
     return v
 
 
 def emit(payload, stream=None):
-    """PAYLOAD as one JSON document, `version` first, every string cut."""
-    doc = redact({"version": JSON_VERSION, **payload})
-    print(json.dumps(doc, default=str), file=stream or sys.stdout, flush=True)
+    """PAYLOAD as one JSON document, `version` first, every string cut. It's made plain JSON first (a set, a Path or
+    any other object becomes what json.dumps makes of it, a key a string), so nothing reaches stdout uncut."""
+    plain = json.loads(json.dumps({"version": JSON_VERSION, **payload}, default=str))
+    print(json.dumps(redact(plain)), file=stream or sys.stdout, flush=True)
 
 
 def fail(code, message, fix=None):
