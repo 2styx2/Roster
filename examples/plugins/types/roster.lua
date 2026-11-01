@@ -1,5 +1,5 @@
 ---@meta roster
--- roster's Plugin API, roster.api_version 3: LuaCATS annotations for lua-language-server.
+-- roster's Plugin API, roster.api_version 4: LuaCATS annotations for lua-language-server.
 -- Generated from crates/roster-core/src/plugin/api.rs by `cargo run -p roster-core --example gen_plugin_api`; don't edit.
 -- The reference: docs/plugin-api.md (`:help plugin-api`).
 
@@ -606,7 +606,7 @@
 ---@field pushed boolean Whether the upstream has it, as this Box last fetched.
 
 --- An event a Plugin can listen for
----@alias roster.EventName "lock"|"unlock"|"host_selected"|"session_open"|"session_exit"|"inventory_changed"|"terminal_output"|"job_progress"
+---@alias roster.EventName "lock"|"unlock"|"host_selected"|"session_open"|"session_exit"|"inventory_changed"|"terminal_output"|"command_done"|"job_progress"
 
 --- The payload of `lock`, `unlock` and `inventory_changed`: an empty table
 ---@class roster.EmptyEvent
@@ -643,6 +643,15 @@
 ---@field session integer The Session's id.
 ---@field host? string The Host's name; `nil` for a Quick Connect Session.
 ---@field text string The lines it finished since the last one, each ending in `\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.
+---@field kind? string What the Session's shell's OSC 133 marks say these lines are (since api 4): `"prompt"` (a few lines after its prompt starts), `"input"` (the line typed at the prompt: the shell's echo of your command), `"output"` (what a command printed), or `nil` (no marks, or nothing they say). All the lines in `text` are of one kind; a batch of several kinds comes as several events, in order. A hint, not a guarantee: the marks come from the Host and anything it prints can forge them, and an `"output"` line may be an `ssh` or nested shell echoing what you type. Every line is sent whatever its kind.
+
+--- `command_done`'s payload
+---@class roster.CommandDoneEvent
+---@field session integer The Session's id.
+---@field host? string The Host's name; `nil` for a Quick Connect Session.
+---@field command? string The command line as the shell showed it after its prompt; `nil` when it couldn't be read (the shell sent no `B` mark, or the line scrolled away or was reflowed by a resize before it ran).
+---@field output string What it printed, each line ending in `\n`, as `terminal_output` sent it (its last line too, if it didn't end in a line feed). At most the last 16 KB.
+---@field code? integer Its exit code; `nil` when the shell didn't say.
 
 ---@class roster.module
 ---@field api_version integer The version of the `roster` module this app has
@@ -659,7 +668,7 @@ function roster.notify(text, level, opts) end
 
 --- Runs a function on an event.
 --- Permission: none. Since: api 2.
----@param event roster.EventName The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.
+---@param event roster.EventName The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output`, `command_done` or `job_progress`.
 ---@param listener fun(e: table) Runs with the event's payload (see Events) each time it happens. Its return value is ignored.
 ---@overload fun(event: "lock", listener: fun(e: roster.EmptyEvent))
 ---@overload fun(event: "unlock", listener: fun(e: roster.EmptyEvent))
@@ -668,6 +677,7 @@ function roster.notify(text, level, opts) end
 ---@overload fun(event: "session_exit", listener: fun(e: roster.SessionExitEvent))
 ---@overload fun(event: "inventory_changed", listener: fun(e: roster.EmptyEvent))
 ---@overload fun(event: "terminal_output", listener: fun(e: roster.TerminalOutputEvent))
+---@overload fun(event: "command_done", listener: fun(e: roster.CommandDoneEvent))
 ---@overload fun(event: "job_progress", listener: fun(e: roster.JobProgressEvent))
 function roster.on(event, listener) end
 
