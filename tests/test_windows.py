@@ -111,6 +111,18 @@ def test_a_pipe_client_that_cant_be_identified_is_refused(monkeypatch):
 
 
 @windows_only
+def test_serves_own_sid_is_read_once(monkeypatch):
+    # review of #216, 9: each askpass connection read serve's own token again
+    from roster import winpipe
+    calls = []
+    real = winpipe.process_sid
+    monkeypatch.setattr(winpipe, "process_sid", lambda process: calls.append(process) or real(process))
+    winpipe.user_sid.cache_clear()
+    assert winpipe.user_sid() == winpipe.user_sid() == winpipe.user_sid()
+    assert len(calls) == 1
+
+
+@windows_only
 def test_the_pipes_security_names_this_user_and_nobody_else():
     from roster import winpipe
     sid = winpipe.user_sid()

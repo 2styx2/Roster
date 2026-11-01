@@ -15,6 +15,7 @@ Stdlib only (ctypes), like askpass.py: ssh runs the helper for every prompt.
 """
 
 import ctypes
+import functools
 import threading
 from ctypes import wintypes
 
@@ -80,8 +81,10 @@ def _fail(err=None):
     raise ctypes.WinError(ctypes.get_last_error() if err is None else err)
 
 
+@functools.lru_cache(maxsize=1)
 def user_sid():
-    """This process's user, as a string SID (S-1-5-21-...)."""
+    """This process's user, as a string SID (S-1-5-21-...); read once (it can't change), so checking each askpass
+    client costs one token read, the client's."""
     return process_sid(GetCurrentProcess())
 
 
