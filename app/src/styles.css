@@ -1494,3 +1494,10 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
 /* A notice's buttons (ticket 91): quiet, under its text; the click is the user's call. */
 .notice-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .notice-actions button { height: calc(var(--ui-size) * 1.75); padding: 0 10px; font-size: var(--text-sm); }
+/* A narrow table scrolls sideways rather than cutting its columns to nothing (ticket 91), and a
+   long data value is cut in the middle, its end kept: `server-10-1…77-203`. */
+.dt-head, .dt-body { min-width: var(--dt-min, 0); }
+.dt-mid { display: flex; min-width: 0; }
+.dt-mid-head { flex: 0 1 auto; min-width: 1ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-mid-tail { flex: none; white-space: pre; }
+.dt-td.kind-number .dt-mid { justify-content: flex-end; }

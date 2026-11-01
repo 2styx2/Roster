@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionApplies, filterRows, mergeRows, nextSort, sortRows, windowOf, type TableColumn, type TableRow } from "./table";
+import { actionApplies, filterRows, mergeRows, nextSort, sortRows, splitMiddle, windowOf, type TableColumn, type TableRow } from "./table";
 
 const columns: TableColumn[] = [
   { id: "name", label: "Host", kind: "data" },
@@ -97,5 +97,14 @@ describe("filterRows (ticket 78)", () => {
   it("looks only at what the columns show, and keeps everything for an empty query", () => {
     expect(filterRows(rows, columns, "esx").map((r) => r.id)).toEqual(["1"]);
     expect(filterRows(rows, columns, "  ")).toBe(rows);
+  });
+});
+
+describe("middle truncation (ticket 91)", () => {
+  it("keeps a long value's end, so names that differ only at the end still differ", () => {
+    expect(splitMiddle("server-10-19-77-203")).toEqual(["server-10-19", "-77-203"]);
+    expect(splitMiddle("server-10-19-77-203-long-and-longer")).toEqual(["server-10-19-77-203-long-an", "d-longer"]);
+    expect(splitMiddle("esx-02")).toEqual(["esx-02", ""]);
+    expect(splitMiddle("🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂")).toEqual(["🙂".repeat(8), "🙂".repeat(5)]);
   });
 });

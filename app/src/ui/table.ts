@@ -112,3 +112,16 @@ export function windowOf(o: { count: number; rowHeight: number; scrollTop: numbe
   const shown = Math.ceil(o.height / o.rowHeight);
   return { start: Math.max(0, first - o.overscan), end: Math.min(o.count, first + shown + o.overscan) };
 }
+
+/** Shortest a column without a width gets before the table scrolls sideways (ticket 91), in ch. */
+export const MIN_CH: Record<ColumnKind, number> = { text: 8, data: 10, number: 5 };
+
+/** A data value split for middle truncation (ticket 91): the head gives way with an ellipsis and
+ * the tail always shows, so `server-10-19-77-203` and `server-10-19-77-204` still differ when cut.
+ * Short values aren't split. */
+export function splitMiddle(text: string): [string, string] {
+  const chars = [...text];
+  if (chars.length <= 12) return [text, ""];
+  const tail = Math.min(8, Math.ceil(chars.length / 3));
+  return [chars.slice(0, -tail).join(""), chars.slice(-tail).join("")];
+}
