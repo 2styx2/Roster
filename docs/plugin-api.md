@@ -2,7 +2,7 @@
 
 <!-- Generated from crates/roster-core/src/plugin/api.rs by `cargo run -p roster-core --example gen_plugin_api`: edit that, then run it. -->
 
-Every function, value, event and data type of the `roster` Lua module a Plugin gets, `roster.api_version` 3. How to write, install and trust a Plugin is the guide, [Writing a Plugin](plugins.md); this is the reference. Each entry is a help topic: `:help roster.inventory.host()` for a function, `:help roster-Host` for a type.
+Every function, value, event and data type of the `roster` Lua module a Plugin gets, `roster.api_version` 4. How to write, install and trust a Plugin is the guide, [Writing a Plugin](plugins.md); this is the reference. Each entry is a help topic: `:help roster.inventory.host()` for a function, `:help roster-Host` for a type.
 
 Types are written as [LuaCATS](https://luals.github.io/wiki/annotations/) annotations write them: `string?` may be `nil`, `Host[]` is a list of Hosts, `table<string, Group>` a table of Groups by name, `"info"|"warn"` one of those strings. The same declarations are [`roster.lua`](../examples/plugins/types/roster.lua), for [your editor](#editor-support).
 
@@ -188,6 +188,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`SessionExitEvent`](#sessionexitevent) | `session_exit`'s payload |
 | [`JobProgressEvent`](#jobprogressevent) | `job_progress`'s payload: serve's `job.progress` notification |
 | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal_output`'s payload |
+| [`CommandDoneEvent`](#commanddoneevent) | `command_done`'s payload |
 
 ## Errors
 
@@ -291,7 +292,7 @@ Runs a function on an event. Several listeners for one event run in the order th
 
 **Parameters**
 
-- `event` ([`EventName`](#eventname)): The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.
+- `event` ([`EventName`](#eventname)): The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output`, `command_done` or `job_progress`.
 - `listener` (`fun(e: table)`): Runs with the event's payload (see [Events](#events)) each time it happens. Its return value is ignored.
 
 **Returns**
@@ -2252,6 +2253,7 @@ end)
 | `session_exit` | A Session ended, failed, or its tab was closed while it ran. | [`SessionExitEvent`](#sessionexitevent) | `inventory.read` or `terminal.read` |
 | `inventory_changed` | The app got a new Host list (an edit, a pull, a Publish, an outside edit of `roster.yml`). | [`EmptyEvent`](#emptyevent) | `inventory.read` |
 | `terminal_output` | A Session printed something: a few times a second, in batches. | [`TerminalOutputEvent`](#terminaloutputevent) | `terminal.read` |
+| `command_done` | A command ended in a Session whose shell writes OSC 133 marks (since api 4): after the `terminal_output` with its last lines. A shell without them sends none; [Shell integration](plugins.md#shell-integration) says how to set one up. | [`CommandDoneEvent`](#commanddoneevent) | `terminal.read` |
 | `job_progress` | One of roster serve's jobs (a Mesh run, a Discover scan, a Host's check) started, moved on (at most five times a second) or ended (serve API 20; an older serve sends none, so keep a poll until the first one comes; a check is a job from serve API 21). A Plugin hears a Mesh job only with `serve:mesh.job`, a scan only with `serve:discover.status` and a check only with `serve:host.check_job`: what it could ask anyway (`serve:host.check` alone isn't enough: a listener may never call it). The result isn't in it: ask `mesh.job`, `discover.status` or `host.check_job` once it ends. Its text is cut as roster serve's answers are: a `cmd:` or `env:` Login reference in it (a failed check's `error.message`) reaches you as `cmd:` or `env:`. | [`JobProgressEvent`](#jobprogressevent) | `serve:mesh.job` or `serve:discover.status` or `serve:host.check_job` |
 
 ## Command lines a Plugin may run
@@ -3298,7 +3300,7 @@ The infra repo's last commit.
 
 An event a Plugin can listen for.
 
-One of: `"lock" \| "unlock" \| "host_selected" \| "session_open" \| "session_exit" \| "inventory_changed" \| "terminal_output" \| "job_progress"`
+One of: `"lock" \| "unlock" \| "host_selected" \| "session_open" \| "session_exit" \| "inventory_changed" \| "terminal_output" \| "command_done" \| "job_progress"`
 
 ### `EmptyEvent`
 
@@ -3353,13 +3355,28 @@ No fields.
 
 `terminal_output`'s payload.
 
-What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints.
+What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints, unless the shell writes OSC 133 marks (`marks`).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `session` | `integer` | yes | The Session's id. |
 | `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session. |
 | `text` | `string` | yes | The lines it finished since the last one, each ending in `\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB. |
+| `marks` | `boolean` | no | `true` when the Session's shell writes OSC 133 marks: its prompts and the command lines typed at them aren't in `text` (a command's line comes in `command_done`, once it runs). `false` (or `nil` before api 4) when it doesn't, and the shell's echo of a command is in `text` like any output. |
+
+### `CommandDoneEvent`
+
+`command_done`'s payload.
+
+Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. Never what's typed: the command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased never comes, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `session` | `integer` | yes | The Session's id. |
+| `host` | `string` | no | The Host's name; `nil` for a Quick Connect Session. |
+| `command` | `string` | no | The command line as the shell showed it after its prompt; `nil` when it couldn't be read (the shell sent no `B` mark, or the line scrolled away or was reflowed by a resize before it ran). |
+| `output` | `string` | yes | What it printed, each line ending in `\n`, as `terminal_output` sent it (its last line too, if it didn't end in a line feed). At most the last 16 KB. |
+| `code` | `integer` | no | Its exit code; `nil` when the shell didn't say. |
 
 ## Editor support
 

@@ -49,6 +49,8 @@ A setting it can't use is named in a notice, and the default is used instead.
 
 Plugins never see what you type, but the shell echoes it, so `grep ERROR /var/log/syslog` is in the output like anything else. recent-alerts skips a line that looks like a shell prompt followed by a command (`esx-02$ …`, `root@esx-02:~# …`, `[admin@appliance logs]$ …`, `$ …`, `PS C:\logs> …`). It's a guess from the text: a prompt it doesn't know still counts, and a log line that happens to start like a prompt is skipped.
 
+It guesses only when it must. If the shell on the Host prints OSC 133 marks (shell integration: `:help shell-integration` has the lines for bash, zsh, fish and PowerShell), roster keeps the prompt and the command line out of `terminal_output` itself and says so (`marks`), and recent-alerts takes every line as output.
+
 ## How it's made
 
 ```text

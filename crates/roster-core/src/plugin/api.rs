@@ -459,7 +459,7 @@ pub const FUNCTIONS: &[Function] = &[
             p(
                 "event",
                 "EventName",
-                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output` or `job_progress`.",
+                "The event's name: `lock`, `unlock`, `host_selected`, `session_open`, `session_exit`, `inventory_changed`, `terminal_output`, `command_done` or `job_progress`.",
             ),
             p(
                 "listener",
@@ -1817,6 +1817,12 @@ pub const EVENTS: &[Event] = &[
         needs: &["terminal.read"],
         payload: "TerminalOutputEvent",
         when: "A Session printed something: a few times a second, in batches.",
+    },
+    Event {
+        name: "command_done",
+        needs: &["terminal.read"],
+        payload: "CommandDoneEvent",
+        when: "A command ended in a Session whose shell writes OSC 133 marks (since api 4): after the `terminal_output` with its last lines. A shell without them sends none; [Shell integration](plugins.md#shell-integration) says how to set one up.",
     },
     Event {
         name: "job_progress",
@@ -3604,7 +3610,7 @@ pub const TYPES: &[Type] = &[
         name: "EventName",
         summary: "An event a Plugin can listen for",
         doc: "",
-        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"job_progress\"",
+        alias: "\"lock\"|\"unlock\"|\"host_selected\"|\"session_open\"|\"session_exit\"|\"inventory_changed\"|\"terminal_output\"|\"command_done\"|\"job_progress\"",
         fields: &[],
         open: false,
     },
@@ -3708,7 +3714,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "TerminalOutputEvent",
         summary: "`terminal_output`'s payload",
-        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints.",
+        doc: "What you type into a Session is never an event, but the shell echoes it back, so it's here like anything else the Session prints, unless the shell writes OSC 133 marks (`marks`).",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),
@@ -3718,6 +3724,33 @@ pub const TYPES: &[Type] = &[
                 "string",
                 "The lines it finished since the last one, each ending in `\\n`, as the terminal shows them: no colours or escape sequences, a line the program rewrote (a progress bar) only as it ended up, a long line that wrapped as one. A line is sent when the Session moves past it, so the one with the cursor (a prompt) waits. A line drawn again with the same text in the same place isn't sent again, so the screen a resized Session prints again (ConPTY does on Windows) doesn't repeat what you had. What a full-screen program (`vim`, `top`, `less`) draws isn't sent. At most the last 16 KB.",
             ),
+            o(
+                "marks",
+                "boolean",
+                "`true` when the Session's shell writes OSC 133 marks: its prompts and the command lines typed at them aren't in `text` (a command's line comes in `command_done`, once it runs). `false` (or `nil` before api 4) when it doesn't, and the shell's echo of a command is in `text` like any output.",
+            ),
+        ],
+        open: false,
+    },
+    Type {
+        name: "CommandDoneEvent",
+        summary: "`command_done`'s payload",
+        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. Never what's typed: the command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased never comes, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't.",
+        alias: "",
+        fields: &[
+            f("session", "integer", "The Session's id."),
+            o("host", "string", "The Host's name; `nil` for a Quick Connect Session."),
+            o(
+                "command",
+                "string",
+                "The command line as the shell showed it after its prompt; `nil` when it couldn't be read (the shell sent no `B` mark, or the line scrolled away or was reflowed by a resize before it ran).",
+            ),
+            f(
+                "output",
+                "string",
+                "What it printed, each line ending in `\\n`, as `terminal_output` sent it (its last line too, if it didn't end in a line feed). At most the last 16 KB.",
+            ),
+            o("code", "integer", "Its exit code; `nil` when the shell didn't say."),
         ],
         open: false,
     },

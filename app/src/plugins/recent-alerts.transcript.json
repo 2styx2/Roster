@@ -607,7 +607,8 @@
       }
     },
     {
-      "do": "timer",
+      "do": "event",
+      "name": "terminal_output",
       "ops": [
         {
           "id": "recent-alerts",
@@ -616,6 +617,31 @@
             "empty": "No alerts. Lines with ERROR or panic show here.",
             "order": 200,
             "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss $ ERROR in a script's log",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "note": "just now",
+                "title": "esx-02 at HH:MM:SS: $ ERROR in a script's log"
+              },
               {
                 "actions": [
                   {
@@ -725,6 +751,12 @@
           "spec": {
             "items": [
               {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "run": "fn"
+              },
+              {
                 "detail": "Quick Connect · HH:MM:SS",
                 "id": "4",
                 "label": "ERROR on a box",
@@ -757,8 +789,8 @@
           "op": "status",
           "spec": {
             "run": "finder alerts",
-            "text": "⚠ 4",
-            "title": "4 recent alerts"
+            "text": "⚠ 5",
+            "title": "5 recent alerts"
           }
         },
         {
@@ -769,7 +801,211 @@
         {
           "host": "esx-02",
           "op": "badge",
-          "text": "1"
+          "text": "2"
+        }
+      ],
+      "payload": {
+        "host": "esx-02",
+        "marks": true,
+        "session": 4,
+        "text": "$ ERROR in a script's log\n"
+      }
+    },
+    {
+      "do": "timer",
+      "ops": [
+        {
+          "id": "recent-alerts",
+          "op": "section",
+          "spec": {
+            "empty": "No alerts. Lines with ERROR or panic show here.",
+            "order": 200,
+            "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss $ ERROR in a script's log",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "note": "just now",
+                "title": "esx-02 at HH:MM:SS: $ ERROR in a script's log"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR on a box",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR on a box",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "Quick Connect",
+                "id": "4",
+                "label": "ERROR on a box",
+                "note": "just now",
+                "title": "Quick Connect at HH:MM:SS: ERROR on a box"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR again",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR again",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "3",
+                "label": "ERROR again",
+                "note": "just now",
+                "title": "appliance at HH:MM:SS: ERROR again"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy kernel panic - not syncing",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss kernel panic - not syncing",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "appliance",
+                "host": "appliance",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "note": "just now",
+                "title": "appliance at HH:MM:SS: kernel panic - not syncing"
+              },
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss ERROR: disk /dev/sda1 full",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "note": "just now",
+                "title": "esx-02 at HH:MM:SS: ERROR: disk /dev/sda1 full"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "finder",
+          "spec": {
+            "items": [
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "run": "fn"
+              },
+              {
+                "detail": "Quick Connect · HH:MM:SS",
+                "id": "4",
+                "label": "ERROR on a box",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "3",
+                "label": "ERROR again",
+                "run": "fn"
+              },
+              {
+                "detail": "appliance · HH:MM:SS",
+                "id": "2",
+                "label": "kernel panic - not syncing",
+                "run": "fn"
+              },
+              {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "1",
+                "label": "ERROR: disk /dev/sda1 full",
+                "run": "fn"
+              }
+            ],
+            "title": "Recent alerts"
+          }
+        },
+        {
+          "id": "alerts",
+          "op": "status",
+          "spec": {
+            "run": "finder alerts",
+            "text": "⚠ 5",
+            "title": "5 recent alerts"
+          }
+        },
+        {
+          "host": "appliance",
+          "op": "badge",
+          "text": "2"
+        },
+        {
+          "host": "esx-02",
+          "op": "badge",
+          "text": "2"
         }
       ]
     },
@@ -840,6 +1076,31 @@
             "empty": "No alerts. Lines with ERROR or panic show here.",
             "order": 200,
             "rows": [
+              {
+                "actions": [
+                  {
+                    "icon": "info",
+                    "label": "Details of $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "copy",
+                    "label": "Copy $ ERROR in a script's log",
+                    "run": "fn"
+                  },
+                  {
+                    "icon": "close",
+                    "label": "Dismiss $ ERROR in a script's log",
+                    "run": "fn"
+                  }
+                ],
+                "detail": "esx-02",
+                "host": "esx-02",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "note": "just now",
+                "title": "esx-02 at HH:MM:SS: $ ERROR in a script's log"
+              },
               {
                 "actions": [
                   {
@@ -924,6 +1185,12 @@
           "spec": {
             "items": [
               {
+                "detail": "esx-02 · HH:MM:SS",
+                "id": "5",
+                "label": "$ ERROR in a script's log",
+                "run": "fn"
+              },
+              {
                 "detail": "Quick Connect · HH:MM:SS",
                 "id": "4",
                 "label": "ERROR on a box",
@@ -950,8 +1217,8 @@
           "op": "status",
           "spec": {
             "run": "finder alerts",
-            "text": "⚠ 3",
-            "title": "3 recent alerts"
+            "text": "⚠ 4",
+            "title": "4 recent alerts"
           }
         },
         {
@@ -962,7 +1229,7 @@
         {
           "host": "esx-02",
           "op": "badge",
-          "text": "1"
+          "text": "2"
         }
       ]
     },
@@ -975,6 +1242,7 @@
           "op": "float",
           "spec": {
             "lines": [
+              "HH:MM:SS  esx-02  $ ERROR in a script's log",
               "HH:MM:SS  Quick Connect  ERROR on a box",
               "HH:MM:SS  appliance  ERROR again",
               "HH:MM:SS  esx-02  ERROR: disk /dev/sda1 full"
@@ -1064,7 +1332,7 @@
         {
           "level": "info",
           "op": "notify",
-          "text": "Dismissed 3 alerts"
+          "text": "Dismissed 4 alerts"
         }
       ]
     },

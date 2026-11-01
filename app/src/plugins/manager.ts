@@ -702,11 +702,14 @@ export class PluginManager {
     this.outputTimer = null;
     const screens = [...this.screens.entries()];
     await Promise.all(screens.map(([, s]) => s.done));
-    const sends = screens.flatMap(([session, s]) => {
+    // Each Session's output, then the commands that ended in it (ticket 94: a marked shell's).
+    const sends = screens.map(async ([session, s]) => {
       const all = s.lines.take();
+      const done = s.lines.takeDone();
       // Too much at once: the last whole lines that fit.
       const text = all.length > OUTPUT_MAX ? all.slice(all.indexOf("\n", all.length - OUTPUT_MAX - 1) + 1) : all;
-      return text ? [this.event("terminal_output", { session, host: s.host, text })] : [];
+      if (text) await this.event("terminal_output", { session, host: s.host, text, marks: s.lines.marked() });
+      for (const d of done) await this.event("command_done", { session, host: s.host, ...d });
     });
     await Promise.all(sends);
   }

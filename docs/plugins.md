@@ -143,7 +143,7 @@ A function a permission gives isn't there without it: `roster.inventory` is `nil
 | `inventory.read` | `roster.inventory.hosts()`, `roster.inventory.host(name)`, `roster.inventory.groups()`: Hosts with their Login *references* (a vault item's name, never its password; a `cmd:` or `env:` one cut to `cmd:` or `env:`, since it says how a secret is fetched); the events that name a Host; the Session on screen in a handler's context | |
 | `inventory.write` | `roster.inventory.update(host, changes)`, `rename(host, to)`, `move(host, group)`, `review(host, reviewed)`: as Pending changes, which you review and Publish | Can change Hosts |
 | `sessions.open` | `roster.sessions.open(host)`, as `:connect HOST`; `:open` and `:connect` in `roster.cmd` and a `run` line | Can open Sessions on your Hosts |
-| `terminal.read` | The `terminal_output` event: what your Sessions print | Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too |
+| `terminal.read` | The `terminal_output` and `command_done` events: what your Sessions print, and the commands that end in a shell with [shell integration](#shell-integration) | Sees everything your Sessions print, including anything a server echoes back. A password you type at a prompt that echoes it would be visible too |
 | `terminal.write` | `roster.terminal.send(session, text)` | Can type into your Sessions, as if you typed it |
 | `serve:METHOD` | `roster.serve.request(method, params, done)` and `roster.serve.call(method, params)` for that method only ([asking roster serve](#asking-roster-serve)): `inventory.info`, `hosts.list`, `host.get`, `host.check`, `host.check_job`, `changes.diff`, and the `mesh.*` and `discover.*` methods. Every method flagged in the next column (`mesh.apply`, `mesh.cut`, `host.check`, `discover.start`, `discover.add`, …) works only in a call the user started, never at load, on an event, from a timer, or in a finder's `items` or a `:check` section's `check` | Any method that can change something or reach the network (`mesh.apply`, `mesh.cut`, `discover.start`, `discover.add`, …): everything but `inventory.info`, `hosts.list`, `host.get`, `host.check_job`, `changes.diff`, `mesh.status`, `mesh.plan`, `mesh.job`, `mesh.stop`, `discover.plan`, `discover.status` and `discover.stop`. `discover.start` says it scans networks from this computer |
 | `network:SITE` | `roster.http.request(request, done)` and `roster.http.get(url, done)`, to that site only | Always: anything the Plugin can read could leave this computer. Also said: plain `http://`, and an address on this computer or a private network |
@@ -250,7 +250,7 @@ What can go wrong is in [A Plugin's files](app/errors.md#a-plugins-files). The b
 | roster serve | [`roster.serve`](plugin-api.md#rosterserve) | `serve:<method>` |
 | HTTP | [`roster.http`](plugin-api.md#rosterhttp) | `network:<site>` |
 
-Everywhere a Plugin hands the app something to run (a row, a button, a finder item, a status segment, a toolbar control, a command), `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing. It's told which thing that was: a [`HandlerContext`](plugin-api.md#handlercontext) such as `{ section = "pinned", row = "esx-02", action = 1 }` for a row's first button, `{ finder = "pinned", item = "3" }`, `{ toolbar = "alerts" }`, `{ progress = "sync" }` for its `cancel`, or `{ confirm = "yes" }`, with the Session on screen (`session`, `session_host`) when the Plugin has `inventory.read` or `terminal.read`. So one function can serve every row. A command line runs only if it's one of your own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run) (`finder`, `view`, `help`, `find`, `info`, `changes`, `session`, `next`, `prev`, `check` with `serve:host.check`, and `open` or `connect` with `sessions.open`); anything else, `:plugins grant …` above all, is refused with a notice when the user presses the button, whatever its label says. A key binding's line (`roster.keymap.set`) is checked the same way each time the key is pressed, and `:keys` shows it as `plugins run NAME LINE`. A line on the message line (`roster.echo`) always shows, whatever `ui.messages` says (a Plugin can't mark one quiet), and `:messages` keeps it. [Events](plugin-api.md#events) come through `roster.on`; a Quick Connect Session's `host` is `nil` in them, since it isn't on a Host: don't badge it or make a row go to it. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command).
+Everywhere a Plugin hands the app something to run (a row, a button, a finder item, a status segment, a toolbar control, a command), `run` is a function or a command line; a function runs in your Plugin when the user chooses the thing. It's told which thing that was: a [`HandlerContext`](plugin-api.md#handlercontext) such as `{ section = "pinned", row = "esx-02", action = 1 }` for a row's first button, `{ finder = "pinned", item = "3" }`, `{ toolbar = "alerts" }`, `{ progress = "sync" }` for its `cancel`, or `{ confirm = "yes" }`, with the Session on screen (`session`, `session_host`) when the Plugin has `inventory.read` or `terminal.read`. So one function can serve every row. A command line runs only if it's one of your own commands or one of [the few of roster's a Plugin may run](plugin-api.md#command-lines-a-plugin-may-run) (`finder`, `view`, `help`, `find`, `info`, `changes`, `session`, `next`, `prev`, `check` with `serve:host.check`, and `open` or `connect` with `sessions.open`); anything else, `:plugins grant …` above all, is refused with a notice when the user presses the button, whatever its label says. A key binding's line (`roster.keymap.set`) is checked the same way each time the key is pressed, and `:keys` shows it as `plugins run NAME LINE`. A line on the message line (`roster.echo`) always shows, whatever `ui.messages` says (a Plugin can't mark one quiet), and `:messages` keeps it. [Events](plugin-api.md#events) come through `roster.on`; a Quick Connect Session's `host` is `nil` in them, since it isn't on a Host: don't badge it or make a row go to it. What you type into a Session is never an event, but the shell echoes it back, so it's in `terminal_output` like anything else the Session prints (recent-alerts skips a line that looks like a prompt and a command), unless the shell writes the marks of [shell integration](#shell-integration).
 
 `terminal_output` is the lines a Session's terminal commits: the app runs each Session's output through a terminal of its own (never shown) and sends a line when the cursor moves past it, as it reads then. So there are no escape sequences, a progress bar arrives as it ended, and a wrapped line comes whole. A line drawn again with the same text in the same row isn't sent again: after the app resizes a Session (a panel, Focus, the window), ConPTY prints the whole screen again on Windows, and that isn't new output. What a full-screen program (`vim`, `top`, `less`) draws isn't sent at all.
 
@@ -267,6 +267,86 @@ Lua can't tell an empty list from an empty table of fields: `{}` reaches the app
 Text you hand the app (a label, a notice, a float's lines, a badge, what you copy) that isn't valid UTF-8, such as a line you cut in the middle of a character, is shown with `�` where it breaks; it isn't an error. A name that isn't (an id, a table key) is.
 
 A tutorial (`roster.tutor.set`) runs on the demo Inventory, where your Plugin isn't loaded: a step can wait for your command being run there, but your command won't do anything there yet. Its steps wait for the app's own events ([`StepMatch`](plugin-api.md#stepmatch)).
+
+### Shell integration
+
+A shell can say where its prompt, the command line and each command's output start, and how the command ended, with **OSC 133** marks: escape sequences it prints, which terminals such as VS Code's, WezTerm and Windows Terminal read too. roster reads them from what the Session prints (never shown, never sent as text) and, for a Session whose shell writes them, it:
+
+- leaves the prompt and the command line out of `terminal_output`, whose `marks` is then `true`, so a Plugin needn't guess which line is your own command echoed back (recent-alerts guesses only without them);
+- sends [`command_done`](plugin-api.md#commanddoneevent) (`terminal.read`, since api 4) when a command ends, after the `terminal_output` with its last lines: `{ session, host, command, output, code }`, the command line as the shell showed it, what it printed (its last 16 KB) and its exit code. So a Plugin can react to a finished command (`code ~= 0`, a deploy that printed `done`) without cutting the output into commands itself.
+
+```lua
+roster.on("command_done", function(e)
+  if e.code and e.code ~= 0 then
+    roster.notify(("%s: %s failed (%d)"):format(e.host or "Quick Connect", e.command or "a command", e.code), "warn")
+  end
+end)
+```
+
+**It never carries what you type.** The command line is read off the screen when the shell runs it (the `C` mark), so a line you erase, or give up with Ctrl-C, never reaches a Plugin, and anything typed at the prompt before then (a password pasted by mistake and deleted) isn't in `terminal_output` either. What the screen doesn't show (a password at a `sudo` or `ssh` prompt, which doesn't echo) can't be in either event. A shell without marks is read as before: its echo of each command is in `terminal_output`, and there's no `command_done`.
+
+**roster only reads.** It never writes to a Session for this: no hooks put into a Host's shell, no keystrokes or escape sequences sent. You turn marks on in the shell on the Host (its own rc file, below), the way you'd set its prompt; a Host only labels its own output, so a mislabelling one can hide its output from Plugins but can't make roster send what you typed. A shell that marks its prompts but never says a command started (`C`) would hide all its output, so after 20 lines held back that way roster ignores its marks (until a `C` comes) and drops those lines unsent.
+
+**Setting it up.** Put the snippet for the Host's shell at the **end** of its rc file (after a theme or framework sets the prompt), then open a new Session. A prompt tool or framework that writes OSC 133 marks already needs nothing. If `command` comes as `nil`, the shell isn't sending the `B` mark.
+
+bash 4.4 or later (`PS0`), in `~/.bashrc`:
+
+```bash
+if [[ $- == *i* ]]; then
+  __osc133_done() { local code=$?; printf '\e]133;D;%s\a' "$code"; return "$code"; }
+  PROMPT_COMMAND="__osc133_done${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+  PS1='\[\e]133;A\a\]'"$PS1"'\[\e]133;B\a\]'
+  PS0='\e]133;C\a'"$PS0"
+fi
+```
+
+zsh, in `~/.zshrc`:
+
+```zsh
+if [[ -o interactive ]]; then
+  __osc133_done() { printf '\e]133;D;%s\a' "$?" }
+  __osc133_run() { printf '\e]133;C\a' }
+  precmd_functions=(__osc133_done $precmd_functions)
+  preexec_functions+=(__osc133_run)
+  PS1=$'%{\e]133;A\a%}'"$PS1"$'%{\e]133;B\a%}'
+fi
+```
+
+fish, in `~/.config/fish/config.fish` (fish 4 writes some of these marks itself; a mark sent twice counts once):
+
+```fish
+if status is-interactive
+    functions -c fish_prompt __osc133_prompt
+    function fish_prompt
+        __osc133_prompt
+        printf '\e]133;B\a'
+    end
+    function __osc133_run --on-event fish_preexec
+        printf '\e]133;C\a'
+    end
+    function __osc133_done --on-event fish_postexec
+        printf '\e]133;D;%s\a\e]133;A\a' $status
+    end
+end
+```
+
+PowerShell 7.3 or later (PSReadLine 2.2), in `$PROFILE`:
+
+```powershell
+if ($Host.Name -eq 'ConsoleHost') {
+  $Global:__Osc133Prompt = $function:prompt
+  function Global:prompt {
+    $code = if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }
+    "`e]133;D;$code`a`e]133;A`a$(& $Global:__Osc133Prompt)`e]133;B`a"
+  }
+  # Runs once a whole command is accepted (not on Enter in an unfinished one).
+  Set-PSReadLineOption -AddToHistoryHandler {
+    param($line)
+    [Console]::Write("`e]133;C`a")
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetDefaultAddToHistoryOption($line)
+  }
+}
+```
 
 ### Health sections
 
@@ -467,7 +547,7 @@ An error shows a notice naming your Plugin with the file and line: `pinned: init
 
 ## For roster's developers: how it's built
 
-The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N CONTEXT` (what ran it, as URI-encoded JSON, to which the manager adds the Session on screen when the Plugin may know it). A table's functions are called with the row instead (`{ row, host, view | section }`), and its rows carry no functions, so `roster.views.update` can change some of them without touching the rest; views and Host-details sections are the `views` and `details` registries (`app/src/view/views.ts`), drawn by `ViewContent.tsx` and `ui/DataTable.tsx` over the pure table model in `ui/table.ts`. A graph's functions are called with the node (`{ node, host, view }`, plus the Session on screen as any handler's context), and its nodes and edges are plain data too: `plugins/graphOps.ts` checks them, and `app/src/graph/` lays them out, keeps their places in the State and draws them on a canvas (ticket 77). A question, progress and toolbar control are the ops `confirm`, `progress` and `toolbar` (ticket 78); the question and progress live in the manager's snapshot, drawn by `PluginsPanel.tsx`, and the controls go into the toolbar registry. `roster.cmd` is the op `cmd`; a command line a Plugin hands over runs as `:plugins run NAME LINE`, and both pass `plugins/cmd.ts`, the app's side of the core's rule (`COMMANDS` in api.rs, in `plugin-api.json`). The one exception to "each call answers": an HTTP request's answer (`network`, `plugin/network.rs`) or a `roster.serve.request`'s (asked on a thread of its own) runs the Plugin's function on its own thread later, and the Tauri side sends what it did to the frontend as the `plugin-reply` event, applied like a call's reply. The host's wall clock for a call leaves out the time the Plugin's thread spent waiting for roster serve (`ServeWait` in `plugin/mod.rs`). Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`). A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session. `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless.
+The Lua runs in roster-core (`crates/roster-core/src/plugin/`), never in the frontend, and it reaches roster only through `roster serve`'s methods its permissions name. Each call into a Plugin answers with the result and a list of **ops**: plain data such as `{ "op": "section", "id": "pinned", "spec": { … } }`, with each Lua function replaced by `{ "handler": N }`. The frontend (`app/src/plugins/`) checks every op (`ops.ts`), puts it into the registries with the Plugin's name as its source, and runs a handler with `:plugins call NAME N CONTEXT` (what ran it, as URI-encoded JSON, to which the manager adds the Session on screen when the Plugin may know it). A table's functions are called with the row instead (`{ row, host, view | section }`), and its rows carry no functions, so `roster.views.update` can change some of them without touching the rest; views and Host-details sections are the `views` and `details` registries (`app/src/view/views.ts`), drawn by `ViewContent.tsx` and `ui/DataTable.tsx` over the pure table model in `ui/table.ts`. A graph's functions are called with the node (`{ node, host, view }`, plus the Session on screen as any handler's context), and its nodes and edges are plain data too: `plugins/graphOps.ts` checks them, and `app/src/graph/` lays them out, keeps their places in the State and draws them on a canvas (ticket 77). A question, progress and toolbar control are the ops `confirm`, `progress` and `toolbar` (ticket 78); the question and progress live in the manager's snapshot, drawn by `PluginsPanel.tsx`, and the controls go into the toolbar registry. `roster.cmd` is the op `cmd`; a command line a Plugin hands over runs as `:plugins run NAME LINE`, and both pass `plugins/cmd.ts`, the app's side of the core's rule (`COMMANDS` in api.rs, in `plugin-api.json`). The one exception to "each call answers": an HTTP request's answer (`network`, `plugin/network.rs`) or a `roster.serve.request`'s (asked on a thread of its own) runs the Plugin's function on its own thread later, and the Tauri side sends what it did to the frontend as the `plugin-reply` event, applied like a call's reply. The host's wall clock for a call leaves out the time the Plugin's thread spent waiting for roster serve (`ServeWait` in `plugin/mod.rs`). Packages (ticket 24) are `crates/roster-core/src/package/`: git as a subprocess (`git.rs`), the clones in the app's data folder and `roster.lock`; the frontend loads one as the Plugin `package:NAME`, which the Tauri side turns into its clone and its settings from `init.lua` (`PluginHost::load_with`). A timer is an op too (`{ "op": "timer", "id", "ms", "every", "run" }`): the frontend keeps the clock and calls the handler back, and the core, which knows the handler is a timer, runs it as one (never as a call the user started). `terminal_output` comes from `committed.ts`, a terminal (xterm's, never opened) per Session, which also reads a shell's OSC 133 marks for `command_done` (an OSC handler on that terminal; nothing is written to the Session). `?fixture=recent-alerts` in a plain browser starts the app with recent-alerts installed and alerts in two Sessions, for looking at Plugin UI headless.
 
 A Plugin's folders are `plugin/folder.rs` (decision Q93): `inside`, the one "stays inside its folder" rule the host reads every file of a Plugin's code through (and `config/lua.rs`'s `require`, and a Package's `dir`), and `Storage`, the data folder behind `roster.storage`, which the Tauri side places in the app's data folder (`PluginHost::set_data`) and removes with `plugin_forget` (`PluginHost::forget`) when the frontend removes a Plugin. The built-in Folders is `crates/roster-core/plugins/folders/init.lua`; the frontend hands it init.lua's Folders and, once, folders.yml's (`app/src/folders/file.ts`, `foldersSettings`) as its settings, and the fake Backend has the same Plugin in TypeScript (`app/src/backend/fakeFolders.ts`) for the UI tests and the browser. A command's `complete` (op field `complete`), `roster.echo` (op `echo`) and `roster.cmdline` (op `cmdline`) go through the manager like any op; the manager keeps each command's last completions and redraws when the next answer comes.
 

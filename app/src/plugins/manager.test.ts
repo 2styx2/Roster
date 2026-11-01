@@ -126,6 +126,29 @@ describe("running", () => {
     expect(seen.at(-1)).toBe("esx-02: esx-02$\nERROR: new one");
   });
 
+  // Ticket 94 (#167): a shell's OSC 133 marks make each command a `command_done`, after the output
+  // it printed; the prompt and the command line aren't in `terminal_output`, which says so.
+  it("a marked shell's commands come as command_done, and its prompts stay out of terminal_output", async () => {
+    const heard: [string, Record<string, unknown>][] = [];
+    const listener: FakePlugin = {
+      manifest: { name: "listener", version: "1.0.0", description: "Hears commands", author: "A. Author", api: 4, permissions: ["terminal.read"] },
+      load(roster) {
+        roster.on("terminal_output", (e) => void heard.push(["terminal_output", e]));
+        roster.on("command_done", (e) => void heard.push(["command_done", e]));
+      },
+    };
+    const state = { [STATE_KEY]: [{ path: "~/plugins/listener", name: "listener", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    const { manager } = setup({ "~/plugins/listener": listener }, state);
+    await manager.start();
+    const text = "\x1b]133;A\x07esx-02$ \x1b]133;B\x07df -h\r\n\x1b]133;C\x07disk full\r\n\x1b]133;D;1\x07\x1b]133;A\x07esx-02$ \x1b]133;B\x07";
+    manager.output(4, "esx-02", new TextEncoder().encode(text), SIZE);
+    await manager.flushOutput();
+    expect(heard).toEqual([
+      ["terminal_output", { session: 4, host: "esx-02", text: "disk full\n", marks: true }],
+      ["command_done", { session: 4, host: "esx-02", command: "df -h", output: "disk full\n", code: 1 }],
+    ]);
+  });
+
   it("a function it handed over runs through `plugins call`, and its float shows", async () => {
     const { manager, registries } = setup({ [ALERTS]: alerts(["esx-02: ERROR"]) }, { ...installed });
     await manager.start();

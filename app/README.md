@@ -121,7 +121,7 @@ crates/roster-core/plugins/folders/
                       its own data folder; init.lua's handed over as settings, folders.yml's moved in once
 app/src/plugins/      Plugins in the frontend: manager.ts (installed + grants in the State, prompts, ops → registries,
                       events, timers, the Sessions' output for terminal.read; Packages as `package:NAME`), committed.ts
-                      (a Session's committed lines, from a terminal of its own, for terminal_output), ops.ts (checks every
+                      (a Session's committed lines, from a terminal of its own, for terminal_output; OSC 133 marks for command_done), ops.ts (checks every
                       op), command.ts (`:plugins`, `:packages`), PluginsPanel.tsx (the prompt, an update's diff,
                       `:plugins`, `:packages`, a float, notices); backend/fakePackages.ts is the fake Backend's
 app/src/view/status.ts  the status segment and Host-badge registries Plugins add to

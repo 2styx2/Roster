@@ -450,6 +450,28 @@ fn what_you_type_echoed_after_a_shell_prompt_isnt_an_alert() {
     );
 }
 
+/// Ticket 94 (#167): a shell that writes OSC 133 marks keeps its prompts and command lines out of
+/// `terminal_output` (`marks`), so recent-alerts takes every line as output: one that only looks
+/// like a prompt (a script's log) is an alert. The guess is for a shell without marks.
+#[test]
+fn with_shell_marks_a_line_that_looks_like_a_prompt_is_output_and_watched() {
+    let w = World::new("marks");
+    ok(&w.install(&["terminal.read"]));
+    let replies = w.host.event(Event {
+        name: "terminal_output".into(),
+        payload: json!({ "session": 1, "host": "esx-02", "text": "root@esx-02:~# ERROR: replayed from a log\n", "marks": true }),
+    });
+    assert_eq!(
+        rows(one(&replies[0].ops, "section")),
+        ["root@esx-02:~# ERROR: replayed from a log"]
+    );
+    // Without marks, the same line is taken for a command echoed after a prompt.
+    assert!(
+        w.output(2, "esx-02", "root@esx-02:~# ERROR: replayed from a log\n")
+            .is_empty()
+    );
+}
+
 #[test]
 fn a_quick_connect_session_has_no_host_so_its_alerts_have_no_badge_and_no_goto() {
     let w = World::new("quick");
@@ -859,6 +881,7 @@ fn steps() -> Value {
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "all good\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 1, "host": "esx-02", "text": "esx-02$ grep ERROR /var/log/syslog\n" } },
         { "do": "event", "name": "terminal_output", "payload": { "session": 3, "host": null, "text": "ERROR on a box\n" } },
+        { "do": "event", "name": "terminal_output", "payload": { "session": 4, "host": "esx-02", "text": "$ ERROR in a script's log\n", "marks": true } },
         { "do": "timer" },
         { "do": "action", "label": "Details of ERROR on a box" },
         { "do": "action", "label": "Details of ERROR: disk /dev/sda1 full" },

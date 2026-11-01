@@ -51,7 +51,7 @@ A global, and also `require("roster")`. It's kept small. A Plugin gets the same 
 | Name | What |
 |---|---|
 | `roster.os` | `"windows"`, `"linux"` or `"macos"`, for `if roster.os == "windows" then … end` |
-| `roster.api_version` | `3`. Raised when this module changes (it went to 2 with Plugins and to 3 with more for Plugins; nothing in `init.lua`'s changed) |
+| `roster.api_version` | `4`. Raised when this module changes (it went to 2 with Plugins, to 3 with more for Plugins and to 4 with the `command_done` event; nothing in `init.lua`'s changed) |
 | `roster.keymap.set(context, keys, action)` | A key binding, as in `keys` below. `action` is a command line, or `false` to unbind |
 | `roster.themes.define(id, theme)` | A Theme, as in `themes` below |
 | `roster.set(name, value)` | Any option by its dotted name: `roster.set("terminal.size", "16pt")`. What `:config import-terminal` writes |
