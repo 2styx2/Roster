@@ -19,13 +19,13 @@ posix_shell = pytest.mark.skipif(WINDOWS, reason="runs a POSIX shell script; nat
 
 def find_posix_sh():
     """A POSIX sh for the stand-in Hosts (tests/fakes/ssh, FAKE_HOSTS): /bin/sh, or on native Windows Git for Windows'
-    sh.exe (Git/bin/sh.exe, beside Git/cmd/git.exe), which has the awk, sed, mktemp and ssh-keygen a Host's
-    side of `roster mesh` uses. None if there's none."""
+    MSYS sh (Git/usr/bin/sh.exe, which has the awk, sed, mktemp and ssh-keygen a Host's side of `roster mesh` uses
+    beside it; not Git/bin/sh.exe, which puts Git's own commands before the PATH it was given). None if there's none."""
     if not WINDOWS:
         return "/bin/sh"
     git = shutil.which("git")
-    for sh in ([Path(git).resolve().parent.parent / "bin" / "sh.exe"] if git else []) + \
-              [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "sh.exe"]:
+    for sh in ([Path(git).resolve().parent.parent / "usr" / "bin" / "sh.exe"] if git else []) + \
+              [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "sh.exe"]:
         if sh.is_file():
             return str(sh)
     return None

@@ -104,7 +104,7 @@ class Net:
         return load_config(self.cfg_path)
 
     def snapshot(self):
-        return {str(p.relative_to(self.root)): p.read_bytes() for p in sorted(self.root.rglob("*"))
+        return {p.relative_to(self.root).as_posix(): p.read_bytes() for p in sorted(self.root.rglob("*"))
                 if p.is_file() and p.name != "connections"}
 
 
@@ -768,7 +768,7 @@ def test_an_apply_finishes_with_selinux_tools_that_work_or_fail(net, tmp_path, m
     for tool in ("chcon", "restorecon"):
         (d / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit {0 if ok else 1}\n')
         (d / tool).chmod(0o755)
-    monkeypatch.setenv("PATH", f"{d}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_HOST_PATH", str(d))                      # before the Host's own (Git's sh has a chcon)
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
     assert net.mesh_lines("nas-1") == [key_line_of(net, "orion-2", "10.0.0.2")]

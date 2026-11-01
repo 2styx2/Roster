@@ -12,6 +12,7 @@
 #                                                   (/etc/ssh/keys-USER, /vmfs/volumes) are DIR/NAME/etc/..., DIR/NAME/vmfs/...
 #                                 DIR/NAME/blocked  ip:port lines this Host can't reach (its `nc -z` fails)
 #                                 DIR/NAME/slow     seconds each connection to it takes before it runs anything
+#                               FAKE_HOST_PATH=DIR goes first on every stand-in Host's PATH (a test's own tools)
 #                               Each run appends "start NAME" and "end NAME" to DIR/connections.
 # FAKE_SH=PATH                  the sh a stand-in Host runs its side with (default /bin/sh; on native Windows, Git for
 #                               Windows' sh.exe, with the Host's paths written C:/... as that sh reads them)
@@ -69,7 +70,10 @@ if hosts:
 
         os.makedirs(os.path.join(root, "home"), exist_ok=True)
         env = {**os.environ, "HOME": os.path.join(root, "home"), "FAKE_HOST_ROOT": shroot,
-               "PATH": os.path.join(os.path.dirname(os.path.abspath(__file__)), "host") + os.pathsep + os.environ["PATH"]}
+               "PATH": os.pathsep.join([*filter(None, [os.environ.get("FAKE_HOST_PATH")]), os.path.join(os.path.dirname(os.path.abspath(__file__)), "host"),
+                                        # Windows: the sh's own commands (sort, find) before Windows' namesakes
+                                        *([os.path.dirname(os.environ["FAKE_SH"])] if os.name == "nt" else []),
+                                        os.environ["PATH"]])}
         sh = os.environ.get("FAKE_SH", "/bin/sh")
         argv = [sh, "-s"] if stdin is not None else [sh, "-c", on_host(line)]
         # bytes both ways: no CRLF from Windows' text mode, as from a real Host
