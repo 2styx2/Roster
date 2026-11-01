@@ -31,6 +31,7 @@ const ALL: &[&str] = &[
     "serve:host.check",
     "serve:mesh.cut",
     "serve:mesh.job",
+    "serve:host.check_job",
 ];
 
 fn plugins_dir() -> PathBuf {
@@ -224,6 +225,20 @@ impl Serve for FakeServe {
             "hosts.list" => Ok(self.hosts.clone()),
             "mesh.status" if params["grouped"] == true && !self.grouped.is_null() => Ok(self.grouped.clone()),
             "mesh.status" => Ok(self.mesh.lock().unwrap().clone()),
+            // A check's result once it's over (serve API 21): nas-01's failed at tcp, the rest passed.
+            "host.check_job" => {
+                let host = if params["job"] == "check-3" { "nas-01" } else { "web-1" };
+                let ok = host != "nas-01";
+                let steps = json!([
+                    { "step": "dns", "status": "ok", "message": "resolves" },
+                    { "step": "tcp", "status": if ok { "ok" } else { "fail" }, "message": "port 22" },
+                    { "step": "auth", "status": if ok { "ok" } else { "skipped" }, "message": "" }
+                ]);
+                Ok(
+                    json!({ "kind": "check", "job": params["job"], "action": "check", "state": "done", "done": 8, "total": 8, "host": host,
+                           "result": { "host": host, "ok": ok, "steps": steps } }),
+                )
+            }
             "mesh.cut" if params["background"] == true => {
                 Ok(json!({ "job": 7, "action": "cut", "total": 3, "host": params["host"] }))
             }
@@ -444,7 +459,7 @@ fn it_installs_from_its_folder_asking_for_what_its_readme_explains() {
     let w = World::new("manifest");
     let manifest = read_manifest(&w.dir).unwrap();
     assert_eq!(manifest.name, NAME);
-    assert_eq!(manifest.api, 3);
+    assert_eq!(manifest.api, 4);
     let asked: Vec<String> = manifest.permissions.iter().map(|p| p.to_string()).collect();
     assert_eq!(asked, ALL);
     let readme = std::fs::read_to_string(plugins_dir().join("topology/README.md")).unwrap();
@@ -610,6 +625,48 @@ fn a_session_turns_its_node_live_with_its_edge_from_this_box_and_a_failed_one_is
         (json!("down"), json!("hollow"), json!("ssh failed"))
     );
     assert_eq!(u["changes"]["remove_edges"], json!(["live:web-1"]));
+}
+
+#[test]
+fn sessions_open_before_it_loaded_are_live_on_the_map() {
+    let w = World::new("before");
+    // The app said so before the Plugin loaded: it hears no event for them.
+    w.event("session_open", json!({ "session": 1, "host": "esx-02" }));
+    w.event("session_open", json!({ "session": 2, "host": "web-1" }));
+    w.event("session_exit", json!({ "session": 2, "host": "web-1", "code": 0 }));
+    let reply = w.load(ALL);
+    let nodes = &view(&reply)["graph"]["nodes"];
+    assert_eq!(by_id(nodes, "esx-02")["state"], "live");
+    assert!(by_id(nodes, "web-1").get("state").is_none(), "its Session ended before");
+    let edges = &view(&reply)["graph"]["edges"];
+    by_id(edges, "live:esx-02");
+}
+
+#[test]
+fn a_check_that_fails_marks_its_host_down_and_one_that_passes_clears_it() {
+    let w = World::new("checked");
+    ok(&w.load(ALL));
+    // Running: nothing to say yet.
+    let r = w.event("job_progress", json!({ "kind": "check", "job": "check-3", "action": "check", "state": "running", "done": 2, "total": 8, "at": "tcp", "host": "nas-01" }));
+    assert!(r.iter().all(|r| find(&r.ops, "view_update").is_empty()));
+    assert!(w.serve.called("host.check_job").is_empty());
+    // Over: it asks how it came out, once.
+    let r = w.event("job_progress", json!({ "kind": "check", "job": "check-3", "action": "check", "state": "done", "done": 8, "total": 8, "host": "nas-01" }));
+    assert_eq!(w.serve.called("host.check_job"), [json!({ "job": "check-3" })]);
+    let u = one(&r[0].ops, "view_update");
+    let node = by_id(&u["changes"]["nodes"], "nas-01");
+    assert_eq!(
+        (node["state"].clone(), node["note"].clone()),
+        (json!("down"), json!("check failed at tcp"))
+    );
+
+    // A Session that fails to connect is down too; a check that passes clears it.
+    w.event("session_open", json!({ "session": 5, "host": "web-1" }));
+    w.event("session_exit", json!({ "session": 5, "host": "web-1", "code": 255 }));
+    let r = w.event("job_progress", json!({ "kind": "check", "job": "check-4", "action": "check", "state": "done", "done": 8, "total": 8, "host": "web-1" }));
+    let u = one(&r[0].ops, "view_update");
+    let node = by_id(&u["changes"]["nodes"], "web-1");
+    assert!(node.get("state").is_none() && node.get("note").is_none(), "{node:#}");
 }
 
 #[test]
@@ -921,11 +978,14 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
 
 fn steps() -> Value {
     json!([
+        { "do": "event", "name": "session_open", "payload": { "session": 9, "host": "nas-02" } },
         { "do": "load", "grants": ALL },
         { "do": "event", "name": "session_open", "payload": { "session": 1, "host": "esx-02" } },
         { "do": "event", "name": "session_open", "payload": { "session": 2, "host": "web-1" } },
         { "do": "event", "name": "session_exit", "payload": { "session": 2, "host": "web-1", "code": 255 } },
         { "do": "action", "label": "Check", "node": "nas-01" },
+        { "do": "event", "name": "job_progress", "payload": { "kind": "check", "job": "check-3", "action": "check", "state": "running", "done": 5, "total": 8, "at": "tcp", "host": "nas-01" } },
+        { "do": "event", "name": "job_progress", "payload": { "kind": "check", "job": "check-3", "action": "check", "state": "done", "done": 8, "total": 8, "host": "nas-01" } },
         { "do": "action", "label": "Cut", "node": "esx-01" },
         { "do": "confirm" },
         { "do": "cut-timer" },
@@ -1034,6 +1094,7 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
         "serve": {
             "hosts.list": inventory(),
             "mesh.status": mesh_grouped(),
+            "host.check_job": FakeServe::new(Value::Null, Value::Null).call("host.check_job", json!({ "job": "check-3" })).unwrap(),
             "mesh.cut": { "job": 7, "action": "cut", "total": 3, "host": "esx-01" },
             "mesh.job": { "job": 7, "action": "cut", "host": "esx-01", "state": "done", "done": 3, "total": 3, "at": null, "stopped": false, "result": mesh_cut("esx-01") },
         },

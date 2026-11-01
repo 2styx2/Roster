@@ -40,6 +40,7 @@ describe("the Topology stand-in", () => {
       if (method === "mesh.status" && params.grouped === true) return answers["mesh.status"];
       if (method === "mesh.cut" && params.background === true) return answers["mesh.cut"];
       if (method === "mesh.job") return answers["mesh.job"];
+      if (method === "host.check_job") return answers["host.check_job"];
       throw new Error(`unknown method '${method}' (code -32601)`);
     };
     const host = fakePluginHost({ topology: topologyPlugin() }, () => hosts, undefined, serve);

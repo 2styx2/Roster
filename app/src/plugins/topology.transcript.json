@@ -1,6 +1,36 @@
 {
   "about": "What plugins/topology does in a scripted run, recorded by crates/roster-core/tests/plugin_topology.rs (ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core --test plugin_topology rewrites it), with the roster serve answers it was given. The fake Backend's stand-in replays it (topology.test.ts).",
   "serve": {
+    "host.check_job": {
+      "action": "check",
+      "done": 8,
+      "host": "nas-01",
+      "job": "check-3",
+      "kind": "check",
+      "result": {
+        "host": "nas-01",
+        "ok": false,
+        "steps": [
+          {
+            "message": "resolves",
+            "status": "ok",
+            "step": "dns"
+          },
+          {
+            "message": "port 22",
+            "status": "fail",
+            "step": "tcp"
+          },
+          {
+            "message": "",
+            "status": "skipped",
+            "step": "auth"
+          }
+        ]
+      },
+      "state": "done",
+      "total": 8
+    },
     "hosts.list": {
       "error": null,
       "groups": {
@@ -363,13 +393,23 @@
   },
   "steps": [
     {
+      "do": "event",
+      "name": "session_open",
+      "ops": [],
+      "payload": {
+        "host": "nas-02",
+        "session": 9
+      }
+    },
+    {
       "do": "load",
       "grants": [
         "inventory.read",
         "serve:mesh.status",
         "serve:host.check",
         "serve:mesh.cut",
-        "serve:mesh.job"
+        "serve:mesh.job",
+        "serve:host.check_job"
       ],
       "ops": [
         {
@@ -388,7 +428,7 @@
           "id": "topology",
           "op": "help",
           "spec": {
-            "markdown": "# Topology\n\nA map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ T`; Esc goes back.\n\n- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.\n- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.\n- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.\n- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.\n\nSelect a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.\n\nKeys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).\n\nIt needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
+            "markdown": "# Topology\n\nA map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ T`; Esc goes back.\n\n- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down (its Session couldn't connect, or a check of it failed) is crossed out.\n- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.\n- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.\n- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.\n\nSelect a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.\n\nKeys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).\n\nIt needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, **serve:host.check_job** to show a Host down when a check of it fails, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
             "summary": "The map: this Box, your Hosts by group, the Mesh, and who can reach whom",
             "title": "Topology"
           }
@@ -553,6 +593,12 @@
                   "style": "dotted",
                   "to": "esx-01",
                   "tone": "error"
+                },
+                {
+                  "from": ":box",
+                  "id": "live:nas-02",
+                  "to": "nas-02",
+                  "tone": "live"
                 }
               ],
               "nodes": [
@@ -620,7 +666,8 @@
                   "label": "nas-02",
                   "mark": "warn",
                   "note": "Mesh pending",
-                  "shape": "dot"
+                  "shape": "dot",
+                  "state": "live"
                 },
                 {
                   "cluster": ":group:web",
@@ -977,6 +1024,55 @@
       ]
     },
     {
+      "do": "event",
+      "name": "job_progress",
+      "ops": [],
+      "payload": {
+        "action": "check",
+        "at": "tcp",
+        "done": 5,
+        "host": "nas-01",
+        "job": "check-3",
+        "kind": "check",
+        "state": "running",
+        "total": 8
+      }
+    },
+    {
+      "do": "event",
+      "name": "job_progress",
+      "ops": [
+        {
+          "changes": {
+            "nodes": [
+              {
+                "cluster": ":group:storage",
+                "detail": "10.0.1.5",
+                "host": "nas-01",
+                "id": "nas-01",
+                "kind": "nas",
+                "label": "nas-01",
+                "note": "check failed at tcp",
+                "shape": "dot",
+                "state": "down"
+              }
+            ]
+          },
+          "id": "topology",
+          "op": "view_update"
+        }
+      ],
+      "payload": {
+        "action": "check",
+        "done": 8,
+        "host": "nas-01",
+        "job": "check-3",
+        "kind": "check",
+        "state": "done",
+        "total": 8
+      }
+    },
+    {
       "do": "action",
       "label": "Cut",
       "node": "esx-01",
@@ -1242,7 +1338,7 @@
           "id": "topology",
           "op": "help",
           "spec": {
-            "markdown": "# Topology\n\nA map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ T`; Esc goes back.\n\n- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down is crossed out.\n- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.\n- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.\n- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.\n\nSelect a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.\n\nKeys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).\n\nIt needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
+            "markdown": "# Topology\n\nA map of this Box and every Host, grouped as the Inventory groups them, with the Mesh's reach and Links. `:topology` opens it (`:topology GROUP` shows one group), and so does `␣ T`; Esc goes back.\n\n- **Nodes:** this Box is the square; a filled node takes a key, a ring a password, a dashed ring isn't reviewed, a hollow one's Session ended. A live Session is in the accent, with its edge from this Box; a Host that's down (its Session couldn't connect, or a check of it failed) is crossed out.\n- **Edges:** grey from this Box to each group; solid for a Mesh key, dashed for a password peer, an arrow one way. A cluster drawn as a mesh reaches itself both ways. A broken, dotted edge is a cut not finished.\n- **Marks:** warn for a Host that didn't answer the last apply or has no Link to its hop, error for a cut not finished. The text above the map says when the Mesh is out of date.\n- **A group the Mesh touches** shows as up to three clusters: its Hosts that reach each other, its password peers (reached, never reaching), and the ones not in the Mesh.\n\nSelect a Host to light up what it can reach and what can reach it, every hop: what its key reaches, and what those Hosts' own keys reach, which is what someone on it could reach. Its details (`i`) say how many directly.\n\nKeys: `h` `j` `k` `l` move, `/` searches, `f` filters by group, kind or state (hiding the rest), `o` collapses a group, `+` `-` `0` zoom, `t` lists every node and edge. On a Host: Enter opens a Session, `i` its details, `c` Check, `x` Cut from the Mesh (after you type its name).\n\nIt needs **inventory.read** for the Hosts, **serve:mesh.status** for the Mesh, **serve:host.check** for Check, **serve:host.check_job** to show a Host down when a check of it fails, and **serve:mesh.cut** with **serve:mesh.job** for Cut. Without one it says so above the map.",
             "summary": "The map: this Box, your Hosts by group, the Mesh, and who can reach whom",
             "title": "Topology"
           }
