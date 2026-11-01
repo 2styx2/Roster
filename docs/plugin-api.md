@@ -50,6 +50,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.help.set(topic, page)`](#rosterhelpsettopic-page) | Adds a help page, or replaces it | none |
 | [`roster.help.remove(topic)`](#rosterhelpremovetopic) | Removes a help page | none |
 | [`roster.health.set(id, section)`](#rosterhealthsetid-section) | Adds a section to `:check` (this Box's health), or replaces it | none |
+| [`roster.health.answer(check, lines)`](#rosterhealthanswercheck-lines) | Answers a `:check` section's check that returned `"later"` | none |
 | [`roster.health.remove(id)`](#rosterhealthremoveid) | Removes a `:check` section | none |
 | [`roster.tutor.set(id, tutorial)`](#rostertutorsetid-tutorial) | Adds a tutorial, or replaces it | none |
 | [`roster.tutor.remove(id)`](#rostertutorremoveid) | Removes a tutorial | none |
@@ -1033,6 +1034,42 @@ roster.health.set("recent-alerts", {
     return { { level = "ok", message = #alerts .. " alerts so far" } }
   end,
 })
+```
+
+### `roster.health.answer(check, lines)`
+
+Answers a `:check` section's check that returned `"later"`. A `check` that needs roster serve returns `"later"` at once and answers with this from the request's `done`, so it never waits for serve on the Plugin's thread. The app shows the section once it answers, or an `ERROR` line if it hasn't within 30 seconds; an answer for a run that's over (answered, or timed out) is dropped. Any run of the Plugin may answer, not only a call the user started.
+
+**Parameters**
+
+- `check` (`integer`): The `check` field of what the section's `check` was called with.
+- `lines` ([`HealthCheck`](#healthcheck)`[]`): The section's lines for that run.
+
+**Returns**
+
+Nothing.
+
+**Errors**
+
+- `roster.health.answer: lines: …`: lines that aren't plain data.
+- And [those of every function](#errors).
+
+**Refused by the app** (a warning notice, not an error)
+
+- lines whose `level` isn't `ok`, `warn` or `error`, or without a `message`.
+
+**Permission:** none · **Since:** api 3
+
+**Example**
+
+```lua
+check = function(e)
+  roster.serve.request("discover.plan", { targets = { "10.0.0.0/30" } }, function(plan, err)
+    roster.health.answer(e.check, plan and { { level = "ok", message = "scans with " .. plan.scanner } }
+      or { { level = "error", message = err } })
+  end)
+  return "later"
+end
 ```
 
 ### `roster.health.remove(id)`
@@ -2328,6 +2365,7 @@ Since api 3 (api 2 called them with an empty table). Only the fields for what ra
 | `item` | `string` | no | The item's `id` (its place, if it has none). |
 | `segment` | `string` | no | The status segment's id. |
 | `health` | `string` | no | The `:check` section's id, for its `check`. |
+| `check` | `integer` | no | This `:check` run of the section, for its `check`: a check that returns `"later"` answers with [`roster.health.answer`](#rosterhealthanswercheck-lines)`(e.check, lines)` (since api 3). |
 | `toolbar` | `string` | no | The toolbar control's id. |
 | `progress` | `string` | no | The progress's id, for its `cancel`. |
 | `confirm` | `"yes"\|"no"` | no | For a question's `run` (`"yes"`) or `cancel` (`"no"`, also when another Plugin's question replaced it). |
@@ -2510,7 +2548,7 @@ A section of `:check` (`roster.health.set`).
 |---|---|---|---|
 | `title` | `string` | no | Its heading; the id if left out. |
 | `checks` | [`HealthCheck`](#healthcheck)`[]` | no | Its lines, as they are now. Left out with `check`. |
-| `check` | `fun(ctx: `[`HandlerContext`](#handlercontext)`): `[`HealthCheck`](#healthcheck)`[]` | no | Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`. |
+| `check` | `fun(ctx: `[`HandlerContext`](#handlercontext)`): `[`HealthCheck`](#healthcheck)`[]\|"later"` | no | Called on each `:check` (since api 3): returns the section's lines, or `"later"` and answers with [`roster.health.answer`](#rosterhealthanswercheck-lines) within 30 seconds, from a `roster.serve.request`'s `done` say. Wins over `checks`. |
 
 ### `HealthCheck`
 

@@ -1218,6 +1218,16 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         roster.raw_set(module, t)?;
     }
 
+    // A `:check` section's lines for a run whose `check` returned "later" (decision Q112h): from a
+    // request's answer, so the check never waits for serve on the Plugin's thread.
+    {
+        let health: Table = roster.raw_get("health")?;
+        func!(health, "answer", |_lua, s, (check, lines): (u64, Value)| {
+            let checks = plain(s, "roster.health.answer: lines", &lines)?;
+            push(s, json!({ "op": "health_answer", "check": check, "checks": checks }))
+        });
+    }
+
     // A badge on a Host's rows ("2 alerts"); nil takes it off.
     let badges = lua.create_table()?;
     func!(

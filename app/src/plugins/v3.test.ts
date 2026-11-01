@@ -2,7 +2,7 @@
 // finder item or segment ran them and the Session on screen (with the permission to know it),
 // a Plugin takes its key bindings and Themes away, and a `:check` section can be a function the
 // app calls on each run, within a time limit.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fakeBackend, makeHosts } from "../backend/fake";
 import type { FakePlugin } from "../backend/fakePlugins";
 import { builtinRegistries } from "../registries";
@@ -32,6 +32,7 @@ function setup(p: FakePlugin, onScreen: PluginUi["onScreen"] = () => ({ session:
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
   const ui: PluginUi = { run: () => undefined, send: () => undefined, copy: async () => undefined, onScreen };
   const manager = new PluginManager(backend, registries, store, ui);
+  backend.onPluginReply((r) => manager.replied(r));
   const command = pluginsCommand(manager, () => undefined);
   /** Runs a command line a Plugin's row, item or segment holds, as the app does. */
   const run = async (line: string | undefined) => {
@@ -148,6 +149,51 @@ describe("a :check section that's a function", () => {
     const [badLine] = await bad.registries.health.get("doctor")!.checks({} as never);
     expect(badLine).toMatchObject({ section: "doctor", level: "error" });
     expect(badLine!.message).toMatch(/level must be "ok", "warn" or "error"/);
+  });
+});
+
+describe("a :check section that answers later (decision Q112h)", () => {
+  const later = (answer: (roster: Parameters<FakePlugin["load"]>[0], c: Record<string, unknown>) => void): FakePlugin => ({
+    manifest: { name: "doctor", version: "1", description: "", author: null, api: 3, permissions: ["serve:hosts.list"] },
+    load(roster) {
+      roster.health.set("doctor", {
+        title: "Doctor",
+        check: (c: Record<string, unknown>) => {
+          answer(roster, c);
+          return "later";
+        },
+      });
+    },
+  });
+
+  it("returns \"later\" and answers from a request's answer, so it never waits for serve", async () => {
+    const { manager, registries } = setup(
+      later((roster, c) =>
+        roster.serve.request("hosts.list", {}, () => {
+          roster.health.answer(c.check as number, [{ level: "ok", message: "roster serve answered" }]);
+        }),
+      ),
+    );
+    await manager.start();
+    expect(await registries.health.get("doctor")!.checks({} as never)).toEqual([{ section: "doctor", level: "ok", message: "roster serve answered" }]);
+  });
+
+  it("one that never answers is an ERROR line after 30 seconds; a late answer is dropped", async () => {
+    vi.useFakeTimers();
+    try {
+      let check = 0;
+      const { manager, registries } = setup(later((_, c) => void (check = c.check as number)));
+      await manager.start();
+      const lines = registries.health.get("doctor")!.checks({} as never);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const [line] = await lines;
+      expect(line).toMatchObject({ section: "doctor", level: "error" });
+      expect(line!.message).toMatch(/didn't within 30 seconds/);
+      expect(check).toBeGreaterThan(0);
+      expect(registries.health.get("doctor")!.wait).toBe(33_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

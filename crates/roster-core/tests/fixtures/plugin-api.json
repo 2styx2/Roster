@@ -512,6 +512,24 @@
     {
       "params": [
         {
+          "name": "check",
+          "optional": false,
+          "type": "integer"
+        },
+        {
+          "name": "lines",
+          "optional": false,
+          "type": "HealthCheck[]"
+        }
+      ],
+      "path": "roster.health.answer",
+      "permission": null,
+      "returns": "",
+      "since": 3
+    },
+    {
+      "params": [
+        {
           "name": "id",
           "optional": false,
           "type": "string"
@@ -1208,6 +1226,7 @@
     "roster.float.open()": "plugin-api#rosterfloatopenfloat",
     "roster.has()": "plugin-api#rosterhaspermission",
     "roster.health": "plugin-api#rosterhealth",
+    "roster.health.answer()": "plugin-api#rosterhealthanswercheck-lines",
     "roster.health.remove()": "plugin-api#rosterhealthremoveid",
     "roster.health.set()": "plugin-api#rosterhealthsetid-section",
     "roster.help": "plugin-api#rosterhelp",
@@ -1965,6 +1984,11 @@
           "type": "string"
         },
         {
+          "name": "check",
+          "required": false,
+          "type": "integer"
+        },
+        {
           "name": "toolbar",
           "required": false,
           "type": "string"
@@ -2027,7 +2051,7 @@
         {
           "name": "check",
           "required": false,
-          "type": "fun(ctx: HandlerContext): HealthCheck[]"
+          "type": "fun(ctx: HandlerContext): HealthCheck[]|\"later\""
         }
       ],
       "open": false

@@ -28,11 +28,17 @@ export interface HealthSection extends Entry {
   /** A Plugin's section with a `check` function (ticket 60) answers later: it's called in the
    * Plugin, which has the time budget of any call. */
   checks(ctx: HealthContext): HealthCheck[] | Promise<HealthCheck[]>;
+  /** How long `:check` waits for it, when not SECTION_WAIT_MS: a Plugin's check may answer later,
+   * from a request's answer (`roster.health.answer`, HEALTH_LATER_MS). */
+  wait?: number;
 }
 
 /** How long `:check` waits for a section that answers later: a Plugin's call has a quarter of a
  * second, and the core gives up on one two seconds after that (plugin::Limits). */
 export const SECTION_WAIT_MS = 3000;
+/** How long a Plugin's check that returned "later" has to answer (`roster.health.answer`):
+ * roster serve's answer may wait behind a Publish (decision Q112h). */
+export const HEALTH_LATER_MS = 30_000;
 
 export type HealthRegistry = Registry<HealthSection>;
 
@@ -160,10 +166,11 @@ export async function runHealth(sections: readonly HealthSection[], ctx: HealthC
   const out: HealthResult[] = await Promise.all(
     sorted.map(async (s): Promise<HealthResult> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const late = new Promise<"late">((resolve) => (timer = setTimeout(() => resolve("late"), waitMs)));
+      const limit = s.wait ?? waitMs;
+      const late = new Promise<"late">((resolve) => (timer = setTimeout(() => resolve("late"), limit)));
       try {
         const checks = await Promise.race([Promise.resolve().then(() => s.checks(ctx)), late]);
-        if (checks === "late") return failed(s, `this section didn't answer within ${waitMs / 1000} seconds`);
+        if (checks === "late") return failed(s, `this section didn't answer within ${limit / 1000} seconds`);
         return { id: s.id, title: s.title, source: s.source, checks };
       } catch (e) {
         return failed(s, `this section failed: ${e instanceof Error ? e.message : String(e)}`);

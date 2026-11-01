@@ -44,6 +44,7 @@
 ---@field item? string The item's `id` (its place, if it has none).
 ---@field segment? string The status segment's id.
 ---@field health? string The `:check` section's id, for its `check`.
+---@field check? integer This `:check` run of the section, for its `check`: a check that returns `"later"` answers with `roster.health.answer``(e.check, lines)` (since api 3).
 ---@field toolbar? string The toolbar control's id.
 ---@field progress? string The progress's id, for its `cancel`.
 ---@field confirm? "yes"|"no" For a question's `run` (`"yes"`) or `cancel` (`"no"`, also when another Plugin's question replaced it).
@@ -159,7 +160,7 @@
 ---@class roster.HealthSection
 ---@field title? string Its heading; the id if left out.
 ---@field checks? roster.HealthCheck[] Its lines, as they are now. Left out with `check`.
----@field check? fun(ctx: roster.HandlerContext): roster.HealthCheck[] Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`.
+---@field check? fun(ctx: roster.HandlerContext): roster.HealthCheck[]|"later" Called on each `:check` (since api 3): returns the section's lines, or `"later"` and answers with `roster.health.answer` within 30 seconds, from a `roster.serve.request`'s `done` say. Wins over `checks`.
 
 --- One line of a `:check` section
 ---@class roster.HealthCheck
@@ -823,6 +824,12 @@ roster.health = {}
 ---@param id string The section's id.
 ---@param section roster.HealthSection Its title, and its checks or the function that makes them.
 function roster.health.set(id, section) end
+
+--- Answers a `:check` section's check that returned `"later"`.
+--- Permission: none. Since: api 3.
+---@param check integer The `check` field of what the section's `check` was called with.
+---@param lines roster.HealthCheck[] The section's lines for that run.
+function roster.health.answer(check, lines) end
 
 --- Removes a `:check` section.
 --- Permission: none. Since: api 2.

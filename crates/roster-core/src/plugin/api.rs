@@ -953,6 +953,25 @@ pub const FUNCTIONS: &[Function] = &[
         example: "roster.health.set(\"recent-alerts\", {\n  title = \"Recent alerts\",\n  check = function()\n    if not granted(\"terminal.read\") then\n      return { { level = \"warn\", message = \"terminal.read isn't granted\", fix = \"Allow it in :plugins\" } }\n    end\n    return { { level = \"ok\", message = #alerts .. \" alerts so far\" } }\n  end,\n})",
     },
     Function {
+        path: "roster.health.answer",
+        params: &[
+            p(
+                "check",
+                "integer",
+                "The `check` field of what the section's `check` was called with.",
+            ),
+            p("lines", "HealthCheck[]", "The section's lines for that run."),
+        ],
+        summary: "Answers a `:check` section's check that returned `\"later\"`",
+        doc: "A `check` that needs roster serve returns `\"later\"` at once and answers with this from the request's `done`, so it never waits for serve on the Plugin's thread. The app shows the section once it answers, or an `ERROR` line if it hasn't within 30 seconds; an answer for a run that's over (answered, or timed out) is dropped. Any run of the Plugin may answer, not only a call the user started.",
+        returns: ("", ""),
+        errors: &[("roster.health.answer: lines: …", "lines that aren't plain data")],
+        refused: &["lines whose `level` isn't `ok`, `warn` or `error`, or without a `message`"],
+        needs: Needs::Nothing,
+        since: 3,
+        example: "check = function(e)\n  roster.serve.request(\"discover.plan\", { targets = { \"10.0.0.0/30\" } }, function(plan, err)\n    roster.health.answer(e.check, plan and { { level = \"ok\", message = \"scans with \" .. plan.scanner } }\n      or { { level = \"error\", message = err } })\n  end)\n  return \"later\"\nend",
+    },
+    Function {
         path: "roster.health.remove",
         params: &[p("id", "string", "One of the Plugin's sections.")],
         summary: "Removes a `:check` section",
@@ -1973,6 +1992,11 @@ pub const TYPES: &[Type] = &[
             o("item", "string", "The item's `id` (its place, if it has none)."),
             o("segment", "string", "The status segment's id."),
             o("health", "string", "The `:check` section's id, for its `check`."),
+            o(
+                "check",
+                "integer",
+                "This `:check` run of the section, for its `check`: a check that returns `\"later\"` answers with [`roster.health.answer`](#rosterhealthanswercheck-lines)`(e.check, lines)` (since api 3).",
+            ),
             o("toolbar", "string", "The toolbar control's id."),
             o("progress", "string", "The progress's id, for its `cancel`."),
             o(
@@ -2337,8 +2361,8 @@ pub const TYPES: &[Type] = &[
             ),
             o(
                 "check",
-                "fun(ctx: HandlerContext): HealthCheck[]",
-                "Called on each `:check` (since api 3): returns the section's lines. Wins over `checks`.",
+                "fun(ctx: HandlerContext): HealthCheck[]|\"later\"",
+                "Called on each `:check` (since api 3): returns the section's lines, or `\"later\"` and answers with [`roster.health.answer`](#rosterhealthanswercheck-lines) within 30 seconds, from a `roster.serve.request`'s `done` say. Wins over `checks`.",
             ),
         ],
         open: false,
