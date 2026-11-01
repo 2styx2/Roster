@@ -52,6 +52,11 @@ export function demoHosts(): HostList {
 /** The demo's Backend, and what to do when the demo ends. */
 export interface Demo {
   backend: Backend;
+  /** Your Plugins as the demo loads them: null when it can't (`problem` says why), and then the
+   * demo runs with its built-in Plugins only and none of yours is put in its State. */
+  plugins: DemoPlugins | null;
+  /** Why your Plugins aren't in the demo, said once there; null when they are (or there are none). */
+  problem: string | null;
   /** Stops the demo's Plugins and throws their files away. */
   close(): Promise<void>;
 }
@@ -60,27 +65,34 @@ export interface Demo {
  * (ticket 66, decision Q123): `real`'s demo Plugin host runs `plugins` (the ones running in your
  * workspace) against the demo's Hosts, offline, with throwaway files; their Packages are the
  * clones you have, never fetched. If `real` has no demo host, or it can't start one, the demo has
- * only its built-in Plugins. */
+ * only its built-in Plugins, and `problem` says why. */
 export async function demoBackend(real?: Backend, plugins?: DemoPlugins): Promise<Demo> {
   const { fakeBackend } = await import("../backend/fake");
   const hosts = demoHosts();
   const backend: Backend = fakeBackend({ hosts, vault: { status: "unsupported" } });
-  const host = await real?.demoPlugins?.(hosts).catch(() => undefined);
-  if (!host) return { backend, close: async () => {} };
+  const yours = plugins && plugins.installed.some((e) => !e.path.startsWith("builtin:")) ? plugins : null;
+  const without = (problem: string | null): Demo => ({ backend, plugins: null, problem, close: async () => {} });
+  if (!real?.demoPlugins) return without(yours ? "Your Plugins aren't in the demo: this roster can't run them there. The tutorial runs with roster's own." : null);
+  let host;
+  try {
+    host = await real.demoPlugins(hosts);
+  } catch (e) {
+    return without(`Your Plugins aren't in the demo: ${e instanceof Error ? e.message : String(e)}. The tutorial runs with roster's own.`);
+  }
   const { close, ...methods } = host;
   const packages = plugins?.packages ?? [];
   Object.assign(backend, methods, { packagesSync: async () => packages });
-  return { backend, close: () => close().catch(() => undefined) };
+  return { backend, plugins: plugins ?? null, problem: null, close: () => close().catch(() => undefined) };
 }
 
 /** The State keys the demo starts from, so it looks like your app: the Theme and the hints. */
 const LOOKS = [THEME_KEY, THEME_OVER_KEY, HINTS_KEY];
 
-/** A Platform for the demo: a State in memory (seeded with how the app looks and the Plugins you
- * run, never saved), and
- * from `real` only the window, the clipboard, fonts and init.lua. No folders.yml (the demo's
- * Folders Plugin keeps Folders in the demo's fake Backend), no browser (its Hosts' addresses are made up), no fullscreen
- * (Focus in the demo leaves the window as it is), and `:config import-terminal` can't write. */
+/** A Platform for the demo: a State in memory (seeded with how the app looks and, when the demo
+ * can run them, the Plugins you run; never saved), and from `real` only the window, the
+ * clipboard, fonts and init.lua. No folders.yml (the demo's Folders Plugin keeps its Folders in
+ * the demo's throwaway files), no browser (its Hosts' addresses are made up), no fullscreen (Focus
+ * in the demo leaves the window as it is), and `:config import-terminal` can't write. */
 export function demoPlatform(real: Platform, looks: (key: string) => unknown, plugins?: DemoPlugins): Platform {
   const seed: Record<string, unknown> = Object.fromEntries(LOOKS.flatMap((k) => (looks(k) === undefined ? [] : [[k, looks(k)]])));
   // Your Plugins, with what each was granted (ticket 66): the demo's manager loads them from here.

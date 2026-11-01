@@ -220,7 +220,8 @@ export function tauriBackend(): Backend {
     // `:tutor`'s demo (ticket 66, decision Q123): the same commands, on the demo's own host.
     async demoPlugins(hosts) {
       const id = await call<number>("plugin_demo_start", { hosts });
-      const onDemo = true;
+      // Every call names its demo: one for an earlier demo reaches nothing (decision Q123).
+      const onDemo = id;
       return {
         pluginManifest: (path) => call("plugin_manifest", { path }),
         pluginTypes: (path) => call<string>("plugin_types", { path }),
@@ -230,7 +231,9 @@ export function tauriBackend(): Backend {
         pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin, onDemo }),
         pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin, onDemo }),
         onPluginReply(onReply) {
-          const stop = listen<PluginReply>("plugin-demo-reply", (e) => onReply(e.payload));
+          const stop = listen<{ demo: number; reply: PluginReply }>("plugin-demo-reply", (e) => {
+            if (e.payload.demo === id) onReply(e.payload.reply);
+          });
           return () => void stop.then((f) => f());
         },
         close: () => call<unknown>("plugin_demo_stop", { id }).then(() => undefined),

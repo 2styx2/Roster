@@ -214,7 +214,15 @@ interface TutorLink {
   progress: TutorProgress;
   /** Starts `tutorial` on the demo, with `plugins` (the ones running here) loaded there too. */
   start?(tutorial: TutorialDef, plugins?: DemoPlugins): void;
-  demo?: { tutorial: TutorialDef; leave(): void; switchTo(tutorial: TutorialDef): void };
+  demo?: {
+    tutorial: TutorialDef;
+    leave(): void;
+    switchTo(tutorial: TutorialDef): void;
+    /** Registers what stops this workspace's Plugins when the demo ends (ticket 66). */
+    onStop(stop: () => void): () => void;
+    /** Why your Plugins aren't in the demo, said once; null when they are. */
+    problem: string | null;
+  };
 }
 
 interface WorkspaceProps extends AppProps {
@@ -238,13 +246,15 @@ export function App(props: AppProps) {
   // runs on once its fake Backend has loaded.
   const [tutorial, setTutorial] = useState<TutorialDef | null>(null);
   const [plugins, setPlugins] = useState<DemoPlugins | null>(null);
-  const [loaded, setLoaded] = useState<{ backend: Backend; platform: Platform; close(): Promise<void> } | null>(null);
+  const [loaded, setLoaded] = useState<{ backend: Backend; platform: Platform; problem: string | null; close(): Promise<void> } | null>(null);
+  // What stops the demo's Plugin manager (its workspace registers it), run before the demo goes.
+  const [stoppers] = useState(() => new Set<() => void>());
   const realBackend = props.backend;
   useEffect(() => {
     if (!tutorial || loaded) return;
     let live = true;
     void demoBackend(realBackend, plugins ?? undefined).then((demo) => {
-      if (live) setLoaded({ backend: demo.backend, platform: demoPlatform(platform, (k) => store.get(k), plugins ?? undefined), close: demo.close });
+      if (live) setLoaded({ backend: demo.backend, platform: demoPlatform(platform, (k) => store.get(k), demo.plugins ?? undefined), problem: demo.problem, close: demo.close });
       else void demo.close();
     });
     return () => {
@@ -259,14 +269,24 @@ export function App(props: AppProps) {
   // Leaving stops the demo's Plugins and throws their files away (the core does it too when the
   // app quits).
   const leave = useCallback(() => {
+    for (const stop of [...stoppers]) stop();
+    stoppers.clear();
     void loaded?.close();
     setTutorial(null);
     setPlugins(null);
     setLoaded(null);
-  }, [loaded]);
+  }, [loaded, stoppers]);
+  const onStop = useCallback(
+    (stop: () => void) => {
+      stoppers.add(stop);
+      return () => void stoppers.delete(stop);
+    },
+    [stoppers],
+  );
   const demo = tutorial && loaded ? { tutorial, ...loaded } : null;
   const real = useMemo(() => ({ progress, start }), [progress, start]);
-  const inDemo = useMemo(() => (tutorial ? { progress, demo: { tutorial, leave, switchTo: start } } : null), [tutorial, progress, leave, start]);
+  const problem = loaded?.problem ?? null;
+  const inDemo = useMemo(() => (tutorial ? { progress, demo: { tutorial, leave, switchTo: start, onStop, problem } } : null), [tutorial, progress, leave, start, onStop, problem]);
   return (
     <>
       <div className="app-slot" hidden={demo !== null} inert={demo !== null}>
@@ -524,6 +544,14 @@ function Workspace({
       }),
   );
   const pluginSnap = useSyncExternalStore(plugins.subscribe, plugins.snapshot);
+  // On the demo: its Plugins stop for good when the tutorial ends (ticket 66).
+  const demoStop = tutor?.demo?.onStop;
+  useEffect(() => demoStop?.(() => plugins.stop()), [demoStop, plugins]);
+  // And why your Plugins aren't there, if they aren't: one notice.
+  const demoProblem = tutor?.demo?.problem ?? null;
+  useEffect(() => {
+    if (demoProblem && !plugins.snapshot().notices.some((n) => n.text === demoProblem)) plugins.notify("tutor", "warn", demoProblem);
+  }, [demoProblem, plugins]);
   // Views (ticket 76): the one open, and each Host's sections from Plugins.
   const viewAt = useSyncExternalStore(viewHost.subscribe, viewHost.snapshot);
   useEffect(() => registerViews(registries, viewHost), [registries, viewHost]);

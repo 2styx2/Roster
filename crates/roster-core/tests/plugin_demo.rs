@@ -242,3 +242,83 @@ fn an_offline_request_is_checked_as_online_and_the_in_flight_cap_holds() {
         assert!(got.contains(want), "{got:?} should say {want:?}; all: {said:?}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn the_demo_folder_is_the_users_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = common::temp("plugin-demo-scratch");
+    let host = DemoHost::new(demo_hosts(), Limits::default(), &scratch).unwrap();
+    let mode = std::fs::metadata(host.data()).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+}
+
+/// A process that has ended: its pid names no one now.
+#[cfg(unix)]
+fn dead_pid() -> u32 {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
+#[cfg(unix)]
+#[test]
+fn a_demo_folder_a_crash_left_behind_is_swept_and_nothing_else() {
+    use roster_core::plugin::demo::sweep;
+    let scratch = common::temp("plugin-demo-scratch");
+    let stale = scratch.join(format!("roster-demo-{}-1-0", dead_pid()));
+    std::fs::create_dir_all(stale.join("plugin-data/teacher")).unwrap();
+    std::fs::write(stale.join("plugin-data/teacher/seen.txt"), "x").unwrap();
+    // A live demo (this process's), a link, and a folder of another name all stay.
+    let live = scratch.join(format!("roster-demo-{}-1-0", std::process::id()));
+    std::fs::create_dir(&live).unwrap();
+    let target = common::temp("plugin-demo-target");
+    std::fs::write(target.join("keep.txt"), "x").unwrap();
+    let link = scratch.join(format!("roster-demo-{}-2-0", dead_pid()));
+    std::os::unix::fs::symlink(&*target, &link).unwrap();
+    let other = scratch.join("roster-demo-notes");
+    std::fs::create_dir(&other).unwrap();
+
+    sweep(&scratch, Duration::ZERO);
+
+    assert!(!stale.exists(), "the crashed demo's folder stayed");
+    assert!(live.exists());
+    assert!(link.symlink_metadata().is_ok() && target.join("keep.txt").exists());
+    assert!(other.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_young_demo_folder_stays_however_its_pid_looks() {
+    use roster_core::plugin::demo::sweep;
+    let scratch = common::temp("plugin-demo-scratch");
+    let young = scratch.join(format!("roster-demo-{}-1-0", dead_pid()));
+    std::fs::create_dir(&young).unwrap();
+    sweep(&scratch, Duration::from_secs(600));
+    assert!(young.exists());
+}
+
+/// The demo slot the Tauri shell keeps: one demo at a time, each with its number.
+#[test]
+fn a_demo_answers_only_to_its_own_number_and_an_older_start_never_replaces_a_newer_demo() {
+    use roster_core::plugin::demo::DemoSlot;
+    let scratch = common::temp("plugin-demo-scratch");
+    let slot = DemoSlot::default();
+    let older = slot.reserve();
+    let newer = slot.reserve();
+    let new_host = || DemoHost::new(demo_hosts(), Limits::default(), &scratch).unwrap();
+    // The newer start finishes first; the older one, finishing after, is turned away.
+    slot.install(newer, new_host()).unwrap();
+    assert!(slot.install(older, new_host()).is_err());
+    assert!(slot.get(newer).is_ok());
+    // A call or a stop naming the older demo reaches nothing.
+    assert!(slot.get(older).is_err());
+    assert!(slot.stop(older).is_none());
+    assert!(slot.get(newer).is_ok());
+    let gone = slot.stop(newer).unwrap();
+    assert!(slot.get(newer).is_err());
+    let folder = gone.data().to_path_buf();
+    drop(gone);
+    assert!(!folder.exists());
+}

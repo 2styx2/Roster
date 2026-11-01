@@ -312,6 +312,8 @@ export class PluginManager {
   /** The flush running, if any: the next waits for it (a Session's events stay in order). */
   private flushing: Promise<void> = Promise.resolve();
   private started = false;
+  /** Stopped for good (`stop`): nothing loads, no event or call reaches the core. */
+  private stopped = false;
   /** What each built-in Plugin was last loaded with, so a change reloads it (`reloadBuiltin`). */
   private readonly builtinConfig = new Map<string, string>();
   /** A Plugin command's last completions (api 3), by plugin and command: what Tab shows while the
@@ -367,7 +369,7 @@ export class PluginManager {
   }
 
   private async startNow(): Promise<void> {
-    if (this.started) return;
+    if (this.started || this.stopped) return;
     this.started = true;
     const list = this.installed();
     for (const path of BUILTIN_PLUGINS) {
@@ -737,6 +739,7 @@ export class PluginManager {
 
   /** Tells the Plugins that listen. A Session that ended sends what it had first. */
   async event(name: PluginEventName, payload: Record<string, unknown> = {}): Promise<void> {
+    if (this.stopped) return;
     if (name === "session_exit" && typeof payload.session === "number") {
       const session = payload.session;
       const flushed = this.flushing.then(() => this.flushSession(session));
@@ -781,7 +784,7 @@ export class PluginManager {
       lines.resize(size);
       return lines.write(data);
     });
-    this.outputTimer ??= setTimeout(() => void this.flushOutput(), OUTPUT_EVERY_MS);
+    if (!this.stopped) this.outputTimer ??= setTimeout(() => void this.flushOutput(), OUTPUT_EVERY_MS);
   }
 
   /** Sends the lines committed so far (tests call it rather than wait). Flushes run one after
@@ -861,6 +864,23 @@ export class PluginManager {
     return { installed, packages: this.packages.filter((p) => p.pinned && paths.has(`${PACKAGE_PREFIX}${p.name}`)) };
   }
 
+  /** Stops every Plugin for good (ticket 66: the demo's manager, when the tutorial ends): their UI,
+   * timers and listeners go, and nothing more is loaded, sent or called. The core's copies are
+   * the caller's to stop (the demo's host goes with the demo). */
+  stop(): void {
+    this.stopped = true;
+    for (const [name, l] of [...this.loaded]) {
+      for (const d of l.disposers.values()) d();
+      this.loaded.delete(name);
+      this.forgetUi(name);
+    }
+    if (this.outputTimer) clearTimeout(this.outputTimer);
+    this.outputTimer = null;
+    for (const s of this.screens.values()) s.lines.dispose();
+    this.screens.clear();
+    this.changed();
+  }
+
   /** Every loaded or known Plugin's name (`:plugins remove` completes them). */
   names(): string[] {
     return this.snap.plugins.map((p) => p.name);
@@ -880,6 +900,7 @@ export class PluginManager {
   }
 
   private async loadNow(path: string, granted: string[] | null, name: string) {
+    if (this.stopped) return;
     let result;
     try {
       // A built-in Plugin is granted everything it asks for until a permission is revoked.
@@ -894,6 +915,8 @@ export class PluginManager {
       return;
     }
     const { manifest, reply } = result;
+    // Stopped while it loaded: the core's copy goes too, and nothing of it is shown.
+    if (this.stopped) return void (await this.backend.pluginUnload(manifest.name).catch(() => false));
     await this.unload(manifest.name, false);
     const asked = manifest.permissions.map((p) => p.name);
     const info = { manifest, path, granted: granted === null ? asked : granted.filter((g) => asked.includes(g)) };
@@ -1577,7 +1600,8 @@ export class PluginManager {
     return { label: a.label, icon: a.icon, command: this.line(plugin, a.run, context) };
   }
 
-  private notify(plugin: string, level: Notice["level"], text: string, actions: Notice["actions"] = []) {
+  /** A notice from `plugin` (or the app about Plugins, as `:tutor`'s demo does, ticket 66). */
+  notify(plugin: string, level: Notice["level"], text: string, actions: Notice["actions"] = []) {
     const notice: Notice = { id: ++this.noticeId, plugin, level, text, ...(actions.length ? { actions } : {}) };
     this.notices = [...this.notices, notice].slice(-MAX_NOTICES);
     this.changed();

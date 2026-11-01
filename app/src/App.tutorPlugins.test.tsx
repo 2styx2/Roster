@@ -147,4 +147,68 @@ describe(":tutor with your Plugins", () => {
     expect(await screen.findByText("coach: 6 Hosts, 0 files")).toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
+
+  it("if the demo can't run your Plugins, it says why once and runs with roster's own only", async () => {
+    const user = userEvent.setup();
+    const backend = fakeBackend({ hosts: makeHosts(12), plugins: { "~/plugins/coach": coach } });
+    backend.demoPlugins = () => Promise.reject(new Error("no room in the temp folder"));
+    const perms = ["inventory.read", "serve:mesh.status"];
+    const platform = memoryPlatform({ state: { plugins: [{ path: "~/plugins/coach", name: "coach", granted: perms, asked: perms }] } });
+    render(<App backend={backend} terminalView={StubTerminal} platform={platform} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await user.keyboard(`${LEADER}:tutor{Enter}`);
+    await waitFor(() => expect(banner()).not.toBeNull());
+    expect(await screen.findAllByText(/Your Plugins aren't in the demo: no room in the temp folder/)).toHaveLength(1);
+    // Not loaded on roster's own fake host either: no load error for it, no :coach.
+    expect(screen.queryByText(/coach: /)).toBeNull();
+    await screen.findByRole("complementary", { name: "Help" });
+    await user.keyboard(`${LEADER}:coach{Enter}`);
+    expect(screen.queryByText("coach: 6 Hosts, 0 files")).toBeNull();
+  });
+
+  it("leaving stops the demo's Plugins: no timer of theirs reaches the demo's host after it closed", async () => {
+    const user = userEvent.setup();
+    const ticker: FakePlugin = {
+      manifest: { name: "ticker", version: "1", description: "", author: null, api: 3, permissions: [] },
+      load(roster) {
+        const tick = () => {
+          roster.status.set("tick", { text: "tick" });
+          roster.defer(50, tick);
+        };
+        roster.defer(50, tick);
+      },
+    };
+    const backend = fakeBackend({ hosts: makeHosts(12), plugins: { "~/plugins/ticker": ticker } });
+    const real = backend.demoPlugins?.bind(backend);
+    let closed = false;
+    let calls = 0;
+    let late = 0;
+    backend.demoPlugins = async (hosts) => {
+      const host = await (real as NonNullable<typeof real>)(hosts);
+      return {
+        ...host,
+        pluginCall: (...args: Parameters<typeof host.pluginCall>) => {
+          calls++;
+          if (closed) late++;
+          return host.pluginCall(...args);
+        },
+        close: async () => {
+          closed = true;
+        },
+      };
+    };
+    const platform = memoryPlatform({ state: { plugins: [{ path: "~/plugins/ticker", name: "ticker", granted: [], asked: [] }] } });
+    render(<App backend={backend} terminalView={StubTerminal} platform={platform} />);
+    await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
+    await screen.findByRole("main", { name: /workspace/i });
+    await user.keyboard(`${LEADER}:tutor{Enter}`);
+    await waitFor(() => expect(banner()).not.toBeNull());
+    await waitFor(() => expect(calls).toBeGreaterThan(1));
+    await user.keyboard(`${LEADER}:tutor quit{Enter}`);
+    await waitFor(() => expect(banner()).toBeNull());
+    expect(closed).toBe(true);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(late).toBe(0);
+  });
 });

@@ -519,24 +519,16 @@ impl plugin::Serve for PluginServe {
 
 /// `:tutor`'s demo (ticket 66, decision Q123): a Plugin host of its own while a tutorial runs,
 /// over the demo Inventory's Hosts, offline, with throwaway data folders ([`plugin::DemoHost`]).
-/// None outside the demo. Each demo has a number, so stopping an old one (a start the frontend let
-/// go of) never stops a newer one.
+/// Each demo has a number; every demo command and reply names it ([`plugin::demo::DemoSlot`]).
 #[derive(Default)]
-struct DemoPlugins(
-    Mutex<Option<(u64, Arc<plugin::DemoHost>)>>,
-    std::sync::atomic::AtomicU64,
-);
+struct DemoPlugins(plugin::demo::DemoSlot);
 
-/// The host a Plugin command means: the demo's (`onDemo: true` from the frontend) or the app's.
-fn plugin_host(plugins: &Arc<PluginHost>, demo: &DemoPlugins, on_demo: Option<bool>) -> Result<PluginTarget, String> {
-    if on_demo == Some(true) {
-        let held = demo.0.lock().map_err(|_| "the demo's Plugins broke".to_string())?;
-        return held
-            .as_ref()
-            .map(|(_, h)| PluginTarget::Demo(Arc::clone(h)))
-            .ok_or_else(|| "no tutorial is running: the demo's Plugins are gone".into());
+/// The host a Plugin command means: demo `demo`'s (only while it's the one running), or the app's.
+fn plugin_host(plugins: &Arc<PluginHost>, demo: &DemoPlugins, on_demo: Option<u64>) -> Result<PluginTarget, String> {
+    match on_demo {
+        Some(id) => demo.0.get(id).map(PluginTarget::Demo),
+        None => Ok(PluginTarget::App(Arc::clone(plugins))),
     }
-    Ok(PluginTarget::App(Arc::clone(plugins)))
 }
 
 enum PluginTarget {
@@ -554,26 +546,30 @@ impl std::ops::Deref for PluginTarget {
     }
 }
 
+/// A demo's reply nobody asked for, with the demo's number so an old demo's never reaches a new one.
+#[derive(serde::Serialize, Clone)]
+struct DemoReply {
+    demo: u64,
+    reply: plugin::Reply,
+}
+
 /// A tutorial starts: a fresh demo Plugin host over `hosts` (`hosts.list`'s answer for the demo
-/// Inventory), in place of any earlier one. Its replies nobody asked for go to the frontend as
-/// `plugin-demo-reply`. Gives the demo's number, for `plugin_demo_stop`.
+/// Inventory), in place of any older one. Its number is taken before the host is made, so a start
+/// that finishes after a newer one is turned away. Its replies nobody asked for go to the
+/// frontend as `plugin-demo-reply`, with the number. Gives the number.
 #[tauri::command]
 async fn plugin_demo_start(
     app: tauri::AppHandle,
     demo: tauri::State<'_, DemoPlugins>,
     hosts: Value,
 ) -> Result<u64, String> {
+    let id = demo.0.reserve();
     let host = blocking(move || plugin::DemoHost::new(hosts, plugin::Limits::default(), &std::env::temp_dir())).await?;
     host.set_listener(Arc::new(move |reply: plugin::Reply| {
         use tauri::Emitter;
-        let _ = app.emit("plugin-demo-reply", reply);
+        let _ = app.emit("plugin-demo-reply", DemoReply { demo: id, reply });
     }));
-    let id = demo.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    let old = demo
-        .0
-        .lock()
-        .map_err(|_| "the demo's Plugins broke".to_string())?
-        .replace((id, Arc::new(host)));
+    let old = demo.0.install(id, host)?;
     blocking(move || {
         drop(old);
         Ok(id)
@@ -581,18 +577,11 @@ async fn plugin_demo_start(
     .await
 }
 
-/// The tutorial ends: demo `id`'s Plugins stop and their throwaway files go (nothing, if a newer
-/// demo took its place).
+/// The tutorial ends: demo `id`'s Plugins stop and their throwaway files go (nothing, if it isn't
+/// the one running).
 #[tauri::command]
 async fn plugin_demo_stop(demo: tauri::State<'_, DemoPlugins>, id: u64) -> Result<(), String> {
-    let old = {
-        let mut held = demo.0.lock().map_err(|_| "the demo's Plugins broke".to_string())?;
-        if held.as_ref().is_some_and(|(at, _)| *at == id) {
-            held.take()
-        } else {
-            None
-        }
-    };
+    let old = demo.0.stop(id);
     blocking(move || {
         drop(old);
         Ok(())
@@ -657,8 +646,8 @@ async fn plugin_types(config: tauri::State<'_, ConfigState>, path: String) -> Re
     .await
 }
 
-/// Loads (or reloads) a Plugin with the permissions the user granted (on the demo's host with
-/// `onDemo`, ticket 66).
+/// Loads (or reloads) a Plugin with the permissions the user granted (on demo `onDemo`'s host,
+/// ticket 66).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri fills each argument from the call or its state
 async fn plugin_load(
@@ -669,7 +658,7 @@ async fn plugin_load(
     path: String,
     grants: Vec<String>,
     settings: Option<Value>,
-    on_demo: Option<bool>,
+    on_demo: Option<u64>,
 ) -> Result<Value, String> {
     let grants: Vec<Permission> = grants.iter().filter_map(|g| Permission::parse(g).ok()).collect();
     let host = plugin_host(&plugins, &demo, on_demo)?;
@@ -796,7 +785,7 @@ async fn plugin_call(
     args: Value,
     user: Option<bool>,
     carried: Option<bool>,
-    on_demo: Option<bool>,
+    on_demo: Option<u64>,
 ) -> Result<plugin::Reply, String> {
     let host = plugin_host(&plugins, &demo, on_demo)?;
     // `user: false`: the app runs it on its own (a finder's items, a `:check`, a timer, a
@@ -821,7 +810,7 @@ async fn plugin_event(
     demo: tauri::State<'_, DemoPlugins>,
     name: String,
     payload: Value,
-    on_demo: Option<bool>,
+    on_demo: Option<u64>,
 ) -> Result<Vec<plugin::Reply>, String> {
     let host = plugin_host(&plugins, &demo, on_demo)?;
     blocking(move || Ok(host.event(plugin::Event { name, payload }))).await
@@ -832,7 +821,7 @@ fn plugin_unload(
     plugins: tauri::State<'_, Arc<PluginHost>>,
     demo: tauri::State<'_, DemoPlugins>,
     plugin: String,
-    on_demo: Option<bool>,
+    on_demo: Option<u64>,
 ) -> bool {
     plugin_host(&plugins, &demo, on_demo).is_ok_and(|h| h.unload(&plugin))
 }
@@ -844,7 +833,7 @@ async fn plugin_forget(
     plugins: tauri::State<'_, Arc<PluginHost>>,
     demo: tauri::State<'_, DemoPlugins>,
     plugin: String,
-    on_demo: Option<bool>,
+    on_demo: Option<u64>,
 ) -> Result<bool, String> {
     let host = plugin_host(&plugins, &demo, on_demo)?;
     blocking(move || host.forget(&plugin)).await
@@ -1210,10 +1199,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 sessions.close_all();
                 // A tutorial still running: its Plugins stop and their throwaway files go.
-                let demo = tauri::Manager::state::<DemoPlugins>(app);
-                if let Ok(mut held) = demo.0.lock() {
-                    drop(held.take());
-                }
+                drop(tauri::Manager::state::<DemoPlugins>(app).0.stop_any());
             }
         });
 }

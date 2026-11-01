@@ -284,10 +284,10 @@ Your Plugin is loaded in the demo too, with the permissions the user granted it,
 
 - **`roster.inventory`** sees the demo's Hosts (`demo-01` to `demo-06`), and the events name them. Write your steps and examples for those.
 - **roster serve** answers only `hosts.list` and `host.get`. Any other method (`roster.inventory.update` and the other writes, `mesh.*`, `discover.*`) is refused with "METHOD isn't on the demo Inventory" ([errors](app/errors.md#a-plugin-on-the-demo-inventory)), after the usual permission checks.
-- **`roster.http`** is there if they granted you a site, but nothing is sent: your function gets `nil` and "URL wasn't sent: the tutorial's demo reaches no network", as for a request that failed.
+- **`roster.http`** is there if they granted you a site, and checks each request as ever (a bad one is an error at once, and at most 4 go at a time), but nothing is sent: your function gets `nil` and "URL wasn't sent: the tutorial's demo reaches no network", as for a request that failed.
 - **`roster.storage`** is a throwaway folder that starts empty and is removed when the demo ends; your real files aren't read or written.
 
-A Plugin that fails to load in the demo gets its usual notice there, and the tutorial runs on (decision Q123).
+A Plugin that fails to load in the demo gets its usual notice there, and the tutorial runs on. If the demo can't run Plugins at all, it says so in one notice and runs with roster's own (decision Q123).
 
 ### Shell integration
 
