@@ -6,6 +6,7 @@ import {
   AddError,
   type AddHostParams,
   BackendCallError,
+  notOnDemo,
   BackendStartError,
   type Backend,
   type BackendInfo,
@@ -690,6 +691,20 @@ function pluginServe(scenario: FakeScenario): FakeServe | undefined {
     const serve = method.startsWith("mesh.") ? mesh : method.startsWith("discover.") ? discover : undefined;
     if (!serve) throw new BackendCallError(`unknown method '${method}'`, -32601);
     return serve(method, params);
+  };
+}
+
+/** roster serve as `:tutor`'s demo has it (plugin/demo.rs in the core): its Hosts, and a refusal
+ * for every other method. */
+function demoServe(demo: HostList): FakeServe {
+  return (method, params) => {
+    if (method === "hosts.list") return demo;
+    if (method === "host.get") {
+      const host = demo.hosts.find((h) => h.name === params.name);
+      if (!host) throw new BackendCallError(`No Host named '${String(params.name)}' on the demo Inventory`, 2);
+      return host;
+    }
+    throw new BackendCallError(notOnDemo(method), 3);
   };
 }
 
@@ -2022,6 +2037,11 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
       for (const w of changeWatchers) w(change);
     },
     ...fakePluginHost(scenario.plugins ?? {}, () => hosts, packagePlugin, pluginServe(scenario)),
+    // `:tutor`'s demo (ticket 66, decision Q123): a host of its own over the demo's Hosts, with
+    // the same Plugin folders and Packages, files of its own (empty), and serve's stand-in.
+    async demoPlugins(demo) {
+      return { ...fakePluginHost(scenario.plugins ?? {}, () => demo.hosts, packagePlugin, demoServe(demo)), close: async () => {} };
+    },
     async pluginRequests() {
       return structuredClone(scenario.pluginRequests ?? {});
     },

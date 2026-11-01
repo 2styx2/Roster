@@ -798,6 +798,9 @@ pub struct Net {
     /// The requests going: each one's task, whether it has been counted as done, and its site.
     tasks: std::cell::RefCell<Vec<Going>>,
     log: Arc<Log>,
+    /// Never sends (`:tutor`'s demo, decision Q123): every check runs and the in-flight cap holds,
+    /// but each request answers "not sent" instead of going out.
+    offline: bool,
 }
 
 struct Going {
@@ -853,7 +856,16 @@ impl Net {
             in_flight: Arc::new(AtomicUsize::new(0)),
             tasks: std::cell::RefCell::default(),
             log,
+            offline: false,
         })
+    }
+
+    /// [`Net::new`] for `:tutor`'s demo: the same checks and cap, but nothing is ever sent; each
+    /// request's answer says so.
+    pub fn offline(sites: Vec<Site>, setup: Setup) -> Result<Net, String> {
+        let mut net = Net::new(sites, setup)?;
+        net.offline = true;
+        Ok(net)
     }
 
     pub fn sites(&self) -> &[Site] {
@@ -948,6 +960,18 @@ impl Net {
             ));
         }
         let in_flight = Arc::clone(&self.in_flight);
+        if self.offline {
+            let why = format!(
+                "{} wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)",
+                request.url
+            );
+            // Counted as going until the Plugin has heard the answer, so the cap holds as online.
+            drop(rt.spawn_blocking(move || {
+                done(Answer::Failed(why));
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+            }));
+            return Ok(());
+        }
         self.log.sent(&site);
         let (log, counted) = (Arc::clone(&self.log), site.clone());
         let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
