@@ -325,7 +325,11 @@ struct Run {
 
 impl Run {
     fn new(world: World, grants: &[&str]) -> Run {
-        let mut run = Run::with(Arc::new(FakeMesh::new(world)));
+        Run::new_with(world, grants, Limits::default())
+    }
+
+    fn new_with(world: World, grants: &[&str], limits: Limits) -> Run {
+        let mut run = Run::with_limits(Arc::new(FakeMesh::new(world)), limits);
         let (_, reply) = run.host.load(&Source::Dir(plugin()), &perms(grants)).unwrap();
         run.take(reply);
         run
@@ -333,7 +337,11 @@ impl Run {
 
     /// A host with `serve`, nothing loaded yet.
     fn with(serve: Arc<FakeMesh>) -> Run {
-        let host = PluginHost::new(serve.clone(), Limits::default());
+        Run::with_limits(serve, Limits::default())
+    }
+
+    fn with_limits(serve: Arc<FakeMesh>, limits: Limits) -> Run {
+        let host = PluginHost::new(serve.clone(), limits);
         let (tx, replies) = channel();
         let tx = Mutex::new(tx);
         host.set_listener(Arc::new(move |r: Reply| {
@@ -511,6 +519,21 @@ fn cell(view: &Value, row: &str, col: &str) -> Value {
 /// Loads with everything granted and lets the first look (a deferred refresh) happen.
 fn started(world: World) -> Run {
     let mut run = Run::new(world, ALL);
+    run.tick();
+    run
+}
+
+/// `started` for a group of hundreds of Hosts, whose test is about how the work is split up (a
+/// call may make at most 1,000 UI changes), not how fast it runs. A call's budget is wall-clock time, and a debug build's Lua on a loaded CI
+/// runner can take longer than 250 ms over a call that draws 1,000 rows, so the budget (tested in
+/// plugin.rs) is lifted here and the test can't fail on the runner's load.
+fn started_big(world: World) -> Run {
+    let roomy = Limits {
+        call: Duration::from_secs(60),
+        grace: Duration::from_secs(60),
+        ..Limits::default()
+    };
+    let mut run = Run::new_with(world, ALL, roomy);
     run.tick();
     run
 }
@@ -889,7 +912,7 @@ fn it_refreshes_after_a_publish() {
 
 #[test]
 fn five_hundred_hosts_in_a_meshed_group_stay_inside_the_limits() {
-    let mut run = started(World {
+    let mut run = started_big(World {
         lab: 500,
         ..World::default()
     });
@@ -910,12 +933,25 @@ fn five_hundred_hosts_in_a_meshed_group_stay_inside_the_limits() {
 
 #[test]
 fn a_thousand_hosts_get_their_details_in_batches_until_every_one_has_its_section() {
-    let mut run = started(World {
+    let mut run = started_big(World {
         lab: 1000,
         ..World::default()
     });
+    // The budget is lifted (started_big), so the work each call does is checked here instead, by
+    // count: at most 300 Host-details sections per call, inside the 1,000 UI changes a call may
+    // make, and every section set within four calls (300 + 300 + 300 + 102).
+    assert_eq!(of(&run.ops, "details").len(), 300, "the first call");
+    let mut calls = 1;
     while of(&run.ops, "details").len() < 1002 {
-        run.tick();
+        let ops = run.tick();
+        calls += 1;
+        assert!(
+            of(&ops, "details").len() <= 300,
+            "{} sections in one call",
+            of(&ops, "details").len()
+        );
+        assert!(ops.len() <= 1000, "{} UI changes in one call", ops.len());
+        assert!(calls <= 4, "still not done after {calls} calls");
     }
     let hosts: std::collections::BTreeSet<&str> = of(&run.ops, "details")
         .iter()

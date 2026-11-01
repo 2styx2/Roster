@@ -64,6 +64,7 @@ class Job:
         self.halted = threading.Event()
         self.on_stop, self.on_close = on_stop, on_close   # on_close: also run when serve closes (end it now)
         self.lock = threading.Lock()
+        self.changed = threading.Condition(self.lock)   # notified when it ends, and by wake()
         self.thread = None
         self.pushed = 0.0
         self.push_lock = threading.Lock()
@@ -82,11 +83,14 @@ class Job:
 
     def let_go(self):
         """A waiting request was cancelled: stop the job if nothing else wants it (no other waiter, never asked
-        for in the background). True if it stopped."""
+        for in the background). True if nothing else does (it's stopped, or was stopping or over already); False if
+        it goes on for another."""
         with self.lock:
             self.waiters -= 1
             last = self.waiters <= 0 and not self.kept
-        return last and self.stop()
+        if last:
+            self.stop()
+        return last
 
     def progress(self, done, total=None, at=None):
         """WORK says how far it has got: DONE of TOTAL, at AT (a Host's name, or None)."""
@@ -133,6 +137,18 @@ class Job:
             self.thread.join(timeout)
         return not self.running()
 
+    def wait_unless(self, gone):
+        """Wait for it to end, or until GONE() is true (checked again at each wake()): True if it has ended."""
+        with self.changed:
+            while self.running() and not gone():
+                self.changed.wait()
+            return not self.running()
+
+    def wake(self):
+        """Have wait_unless() look at its GONE() again."""
+        with self.changed:
+            self.changed.notify_all()
+
     def stop(self):
         """Ask it to stop: True if it was running."""
         with self.lock:
@@ -154,12 +170,14 @@ class Job:
         except BaseException as e:              # noqa: BLE001 - a job's failure is its state, never serve's
             with self.lock:
                 self.error, self.state, self.at = error_of(e), "failed", None
+                self.changed.notify_all()
         else:
             with self.lock:
                 self.result, self.at = result, None
                 if not self.halted.is_set():
                     self.done = self.total
                 self.state = "stopped" if self.halted.is_set() else "done"
+                self.changed.notify_all()
         self.owner.push(self)
 
 
