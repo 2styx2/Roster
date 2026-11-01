@@ -1477,7 +1477,8 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
     position: absolute; top: 0; bottom: 0; right: 0; z-index: var(--z-float); --pane-max: calc(100% - 48px);
   }
   .screen .body > .panel-frame[data-side="left"]:not([data-place="full"]) { left: 0; right: auto; }
-  .screen .body > .panel-frame[data-place="full"][data-held] { width: 0; }
+  /* Docked, it floated and took no room, so full window takes none either. */
+  .screen[data-view] .body > .panel-frame[data-place="full"][data-held] { width: 0; }
 }
 
 /* A docked panel opened over a full one (Host details from Topology) comes over it. */
