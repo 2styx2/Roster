@@ -66,12 +66,12 @@ def test_its_folder_names_the_serve_that_owns_it(runtime_dir):
         os.rmdir(d)
 
 
-@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGHUP", "SIGINT"])      # names: Windows has no SIGHUP to collect
 def test_a_signal_still_removes_the_folder(serve, write_config, runtime_dir, sig):
     write_config(INVENTORY)
     s = started(serve, runtime_dir)
     assert len(folders(runtime_dir)) == 1
-    s.p.send_signal(sig)
+    s.p.send_signal(getattr(signal, sig))
     ended(s)
     assert folders(runtime_dir) == []
 
