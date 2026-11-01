@@ -108,9 +108,12 @@ export class GraphPlaces {
   }
 }
 
-/** Whether `after` placed something `before` didn't have. */
+/** Whether `after` placed something `before` didn't have, or moved a cluster (one that grew into another). */
 function placedMore(before: SavedLayout, after: SavedLayout): boolean {
   for (const k of Object.keys(after.nodes)) if (!(k in before.nodes)) return true;
-  for (const k of Object.keys(after.clusters)) if (!(k in before.clusters)) return true;
+  for (const [k, p] of Object.entries(after.clusters)) {
+    const q = before.clusters[k];
+    if (!q || q[0] !== p[0] || q[1] !== p[1]) return true;
+  }
   return false;
 }

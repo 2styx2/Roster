@@ -26,6 +26,19 @@ function closest(l: Layout): number {
   return best;
 }
 
+/** Pairs of clusters whose circles overlap. */
+function overlaps(l: Layout): string[] {
+  const cs = [...l.clusters.entries()];
+  const out: string[] = [];
+  for (let i = 0; i < cs.length; i++)
+    for (let j = i + 1; j < cs.length; j++) {
+      const [a, p] = cs[i]!;
+      const [b, q] = cs[j]!;
+      if (Math.hypot(p.x - q.x, p.y - q.y) < p.r + q.r) out.push(`${a}/${b}`);
+    }
+  return out;
+}
+
 describe("the graph's layout", () => {
   it("is the same every time for the same graph", () => {
     const g = bigGraph(200, 7);
@@ -65,6 +78,48 @@ describe("the graph's layout", () => {
       const o = second.clusters.get(c.id)!;
       expect(Math.hypot(o.x - late.x, o.y - late.y)).toBeGreaterThan(o.r + late.r);
     }
+  });
+
+  it("moves a cluster that grew into its neighbours out of their way, its nodes with it, and nothing else", () => {
+    // Topology sends its clusters small and fills them as each Host's details arrive.
+    const small = bigGraph(12, 6);
+    const first = layoutGraph(small);
+    const grown: GraphData = { ...small, nodes: [...small.nodes, ...Array.from({ length: 80 }, (_, i) => node(`late${i}`, "g2"))] };
+    const second = layoutGraph(grown, first.saved);
+    expect(overlaps(second)).toEqual([]);
+    for (const c of small.clusters.filter((c) => c.id !== "g2")) expect(second.clusters.get(c.id)).toMatchObject({ x: first.clusters.get(c.id)!.x, y: first.clusters.get(c.id)!.y });
+    // g2's nodes keep their shape: each moved as far as its centre did.
+    const from = first.clusters.get("g2")!;
+    const to = second.clusters.get("g2")!;
+    for (const n of small.nodes.filter((n) => n.cluster === "g2")) expect(at(second, n.id)).toEqual({ x: at(first, n.id)!.x + to.x - from.x, y: at(first, n.id)!.y + to.y - from.y });
+    for (const n of grown.nodes.filter((n) => n.cluster === "g2")) {
+      const p = at(second, n.id)!;
+      expect(Math.hypot(p.x - to.x, p.y - to.y)).toBeLessThan(to.r);
+    }
+  });
+
+  it("every cluster growing at once still ends up apart, quickly", () => {
+    const first = layoutGraph(bigGraph(40, 40));
+    const t = performance.now();
+    const second = layoutGraph(bigGraph(2000, 40), first.saved);
+    expect(performance.now() - t).toBeLessThan(150);
+    expect(overlaps(second)).toEqual([]);
+  });
+
+  it("parts clusters a layout saved overlapping (an older version's), moving the later one", () => {
+    const g = bigGraph(120, 3);
+    const l = layoutGraph(g);
+    const a = l.clusters.get("g0")!;
+    const saved = structuredClone(l.saved);
+    // g1 saved right on top of g0, its nodes with it.
+    const b = saved.clusters.g1!;
+    const dx = a.x - b[0];
+    const dy = a.y - b[1];
+    saved.clusters.g1 = [a.x, a.y];
+    for (const n of g.nodes.filter((n) => n.cluster === "g1")) saved.nodes[n.id] = [saved.nodes[n.id]![0] + dx, saved.nodes[n.id]![1] + dy];
+    const healed = layoutGraph(g, saved);
+    expect(overlaps(healed)).toEqual([]);
+    expect(healed.clusters.get("g0")).toMatchObject({ x: a.x, y: a.y });
   });
 
   it("lays out 2,000 nodes in 40 clusters quickly", () => {
