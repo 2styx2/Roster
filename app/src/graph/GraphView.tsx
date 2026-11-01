@@ -278,16 +278,25 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   }, [size, redraw, painter]);
   useEffect(redraw, [scene, highlight, selected, matchSet, moving, redraw]);
 
-  // Opened at a node: centred on it once the canvas has a size, close enough to read its name.
+  // Opened at a node: centred on it once the canvas has a size and the node is there (an update may
+  // bring it later), close enough to read its name; given up once the user selects something.
   const aimed = useRef(false);
   useLayoutEffect(() => {
     if (aimed.current || openAt === undefined || size.w === 0) return;
-    aimed.current = true;
     const n = scene.byId.get(openAt);
-    if (!n) return;
+    if (!n) {
+      // It came in a cluster that's collapsed: that opens, and the next scene has it.
+      const c = ix.nodes.get(openAt)?.cluster;
+      if (c !== undefined && collapsed.has(c)) {
+        places.fold(c, false);
+        setFolds(places.userFolds());
+      }
+      return;
+    }
+    aimed.current = true;
     painter.setCamera({ x: n.x, y: n.y, k: Math.max(fitted(scene, size.w, size.h).k, 1) });
     redraw();
-  }, [openAt, size, scene, painter, redraw]);
+  }, [openAt, size, scene, ix, collapsed, places, painter, redraw]);
 
   // A Theme change redraws (its tokens are on :root).
   useEffect(() => {
@@ -337,6 +346,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   /** Selects scene node `id` and brings it on screen if it's off. */
   const select = (id: string | null) => {
     if (id === null) return;
+    aimed.current = true;
     setChosen(id);
     setMoveSays("");
     const n = scene.byId.get(id);
@@ -489,9 +499,9 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) setNotice("");
     const act = keyAction(e);
     if (!act) return;
-    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) setNotice("");
     e.preventDefault();
     e.stopPropagation();
     act();
@@ -521,6 +531,7 @@ export function GraphView({ model, label, leader, memory, memoKey, autoFocus = f
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
   };
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    setNotice("");
     if (e.button !== 0 || drag.current) return;
     box.current?.focus();
     // A click while placing from the keyboard keeps the place.

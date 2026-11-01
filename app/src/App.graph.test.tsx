@@ -53,6 +53,7 @@ function topoPlugin(extra: Record<string, unknown> = {}): FakePlugin {
       });
       roster.keymap.set("leader", "y t", "view topo");
       // As a Host-details section's action would (T99): open the graph at a node.
+      roster.commands.add("topo-add", { desc: "Add", run: (a: Record<string, unknown>) => roster.views.update("topo", { nodes: [{ id: String(a.args), cluster: "web", host: String(a.args) }] }) });
       roster.commands.add("topo-at", { desc: "Open at", run: (a: Record<string, unknown>) => roster.views.open("topo", { select: String(a.args) }) });
     },
   };
@@ -165,6 +166,24 @@ describe("a Plugin's graph", () => {
     await waitFor(() => expect(foot()).toMatch(/^devbox/));
   });
 
+  it("opened at a node that isn't there yet, it goes to it when it arrives, unless the user has moved on (T99)", async () => {
+    const { user } = await ready();
+    await user.keyboard(`${LEADER}:topo-at late-1{Enter}`);
+    await screen.findByRole("application", { name: "Topology" });
+    expect(foot()).toMatch(/^devbox/);
+    await user.keyboard(`${LEADER}:topo-add late-1{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^late-1/));
+    // Asked for another that isn't there; the user picks a node meanwhile: that one stays.
+    await user.keyboard(`${LEADER}:topo-at late-2{Enter}`);
+    await waitFor(() => expect(foot()).toMatch(/^devbox/));
+    graph().focus();
+    await user.keyboard("/esx-02{Enter}");
+    expect(foot()).toMatch(/^esx-02/);
+    await user.keyboard(`${LEADER}:topo-add late-2{Enter}`);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(foot()).toMatch(/^esx-02/);
+  });
+
   it("o collapses the selected node's cluster to its count and opens it again", async () => {
     const { user } = await ready();
     await user.keyboard(`${LEADER}:view topo{Enter}`);
@@ -235,7 +254,15 @@ describe("a Plugin's graph", () => {
     await user.keyboard("m");
     await said("web is collapsed: o opens it, then m moves one of its nodes");
     expect(foot()).toBe("web is collapsed: o opens it, then m moves one of its nodes");
-    // Not placing (h j k l still go between nodes), and the next key clears it.
+    // Any key clears it, even one the graph doesn't use, and the cluster's own words come back.
+    await user.keyboard("z");
+    expect(foot()).toMatch(/^web: 2 nodes, collapsed/);
+    await user.keyboard("m");
+    expect(foot()).toBe("web is collapsed: o opens it, then m moves one of its nodes");
+    // So does a click on the map.
+    await user.pointer({ keys: "[MouseLeft]", target: document.querySelector(".graph-canvas canvas, canvas") as Element });
+    expect(foot()).not.toMatch(/is collapsed: o opens it/);
+    // Not placing (h j k l still go between nodes).
     await user.keyboard("k");
     expect(foot()).not.toMatch(/is collapsed: o opens it|^Moving/);
     expect(document.querySelector(".graph-foot .dt-keys")?.textContent).not.toMatch(/put back/);
