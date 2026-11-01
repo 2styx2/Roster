@@ -874,9 +874,12 @@ export interface Backend {
    * Rejects when its manifest can't be used; an error in its code comes back in `reply`. */
   pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   /** Calls a function the Plugin handed over (`{handler}` in its ops). `user` (default true): the
-   * user chose it; false for what the app runs on its own (a finder's items, a `:check`, a timer,
-   * a question's cancel because another took its place), which is never the user's call. */
-  pluginCall(plugin: string, handler: number, args: unknown, user?: boolean): Promise<PluginReply>;
+   * user chose it; `"carried"` for the Plugin's own command its `roster.cmd` ran from the user's
+   * call (that call carried one hop: nothing made in it carries it further, issue #183); false for
+   * what the app runs on its own (a finder's items, a `:check`, a timer, a question's cancel
+   * because another took its place, a command a carried run's `roster.cmd` named), which is never
+   * the user's call. */
+  pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
   /** Tells every Plugin that listens and may hear it; the ones that changed something or failed answer. */
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
   /** Takes a Plugin out of the core. */
@@ -974,6 +977,10 @@ export interface PluginErrorInfo {
 
 /** What a Plugin answered: its function's result, the UI changes it asked for (untrusted data:
  * plugins/ops.ts checks them), an error, and whether it's now disabled. */
+/** Whose call a Plugin's run is: the user's (true), the user's carried one hop (a command the
+ * Plugin's `roster.cmd` ran from the user's call), or the app's (false). Decision Q98, issue #183. */
+export type PluginCaller = boolean | "carried";
+
 export interface PluginReply {
   plugin: string;
   result: unknown;

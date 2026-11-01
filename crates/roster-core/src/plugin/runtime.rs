@@ -152,8 +152,8 @@ struct Shared {
     /// The `roster.serve.request` calls waiting, by request id: the method, and whether it was
     /// made in a call the user started (its answer runs as part of that call, decision Q103).
     serving_requests: RefCell<HashMap<u64, (String, bool)>>,
-    /// Whether the run is an answer carrying the user's call: a request made in it doesn't carry
-    /// the call any further.
+    /// Whether the run carries the user's call one hop (a request's answer, or a command
+    /// `roster.cmd` ran): a request or a command line made in it doesn't carry the call further.
     carried: Cell<bool>,
     /// The timers waiting, by their handler: whether each repeats.
     timers: RefCell<HashMap<u64, bool>>,
@@ -179,6 +179,19 @@ struct Before {
     timers: HashMap<u64, bool>,
     commands: BTreeSet<String>,
     quiet: BTreeSet<u64>,
+}
+
+/// Whose call a run is (decision Q98, issue #183).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum By {
+    /// The user chose it: a command, a key, a row's or button's action, a finder item, a toolbar
+    /// control, a question's answer.
+    User,
+    /// The Plugin's own command its `roster.cmd` ran from the user's call: that call carried one
+    /// hop, as a `roster.serve.request`'s answer is (Q103d), so nothing made in it carries it on.
+    Carried,
+    /// The app's doing, never the user's call.
+    App,
 }
 
 /// Hands a request's answer back to the host (request id, answer), from a network or serve thread.
@@ -299,12 +312,15 @@ impl Runtime {
     /// Calls a function the Plugin handed over, with `args`; its return value comes back as data.
     /// It's the user's call only when `user` (they chose it) and the handler isn't one the app
     /// runs as it likes: a timer, a command's `complete`, a finder's `items`, a `:check` section's
-    /// `check`. A deferred timer's function is gone once it has run.
-    pub(crate) fn call(&self, handler: u64, args: &Json, user: bool) -> Outcome {
+    /// `check`. Carried (`By::Carried`), it's the user's call one hop on, so nothing made in it
+    /// carries the call further. A deferred timer's function is gone once it has run.
+    pub(crate) fn call(&self, handler: u64, args: &Json, by: By) -> Outcome {
         let shared = Rc::clone(&self.shared);
         let timer = self.shared.timers.borrow().get(&handler).copied();
         let quiet = self.shared.quiet.borrow().contains(&handler);
-        self.shared.user_call.set(user && timer.is_none() && !quiet);
+        let user = by != By::App && timer.is_none() && !quiet;
+        self.shared.user_call.set(user);
+        self.shared.carried.set(user && by == By::Carried);
         // A deferred timer is gone before it runs, so it can defer itself again; gone whether its
         // run succeeds or not, as the app has let go of it already.
         let taken = match timer {
@@ -331,6 +347,7 @@ impl Runtime {
             )
         });
         self.shared.user_call.set(false);
+        self.shared.carried.set(false);
         outcome
     }
 
@@ -1357,6 +1374,11 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         if !own_command(s, word) {
             command_allowed(word, &s.grants).map_err(|m| mlua::Error::runtime(format!("roster.cmd: {m}")))?;
         }
+        // Made in a run that carries the user's call already (issue #183): the app runs the
+        // Plugin's own command it names as the app's call, so a chain stops after one hop.
+        if s.carried.get() {
+            return push(s, json!({ "op": "cmd", "line": line, "user": false }));
+        }
         push(s, json!({ "op": "cmd", "line": line }))
     });
 
@@ -1736,7 +1758,7 @@ mod tests {
             .and_then(|o| o["run"]["handler"].as_u64())
             .unwrap();
         for _ in 0..50 {
-            let r = rt.call(again, &json!({}), true);
+            let r = rt.call(again, &json!({}), By::User);
             assert!(r.error.is_none(), "{:?}", r.error);
         }
         assert_eq!(rt.shared.quiet.borrow().len(), 3);

@@ -221,7 +221,9 @@ export type PluginOp =
   | { op: "confirm"; confirm: PluginConfirm }
   | { op: "progress"; id: string; progress: PluginProgress }
   | { op: "toolbar"; id: string; control: PluginToolbarControl }
-  | { op: "cmd"; line: string }
+  /** `user: false`: made in a run that carried the user's call already, so the Plugin's own
+   * command it names runs as the app's call (issue #183). */
+  | { op: "cmd"; line: string; user?: false }
   /** api 3 (ticket 61): a line on the message line, and the command line opened with text. */
   | { op: "echo"; text: string }
   | { op: "cmdline"; text: string }
@@ -838,7 +840,7 @@ function parse(raw: unknown): PluginOp {
       };
     }
     case "cmd":
-      return { op: "cmd", line: str(raw, "line", "roster.cmd", MAX_TEXT) };
+      return { op: "cmd", line: str(raw, "line", "roster.cmd", MAX_TEXT), ...(raw.user === false ? { user: false as const } : {}) };
     case "echo":
       return { op: "echo", text: str(raw, "text", "roster.echo") };
     case "cmdline":

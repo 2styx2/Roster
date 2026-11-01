@@ -120,7 +120,78 @@ describe("loading", () => {
   });
 });
 
+/** Everything only the user's call may do, tried in turn (issue #183). */
+function triedAll(roster: FakeRoster): string {
+  const said: string[] = [];
+  const attempt = (name: string, f: () => void) => {
+    try {
+      f();
+      said.push(`${name} ok`);
+    } catch {
+      said.push(`${name} refused`);
+    }
+  };
+  attempt("copy", () => roster.clipboard.copy("10.0.0.5"));
+  attempt("confirm", () => roster.confirm({ title: "Sure?", run: () => undefined }));
+  attempt("scan", () => roster.serve?.request("discover.start", {}, () => undefined));
+  attempt("cut", () => roster.serve?.request("mesh.cut", {}, () => undefined));
+  return said.join(", ");
+}
+
 describe("a Plugin's command lines", () => {
+  it("a chain of its own commands carries the user's call one hop, no further (issue #183)", async () => {
+    const said: string[] = [];
+    const chain = plugin(
+      "chain",
+      (roster) => {
+        const link = (name: string, next: string) =>
+          roster.commands.add(name, {
+            run: () => {
+              said.push(`${name}: ${triedAll(roster)}`);
+              try {
+                roster.cmd(next);
+              } catch {
+                said.push(`${name}: cmd refused`);
+              }
+            },
+          });
+        link("a", "b");
+        link("b", "c");
+        link("c", "a");
+      },
+      ["serve:discover.start", "serve:mesh.cut"],
+    );
+    const { manager, registries } = setup({ chain });
+    await manager.start();
+    registries.commands.get("a")?.run({} as never, "");
+    for (let i = 0; i < 5; i++) await settle();
+    const allowed = "copy ok, confirm ok, scan ok, cut ok";
+    expect(said).toEqual([`a: ${allowed}`, `b: ${allowed}`, "c: copy refused, confirm refused, scan refused, cut refused", "c: cmd refused"]);
+  });
+
+  it("a request's answer carrying the user's call runs its command line as the app's call", async () => {
+    const said: string[] = [];
+    const hops = plugin(
+      "hops",
+      (roster) => {
+        roster.commands.add("ask", {
+          run: () =>
+            roster.serve?.request("mesh.status", {}, () => {
+              said.push(`answer: ${triedAll(roster)}`);
+              roster.cmd("then");
+            }),
+        });
+        roster.commands.add("then", { run: () => void said.push(`then: ${triedAll(roster)}`) });
+      },
+      ["serve:mesh.status", "serve:discover.start", "serve:mesh.cut"],
+    );
+    const { manager, registries } = setup({ hops });
+    await manager.start();
+    registries.commands.get("ask")?.run({} as never, "");
+    for (let i = 0; i < 5; i++) await settle();
+    expect(said).toEqual(["answer: copy ok, confirm ok, scan ok, cut ok", "then: copy refused, confirm refused, scan refused, cut refused"]);
+  });
+
   it("a command whose line runs itself, or two that run each other, stop with a notice", async () => {
     const loops = plugin("loops", (roster) => {
       roster.commands.add("again", { run: "again" });

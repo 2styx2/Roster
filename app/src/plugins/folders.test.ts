@@ -15,7 +15,7 @@ const hosts = makeHosts(3);
 const [h1, h2] = hosts.hosts.map((h) => h.name) as [string, string];
 const hostByName = new Map(hosts.hosts.map((h) => [h.name, h]));
 
-function setup(settings: Record<string, unknown> | null = {}, plugins: Record<string, FakePlugin> = {}, state: Record<string, unknown> = {}) {
+function setup(settings: Record<string, unknown> | null = {}, plugins: Record<string, FakePlugin> = {}, state: Record<string, unknown> = {}, dispatch = false) {
   const backend = fakeBackend({ hosts, plugins });
   const registries = builtinRegistries();
   const store = { get: (k: string) => state[k], set: (k: string, v: unknown) => void (state[k] = v) };
@@ -23,7 +23,12 @@ function setup(settings: Record<string, unknown> | null = {}, plugins: Record<st
   const lines: string[] = [];
   const ran: string[] = [];
   const ui: PluginUi = {
-    run: (l) => void ran.push(l),
+    run: (l) => {
+      ran.push(l);
+      // As the app's, when asked: a line runs its command there and then.
+      const [word = "", ...rest] = l.split(/\s+/);
+      if (dispatch) registries.commands.get(word)?.run(ctx(), rest.join(" "));
+    },
     send: () => undefined,
     copy: async () => undefined,
     say: (t) => void said.push(t),
@@ -73,6 +78,19 @@ describe("the Folders Plugin in the app", () => {
     await call(manager, drop!);
     // On the section: the command line asks which Folder.
     expect(lines).toEqual([`folder add ${h2} `]);
+  });
+
+  it("a Host dropped on a Folder goes into it, and the Plugin says so (issue #183)", async () => {
+    const { manager, registries, said, ran } = setup({}, {}, {}, true);
+    await manager.start();
+    registries.commands.get("folder")!.run(ctx(), "new Lab");
+    await vi.waitFor(() => expect(section(registries).rows[0]).toMatchObject({ label: "Lab" }));
+    const drop = section(registries).rows[0]!.drop!(h2);
+    await call(manager, drop!);
+    // The drop's `roster.cmd("folder add …")` runs `:folder` as the user's call carried one hop.
+    await vi.waitFor(() => expect(said.at(-1)).toBe(`Added ${h2} to Lab`));
+    expect(ran).toEqual([`folder add ${h2} Lab`]);
+    expect(section(registries).rows.map((r) => r.label)).toEqual(["Lab", h2]);
   });
 
   it("a command hears the Host and row under the Sidebar's cursor, and answers on the message line", async () => {

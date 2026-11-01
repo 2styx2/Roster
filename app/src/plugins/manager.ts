@@ -17,7 +17,7 @@
 //   declining keeps the old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
-import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginManifest, PluginReply } from "../backend/types";
+import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginReply } from "../backend/types";
 import { themeOf } from "../config/apply";
 import type { CommandContext, CommandDef } from "../commands/table";
 import { sectionFinder, type FinderItem, type FinderSourceDef } from "../finder/sources";
@@ -249,6 +249,10 @@ export class PluginManager {
   /** The Plugin commands running now (`PLUGIN NAME`): a line that runs one of them again would
    * never end (a command whose line names itself, or two naming each other). */
   private readonly runningCommands = new Set<string>();
+  /** While a Plugin's `roster.cmd` line runs (issue #183): whose call the Plugin's own command it
+   * names is. The user's carried one hop when the line was made in the user's own call, else the
+   * app's, so a chain of a Plugin's commands never keeps the user's call alive. */
+  private lineCaller: { plugin: string; by: PluginCaller } | null = null;
   private readonly waiting = new Map<string, Prompt>();
   private readonly uses = new Map<string, Use[]>();
   private prompts: Prompt[] = [];
@@ -612,7 +616,7 @@ export class PluginManager {
 
   /** Runs what a Plugin's row, action, finder item or segment handed over, telling it which one
    * (`context`) and, when it may know, the Session on screen. */
-  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action", user = true): Promise<unknown> {
+  callWith(plugin: string, handler: number, context: HandlerContext, what = "ran an action", user: PluginCaller = true): Promise<unknown> {
     return this.call(plugin, handler, { ...context, ...this.onScreen(plugin) }, what, user);
   }
 
@@ -627,8 +631,9 @@ export class PluginManager {
 
   /** Runs what a Plugin's row, action, finder item or command handed over; `what` is how
    * `:plugins` lists it among its recent use (null: not at all, a timer). `user`: whether the user
-   * chose it (false: the app runs it on its own, never the user's call). */
-  async call(plugin: string, handler: number, args: unknown = {}, what: string | null = "ran an action", user = true): Promise<unknown> {
+   * chose it (false: the app runs it on its own, never the user's call; "carried": the Plugin's own
+   * command its `roster.cmd` ran from the user's call, that call one hop on). */
+  async call(plugin: string, handler: number, args: unknown = {}, what: string | null = "ran an action", user: PluginCaller = true): Promise<unknown> {
     if (!this.loaded.has(plugin)) return undefined;
     if (what !== null) this.used(plugin, what);
     const reply = await this.backend.pluginCall(plugin, handler, args, user).catch((e: unknown) => this.lost(plugin, e));
@@ -870,7 +875,7 @@ export class PluginManager {
 
   /** Runs what `plugin` handed over: its function (with `context`, and the Session on screen
    * when it may know it), or its line. */
-  private runFor(plugin: string, run: Run, context: HandlerContext = {}, user = true) {
+  private runFor(plugin: string, run: Run, context: HandlerContext = {}, user: PluginCaller = true) {
     if ("command" in run) this.runLine(plugin, run.command);
     else void this.callWith(plugin, run.handler, context, "ran an action", user);
   }
@@ -951,7 +956,9 @@ export class PluginManager {
             const running = `${plugin} ${op.name}`;
             this.runningCommands.add(running);
             try {
-              this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext);
+              // Run by the Plugin's own `roster.cmd`, it's the user's call carried, or the app's.
+              const by = this.lineCaller?.plugin === plugin ? this.lineCaller.by : true;
+              this.runFor(plugin, run, { args, words: args ? args.split(/\s+/) : [], ...this.cursor(plugin, ctx) } as unknown as HandlerContext, by);
             } finally {
               this.runningCommands.delete(running);
             }
@@ -1169,8 +1176,17 @@ export class PluginManager {
           }),
         );
       }
-      case "cmd":
-        return this.runLine(plugin, op.line);
+      case "cmd": {
+        // One hop (issue #183): made in the user's own call, the Plugin's own command it names is
+        // that call carried; made in a carried run (`user: false`), it's the app's call.
+        const outer = this.lineCaller;
+        this.lineCaller = { plugin, by: op.user === false ? false : "carried" };
+        try {
+          return this.runLine(plugin, op.line);
+        } finally {
+          this.lineCaller = outer;
+        }
+      }
       case "echo":
         return this.ui.say ? this.ui.say(op.text) : this.notify(plugin, "info", `${plugin}: ${op.text}`);
       case "cmdline": {
