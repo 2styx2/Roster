@@ -666,14 +666,23 @@ async fn packages_remove(packages: tauri::State<'_, PackagesState>, name: String
     blocking(move || packages.remove(&name)).await
 }
 
-/// `:packages update`, step 1: fetches, and describes each new commit. Changes nothing.
+/// `:packages update [NAME]`, step 1: fetches (every Package, or the one named), and describes
+/// each new commit. Changes nothing.
 #[tauri::command]
 async fn packages_check(
     config: tauri::State<'_, ConfigState>,
     packages: tauri::State<'_, PackagesState>,
+    name: Option<String>,
 ) -> Result<Vec<package::Checked>, String> {
     let (config, packages) = (config.inner().clone(), packages_of(&packages)?);
-    blocking(move || Ok(packages.check(&package_specs(&config)))).await
+    blocking(move || {
+        let specs = package_specs(&config);
+        match name {
+            Some(name) => packages.check_named(&specs, &name).map(|c| vec![c]),
+            None => Ok(packages.check(&specs)),
+        }
+    })
+    .await
 }
 
 /// `:packages update`, step 2: moves a Package to the commit the user saw and allowed.

@@ -224,7 +224,7 @@ export function tauriBackend(): Backend {
     packagesPin: (name) => call<PackageStatus>("packages_pin", { name }),
     packagesDiscard: (name) => call<unknown>("packages_discard", { name }).then(() => undefined),
     packagesRemove: (name) => call<unknown>("packages_remove", { name }).then(() => undefined),
-    packagesCheck: () => call<PackageChecked[]>("packages_check"),
+    packagesCheck: (name) => call<PackageChecked[]>("packages_check", name === undefined ? {} : { name }),
     packagesApply: (name, commit) => call<PackageStatus>("packages_apply", { name, commit }),
     packagesClean: () => call<string[]>("packages_clean"),
     onLoggedIn(onLogin) {

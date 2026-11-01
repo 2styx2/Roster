@@ -12,9 +12,10 @@
 //
 // - Packages (ticket 24): Plugins from git repos that init.lua names. The core clones and pins them
 //   (`packagesSync`); each one is the Plugin `package:NAME` and goes through the same install
-//   prompt, showing its git URL as the unverified source. Cancel removes the clone. `:packages
-//   update` shows each new commit with its diff and any new permission before applying it, and
-//   declining keeps the old version.
+//   prompt, showing its git URL as the unverified source. Cancel removes the clone and is kept in
+//   the State (`DECLINED_KEY`) until `:packages install NAME`. `:packages update [NAME]` shows each
+//   new commit with its diff and any new permission before applying it, and declining keeps the
+//   old version.
 //
 // `:plugins` (the command and panel), `:packages` and the prompts are drawn by PluginsPanel.tsx.
 import type { Backend, Host, PackageStatus, PackageUpdate, PluginErrorInfo, PluginEventName, PluginCaller, PluginManifest, PluginReply, SiteRequests } from "../backend/types";
@@ -99,6 +100,27 @@ export interface Installed {
 export const BUILTIN_PLUGINS = ["builtin:hosts", "builtin:folders"] as const;
 
 export const STATE_KEY = "plugins";
+/** The State's Packages whose install the user cancelled: not asked again while init.lua names
+ * the same repo and folder for them (issue #111). */
+export const DECLINED_KEY = "packagesDeclined";
+
+/** A cancelled Package install as the State keeps it: its name, and the repo and folder it was
+ * from, so another repo or folder under the same name is other code and asks. */
+interface Declined {
+  name: string;
+  url: string;
+  dir: string | null;
+}
+
+function parseDeclined(v: unknown): Declined[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((d: unknown) => {
+    if (typeof d !== "object" || d === null) return [];
+    const { name, url, dir } = d as Record<string, unknown>;
+    if (typeof name !== "string" || typeof url !== "string" || (dir !== null && typeof dir !== "string")) return [];
+    return [{ name, url, dir }];
+  });
+}
 
 /** One thing a Plugin did, for `:plugins`' recent use. */
 export interface Use {
@@ -161,6 +183,9 @@ export interface Snapshot {
   confirm: PendingConfirm | null;
   /** Every progress, in the order they started. */
   progress: readonly RunningProgress[];
+  /** The Packages init.lua names whose install the user cancelled: not asked again until
+   * `:packages install NAME`. */
+  declined: readonly string[];
   /** The Plugins and Packages the app starts with have loaded (or failed to), the first time:
    * until then a name init.lua gives one of their pieces can't be judged (ticket 79). */
   settled: boolean;
@@ -268,10 +293,11 @@ export class PluginManager {
   private confirmId = 0;
   private readonly progress = new Map<string, RunningProgress>();
   private noticeId = 0;
-  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null, confirm: null, progress: [], settled: false };
+  private snap: Snapshot = { plugins: [], packages: [], prompts: [], notices: [], float: null, confirm: null, progress: [], declined: [], settled: false };
   private settled = false;
   private packages: PackageStatus[] = [];
-  /** Packages whose install the user cancelled this run: not asked again until the next start. */
+  /** Packages `:plugins remove` took out this run while init.lua still names them: not asked
+   * again until the next start. A cancelled install is kept in the State instead (`DECLINED_KEY`). */
   private readonly declined = new Set<string>();
   /** The settings each loaded Package got, so a changed init.lua reloads it. */
   private readonly packageConfig = new Map<string, string>();
@@ -314,6 +340,20 @@ export class PluginManager {
 
   private saveInstalled(list: Installed[]) {
     this.store.set(STATE_KEY, list);
+  }
+
+  private cancelledInstalls(): Declined[] {
+    return parseDeclined(this.store.get(DECLINED_KEY));
+  }
+
+  private saveCancelled(list: Declined[]) {
+    this.store.set(DECLINED_KEY, list);
+  }
+
+  /** Whether the user cancelled this Package's install, this run or before, from the repo and
+   * folder init.lua names now. */
+  private isDeclined(p: { name: string; url: string; dir: string | null }): boolean {
+    return this.declined.has(p.name) || this.cancelledInstalls().some((d) => d.name === p.name && d.url === p.url && d.dir === p.dir);
   }
 
   /** Loads the built-in Plugins and every installed one. One that asks for a permission the user
@@ -388,6 +428,10 @@ export class PluginManager {
         return;
       }
       this.packages = statuses;
+      // A cancelled install counts while init.lua names the same repo and folder for it.
+      const cancelled = this.cancelledInstalls();
+      const still = cancelled.filter((d) => statuses.some((p) => p.name === d.name && p.url === d.url && p.dir === d.dir));
+      if (still.length !== cancelled.length) this.saveCancelled(still);
       const named = new Set(statuses.map((p) => `${PACKAGE_PREFIX}${p.name}`));
       for (const entry of this.installed().filter((e) => packageName(e.path) !== null && !named.has(e.path))) {
         if (this.loaded.has(entry.name)) await this.unload(entry.name);
@@ -405,7 +449,7 @@ export class PluginManager {
     const path = `${PACKAGE_PREFIX}${p.name}`;
     const entry = this.installed().find((e) => e.path === path);
     if (!p.pinned || !entry) {
-      if (this.declined.has(p.name)) {
+      if (this.isDeclined(p)) {
         await this.backend.packagesDiscard(p.name).catch(() => undefined);
         return;
       }
@@ -433,16 +477,22 @@ export class PluginManager {
     await this.loadPath(path, entry.granted, entry.name);
   }
 
-  /** `:packages update`: fetches every Package and asks about each new commit, showing its diff
-   * and any permission it newly asks for. Says what it found. */
-  checkPackages(): Promise<string> {
+  /** `:packages update [NAME]`: fetches every Package (or the one named) and asks about each new
+   * commit, showing its diff and any permission it newly asks for. Says what it found. */
+  checkPackages(only?: string): Promise<string> {
     return this.serially(async () => {
       await this.start();
+      if (only !== undefined) {
+        const p = this.packages.find((x) => x.name === only);
+        if (!p) return `init.lua names no Package ${only}`;
+        if (!p.pinned) return `${only} isn't installed: :packages install ${only} asks to install it`;
+      }
       let checked;
       try {
-        checked = await this.backend.packagesCheck();
+        checked = await this.backend.packagesCheck(only);
       } catch (e) {
-        return `Couldn't check the Packages: ${e instanceof Error ? e.message : String(e)}`;
+        const why = e instanceof Error ? e.message : String(e);
+        return only === undefined ? `Couldn't check the Packages: ${why}` : `Couldn't check ${only}: ${why}`;
       }
       const updates: string[] = [];
       const failed: string[] = [];
@@ -466,7 +516,8 @@ export class PluginManager {
         updates.push(c.name);
       }
       this.changed();
-      const found = updates.length === 0 ? "All Packages are up to date" : `${updates.length === 1 ? "An update" : `${updates.length} updates`}: ${updates.join(", ")}`;
+      const upToDate = only === undefined ? "All Packages are up to date" : `${only} is up to date`;
+      const found = updates.length === 0 ? upToDate : `${updates.length === 1 ? "An update" : `${updates.length} updates`}: ${updates.join(", ")}`;
       return failed.length ? `${found}. ${failed.join("; ")}` : found;
     });
   }
@@ -488,6 +539,24 @@ export class PluginManager {
       this.saveInstalled(this.installed().filter((e) => !paths.has(e.path)));
       this.changed();
       return gone.length === 0 ? "Nothing to clean: init.lua names every Package" : `Removed ${gone.join(", ")}`;
+    });
+  }
+
+  /** `:packages install NAME`: asks again about a Package init.lua names that isn't installed,
+   * one whose install was cancelled (or that `:plugins remove` took out). Null once it asks. */
+  installPackage(name: string): Promise<string | null> {
+    return this.serially(async () => {
+      await this.start();
+      const p = this.packages.find((x) => x.name === name);
+      if (!p) return `init.lua names no Package ${name}`;
+      const path = `${PACKAGE_PREFIX}${name}`;
+      if (p.pinned && this.installed().some((e) => e.path === path)) return `${name} is installed already: :packages update ${name} checks it for a new version`;
+      this.declined.delete(name);
+      this.saveCancelled(this.cancelledInstalls().filter((d) => d.name !== name));
+      await this.syncPackagesNow();
+      if (this.prompts.some((x) => x.path === path)) return null;
+      const now = this.packages.find((x) => x.name === name);
+      return now?.error ? `${name}: ${now.error}` : `${name} can't be installed: see :packages`;
     });
   }
 
@@ -520,8 +589,9 @@ export class PluginManager {
     const pkg = prompt.package;
     if (pkg && prompt.kind === "install") {
       if (!allow) {
-        this.declined.add(pkg.name);
+        this.saveCancelled([...this.cancelledInstalls().filter((d) => d.name !== pkg.name), { name: pkg.name, url: pkg.url, dir: pkg.dir }]);
         await this.backend.packagesDiscard(pkg.name).catch(() => undefined);
+        this.changed();
         return;
       }
       try {
@@ -1519,6 +1589,7 @@ export class PluginManager {
       float: this.float,
       confirm: this.confirm,
       progress: [...this.progress.values()],
+      declined: this.packages.filter((p) => !p.pinned && this.isDeclined(p)).map((p) => p.name),
       settled: this.settled,
     };
     for (const l of this.listeners) l();

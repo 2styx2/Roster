@@ -924,8 +924,10 @@ export interface Backend {
   packagesDiscard(name: string): Promise<void>;
   /** Removes a Package's clone and its roster.lock entry (`:plugins remove`). */
   packagesRemove(name: string): Promise<void>;
-  /** `:packages update`, step 1: fetches and describes each new commit. Changes nothing. */
-  packagesCheck(): Promise<PackageChecked[]>;
+  /** `:packages update`, step 1: fetches and describes each new commit. Changes nothing. With a
+   * name (`:packages update NAME`), only that Package; rejects when init.lua names no such
+   * Package or it isn't installed. */
+  packagesCheck(name?: string): Promise<PackageChecked[]>;
   /** Step 2: moves a Package to a commit the user saw and allowed, and pins it. */
   packagesApply(name: string, commit: string): Promise<PackageStatus>;
   /** `:packages clean`: removes what init.lua no longer names; gives their names. */
