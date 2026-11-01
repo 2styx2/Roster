@@ -1,8 +1,8 @@
 # The roster app
 
-A fast, keyboard-first desktop app that gets you into a terminal on any Host in your team's roster Inventory in a few keystrokes. [roster](../README.md) (the CLI at the root of this repo) is the only backend: it knows the Hosts and the Logins, and the app reaches it through `roster serve`. The app is the nicest way to reach them.
+A fast, keyboard-first desktop app that gets you onto any Host in your team's roster Inventory in a few keystrokes, with a shell over your own ssh. [roster](../README.md) (the CLI at the root of this repo) is the only backend: it knows the Hosts and the Logins, and the app reaches it through `roster serve`. The app is the nicest way to reach them.
 
-> Status: **iteration 2.** Picker, Sessions (key and password), the Sidebar, the Lua Config, Themes, the lock screen with full vault sign-in, and clean connection errors. The app was a separate repo called roster-desk until it joined this one (decision Q56, ADR 0007); an old roster-desk Config and State are copied over the first time it starts ([config.md](../docs/app/config.md)).
+> Status: **v0.2.0** released; iterations 8 and 9 on `dev` (first-party Plugins, panels docked or full window, a concurrent `roster serve`). See [roadmap.md](../docs/app/roadmap.md) and [news.md](../docs/news.md). The app was a separate repo called roster-desk until it joined this one (decision Q56, ADR 0007); an old roster-desk Config and State are copied over the first time it starts ([config.md](../docs/app/config.md)).
 
 ## Where to look
 
@@ -21,7 +21,9 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | [docs/app/roadmap.md](../docs/app/roadmap.md) | The iterations and what "done" means for each |
 | [docs/app/performance.md](../docs/app/performance.md) | What the app costs (CPU, memory, wake-ups, frames), the budgets, and `app/scripts/perf.sh` to measure them |
 | [docs/app/dev/](../docs/app/dev/) | Researched, tested notes: Windows build loop from WSL, Linux and WSLg (linux.md), PTY and wsl.exe, xterm.js setup, test layout, vault sign-in |
-| [docs/app/errors.md](../docs/app/errors.md) | Every way a connection can fail, with its message and fix |
+| [docs/app/errors.md](../docs/app/errors.md) | Every error, with its message and fix |
+| [docs/plugins.md](../docs/plugins.md), [docs/plugin-api.md](../docs/plugin-api.md), [plugins/](../plugins/README.md) | Writing a Plugin, its API, and roster's first-party Plugins |
+| [docs/news.md](../docs/news.md) | What's new in each Release, and on `dev` |
 | [docs/app/design/taste.md](../docs/app/design/taste.md) | roster's own design identity: what makes it look and feel like ours |
 | [docs/app/decisions.md](../docs/app/decisions.md) | Every design question we asked and the answer |
 | [docs/adr/](../docs/adr/) | Architecture decisions for the CLI and the app (0001–0002 roster serve and ssh, 0003–0006 the app, 0007 one repo, 0008 the docs website and PDF) |
@@ -48,26 +50,21 @@ A fast, keyboard-first desktop app that gets you into a terminal on any Host in 
 | Windows copy | `%LOCALAPPDATA%\roster-app-dev` | `%LOCALAPPDATA%\roster-app-release` |
 | Stop | `app/scripts/app-stop.sh` | `app/scripts/app-stop.sh --release` (or just close the window) |
 
-Both use the installed `roster` (needs `roster serve`, API 3+; asking about a new Host's host key needs API 11, Q60; Quick Connect needs API 12, ticket 14; its "Save to vault" API 13, ticket 15; signing the vault out to use a different account API 14, ticket 42; roster's sections of `:check` with no Host API 16, ticket 49) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
+Both use the installed `roster` (needs `roster serve`, API 3+; asking about a new Host's host key needs API 11, Q60; Quick Connect needs API 12, ticket 14; its "Save to vault" API 13, ticket 15; signing the vault out to use a different account API 14, ticket 42; roster's sections of `:check` with no Host API 16, ticket 49; the Mesh controls need API 17 (Mesh jobs), Discover 18, Topology 19 (`mesh.status`'s `grouped`); Plugins' `job_progress` and `:check` sections that answer later need 20 (concurrent serve); cancelling and check jobs 21) unless `ROSTER_APP_ROSTER` is set, and both share the same State and `init.lua`. The scripts and the app still read the old `ROSTER_DESK_*` env var names when the new ones aren't set.
 
 Paths below are from the repo root.
 
 ```text
 Cargo.toml            workspace (repo root); default member is roster-core, so `cargo test` in WSL never builds Tauri
-crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs),
+crates/roster-core/   Tauri-free core: Backend detection (detect.rs), `roster serve` JSON-RPC client (rpc.rs: answers matched by id in any order, `$/cancel` when it stops waiting),
                       start-up and API-version check (backend.rs), the one Backend slot (slot.rs), error kinds (error.rs), Sessions:
                       session.prepare → command (wsl --exec …, env via WSLENV) and the PTY manager (session.rs),
                       the State file (state.rs), where the window reopens (window.rs), the Windows build (platform.rs),
                       Windows Terminal's settings.json → an init.lua block, previewed as a diff (wt.rs, ticket 33),
                       the ROSTER_APP_* env vars with their old names (env.rs), the one-time copy from roster-desk (migrate.rs),
                       opening a web service's URL in the default browser, http/https only, no user or password (browser.rs)
-app/src-tauri/        thin Tauri shell: window + commands backend_connect, hosts_list, host_get,
-                      session_open/write/resize/close (output over an ipc Channel as raw bytes), quick_session_open (ticket 14),
-                      state_load/state_save, platform_info, vault_status/unlock/lock/logout/configure/targets, config_load, config_open,
-                      config_reload, inventory_pull, host_verify_login, host_update, changes_diff, changes_discard,
-                      changes_publish, host_scan_key, host_add, host_review, save_call (quick.save, host.save_login, vault.forget_typed),
-                      config_import_preview, config_import_apply (ticket 33), open_url (a web service in the
-                      default browser, ticket 18), plugin_manifest/load/call/event/unload (ticket 23)
+app/src-tauri/        thin Tauri shell: the window, and the commands the frontend calls (every one is in
+                      `generate_handler!` in src-tauri/src/lib.rs), each a thin wrapper over roster-core
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
@@ -110,6 +107,7 @@ crates/roster-core/src/plugin/
                       load/call/event, time budget, strikes, the manifest), runtime.rs (the `roster` module a
                       Plugin gets, by its grants; ops), permission.rs (what can be granted, the serve allow-list),
                       network.rs (`network:SITE`: the HTTP client, sites, the private-address check; Q97),
+                      fair.rs (the Plugins' fair share of serve: 2 calls each, 4 in all, Q112),
                       folder.rs (a Plugin's folders are its own, Q93: `inside` for its code's files, `Storage` for
                       its data folder `plugin-data/NAME` behind `roster.storage`)
 crates/roster-core/src/package/
@@ -132,10 +130,14 @@ app/src/view/views.ts   views and Host-details sections as registries (ticket 76
 app/src/panel/          every panel and view docked, at any width, or full window (ticket 95, Q106): layout.ts (the
                       choice per panel in the State over init.lua's defaults, limits, which panel keys act on),
                       PanelFrame.tsx (the frame, its draggable edge, the header's button), command.ts (`:panel`)
+app/src/ui/messages.ts  the message line (Q115): which messages are quiet under `ui.messages`, the `:messages` history
 app/src/ui/table.ts     a table's model: sort, updates in place, which rows are on screen; ui/DataTable.tsx draws it
 app/src/graph/          a view's graph (ticket 77): model.ts (data, updates, reach), layout.ts (where nodes go), scene.ts
                       (collapsed clusters, keys, search, highlight), memory.ts (places in the State), draw.ts (the
                       canvas), lists.ts (the node and edge tables), FilterMenu.tsx (a filter dimension's checkbox menu), GraphView.tsx; plugins/graphOps.ts checks a Plugin's graph
+plugins/mesh, plugins/discover, plugins/topology
+                      roster's first-party Plugins (Q80, Q94), installed as Packages with `dir = "plugins/NAME"`;
+                      App.mesh/discover/topology tests load them
 examples/plugins/pinned the example Plugin docs/plugins.md walks through (a Rust test loads it)
 examples/plugins/recent-alerts the worked example in docs/plugins.md, a third-party Plugin end to end (ticket 56): crates/roster-core/tests/recent_alerts.rs
                       installs it from a git repo and records app/src/plugins/recent-alerts.transcript.json, which

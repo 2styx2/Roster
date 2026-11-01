@@ -481,6 +481,10 @@ impl PluginHost {
     /// Sends `event` to every Plugin that listens and may hear it, all at once; the slow ones
     /// are given up on together. Only Plugins that changed something or failed answer.
     pub fn event(&self, event: Event) -> Vec<Reply> {
+        let event = Event {
+            payload: runtime::heard_payload(&event.name, event.payload),
+            name: event.name,
+        };
         let targets: Vec<(String, Target)> = {
             let slots = self.slots.lock().expect("plugin slots");
             slots

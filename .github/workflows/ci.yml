@@ -182,8 +182,21 @@ jobs:
       - name: Stub the frontend build for clippy
         run: mkdir -p app/dist && echo '<!doctype html><title>Roster</title>' > app/dist/index.html
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      # Default member roster-core: the PTY, JSON-RPC (tests/fake_serve.py) and Lua Config tests.
-      - run: cargo test
+      # Default member roster-core: the PTY, JSON-RPC (tests/fake_serve.py) and Lua Config tests. In a temp dir
+      # of its own, then nothing a test made may be left in it (ticket 109: 37k leftovers once filled /tmp).
+      - name: cargo test
+        run: |
+          export TMPDIR="$RUNNER_TEMP/core-tests"
+          mkdir -p "$TMPDIR"
+          cargo test
+      - name: No test folder left behind
+        run: |
+          ls -A "$RUNNER_TEMP/core-tests"
+          left=$(find "$RUNNER_TEMP/core-tests" -mindepth 1 -maxdepth 1 -name 'roster-core-*' | wc -l)
+          if [ "$left" -ne 0 ]; then
+            echo "::error::cargo test left $left roster-core-* folders in the temp dir (use common::temp in tests)"
+            exit 1
+          fi
 
   # roster-core's tests on Windows (ticket 92): its cfg(windows) code, such as the junctions and reparse points of the
   # Plugin "stays inside its folder" rule (mklink /J), only runs here. The core only: the Tauri crate is built by the
@@ -205,7 +218,23 @@ jobs:
           python3 --version
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p roster-core --no-fail-fast
+      - name: cargo test
+        shell: pwsh
+        run: |
+          $env:TMP = $env:TEMP = "$env:RUNNER_TEMP\core-tests"
+          New-Item -ItemType Directory -Force $env:TMP | Out-Null
+          cargo test -p roster-core --no-fail-fast
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Nothing a test made may be left in its temp dir (ticket 109), junctions and read-only git objects included.
+      - name: No test folder left behind
+        shell: pwsh
+        run: |
+          Get-ChildItem -Force "$env:RUNNER_TEMP\core-tests" | Select-Object -ExpandProperty Name
+          $left = @(Get-ChildItem -Force "$env:RUNNER_TEMP\core-tests" -Filter 'roster-core-*').Count
+          if ($left -ne 0) {
+            Write-Output "::error::cargo test left $left roster-core-* folders in the temp dir (use common::temp in tests)"
+            exit 1
+          }
 
   app-windows:
     name: App Windows release build

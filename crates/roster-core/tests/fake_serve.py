@@ -22,6 +22,8 @@ The first argument picks a behaviour:
                      test.cancelled {params, had_id} so a test can see the client sent it
   checks             speaks API 21: host.check {background: true} starts a check job (counted in inventory.info's
                      `checks`), host.check_job says running twice, then done with the waiting form's result
+  stuck-check HOW    as checks, but the check never ends; host.check {background: true} says `joined: true` when HOW
+                     is `joined` (serve API 22), and each jobs.stop is counted in inventory.info's `stops`
   slow-exit FILE     once stdin closes, takes 1.5 s to wind down (as serve stopping a Mesh job and recording
                      it), then writes FILE and exits on its own
 Arguments after it are echoed back by inventory.info as `argv`, so tests can see what was passed.
@@ -54,7 +56,7 @@ minted = 0
 FINGERPRINT = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"
 trusted = mode != "unknown-key"
 CHECKED = {"host": "esxi-02", "ok": True, "steps": [{"step": "inventory", "status": "ok", "message": "root@10.19.77.10"}]}
-checks, polls = [], []
+checks, polls, stops = [], [], []
 
 
 def answer(req):
@@ -66,24 +68,29 @@ def answer(req):
     if m == "inventory.info":
         return {"result": {"path": "/home/u/infra/roster.yml", "box": "box1", "host_count": len(HOSTS),
                            "providers": ["bw"], "roster_version": "0.1.0",
-                           "api_version": 0 if mode == "old-api" else 21 if mode == "checks" else 1,
-                           "argv": sys.argv[2:], "checks": checks}}
+                           "api_version": 0 if mode == "old-api" else 21 if mode == "checks"
+                           else 22 if mode == "stuck-check" else 1,
+                           "argv": sys.argv[2:], "checks": checks, "stops": stops}}
     if m == "host.check":
         p = req.get("params", {})
-        if p.get("background") is True and mode == "checks":
+        if p.get("background") is True and mode in ("checks", "stuck-check"):
             checks.append(p["host"])
+            joined = {"joined": sys.argv[2] == "joined"} if mode == "stuck-check" else {}
             return {"result": {"kind": "check", "job": f"check-{len(checks)}", "action": "check", "state": "running",
-                               "done": 0, "total": 8, "at": None, "host": p["host"]}}
+                               "done": 0, "total": 8, "at": None, "host": p["host"], **joined}}
         if "background" in p:
             return {"error": {"code": -32602, "message": "an older serve has no background check"}}
         return {"result": CHECKED}
     if m == "host.check_job":
         polls.append(req["params"]["job"])
-        if len(polls) < 3:
+        if len(polls) < 3 or mode == "stuck-check":
             return {"result": {"kind": "check", "job": req["params"]["job"], "state": "running", "done": len(polls),
                                "total": 8, "at": "dns", "host": "esxi-02"}}
         return {"result": {"kind": "check", "job": req["params"]["job"], "state": "done", "done": 8, "total": 8,
                            "at": None, "host": "esxi-02", "result": CHECKED}}
+    if m == "jobs.stop":
+        stops.append(req["params"])
+        return {"result": {**req["params"], "stopping": True}}
     if m == "hosts.list":
         if mode == "die-on-hosts":
             sys.exit(5)

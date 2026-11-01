@@ -6,6 +6,8 @@
 //! (`plugin_NAME.rs`) and in `app/src/plugins/`; see `plugins/README.md`. With no Plugins in the
 //! folder yet, there's nothing to install and the test passes.
 
+mod common;
+
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Limits, PluginHost, Serve, Source, read_manifest};
@@ -30,11 +32,8 @@ fn first_party() -> Vec<String> {
     names
 }
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-first-party-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("first-party-{test}"))
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

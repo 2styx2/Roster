@@ -51,6 +51,8 @@ const messageLine = () => document.querySelector(".message-line") as HTMLElement
 describe(":config", () => {
   it("creates init.lua from the commented-out example the first time, then only opens it", async () => {
     const { user, platform } = await ready();
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     expect(platform.configFile()).toBeNull();
     await command(user, "config");
     await screen.findByText(new RegExp(`Created ${PATH}`));
@@ -67,6 +69,8 @@ describe(":config", () => {
 
   it("never overwrites a file that's there", async () => {
     const { user, platform } = await ready({ file: "return { vim = false }\n" });
+    // The confirmation's whole text shows with every message on (ticket 111).
+    await user.keyboard(`${LEADER}:messages all{Enter}`);
     await command(user, "config");
     await screen.findByText(`Opened ${PATH}. Saving it applies it.`);
     expect(platform.configFile()).toBe("return { vim = false }\n");
@@ -132,8 +136,10 @@ describe("Option names where configurable things show", () => {
     expect(finder).toHaveTextContent(/In init\.lua: theme = "roster-light"/);
   });
 
-  it("showing or hiding a layout piece names its option", async () => {
+  it("showing or hiding a layout piece names its option, with every message on", async () => {
     const { user } = await ready();
+    // Quiet by default (ticket 111).
+    await command(user, "messages all");
     await user.keyboard(`${LEADER}e`);
     expect(messageLine()).toHaveTextContent("Sidebar hidden, and kept that way. modes.standard.sidebar = false in init.lua makes it the default");
     await user.keyboard(`${LEADER}s`);

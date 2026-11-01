@@ -134,6 +134,19 @@ pub(crate) fn may_hear(event: &str, grants: &BTreeSet<Permission>) -> Result<(),
     }
 }
 
+/// The events whose payload is roster serve's own text (`job_progress` is its `job.progress`
+/// notification, a failed job's error message included), cut as its answers are (Q92). The
+/// others carry the app's ids and Host names, or a Session's output, which isn't serve's.
+const FROM_SERVE: &[&str] = &["job_progress"];
+
+/// `event`'s payload as a Plugin gets it: serve's text with its `cmd:`/`env:` references cut.
+pub(crate) fn heard_payload(event: &str, mut payload: Json) -> Json {
+    if FROM_SERVE.contains(&event) {
+        redact(&mut payload);
+    }
+    payload
+}
+
 /// Whether a Plugin with `grants` may get this `event` with this `payload`: a `job_progress` only
 /// for a kind of job it may ask about ([`JOB_KINDS`]).
 pub(crate) fn may_hear_this(event: &str, payload: &Json, grants: &BTreeSet<Permission>) -> bool {
@@ -891,7 +904,16 @@ fn redact(v: &mut Json) {
                 *text = cut;
             }
         }
-        Json::Object(map) => map.values_mut().for_each(redact),
+        Json::Object(map) => {
+            // keys too: serve's `data` can be keyed by what it was given
+            *map = std::mem::take(map)
+                .into_iter()
+                .map(|(key, mut value)| {
+                    redact(&mut value);
+                    (redact_text(&key).unwrap_or(key), value)
+                })
+                .collect();
+        }
         Json::Array(items) => items.iter_mut().for_each(redact),
         _ => {}
     }
@@ -1817,5 +1839,18 @@ mod tests {
             })
             .collect();
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// The same file's whole JSON values: every string cut, a key as much as a value.
+    #[test]
+    fn the_shared_redaction_vectors_for_json_values() {
+        let vectors: Json = serde_json::from_str(include_str!("../../../../tests/vectors/redaction.json")).unwrap();
+        let cases = vectors["values"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let mut got = case["in"].clone();
+            redact(&mut got);
+            assert_eq!(got, case["out"], "{}", case["note"]);
+        }
     }
 }

@@ -94,6 +94,14 @@ ui = { hints = false },
 
 Every binding still works, and `␣ K` and `:help` still show the keys. Leave it unset to let `:hints` decide.
 
+## Show every message, as before
+
+```lua
+ui = { messages = "all" },
+```
+
+The message line is quiet by default, as Neovim's: errors, warnings, answers and results that need attention show, a routine confirmation or a toggle's tip (which `init.lua` line makes it the default) doesn't. `"all"` shows them too; `:messages all` does it without `init.lua`, and the app remembers. `:messages` alone lists the recent ones either way.
+
 ## Reload when you save
 
 ```lua

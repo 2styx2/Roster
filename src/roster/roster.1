@@ -29,9 +29,9 @@ Give this box (and Claude) access to the hosts in roster.yml.
 .IP \(bu 2
 \fBOne source of truth for the team.\fR The host list lives in git and the logins live in the shared vault. Adding a host takes one change to \fBroster.yml\fR, and rotating a password takes one vault edit. Every box picks the change up.
 .IP \(bu 2
-\fBNo passwords on disk.\fR Passwords are fetched from Bitwarden, 1Password, \fBpass\fR, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
+\fBNo passwords on disk.\fR Passwords are fetched from Bitwarden, 1Password, \fBpass\fR, KeePassXC, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
 .IP \(bu 2
-\fBClaude works on the network without seeing secrets.\fR \fBroster setup\fR writes \fBROSTER.md\fR, which tells Claude which hosts exist and how to reach them. Claude uses \fBssh\fR, \fBroster run\fR and \fBroster web\fR: roster supplies the credentials and Claude sees only the output.
+\fBClaude works on the network without seeing secrets.\fR \fBroster setup\fR writes \fBROSTER.md\fR, which tells Claude which hosts exist and how to reach them. Claude uses \fBssh\fR, \fBroster run\fR and \fBroster web\fR, and reads roster's data with \fB\-\-json\fR: roster supplies the credentials and Claude sees only the output.
 .IP \(bu 2
 \fBScans become inventory safely.\fR \fBroster discover\fR turns an nmap sweep into \fBroster.yml\fR entries marked \fBreviewed: false\fR\&. Nothing logs in to them until a person has reviewed them.
 .SH OPTIONS
@@ -40,7 +40,7 @@ Give this box (and Claude) access to the hosts in roster.yml.
 show program's version number and exit
 .TP
 \fB\-c, \-\-config PATH\fR
-path to roster.yml (default: ./roster.yml, then ~/.config/roster/)
+path to roster.yml (default: $ROSTER_CONFIG, ./roster.yml, then ~/.config/roster/roster.yml)
 .SH COMMANDS
 .SS init
 .PP
@@ -239,7 +239,7 @@ how long to wait for the answer (default: 30)
 .PP
 \fBroster mesh [\-\-dry\-run] [\-\-rotate HOST] [\-y] [\-\-json] [{cut,status}] [HOST]\fR
 .PP
-Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. A Link's \fBvia: HOST\fR goes through a jump Host (\fBProxyJump\fR), tested through it. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change. See The Mesh
+Set up Host\-to\-Host access as \fBmesh:\fR and \fBlinks:\fR say, one Host at a time: a key made on each source, tagged entries on its peers. A Link's \fBvia: HOST\fR goes through a jump Host (\fBProxyJump\fR), tested through it. \fB\-\-dry\-run\fR shows the plan, \fB\-\-rotate\fR replaces a Host's Mesh key. \fBmesh status\fR shows who reaches whom without connecting; \fBmesh cut HOST [\-y]\fR takes a Host out everywhere at once and writes \fBmesh: false\fR for it as a Pending change; \fB\-\-json\fR with \fBstatus\fR or \fB\-\-dry\-run\fR\&. See The Mesh
 .TP
 \fBACTION\fR
 cut HOST: take it out of the Mesh now, everywhere; status: who reaches whom (no connections)

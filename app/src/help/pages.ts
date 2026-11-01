@@ -32,7 +32,7 @@ export interface HelpContext {
   config: Config;
   /** init.lua's full path, when there's a config dir. */
   configPath: string | null;
-  /** The State's `:theme` and `:hints` choices. */
+  /** The State's `:theme`, `:hints` and `:messages` choices. */
   state: StateChoices;
   /** The Theme on screen. */
   activeTheme: string | null;
@@ -320,7 +320,7 @@ function optionsPage(ctx: HelpContext): Block[] {
     const s = optionSource(ctx.config, name, ctx.state);
     if (s.kind === "init.lua") return [code(s.at ? `${s.at.file}:${s.at.line}` : "init.lua")];
     if (s.kind === "State") {
-      if (name !== "theme") return [text("State (:hints)")];
+      if (name !== "theme") return [text(name === "ui.messages" ? "State (:messages)" : "State (:hints)")];
       return [text(s.over ? `State (:theme, over ${s.over.file}:${s.over.line})` : "State (:theme)")];
     }
     return [text("default")];
@@ -338,8 +338,10 @@ function optionsPage(ctx: HelpContext): Block[] {
       code("init.lua"),
       " (with its line), or the State (a choice ",
       code(":theme"),
-      " or ",
+      ", ",
       code(":hints"),
+      " or ",
+      code(":messages"),
       " keeps when init.lua leaves it to them, or one ",
       code(":theme"),
       " made over init.lua's own). ",
@@ -591,7 +593,7 @@ const QUICKREF: readonly (readonly [string, readonly string[]])[] = [
   ["Sessions", ["next", "prev", "session", "close", "reconnect", "finder sessions"]],
   ["View", ["sidebar", "statusbar", "mode", "focus", "finder tree"]],
   ["Pending changes", ["changes", "publish", "discard"]],
-  ["Make it yours", ["config", "source", "theme", "hints", "keys"]],
+  ["Make it yours", ["config", "source", "theme", "hints", "messages", "keys"]],
   ["Help", ["help", "helpgrep"]],
 ];
 

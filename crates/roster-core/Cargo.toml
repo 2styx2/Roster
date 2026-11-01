@@ -26,3 +26,7 @@ url = "2"
 # Polling the PTY master so a Session's reader can stop (session.rs).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+# A test's temp folder is deleted when the test ends, even when it panics (tests/common/mod.rs).
+tempfile = "3"

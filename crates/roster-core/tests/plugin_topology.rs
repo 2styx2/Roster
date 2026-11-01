@@ -11,6 +11,8 @@
 //! steps against the fake Backend's stand-in for this Plugin and check it does the same.
 //! `ROSTER_UPDATE_TRANSCRIPT=1 cargo test -p roster-core --test plugin_topology` rewrites the file.
 
+mod common;
+
 use roster_core::config::PackageSpec;
 use roster_core::package::Packages;
 use roster_core::plugin::{Event, Limits, Permission, PluginHost, Reply, Serve, Source, read_manifest};
@@ -35,11 +37,8 @@ fn plugins_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins")
 }
 
-fn temp(test: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-topology-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn temp(test: &str) -> common::Temp {
+    common::temp(&format!("topology-{test}"))
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -261,6 +260,8 @@ struct World {
     /// What the Plugin did when its roster serve requests answered (the Tauri shell's
     /// `plugin-reply`).
     replies: Mutex<Receiver<Reply>>,
+    /// The remote, the clone and the data dir; last, so it's deleted after the host has stopped.
+    _root: common::Temp,
 }
 
 impl World {
@@ -299,6 +300,7 @@ impl World {
             host,
             serve,
             replies: Mutex::new(replies),
+            _root: root,
         }
     }
 
@@ -823,7 +825,7 @@ fn what_it_wasnt_granted_isnt_in_its_sandbox() {
     )
     .unwrap();
     std::fs::write(dir.join("init.lua"), probe).unwrap();
-    let (_, r) = w.host.load(&Source::Dir(dir), &perms(ALL)).unwrap();
+    let (_, r) = w.host.load(&Source::Dir(dir.to_path_buf()), &perms(ALL)).unwrap();
     ok(&r);
     assert_eq!(
         one(&r.ops, "status")["spec"]["text"],

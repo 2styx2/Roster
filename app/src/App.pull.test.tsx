@@ -43,6 +43,8 @@ async function ready(scenario: FakeScenario = fixtures.edit as FakeScenario, pul
   );
   await user.type(await screen.findByLabelText(/master password/i), `${FAKE_PASSWORD}{Enter}`);
   await screen.findByRole("main", { name: /workspace/i });
+  // The confirmations' whole text shows with every message on (ticket 111).
+  await user.keyboard(`${LEADER}:messages all{Enter}`);
   return { user, backend, clock, pulls: () => pulls };
 }
 

@@ -2,7 +2,7 @@
 
 ```bash
 uv sync                  # creates .venv with dev tools
-uv run pytest            # no network or SSH server needed
+uv run pytest            # no network or SSH server needed; temp folders are deleted when each test ends (below)
 uv run ruff check src tests scripts app/scripts
 uv build                 # wheel + sdist in dist/
 ```
@@ -17,6 +17,7 @@ The `cmd:`/`env:` cut (decision Q92) is written twice, in `src/roster/jsonout.py
 src/roster/
   cli.py            commands and argument parsing
   jsonout.py        `--json` on the read commands: one document with a version, `cmd:`/`env:` references cut (Q92, Q110)
+  common.py         small shared helpers: output, paths, text, starting programs
   config.py         loading/validating roster.yml, search, --only
   example.py        the `roster init` template
   sshops.py         keys, fingerprints, ssh config, key install/removal, password logins
@@ -40,21 +41,27 @@ src/roster/
   health.py         this Box's health: `roster check --box` / box.check's sections (roster.yml, ssh, vault CLIs, askpass,
                     the infra repo), every check local
   askpass.py        the askpass channel: serve's socket (named pipe on Windows) + one-time tokens, the `roster askpass` helper and the logged-in report (stdlib only)
+  web.py            roster web: HTTP requests logged in with a service's stored credentials
   winpipe.py        Windows named pipes for askpass: a pipe only this user can open (its DACL), the client end (ctypes, stdlib only)
   providers/        password providers: registry + plugins + templates, builtin, bitwarden, onepassword,
                     keepassxc (a local .kdbx through keepassxc-cli);
                     bw_login: `bw login` driven a step at a time on a PTY (serve's vault.login)
-examples/           commented roster.yml, plugin template
+examples/           commented roster.yml and init.lua, provider plugin template, example Plugins and the Plugin API's types
+plugins/            the first-party Plugins (mesh, discover, topology), installed as Packages with dir = "plugins/NAME" (Q94)
 scripts/            gen-serve-api.py: docs/serve-api.md's method tables from serve's docstrings (Params:, Result:,
                     Errors:, Since:). Regenerate: uv run python scripts/gen-serve-api.py (--check: is it current?);
                     check-links.py: the docs' external links, weekly in .github/workflows/links.yml;
-                    bump-version.sh: one version everywhere
+                    bump-version.sh: one version everywhere;
+                    news_check.py and news_section.py: the news reminder on pull requests and a Release's notes;
+                    check-bundle-size.py: the app's JS/CSS budget
 docs/               team guides: setting up a new box, adding hosts; docs/app/ for the app, docs/adr/ for decisions
 tests/              pytest suite + fake password-manager CLIs
 app/                the roster app (frontend + app/src-tauri); its Rust core is crates/roster-core (app/README.md)
 ```
 
-The Plugin API (the `roster` Lua module) is declared once, in `crates/roster-core/src/plugin/api.rs`. `cargo run -p roster-core --example gen_plugin_api` writes `docs/plugin-api.md`, the lua-language-server stubs `examples/plugins/types/roster.lua` and `crates/roster-core/tests/fixtures/plugin-api.json` (the help's topics) from it; `--check` only says whether they're current, and `cargo test` fails when they aren't or when the runtime and api.rs disagree. To type-check the example Plugins as CI does, run [lua-language-server](https://luals.github.io/) 3.19.2: `lua-language-server --check examples/plugins --checklevel=Hint`.
+The Plugin API (the `roster` Lua module) is declared once, in `crates/roster-core/src/plugin/api.rs`. `cargo run -p roster-core --example gen_plugin_api` writes `docs/plugin-api.md`, the lua-language-server stubs `examples/plugins/types/roster.lua` and `crates/roster-core/tests/fixtures/plugin-api.json` (the help's topics) from it; `--check` only says whether they're current, and `cargo test` fails when they aren't or when the runtime and api.rs disagree. To type-check the example and first-party Plugins as CI does, run [lua-language-server](https://luals.github.io/) 3.19.2: `lua-language-server --check examples/plugins --checklevel=Hint` and `lua-language-server --check plugins --checklevel=Hint`.
+
+Tests never leave folders in the temp dir (ticket 109: once 37k of them filled /tmp). A roster-core test takes its folder from `common::temp("what")` (`crates/roster-core/tests/common/mod.rs`, a `tempfile::TempDir` that reads as a `Path`), which deletes it when the test ends, failing or not; a helper that makes one returns that guard (or something holding it), never a bare path, and nothing builds a path under `std::env::temp_dir()` itself (`tests/temp_cleanup.rs` checks both). A pytest test uses `tmp_path`; anything else it, serve or a program it runs makes with `tempfile` or in `$TMPDIR` lands in a folder of the test's own that `conftest.py` deletes afterwards. CI runs `cargo test` in a fresh temp dir and fails if a `roster-core-*` folder is left in it. To try that locally: `mkdir -p ~/scratch-tmp && TMPDIR=~/scratch-tmp cargo test; ls -A ~/scratch-tmp`.
 
 The app's checks are in [app/README.md](../app/README.md#development) (`npm run check` in `app/`, `cargo test` at the root). CI runs both halves on every pull request (`.github/workflows/ci.yml`); [CONTRIBUTING.md](../CONTRIBUTING.md) has the branch model. Besides Linux, it runs pytest on Windows and roster-core's `cargo test` on Windows (`Core tests (Windows)`): the core's `cfg(windows)` code, such as the junctions in a Plugin's "stays inside its folder" rule, only runs there. That job tests the core only (the Tauri crate is built by the Windows release build), keeps its own Rust cache, and runs `tests/fake_serve.py` with the Python it installs. It also builds the frontend and checks its JS and CSS against their budget (`scripts/check-bundle-size.py`, [performance.md](app/performance.md#bundle-size)).
 

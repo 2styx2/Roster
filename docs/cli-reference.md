@@ -5,8 +5,8 @@ Everything the `roster` command reads and does: the `roster.yml` format, resourc
 ## Why it exists
 
 - **One source of truth for the team.** The host list lives in git and the logins live in the shared vault. Adding a host takes one change to `roster.yml`, and rotating a password takes one vault edit. Every box picks the change up.
-- **No passwords on disk.** Passwords are fetched from Bitwarden, 1Password, `pass`, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
-- **Claude works on the network without seeing secrets.** `roster setup` writes `ROSTER.md`, which tells Claude which hosts exist and how to reach them. Claude uses `ssh`, `roster run` and `roster web`: roster supplies the credentials and Claude sees only the output.
+- **No passwords on disk.** Passwords are fetched from Bitwarden, 1Password, `pass`, KeePassXC, an environment variable or any command. They are kept in memory for one run and never written or printed. Each box gets its own SSH key, so you can revoke one box without touching the others.
+- **Claude works on the network without seeing secrets.** `roster setup` writes `ROSTER.md`, which tells Claude which hosts exist and how to reach them. Claude uses `ssh`, `roster run` and `roster web`, and reads roster's data with `--json`: roster supplies the credentials and Claude sees only the output.
 - **Scans become inventory safely.** `roster discover` turns an nmap sweep into `roster.yml` entries marked `reviewed: false`. Nothing logs in to them until a person has reviewed them.
 
 ## What `roster setup` does on a box
@@ -16,6 +16,7 @@ Everything the `roster` command reads and does: the `roster.yml` format, resourc
 3. Installs the key on each host that accepts keys, using the password from your password manager once.
 4. Writes SSH config entries, so `ssh orion-dev-01` just works.
 5. Writes `ROSTER.md`, so Claude knows which hosts exist and how to reach them.
+6. Applies the Mesh when `roster.yml` has one (not with `--only`; see [The Mesh](mesh.md)).
 
 ## roster.yml
 
@@ -248,7 +249,7 @@ From the app, the first-party [discover](../plugins/discover/README.md) Plugin d
 | `providers` | Available providers, whether their tools are installed, unknown ones in use |
 | `auth-check` | Test every password source in use (SSH, services and resources) without printing anything secret |
 | `revoke` | Remove this box's key from every host |
-| `mesh [--dry-run] [--rotate HOST]` | Set up Host-to-Host access as `mesh:` and `links:` say, one Host at a time: a key made on each source, tagged entries on its peers. A Link's `via: HOST` goes through a jump Host (`ProxyJump`), tested through it. `--dry-run` shows the plan, `--rotate` replaces a Host's Mesh key. `mesh status` shows who reaches whom without connecting; `mesh cut HOST [-y]` takes a Host out everywhere at once and writes `mesh: false` for it as a Pending change. See [The Mesh](mesh.md) |
+| `mesh [--dry-run] [--rotate HOST]` | Set up Host-to-Host access as `mesh:` and `links:` say, one Host at a time: a key made on each source, tagged entries on its peers. A Link's `via: HOST` goes through a jump Host (`ProxyJump`), tested through it. `--dry-run` shows the plan, `--rotate` replaces a Host's Mesh key. `mesh status` shows who reaches whom without connecting; `mesh cut HOST [-y]` takes a Host out everywhere at once and writes `mesh: false` for it as a Pending change; `--json` with `status` or `--dry-run`. See [The Mesh](mesh.md) |
 | `serve` | The JSON-RPC API the desktop app talks to, on stdin/stdout (see [`roster serve` API](serve-api.md)) |
 | `askpass PROMPT` | The `SSH_ASKPASS` helper for a `serve` password Session. ssh runs it, not you |
 | `man [--install [--prefix DIR]]` | Show the `roster(1)` man page. `--install` copies it to `PREFIX/share/man/man1/roster.1`, next to `PREFIX/bin/roster` (`~/.local` after `uv tool install`), where `man roster` finds it; into a prefix you can't write to, it says so and exits 1 (pick `--prefix ~/.local`, or use sudo). `install.sh` does this for you |

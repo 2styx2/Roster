@@ -5,7 +5,7 @@ Plugins the roster project writes and looks after, for features only some people
 | Plugin | What it adds | Install (`dir =`) |
 |---|---|---|
 | [`mesh`](mesh/README.md) | The Mesh's controls: each Host's reach, "Mesh out of date", plan and apply, Cut, Links through a jump Host | `plugins/mesh` |
-| [discover](discover/README.md) | Scan a network from the app, review what answered, and add the Hosts you keep as Pending changes, unreviewed. The scan runs in `roster serve` (`discover.*`) | `plugins/discover` |
+| [`discover`](discover/README.md) | Scan a network from the app, review what answered, and add the Hosts you keep as Pending changes, unreviewed. The scan runs in `roster serve` (`discover.*`) | `plugins/discover` |
 | [`topology`](topology/README.md) | The Topology view: this Box, every Host by group and the Mesh as a map, what each Host can reach every hop away, live Sessions, Check and Cut from a node | `plugins/topology` |
 
 ## What first-party means
@@ -52,6 +52,8 @@ Every first-party Plugin is reviewed like the core before it's merged, and again
 - [ ] **Least permission.** Each permission in `roster-plugin.lua` is needed for something the README says it does, and the README's "Permissions" section says why. No `serve:` method it doesn't call.
 - [ ] **Nothing secret.** It never asks for, stores, logs or shows a password, key or token, and never puts terminal output (with `terminal.read`) anywhere it outlives the app or leaves the Box.
 - [ ] **Changes go through the user.** Anything it changes goes through the APIs that show it first: Inventory edits as Pending changes (`inventory.write`), and a `serve:` method that changes something only after a confirmation the user answers.
+- [ ] **No network it doesn't need.** Every `network:` site is one it calls, and the README says why; no `http://` unless the service has nothing else.
+- [ ] **Acts only on the user's call.** Every flagged serve method, `inventory.write` call and `roster.cmd` runs from an action, command, finder item, toolbar control or a question's answer, never at load, on an event or from a timer (the core refuses it there anyway).
 - [ ] **Outside data is data.** Text from Hosts, Sessions or the Inventory is shown as text, never run as Lua (`load`) or treated as a command; patterns from it are escaped.
 - [ ] **Bounded.** It keeps no unbounded list in memory (alerts, history) and does nothing heavy per `terminal_output` event; it stays inside the host's limits ([Limits](../docs/plugins.md#limits)).
 - [ ] **Without its permissions** it still loads and says what it's missing, rather than failing.

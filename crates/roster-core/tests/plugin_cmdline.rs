@@ -3,6 +3,8 @@
 //! only in a call the user started; a command's `complete` runs as the app asks, never as the
 //! user's call.
 
+mod common;
+
 use roster_core::plugin::{Limits, PluginHost, Serve, Source};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -15,10 +17,9 @@ impl Serve for NoServe {
     }
 }
 
-fn load(init: &str) -> (PluginHost, roster_core::plugin::Reply) {
-    let dir = std::env::temp_dir().join(format!("roster-core-cmdline-{}-{}", std::process::id(), init.len()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+/// The host, its reply, and the Plugin's folder (deleted when the test drops it).
+fn load(init: &str) -> (PluginHost, roster_core::plugin::Reply, common::Temp) {
+    let dir = common::temp("cmdline");
     std::fs::write(
         dir.join("roster-plugin.lua"),
         r#"return { name = "asker", version = "1", api = 3 }"#,
@@ -26,13 +27,13 @@ fn load(init: &str) -> (PluginHost, roster_core::plugin::Reply) {
     .unwrap();
     std::fs::write(dir.join("init.lua"), init).unwrap();
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
-    let (_, reply) = host.load(&Source::Dir(dir), &[]).unwrap();
-    (host, reply)
+    let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
+    (host, reply, dir)
 }
 
 #[test]
 fn echo_and_cmdline_only_answer_the_user() {
-    let (host, reply) = load(
+    let (host, reply, _dir) = load(
         r#"local r = {}
            r[1] = select(2, pcall(roster.echo, "hi"))
            r[2] = select(2, pcall(roster.cmdline, "note "))
@@ -59,7 +60,7 @@ fn echo_and_cmdline_only_answer_the_user() {
 
 #[test]
 fn complete_isnt_a_call_the_user_started() {
-    let (host, reply) = load(
+    let (host, reply, _dir) = load(
         r#"roster.commands.add("note", { run = function() end, complete = function(arg)
              local ok = pcall(roster.clipboard.copy, "x")
              return { "note " .. arg .. tostring(ok) }
@@ -71,6 +72,6 @@ fn complete_isnt_a_call_the_user_started() {
 
 #[test]
 fn complete_must_be_a_function() {
-    let (_, reply) = load(r#"roster.commands.add("note", { run = "note", complete = { "a" } })"#);
+    let (_, reply, _dir) = load(r#"roster.commands.add("note", { run = "note", complete = { "a" } })"#);
     assert!(reply.error.unwrap().message.contains("`complete` must be a function"));
 }

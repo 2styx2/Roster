@@ -4,9 +4,10 @@
 //! functions that get the row they ran on. Opening a view is the user's call, never the Plugin's
 //! on its own.
 
+mod common;
+
 use roster_core::plugin::{Event, Limits, PluginHost, Serve, Source};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 struct NoServe;
@@ -17,10 +18,8 @@ impl Serve for NoServe {
     }
 }
 
-fn plugin_dir(test: &str, init: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("roster-core-plugin-views-{}-{test}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+fn plugin_dir(test: &str, init: &str) -> common::Temp {
+    let dir = common::temp(&format!("plugin-views-{test}"));
     std::fs::write(
         dir.join("roster-plugin.lua"),
         "return { name = \"scan\", version = \"1.0.0\", description = \"A test\", api = 2, permissions = {} }",
@@ -66,7 +65,8 @@ roster.on("lock", function() roster.views.open("scan") end)
 #[test]
 fn a_view_is_data_with_a_table_whose_actions_get_the_row() {
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("view", VIEW)), &[]).unwrap();
+    let folder = plugin_dir("view", VIEW);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let view = &reply.ops[0];
     assert_eq!(view["op"], "view");
@@ -94,7 +94,8 @@ fn a_view_is_data_with_a_table_whose_actions_get_the_row() {
 #[test]
 fn only_the_user_opens_a_view_but_the_plugin_may_close_it() {
     let host = host();
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("open", VIEW)), &[]).unwrap();
+    let folder = plugin_dir("open", VIEW);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     let load = reply.ops.iter().find(|o| o["op"] == "status").unwrap();
     assert_eq!(load["spec"]["text"], "false", "opening at load is an error");
     let replies = host.event(Event {
@@ -127,7 +128,8 @@ fn an_update_is_plain_data_and_a_bad_id_is_an_error() {
     roster.status.set("e", { text = tostring(err) .. " | " .. tostring(err2) })
     roster.views.remove("scan")
     "#;
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("plain", init)), &[]).unwrap();
+    let folder = plugin_dir("plain", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let text = reply.ops[0]["spec"]["text"].as_str().unwrap();
     assert!(text.contains("roster.views.update"), "{text}");
@@ -153,7 +155,8 @@ fn a_details_section_is_set_per_host_and_its_actions_get_the_host() {
     roster.details.set("mesh", "pve-1", nil)
     roster.details.remove("mesh")
     "#;
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("details", init)), &[]).unwrap();
+    let folder = plugin_dir("details", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     assert_eq!(reply.ops[0]["op"], "details");
     assert_eq!(reply.ops[0]["host"], "esx-02");
@@ -181,7 +184,8 @@ fn a_details_section_keeps_its_actions_until_it_is_set_again_for_that_host() {
     set("esx-02")
     set("pve-1")
     "#;
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("details-keep", init)), &[]).unwrap();
+    let folder = plugin_dir("details-keep", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     let first = handler(&reply.ops[0]["spec"]["table"]["actions"][0]["run"]);
     let r = host.call(
         "scan",
@@ -212,7 +216,8 @@ fn heading_actions_are_functions_and_a_notices_actions_are_command_lines() {
     local ok, err = pcall(roster.notify, "x", "info", { actions = { { label = "Go", run = function() end } } })
     roster.status.set("e", { text = tostring(err) })
     "#;
-    let (_, reply) = host.load(&Source::Dir(plugin_dir("head", init)), &[]).unwrap();
+    let folder = plugin_dir("head", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
     assert!(reply.error.is_none(), "{:?}", reply.error);
     let view = &reply.ops[0];
     let apply = handler(&view["spec"]["actions"][0]["run"]);

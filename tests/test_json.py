@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from roster.cli import main
-from roster.jsonout import JSON_VERSION, redact, redact_error, redact_text
+from roster.jsonout import JSON_VERSION, emit, redact, redact_error, redact_text
 
 
 def run(capsys, *argv):
@@ -57,6 +57,29 @@ def test_the_shared_redaction_vectors(case):
 def test_the_cut_reaches_every_string_inside(capsys):
     got = redact({"a": ["cmd:x", {"b": "env:Y"}], "n": 3, "t": True, "z": None})
     assert got == {"a": ["cmd:", {"b": "env:"}], "n": 3, "t": True, "z": None}
+
+
+VALUES = json.loads((Path(__file__).parent / "vectors" / "redaction.json").read_text(encoding="utf-8"))["values"]
+
+
+@pytest.mark.parametrize("case", VALUES, ids=[c["note"] for c in VALUES])
+def test_the_shared_redaction_vectors_for_json_values(case):
+    """The cut of a whole JSON value, keys included: runtime.rs's tests read these too (Q92)."""
+    assert redact(case["in"]) == case["out"]
+
+
+def test_emit_cuts_what_isnt_plain_json_and_every_key(capsys):
+    # iteration 9 review, item 8: a set, a Path or an object went out as json.dumps(default=str) made it, and a
+    # dict's keys were never cut
+    class Thing:
+        def __str__(self):
+            return "env:LAB_PW"
+    emit({"keys": {"cmd:printf s3cret-in-key": 1}, "set": {"cmd:printf s3cret-in-set"},
+          "path": Path("cmd:printf s3cret-in-path"), "thing": Thing()})
+    out = capsys.readouterr().out
+    assert "s3cret" not in out and "LAB_PW" not in out
+    assert json.loads(out) == {"version": JSON_VERSION, "keys": {"cmd:": 1}, "set": "{'cmd:'", "path": "cmd:",
+                               "thing": "env:"}
 
 
 # ---------------------------------------------------------------- hosts
@@ -243,7 +266,8 @@ def test_auth_check_json_says_which_failed(local, capsys, monkeypatch):
 
 # ---------------------------------------------------------------- never a secret, whatever the command
 
-SECRETS = {"pw-deploy", "pw-netops", "hunter2", "s3cret-in-env", "s3cret-in-cmd", "tok-s3cret", "s3cret-wifi"}
+SECRETS = {"pw-deploy", "pw-netops", "hunter2", "s3cret-in-env", "s3cret-in-cmd", "tok-s3cret", "s3cret-wifi",
+           "s3cret-in-key", "s3cret-in-set"}
 EVERY_PROVIDER = """\
 groups:
   lab:
@@ -258,6 +282,8 @@ groups:
       by-cmd:
         ip: 127.0.0.1
         auth: "cmd:printf s3cret-in-cmd"
+        vars: {{"cmd:printf s3cret-in-key": 1}}
+        tags: !!set {{"cmd:printf s3cret-in-set"}}
         services:
           admin: {{url: "https://127.0.0.1:{closed}", user: webadmin, auth: "cmd:echo s3cret-in-cmd"}}
 resources:
