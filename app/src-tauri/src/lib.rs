@@ -657,8 +657,10 @@ async fn plugin_types(config: tauri::State<'_, ConfigState>, path: String) -> Re
     .await
 }
 
-/// Loads (or reloads) a Plugin with the permissions the user granted.
+/// Loads (or reloads) a Plugin with the permissions the user granted (on the demo's host with
+/// `onDemo`, ticket 66).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri fills each argument from the call or its state
 async fn plugin_load(
     config: tauri::State<'_, ConfigState>,
     packages: tauri::State<'_, PackagesState>,
