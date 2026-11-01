@@ -408,14 +408,22 @@ if reads then
     refresh()
   end)
 end
--- How a check came out (serve API 21: a check is a job), asked once it's over, the app's :check
+-- How a check came out (serve API 21: a check is a job), asked once it's done, the app's :check
 -- and Check from the map alike: a failed one shows its Host down, a passed one clears that.
+-- Answers can come back in any order, so only the answer for a Host's latest finished check counts
+-- (by when serve said each ended, not by its id, which starts again with a new roster serve).
+local latest = {} -- Host -> the token of its latest finished check
+local tokens = 0
 local function check_done(e)
+  if not e.host then return end
+  tokens = tokens + 1
+  local token = tokens
+  latest[e.host] = token
   ask("host.check_job", { job = e.job }, function(j)
+    if latest[e.host] ~= token then return end -- a later check of it ended meanwhile
     local r = type(j) == "table" and j.result
-    if type(r) ~= "table" or j.state ~= "done" then return end -- stopped or lost: no verdict
-    local host = r.host or e.host
-    if not host then return end
+    if type(r) ~= "table" or j.state ~= "done" then return end -- lost: no verdict
+    local host = e.host
     if r.ok then
       down[host] = nil
     else
@@ -437,7 +445,9 @@ end
 if can_job or can_hear_checks then
   roster.on("job_progress", function(e)
     if e.kind == "check" then
-      if e.state ~= "running" and e.state ~= "stopping" then check_done(e) end
+      -- Only a check that ran to its end says something about the Host: one stopped (the vault
+      -- locked) or failed (serve's own error) isn't asked about.
+      if e.state == "done" then check_done(e) end
       return
     end
     if e.kind ~= "mesh" then return end

@@ -29,18 +29,32 @@ pub enum Needs {
     AnyServe,
     /// Any `network:<site>` permission.
     AnyNetwork,
-    /// Any one of these permissions (`roster.sessions.list`: what its events need).
-    AnyOf(&'static [&'static str]),
+    /// Whatever lets a Plugin hear that event (any one of its [`EVENTS`] `needs`):
+    /// `roster.sessions.list` is there for a Plugin that hears `session_open`.
+    Hears(&'static str),
 }
 
 impl Needs {
+    /// The permissions any one of which it needs, for [`Needs::Hears`] (empty otherwise).
+    pub fn any_of(self) -> &'static [&'static str] {
+        match self {
+            Needs::Hears(event) => EVENTS.iter().find(|e| e.name == event).map_or(&[], |e| e.needs),
+            _ => &[],
+        }
+    }
+
     pub fn text(self) -> String {
         match self {
             Needs::Nothing => "none".into(),
             Needs::Permission(p) => format!("`{p}`"),
             Needs::AnyServe => "`serve:<method>` (that method)".into(),
             Needs::AnyNetwork => "`network:<site>` (that site)".into(),
-            Needs::AnyOf(ps) => ps.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(" or "),
+            Needs::Hears(_) => self
+                .any_of()
+                .iter()
+                .map(|p| format!("`{p}`"))
+                .collect::<Vec<_>>()
+                .join(" or "),
         }
     }
 }
@@ -327,7 +341,7 @@ pub const MODULES: &[Module] = &[
     Module {
         name: "roster.inventory",
         summary: "Hosts, and Pending changes to them",
-        doc: "`nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a write in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.",
+        doc: "`nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.",
     },
     Module {
         name: "roster.sessions",
@@ -1446,7 +1460,7 @@ pub const FUNCTIONS: &[Function] = &[
         path: "roster.inventory.groups",
         params: &[],
         summary: "Every group, by name",
-        doc: "From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a write in between reads it again). A Host's `group` names one of them.",
+        doc: "From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a call into serve that can change something in between, a write or `mesh.cut`, reads it again). A Host's `group` names one of them.",
         returns: ("table<string, Group>", "The groups, by name."),
         errors: &[(
             "roster.inventory.groups: MESSAGE (code N)",
@@ -1632,15 +1646,12 @@ pub const FUNCTIONS: &[Function] = &[
     Function {
         path: "roster.sessions.list",
         params: &[],
-        summary: "The Sessions open now, oldest first",
-        doc: "Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. In a listener for either event the list already has (or no longer has) that Session. It reads what the app has said, never roster serve, so it never waits.",
-        returns: (
-            "Session[]",
-            "Each open Session's id and Host, in the order they opened (their ids).",
-        ),
+        summary: "The Sessions open now, in the order they opened",
+        doc: "Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. The app keeps the list in the order it saw each Session open, and a Session that connects again (the same id) opens again, so it goes last. In a listener for either event the list already has (or no longer has) that Session. It reads what the app last said, never roster serve, so it never waits.",
+        returns: ("Session[]", "Each open Session's id and Host, oldest open first."),
         errors: &[],
         refused: &[],
-        needs: Needs::AnyOf(&["inventory.read", "terminal.read"]),
+        needs: Needs::Hears("session_open"),
         since: 4,
         example: "local live = {}\nfor _, s in ipairs(roster.sessions.list()) do\n  if s.host then live[s.host] = true end\nend\nroster.on(\"session_open\", function(e) if e.host then live[e.host] = true end end)",
     },
@@ -4859,7 +4870,7 @@ pub fn json() -> Json {
                 "path": func.path,
                 "params": func.params.iter().map(|p| json!({ "name": p.name, "type": p.ty, "optional": p.optional })).collect::<Vec<_>>(),
                 "returns": func.returns.0,
-                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*"), Needs::AnyNetwork => json!("network:*"), Needs::AnyOf(ps) => json!(ps) },
+                "permission": match func.needs { Needs::Nothing => Json::Null, Needs::Permission(p) => json!(p), Needs::AnyServe => json!("serve:*"), Needs::AnyNetwork => json!("network:*"), Needs::Hears(_) => json!(func.needs.any_of()) },
                 "since": func.since,
             })
         })
@@ -5015,7 +5026,7 @@ mod tests {
         for func in FUNCTIONS {
             let named = match func.needs {
                 Needs::Permission(p) => vec![p],
-                Needs::AnyOf(ps) => ps.to_vec(),
+                Needs::Hears(_) => func.needs.any_of().to_vec(),
                 _ => vec![],
             };
             for p in named {

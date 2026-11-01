@@ -84,7 +84,7 @@ roster embeds **Lua 5.4** (built into the app, nothing to install), not LuaJIT a
 | [`roster.inventory.move(host, group)`](#rosterinventorymovehost-group) | Moves a Host to another group, as a Pending change | `inventory.write` |
 | [`roster.inventory.review(host, reviewed)`](#rosterinventoryreviewhost-reviewed) | Marks a Host reviewed (or not), as a Pending change | `inventory.write` |
 | [`roster.sessions.show(session, line)`](#rostersessionsshowsession-line) | Goes to a Session, and to a line in its scrollback | none |
-| [`roster.sessions.list()`](#rostersessionslist) | The Sessions open now, oldest first | `inventory.read` or `terminal.read` |
+| [`roster.sessions.list()`](#rostersessionslist) | The Sessions open now, in the order they opened | `inventory.read` or `terminal.read` |
 | [`roster.sessions.open(host)`](#rostersessionsopenhost) | Opens a Session on a Host, as `:connect HOST` | `sessions.open` |
 | [`roster.terminal.send(session, text)`](#rosterterminalsendsession-text) | Types into an open Session | `terminal.write` |
 | [`roster.serve.call(method, params)`](#rosterservecallmethod-params) | Calls a roster serve method the Plugin was granted | `serve:<method>` (that method) |
@@ -1841,7 +1841,7 @@ roster.storage.write_json("state.json", { hosts = { "esx-02" } })
 
 ## `roster.inventory`
 
-Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a write in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
+Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call. [`roster.inventory.request`](#rosterinventoryrequestdone) doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
 
 ### `roster.inventory.hosts()`
 
@@ -1898,7 +1898,7 @@ if h then roster.notify(name .. " is " .. h.ip) end
 
 ### `roster.inventory.groups()`
 
-Every group, by name. From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a write in between reads it again). A Host's `group` names one of them.
+Every group, by name. From serve's [`hosts.list`](serve-api.md), as `roster.inventory.hosts()` is: called in the same call as `hosts()`, it uses that answer rather than read the Inventory again (since api 4; a call into serve that can change something in between, a write or `mesh.cut`, reads it again). A Host's `group` names one of them.
 
 **Parameters**
 
@@ -2105,7 +2105,7 @@ open = function(e) roster.sessions.show(alerts[e.row].session, alerts[e.row].tex
 
 ### `roster.sessions.list()`
 
-The Sessions open now, oldest first. Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. In a listener for either event the list already has (or no longer has) that Session. It reads what the app has said, never roster serve, so it never waits.
+The Sessions open now, in the order they opened. Every Session that is open, the ones that opened before the Plugin loaded too: the events only tell a Plugin what happens after it loads, so read this at load and follow `session_open` and `session_exit` from there. A Session is open from its `session_open` to its `session_exit`; one that ended but whose tab is still there isn't listed. The app keeps the list in the order it saw each Session open, and a Session that connects again (the same id) opens again, so it goes last. In a listener for either event the list already has (or no longer has) that Session. It reads what the app last said, never roster serve, so it never waits.
 
 **Parameters**
 
@@ -2113,7 +2113,7 @@ None.
 
 **Returns**
 
-- [`Session`](#session)`[]`: Each open Session's id and Host, in the order they opened (their ids).
+- [`Session`](#session)`[]`: Each open Session's id and Host, oldest open first.
 
 **Errors**
 

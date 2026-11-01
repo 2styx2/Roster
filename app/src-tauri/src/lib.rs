@@ -818,6 +818,20 @@ async fn plugin_event(
     blocking(move || Ok(host.event(plugin::Event { name, payload }))).await
 }
 
+/// The Sessions open now, `[id, host]` in the order the app saw them open (a Quick Connect
+/// Session's host is null): the whole list, replacing the last (`roster.sessions.list()`,
+/// decision Q127).
+#[tauri::command]
+fn plugin_sessions(
+    plugins: tauri::State<'_, Arc<PluginHost>>,
+    demo: tauri::State<'_, DemoPlugins>,
+    open: Vec<(u64, Option<String>)>,
+    on_demo: Option<u64>,
+) -> Result<(), String> {
+    plugin_host(&plugins, &demo, on_demo)?.set_sessions(open);
+    Ok(())
+}
+
 #[tauri::command]
 fn plugin_unload(
     plugins: tauri::State<'_, Arc<PluginHost>>,
@@ -1232,6 +1246,7 @@ pub fn run() {
             plugin_load,
             plugin_call,
             plugin_event,
+            plugin_sessions,
             plugin_unload,
             plugin_forget,
             plugin_demo_start,

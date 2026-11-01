@@ -497,7 +497,6 @@ impl Runtime {
         self.shared.clock.start(budget);
         self.shared.budget.set(Budget::default());
         self.shared.served.set(Default::default());
-        self.shared.host_list.borrow_mut().take();
         self.shared.ops.borrow_mut().clear();
         let s = &self.shared;
         let before = Before {
@@ -509,6 +508,8 @@ impl Runtime {
         *s.dropping.borrow_mut() = Some(Vec::new());
         let result = body(&self.lua);
         let dropped = s.dropping.borrow_mut().take().unwrap_or_default();
+        // The run's Inventory read is its own: the next run asks again, and nothing big is kept.
+        s.host_list.borrow_mut().take();
         let settled = match &result {
             Ok(_) => dropped.into_iter().try_for_each(|id| forget(&self.lua, s, id)),
             Err(_) => self.undo(before),
@@ -843,7 +844,7 @@ pub(crate) fn command_allowed(word: &str, grants: &BTreeSet<Permission>) -> Resu
         super::api::Needs::Permission(p) if !Permission::parse(p).is_ok_and(|p| grants.contains(&p)) => {
             Err(format!(":{word} needs the {p} permission"))
         }
-        super::api::Needs::AnyServe | super::api::Needs::AnyOf(_) => Err(format!(":{word} isn't one a Plugin may run")),
+        super::api::Needs::AnyServe | super::api::Needs::Hears(_) => Err(format!(":{word} isn't one a Plugin may run")),
         _ => Ok(()),
     }
 }
@@ -878,6 +879,11 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
             "waited more than {} s for roster serve in one go (roster.serve.request doesn't wait)",
             MAX_SERVE_WAIT.as_secs()
         ));
+    }
+    // A method that can change things (a write, a Mesh run) may change the Inventory: what the
+    // run read before it is out of date (decision Q127).
+    if super::permission::serve_user_only(method) {
+        shared.host_list.borrow_mut().take();
     }
     let started = Instant::now();
     shared.serving.begin();
@@ -1089,6 +1095,10 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
         Some(Value::Nil) | None => json!({}),
         Some(v) => plain(s, "roster.serve.request", &v)?,
     };
+    if super::permission::serve_user_only(&method) {
+        // It may change the Inventory while the run goes on: read it again after.
+        s.host_list.borrow_mut().take();
+    }
     ask_later(lua, s, what, method, params, done)
 }
 
@@ -1696,8 +1706,6 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
                     for (key, v) in params.iter().zip(args.iter()) {
                         p.insert((*key).into(), plain(s, &what, v)?);
                     }
-                    // What the run read before the write is out of date now.
-                    s.host_list.borrow_mut().take();
                     serve(lua, s, &what, method, Json::Object(p))
                 });
             }
@@ -1716,9 +1724,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             push(s, json!({ "op": "session_show", "session": session, "line": line }))
         }
     );
-    // The Sessions open now (decision Q127): what `session_open` and `session_exit` say, so the
-    // same permissions as theirs.
-    if g.contains(&Permission::InventoryRead) || g.contains(&Permission::TerminalRead) {
+    // The Sessions open now (decision Q127): the sum of what `session_open` and `session_exit`
+    // say, so there for whoever may hear them (api.rs's `Needs::Hears`).
+    if may_hear("session_open", g).is_ok() {
         func!(sessions, "list", |lua, s, (): ()| {
             let list = lua.create_table()?;
             for (id, host) in s.sessions.list() {

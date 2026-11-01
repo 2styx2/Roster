@@ -1186,7 +1186,7 @@ function roster.storage.read_json(name) end
 ---@param value any Plain data: tables, text, numbers and booleans (no functions).
 function roster.storage.write_json(name, value) end
 
---- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a write in the same call. `roster.inventory.request` doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
+--- Hosts, and Pending changes to them. `nil` unless the Plugin was granted `inventory.read` or `inventory.write`; each function is there only with its own permission. The reads but `request` wait for `roster serve`; that time doesn't count against the Plugin's budget, nor toward it being given up on. One call (a load, an event, an action, an answer) reads the Inventory once: `hosts()` and `groups()` in it share one answer of serve's, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call. `roster.inventory.request` doesn't wait: prefer it where the Plugin would otherwise hold up the user, and for a big Inventory.
 roster.inventory = {}
 
 --- Every Host, in `roster.yml` order.
@@ -1247,9 +1247,9 @@ roster.sessions = {}
 ---@param line? string Text of a line it printed: the app searches its scrollback from the bottom for the latest line with it, and shows it highlighted.
 function roster.sessions.show(session, line) end
 
---- The Sessions open now, oldest first.
+--- The Sessions open now, in the order they opened.
 --- Permission: inventory.read or terminal.read. Since: api 4.
----@return roster.Session[] # Each open Session's id and Host, in the order they opened (their ids).
+---@return roster.Session[] # Each open Session's id and Host, oldest open first.
 function roster.sessions.list() end
 
 --- Opens a Session on a Host, as `:connect HOST`.

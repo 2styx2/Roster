@@ -92,7 +92,7 @@ fn declared(permissions: &[&str]) -> BTreeSet<String> {
             Needs::Permission(p) => permissions.contains(&p),
             Needs::AnyServe => serve,
             Needs::AnyNetwork => network,
-            Needs::AnyOf(ps) => ps.iter().any(|p| permissions.contains(p)),
+            Needs::Hears(_) => f.needs.any_of().iter().any(|p| permissions.contains(p)),
         };
         if has {
             out.insert(format!("{}()", f.path));

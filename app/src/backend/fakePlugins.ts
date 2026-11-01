@@ -6,7 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
-import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
+import { BackendCallError, type Host, type OpenSession, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
 type Spec = Record<string, unknown>;
@@ -428,6 +428,7 @@ export function fakePluginHost(
   pluginFiles(plugin: string): Map<string, string>;
   pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  pluginSessions(open: OpenSession[]): Promise<void>;
   pluginUnload(plugin: string): Promise<boolean>;
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
   /** As the core does when a request answers: hands `reply` to whoever listens. */
@@ -456,8 +457,8 @@ export function fakePluginHost(
    * ran): a request or a command line made in it doesn't carry it further (issue #183). */
   let carried = false;
   const replyWatchers = new Set<(reply: PluginReply) => void>();
-  /** The Sessions open now, by id (a Quick Connect Session's Host is null), from the app's events. */
-  const open = new Map<number, string | null>();
+  /** The Sessions open now, as the app last listed them (a Quick Connect Session's host is null). */
+  let open: OpenSession[] = [];
 
   const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
@@ -633,8 +634,9 @@ export function fakePluginHost(
         },
       };
     }
-    if (r.grants.has("inventory.read") || r.grants.has("terminal.read")) {
-      m.sessions.list = () => [...open].map(([session, host]) => (host === null ? { session } : { session, host }));
+    // As runtime.rs: there for whoever may hear session_open.
+    if (EVENT_NEEDS.session_open.some((p) => r.grants.has(p))) {
+      m.sessions.list = () => open.map(({ session, host }) => (host === null ? { session } : { session, host }));
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
@@ -771,11 +773,6 @@ export function fakePluginHost(
       }
     },
     async pluginEvent(name, payload) {
-      // Before any Plugin hears it, as mod.rs's OpenSessions: `roster.sessions.list()` agrees.
-      if (typeof payload.session === "number") {
-        if (name === "session_open") open.set(payload.session, typeof payload.host === "string" ? payload.host : null);
-        if (name === "session_exit") open.delete(payload.session);
-      }
       const replies: PluginReply[] = [];
       for (const [plugin, r] of running) {
         const fs = r.listeners.get(name);
@@ -785,6 +782,10 @@ export function fakePluginHost(
         if (reply.ops.length || reply.error) replies.push(reply);
       }
       return replies;
+    },
+    async pluginSessions(list) {
+      // As mod.rs's set_sessions: the app's whole list replaces the last.
+      open = list.map((o) => ({ ...o }));
     },
     async pluginUnload(plugin) {
       return running.delete(plugin);

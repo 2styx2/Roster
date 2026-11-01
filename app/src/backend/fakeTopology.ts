@@ -711,14 +711,20 @@ export function topologyPlugin(): FakePlugin {
           refresh();
         });
       }
-      // How a check came out (serve API 21), asked once it's over: a failed one shows its Host down.
+      // How a check came out (serve API 21), asked once it's done: a failed one shows its Host down.
+      // Only the answer for a Host's latest finished check counts (by when it ended, not its id).
+      const latest = new Map<string, number>();
+      let tokens = 0;
       const checkDone = (e: Obj) => {
+        if (typeof e.host !== "string") return;
+        const host = e.host;
+        const token = ++tokens;
+        latest.set(host, token);
         ask("host.check_job", { job: e.job }, (j) => {
-          const job = j as { state?: string; result?: { host?: string; ok?: boolean; steps?: { step: string; status: string }[] } } | undefined;
+          if (latest.get(host) !== token) return;
+          const job = j as { state?: string; result?: { ok?: boolean; steps?: { step: string; status: string }[] } } | undefined;
           const r = job?.result;
           if (!r || job.state !== "done") return;
-          const host = r.host ?? (typeof e.host === "string" ? e.host : undefined);
-          if (!host) return;
           if (r.ok) down.delete(host);
           else {
             const failed = (r.steps ?? []).find((step) => step.status === "fail")?.step;
@@ -731,7 +737,7 @@ export function topologyPlugin(): FakePlugin {
       if (canJob || canHearChecks) {
         roster.on("job_progress", (e) => {
           if (e.kind === "check") {
-            if (e.state !== "running" && e.state !== "stopping") checkDone(e);
+            if (e.state === "done") checkDone(e);
             return;
           }
           if (e.kind !== "mesh") return;

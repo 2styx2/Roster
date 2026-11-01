@@ -292,7 +292,7 @@ pub struct PluginHost {
     /// No Plugin of this host reaches the network: `roster.http` is there for a Plugin granted a
     /// site, but every request answers "not sent" (`:tutor`'s demo, [`demo`], decision Q123).
     offline: bool,
-    /// The Sessions open now, from the app's `session_open` and `session_exit` (decision Q127).
+    /// The Sessions open now, as the app last listed them ([`PluginHost::set_sessions`]).
     sessions: Arc<OpenSessions>,
 }
 
@@ -534,11 +534,16 @@ impl PluginHost {
         self.settle(plugin, answer)
     }
 
+    /// The Sessions open now, in the order the app saw them open (`roster.sessions.list()`,
+    /// decision Q127): the app's whole list, which replaces the last one. The app sends it on
+    /// start, whenever it changes, and before the `session_open` or `session_exit` that changed it.
+    pub fn set_sessions(&self, open: Vec<(u64, Option<String>)>) {
+        *self.sessions.0.lock().expect("open sessions") = open;
+    }
+
     /// Sends `event` to every Plugin that listens and may hear it, all at once; the slow ones
     /// are given up on together. Only Plugins that changed something or failed answer.
     pub fn event(&self, event: Event) -> Vec<Reply> {
-        // Before any Plugin hears it, so a listener's `roster.sessions.list()` agrees with it.
-        self.sessions.heard(&event);
         let event = Event {
             payload: runtime::heard_payload(&event.name, event.payload),
             name: event.name,
@@ -860,34 +865,17 @@ fn wait(rx: &Receiver<Answer>, start: Instant, wall: Duration, serving: &ServeWa
     }
 }
 
-/// The Sessions open now, by id, with each one's Host (`None`: a Quick Connect Session), as the
-/// app's `session_open` and `session_exit` say: what `roster.sessions.list()` gives, so a Plugin
-/// loaded after a Session opened still knows of it (decision Q127). The app sends those two events
-/// even while no Plugin is loaded.
+/// The Sessions open now, each one's id and Host (`None`: a Quick Connect Session), in the order
+/// the app saw them open: what `roster.sessions.list()` gives (decision Q127). The app sends the
+/// whole list on start and whenever it changes, and each list replaces the last, so nothing here
+/// depends on the order its events arrive in, and a reloaded webview's tab ids start clean.
 #[derive(Default)]
-pub(crate) struct OpenSessions(Mutex<BTreeMap<u64, Option<String>>>);
+pub(crate) struct OpenSessions(Mutex<Vec<(u64, Option<String>)>>);
 
 impl OpenSessions {
-    fn heard(&self, event: &Event) {
-        let Some(id) = event.payload["session"].as_u64() else {
-            return;
-        };
-        let mut open = self.0.lock().expect("open sessions");
-        match event.name.as_str() {
-            "session_open" => {
-                open.insert(id, event.payload["host"].as_str().map(str::to_string));
-            }
-            "session_exit" => {
-                open.remove(&id);
-            }
-            _ => {}
-        }
-    }
-
-    /// Every open Session, oldest first.
+    /// Every open Session, in the app's order.
     pub(crate) fn list(&self) -> Vec<(u64, Option<String>)> {
-        let open = self.0.lock().expect("open sessions");
-        open.iter().map(|(id, host)| (*id, host.clone())).collect()
+        self.0.lock().expect("open sessions").clone()
     }
 }
 

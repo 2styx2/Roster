@@ -29,6 +29,7 @@ impl Serve for CountingServe {
                 "groups": { "lab": { "title": "The lab", "description": "" } }
             })),
             "host.update" => Ok(json!({ "host": "esx-02", "changed": true })),
+            "mesh.cut" => Ok(json!({ "host": "esx-02", "confirmed": [], "pending": {} })),
             other => Err(format!("unknown method '{other}' (code -32601)")),
         }
     }
@@ -110,43 +111,49 @@ end
 roster.status.set("open", { text = table.concat(parts, " ") })
 "#;
 
-#[test]
-fn a_plugin_loaded_later_lists_the_sessions_already_open() {
-    let serve = Arc::new(CountingServe::default());
-    let (host, _rx) = host(&serve);
-    event(&host, "session_open", json!({ "session": 1, "host": "esx-02" }));
-    event(&host, "session_open", json!({ "session": 2, "host": "web-1" }));
-    event(&host, "session_open", json!({ "session": 3, "host": null }));
-    event(
-        &host,
-        "session_exit",
-        json!({ "session": 2, "host": "web-1", "code": 0 }),
-    );
-    let (reply, _dir) = load(&host, "later", &["inventory.read"], LIST);
-    ok(&reply);
-    assert_eq!(said(&reply.ops, "open"), "1=esx-02 3=quick");
+fn open(list: &[(u64, Option<&str>)]) -> Vec<(u64, Option<String>)> {
+    list.iter().map(|(id, h)| (*id, h.map(str::to_string))).collect()
 }
 
 #[test]
-fn a_listener_finds_the_session_its_event_is_about_already_listed() {
+fn a_plugin_loaded_later_lists_the_sessions_the_app_says_are_open_in_its_order() {
+    let serve = Arc::new(CountingServe::default());
+    let (host, _rx) = host(&serve);
+    // The app's order (when it saw each open): session 1 reconnected after 3 opened, so it's last.
+    host.set_sessions(open(&[(3, None), (1, Some("esx-02"))]));
+    let (reply, _dir) = load(&host, "later", &["inventory.read"], LIST);
+    ok(&reply);
+    assert_eq!(said(&reply.ops, "open"), "3=quick 1=esx-02");
+}
+
+#[test]
+fn each_list_from_the_app_replaces_the_last_whole() {
+    let serve = Arc::new(CountingServe::default());
+    let (host, _rx) = host(&serve);
+    host.set_sessions(open(&[(1, Some("esx-02")), (2, Some("web-1"))]));
+    // The webview reloaded: its tab ids start again, and the old ones are gone.
+    host.set_sessions(open(&[(1, Some("nas-01"))]));
+    let (reply, _dir) = load(&host, "replace", &["inventory.read"], LIST);
+    ok(&reply);
+    assert_eq!(said(&reply.ops, "open"), "1=nas-01");
+}
+
+#[test]
+fn the_events_alone_change_nothing_in_the_list() {
     let serve = Arc::new(CountingServe::default());
     let (host, _rx) = host(&serve);
     let init = r#"
 local roster = require("roster")
-local function count() return #roster.sessions.list() end
-roster.on("session_open", function() roster.status.set("n", { text = "open " .. count() }) end)
-roster.on("session_exit", function() roster.status.set("n", { text = "exit " .. count() }) end)
+roster.on("session_open", function() roster.status.set("n", { text = "open " .. #roster.sessions.list() }) end)
 "#;
     let (reply, _dir) = load(&host, "listener", &["terminal.read"], init);
     ok(&reply);
+    // The app sends the list first, then the event (manager.ts), so a listener's list agrees.
+    host.set_sessions(open(&[(4, Some("esx-02"))]));
     let opened = event(&host, "session_open", json!({ "session": 4, "host": "esx-02" }));
     assert_eq!(said(&opened[0].ops, "n"), "open 1");
-    let ended = event(
-        &host,
-        "session_exit",
-        json!({ "session": 4, "host": "esx-02", "code": 255 }),
-    );
-    assert_eq!(said(&ended[0].ops, "n"), "exit 0");
+    let opened = event(&host, "session_open", json!({ "session": 5, "host": "web-1" }));
+    assert_eq!(said(&opened[0].ops, "n"), "open 1", "only the app's list counts");
 }
 
 #[test]
@@ -257,5 +264,33 @@ roster.inventory.request(function(list, err) roster.status.set("got", { text = t
     assert_eq!(
         said(&answer.ops, "got"),
         "nil roster.inventory.request: roster.yml is busy: changes.publish is still running (code 4)"
+    );
+}
+
+#[test]
+fn any_call_into_serve_that_can_change_things_reads_the_inventory_afresh() {
+    let serve = Arc::new(CountingServe::default());
+    let (host, _rx) = host(&serve);
+    let init = r#"
+local roster = require("roster")
+roster.commands.add("cut", { run = function()
+  roster.inventory.hosts()
+  roster.serve.call("mesh.cut", { host = "esx-02" }) -- writes mesh: false into roster.yml
+  roster.inventory.groups()
+end })
+"#;
+    let (reply, _dir) = load(&host, "cut", &["inventory.read", "serve:mesh.cut"], init);
+    ok(&reply);
+    let run = reply
+        .ops
+        .iter()
+        .find(|o| o["op"] == "command" && o["name"] == "cut")
+        .and_then(|o| o["run"]["handler"].as_u64())
+        .unwrap();
+    ok(&host.call("reader", run, json!({ "words": [] })));
+    assert_eq!(
+        serve.count("hosts.list"),
+        2,
+        "mesh.cut's change is read, not the answer before it"
     );
 }

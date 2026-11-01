@@ -393,13 +393,14 @@
   },
   "steps": [
     {
-      "do": "event",
-      "name": "session_open",
-      "ops": [],
-      "payload": {
-        "host": "nas-02",
-        "session": 9
-      }
+      "do": "sessions",
+      "open": [
+        [
+          9,
+          "nas-02"
+        ]
+      ],
+      "ops": []
     },
     {
       "do": "load",

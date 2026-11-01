@@ -81,6 +81,10 @@ describe("the Topology stand-in", () => {
           }
           break;
         }
+        case "sessions":
+          await host.pluginSessions((step.open as [number, string | null][]).map(([session, h]) => ({ session, host: h })));
+          replies = [];
+          break;
         case "action": {
           const action = ((view?.spec as Op).graph as { actions: Op[] }).actions.find((a) => a.label === step.label);
           replies = [await settle(await host.pluginCall("topology", handlerOf(action?.run), { view: "topology", node: step.node, host: step.node }))];

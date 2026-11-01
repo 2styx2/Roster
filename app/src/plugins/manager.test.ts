@@ -104,14 +104,33 @@ describe("running", () => {
     };
     const { manager, registries } = setup({ "/p/lister": lister });
     await manager.start();
-    await manager.event("session_open", { session: 1, host: "esx-02" });
-    await manager.event("session_open", { session: 2, host: null });
-    await manager.event("session_open", { session: 3, host: "web-1" });
-    await manager.event("session_exit", { session: 3, host: "web-1", code: 0 });
+    manager.sessions([{ session: 1, host: "esx-02" }, { session: 3, host: "web-1" }]);
+    // The webview's next list replaces it whole: session 3 ended, 2 opened.
+    manager.sessions([{ session: 1, host: "esx-02" }, { session: 2, host: null }]);
     expect(await manager.install("/p/lister")).toBeNull();
     const [prompt] = manager.snapshot().prompts;
     if (prompt) await manager.answer(prompt, true);
     expect(registries.status.get("open")?.text).toBe("1=esx-02 2=quick");
+  });
+
+  it("a Session event waits for the list sent before it, so a listener's list agrees", async () => {
+    const counter: FakePlugin = {
+      manifest: { name: "counter", version: "1.0.0", description: "Counts Sessions", author: "A. Author", api: 4, permissions: ["terminal.read"] },
+      load(roster) {
+        roster.on("session_open", () => roster.status.set("n", { text: `open ${roster.sessions.list?.().length ?? 0}` }));
+      },
+    };
+    const installed = { [STATE_KEY]: [{ path: "/p/counter", name: "counter", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    const { manager, registries, backend } = setup({ "/p/counter": counter }, installed);
+    await manager.start();
+    const slow = backend.pluginSessions.bind(backend);
+    vi.spyOn(backend, "pluginSessions").mockImplementation(async (open) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return slow(open);
+    });
+    manager.sessions([{ session: 4, host: "esx-02" }]);
+    await manager.event("session_open", { session: 4, host: "esx-02" });
+    expect(registries.status.get("n")?.text).toBe("open 1");
   });
 
   it("gets the Sessions' output as plain text, and only with terminal.read", async () => {

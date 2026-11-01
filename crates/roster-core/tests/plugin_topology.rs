@@ -192,6 +192,8 @@ struct FakeServe {
     mesh: Mutex<Value>,
     /// What `mesh.status { grouped = true }` answers; Null: a serve before API 19, which ignores it.
     grouped: Value,
+    /// A `host.check_job` it answers 300 ms late, so a later one answers first.
+    slow_check: Mutex<Option<String>>,
 }
 
 impl FakeServe {
@@ -201,6 +203,7 @@ impl FakeServe {
             hosts,
             mesh: Mutex::new(mesh),
             grouped: Value::Null,
+            slow_check: Mutex::new(None),
         }
     }
     fn grouped(mut self, grouped: Value) -> FakeServe {
@@ -226,9 +229,18 @@ impl Serve for FakeServe {
             "mesh.status" if params["grouped"] == true && !self.grouped.is_null() => Ok(self.grouped.clone()),
             "mesh.status" => Ok(self.mesh.lock().unwrap().clone()),
             // A check's result once it's over (serve API 21): nas-01's failed at tcp, the rest passed.
+            // check-3 failed nas-01 at tcp, check-5 passed it later; any other passed web-1.
             "host.check_job" => {
-                let host = if params["job"] == "check-3" { "nas-01" } else { "web-1" };
-                let ok = host != "nas-01";
+                let job = params["job"].as_str().unwrap_or("");
+                if self.slow_check.lock().unwrap().as_deref() == Some(job) {
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                let host = if job == "check-3" || job == "check-5" {
+                    "nas-01"
+                } else {
+                    "web-1"
+                };
+                let ok = job != "check-3";
                 let steps = json!([
                     { "step": "dns", "status": "ok", "message": "resolves" },
                     { "step": "tcp", "status": if ok { "ok" } else { "fail" }, "message": "port 22" },
@@ -630,10 +642,8 @@ fn a_session_turns_its_node_live_with_its_edge_from_this_box_and_a_failed_one_is
 #[test]
 fn sessions_open_before_it_loaded_are_live_on_the_map() {
     let w = World::new("before");
-    // The app said so before the Plugin loaded: it hears no event for them.
-    w.event("session_open", json!({ "session": 1, "host": "esx-02" }));
-    w.event("session_open", json!({ "session": 2, "host": "web-1" }));
-    w.event("session_exit", json!({ "session": 2, "host": "web-1", "code": 0 }));
+    // The app listed them before the Plugin loaded: it hears no event for them.
+    w.host.set_sessions(vec![(1, Some("esx-02".into()))]);
     let reply = w.load(ALL);
     let nodes = &view(&reply)["graph"]["nodes"];
     assert_eq!(by_id(nodes, "esx-02")["state"], "live");
@@ -667,6 +677,32 @@ fn a_check_that_fails_marks_its_host_down_and_one_that_passes_clears_it() {
     let u = one(&r[0].ops, "view_update");
     let node = by_id(&u["changes"]["nodes"], "web-1");
     assert!(node.get("state").is_none() && node.get("note").is_none(), "{node:#}");
+}
+
+#[test]
+fn only_a_finished_check_is_asked_about_and_an_older_result_never_overrides_a_newer_one() {
+    let w = World::new("order");
+    ok(&w.load(ALL));
+    let end = |job: &str, state: &str| {
+        w.event("job_progress", json!({ "kind": "check", "job": job, "action": "check", "state": state, "done": 8, "total": 8, "host": "nas-01" }))
+    };
+    // Failed (serve's own error) and stopped (the vault locked): no verdict, nothing asked.
+    end("check-1", "failed");
+    end("check-2", "stopped");
+    assert!(w.serve.called("host.check_job").is_empty());
+    // check-3 (failed) ended, then check-5 (passed); check-3's answer comes back last and changes
+    // nothing: only the latest check of a Host to end counts.
+    *w.serve.slow_check.lock().unwrap() = Some("check-3".into());
+    w.host.event(Event {
+        name: "job_progress".into(),
+        payload: json!({ "kind": "check", "job": "check-3", "action": "check", "state": "done", "done": 8, "total": 8, "host": "nas-01" }),
+    });
+    let r = end("check-5", "done");
+    assert_eq!(w.serve.called("host.check_job").len(), 2);
+    assert!(
+        r.iter().all(|r| find(&r.ops, "view_update").is_empty()),
+        "nas-01 isn't marked down: {r:#?}"
+    );
 }
 
 #[test]
@@ -978,7 +1014,7 @@ fn two_thousand_hosts_in_a_mesh_of_98000_links_load_inside_the_limits_as_40_mesh
 
 fn steps() -> Value {
     json!([
-        { "do": "event", "name": "session_open", "payload": { "session": 9, "host": "nas-02" } },
+        { "do": "sessions", "open": [[9, "nas-02"]] },
         { "do": "load", "grants": ALL },
         { "do": "event", "name": "session_open", "payload": { "session": 1, "host": "esx-02" } },
         { "do": "event", "name": "session_open", "payload": { "session": 2, "host": "web-1" } },
@@ -1060,6 +1096,15 @@ fn the_transcript_the_frontend_replays_is_what_the_real_lua_does() {
             "health" => vec![w.call(health.expect("a :check section"), json!({}))],
             "cut-timer" => vec![w.call(cut_timer.take().expect("a cut's timer"), json!({}))],
             "timer" => vec![w.call(timer.expect("a timer"), json!({}))],
+            // The app's list of open Sessions (manager.ts): no Plugin hears it, so no ops.
+            "sessions" => {
+                let open = step["open"].as_array().unwrap().iter();
+                w.host.set_sessions(
+                    open.map(|o| (o[0].as_u64().unwrap(), o[1].as_str().map(str::to_string)))
+                        .collect(),
+                );
+                Vec::new()
+            }
             other => panic!("no step {other}"),
         };
         let mut ops = Vec::new();

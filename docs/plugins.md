@@ -167,7 +167,7 @@ end })
 
 `done(result)` or `done(nil, why)` runs on the Plugin's thread as a call of its own. **The answer to a request made in a call the user started is part of that call:** `done` may open a view, ask a question (`roster.confirm`), copy or run a command line, and ask for `discover.start` or `discover.add`, as the call could. A request made in that `done` doesn't carry it further, and one made at load, on an event or from a timer never has it. At most 8 wait at once; an answer for a Plugin unloaded or reloaded since is dropped.
 
-`roster.inventory.request(done)` does the same for the whole Inventory, with `inventory.read` and no `serve:` grant: `done(list)` gets `list.hosts` and `list.groups` from one `hosts.list`. The waiting reads (`roster.inventory.hosts()`, `.groups()`) read the Inventory once a call: both in one call are one question to serve.
+`roster.inventory.request(done)` does the same for the whole Inventory, with `inventory.read` and no `serve:` grant: `done(list)` gets `list.hosts` and `list.groups` from one `hosts.list`. The waiting reads (`roster.inventory.hosts()`, `.groups()`) read the Inventory once a call: both in one call are one question to serve, until a call into serve that can change something (a write, `mesh.cut`, …) in the same call.
 
 `roster.serve.call` asks and waits. Waiting never counts against the Plugin (its budget, or being given up on), but the Plugin does nothing else meanwhile, and the user's next action in it waits too. One call (an action, a load, an event, an answer) may ask roster serve this way at most 100 times and wait 300 s in all, then it's an error: a loop of calls would keep serve from the app. Use it where the answer is needed there and then and serve is quick to give it; a `:check` section that needs serve answers later instead ([Health sections](#health-sections)).
 
@@ -194,7 +194,7 @@ roster.on("job_progress", function(e)
 end)
 ```
 
-A stopped check (`state` `"stopped"`, the vault locked under it) has a result too, with `ok` false and its later steps skipped: it says nothing about the Host.
+A stopped check (`state` `"stopped"`, the vault locked under it) has a result too, with `ok` false and its later steps skipped: it says nothing about the Host, so ask only for `"done"`. Answers can come back in another order than the checks ended in: keep only the answer for a Host's latest check to end.
 
 A roster serve older than API 20 sends none, so keep asking with a timer (`roster.every`) and `roster.serve.request`, one question out at a time, until the first `job_progress` comes; the first-party Plugins do that.
 
