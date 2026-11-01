@@ -463,3 +463,51 @@ def test_two_item_creations_at_once_go_to_the_vault_one_after_the_other(state, m
     second.join(5)
     assert made == ["a ssh", "b ssh"]
     assert all("result" in a for a in answers.values()), answers
+
+
+# ---------------------------------------------------------------- the iteration 9 review
+
+def test_an_undo_that_failed_any_other_way_can_be_tried_again(state, monkeypatch):
+    # review item 5: only SecretError and RpcError put the item back, so any other failure forgot an item that was
+    # never deleted (an orphan in the vault, and the retry answered 63)
+    from roster import providers
+
+    def broken(provider, item_id):
+        raise ValueError("a provider plugin's bug")
+    monkeypatch.setattr(providers, "delete_item", broken)
+    state.created["item-1"] = "bw"
+    err = call(state, "vault.undo_create", {"id": "item-1"})["error"]
+    assert err["code"] == -32603 and err["message"] == "deleting from bw failed: ValueError"
+    assert state.created == {"item-1": "bw"}
+
+
+def test_reloading_while_a_box_setting_locks_a_provider_leaves_both_whole(state, monkeypatch, tmp_path):
+    # review item 4: a reload registers providers while vault.configure walks them (dict changed size)
+    from roster import providers
+    in_lock, go = threading.Event(), threading.Event()
+
+    def lock(ctx):
+        in_lock.set()
+        go.wait(5)
+    monkeypatch.setitem(providers.PROVIDERS, "aaa-test", {"get": lambda spec, ctx: "x", "lock": lock,
+                                                          "box_paths": ("db",), "help": "", "tool": "", "kind": "plugin"})
+    monkeypatch.setitem(providers.PROVIDER_STATE, "aaa-test", {"ready": True})
+    monkeypatch.setattr(providers, "BOX_SETTINGS", {})
+    errors = []
+
+    def configure():
+        try:
+            providers.configure_box({"aaa-test": {"db": str(tmp_path / "other.kdbx")}})
+        except Exception as e:
+            errors.append(e)
+    t = threading.Thread(target=configure, daemon=True)
+    t.start()
+    in_lock.wait(5)
+    added = "zzz-test"
+    providers.add_template_provider(added, {"command": "echo x"})   # as a reload's setup_providers does
+    try:
+        go.set()
+        t.join(5)
+    finally:
+        providers.PROVIDERS.pop(added, None)
+    assert errors == []

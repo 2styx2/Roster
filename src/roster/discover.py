@@ -494,12 +494,11 @@ def unique(base, taken):
     return name
 
 
-class Scan(threading.Thread):
+class Scan:
     """One scan of TARGETS for PORTS with SCANNER. KNOWN: {address: the Inventory's Host there}; TAKEN: the names in
-    use, so each new Host's suggested name is free."""
+    use, so each new Host's suggested name is free. run() scans, on whatever thread calls it (serve's job's)."""
 
     def __init__(self, sid, targets, ports, kind, known, taken, timeout=1.0):
-        super().__init__(daemon=True, name=f"discover {sid}")
         self.sid, self.targets, self.ports, self.kind = sid, targets, ports, kind
         self.known, self.taken, self.timeout = dict(known), set(taken), timeout
         self.lock = threading.Lock()
@@ -511,7 +510,7 @@ class Scan(threading.Thread):
         self.today = datetime.date.today().isoformat()
         self.on_progress = None                 # fn(done, total) after each batch (serve's job, its job.progress)
 
-    # -- the thread
+    # -- the scan
 
     def run(self):
         try:

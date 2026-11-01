@@ -107,6 +107,11 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 - `cmd:` and `env:` Login references are now cut from roster serve's error messages to a Plugin too, not only its answers.
 - `roster.cmd` holds a command named after one of roster's (`open`, `check`, `plugins`, …) to roster's rule even if the Plugin added a command of that name.
 - A Plugin can no longer keep your call alive by running its own commands through `roster.cmd` one after another: the command `roster.cmd` runs from your call is still your call (one hop, as a `roster.serve.request`'s answer is), but a `roster.cmd` or request made in it isn't, so the next command can't copy, ask, run a command line or act on the network. Folders' drag and drop still works. See [Plugins](plugins.md#asking-progress-the-toolbar-and-going-places).
+- The `job_progress` event is cut as roster serve's answers are: a `cmd:` or `env:` Login reference in a job's text (a failed check's error message echoes the Login) reaches a Plugin as `cmd:` or `env:`. The cut reaches an answer's keys now too, not only its values.
+
+**CLI**
+
+- `--json` cuts `cmd:` and `env:` references everywhere in its output: in a key as much as a value, and in a value that isn't plain JSON (a set or a path), which went out uncut.
 
 ### Fixed
 
@@ -126,6 +131,9 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **`roster serve` API**
 
+- `host.check` (API 22): a waiting check cancelled stops the check only when no other request waits for it and none asked for it in the background, where cancelling a request that had joined someone else's check stopped it for both; the background form says whether it `joined` a running check, and the app's core stops only a check it started when it gives up on it. A check asked for while the last one is stopping is a new check, not the stopping one (which answered `ok: false` with its steps skipped). `host.check_job` still finds a check that ended after a newer check of its Host started (it was `49`). A check shares the vault only for the steps that fetch a secret or mint a token, so an unlock or a lock no longer waits up to 45 s for a check (the lock screen hung, then failed).
+- `vault.undo_create`: an undo that fails in an unexpected way keeps the item, so it can be undone again (it was forgotten: the item stayed in the vault and a retry answered `63`).
+- `vault.configure` no longer fails ("dictionary changed size") when roster.yml reloads with a new provider while it runs.
 - Closing `roster serve` mid Mesh job stops the job at once and records in `mesh.json` what it didn't finish (pending), where the job died with serve and the next run didn't know; a step cut short leaves each file whole.
 - `discover.*`: IPv6 targets scan (with `-6`), a scan of IPv4 and IPv6 targets together no longer fails sorting them, an address two targets hold is visited once (`targets` drops the one another covers), `quiet` counts the Hosts that answered with none of the ports open (nmap; it's 0 with the built-in scanner, which can't tell them from no Host), and the built-in scanner reads its Hosts' SSH banners at once rather than one by one, so a batch (and a stop) no longer waits minutes.
 - A background `mesh.plan` or `mesh.apply` works the Mesh out once rather than three times, two of them while serve answers nothing else.
