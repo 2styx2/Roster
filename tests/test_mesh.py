@@ -65,7 +65,7 @@ class Net:
         """PATH as a stand-in Host's sh names it: as is, or on Windows as Git's sh does (C:\\x\\y is /c/x/y)."""
         if not WINDOWS:
             return str(path)
-        p = Path(path).as_posix()
+        p = Path(path).resolve().as_posix()
         return f"/{p[0].lower()}{p[2:]}" if p[1:2] == ":" else p
 
     def ak(self, name):
@@ -112,7 +112,7 @@ class Net:
 def net(fakes, isolated, write_config, monkeypatch, host_key):
     for f in (fakes / "host").iterdir():
         f.chmod(0o755)
-    root = isolated["home"].parent / "hosts"
+    root = isolated["home"].parent.resolve() / "hosts"        # Windows: its long name (no RUNNER~1), as the Host's sh says it
     for name in HOSTS:
         d = root / name
         (d / "home/.ssh").mkdir(parents=True)
@@ -303,6 +303,7 @@ def test_esxi_keeps_its_key_on_a_datastore_and_takes_keys_in_etc_ssh(net):
     assert "ssh -F /vmfs/volumes/5f0e-uuid/.roster-mesh/config <name>" in md
 
 
+@pytest.mark.skipif(WINDOWS, reason="NTFS has no mode bits to keep")
 def test_a_new_authorized_keys_on_esxi_gets_the_sticky_bit_so_it_survives_a_reboot(net):
     net.cfg_path.write_text(CONFIG.replace("esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: ops }"))
     mesh.run(net.cfg(), apply=True)
@@ -379,13 +380,13 @@ def test_mesh_dir_drift_is_reported_by_check(net, capsys):
 def test_mesh_dir_works_on_linux_too_and_cascades_from_its_group(net):
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", f"    mesh: true\n    mesh_dir: {d}\n", 1).replace(
+    net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", f"    mesh: true\n    mesh_dir: {net.seen(d)}\n", 1).replace(
         "esx-02: { ip: 10.0.0.12, user: root }", "esx-02: { ip: 10.0.0.12, user: root, mesh_dir: null }"))
     cfg = net.cfg()
-    assert cfg["mesh_dirs"]["orion-2"] == str(d) and "esx-02" not in cfg["mesh_dirs"]
+    assert cfg["mesh_dirs"]["orion-2"] == net.seen(d) and "esx-02" not in cfg["mesh_dirs"]
     assert mesh.run(cfg, apply=True)["pending"] == {}
     assert (d / "id_ed25519").exists() and not (net.host("orion-2") / "home/.ssh/roster-mesh").exists()
-    assert f"Include {d}/config" in net.file("orion-2", "home/.ssh/config")
+    assert f"Include {net.seen(d)}/config" in net.file("orion-2", "home/.ssh/config")
 
 
 @pytest.mark.parametrize("value, message", [
@@ -414,7 +415,7 @@ def test_a_mesh_dir_whose_parent_is_missing_is_refused_on_the_host(net):
 
 def test_a_mesh_dir_holding_files_that_are_not_rosters_is_refused_and_left_alone(net):
     d = net.host("orion-2") / "home/.ssh"
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     (d / "id_ed25519").write_text("my own key\n")
     before = net.snapshot()
     r = mesh.run(net.cfg(), apply=True)
@@ -422,7 +423,7 @@ def test_a_mesh_dir_holding_files_that_are_not_rosters_is_refused_and_left_alone
     assert (d / "id_ed25519").read_text() == "my own key\n"
     assert net.file("orion-2", "home/.ssh/config") == before["orion-2/home/.ssh/config"].decode()
     net.cfg_path.write_text(CONFIG.replace("    mesh: true\n", "").split("links:")[0]
-                            .replace("orion-2: 10.0.0.2", f"orion-2: {{ ip: 10.0.0.2, mesh_dir: {d} }}"))
+                            .replace("orion-2: 10.0.0.2", f"orion-2: {{ ip: 10.0.0.2, mesh_dir: {net.seen(d)} }}"))
     mesh.cut(net.cfg(), "orion-2")                                    # removing never touches what isn't roster's
     assert (d / "id_ed25519").read_text() == "my own key\n" and (d / "config").exists()
 
@@ -440,15 +441,15 @@ def test_moving_to_a_mesh_dir_warns_about_the_old_one(net):
 def test_removing_a_mesh_dir_warns_about_it_and_drops_its_include(net):
     d = net.host("orion-2") / "srv/mesh"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(d), host="orion-2")
+    with_mesh_dir(net, net.seen(d), host="orion-2")
     mesh.run(net.cfg(), apply=True)
     net.cfg_path.write_text(CONFIG)
     r = mesh.run(net.cfg(), apply=True)
     assert r["pending"] == {}
     assert [w for w in r["warnings"] if w.startswith("orion-2:")] == [
-        f"orion-2: {d} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
+        f"orion-2: {net.seen(d)} holds an earlier Mesh key that roster no longer uses (mesh_dir: changed), so delete it by hand"]
     config = net.file("orion-2", "home/.ssh/config")
-    assert f"Include {d}/config" not in config and config.count("Include ") == 1
+    assert f"Include {net.seen(d)}/config" not in config and config.count("Include ") == 1
     assert (d / "id_ed25519").exists()                      # never removed by roster
     assert mesh.run(net.cfg())["already"]
 
@@ -456,11 +457,11 @@ def test_removing_a_mesh_dir_warns_about_it_and_drops_its_include(net):
 def test_moving_from_one_mesh_dir_to_another_warns_about_the_first(net):
     a, b = net.host("orion-2") / "srv/a", net.host("orion-2") / "srv/b"
     (net.host("orion-2") / "srv").mkdir()
-    with_mesh_dir(net, str(a), host="orion-2")
+    with_mesh_dir(net, net.seen(a), host="orion-2")
     mesh.run(net.cfg(), apply=True)
-    with_mesh_dir(net, str(b), host="orion-2")
+    with_mesh_dir(net, net.seen(b), host="orion-2")
     r = mesh.run(net.cfg(), apply=True)
-    assert any(w.startswith(f"orion-2: {a} holds an earlier Mesh key") for w in r["warnings"])
+    assert any(w.startswith(f"orion-2: {net.seen(a)} holds an earlier Mesh key") for w in r["warnings"])
     assert net.file("orion-2", "home/.ssh/config").count("Include ") == 1
 
 
@@ -740,6 +741,7 @@ def test_an_interrupted_cut_never_leaves_a_file_half_written(net, monkeypatch, t
     assert_no_file_was_damaged(net, before)
 
 
+@pytest.mark.skipif(WINDOWS, reason="NTFS has no mode bits to keep")
 def test_rewriting_a_file_keeps_its_mode(net):
     ak = net.host("orion-2") / "home/.ssh/authorized_keys"
     ak.chmod(0o640)

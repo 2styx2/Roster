@@ -43,7 +43,12 @@ if hosts:
     dest, command = destination(args)
     root = os.path.join(hosts, dest or "-")
     if dest and os.path.isdir(root):
-        root = root.replace("\\", "/")              # Windows: C:/... is a path to Git's sh, C:\... isn't
+        # the Host's root as its sh names it: on Windows Git's sh names C:\x\y /c/x/y (and pwd -P says so)
+        shroot = root
+        if os.name == "nt":
+            shroot = root.replace("\\", "/")
+            if shroot[1:2] == ":":
+                shroot = "/" + shroot[0].lower() + shroot[2:]
         log = os.path.join(hosts, "connections")
         if os.path.exists(os.path.join(root, "down")):
             open(log, "a").write(f"down {dest}\n")
@@ -59,11 +64,11 @@ if hosts:
 
         def on_host(text):
             if esxi:
-                text = text.replace("/etc/ssh/keys-", root + "/etc/ssh/keys-").replace("/vmfs/volumes", root + "/vmfs/volumes")
+                text = text.replace("/etc/ssh/keys-", shroot + "/etc/ssh/keys-").replace("/vmfs/volumes", shroot + "/vmfs/volumes")
             return text
 
         os.makedirs(os.path.join(root, "home"), exist_ok=True)
-        env = {**os.environ, "HOME": os.path.join(root, "home"), "FAKE_HOST_ROOT": root,
+        env = {**os.environ, "HOME": os.path.join(root, "home"), "FAKE_HOST_ROOT": shroot,
                "PATH": os.path.join(os.path.dirname(os.path.abspath(__file__)), "host") + os.pathsep + os.environ["PATH"]}
         sh = os.environ.get("FAKE_SH", "/bin/sh")
         argv = [sh, "-s"] if stdin is not None else [sh, "-c", on_host(line)]
@@ -72,7 +77,7 @@ if hosts:
                            env=env, cwd=env["HOME"])
         out = r.stdout.decode()
         # what the Host prints names its own paths, as a real ESXi's would
-        sys.stdout.buffer.write(out.replace(root + "/etc/ssh/keys-", "/etc/ssh/keys-").replace(root + "/vmfs/volumes", "/vmfs/volumes").encode())
+        sys.stdout.buffer.write(out.replace(shroot + "/etc/ssh/keys-", "/etc/ssh/keys-").replace(shroot + "/vmfs/volumes", "/vmfs/volumes").encode())
         sys.stdout.flush()
         time.sleep(0.01)
         open(log, "a").write(f"end {dest}\n")
