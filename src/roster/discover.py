@@ -325,9 +325,9 @@ def cmd_discover(args):
             cfg_path = find_config(args.config)
             cfg = load_config(cfg_path)
         except SystemExit as e:
-            # a roster.yml that's there but broken is error 1 under --json, found by -c or not (none at all is fine:
-            # a scan needs no Inventory)
-            if args.json and (args.config or cfg_path is not None):
+            # a roster.yml that's there but broken is error 1 under --json, found by -c or not; none at all (nothing
+            # found, or ROSTER_CONFIG naming no file) is fine: a scan needs no Inventory
+            if args.json and (args.config or (cfg_path is not None and cfg_path.expanduser().exists())):
                 raise inventory_problem(str(e.code).removeprefix("error: "), cfg_path) from None
             if args.config:
                 raise
