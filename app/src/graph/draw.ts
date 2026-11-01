@@ -114,14 +114,16 @@ export function drawFrame(ctx: CanvasRenderingContext2D, f: Frame) {
   // circle whose centre is further up or down than either radius) by more than its own height, as
   // the line just above a circle may at a distance; a neighbour beside it in its own row may sit
   // under its ends.
-  const circles = clusterOrder.flatMap((c) => {
-    if (c.collapsed) return [];
+  // In a grid of screen cells, so each look is a few circles, not all of them (500 clusters).
+  const circles = new CircleGrid(w, h, margin);
+  for (const c of clusterOrder) {
+    if (c.collapsed) continue;
     const s = toScreen(cam, w, h, c.x, c.y);
     const cr = c.r * cam.k;
-    return onScreen(s.x, s.y, cr) ? [{ id: c.id, x: s.x, y: s.y, r: cr }] : [];
-  });
+    if (onScreen(s.x, s.y, cr)) circles.add({ id: c.id, x: s.x, y: s.y, r: cr });
+  }
   const overCircle = (own: { id: string; y: number; r: number }, x: number, y: number, bw: number, bh: number) =>
-    circles.some((o) => o.id !== own.id && Math.abs(o.y - own.y) > Math.max(o.r, own.r) && Math.hypot(o.x - Math.max(x, Math.min(o.x, x + bw)), o.y - Math.max(y, Math.min(o.y, y + bh))) < o.r - bh);
+    circles.some(x, y, bw, bh, (o) => o.id !== own.id && Math.abs(o.y - own.y) > Math.max(o.r, own.r) && Math.hypot(o.x - Math.max(x, Math.min(o.x, x + bw)), o.y - Math.max(y, Math.min(o.y, y + bh))) < o.r - bh);
   for (const c of clusterOrder) {
     if (c.collapsed) continue;
     const s = toScreen(cam, w, h, c.x, c.y);
@@ -508,6 +510,46 @@ export function easeOut(t: number): number {
 }
 
 /** Screen boxes already taken by labels, in cells of 64 px. */
+interface ScreenCircle {
+  id: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
+/** Circles on screen, by the 128 px cells their bounds cover (clipped to the screen and a margin). */
+class CircleGrid {
+  private readonly cells = new Map<number, ScreenCircle[]>();
+  private static readonly CELL = 128;
+  constructor(
+    private readonly w: number,
+    private readonly h: number,
+    private readonly margin: number,
+  ) {}
+  private range(x0: number, y0: number, x1: number, y1: number): [number, number, number, number] {
+    const C = CircleGrid.CELL;
+    const m = this.margin;
+    const cl = (v: number, hi: number) => Math.floor(Math.max(-m, Math.min(hi + m, v)) / C);
+    return [cl(x0, this.w), cl(y0, this.h), cl(x1, this.w), cl(y1, this.h)];
+  }
+  add(c: ScreenCircle) {
+    const [i0, j0, i1, j1] = this.range(c.x - c.r, c.y - c.r, c.x + c.r, c.y + c.r);
+    for (let i = i0; i <= i1; i++)
+      for (let j = j0; j <= j1; j++) {
+        const k = i * 100_003 + j;
+        const list = this.cells.get(k);
+        if (list) list.push(c);
+        else this.cells.set(k, [c]);
+      }
+  }
+  /** Whether a circle whose cells meet the box passes `test`. */
+  some(x: number, y: number, w: number, h: number, test: (c: ScreenCircle) => boolean): boolean {
+    const [i0, j0, i1, j1] = this.range(x, y, x + w, y + h);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const c of this.cells.get(i * 100_003 + j) ?? []) if (test(c)) return true;
+    return false;
+  }
+}
+
 class Boxes {
   private readonly cells = new Map<number, [number, number, number, number][]>();
   private keys(x: number, y: number, w: number, h: number): number[] {

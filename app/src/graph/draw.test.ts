@@ -65,4 +65,15 @@ describe("cluster titles on the map", () => {
       expect(texts.sort(), `at zoom ${k}`).toEqual(["subnet-1 · mesh", "subnet-1 · not in the Mesh", "subnet-1 · password peers"]);
     }
   });
+
+  it("places 500 clusters' titles within a frame's budget", () => {
+    const clusters = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}`, title: `group ${i} · password peers`, x: (i % 25) * 300, y: Math.floor(i / 25) * 300, r: 120, mesh: i % 3 === 0, count: 4, collapsed: false }));
+    const scene: Scene = { nodes: [], byId: new Map(), edges: [], clusters, shownAs: new Map() };
+    const { ctx } = recorder();
+    const frame = { scene, camera: { x: 3600, y: 2850, k: 0.2 }, width: 1600, height: 1000, palette: PALETTE, selected: null, highlight: null, matches: null, drawing: new Map() };
+    drawFrame(ctx, frame);
+    const t = performance.now();
+    for (let i = 0; i < 5; i++) drawFrame(ctx, frame);
+    expect((performance.now() - t) / 5).toBeLessThan(16);
+  });
 });
