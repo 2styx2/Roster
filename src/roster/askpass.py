@@ -531,6 +531,7 @@ class Channel:
             try:
                 conn.settimeout(5)
                 if not same_user(conn):
+                    self.log("askpass: refused a connection from a process that isn't this user's")
                     return
                 data = b""
                 while b"\n" not in data and len(data) < 1024:
@@ -614,9 +615,16 @@ class Channel:
 
 
 def same_user(conn):
-    """Is the other end this user? (the directory's 0700 already says so; this checks it on Linux. On Windows the
-    pipe's DACL lets nobody else open it.)"""
-    if WINDOWS or not hasattr(socket, "SO_PEERCRED"):
+    """Is the other end this user? The directory's 0700 already says so on Linux, and the pipe's DACL lets nobody else
+    open it on Windows; this checks the client itself: its uid (SO_PEERCRED) on Linux, its process's token user on
+    Windows (ticket 63). What can't be told is refused."""
+    if WINDOWS:
+        from . import winpipe
+        try:
+            return winpipe.client_sid(conn) == winpipe.user_sid()
+        except OSError:
+            return False
+    if not hasattr(socket, "SO_PEERCRED"):
         return True
     _pid, uid, _gid = struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
                                                           struct.calcsize("3i")))
