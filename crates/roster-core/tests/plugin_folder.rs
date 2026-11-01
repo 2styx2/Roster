@@ -466,3 +466,55 @@ fn the_types_file_is_never_written_through_a_link() {
     assert!(e.contains("is a link"), "{e}");
     assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
 }
+
+// ------------------------------------------------------------------ T98: how full it is
+
+#[test]
+fn a_data_folders_size_and_file_count_are_what_the_caps_count() {
+    use roster_core::plugin::folder::DataUse;
+    let root = temp("usage");
+    let (host, dir, data) = storage_plugin(
+        &root,
+        r#"roster.storage.write("a.txt", "hello")
+           roster.storage.write("b.json", string.rep("x", 2000))"#,
+    );
+    // Nothing written yet: no folder, no data.
+    assert_eq!(host.data_use("boxed"), DataUse::None);
+    host.load(&Source::Dir(dir), &[]).unwrap();
+    assert_eq!(host.data_use("boxed"), DataUse::Used { files: 2, bytes: 2005 });
+    // Another Plugin's folder, or one by no Plugin's name, is not this one's.
+    assert_eq!(host.data_use("other"), DataUse::None);
+    assert!(matches!(host.data_use("../data"), DataUse::Problem { .. }));
+    // A link in it is never followed (nor counted as what it leads to).
+    let big = root.join("big.bin");
+    std::fs::write(&big, vec![0u8; 50_000]).unwrap();
+    link(&big, &data.join("plugin-data/boxed/big.bin"));
+    assert_eq!(host.data_use("boxed"), DataUse::Used { files: 2, bytes: 2005 });
+    // The data folder itself a link: not followed, and said so.
+    let elsewhere = root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    link(&elsewhere, &data.join("plugin-data/linked"));
+    match host.data_use("linked") {
+        DataUse::Problem { message } => assert!(message.contains("is a link"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+    // A host with no data folder at all: no data.
+    assert_eq!(
+        PluginHost::new(Arc::new(NoServe), Limits::default()).data_use("boxed"),
+        DataUse::None
+    );
+}
+
+#[test]
+fn data_use_serialises_as_the_frontend_reads_it() {
+    use roster_core::plugin::folder::DataUse;
+    assert_eq!(serde_json::to_value(DataUse::None).unwrap(), json!({ "state": "none" }));
+    assert_eq!(
+        serde_json::to_value(DataUse::Used { files: 3, bytes: 10 }).unwrap(),
+        json!({ "state": "used", "files": 3, "bytes": 10 })
+    );
+    assert_eq!(
+        serde_json::to_value(DataUse::Problem { message: "x".into() }).unwrap(),
+        json!({ "state": "problem", "message": "x" })
+    );
+}

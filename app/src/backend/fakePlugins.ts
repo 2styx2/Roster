@@ -6,7 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
-import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginManifest, type PluginReply } from "./types";
+import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
 type Spec = Record<string, unknown>;
@@ -416,6 +416,7 @@ export function fakePluginHost(
   pluginTypes(path: string): Promise<string>;
   pluginLoad(path: string, grants: readonly string[], settings?: Record<string, unknown> | null): Promise<{ manifest: PluginManifest; dir: string; reply: PluginReply }>;
   pluginForget(plugin: string): Promise<boolean>;
+  pluginData(names: readonly string[]): Promise<Record<string, PluginData>>;
   /** What each Plugin keeps in its data folder (tests look). */
   pluginFiles(plugin: string): Map<string, string>;
   pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
@@ -759,6 +760,15 @@ export function fakePluginHost(
     },
     async pluginForget(plugin) {
       return files.delete(plugin);
+    },
+    async pluginData(names) {
+      // As folder.rs counts: files and their bytes (UTF-8, as written to disk); none until written.
+      const out: Record<string, PluginData> = {};
+      for (const n of names) {
+        const f = files.get(n);
+        out[n] = f ? { state: "used", files: f.size, bytes: [...f.values()].reduce((a, t) => a + new TextEncoder().encode(t).length, 0) } : { state: "none" };
+      }
+      return out;
     },
     pluginFiles: (plugin) => filesOf(plugin),
     onPluginReply(onReply) {
