@@ -116,7 +116,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
-- `roster serve` removes its askpass folder (the private password socket's) however it ends: closed stdin even mid-request, SIGTERM, SIGHUP or SIGINT. A serve killed outright can't, so the next one to start removes this user's folders whose serve is gone, never another user's, a live one's or anything a link points at. On Windows it also checks each askpass pipe client's process is yours, on top of the pipe's permissions.
+- On Linux and macOS, `roster serve` removes its askpass folder (the private password socket's) however it ends: closed stdin even mid-request, SIGTERM, SIGHUP or SIGINT. A serve killed outright can't, so the next one to start removes this user's folders whose serve is gone, never another user's, a live one's or anything a link points at. Windows has no such sweep: the password pipe ends with serve whatever happens, and a folder a killed serve leaves under `%TEMP%` holds only Quick Connect's public host keys. On Windows serve also checks each askpass pipe client's process is yours, on top of the pipe's permissions.
 - A Host check stopped while it logs in (`vault.lock`, `jobs.stop`) ends that login's ssh, so locking no longer waits up to ~35 s behind it.
 - `--json` cuts `cmd:` and `env:` references everywhere in its output: in a key as much as a value, and in a value that isn't plain JSON (a set or a path), which went out uncut.
 
