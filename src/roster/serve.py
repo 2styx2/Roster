@@ -24,6 +24,7 @@ import signal
 import sys
 import threading
 import time
+from contextlib import contextmanager
 
 from . import __version__, askpass, changes, diagnose, discover, edit, health, jobs, mesh, providers
 from .claude import write_claude_files
@@ -32,6 +33,7 @@ from .config import find_config, load_config
 from .errors import (  # noqa: F401 (the codes are part of serve's API)
     ALREADY_SIGNED_OUT,
     BUSY,
+    CANCELLED,
     CANT_ADD,
     CANT_WRITE,
     CLI_MISSING,
@@ -47,6 +49,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
     MESH_BUSY,
     NAME_TAKEN,
     NO_ASKPASS,
+    NO_CHECK,
     NO_SCAN,
     NO_SIGN_IN,
     NOT_A_SOURCE,
@@ -79,7 +82,7 @@ from .errors import (  # noqa: F401 (the codes are part of serve's API)
 from .providers import PROVIDERS, setup_providers
 from .sshops import fingerprint, in_ssh_config, record_host_key, recorded_host_keys, write_ssh_config
 
-API_VERSION = 20            # bump when a method or result changes in a way the app has to know about
+API_VERSION = 21            # bump when a method or result changes in a way the app has to know about
 
 # JSON-RPC's own error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL_ERROR = -32700, -32600, -32601, -32602, -32603
@@ -381,15 +384,80 @@ askpass_lookup = diagnose.askpass_lookup
 
 def host_check(state, params):
     """`roster check HOST` for the app: the diagnostic steps in order, stopping at the first failure (see
-    diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel.
+    diagnose.check_host). The password login, if it gets that far, goes through serve's askpass channel. It runs as a
+    job (kind `check`, one per Host at a time: a second ask while one runs joins it), which shares the vault while it
+    runs and sends `job.progress` as each step starts. The waiting form answers with its result; `background: true`
+    (API 21) answers at once, and `host.check_job` has the result once it's over. `vault.lock` stops a running check.
 
-    Params: `{host}` (exact Host name)
-    Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`
-    Errors: -32602
+    Params: `{host, background?}` (exact Host name; `background` since API 21)
+    Result: `{host, ok, steps: [{step, status, message, code?, fix?, details?, data?}, ...]}`; with `background: true`
+        the job: `{kind: "check", job, action: "check", state, done, total, at, host}`
+    Errors: -32602, 4
     Since: API 2
     """
     name = text_param(params, "host")
-    return diagnose.check_host(name, state.inventory, state.askpass)
+    background = background_param(params)
+    job = check_job(state, name)
+    if background:
+        return job.view()
+    on_cancel(job.stop)
+    job.wait()
+    if job.error is not None:
+        raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
+    return job.result
+
+
+def check_job(state, name):
+    """The running check of Host NAME, or a new one."""
+    def work(job):
+        with deadline(DEADLINES["host.check"]):
+            # the job holds the vault, shared, while it runs: vault.lock stops it rather than wait (stop_checks)
+            if not state.vault.acquire(True, DEADLINES["host.check"], "host.check", job.halted):
+                if job.halted.is_set():
+                    return diagnose.check_host(name, state.inventory, state.askpass, halted=job.halted)
+                who = state.vault.holder()
+                raise RpcError(BUSY, "the vault is busy" + (f": {who} is still running" if who else "")
+                               + " - nothing was done", {"busy": NAMES["vault"], "method": who},
+                               fix="try again once it has finished")
+            try:
+                return diagnose.check_host(name, state.inventory, state.askpass, progress=job.progress,
+                                           halted=job.halted)
+            finally:
+                state.vault.release()
+    try:
+        return state.jobs.start("check", "check", work, total=len(diagnose.STEPS), host=name, per_host=True,
+                                job_prefix="check-", on_stop=state.vault.wake)
+    except jobs.Busy as e:
+        return e.job
+    except jobs.Closed:
+        raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
+
+
+def stop_checks(state):
+    """vault.lock's: stop every running check (at its next step) rather than wait up to its 45 s for it."""
+    for job in state.jobs.running("check"):
+        job.stop()
+
+
+def host_check_job(state, params):
+    """A Host check's job (`host.check {background: true}`): where it is, and its result once it's over. Never
+    connects.
+
+    Params: `{job}` (`check-N`)
+    Result: `{kind: "check", job, action, state, done, total, at, host, error?, result?}`: `result` (once `state` is
+        `done` or `stopped`) is `host.check`'s; a stopped check's later steps are `skipped` and `ok` is false
+    Errors: -32602, 49
+    Since: API 21
+    """
+    jid = text_param(params, "job")
+    job = state.jobs.get("check", jid)
+    if job is None:
+        raise RpcError(NO_CHECK, f"no check {jid} in this roster serve (or a newer check of its Host replaced it)",
+                       fix="check the Host again")
+    out = job.view()
+    if out["state"] in ("done", "stopped"):
+        out["result"] = job.result
+    return out
 
 
 def box_check(state, params):
@@ -418,6 +486,7 @@ METHODS = {
     "host.get": host_get,
     "session.prepare": session_prepare,
     "host.check": host_check,
+    "host.check_job": host_check_job,
 }
 
 
@@ -967,13 +1036,45 @@ def save_held(state, repo, hid, password, item, change, what):
     return made, backup
 
 
+# Making or deleting a Vault item, one at a time per provider (ticket 108): bw keeps its local cache in one data.json
+# and pass commits each insert to a git repo, so neither is known to take two writes at once, and two creations of one
+# name would both pass the "no item by that name" check. Inside the shared vault lock (after roster.yml and the vault in
+# Q112's order); it waits at most what's left of the request's deadline (LOCK_WAIT without one), then 4.
+ITEM_LOCKS = {}
+ITEM_LOCKS_LOCK = threading.Lock()
+
+
+def item_lock(provider):
+    with ITEM_LOCKS_LOCK:
+        return ITEM_LOCKS.setdefault(provider, Lock(f"{provider}'s items"))
+
+
+@contextmanager
+def item_writes(provider, floor=0.0):
+    """Hold PROVIDER's item lock while a Vault item is made or deleted (FLOOR: an undo waits at least that long)."""
+    lock = item_lock(provider)
+    at = current_deadline()
+    wait = LOCK_WAIT if at is None else max(floor, at - time.monotonic())
+    r = current_request()
+    if not lock.acquire(False, wait, r.method if r is not None else "a Vault item"):
+        who = lock.holder()
+        raise RpcError(BUSY, f"{provider} is busy saving another item" + (f" ({who})" if who else "")
+                       + " - nothing was done", {"busy": NAMES["vault"], "method": who},
+                       fix="try again once it has finished")
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 def make_item(provider, item, password, user, address, port, save_to):
     """The Vault item for a password that just logged in: the user in its username field, ssh://address[:port] in
     its URI field. Raises the write_problem (60-65, 14) when the vault refuses."""
     uri = f"ssh://{address}" + ("" if port == 22 else f":{port}")
     try:
-        made = providers.create_item(provider, name=item, password=password, username=user, uri=uri,
-                                     save_to=save_to)
+        with item_writes(provider):
+            made = providers.create_item(provider, name=item, password=password, username=user, uri=uri,
+                                         save_to=save_to)
     except providers.SecretError as e:
         raise write_problem(e) from None
     return {"provider": provider, **made}
@@ -1139,8 +1240,9 @@ def add_host(state, params):
         port = h["ssh"]["port"]
         uri = f"ssh://{h['ip']}" + ("" if port == 22 else f":{port}")
         try:
-            made = providers.create_item(typed["provider"], name=typed["item"], password=password,
-                                         username=h["ssh"]["user"], uri=uri, save_to=typed["save_to"])
+            with item_writes(typed["provider"]):
+                made = providers.create_item(typed["provider"], name=typed["item"], password=password,
+                                             username=h["ssh"]["user"], uri=uri, save_to=typed["save_to"])
         except providers.SecretError as e:
             raise write_problem(e) from None
         finally:
@@ -1195,7 +1297,7 @@ def take_back(made, e):
     if made is None:
         return e
     try:
-        with deadline(UNDO_TIME):
+        with deadline(UNDO_TIME), item_writes(made["provider"], UNDO_TIME):
             providers.delete_item(made["provider"], made["id"])
     except Exception as undo:
         what = str(undo) if isinstance(undo, providers.SecretError) else type(undo).__name__
@@ -1601,6 +1703,7 @@ def forget_askpass_tokens(state):
 
 ON_VAULT_LOCK.append(forget_askpass_tokens)
 ON_VAULT_LOCK.append(forget_held)
+ON_VAULT_LOCK.append(stop_checks)
 
 
 def vault_lock(state, params):
@@ -1791,7 +1894,10 @@ def vault_create_item(state, params):
     provider = vault_provider(state, params)
     save_to = save_to_param(params)
     try:
-        made = providers.create_item(provider, name=name, password=password, save_to=save_to, **extra)
+        with item_writes(provider):
+            made = providers.create_item(provider, name=name, password=password, save_to=save_to, **extra)
+    except RpcError:
+        raise
     except providers.SecretError as e:
         raise write_problem(e) from None
     except Exception as e:                      # never let the generic handler log text that might hold it
@@ -1814,9 +1920,12 @@ def vault_undo_create(state, params):
         raise RpcError(NOT_CREATED_HERE, f"item {item_id} wasn't created by this roster serve (or is already "
                        "undone) - roster only takes back the items it just saved")
     try:
-        providers.delete_item(provider, item_id)
-    except providers.SecretError as e:
+        with item_writes(provider, UNDO_TIME):
+            providers.delete_item(provider, item_id)
+    except (providers.SecretError, RpcError) as e:
         state.created[item_id] = provider       # not deleted: it can be undone again
+        if isinstance(e, RpcError):
+            raise
         raise write_problem(e) from None
     return {"provider": provider, "id": item_id}
 
@@ -2035,6 +2144,7 @@ def start_mesh_job(state, action, total, work, host=None, background=True):
     except jobs.Closed:
         raise RpcError(ROSTER_ERROR, "roster serve is closing") from None
     if not background:
+        on_cancel(job.stop)                     # $/cancel stops it at its next Host, as mesh.stop would
         job.wait()
         if job.error is not None:
             raise RpcError(job.error["code"], job.error["message"], job.error.get("data"))
@@ -2416,7 +2526,9 @@ class Lock:
         self.owner, self.depth, self.readers, self.writers_waiting = None, 0, 0, 0
         self.holders = {}                       # thread -> the method holding it
 
-    def acquire(self, shared=False, timeout=None, who=None):
+    def acquire(self, shared=False, timeout=None, who=None, cancel=None):
+        """Wait up to TIMEOUT s (None: no limit) for it: False if it wasn't free by then, or CANCEL (an Event) was
+        set meanwhile ($/cancel wakes every lock's waiters: wake())."""
         me = threading.get_ident()
         end = None if timeout is None else time.monotonic() + timeout
         with self.cond:
@@ -2427,7 +2539,7 @@ class Lock:
             def wait(blocked):
                 while blocked():
                     left = None if end is None else end - time.monotonic()
-                    if left is not None and left <= 0:
+                    if (left is not None and left <= 0) or (cancel is not None and cancel.is_set()):
                         return False
                     self.cond.wait(left)
                 return True
@@ -2460,6 +2572,11 @@ class Lock:
             self.holders.pop(me, None)
             self.cond.notify_all()
 
+    def wake(self):
+        """Its waiters look again: one whose request was cancelled gives up."""
+        with self.cond:
+            self.cond.notify_all()
+
     def holder(self):
         with self.cond:
             return next((m for m in self.holders.values() if m), None)
@@ -2484,9 +2601,10 @@ LOCKS = {
         "inventory.reload")},
     **{m: [("inventory", False), ("vault", True)] for m in ("host.add", "quick.save", "host.save_login")},
     **{m: [("vault", True)] for m in (
-        "session.prepare", "quick.prepare", "host.check", "vault.status", "vault.targets", "vault.create_item",
+        "session.prepare", "quick.prepare", "vault.status", "vault.targets", "vault.create_item",
         "vault.undo_create")},
-    # vault.lock and vault.logout aren't here: they forget first and then wait, never refused (vault_lock)
+    # vault.lock and vault.logout aren't here: they forget first and then wait, never refused (vault_lock); nor is
+    # host.check: its job shares the vault (check_job), not the request waiting for it
     **{m: [("vault", False)] for m in ("vault.unlock", "vault.login", "vault.configure")},
 }
 LOCK_WAIT = 50              # s: the longest a method without a deadline waits for a lock (the app waits 60 s)
@@ -2502,11 +2620,14 @@ class claimed:
 
     def __enter__(self):
         at = current_deadline()
+        cancel = waiting_cancel()
         for resource, shared in self.claims:
             lock = self.state.lock if resource == "inventory" else self.state.vault
             wait = LOCK_WAIT if at is None else max(0.0, at - time.monotonic())
-            if not lock.acquire(shared, wait, self.method):
+            if not lock.acquire(shared, wait, self.method, cancel):
                 self.__exit__()
+                if cancel is not None and cancel.is_set():
+                    raise cancelled(self.method)
                 who = lock.holder()
                 raise RpcError(BUSY, f"{NAMES[resource]} is busy" + (f": {who} is still running" if who else "")
                                + " - nothing was done", {"busy": NAMES[resource], "method": who},
@@ -2519,12 +2640,127 @@ class claimed:
             self.held.pop().release()
 
 
+# ---------------------------------------------------------------- cancelling a request (ticket 108, decision Q112 (p))
+# `$/cancel {id}` (the core sends it when it gives up waiting) stops a request that hasn't done anything yet: still
+# queued, or waiting for a lock or for an unlock asked before it. It's answered "cancelled" (5) and nothing was done.
+# Once a request runs, only the waiting forms of jobs stop (their job stops at its next step, as jobs.stop would);
+# anything else runs to its end, so nothing is half-written, and the app's check after a timeout sees what it did.
+# Locking is never cancelled (Q112 (k)).
+
+NEVER_CANCELLED = {"vault.lock", "vault.logout", "$/cancel"}
+CANCEL_RUNNING = {"host.check", "mesh.plan", "mesh.apply", "mesh.cut"}     # each registers on_cancel(its job's stop)
+UNLOCK_LANE = {"vault.unlock"}  # a worker of its own: never queued behind 8 busy ones (Q112 (r))
+_request = threading.local()    # the Request this worker thread is answering
+MOVED = threading.Condition()   # notified when a request ends or is cancelled (vault.status waits on it)
+
+
+class Request:
+    """One request serve was sent, from submit until it's answered: where it is (`queued`, `waiting` for its locks,
+    `running`) and whether it was cancelled."""
+
+    def __init__(self, req):
+        self.req = req
+        self.method = req.get("method") if isinstance(req, dict) else None
+        self.phase = "queued"
+        self.cancelled = threading.Event()  # set while queued or waiting: it gives up, nothing done
+        self.finished = threading.Event()   # answered, or cancelled before it started
+        self.lock = threading.Lock()
+        self.stop = None                    # on_cancel's fn, once a running request registered one
+        self.asked = False                  # a cancel came while it ran (and it's in CANCEL_RUNNING)
+        self.after = []                     # vault.status: the unlocks asked before it, to wait for
+
+
+def current_request():
+    return getattr(_request, "current", None)
+
+
+def waiting_cancel():
+    """The cancel Event of the request this thread answers while it waits for its locks, or None."""
+    r = current_request()
+    return r.cancelled if r is not None and r.phase == "waiting" else None
+
+
+def cancelled(method):
+    return RpcError(CANCELLED, f"{method} was cancelled before it did anything")
+
+
+def on_cancel(fn):
+    """A running request in CANCEL_RUNNING says how it stops: FN() (a job's stop). Run at once if a cancel came
+    before this."""
+    r = current_request()
+    if r is None:
+        return
+    with r.lock:
+        r.stop = fn
+        asked = r.asked
+    if asked:
+        fn()
+
+
+def started_running():
+    """The request this thread answers has its locks: from now on a cancel doesn't stop it (unless CANCEL_RUNNING).
+    Cancelled while waiting: 5, and nothing was done."""
+    r = current_request()
+    if r is None:
+        return
+    with r.lock:
+        if r.cancelled.is_set():
+            raise cancelled(r.method)
+        r.phase = "running"
+
+
+def after_unlocks(state, method):
+    """vault.status waits for the unlocks asked before it, queued or running, so it never answers "locked" with an
+    unlock still on its way (the app's check after a timed-out unlock). At most what's left of its deadline
+    (LOCK_WAIT): then 4. A cancelled one is over at once."""
+    r = current_request()
+    if r is None or not r.after:
+        return
+    at = current_deadline()
+    end = time.monotonic() + LOCK_WAIT if at is None else at
+    with MOVED:
+        while not all(u.finished.is_set() for u in r.after):
+            left = end - time.monotonic()
+            if r.cancelled.is_set():
+                raise cancelled(method)
+            if left <= 0:
+                raise RpcError(BUSY, "the vault is busy: vault.unlock is still running - nothing was done",
+                               {"busy": "the vault", "method": "vault.unlock"}, fix="try again once it has finished")
+            MOVED.wait(left)
+
+
+def cancel_request(state, params):
+    """Cancel a request sent earlier, by its `id` (ticket 108). Sent as a notification (no `id` of its own), as the
+    app's core does when it gives up waiting, it gets no answer. It's answered at once, ahead of every worker. A
+    request still queued, or waiting for a lock, never runs: it answers `5` and nothing was done. A running
+    `host.check` or a Mesh run waiting for its job stops its job at the next step, as `jobs.stop` would. Anything
+    else that runs finishes (nothing is half-written), and `vault.lock` and `vault.logout` are never cancelled.
+
+    Params: `{id}` (the request's own `id`)
+    Result: `{id, cancelled, was}`: `was` is where it was (`queued`, `waiting`, `running`), or `null` when serve has no
+        such request (answered already, or never sent)
+    Errors: -32602
+    Since: API 21
+    """
+    rid = params.get("id")
+    if not isinstance(rid, (int, str)) or isinstance(rid, bool):
+        raise RpcError(INVALID_PARAMS, "params.id must be the id of a request sent earlier")
+    server = getattr(state, "server", None)
+    if server is None:
+        return {"id": rid, "cancelled": False, "was": None}
+    return server.cancel(rid)
+
+
+METHODS["$/cancel"] = cancel_request
+
+
 # ---------------------------------------------------------------- the loop
 
 WORKERS = 8                 # requests answered at once (the core lets the Plugins have 4 of them)
 QUICK_WORKERS = 2           # and for the quick reads, which never wait for a lock a long request holds
 QUICK = {"inventory.info", "hosts.list", "host.get", "mesh.status", "mesh.job", "mesh.stop", "discover.plan",
-         "discover.status", "discover.stop", "jobs.list", "jobs.stop", "inventory.watch", "vault.forget_typed"}
+         "discover.status", "discover.stop", "jobs.list", "jobs.stop", "inventory.watch", "vault.forget_typed",
+         "host.check_job"}
 
 
 def quick(req):
@@ -2556,8 +2792,12 @@ def respond(state, req):
         params = req.get("params", {})
         if not isinstance(params, dict):
             raise RpcError(INVALID_PARAMS, "params must be an object")
-        with deadline(DEADLINES.get(method)), claimed(state, LOCKS.get(method, []), method):
-            result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
+        with deadline(DEADLINES.get(method)):
+            if method == "vault.status":
+                after_unlocks(state, method)
+            with claimed(state, LOCKS.get(method, []), method):
+                started_running()
+                result = {"jsonrpc": "2.0", "id": rid, "result": fn(state, params)}
     except RpcError as e:
         result = error_response(rid, e)
     except SystemExit as e:                     # a die() inside roster: its message is the answer
@@ -2598,15 +2838,25 @@ class Pool:
                 log_line(f"a worker's request failed: {type(e).__name__}")
 
 
+def request_key(rid):
+    """A request's id as a key: 1 and "1" are different ids."""
+    return json.dumps(rid)
+
+
 class Server:
-    """Answers requests concurrently: each goes to a worker (a quick read to one of its own), its answer goes out
-    when it's ready, so answers may come in another order than asked (JSON-RPC's id says which is which)."""
+    """Answers requests concurrently: each goes to a worker (a quick read to one of its own, an unlock to its lane),
+    its answer goes out when it's ready, so answers may come in another order than asked (JSON-RPC's id says which is
+    which). `$/cancel` is answered on the reading thread, ahead of them all."""
 
     def __init__(self, state, send, workers=WORKERS, quick_workers=QUICK_WORKERS):
         self.state, self.send = state, send
         self.general, self.quick = Pool(workers, "serve"), Pool(quick_workers, "serve-quick")
+        self.unlock_lane = Pool(1, "serve-unlock")
         self.busy = threading.Condition()
         self.running = 0
+        self.requests = {}                      # request_key(id) -> its Request, until it's answered
+        self.table = threading.Lock()
+        state.server = self
 
     def submit(self, line):
         try:
@@ -2614,24 +2864,93 @@ class Server:
         except ValueError as e:
             self.send(error_response(None, RpcError(PARSE_ERROR, f"not valid JSON: {e}")))
             return
+        if isinstance(req, dict) and req.get("method") == "$/cancel":
+            response = respond(self.state, req)     # at once: it only looks at what's queued and running
+            if response is not None:
+                self.send(response)
+            return
+        record = Request(req)
+        with self.table:
+            if isinstance(req, dict) and "id" in req:
+                self.requests[request_key(req["id"])] = record
+            if record.method == "vault.status":     # the unlocks asked before it: it waits for them
+                record.after = [r for r in self.requests.values()
+                                if r.method in UNLOCK_LANE and not r.finished.is_set()]
         with self.busy:
             self.running += 1
-        pool = self.quick if isinstance(req, dict) and quick(req) else self.general
-        pool.queue.put(lambda: self.run(req))
+        if record.method in UNLOCK_LANE:
+            pool = self.unlock_lane
+        elif isinstance(req, dict) and quick(req):
+            pool = self.quick
+        else:
+            pool = self.general
+        pool.queue.put(lambda: self.run(record))
 
-    def run(self, req):
+    def run(self, record):
+        req = record.req
+        _request.current = record
         try:
             if self.state.closing:             # queued when stdin closed: refused, never run
                 if isinstance(req, dict) and "id" in req:
                     self.send(error_response(req.get("id"), RpcError(ROSTER_ERROR, "roster serve is closing")))
                 return
+            with record.lock:
+                refused = record.cancelled.is_set()
+                if not refused:
+                    record.phase = "waiting"
+            if refused:                         # cancelled while queued: never runs
+                if isinstance(req, dict) and "id" in req:
+                    self.send(error_response(req.get("id"), cancelled(record.method)))
+                return
             response = respond(self.state, req)
             if response is not None:
                 self.send(response)
         finally:
+            _request.current = None
+            self.ended(record)
             with self.busy:
                 self.running -= 1
                 self.busy.notify_all()
+
+    def ended(self, record):
+        with self.table:
+            if isinstance(record.req, dict) and "id" in record.req:
+                key = request_key(record.req["id"])
+                if self.requests.get(key) is record:
+                    del self.requests[key]
+        with MOVED:
+            record.finished.set()
+            MOVED.notify_all()
+
+    def cancel(self, rid):
+        """$/cancel's work: see cancel_request."""
+        with self.table:
+            record = self.requests.get(request_key(rid))
+        if record is None:
+            return {"id": rid, "cancelled": False, "was": None}
+        stop = None
+        with record.lock:
+            was = record.phase
+            if record.method in NEVER_CANCELLED:
+                done = False
+            elif was in ("queued", "waiting"):
+                record.cancelled.set()
+                done = True
+            else:
+                done = record.method in CANCEL_RUNNING
+                if done:
+                    record.asked, stop = True, record.stop
+        if done and was != "running":
+            if was == "queued":                 # over for whoever waits for it (vault.status)
+                with MOVED:
+                    record.finished.set()
+            for lock in (self.state.lock, self.state.vault):
+                lock.wake()
+            with MOVED:
+                MOVED.notify_all()
+        if stop is not None:
+            stop()
+        return {"id": rid, "cancelled": done, "was": was}
 
     def close(self, wait):
         """stdin closed: refuse what's queued (it never runs), and wait up to WAIT s for what's running. Before any
