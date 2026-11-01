@@ -6,7 +6,7 @@
 import PERMISSIONS from "../../../crates/roster-core/tests/fixtures/plugin-permissions.json";
 import { PLUGIN_COMMANDS } from "../plugins/cmd";
 import { fakeFoldersPlugin } from "./fakeFolders";
-import { BackendCallError, type Host, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
+import { BackendCallError, type Host, type OpenSession, type PluginEventName, type PluginCaller, type PluginData, type PluginManifest, type PluginReply } from "./types";
 
 type Fn = (arg: Record<string, unknown>) => unknown;
 type Spec = Record<string, unknown>;
@@ -53,8 +53,15 @@ export interface FakeRoster {
   cmd(line: string): void;
   progress: { set(id: string, spec: Spec): void; remove(id: string): void };
   toolbar: { set(id: string, spec: Spec): void; remove(id: string): void };
-  inventory?: { hosts(): Host[]; host(name: string): Host | undefined; groups(): Record<string, { title: string; description: string }> };
-  sessions: { show(session: number, line?: string): void; open?(host: string): void };
+  inventory?: {
+    hosts(): Host[];
+    host(name: string): Host | undefined;
+    groups(): Record<string, { title: string; description: string }>;
+    /** api 4 (decision Q127): every Host and group without waiting; `done` runs later. */
+    request(done: (list: { hosts: Host[]; groups: Record<string, { title: string; description: string }> } | undefined, err?: string) => void): void;
+  };
+  /** `list` (api 4, decision Q127) with inventory.read or terminal.read: the Sessions open now. */
+  sessions: { show(session: number, line?: string): void; list?(): { session: number; host?: string }[]; open?(host: string): void };
   terminal?: { send(session: number, text: string): void };
   /** With a `serve:` grant: roster serve's methods by name, answered by the fake Backend.
    * `request` doesn't wait: `done` runs later, as the core's does (decision Q103). */
@@ -421,6 +428,7 @@ export function fakePluginHost(
   pluginFiles(plugin: string): Map<string, string>;
   pluginCall(plugin: string, handler: number, args: unknown, user?: PluginCaller): Promise<PluginReply>;
   pluginEvent(name: PluginEventName, payload: Record<string, unknown>): Promise<PluginReply[]>;
+  pluginSessions(open: OpenSession[]): Promise<void>;
   pluginUnload(plugin: string): Promise<boolean>;
   onPluginReply(onReply: (reply: PluginReply) => void): () => void;
   /** As the core does when a request answers: hands `reply` to whoever listens. */
@@ -449,6 +457,8 @@ export function fakePluginHost(
    * ran): a request or a command line made in it doesn't carry it further (issue #183). */
   let carried = false;
   const replyWatchers = new Set<(reply: PluginReply) => void>();
+  /** The Sessions open now, as the app last listed them (a Quick Connect Session's host is null). */
+  let open: OpenSession[] = [];
 
   const configs = new Map<string, Record<string, unknown>>();
   const find = (path: string) => {
@@ -610,11 +620,23 @@ export function fakePluginHost(
       },
     };
     if (r.grants.has("inventory.read")) {
+      const groups = () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }]));
       m.inventory = {
         hosts: () => hosts(),
         host: (name) => hosts().find((h) => h.name === name),
-        groups: () => Object.fromEntries([...new Set(hosts().map((h) => h.group))].map((g) => [g, { title: "", description: "" }])),
+        groups,
+        request: (done) => {
+          if (r.requests >= MAX_SERVE_REQUESTS) {
+            throw new Error(`roster.inventory.request: ${MAX_SERVE_REQUESTS} requests are waiting for roster serve already: wait for one to answer`);
+          }
+          const list = { hosts: hosts(), groups: groups() };
+          later(r, () => done(list));
+        },
       };
+    }
+    // As runtime.rs: there for whoever may hear session_open.
+    if (EVENT_NEEDS.session_open.some((p) => r.grants.has(p))) {
+      m.sessions.list = () => open.map(({ session, host }) => (host === null ? { session } : { session, host }));
     }
     if (r.grants.has("sessions.open")) m.sessions.open = (host) => push({ op: "open", host });
     if (r.grants.has("terminal.write")) m.terminal = { send: (session, text) => push({ op: "send", session, text }) };
@@ -648,24 +670,30 @@ export function fakePluginHost(
           } catch (e) {
             answer = () => done(undefined, `${what}: ${errorText(e)}`);
           }
-          const user = userCall && !carried;
-          r.requests++;
-          setTimeout(() => {
-            r.requests--;
-            if (running.get(r.manifest.name) !== r || r.disabled) return;
-            [userCall, carried] = [user, user];
-            let reply: PluginReply;
-            try {
-              reply = run(r.manifest.name, r, answer);
-            } finally {
-              [userCall, carried] = [false, false];
-            }
-            if (reply.ops.length || reply.error) for (const w of replyWatchers) w(reply);
-          }, 0);
+          later(r, answer);
         },
       };
     }
     return m;
+  };
+
+  /** A request's answer: `answer` runs later as a call of its own, carrying the user's call one
+   * hop when it was made in one, its reply to whoever listens (as runtime.rs's ask_later). */
+  const later = (r: Running, answer: () => void) => {
+    const user = userCall && !carried;
+    r.requests++;
+    setTimeout(() => {
+      r.requests--;
+      if (running.get(r.manifest.name) !== r || r.disabled) return;
+      [userCall, carried] = [user, user];
+      let reply: PluginReply;
+      try {
+        reply = run(r.manifest.name, r, answer);
+      } finally {
+        [userCall, carried] = [false, false];
+      }
+      if (reply.ops.length || reply.error) for (const w of replyWatchers) w(reply);
+    }, 0);
   };
 
   /** As runtime.rs's add_timer: the same floors, ceiling and op. */
@@ -754,6 +782,10 @@ export function fakePluginHost(
         if (reply.ops.length || reply.error) replies.push(reply);
       }
       return replies;
+    },
+    async pluginSessions(list) {
+      // As mod.rs's set_sessions: the app's whole list replaces the last.
+      open = list.map((o) => ({ ...o }));
     },
     async pluginUnload(plugin) {
       return running.delete(plugin);

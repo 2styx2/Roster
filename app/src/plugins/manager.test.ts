@@ -92,6 +92,47 @@ describe("installing", () => {
 describe("running", () => {
   const installed = { [STATE_KEY]: [{ path: ALERTS, name: "recent-alerts", granted: ["terminal.read"], asked: ["terminal.read"] }] };
 
+  // Ticket 96: Sessions opened while no Plugin ran still reach the core, so one installed later
+  // lists them (roster.sessions.list).
+  it("a Plugin installed after Sessions opened lists the ones still open", async () => {
+    const lister: FakePlugin = {
+      manifest: { name: "lister", version: "1.0.0", description: "Lists Sessions", author: "A. Author", api: 4, permissions: ["inventory.read"] },
+      load(roster) {
+        const open = roster.sessions.list?.() ?? [];
+        roster.status.set("open", { text: open.map((s) => `${s.session}=${s.host ?? "quick"}`).join(" ") });
+      },
+    };
+    const { manager, registries } = setup({ "/p/lister": lister });
+    await manager.start();
+    manager.sessions([{ session: 1, host: "esx-02" }, { session: 3, host: "web-1" }]);
+    // The webview's next list replaces it whole: session 3 ended, 2 opened.
+    manager.sessions([{ session: 1, host: "esx-02" }, { session: 2, host: null }]);
+    expect(await manager.install("/p/lister")).toBeNull();
+    const [prompt] = manager.snapshot().prompts;
+    if (prompt) await manager.answer(prompt, true);
+    expect(registries.status.get("open")?.text).toBe("1=esx-02 2=quick");
+  });
+
+  it("a Session event waits for the list sent before it, so a listener's list agrees", async () => {
+    const counter: FakePlugin = {
+      manifest: { name: "counter", version: "1.0.0", description: "Counts Sessions", author: "A. Author", api: 4, permissions: ["terminal.read"] },
+      load(roster) {
+        roster.on("session_open", () => roster.status.set("n", { text: `open ${roster.sessions.list?.().length ?? 0}` }));
+      },
+    };
+    const installed = { [STATE_KEY]: [{ path: "/p/counter", name: "counter", granted: ["terminal.read"], asked: ["terminal.read"] }] };
+    const { manager, registries, backend } = setup({ "/p/counter": counter }, installed);
+    await manager.start();
+    const slow = backend.pluginSessions.bind(backend);
+    vi.spyOn(backend, "pluginSessions").mockImplementation(async (open) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return slow(open);
+    });
+    manager.sessions([{ session: 4, host: "esx-02" }]);
+    await manager.event("session_open", { session: 4, host: "esx-02" });
+    expect(registries.status.get("n")?.text).toBe("open 1");
+  });
+
   it("gets the Sessions' output as plain text, and only with terminal.read", async () => {
     const seen: string[] = [];
     const { manager, registries } = setup({ [ALERTS]: alerts(seen) }, { ...installed });

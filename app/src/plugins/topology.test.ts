@@ -40,6 +40,7 @@ describe("the Topology stand-in", () => {
       if (method === "mesh.status" && params.grouped === true) return answers["mesh.status"];
       if (method === "mesh.cut" && params.background === true) return answers["mesh.cut"];
       if (method === "mesh.job") return answers["mesh.job"];
+      if (method === "host.check_job") return answers["host.check_job"];
       throw new Error(`unknown method '${method}' (code -32601)`);
     };
     const host = fakePluginHost({ topology: topologyPlugin() }, () => hosts, undefined, serve);
@@ -80,6 +81,10 @@ describe("the Topology stand-in", () => {
           }
           break;
         }
+        case "sessions":
+          await host.pluginSessions((step.open as [number, string | null][]).map(([session, h]) => ({ session, host: h })));
+          replies = [];
+          break;
         case "action": {
           const action = ((view?.spec as Op).graph as { actions: Op[] }).actions.find((a) => a.label === step.label);
           replies = [await settle(await host.pluginCall("topology", handlerOf(action?.run), { view: "topology", node: step.node, host: step.node }))];

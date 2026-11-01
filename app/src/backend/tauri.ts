@@ -215,6 +215,7 @@ export function tauriBackend(): Backend {
     pluginLoad: (path, grants, settings) => call("plugin_load", { path, grants, settings: settings ?? null }),
     pluginCall: (plugin, handler, args, user) => call<PluginReply>("plugin_call", { plugin, handler, args, user: user !== false, carried: user === "carried" }),
     pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload }),
+    pluginSessions: (open) => call<null>("plugin_sessions", { open: open.map((o) => [o.session, o.host]) }).then(() => undefined),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
     pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin }),
     pluginRequests: () => call<Record<string, SiteRequests[]>>("plugin_requests"),
@@ -234,6 +235,7 @@ export function tauriBackend(): Backend {
         pluginLoad: (path, grants, settings) => call("plugin_load", { path, grants, settings: settings ?? null, onDemo }),
         pluginCall: (plugin, handler, args, user) => call<PluginReply>("plugin_call", { plugin, handler, args, user: user !== false, carried: user === "carried", onDemo }),
         pluginEvent: (name, payload) => call<PluginReply[]>("plugin_event", { name, payload, onDemo }),
+        pluginSessions: (open) => call<null>("plugin_sessions", { open: open.map((o) => [o.session, o.host]), onDemo }).then(() => undefined),
         pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin, onDemo }),
         pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin, onDemo }),
         onPluginReply(onReply) {

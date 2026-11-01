@@ -6,7 +6,7 @@
 
 use super::folder::Storage;
 use super::network::{self, Answer, Net};
-use super::{Event, Outcome, PluginError, Serve, ServeWait, permission::Permission};
+use super::{Event, OpenSessions, Outcome, PluginError, Serve, ServeWait, permission::Permission};
 use crate::config::lua::{self, Budget, Clock};
 use crate::config::{Os, ThemeDef};
 use mlua::chunk::ChunkMode;
@@ -190,7 +190,8 @@ struct Shared {
     /// Where an answer goes: to the host, which runs it on this Plugin's thread.
     post: Option<Post>,
     next_request: Cell<u64>,
-    /// The `roster.serve.request` calls waiting, by request id: the method, and whether it was
+    /// The `roster.serve.request` (and `roster.inventory.request`) calls waiting, by request id:
+    /// what asked, as its error names it (`roster.serve.request hosts.list`), and whether it was
     /// made in a call the user started (its answer runs as part of that call, decision Q103).
     serving_requests: RefCell<HashMap<u64, (String, bool)>>,
     /// Whether the run carries the user's call one hop (a request's answer, or a command
@@ -210,6 +211,11 @@ struct Shared {
     dropping: RefCell<Option<Vec<u64>>>,
     /// This run's calls into roster serve so far, and how long they waited in all.
     served: Cell<(u32, Duration)>,
+    /// The Sessions open now (`roster.sessions.list`), the host's.
+    sessions: Arc<OpenSessions>,
+    /// This run's `hosts.list` answer, once a `roster.inventory` read has asked for it: the
+    /// other reads of the run use it rather than ask again (decision Q127). A write forgets it.
+    host_list: RefCell<Option<Json>>,
 }
 
 /// What a run may change in the core, as it was before: put back when the run fails, as its ops
@@ -283,6 +289,7 @@ impl Runtime {
         serving: Arc<ServeWait>,
         generation: u64,
         network: network::Setup,
+        sessions: Arc<OpenSessions>,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -325,6 +332,8 @@ impl Runtime {
             serving,
             dropping: RefCell::default(),
             served: Cell::default(),
+            sessions,
+            host_list: RefCell::default(),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -450,7 +459,7 @@ impl Runtime {
 
     /// Calls the function waiting for serve request `id` with `result`: `(result)` or `(nil, why)`.
     fn served(&self, id: u64, result: Result<Json, String>) -> Outcome {
-        let Some((method, user)) = self.shared.serving_requests.borrow_mut().remove(&id) else {
+        let Some((what, user)) = self.shared.serving_requests.borrow_mut().remove(&id) else {
             return self.run(self.budget, |_| Ok(Json::Null));
         };
         self.shared.user_call.set(user);
@@ -463,7 +472,7 @@ impl Runtime {
             requests.raw_set(id, Value::Nil)?;
             match result {
                 Ok(v) => done.call::<()>(to_lua(lua, &v)?)?,
-                Err(why) => done.call::<()>((Value::Nil, format!("roster.serve.request {method}: {why}")))?,
+                Err(why) => done.call::<()>((Value::Nil, format!("{what}: {why}")))?,
             }
             Ok(Json::Null)
         });
@@ -499,6 +508,8 @@ impl Runtime {
         *s.dropping.borrow_mut() = Some(Vec::new());
         let result = body(&self.lua);
         let dropped = s.dropping.borrow_mut().take().unwrap_or_default();
+        // The run's Inventory read is its own: the next run asks again, and nothing big is kept.
+        s.host_list.borrow_mut().take();
         let settled = match &result {
             Ok(_) => dropped.into_iter().try_for_each(|id| forget(&self.lua, s, id)),
             Err(_) => self.undo(before),
@@ -833,7 +844,7 @@ pub(crate) fn command_allowed(word: &str, grants: &BTreeSet<Permission>) -> Resu
         super::api::Needs::Permission(p) if !Permission::parse(p).is_ok_and(|p| grants.contains(&p)) => {
             Err(format!(":{word} needs the {p} permission"))
         }
-        super::api::Needs::AnyServe => Err(format!(":{word} isn't one a Plugin may run")),
+        super::api::Needs::AnyServe | super::api::Needs::Hears(_) => Err(format!(":{word} isn't one a Plugin may run")),
         _ => Ok(()),
     }
 }
@@ -868,6 +879,11 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
             "waited more than {} s for roster serve in one go (roster.serve.request doesn't wait)",
             MAX_SERVE_WAIT.as_secs()
         ));
+    }
+    // A method that can change things (a write, a Mesh run) may change the Inventory: what the
+    // run read before it is out of date (decision Q127).
+    if super::permission::serve_user_only(method) {
+        shared.host_list.borrow_mut().take();
     }
     let started = Instant::now();
     shared.serving.begin();
@@ -993,6 +1009,21 @@ fn redact_text(text: &str) -> Option<String> {
     })
 }
 
+/// `read` of serve's `hosts.list`, asked once a run: `roster.inventory.hosts()` and `.groups()` in
+/// one call are one read (decision Q127). An error names `what`.
+fn with_host_list<T>(shared: &Shared, what: &str, read: impl FnOnce(&Json) -> mlua::Result<T>) -> mlua::Result<T> {
+    if shared.host_list.borrow().is_none() {
+        let list =
+            ask_serve(shared, "hosts.list", json!({})).map_err(|m| mlua::Error::runtime(format!("{what}: {m}")))?;
+        if !list.is_object() {
+            return Err(mlua::Error::runtime(format!("{what}: roster sent no list")));
+        }
+        *shared.host_list.borrow_mut() = Some(list);
+    }
+    let list = shared.host_list.borrow();
+    read(list.as_ref().expect("asked above"))
+}
+
 /// roster serve's answer as Lua, or an error naming `what` called it.
 fn answer(lua: &Lua, what: &str, result: Result<Json, String>) -> mlua::Result<Value> {
     match result {
@@ -1064,6 +1095,16 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
         Some(Value::Nil) | None => json!({}),
         Some(v) => plain(s, "roster.serve.request", &v)?,
     };
+    if super::permission::serve_user_only(&method) {
+        // It may change the Inventory while the run goes on: read it again after.
+        s.host_list.borrow_mut().take();
+    }
+    ask_later(lua, s, what, method, params, done)
+}
+
+/// Asks roster serve `method` on a thread of its own; `done` gets the answer later on the Plugin's
+/// thread, `(result)` or `(nil, "WHAT: why")`. At most [`MAX_SERVE_REQUESTS`] wait at once.
+fn ask_later(lua: &Lua, s: &Shared, what: String, method: String, params: Json, done: Function) -> mlua::Result<()> {
     let Some(post) = &s.post else {
         return Err(mlua::Error::runtime(format!("{what}: not granted (serve:{method})")));
     };
@@ -1075,12 +1116,11 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
     let id = s.next_request.get() + 1;
     s.next_request.set(id);
     let (serve, post) = (Arc::clone(&s.serve), Arc::clone(post));
-    let asked = method.clone();
     s.serving.requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     std::thread::Builder::new()
         .name(format!("plugin:{} serve", s.plugin))
         .spawn(move || {
-            let result = redacted(serve.call(&asked, params));
+            let result = redacted(serve.call(&method, params));
             post(id, Arrival::Serve(result));
         })
         .map_err(|e| {
@@ -1088,7 +1128,7 @@ fn serve_request(lua: &Lua, s: &Shared, method: String, params: Option<Value>, d
             mlua::Error::runtime(format!("{what}: couldn't start: {e}"))
         })?;
     let user = s.user_call.get() && !s.carried.get();
-    s.serving_requests.borrow_mut().insert(id, (method, user));
+    s.serving_requests.borrow_mut().insert(id, (what, user));
     lua.named_registry_value::<Table>(REQUESTS)?.raw_set(id, done)
 }
 
@@ -1648,22 +1688,27 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         if g.contains(&Permission::InventoryRead) {
             func!(inventory, "hosts", |lua, s, (): ()| {
                 need(s, &Permission::InventoryRead, "roster.inventory.hosts")?;
-                let list: Table = match serve(lua, s, "roster.inventory.hosts", "hosts.list", json!({}))? {
-                    Value::Table(t) => t,
-                    _ => return Err(mlua::Error::runtime("roster.inventory.hosts: roster sent no list")),
-                };
-                list.raw_get::<Value>("hosts")
+                with_host_list(s, "roster.inventory.hosts", |list| to_lua(lua, &list["hosts"]))
             });
             func!(inventory, "groups", |lua, s, (): ()| {
                 need(s, &Permission::InventoryRead, "roster.inventory.groups")?;
-                let list: Table = match serve(lua, s, "roster.inventory.groups", "hosts.list", json!({}))? {
-                    Value::Table(t) => t,
-                    _ => return Err(mlua::Error::runtime("roster.inventory.groups: roster sent no list")),
-                };
-                match list.raw_get::<Value>("groups")? {
-                    Value::Nil => Ok(Value::Table(lua.create_table()?)),
-                    groups => Ok(groups),
-                }
+                with_host_list(s, "roster.inventory.groups", |list| match &list["groups"] {
+                    groups @ Json::Object(_) => to_lua(lua, groups),
+                    _ => Ok(Value::Table(lua.create_table()?)),
+                })
+            });
+            // The whole Inventory without waiting (decision Q127): serve's `hosts.list`, as
+            // `roster.serve.request` asks.
+            func!(inventory, "request", |lua, s, done: Function| {
+                need(s, &Permission::InventoryRead, "roster.inventory.request")?;
+                ask_later(
+                    lua,
+                    s,
+                    "roster.inventory.request".into(),
+                    "hosts.list".into(),
+                    json!({}),
+                    done,
+                )
             });
             // An unknown name is `nil` (api 3): serve's code 2 for host.get.
             func!(inventory, "host", |lua, s, name: String| {
@@ -1701,6 +1746,20 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             push(s, json!({ "op": "session_show", "session": session, "line": line }))
         }
     );
+    // The Sessions open now (decision Q127): the sum of what `session_open` and `session_exit`
+    // say, so there for whoever may hear them (api.rs's `Needs::Hears`).
+    if may_hear("session_open", g).is_ok() {
+        func!(sessions, "list", |lua, s, (): ()| {
+            let list = lua.create_table()?;
+            for (id, host) in s.sessions.list() {
+                let one = lua.create_table()?;
+                one.raw_set("session", id)?;
+                one.raw_set("host", host)?;
+                list.raw_push(one)?;
+            }
+            Ok(list)
+        });
+    }
     if g.contains(&Permission::SessionsOpen) {
         func!(sessions, "open", |_lua, s, host: String| {
             need(s, &Permission::SessionsOpen, "roster.sessions.open")?;
@@ -1835,6 +1894,7 @@ mod tests {
             Arc::new(ServeWait::default()),
             1,
             network::Setup::default(),
+            Arc::default(),
         )
         .unwrap()
     }
