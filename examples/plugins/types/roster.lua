@@ -667,6 +667,7 @@
 ---@field host string The Host cut from the Mesh.
 ---@field confirmed string[] The peers whose keys it took off, and that took its off.
 ---@field pending table<string, string> The peers that didn't answer, and why: the next cut finishes them.
+---@field warnings? string[] What roster left on the cut Host's own side, one sentence each: an earlier `mesh_dir:` that still holds a Mesh key, which roster never removes (serve API 24; absent before).
 ---@field change roster.MeshCutChange The `mesh: false` written for it as a Pending change.
 
 --- The `mesh: false` a `mesh.cut` writes into `roster.yml`

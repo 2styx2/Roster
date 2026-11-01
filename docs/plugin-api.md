@@ -3443,6 +3443,7 @@ Its result comes in `mesh.job`, and `job_progress` events follow it.
 | `host` | `string` | yes | The Host cut from the Mesh. |
 | `confirmed` | `string[]` | yes | The peers whose keys it took off, and that took its off. |
 | `pending` | `table<string, string>` | yes | The peers that didn't answer, and why: the next cut finishes them. |
+| `warnings` | `string[]` | no | What roster left on the cut Host's own side, one sentence each: an earlier `mesh_dir:` that still holds a Mesh key, which roster never removes (serve API 24; absent before). |
 | `change` | [`MeshCutChange`](#meshcutchange) | yes | The `mesh: false` written for it as a Pending change. |
 
 ### `MeshCutChange`

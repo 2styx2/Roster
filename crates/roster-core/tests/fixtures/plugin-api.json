@@ -2887,6 +2887,11 @@
           "type": "table<string, string>"
         },
         {
+          "name": "warnings",
+          "required": false,
+          "type": "string[]"
+        },
+        {
           "name": "change",
           "required": true,
           "type": "MeshCutChange"
