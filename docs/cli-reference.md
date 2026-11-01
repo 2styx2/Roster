@@ -255,9 +255,11 @@ From the app, the first-party [discover](../plugins/discover/README.md) Plugin d
 
 `--only` accepts host names, groups, types and products: `roster check --only orion`, `roster setup --only switch,router`.
 
+`--json` on `hosts`, `info`, `resources`, `check`, `mesh status`, `providers` and `auth-check` prints the same data as JSON for scripts and tools, never a secret: see [Machine-readable output](#machine-readable-output).
+
 Config lookup order: `-c PATH`, then `$ROSTER_CONFIG`, then `./roster.yml`, then `~/.config/roster/roster.yml`.
 
-The man page (`man roster`) is generated from this section, the next four and roster's own argument parser, so it never drifts from them: after changing either, run `uv run python -m roster.manpage` and commit `src/roster/roster.1`. A test fails until you do.
+The man page (`man roster`) is generated from this section, Machine-readable output, Files, Environment, Exit status, Examples and roster's own argument parser, so it never drifts from them: after changing either, run `uv run python -m roster.manpage` and commit `src/roster/roster.1`. A test fails until you do.
 
 ### `roster check HOST`
 
@@ -312,6 +314,43 @@ Vault
 1 warning, no errors
 ```
 
+## Machine-readable output
+
+The read commands take `--json`, for scripts, other tools and Claude: `hosts` (with `--only`, `--find`, `--all`), `info NAME`, `resources`, `check`, `check HOST`, `check --box`, `mesh status`, `providers` and `auth-check`. The CLI is roster's interface for other apps; `roster serve` is the desktop app's own backend, not a public API. With `--json`, stdout is one JSON document on one line, with no colour, table or warning, and the exit status is the same as without it.
+
+- **Never a secret.** Logins are references: the provider and the item (`bw:esx-02 ssh`, `op:Lab/esx-02`, `prompt`, `agent`). A `cmd:` or `env:` reference says how a secret is fetched, and a password pasted into a `cmd:` line would show, so each one is cut to its kind (`cmd:`, `env:`) everywhere in the output, error messages and check messages included, the way Plugins get them. `auth-check --json` fetches every secret it tests and says only whether it was found. `reveal` has no `--json`: it's for a person.
+- **One shape.** A Host, a group and a resource are the objects `roster serve` answers with (`hosts.list`, `host.get`; [the serve API](serve-api.md) lists their fields): every field `roster.yml` resolves to, with `ssh: {user, port, auth}`, `login: {user, auth}`, `services` by name, and `problems`, the service entries left out (the warnings the table prints on stderr).
+- **A version.** `version` is the first field of every document, errors included. It is `1` now.
+- **Errors** go to stderr as `{"version": 1, "error": {"code", "message", "fix"}}`, with nothing on stdout. The codes are `roster serve`'s: `1` `roster.yml` wasn't found or doesn't load (`fix` says where), `2` no Host or resource by that name, `3` any other refusal. Wrong arguments are code `3` too, with exit status 2.
+- **What's a breaking change:** removing or renaming a field, changing its type or what it means, or changing an exit status. Those come with a new `version` and a line under **Breaking** in [What's new](news.md). A new field or a new command with `--json` isn't one, so read the fields you need and ignore the rest.
+
+| Command | stdout |
+|---|---|
+| `hosts --json` | `{version, hosts: [Host], resources: [resource], groups: {name: {title, description}}, hidden}`. Hosts and resources in `roster.yml` order, filtered as the table is; `hidden` counts the unreviewed Hosts left out (`--all` shows them). Exit 1 when `--find` matches nothing |
+| `info NAME --json` | `{version, host: Host, group}` or `{version, resource: resource, group}`; `group` is `{name, title, description}`, or `null` for a resource with none |
+| `resources --json` | `{version, resources: [resource]}`. Exit 1 when `--only` or `--find` matches nothing |
+| `check --json` | `{version, hosts: [{name, ok, ssh, checks}], mesh, ok}`: `checks` is `{ssh: bool, SERVICE: bool, ...}`, `ssh` says what was tested (`login` with this Box's key, `port` for a password-only Host). `mesh` is the drift (the plan `roster mesh --dry-run` would show), or `null` with no Mesh or with `--only`. Exit 1 unless `ok` |
+| `check HOST --json` | `{version, host, ok, steps: [{step, status, message, code?, fix?, details?, data?}]}`, as `host.check`: `status` is `ok`, `fail` or `skipped`. An unknown Host is a failed `inventory` step (code 2), not an error. Exit 1 unless `ok` |
+| `check --box --json` | `{version, checks: [{section, level, message, fix?, topic?}], ok}`, as `box.check`: `level` is `ok`, `warn` or `error`. Exit 1 if one is an `error` |
+| `mesh status --json` | `{version, links, excluded, reach, members, pending, cut_pending, out_of_date}`, as `mesh.status`. `--json` goes with `status` only |
+| `providers --json` | `{version, providers: [{name, kind, help, tool, installed, used_by}], unknown, ok}`: `tool` is the CLI it runs (`null` for none, and `installed` `null` with it), `used_by` the groups whose Logins use it, `unknown` the providers `roster.yml` names that aren't set up. Exit 1 if there's one |
+| `auth-check --json` | `{version, logins: [{group, auth, users, used_for: [{service, hosts}], status, error?}], ok}`: one row per Login reference and group; `status` is `ok` (a value was found; it isn't tested against a Host), `fail` (with `error`) or `ask` (`prompt`). Exit 1 if one failed |
+
+Wrapped and cut short here (`...`); roster prints each document on one line:
+
+```text
+$ roster hosts --only esx-02 --json
+{"version": 1, "hosts": [{"name": "esx-02", "group": "lab", "ip": "10.0.0.5", "user": "root", "port": 22,
+  "enroll": false, "reviewed": true, "title": "Lab ESXi", "ssh": {"port": 22, "user": "root",
+  "auth": "bw:esx-02 ssh"}, "services": {}, "problems": [], ...}], "resources": [],
+  "groups": {"lab": {"title": "The lab", "description": ""}}, "hidden": 0}
+$ roster check esx-02 --json
+{"version": 1, "host": "esx-02", "ok": false, "steps": [{"step": "inventory", "status": "ok", "message": "root@10.0.0.5:22 (password login)"},
+  ..., {"step": "tcp", "status": "fail", "code": 42, "message": "...", "fix": "..."}, ...]}
+$ roster info nope --json
+{"version": 1, "error": {"code": 2, "message": "unknown host or resource 'nope'", "fix": null}}   (on stderr, exit 1)
+```
+
 ## Files
 
 | File | What it is |
@@ -358,7 +397,7 @@ roster also runs on Windows itself, without WSL, so the roster app works for tea
 | `2` | Wrong arguments |
 | `130` | Interrupted with Ctrl+C |
 
-`roster run` exits with the remote command's status, and `roster bw` with `bw`'s. `roster mesh` and `roster mesh cut` exit 1 while a Host is pending.
+With `--json`, the status is the same, and an error is JSON on stderr ([Machine-readable output](#machine-readable-output)). `roster run` exits with the remote command's status, and `roster bw` with `bw`'s. `roster mesh` and `roster mesh cut` exit 1 while a Host is pending.
 
 ## Examples
 
@@ -384,6 +423,8 @@ roster reveal lab-guest --wifi | qrencode -t ansiutf8
   - ask before changing state on a host,
   - ask you to unlock a locked password manager rather than trying itself,
   - leave unreviewed hosts alone.
+
+  It also tells Claude to use `--json` (`roster hosts --json`, `roster info NAME --json`, `roster check HOST --json`) when it needs to read roster's data rather than show it.
 - **`CLAUDE.md`** gets an `@ROSTER.md` line added, and its existing content is kept.
 - **`.claude/settings.json`** gets deny rules for reading and editing `~/.ssh`. These are a guardrail, not a wall.
 
@@ -399,6 +440,7 @@ Web UIs: Claude won't type passwords into login pages. Sign in once in the brows
 - **The key has no passphrase,** so automation can use it. Anyone with access to the box can reach the fleet, so treat these boxes accordingly.
 - **Host fingerprints are recorded on first contact** in `~/.ssh/roster_known_hosts`.
 - **Passwords exist only in memory,** for one run.
+- **`--json` output holds no secret:** Logins are references, and `cmd:` and `env:` ones are cut to their kind ([Machine-readable output](#machine-readable-output)).
 - **Scanned hosts are never touched until you mark them reviewed.**
 - **At larger scale,** consider an SSH certificate authority, so new boxes only need their key signed instead of installed everywhere.
 

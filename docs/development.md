@@ -12,6 +12,7 @@ The tests use stand-in `bw`, `op`, `pass` and `ssh` commands from `tests/fakes/`
 ```text
 src/roster/
   cli.py            commands and argument parsing
+  jsonout.py        `--json` on the read commands: one document with a version, `cmd:`/`env:` references cut (Q92, Q110)
   config.py         loading/validating roster.yml, search, --only
   example.py        the `roster init` template
   sshops.py         keys, fingerprints, ssh config, key install/removal, password logins

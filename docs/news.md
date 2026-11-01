@@ -43,6 +43,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- `--json` on the read commands, for scripts, other tools and Claude: `roster hosts`, `info`, `resources`, `check` (with a HOST and `--box` too), `mesh status`, `providers` and `auth-check` print one JSON document with a `version`, using the Host, group and resource objects `roster serve` uses. It never holds a secret: Logins are references, with `cmd:` and `env:` ones cut to their kind. Errors are JSON on stderr, with the usual exit status; `ROSTER.md` tells Claude to use it. See [Machine-readable output](cli-reference.md#machine-readable-output).
 - `roster serve` scans a network for the app (API 18): `discover.plan`, `discover.start`, `discover.status`, `discover.stop` and `discover.add`, codes 120-123. The scan runs in the background, a batch at a time, and can be stopped. See [Discover](serve-api.md#discover-discoverplan-discoverstart-discoverstatus-discoverstop-discoveradd).
 - Mesh Links through a jump Host: `via: HOST` on a `links:` entry sends it through that Host with `ProxyJump`, and the peer's `from=` names the address it actually sees. `roster mesh --dry-run` shows the hop, and the reachability test runs through it. See [Through a jump Host](mesh.md#through-a-jump-host).
 - `seen_as:` on a Host lists its other addresses (one or a list), which every Mesh peer's `from=` accepts beside its `ip:`: for a jump Host with a leg on each network, or a Host behind NAT. See [Other addresses](mesh.md#other-addresses).
