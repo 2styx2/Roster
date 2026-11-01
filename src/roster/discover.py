@@ -43,7 +43,7 @@ def nmap_scan(targets, args):
 def nmap_run(targets, args, family=()):
     # no --open, so a Host that answered with none of the ports open is counted (quiet); with -Pn every address
     # counts as up, so there it's left out (--open)
-    cmd = ["nmap", "-oX", "-", "-T4", "-sV", "--version-light", "--script", "http-title"]
+    cmd = [shutil.which("nmap") or "nmap", "-oX", "-", "-T4", "-sV", "--version-light", "--script", "http-title"]
     cmd += ["--top-ports", str(args.top_ports)] if args.top_ports else ["-p", args.ports]
     if args.no_ping:
         cmd += ["-Pn", "--open"]
@@ -53,7 +53,7 @@ def nmap_run(targets, args, family=()):
         else:
             say("note         --os needs root (sudo); skipping OS detection")
     cmd += [*family, *targets]
-    say(f"nmap         {' '.join(cmd)}")
+    say(f"nmap         {' '.join(['nmap', *cmd[1:]])}")
     say("             (this can take a few minutes on a big network)")
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.strip():
