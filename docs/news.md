@@ -127,6 +127,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 
 **CLI**
 
+- On native Windows, closing `roster serve` during a Mesh run ends the run's ssh with everything it started, as a step that times out does, so `mesh.json` records which Hosts were left to do (an ssh that is a batch file kept running before).
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
 - `roster discover` scans IPv6 networks (nmap takes them only with `-6`, in a run of their own), scans an address that two of its networks hold once instead of writing it twice, and counts the hosts that answered with none of the ports open, as it said it did (nmap ran with `--open`, which leaves them out).
 
