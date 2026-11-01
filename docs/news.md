@@ -125,7 +125,7 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **CLI**
 
 - The Mesh no longer writes a `via:` Link whose jump Host this Box has no host key for: the source's own Link to the jump Host isn't written then, so `ProxyJump` would have named a Host its ssh config doesn't have. Both are `no-host-key`, and `roster check` fails until `roster setup --only HOST` records the key.
-- `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans. The built-in scanner counts the hosts that answered with none of the ports open, as nmap does.
+- `roster discover --json` with a broken `roster.yml` found without `-c` (`ROSTER_CONFIG`, or the usual places) is error `1` with its fix, where it was ignored silently; with none at all it still scans.
 - `roster serve` started with a temp dir whose path leaves a Unix socket's no room puts its askpass folder in `/tmp` rather than fail.
 - `roster discover` scans IPv6 networks (nmap takes them only with `-6`, in a run of their own), scans an address that two of its networks hold once instead of writing it twice, and counts the hosts that answered with none of the ports open, as it said it did (nmap ran with `--open`, which leaves them out).
 
@@ -141,7 +141,6 @@ Each Release has the same sections, left out when empty: **Breaking** (something
 **serve API**
 
 - `host.check`: a waiting check that had joined another request's check answers `5` as soon as it's cancelled, rather than keep its worker until that check ends (up to 45 s); the check goes on for the others.
-- `discover.status`: the built-in scanner counts `quiet` too (a Host that refused a connection to every port scanned); it was always 0.
 - `host.check` (API 22): a waiting check cancelled stops the check only when no other request waits for it and none asked for it in the background, where cancelling a request that had joined someone else's check stopped it for both; the background form says whether it `joined` a running check, and the app's core stops only a check it started when it gives up on it. A check asked for while the last one is stopping is a new check, not the stopping one (which answered `ok: false` with its steps skipped). `host.check_job` still finds a check that ended after a newer check of its Host started (it was `49`). A check shares the vault only for the steps that fetch a secret or mint a token, so an unlock or a lock no longer waits up to 45 s for a check (the lock screen hung, then failed).
 - `vault.undo_create`: an undo that fails in an unexpected way keeps the item, so it can be undone again (it was forgotten: the item stayed in the vault and a retry answered `63`).
 - `vault.configure` no longer fails ("dictionary changed size") when roster.yml reloads with a new provider while it runs.
