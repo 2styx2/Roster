@@ -27,6 +27,7 @@ fn load(init: &str) -> (PluginHost, roster_core::plugin::Reply, common::Temp) {
     .unwrap();
     std::fs::write(dir.join("init.lua"), init).unwrap();
     let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    host.set_builtins([]);
     let (_, reply) = host.load(&Source::Dir(dir.to_path_buf()), &[]).unwrap();
     (host, reply, dir)
 }

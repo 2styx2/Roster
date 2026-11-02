@@ -216,6 +216,7 @@ export function tauriBackend(): Backend {
     pluginSessions: (open) => call<null>("plugin_sessions", { open: open.map((o) => [o.session, o.host]) }).then(() => undefined),
     pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin }),
     pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin }),
+    pluginBuiltins: (names) => call<null>("plugin_builtins", { names }).then(() => undefined),
     pluginRequests: () => call<Record<string, SiteRequests[]>>("plugin_requests"),
     pluginData: (names) => call<Record<string, PluginData>>("plugin_data", { names }),
     onPluginReply(onReply) {
@@ -236,6 +237,7 @@ export function tauriBackend(): Backend {
         pluginSessions: (open) => call<null>("plugin_sessions", { open: open.map((o) => [o.session, o.host]), onDemo }).then(() => undefined),
         pluginUnload: (plugin) => call<boolean>("plugin_unload", { plugin, onDemo }),
         pluginForget: (plugin) => call<boolean>("plugin_forget", { plugin, onDemo }),
+        pluginBuiltins: (names) => call<null>("plugin_builtins", { names, onDemo }).then(() => undefined),
         onPluginReply(onReply) {
           const stop = listen<{ demo: number; reply: PluginReply }>("plugin-demo-reply", (e) => {
             if (e.payload.demo === id) onReply(e.payload.reply);

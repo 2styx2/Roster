@@ -6,7 +6,7 @@
 
 use super::folder::Storage;
 use super::network::{self, Answer, Net};
-use super::{Event, OpenSessions, Outcome, PluginError, Serve, ServeWait, permission::Permission};
+use super::{Builtins, Event, OpenSessions, Outcome, PluginError, Serve, ServeWait, permission::Permission};
 use crate::config::lua::{self, Budget, Clock};
 use crate::config::{Os, ThemeDef};
 use mlua::chunk::ChunkMode;
@@ -185,6 +185,8 @@ struct Shared {
     user_call: Cell<bool>,
     /// The commands the Plugin added (`roster.commands.add`): `roster.cmd` may run them.
     commands: RefCell<BTreeSet<String>>,
+    /// The app's built-in commands ([`super::PluginHost::set_builtins`]): never the Plugin's own.
+    builtins: Builtins,
     /// Its HTTP client, with a `network:` grant (network.rs).
     net: Option<Net>,
     /// Where an answer goes: to the host, which runs it on this Plugin's thread.
@@ -216,6 +218,10 @@ struct Shared {
     /// This run's `hosts.list` answer, once a `roster.inventory` read has asked for it: the
     /// other reads of the run use it rather than ask again (decision Q127). A write forgets it.
     host_list: RefCell<Option<Json>>,
+    /// The clock a wait for roster serve is measured on in tests, which fake it (`Instant::now`
+    /// otherwise).
+    #[cfg(test)]
+    serve_clock: Cell<fn() -> Instant>,
 }
 
 /// What a run may change in the core, as it was before: put back when the run fails, as its ops
@@ -290,6 +296,7 @@ impl Runtime {
         generation: u64,
         network: network::Setup,
         sessions: Arc<OpenSessions>,
+        builtins: Builtins,
     ) -> Result<Runtime, PluginError> {
         let fail = |e: mlua::Error| PluginError::new(plugin, None, None, format!("couldn't start Lua: {e}"));
         let sites: Vec<network::Site> = grants
@@ -321,6 +328,7 @@ impl Runtime {
             }),
             user_call: Cell::new(false),
             commands: RefCell::default(),
+            builtins,
             net,
             post,
             next_request: Cell::new(0),
@@ -334,6 +342,8 @@ impl Runtime {
             served: Cell::default(),
             sessions,
             host_list: RefCell::default(),
+            #[cfg(test)]
+            serve_clock: Cell::new(Instant::now),
         });
         lua.set_named_registry_value(HANDLERS, lua.create_table().map_err(fail)?)
             .map_err(fail)?;
@@ -813,18 +823,29 @@ fn quiet_opt(opts: Option<&Table>, what: &str) -> mlua::Result<Option<bool>> {
     }
 }
 
-/// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
-/// the vault): never a Plugin's own, whatever it named its commands. The app refuses a Plugin's
-/// command named after any of roster's and checks every line again (`plugins/cmd.ts`); this is the
-/// core's side of it for the ones that matter most (the iteration 8 review).
-const ROSTER_ONLY: &[&str] = &["plugins", "packages", "publish", "source", "config", "vault"];
-
-/// Whether `word` is one of the Plugin's own commands: one it added, and not one of roster's that
-/// a Plugin may run ([`super::api::COMMANDS`], which keep the permission they need) or never may.
+/// Whether `word` is one of the Plugin's own commands: one it added that no built-in has. Not one
+/// the app says it has ([`Shared::builtins`]), one of roster's a Plugin may run
+/// ([`super::api::COMMANDS`], which keep the permission they need), nor one that changes trust or
+/// writes ([`super::api::ROSTER_ONLY`], refused even before the app has said).
 fn own_command(s: &Shared, word: &str) -> bool {
     s.commands.borrow().contains(word)
-        && !ROSTER_ONLY.contains(&word)
+        && !super::api::ROSTER_ONLY.contains(&word)
         && !super::api::COMMANDS.iter().any(|c| c.name == word)
+        && s.builtins
+            .read()
+            .is_ok_and(|b| b.as_ref().is_some_and(|b| !b.contains(word)))
+}
+
+/// Why `word`, a command the Plugin added, can't run yet: the app hasn't told the core its
+/// built-in commands, so it can't tell the Plugin's own from roster's (issue #184). None once it
+/// has, or for a word that isn't the Plugin's or is one of roster's either way.
+fn not_yet(s: &Shared, word: &str) -> Option<String> {
+    let unknown = s.builtins.read().map_or(true, |b| b.is_none());
+    (unknown
+        && s.commands.borrow().contains(word)
+        && !super::api::ROSTER_ONLY.contains(&word)
+        && !super::api::COMMANDS.iter().any(|c| c.name == word))
+    .then(|| format!(":{word} can't run yet: the app hasn't told roster its own commands"))
 }
 
 /// Whether a Plugin with `grants` may run roster's command `word` (api.rs's COMMANDS). Its own
@@ -876,7 +897,7 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
     }
     if waited >= MAX_SERVE_WAIT {
         return Err(format!(
-            "waited more than {} s for roster serve in one go (roster.serve.request doesn't wait)",
+            "waited {} s or more for roster serve in one go (roster.serve.request doesn't wait)",
             MAX_SERVE_WAIT.as_secs()
         ));
     }
@@ -885,12 +906,17 @@ fn ask_serve(shared: &Shared, method: &str, params: Json) -> Result<Json, String
     if super::permission::serve_user_only(method) {
         shared.host_list.borrow_mut().take();
     }
-    let started = Instant::now();
+    #[cfg(test)]
+    let now = shared.serve_clock.get();
+    #[cfg(not(test))]
+    let now = Instant::now;
+    let started = now();
     shared.serving.begin();
     let result = shared.serve.call(method, params);
     shared.serving.end();
-    shared.clock.extend(started.elapsed());
-    shared.served.set((calls + 1, waited + started.elapsed()));
+    let took = now() - started;
+    shared.clock.extend(took);
+    shared.served.set((calls + 1, waited + took));
     redacted(result)
 }
 
@@ -1502,6 +1528,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
         if line.len() > 500 {
             return Err(mlua::Error::runtime("roster.cmd: the line is over 500 characters"));
         }
+        if let Some(why) = not_yet(s, word) {
+            return Err(mlua::Error::runtime(format!("roster.cmd: {why}")));
+        }
         if !own_command(s, word) {
             command_allowed(word, &s.grants).map_err(|m| mlua::Error::runtime(format!("roster.cmd: {m}")))?;
         }
@@ -1539,6 +1568,9 @@ fn api(lua: &Lua, shared: &Rc<Shared>, version: &str, config: &Json) -> mlua::Re
             return Err(mlua::Error::runtime("roster.cmdline: the line is over 500 characters"));
         }
         let word = text.split_whitespace().next().unwrap_or("");
+        if let Some(why) = not_yet(s, word) {
+            return Err(mlua::Error::runtime(format!("roster.cmdline: {why}")));
+        }
         if !own_command(s, word) {
             return Err(mlua::Error::runtime(format!(
                 "roster.cmdline: {word:?} isn't one of your commands (a line such as \"alerts \")"
@@ -1895,8 +1927,93 @@ mod tests {
             1,
             network::Setup::default(),
             Arc::default(),
+            Builtins::default(),
         )
         .unwrap()
+    }
+
+    thread_local! {
+        /// Fake time for how long roster serve takes: each call moves it on, nothing waits.
+        static SERVE_START: Instant = Instant::now();
+        static SERVE_TIME: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    }
+
+    fn fake_now() -> Instant {
+        SERVE_START.with(|s| *s) + SERVE_TIME.with(Cell::get)
+    }
+
+    /// roster serve taking 150 s of fake time for every call, counting them.
+    struct Calls(std::sync::atomic::AtomicU32);
+
+    impl Serve for Calls {
+        fn call(&self, _method: &str, _params: Json) -> Result<Json, String> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            SERVE_TIME.with(|t| t.set(t.get() + Duration::from_secs(150)));
+            Ok(json!({ "ok": true }))
+        }
+    }
+
+    /// One call (a load, an event, an answer) may wait for roster serve 300 s in all, serve's own
+    /// longest deadline for one method (Q103): the call that's waited that long gets an error on
+    /// its next call into serve, and the next call starts again from none. On fake time.
+    #[test]
+    fn one_call_may_wait_for_roster_serve_300_s_in_all() {
+        let serve = Arc::new(Calls(Default::default()));
+        let rt = Runtime::new(
+            "slow",
+            "1.0.0",
+            Path::new(""),
+            &Json::Null,
+            BTreeSet::from([Permission::Serve("mesh.status".into())]),
+            serve.clone(),
+            8 * 1024 * 1024,
+            Duration::from_millis(250),
+            None,
+            false,
+            None,
+            Arc::new(ServeWait::default()),
+            1,
+            network::Setup::default(),
+            Arc::default(),
+            Builtins::default(),
+        )
+        .unwrap();
+        rt.shared.serve_clock.set(fake_now);
+        let loaded = rt.load(
+            r#"
+            roster.commands.add("poll", { run = function()
+              local n = 0
+              local ok, err = pcall(function()
+                while true do roster.serve.call("mesh.status"); n = n + 1 end
+              end)
+              return n .. " " .. tostring(err)
+            end })
+            "#,
+            Duration::from_secs(1),
+        );
+        assert!(loaded.error.is_none(), "{:?}", loaded.error);
+        let poll = loaded
+            .ops
+            .iter()
+            .find(|o| o["op"] == "command" && o["name"] == "poll")
+            .and_then(|o| o["run"]["handler"].as_u64())
+            .unwrap();
+        let said = |r: Outcome| {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.as_str().unwrap().to_string()
+        };
+        // 0 and 150 s waited: asked; 300 s, the limit itself: refused before serve is asked.
+        let first = said(rt.call(poll, &json!({}), By::User));
+        assert!(first.starts_with("2 "), "{first}");
+        assert!(
+            first.contains("roster.serve.call mesh.status: waited 300 s or more for roster serve in one go"),
+            "{first}"
+        );
+        assert_eq!(serve.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+        // The next call has its own 300 s.
+        let again = said(rt.call(poll, &json!({}), By::User));
+        assert!(again.starts_with("2 "), "{again}");
+        assert_eq!(serve.0.load(std::sync::atomic::Ordering::SeqCst), 4);
     }
 
     /// The set of quiet handlers (a command's `complete`, a finder's `items`) holds only the ones
