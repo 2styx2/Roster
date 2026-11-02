@@ -85,6 +85,8 @@ export interface CommandContext {
    * one is detected; the password goes from serve to the Session's PTY through the core, never
    * through the frontend. */
   fillPrompt(): void;
+  /** `:integrate` (ticket 121): sends the current Session's shell the hook line now. */
+  integrate(): void;
   /** Removes, renames or moves a Host, or makes, renames or deletes a group (ticket 28): asks
    * first where it should (removing a Host; a group whose Hosts need somewhere to go). */
   inventory(op: InventoryOp): void;
@@ -252,6 +254,13 @@ export const builtinCommands: readonly CommandDef[] = [
     area: "Sessions",
     label: () => "Fill the password prompt on screen (sudo, su, ssh) from the Host's Login in the vault",
     run: (ctx) => ctx.fillPrompt(),
+  },
+  {
+    id: "integrate",
+    source: BUILTIN,
+    area: "Sessions",
+    label: () => "Turn on shell integration in this Session's shell: one line that marks its prompts and says its folder",
+    run: (ctx) => ctx.integrate(),
   },
   {
     id: "reconnect",

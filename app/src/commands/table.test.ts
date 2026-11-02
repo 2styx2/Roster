@@ -47,6 +47,7 @@ function recorder(mode: ViewMode = "standard") {
     addHost: (g) => calls.push(g ? `add ${g}` : "add"),
     saveSession: () => calls.push("save"),
     fillPrompt: () => calls.push("fill"),
+    integrate: () => calls.push("integrate"),
     inventory: (op) => calls.push(`inventory ${JSON.stringify(op)}`),
     groupNames: () => ["lab", "net"],
     review: (h, reviewed = true) => calls.push(`${reviewed ? "review" : "unreview"} ${h ?? "selected"}`),

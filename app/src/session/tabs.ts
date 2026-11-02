@@ -20,6 +20,7 @@ import { problemFromCallError } from "../errors/catalog";
 import { hostnameIn } from "../quick/hostname";
 import { formatQuickTarget, type QuickTarget } from "../quick/target";
 import { PromptWatch } from "./prompt";
+import { ShellHooks, type IntegrateResult } from "./shellHooks";
 
 export type TabStatus =
   | { state: "connecting" }
@@ -62,11 +63,19 @@ export interface Tab {
    * Host printed it, and why it may be another Host's when the shell's marks say so (then roster
    * won't fill it). Null otherwise. Never a password. */
   prompt: PasswordPrompt | null;
+  /** The folder the shell last said it's in (OSC 7, ticket 121); absent or null until it says. */
+  cwd?: string | null;
 }
 
 export interface PasswordPrompt {
   line: string;
   elsewhere: string | null;
+}
+
+/** What a tab's tooltip says about its Session: how it logged in, and the folder its shell is in
+ * (OSC 7), a line each; empty when it knows neither yet. */
+export function tabFacts(tab: Tab): string {
+  return [tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n");
 }
 
 export interface SaveOffer {
@@ -153,6 +162,8 @@ interface Entry {
   watch: PromptWatch;
   /** A fill is under way: a second press waits for it. */
   filling: boolean;
+  /** The attempt's shell hooks (ticket 121): the hook line, its echo held back, OSC 7. */
+  hooks: ShellHooks | null;
 }
 
 /** How much of the output after the login is searched for the box's name. */
@@ -171,6 +182,8 @@ export class Tabs {
   /** Sees every Session's output as it arrives (Plugins with terminal.read, ticket 23). */
   private outputTap: OutputTap | null = null;
   private asksAboutKeys = true;
+  /** Whether roster sends the shell hook line to a tab's Session by itself (ticket 121). */
+  private shellHooksOn: (tab: Tab) => boolean = () => false;
   private readonly now: () => number;
 
   /** Held ids serve said logged in before their tab knew it held them. */
@@ -256,6 +269,22 @@ export class Tabs {
    * host key recorded" (44) is a refusal like any other. */
   setAsksAboutKeys(asks: boolean) {
     this.asksAboutKeys = asks;
+  }
+
+  /** Whether roster may send the shell hook line to a tab's Session by itself (`shell_hooks`,
+   * ticket 121): asked when the login goes quiet at a prompt, so a Config reload counts. */
+  setShellHooks(on: (tab: Tab) => boolean) {
+    this.shellHooksOn = on;
+  }
+
+  /** `:integrate`: sends the shell hook line to the tab's Session now; answers once a marked
+   * prompt came back or didn't, or at once with why nothing was sent. */
+  integrate(id: number): Promise<IntegrateResult> {
+    const entry = this.find(id);
+    if (!entry?.hooks || !entry.session) return Promise.resolve("not-open");
+    // Never at a password prompt (ticket 119): the line would be taken for the password.
+    if (entry.tab.prompt !== null || entry.filling) return Promise.resolve("no-prompt");
+    return entry.hooks.integrate();
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -362,7 +391,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null, prompt: null },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null, prompt: null, cwd: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -382,6 +411,7 @@ export class Tabs {
       saveScan: "",
       watch: new PromptWatch(),
       filling: false,
+      hooks: null,
       wiring: {
         attach: (sink) => this.attach(id, sink),
         onData: (data) => this.write(id, data),
@@ -420,7 +450,7 @@ export class Tabs {
     entry.keyAsked = false;
     // A Quick Connect asks again, key and password (it keeps neither); to a Host, it's a Host's tab.
     const quick = host === undefined && entry.tab.quick ? { to: entry.tab.quick.to, id: null } : null;
-    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1, quick };
+    entry.tab = { ...entry.tab, host: to, label, status: { state: "connecting" }, shell: false, attempt: entry.tab.attempt + 1, quick, cwd: null };
     entry.pending = [];
     this.output(entry, encoder.encode(`\r\n\x1b[2m[reconnecting to ${to}…]\x1b[0m\r\n`));
     this.changed();
@@ -448,6 +478,8 @@ export class Tabs {
     entry.saveScan = "";
     entry.watch = new PromptWatch();
     if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
+    entry.hooks?.stop();
+    const hooks = (entry.hooks = this.hooksFor(entry, current));
     open(entry.size, {
         output: (data) => {
           if (!current()) return;
@@ -461,7 +493,9 @@ export class Tabs {
           if (line !== (was?.line ?? null) || elsewhere !== (was?.elsewhere ?? null)) {
             entry.tab = { ...entry.tab, prompt: line === null ? null : { line, elsewhere } };
           }
-          this.output(entry, data);
+          // The screen gets it unless the shell hooks hold it back; Plugins always get it as it came.
+          const shown = hooks.output(data, text);
+          if (shown) this.output(entry, shown);
           // A Quick Connect Session isn't on a Host of the Inventory: no Host to name.
           this.outputTap?.output(id, entry.tab.quick ? null : entry.tab.host, data, entry.sentSize);
           if (!entry.tab.shell && data.length > 0) entry.tab = { ...entry.tab, shell: true };
@@ -471,6 +505,7 @@ export class Tabs {
           if (!current()) return;
           entry.session = null;
           if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
+          hooks.stop();
           // A Session that ends without saving: serve forgets the password it held for it.
           this.dropSave(entry);
           if (this.find(id)) this.setStatus(entry, { state: "ended", exit, problem: this.classify(entry, exit) });
@@ -526,6 +561,28 @@ export class Tabs {
           this.refused(entry, e);
         },
       );
+  }
+
+  /** The attempt's shell hooks: they write only to its own Session, show only while it's current. */
+  private hooksFor(entry: Entry, current: () => boolean): ShellHooks {
+    return new ShellHooks({
+      write: (line) => {
+        // Never while a password prompt is up or being filled (ticket 119): the hook line would
+        // be taken for the password. The hooks try again at their next idle prompt.
+        if (!current() || !entry.session || entry.tab.prompt !== null || entry.filling) return false;
+        void entry.session.write(line).catch(() => {});
+        return true;
+      },
+      show: (data) => {
+        if (current()) this.output(entry, data);
+      },
+      cwd: (path) => {
+        if (!current() || entry.tab.cwd === path) return;
+        entry.tab = { ...entry.tab, cwd: path };
+        this.changed();
+      },
+      enabled: () => this.shellHooksOn(entry.tab),
+    });
   }
 
   /** The tab's Session couldn't start: roster refused, or a step before it failed. */
@@ -668,6 +725,7 @@ export class Tabs {
     const entry = this.entries[i];
     if (!entry) return;
     entry.closing = true;
+    entry.hooks?.stop();
     this.dropSave(entry);
     entry.sink = null;
     void entry.session?.close().catch(() => {});
@@ -768,6 +826,7 @@ export class Tabs {
   write(id: number, data: string) {
     const entry = this.find(id);
     if (!entry) return;
+    entry.hooks?.typed(data);
     if (entry.session) void entry.session.write(data).catch(() => {});
     else if (entry.tab.status.state === "connecting") entry.pending.push(data);
   }

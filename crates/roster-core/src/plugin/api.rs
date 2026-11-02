@@ -4397,7 +4397,7 @@ pub const TYPES: &[Type] = &[
     Type {
         name: "CommandDoneEvent",
         summary: "`command_done`'s payload",
-        doc: "Read from the OSC 133 marks the Session's own shell prints; roster never writes to a Session for it. The command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased is never one, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't be. The marks come from the Host, so this is its word: a hint. A command a nested shell with marks took over (`ssh` to a Host with integration) has none, since its end can't be told from the nested shell's; nor does `exit` or `logout`, since a shell that exits sends no end mark for it.",
+        doc: "Read from the OSC 133 marks the Session's own shell prints (its rc file turns them on, or roster's opt-in shell hooks do). The command line is read off the screen once the shell runs it, so a line given up (Ctrl-C) or erased is never one, and what the screen doesn't show (a password at a prompt that doesn't echo it) can't be. The marks come from the Host, so this is its word: a hint. A command a nested shell with marks took over (`ssh` to a Host with integration) has none, since its end can't be told from the nested shell's; nor does `exit` or `logout`, since a shell that exits sends no end mark for it.",
         alias: "",
         fields: &[
             f("session", "integer", "The Session's id."),

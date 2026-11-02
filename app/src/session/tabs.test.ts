@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
 import { BackendCallError, QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, SessionRefusal, type SessionEvents } from "../backend/types";
+import { IDLE_MS, hookLine } from "./shellHooks";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -987,5 +988,73 @@ describe("filling a password prompt (ticket 119)", () => {
     await expect(tabs.fill(id)).rejects.toThrow(/Already filling/);
     finish({ host: "h" });
     await expect(first).resolves.toBe("h");
+  });
+});
+
+describe("shell hooks (ticket 121, #210)", () => {
+  const PROMPT = "Last login: today\r\nuser@web-01:~$ ";
+  const A = "\x1b]133;A\x07";
+  const B = "\x1b]133;B\x07";
+
+  async function opened(on: (tab: { host: string; quick: unknown }) => boolean) {
+    vi.useFakeTimers();
+    const { backend, session, typed } = scriptedSessions();
+    const tabs = new Tabs(backend);
+    tabs.setShellHooks(on);
+    const seen: Uint8Array[] = [];
+    const id = tabs.open(reviewed[0]!);
+    tabs.attach(id, (d) => seen.push(d));
+    await vi.advanceTimersByTimeAsync(0);
+    return { tabs, id, s: session(reviewed[0]!), typed: () => typed.get(reviewed[0]!) ?? "", screen: () => text(seen) };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("sends the hook line to a Host it's on for, and draws the new prompt in place of the old", async () => {
+    const { s, typed, screen, tabs } = await opened((t) => t.host === reviewed[0]);
+    s.print(PROMPT);
+    await vi.advanceTimersByTimeAsync(IDLE_MS);
+    expect(typed()).toBe(hookLine("posix") + "\r");
+    s.print(hookLine("posix") + "\r\n\x1b]7;file://web-01/srv/app\x07" + A + "user@web-01:~$ " + B);
+    expect(screen()).toBe(PROMPT + "\r\x1b[J" + A + "user@web-01:~$ " + B);
+    expect(tabs.snapshot().tabs[0]!.cwd).toBe("/srv/app");
+  });
+
+  it("never sends the line at a password prompt, and a fill isn't the user typing (ticket 119)", async () => {
+    const { s, typed, tabs, id } = await opened(() => true);
+    s.print("Last login: today\r\n[sudo] password for user: ");
+    await vi.advanceTimersByTimeAsync(IDLE_MS * 3);
+    expect(typed()).toBe("");
+    expect(await tabs.integrate(id)).toBe("no-prompt");
+    // The core types the fill (never through Tabs.write), so the hooks still send at the shell's prompt.
+    s.print("\r\nuser@web-01:~$ ");
+    await vi.advanceTimersByTimeAsync(IDLE_MS);
+    expect(typed()).toBe(hookLine("posix") + "\r");
+  });
+
+  it("sends nothing to a Host it's off for, or once the user has typed", async () => {
+    const off = await opened(() => false);
+    off.s.print(PROMPT);
+    await vi.advanceTimersByTimeAsync(IDLE_MS);
+    expect(off.typed()).toBe("");
+
+    const busy = await opened(() => true);
+    busy.tabs.write(busy.id, "l");
+    busy.s.print(PROMPT);
+    await vi.advanceTimersByTimeAsync(IDLE_MS);
+    expect(busy.typed()).toBe("l");
+  });
+
+  it("sends it on :integrate, answers once the marked prompt is back, and says why when it can't", async () => {
+    const { s, typed, tabs, id } = await opened(() => false);
+    expect(await tabs.integrate(id)).toBe("no-prompt");
+    s.print(PROMPT);
+    const on = tabs.integrate(id);
+    expect(typed()).toBe(hookLine("posix") + "\r");
+    s.print(hookLine("posix") + "\r\n" + A + "user@web-01:~$ " + B);
+    expect(await on).toBe("on");
+    s.exit(0);
+    expect(await tabs.integrate(id)).toBe("not-open");
+    expect(await tabs.integrate(999)).toBe("not-open");
   });
 });

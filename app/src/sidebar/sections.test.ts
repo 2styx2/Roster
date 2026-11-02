@@ -61,3 +61,19 @@ describe("sectionBuilder", () => {
     others(onScreen).forEach((r, i) => expect(r).toBe(others(unfolded)[i]));
   });
 });
+
+describe("a Session row's folder (OSC 7, ticket 121)", () => {
+  const rowOf = (t: Tab) => sectionBuilder()(defs, ctx({ tabs: [t], active: null, previous: null })).find((s) => s.id === "sessions")?.rows[0];
+
+  it("shows the last folder of the path the shell said, and the whole path in its tooltip", () => {
+    const row = rowOf({ ...tab(1, first, { state: "open" }), auth: "key", cwd: "/srv/app/releases" });
+    expect(row).toMatchObject({ detail: "releases", title: "key login\nin /srv/app/releases" });
+    expect(rowOf({ ...tab(1, first), cwd: "/" })).toMatchObject({ detail: "/", title: "in /" });
+  });
+
+  it("shows nothing while the shell hasn't said", () => {
+    const row = rowOf(tab(1, first));
+    expect(row?.detail).toBeUndefined();
+    expect(row?.title).toBeUndefined();
+  });
+});

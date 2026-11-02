@@ -95,6 +95,7 @@ import { SavePanel } from "./quick/SavePanel";
 import { HostDetails } from "./details/HostDetails";
 import { resolveOpen, webServices, webUrl } from "./details/details";
 import { Tabs } from "./session/tabs";
+import { shellHooksOn, type IntegrateResult } from "./session/shellHooks";
 import { allRows, moveCursor, Sidebar } from "./sidebar/Sidebar";
 import { sectionBuilder } from "./sidebar/sections";
 import { cancelCommand, packagesCommand, pluginsCommand } from "./plugins/command";
@@ -234,6 +235,16 @@ interface WorkspaceProps extends AppProps {
    * takes no keys and leaves the document's Theme to the demo. */
   suspended?: boolean;
 }
+
+/** What `:integrate` says (ticket 121). */
+const INTEGRATE_SAYS: Record<IntegrateResult, (label: string) => string> = {
+  on: (t) => `Shell integration is on in ${t}: its prompts are marked.`,
+  "no-marks": (t) =>
+    `Sent ${t}'s shell the hook line, but no marked prompt came back: its shell or prompt framework doesn't take it (:help shell-hooks).`,
+  marked: (t) => `${t}'s shell marks its prompts already: nothing to send.`,
+  "no-prompt": (t) => `${t} isn't at an empty prompt roster knows (bash, zsh, fish, PowerShell): nothing sent.`,
+  "not-open": (t) => `${t}'s Session isn't open: nothing sent.`,
+};
 
 /** The app: your workspace, and while a tutorial runs (`:tutor`, ticket 55, decision Q76), the demo
  * Inventory's in front of it. The workspace stays mounted behind, hidden and inert, so its
@@ -754,6 +765,12 @@ function Workspace({
     else void plugins.event("inventory_changed");
   }, [hosts, plugins]);
   const hostByName = useMemo(() => new Map((hosts?.hosts ?? []).map((h) => [h.name, h])), [hosts]);
+  // Shell hooks (ticket 121): init.lua's terminal.shell_hooks and each Host's shell_hooks.
+  const shellHooksInit = config?.terminal.shellHooks ?? null;
+  useEffect(
+    () => tabs.setShellHooks((tab) => shellHooksOn(shellHooksInit, tab.quick ? undefined : hostByName.get(tab.host)?.shell_hooks)),
+    [tabs, shellHooksInit, hostByName],
+  );
   const groupNames = useMemo(() => {
     const names = Object.keys(hosts?.groups ?? {});
     for (const h of hosts?.hosts ?? []) if (!names.includes(h.group)) names.push(h.group);
@@ -1592,6 +1609,11 @@ function Workspace({
       setEditing(null);
       setSaving(null);
       setAdding({ group });
+    },
+    integrate: () => {
+      const tab = sessions.tabs.find((t) => t.id === sessions.active);
+      if (!tab) return setMessage("No Session to integrate: open one first.");
+      void tabs.integrate(tab.id).then((r) => setMessage(INTEGRATE_SAYS[r](tab.label)));
     },
     saveSession: () => {
       const tab = sessions.tabs.find((t) => t.id === sessions.active);

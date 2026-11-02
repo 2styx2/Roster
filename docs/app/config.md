@@ -99,6 +99,7 @@ Terminal colours (`themes.*.terminal`): `background`, `foreground`, `cursor`, `c
 | `terminal.copy_on_select` | `true` | |
 | `terminal.right_click_paste` | `true` | Right-click copies the selection, or pastes when there's none |
 | `terminal.colors` | `{}` | Any terminal or ANSI colour, set over the Theme's |
+| `terminal.shell_hooks` | unset | Send each Session's shell one line after login that turns on its prompt marks (OSC 133) and says its folder (OSC 7), in that shell only, never in its rc files ([Shell hooks](../plugins.md#shell-hooks-roster-sets-it-up)). Unset: a Host's `shell_hooks: true` in `roster.yml` decides. `true`: every Session, Quick Connect too, except a Host with `shell_hooks: false`. `false`: none, whatever a Host says. `:integrate` sends the line to the Session on screen whatever this says |
 
 ### Keys
 

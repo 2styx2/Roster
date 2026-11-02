@@ -26,6 +26,9 @@ export interface Host {
   /** The Host's default Login for its services (`login:` in roster.yml). */
   login?: { user: string | null; auth: string | null };
   mac?: string | null;
+  /** `shell_hooks:` in roster.yml (ticket 121): roster sends the Session's shell the hook line
+   * that turns on its prompt marks. Passed through as written; absent when it isn't set. */
+  shell_hooks?: boolean | null;
 }
 
 /** One of a Host's services, as roster resolves it. `auth` is a vault reference such as

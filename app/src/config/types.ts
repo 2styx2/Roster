@@ -96,6 +96,8 @@ export interface Config {
     copyOnSelect: boolean;
     rightClickPaste: boolean;
     colors: Partial<TerminalTheme>;
+    /** `terminal.shell_hooks` (ticket 121): null leaves it to each Host's `shell_hooks`. */
+    shellHooks: boolean | null;
   };
   leader: string;
   vim: boolean;
