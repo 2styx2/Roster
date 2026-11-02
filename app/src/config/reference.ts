@@ -76,7 +76,7 @@ export interface OptionRow {
   /** The value now, as init.lua writes it. */
   value: string;
   default: string;
-  /** `lua/keys.lua:3`, `init.lua` (no line known), `State (:theme)` or `default`. */
+  /** `lua/keys.lua:3`, `Config (line unknown)`, `State (:theme)` or `default`. */
   where: string;
   entry: RefEntry;
 }
@@ -110,7 +110,9 @@ function valueOf(config: Config, name: string): unknown {
 
 function whereText(config: Config, name: string, state: StateChoices): string {
   const s = optionSource(config, name, state);
-  if (s.kind === "init.lua") return s.at ? `${s.at.file}:${s.at.line}` : "init.lua";
+  // No line: the core couldn't find it (built in a loop, a module's table under a key), and it
+  // may be in a module, so say only that the Config set it.
+  if (s.kind === "init.lua") return s.at ? `${s.at.file}:${s.at.line}` : "Config (line unknown)";
   if (s.kind === "State") {
     if (name === "theme") return s.over ? `State (:theme, over ${s.over.file}:${s.over.line})` : "State (:theme)";
     return name === "ui.messages" ? "State (:messages)" : "State (:hints)";

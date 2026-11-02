@@ -33,7 +33,7 @@ describe("each option's value now and where it was set", () => {
   it("gives the file and line init.lua set it at", () => {
     const c = configWith({ leader: "Ctrl+b", set: ["leader"], lines: { leader: { file: "lua/keys.lua", line: 3 } } });
     expect(row(optionRows(c), "leader")).toMatchObject({ value: '"Ctrl+b"', where: "lua/keys.lua:3" });
-    expect(row(optionRows(configWith({ set: ["vim"], vim: false })), "vim")).toMatchObject({ value: "false", where: "init.lua" });
+    expect(row(optionRows(configWith({ set: ["vim"], vim: false })), "vim")).toMatchObject({ value: "false", where: "Config (line unknown)" });
   });
 
   it("says State for a choice the app keeps when init.lua leaves it", () => {
