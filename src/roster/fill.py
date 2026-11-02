@@ -70,13 +70,16 @@ def has_password(ref):
     return name not in ("", "prompt", *providers.NO_PASSWORD)
 
 
-def same_login(h, address, port, user):
+def same_login(h, address, port, user, nested=False):
     """Problem 130 unless Host H still has the address, port and user its Session connected to (session.prepare's
-    `login`): one edited since may be another box now."""
+    `login`), or, NESTED, that the app resolved a nested ssh in the Session to (ticket 120): one edited since may be
+    another box now."""
     now = (h["ip"], h["ssh"]["port"], h["ssh"]["user"])
     if now != (address, port, user):
-        raise refused(h, f"{h['name']} changed since this Session connected ({user}@{address}:{port}, now "
-                         f"{now[2]}@{now[0]}:{now[1]})", None, "reconnect the Session, then fill")
+        since, fix = (("this ssh started", "run the ssh again, then fill") if nested else
+                      ("this Session connected", "reconnect the Session, then fill"))
+        raise refused(h, f"{h['name']} changed since {since} ({user}@{address}:{port}, now "
+                         f"{now[2]}@{now[0]}:{now[1]})", None, fix)
 
 
 def refused(h, message, kind, fix):

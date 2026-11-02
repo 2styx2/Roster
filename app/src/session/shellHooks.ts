@@ -117,6 +117,12 @@ export interface ShellHooksIo {
  * modes, keyboard protocol, mouse, focus), OSC and DCS answers, SS3 keys. What's left after them is
  * typing. */
 const SEQUENCES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]P_^][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bO.|\x1b[ -~]/g;
+
+/** Whether what the terminal sent has typing in it, once its escape sequences (reports, mouse,
+ * focus, cursor keys) are taken out. */
+export function hasTyping(data: string): boolean {
+  return data.replace(SEQUENCES, "") !== "";
+}
 const MARK = "\x1b]133;";
 const MARK_A = /\x1b\]133;A[^\x07\x1b]*(?:\x07|\x1b\\)/;
 const MARK_B = /\x1b\]133;B[^\x07\x1b]*(?:\x07|\x1b\\)/;
@@ -211,7 +217,7 @@ export class ShellHooks {
   /** The user's terminal sent `data` to the Session: typing, unless it's only the terminal's own
    * answers or keys that move the cursor (whose effect the prompt check sees). */
   typed(data: string) {
-    if (data.replace(SEQUENCES, "") === "") return;
+    if (!hasTyping(data)) return;
     this.typedYet = true;
     clearTimeout(this.idleTimer);
     this.giveUp();

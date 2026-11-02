@@ -12,7 +12,7 @@
 use crate::detect::Target;
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -50,10 +50,12 @@ pub struct LoginAs {
 }
 
 /// The Inventory Host a Session is to, and what it connected to: all a prompt fill may ask serve
-/// about ([`SessionManager::fill`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// about ([`SessionManager::fill`]). Also a nested ssh's Host, as the frontend resolved it
+/// (ticket 120), read from `{host, address, port, user}`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct FillTarget {
     pub host: String,
+    #[serde(flatten)]
     pub login: LoginAs,
 }
 
@@ -248,6 +250,9 @@ struct Running {
     /// while it checked the prompt.
     output: Arc<AtomicU64>,
     writes: AtomicU64,
+    /// Its last [`TAIL`] bytes of output, as the PTY gave them: a nested fill's prompt must be in
+    /// there ([`SessionManager::fill_printed`]).
+    tail: Arc<Mutex<VecDeque<u8>>>,
 }
 
 impl Running {
@@ -329,6 +334,7 @@ impl SessionManager {
             fill_as: cmd.fill_as.clone(),
             output: Arc::new(AtomicU64::new(0)),
             writes: AtomicU64::new(0),
+            tail: Arc::new(Mutex::new(VecDeque::with_capacity(TAIL))),
         });
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         self.sessions.lock().unwrap().insert(id, Arc::clone(&running));
@@ -341,11 +347,13 @@ impl SessionManager {
         let (drained_tx, drained) = mpsc::channel::<()>();
         let out = Arc::clone(&gate);
         let read = Arc::clone(&running.output);
+        let tail = Arc::clone(&running.tail);
         let reader_stop = Arc::clone(&stop);
         std::thread::Builder::new()
             .name(format!("session-{id}-read"))
             .spawn(move || {
                 reader.pump(&reader_stop, |chunk| {
+                    keep_tail(&tail, &chunk);
                     read.fetch_add(1, Ordering::SeqCst);
                     out.output(chunk)
                 });
@@ -444,6 +452,36 @@ impl SessionManager {
         Ok(target.host)
     }
 
+    /// Whether the Session printed `text` (as bytes, escapes and all) in its last [`TAIL`] bytes.
+    pub fn printed(&self, id: SessionId, text: &str) -> Result<bool, SessionError> {
+        let running = self.get(id)?;
+        let tail = running.tail.lock().unwrap();
+        let (a, b) = tail.as_slices();
+        let mut seen = Vec::with_capacity(a.len() + b.len());
+        seen.extend_from_slice(a);
+        seen.extend_from_slice(b);
+        let needle = text.as_bytes();
+        Ok(!needle.is_empty() && seen.windows(needle.len()).any(|w| w == needle))
+    }
+
+    /// [`SessionManager::fill`] for a nested ssh's prompt (ticket 120, decision Q131), whose Host
+    /// the frontend names: only when the Session printed `prompt` itself, in its last [`TAIL`]
+    /// bytes, so the frontend's word alone can't send another Host's password to a Session that
+    /// never asked ([`FillError::NotPrinted`], before anything is looked up).
+    pub fn fill_printed<E>(
+        &self,
+        id: SessionId,
+        wait: Duration,
+        prompt: &str,
+        lookup: impl FnOnce(&FillTarget) -> Result<Secret, E>,
+    ) -> Result<String, FillError<E>> {
+        match self.printed(id, prompt.trim()) {
+            Ok(true) => self.fill(id, wait, lookup),
+            Ok(false) => Err(FillError::NotPrinted),
+            Err(_) => Err(FillError::NotFound(id)),
+        }
+    }
+
     pub fn resize(&self, id: SessionId, size: Size) -> Result<(), SessionError> {
         let running = self.get(id)?;
         let m = running.master.lock().unwrap();
@@ -491,6 +529,17 @@ impl SessionManager {
 /// echoes, the letter is printed, which is how roster tells.
 pub const PROBE: &[u8] = b"\x15x\x15";
 
+/// How much of a Session's latest output the core keeps, for [`SessionManager::printed`].
+pub const TAIL: usize = 4096;
+
+fn keep_tail(tail: &Mutex<VecDeque<u8>>, chunk: &[u8]) {
+    let mut t = tail.lock().unwrap();
+    let chunk = &chunk[chunk.len().saturating_sub(TAIL)..];
+    let over = (t.len() + chunk.len()).saturating_sub(TAIL);
+    t.drain(..over);
+    t.extend(chunk);
+}
+
 /// A secret on its way from serve to a PTY: no Debug value, no Display, no Clone, no Serialize,
 /// and its bytes are overwritten when it's dropped (best effort: copies serve's answer passed
 /// through on the way here, such as the JSON line it came in, aren't).
@@ -532,6 +581,9 @@ pub enum FillError<E> {
     Echoes,
     /// A key was sent to the Session while roster checked the prompt.
     Typed,
+    /// A nested fill's prompt isn't in what the Session printed lately (ticket 120). Nothing was
+    /// looked up or typed.
+    NotPrinted,
     /// Writing to the PTY failed.
     Io(String),
 }
@@ -546,6 +598,9 @@ impl<E: std::fmt::Display> std::fmt::Display for FillError<E> {
                 "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it",
             ),
             FillError::Typed => f.write_str("a key was typed while roster checked the prompt, so roster didn't fill it"),
+            FillError::NotPrinted => f.write_str(
+                "the Session didn't print that prompt lately, so roster didn't fill it (it fills only a prompt the Session shows)",
+            ),
             FillError::Io(m) => f.write_str(m),
         }
     }

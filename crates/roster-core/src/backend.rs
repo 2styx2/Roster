@@ -333,9 +333,22 @@ impl Backend {
     /// 25, ticket 119): for [`crate::session::SessionManager::fill`] to type, and nothing else.
     /// The value is moved out of serve's answer into a [`Secret`] and never copied, logged or put
     /// in an error; serve's refusals (130, 131, the vault's) come back as they are.
-    pub fn fill_secret(&self, target: &FillTarget, prompt: &str) -> Result<Secret, CallError> {
+    ///
+    /// `hop` is a nested ssh's Host, as the frontend resolved it (ticket 120, serve API 26): serve
+    /// then answers for that Host, still checking the Session's own.
+    pub fn fill_secret(
+        &self,
+        target: &FillTarget,
+        prompt: &str,
+        hop: Option<&FillTarget>,
+    ) -> Result<Secret, CallError> {
         let LoginAs { address, port, user } = &target.login;
-        let params = json!({ "host": target.host, "address": address, "port": port, "user": user, "prompt": prompt });
+        let mut params =
+            json!({ "host": target.host, "address": address, "port": port, "user": user, "prompt": prompt });
+        if let Some(hop) = hop {
+            let LoginAs { address, port, user } = &hop.login;
+            params["hop"] = json!({ "host": hop.host, "address": address, "port": port, "user": user });
+        }
         let v = self.call("session.fill", params)?;
         let Value::Object(mut answer) = v else {
             return Err(fill_shape_error());

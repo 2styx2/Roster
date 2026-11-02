@@ -2,6 +2,7 @@
 // user, read off a terminal's screen; with OSC 133 marks, only while the command running is sudo
 // itself and has printed nothing but sudo's own lines. Refuse whenever in doubt.
 import { afterEach, describe, expect, it } from "vitest";
+import type { Host } from "../backend/types";
 import { PromptWatch, sudoOnly } from "./prompt";
 
 const watches: PromptWatch[] = [];
@@ -24,7 +25,7 @@ const marked = (command: string, before = "") => [`${A}ops@esx:~$ ${B}`, command
 describe("PromptWatch without marks", () => {
   it("offers sudo's prompt for the login user, and says it can't tell where the Session is", async () => {
     const w = await fed(`ops@esx:~$ sudo -v\r\n${SUDO}`);
-    expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: false });
+    expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: false, kind: "sudo", hop: null });
   });
 
   it.each([
@@ -60,7 +61,7 @@ describe("PromptWatch with marks: only while sudo itself runs", () => {
     "offers it while %j runs",
     async (command) => {
       const w = await fed(...marked(command));
-      expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: true });
+      expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: true, kind: "sudo", hop: null });
     },
   );
 
@@ -88,7 +89,7 @@ describe("PromptWatch with marks: only while sudo itself runs", () => {
 
   it("reads a C before the line feed as the command line's, not output (pwsh)", async () => {
     const w = await fed(`${A}PS C:\\> ${B}`, `sudo -v${C}\r\n${SUDO}`);
-    expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: true });
+    expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: true, kind: "sudo", hop: null });
   });
 
   it("offers it again after a wrong password", async () => {
@@ -128,4 +129,185 @@ describe("sudoOnly", () => {
       expect(sudoOnly(c)).toBe(false);
     },
   );
+});
+
+// Ticket 120 (decision Q131): a nested ssh to an Inventory Host, read at the shell's `C` mark.
+const host = (name: string, ip: string, over: Partial<Host> = {}): Host => ({
+  name,
+  group: "lab",
+  ip,
+  type: "linux",
+  product: "",
+  title: "",
+  description: "",
+  reviewed: true,
+  enroll: false,
+  ssh: { user: "ops", port: 22, auth: `bw:${name} ssh` },
+  web: null,
+  ...over,
+});
+const INVENTORY = [host("esx-01", "10.0.0.11"), host("esx-02", "10.0.0.12"), host("keyed", "10.0.0.30", { enroll: true, ssh: { user: "ops", port: 22, auth: "key" } })];
+const TO_ESX_02 = { host: "esx-02", address: "10.0.0.12", port: 22, user: "ops" };
+const SSH_PROMPT = "ops@esx-02's password: ";
+
+async function hopping(chunks: string[], fill = true): Promise<PromptWatch> {
+  const w = new PromptWatch({ cols: 80, rows: 24 }, "ops", { hosts: () => INVENTORY, fill });
+  watches.push(w);
+  for (const c of chunks) {
+    // You press Enter on the line the outer shell's C will run (the Host can't type for you).
+    if (c.startsWith(`\r\n${C}`)) w.typed("\r");
+    await w.write(c);
+  }
+  return w;
+}
+/** The marked shell on esx-01 runs `command`, which prints `after`. */
+const ran = (command: string, after = "") => [`${A}ops@esx-01:~$ ${B}`, command, `\r\n${C}${after}`];
+
+describe("PromptWatch: the Host a nested ssh is on (the breadcrumb)", () => {
+  it("shows the Host from the ssh's C until its D", async () => {
+    const w = await hopping(ran("ssh esx-02", "Welcome\r\n"));
+    expect(w.hop()).toEqual({ to: "esx-02", known: true });
+    await w.write(`logout\r\n${D(0)}${A}ops@esx-01:~$ ${B}`);
+    expect(w.hop()).toBeNull();
+  });
+
+  it("shows an ssh it can't resolve as such", async () => {
+    expect((await hopping(ran("ssh -J jump esx-02"))).hop()).toEqual({ to: "esx-02", known: false });
+    expect((await hopping(ran("ssh 10.0.0.99"))).hop()).toEqual({ to: "10.0.0.99", known: false });
+  });
+
+  it("shows nothing for a command that isn't an ssh, or without marks", async () => {
+    expect((await hopping(ran("ls"))).hop()).toBeNull();
+    expect((await hopping([`ops@esx-01:~$ ssh esx-02\r\n`])).hop()).toBeNull();
+  });
+
+  it("ends with the outer D when the shell on the Host marks its prompts too", async () => {
+    const inner = `${A}ops@esx-02:~$ ${B}`;
+    const w = await hopping([...ran("ssh esx-02", inner), `ls\r\n${C}a b\r\n${D(0)}${inner}`]);
+    expect(w.hop()).toEqual({ to: "esx-02", known: true });
+    // `exit` there: its shell ends with no D of its own, so the next D is the outer shell's.
+    await w.write(`exit\r\n${C}logout\r\n${D(0)}${A}ops@esx-01:~$ ${B}`);
+    expect(w.hop()).toBeNull();
+  });
+
+  it("ends when the shell there is left with Ctrl+D, or ssh says the connection closed", async () => {
+    const inner = `${A}ops@esx-02:~$ ${B}`;
+    const ctrlD = await hopping([...ran("ssh esx-02", inner), `\r\nlogout\r\n${D(0)}`]);
+    expect(ctrlD.hop()).toBeNull();
+    const dropped = await hopping([...ran("ssh esx-02", inner), `top\r\n${C}Connection to esx-02 closed by remote host.\r\n${D(255)}`]);
+    expect(dropped.hop()).toBeNull();
+  });
+});
+
+describe("PromptWatch: a nested ssh's password prompt", () => {
+  it("offers the Host's own login prompt while its ssh logs in", async () => {
+    const w = await hopping(ran("ssh esx-02", `Authorized use only\r\n${SSH_PROMPT}`));
+    expect(w.prompt()).toEqual({ line: "ops@esx-02's password:", elsewhere: null, marked: true, kind: "ssh", hop: TO_ESX_02 });
+  });
+
+  it.each([
+    ["ssh 10.0.0.12", "ops@10.0.0.12's password: "],
+    ["ssh ops@ESX-02", SSH_PROMPT],
+    ["ssh -l ops -p 22 esx-02", SSH_PROMPT],
+  ])("offers it for %j", async (command, asks) => {
+    expect((await hopping(ran(command, asks))).prompt()).toMatchObject({ elsewhere: null, hop: TO_ESX_02 });
+  });
+
+  it("tries a fill once per ssh: not again after a wrong password, again after roster serve refused (nothing typed)", async () => {
+    const w = await hopping(ran("ssh esx-02", SSH_PROMPT));
+    w.spent();
+    expect(w.prompt()).toBeNull();
+    await w.write(`\r\nPermission denied, please try again.\r\n${SSH_PROMPT}`);
+    expect(w.prompt()?.elsewhere).toMatch(/already tried/);
+    w.unspent();
+    expect(w.prompt()?.elsewhere).toBeNull();
+  });
+
+  it.each([
+    ["ssh esx-02", "root@esx-02's password: ", /root@esx-02/],
+    ["ssh esx-02", "ops@10.0.0.12's password: ", /ops@10\.0\.0\.12/],
+    ["ssh esx-02", "ops@esx-01's password: ", /esx-01/],
+    ["ssh root@esx-02", "root@esx-02's password: ", /root/],
+    ["ssh keyed", "ops@keyed's password: ", /key/],
+    ["ssh -J jump esx-02", SSH_PROMPT, /can't tell where.*-J/],
+    ["ssh -o ProxyCommand=nc esx-02", SSH_PROMPT, /ProxyCommand/],
+    ["ssh 10.0.0.99", "ops@10.0.0.99's password: ", /isn't a Host/],
+  ])("refuses %j at %j", async (command, asks, why) => {
+    const w = await hopping(ran(command, asks));
+    expect(w.prompt()).toMatchObject({ kind: "ssh", hop: null, elsewhere: expect.stringMatching(why) });
+  });
+
+  it("refuses once you've typed into the ssh (a host-key question answered, a command run there)", async () => {
+    const w = await hopping(ran("ssh esx-02", "Are you sure you want to continue connecting (yes/no/[fingerprint])? "));
+    w.typed("yes\r");
+    await w.write(`yes\r\nWarning: Permanently added 'esx-02' to the list of known hosts.\r\n${SSH_PROMPT}`);
+    expect(w.prompt()?.elsewhere).toMatch(/typed/);
+  });
+
+  it("refuses once a shell has started on the Host", async () => {
+    const w = await hopping(ran("ssh esx-02", `${A}ops@esx-02:~$ ${B}`));
+    await w.write(`\r\n${SSH_PROMPT}`);
+    expect(w.prompt()?.elsewhere).toMatch(/shell has started/);
+  });
+
+  it("refuses once the ssh has printed more than its login's lines after the prompt", async () => {
+    const w = await hopping(ran("ssh esx-02", `${SSH_PROMPT}\r\nLast login: today\r\n${SSH_PROMPT}`));
+    expect(w.prompt()?.elsewhere).toMatch(/printed more/);
+  });
+
+  it("doesn't take a line the Host drew by itself, with no Enter from you, for an ssh you ran", async () => {
+    const w = new PromptWatch({ cols: 80, rows: 24 }, "ops", { hosts: () => INVENTORY, fill: true });
+    watches.push(w);
+    for (const c of ran("ssh esx-02", SSH_PROMPT)) await w.write(c);
+    expect(w.hop()).toEqual({ to: "esx-02", known: false });
+    expect(w.prompt()?.elsewhere).toMatch(/press Enter/);
+  });
+
+  it("says a roster serve too old to fill another Host's prompt is why", async () => {
+    expect((await hopping(ran("ssh esx-02", SSH_PROMPT), false)).prompt()?.elsewhere).toMatch(/newer roster/);
+  });
+
+  it("without marks, says it can't tell where the ssh went, and offers nothing", async () => {
+    const w = await hopping([`ops@esx-01:~$ ssh esx-02\r\n${SSH_PROMPT}`]);
+    expect(w.prompt()).toMatchObject({ kind: "ssh", marked: false, hop: null, elsewhere: expect.stringMatching(/marks/) });
+  });
+});
+
+describe("PromptWatch: sudo on the Host a nested ssh is on", () => {
+  const inner = `${A}ops@esx-02:~$ ${B}`;
+  const SUDO_THERE = (command: string, user = "ops") => `${command}\r\n${C}[sudo] password for ${user}: `;
+
+  it("offers that Host's sudo at the first command its marked shell runs", async () => {
+    const w = await hopping([...ran("ssh esx-02", inner), SUDO_THERE("sudo -v")]);
+    expect(w.prompt()).toEqual({ line: "[sudo] password for ops:", elsewhere: null, marked: true, kind: "sudo", hop: TO_ESX_02 });
+  });
+
+  it("refuses once a command there has ended (its marks can't be told from esx-01's after)", async () => {
+    const w = await hopping([...ran("ssh esx-02", inner), `ls\r\n${C}a\r\n${D(0)}${inner}`, SUDO_THERE("sudo -v")]);
+    expect(w.prompt()?.elsewhere).toMatch(/a command ended/);
+  });
+
+  it("refuses when the shell there doesn't mark its commands", async () => {
+    const w = await hopping(ran("ssh esx-02", `ops@esx-02:~$ sudo -v\r\n${SUDO}`));
+    expect(w.prompt()?.elsewhere).toMatch(/doesn't mark/);
+  });
+
+  it.each([
+    ["ssh esx-02", "sudo ssh other", "ops", /ssh other/],
+    ["ssh root@esx-02", "sudo -v", "root", /root/],
+    ["ssh -J jump esx-02", "sudo -v", "ops", /`ssh -J jump esx-02` is running/],
+  ])("refuses after %j, running %j there", async (command, there, user, why) => {
+    const w = await hopping([...ran(command, inner), SUDO_THERE(there, user)]);
+    expect(w.prompt()?.elsewhere).toMatch(why);
+  });
+
+  it("offers nothing at the shell's own prompt there", async () => {
+    expect((await hopping([...ran("ssh esx-02", inner), "sudo -v"])).prompt()).toBeNull();
+  });
+
+  it("keeps esx-01's own sudo unsure for good once a marked shell ran inside the ssh (as before)", async () => {
+    const w = await hopping([...ran("ssh esx-02", inner), `exit\r\n${C}logout\r\n${D(0)}`, ...marked("sudo -v")]);
+    expect(w.hop()).toBeNull();
+    expect(w.prompt()).toMatchObject({ kind: "sudo", hop: null, elsewhere: expect.stringMatching(/shell started inside/) });
+  });
 });
