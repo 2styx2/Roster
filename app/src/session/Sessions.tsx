@@ -419,6 +419,58 @@ function SaveOffer({
   );
 }
 
+/** The fill key's offer (ticket 119, decision Q129): the Session waits at a password prompt, and
+ * the key types the Host's password from the vault. Without the shell's marks it says roster can't
+ * tell whether the Session is still on the Host. A quiet note in the pane's corner, as "Save to
+ * vault": it never takes the terminal's focus (its button keeps it there), and it goes as soon as
+ * the prompt does. When the shell's marks say the prompt may be another Host's, it says so and
+ * offers nothing. */
+function FillOffer({
+  host,
+  elsewhere,
+  marked,
+  fillKeys,
+  leader,
+  run,
+}: {
+  host: string;
+  elsewhere: string | null;
+  /** The shell's marks said what runs; without them roster can't tell you're still on the Host. */
+  marked: boolean;
+  fillKeys: string | null;
+  leader: string;
+  run(line: CommandLine): void;
+}) {
+  if (elsewhere !== null) {
+    return (
+      <div className="session-note fill-offer elsewhere" role="status" aria-label="Password prompt">
+        <span>sudo's password prompt: {elsewhere}. roster won't fill it.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="session-note save-offer fill-offer" role="status" aria-label="Password prompt">
+      <span>
+        sudo's password prompt · fill <span className="connect-name">{host}</span>'s from the vault
+        {!marked && (
+          <>
+            {" "}
+            <span className="muted">(roster can't tell whether you're still on {host})</span>
+          </>
+        )}
+      </span>
+      {fillKeys && (
+        <span className="muted key-hint">
+          <Keys keys={fillKeys} leader={leader} />
+        </span>
+      )}
+      <button type="button" className="reconnect primary" onMouseDown={(e) => e.preventDefault()} onClick={() => run("fill")}>
+        Fill
+      </button>
+    </div>
+  );
+}
+
 /** address:port as ssh would write it ([address]:port for IPv6). */
 function endpoint({ address, port }: QuickTarget): string {
   return `${address.includes(":") ? `[${address}]` : address}:${port}`;
@@ -450,6 +502,10 @@ export interface SessionPanesProps {
   saveKeys?: string | null;
   /** A line to find in one Session's scrollback (`roster.sessions.show`, ticket 78). */
   reveal?: { session: number; text: string; nonce: number } | null;
+  /** roster can fill a password prompt from the vault (API 25, ticket 119): offer it. */
+  canFill?: boolean;
+  /** The keys that fill it (`:fill`), if the keymap has them. */
+  fillKeys?: string | null;
 }
 
 export function SessionPanes({
@@ -466,6 +522,8 @@ export function SessionPanes({
   canSave = false,
   saveKeys = null,
   reveal = null,
+  canFill = false,
+  fillKeys = null,
 }: SessionPanesProps) {
   const actions: ProblemActions = { run, copy };
   return (
@@ -513,6 +571,9 @@ export function SessionPanes({
             )}
             {tab.save?.loggedIn && tab.save.saved === null && s.state === "open" && (
               <SaveOffer host={tab.host} saveKeys={saveKeys} leader={leader} run={run} dismiss={() => tabs.dismissSave(tab.id)} />
+            )}
+            {canFill && tab.prompt && !tab.quick && s.state === "open" && (
+              <FillOffer host={tab.host} elsewhere={tab.prompt.elsewhere} marked={tab.prompt.marked} fillKeys={fillKeys} leader={leader} run={run} />
             )}
             {s.state === "ended" && s.problem && (
               <div className="session-error overlay">

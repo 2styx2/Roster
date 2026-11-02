@@ -660,6 +660,13 @@ export interface SessionHandle {
   resize(size: TermSize): Promise<void>;
   /** Ends it (kills ssh). The exit event still follows, with `closed: true`. */
   close(): Promise<void>;
+  /** Fills the password prompt the Session shows from the vault (serve API 25, ticket 119,
+   * decision Q129), for the line at its cursor (`prompt`, the Host's text). The core asks serve for
+   * the password of the Host the Session was opened to and types it only if the prompt doesn't
+   * echo; nothing of it comes back here, only the Host's name. Rejects with serve's code (130 a
+   * prompt roster won't fill, 131 no saved password, the vault's 11, 12, 14, 31-35) or the core's
+   * refusal (it echoes, a key was typed meanwhile). Absent on a Quick Connect: no Login to fill. */
+  fill?(prompt: string): Promise<{ host: string }>;
 }
 
 /** `session.prepare`'s error codes (docs/serve-api.md): the message is roster's, ready to show.
@@ -710,6 +717,21 @@ export const QUICK_CONNECT_API_VERSION = 12;
 export interface QuickConnect extends QuickTarget {
   fingerprint: string;
 }
+
+/** Login references with no password behind them: roster's providers.NO_PASSWORD, kept in step by
+ * tests/test_prompt_fill.py. (`prompt` has none saved either, but it's a provider of its own.) */
+export const NO_PASSWORD_AUTHS = ["agent", "key", "none"] as const;
+
+/** The first `api_version` with `session.fill` (ticket 119): filling a password prompt. */
+export const FILL_API_VERSION = 25;
+
+/** `session.fill`'s codes (docs/serve-api.md): rows 143 and 144 in docs/app/errors.md. */
+export const FillRefusal = {
+  /** The prompt isn't one roster fills, or asks for another Host or account. */
+  refused: 130,
+  /** The Login that would answer has no saved password. */
+  nothingToFill: 131,
+} as const;
 
 /** The first `api_version` with "Save to vault" after a Session's own login (tickets 15, 16):
  * `quick.prepare`'s `save`, `quick.save`, `vault.forget_typed` and `session.logged_in`. */

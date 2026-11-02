@@ -103,6 +103,12 @@ describe("the error catalog", () => {
     expect(rowFor(rows, 111)).toMatchObject({ row: 93, id: "mesh-busy" });
   });
 
+  it("gives the prompt fill's codes their rows (docs/app/errors.md rows 143-144, ticket 119)", () => {
+    expect(rowFor(rows, 130)).toMatchObject({ row: 143, id: "fill-refused" });
+    expect(rowFor(rows, 131)).toMatchObject({ row: 144, id: "fill-nothing-saved" });
+    expect(rowFor(rows, 131).fix(p(131))).toMatch(/sudo: \{auth/);
+  });
+
   it("puts git's own words from roster's data.details under Details", () => {
     const e = new BackendCallError("couldn't push", 96, { fix: "publish again", details: "! [remote rejected] main" });
     const problem = problemFromCallError("", e);

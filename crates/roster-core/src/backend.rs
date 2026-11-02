@@ -4,7 +4,7 @@
 use crate::detect::{Candidate, OVERRIDE_VAR, Target};
 use crate::error::{BackendError, ErrorKind};
 use crate::rpc::{CallError, Notify, RpcClient};
-use crate::session::{Prepared, SessionCommand, session_command};
+use crate::session::{FillTarget, LoginAs, Prepared, Secret, SessionCommand, session_command};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::process::Command;
@@ -320,16 +320,42 @@ impl Backend {
                 message: "quick.prepare answered something unexpected: `quick` isn't a string".into(),
             })?
             .to_owned();
+        let mut command = session_command(&self.target, &prepared);
+        command.fill_as = None; // not an Inventory Host: no Login a prompt fill could use
         Ok(QuickSession {
-            command: session_command(&self.target, &prepared),
+            command,
             quick,
             held: held_id(&v),
         })
     }
 
+    /// The password for the prompt a Host Session shows (`session.fill {host, prompt}`, serve API
+    /// 25, ticket 119): for [`crate::session::SessionManager::fill`] to type, and nothing else.
+    /// The value is moved out of serve's answer into a [`Secret`] and never copied, logged or put
+    /// in an error; serve's refusals (130, 131, the vault's) come back as they are.
+    pub fn fill_secret(&self, target: &FillTarget, prompt: &str) -> Result<Secret, CallError> {
+        let LoginAs { address, port, user } = &target.login;
+        let params = json!({ "host": target.host, "address": address, "port": port, "user": user, "prompt": prompt });
+        let v = self.call("session.fill", params)?;
+        let Value::Object(mut answer) = v else {
+            return Err(fill_shape_error());
+        };
+        match answer.remove("password") {
+            Some(Value::String(password)) if !password.is_empty() => Ok(Secret::new(password)),
+            _ => Err(fill_shape_error()),
+        }
+    }
+
     /// False once serve has exited; the app then has to start a new one.
     pub fn is_alive(&self) -> bool {
         !self.client.is_dead()
+    }
+}
+
+/// session.fill's answer had no password: by name only, never a value.
+fn fill_shape_error() -> CallError {
+    CallError::Io {
+        message: "session.fill answered something unexpected: `password` isn't a non-empty string".into(),
     }
 }
 

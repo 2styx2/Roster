@@ -163,6 +163,19 @@ Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com
 4. `roster auth-check --only HOST`, then `roster run HOST -- hostname` (step 5).
 5. Commit and push (step 6).
 
+## A separate sudo password
+
+The app's fill key (`␣ p`, [keyboard](app/keyboard.md)) types a Host's password at sudo's prompt in its Session. It uses the Host's ssh Login. When the Host's sudo password is a different one, or the Host logs in with a key and has no password in the vault, point `sudo:` at its own vault item, a reference like any `auth:`:
+
+```yaml
+      esx-02:
+        ip: 10.0.0.5
+        auth: agent
+        sudo: { auth: "bw:esx-02 sudo" }
+```
+
+`sudo:` cascades from `defaults:` and groups like `ssh:`, and takes only `auth`. It must be a vault reference: `prompt`, `agent`, `key` and `none` have no password to fill. `su` is never filled: its `Password:` doesn't say whose password it wants. How the password travels, and when roster won't fill: [security.md](app/security.md#filling-a-password-prompt).
+
 ## Things that aren't hosts
 
 A Wi-Fi network, a vendor portal or an API key goes under `resources:` instead of a group. It gets a fixed set of fields per type (`wifi`, `account`, `secret`) and an `auth:` vault reference, just like a host. See [Resources](cli-reference.md#resources-secrets-with-no-address) in the CLI reference. Check it with `roster auth-check --only <name>` and `roster info <name>`.

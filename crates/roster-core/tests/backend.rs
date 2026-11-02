@@ -13,6 +13,8 @@ fn fake(mode: &str) -> Candidate {
     }
 }
 
+use roster_core::session::{FillTarget, LoginAs};
+
 #[test]
 fn a_current_roster_starts_and_reports_its_inventory() {
     let b = Backend::start(&fake("ok")).unwrap();
@@ -357,4 +359,104 @@ fn a_check_waits_for_its_answer_on_an_older_serve() {
     assert_eq!(r["host"], "esxi-02");
     let info = b.call("inventory.info", serde_json::json!({})).unwrap();
     assert_eq!(info["checks"], serde_json::json!([]));
+}
+
+/// fake_serve.py's session.fill password (ticket 119).
+const FILL_PASSWORD: &str = "fill-pw-9d2e";
+
+/// sw-core as its Session connected to it (fake_serve.py's session.prepare `login`).
+fn sw_core() -> FillTarget {
+    FillTarget {
+        host: "sw-core".into(),
+        login: LoginAs {
+            address: "10.19.1.2".into(),
+            port: 22,
+            user: "root".into(),
+        },
+    }
+}
+
+#[test]
+fn a_fill_secret_comes_from_session_fill_and_never_prints() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    let secret = b.fill_secret(&sw_core(), "[sudo] password for root: ").unwrap();
+    assert!(!format!("{secret:?}").contains(FILL_PASSWORD));
+}
+
+#[test]
+fn a_refused_fill_keeps_serves_code_and_a_malformed_one_never_shows_its_value() {
+    let b = Backend::start(&fake("ok")).unwrap();
+    match b
+        .fill_secret(
+            &FillTarget {
+                host: "esxi-02".into(),
+                ..sw_core()
+            },
+            "Username: ",
+        )
+        .unwrap_err()
+    {
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 130),
+        other => panic!("{other:?}"),
+    }
+    let locked = Backend::start(&fake("locked")).unwrap();
+    match locked
+        .fill_secret(&sw_core(), "[sudo] password for root: ")
+        .unwrap_err()
+    {
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 14),
+        other => panic!("{other:?}"),
+    }
+    let bad = Backend::start(&fake("bad-fill")).unwrap();
+    let err = bad.fill_secret(&sw_core(), "[sudo] password for root: ").unwrap_err();
+    let text = format!("{err} {err:?}");
+    assert!(text.contains("`password`") && !text.contains("31337"), "{text}");
+}
+
+#[test]
+fn a_quick_connect_session_has_no_host_to_fill() {
+    let b = Backend::start(&fake("quick")).unwrap();
+    let to = roster_core::backend::QuickTarget {
+        user: "root".into(),
+        address: "10.0.0.5".into(),
+        port: 22,
+        fingerprint: "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8".into(),
+    };
+    assert_eq!(b.quick_session_command(&to, None, false).unwrap().command.fill_as, None);
+    let ok = Backend::start(&fake("ok")).unwrap();
+    assert_eq!(ok.session_command("sw-core").unwrap().fill_as, Some(sw_core()));
+}
+
+#[test]
+fn a_session_serve_didnt_say_the_login_of_is_never_filled() {
+    // fake_serve.py's old-login mode answers session.prepare as serve before API 25: no `login`.
+    let b = Backend::start(&fake("old-login")).unwrap();
+    assert_eq!(b.session_command("sw-core").unwrap().fill_as, None);
+}
+
+#[test]
+fn a_fill_sends_what_the_session_connected_to() {
+    // fake_serve.py refuses (130) unless address, port and user are sw-core's.
+    let b = Backend::start(&fake("ok")).unwrap();
+    let moved = FillTarget {
+        login: LoginAs {
+            address: "10.19.1.99".into(),
+            ..sw_core().login
+        },
+        ..sw_core()
+    };
+    match b.fill_secret(&moved, "[sudo] password for root: ").unwrap_err() {
+        roster_core::rpc::CallError::Rpc { code, .. } => assert_eq!(code, 130),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn no_plugin_may_ever_ask_serve_for_a_fill() {
+    assert!(!roster_core::plugin::permission::serve_method_allowed("session.fill"));
+}
+
+#[test]
+fn no_plugin_may_run_the_fill_command() {
+    assert!(!roster_core::plugin::api::COMMANDS.iter().any(|c| c.name == "fill"));
 }

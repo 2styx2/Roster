@@ -19,6 +19,9 @@ import { classifyDrop, classifyExit, terminalTail, type Problem } from "../error
 import { problemFromCallError } from "../errors/catalog";
 import { hostnameIn } from "../quick/hostname";
 import { formatQuickTarget, type QuickTarget } from "../quick/target";
+// Types only: the watch itself (xterm) comes from setFillPrompts, so this module loads without a
+// terminal (the docs site's generator reads tabs.ts's helpers in Node).
+import type { PasswordPrompt, PromptWatch } from "./prompt";
 import { ShellHooks, type IntegrateResult } from "./shellHooks";
 
 export type TabStatus =
@@ -58,8 +61,22 @@ export interface Tab {
    * `held`. `loggedIn` once the Session logged in with it (serve says so), `hostname` what the
    * box's shell calls it, `saved` the Host it was saved as. Null when nothing is held. */
   save: SaveOffer | null;
+  /** sudo's password prompt at the Session's cursor (ticket 119), while it's there: the line as
+   * the Host printed it, why roster won't fill it when the shell's marks leave it unsure, and
+   * whether there were marks at all. Null otherwise. Never a password. */
+  prompt: PasswordPrompt | null;
   /** The folder the shell last said it's in (OSC 7, ticket 121); absent or null until it says. */
   cwd?: string | null;
+}
+
+export type { PasswordPrompt };
+
+/** How Tabs watches Host Sessions for sudo's prompt (ticket 119): `setFillPrompts`. */
+export interface FillPrompts {
+  /** The Host's login user, which sudo's prompt must name; null: don't watch it. */
+  userOf(host: string): string | null;
+  /** A watch for a Session of `size` whose login user is `user` (prompt.ts's PromptWatch). */
+  watch(size: TermSize, user: string): PromptWatch;
 }
 
 /** What a tab's tooltip says about its Session: how it logged in, and the folder its shell is in
@@ -148,6 +165,11 @@ interface Entry {
   pending: string[];
   /** The attempt's last output while a save may be offered: where the box's name is read from. */
   saveScan: string;
+  /** Watches the attempt's output for sudo's password prompt (ticket 119); new each attempt, and
+   * only for a Host's Session on a roster that can fill one. */
+  watch: PromptWatch | null;
+  /** A fill is under way: a second press waits for it. */
+  filling: boolean;
   /** The attempt's shell hooks (ticket 121): the hook line, its echo held back, OSC 7. */
   hooks: ShellHooks | null;
 }
@@ -168,6 +190,7 @@ export class Tabs {
   /** Sees every Session's output as it arrives (Plugins with terminal.read, ticket 23). */
   private outputTap: OutputTap | null = null;
   private asksAboutKeys = true;
+  private fillPrompts: FillPrompts | null = null;
   /** Whether roster sends the shell hook line to a tab's Session by itself (ticket 121). */
   private shellHooksOn: (tab: Tab) => boolean = () => false;
   private readonly now: () => number;
@@ -263,11 +286,21 @@ export class Tabs {
     this.shellHooksOn = on;
   }
 
+  /** Whether roster can fill a password prompt (`session.fill`, ticket 119): `userOf` gives a
+   * Host's login user, which sudo's prompt must name, and `watch` makes the watch (prompt.ts);
+   * null (an older roster) watches nothing. Each
+   * Session started after it's set is watched, never a Quick Connect. */
+  setFillPrompts(fill: FillPrompts | null) {
+    this.fillPrompts = fill;
+  }
+
   /** `:integrate`: sends the shell hook line to the tab's Session now; answers once a marked
    * prompt came back or didn't, or at once with why nothing was sent. */
   integrate(id: number): Promise<IntegrateResult> {
     const entry = this.find(id);
     if (!entry?.hooks || !entry.session) return Promise.resolve("not-open");
+    // Never at a password prompt (ticket 119): the line would be taken for the password.
+    if (entry.tab.prompt !== null || entry.filling) return Promise.resolve("no-prompt");
     return entry.hooks.integrate();
   }
 
@@ -375,7 +408,7 @@ export class Tabs {
     const id = this.nextId++;
     const size = { ...this.lastSize };
     const entry: Entry = {
-      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null, cwd: null },
+      tab: { id, host, label: this.label(host, null), status: { state: "connecting" }, auth: null, shell: false, attempt: 1, quick, save: null, prompt: null, cwd: null },
       session: null,
       closing: false,
       attempt: 0,
@@ -393,6 +426,8 @@ export class Tabs {
       keyAsked: false,
       pending: [],
       saveScan: "",
+      watch: null,
+      filling: false,
       hooks: null,
       wiring: {
         attach: (sink) => this.attach(id, sink),
@@ -458,6 +493,11 @@ export class Tabs {
     entry.late = "";
     entry.decoder = new TextDecoder();
     entry.saveScan = "";
+    entry.watch?.dispose();
+    const fill = entry.tab.quick ? null : this.fillPrompts;
+    const user = fill?.userOf(entry.tab.host) ?? null;
+    const watch = (entry.watch = fill && user !== null ? fill.watch(entry.size, user) : null);
+    if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
     entry.hooks?.stop();
     const hooks = (entry.hooks = this.hooksFor(entry, current));
     open(entry.size, {
@@ -466,6 +506,7 @@ export class Tabs {
           const before = entry.tab;
           const text = this.keepTail(entry, data);
           this.scanForName(entry, text);
+          if (watch) void watch.write(data).then(() => this.promptChanged(entry, watch));
           // The screen gets it unless the shell hooks hold it back; Plugins always get it as it came.
           const shown = hooks.output(data, text);
           if (shown) this.output(entry, shown);
@@ -477,6 +518,9 @@ export class Tabs {
         exit: (exit) => {
           if (!current()) return;
           entry.session = null;
+          watch?.dispose();
+          if (entry.watch === watch) entry.watch = null;
+          if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
           hooks.stop();
           // A Session that ends without saving: serve forgets the password it held for it.
           this.dropSave(entry);
@@ -539,7 +583,9 @@ export class Tabs {
   private hooksFor(entry: Entry, current: () => boolean): ShellHooks {
     return new ShellHooks({
       write: (line) => {
-        if (!current() || !entry.session) return false;
+        // Never while a password prompt is up or being filled (ticket 119): the hook line would
+        // be taken for the password. The hooks try again at their next idle prompt.
+        if (!current() || !entry.session || entry.tab.prompt !== null || entry.filling) return false;
         void entry.session.write(line).catch(() => {});
         return true;
       },
@@ -696,6 +742,8 @@ export class Tabs {
     if (!entry) return;
     entry.closing = true;
     entry.hooks?.stop();
+    entry.watch?.dispose();
+    entry.watch = null;
     this.dropSave(entry);
     entry.sink = null;
     void entry.session?.close().catch(() => {});
@@ -756,6 +804,53 @@ export class Tabs {
     };
   }
 
+  /**
+   * Fills the password prompt the tab's Session shows from the vault (ticket 119, decision Q129):
+   * the user pressed the fill key. Only the prompt line goes to the Backend; the core asks serve
+   * for the Host's password and types it into the PTY if the prompt doesn't echo, so nothing of it
+   * reaches the frontend. Resolves with the Host's name; rejects with why it didn't fill: no prompt,
+   * the marks say it may be another Host's, a Quick Connect, or the Backend's refusal (a locked
+   * vault also shows the lock screen first, the existing unlock flow; press the key again after).
+   */
+  async fill(id: number): Promise<string> {
+    const entry = this.find(id);
+    if (!entry) throw new Error("No Session to fill");
+    const { session } = entry;
+    const prompt = entry.tab.prompt;
+    if (!session || entry.tab.status.state !== "open" || prompt === null) {
+      throw new Error(`No password prompt in ${entry.tab.label}'s Session right now`);
+    }
+    if (!session.fill) throw new Error(`${entry.tab.label} is a Quick Connect: roster has no Login of it to fill`);
+    const { elsewhere } = prompt;
+    if (elsewhere !== null) {
+      throw new Error(`Won't fill: ${elsewhere}. Type that password yourself.`);
+    }
+    if (entry.filling) throw new Error("Already filling this prompt");
+    entry.filling = true;
+    // Spent while it's tried: no offer, and no second press, until a new prompt shows. A refusal
+    // from roster serve (a code: the vault, the prompt, the Host) typed nothing, so the prompt is
+    // offered again; the core's own refusals (no code) typed its probe, so it stays spent.
+    const watch = entry.watch;
+    watch?.spent();
+    entry.tab = { ...entry.tab, prompt: null };
+    this.changed();
+    try {
+      return (await session.fill(prompt.line)).host;
+    } catch (e) {
+      if (watch && e instanceof BackendCallError && typeof e.code === "number") {
+        watch.unspent();
+        this.promptChanged(entry, watch);
+      }
+      if (e instanceof BackendCallError && e.code === SessionRefusal.vaultLocked) {
+        this.onVaultLocked();
+        throw new BackendCallError("The vault is locked. Unlock it, then press the fill key again.", e.code, e.data);
+      }
+      throw e;
+    } finally {
+      entry.filling = false;
+    }
+  }
+
   /** Keystrokes for the tab's Session; held until it's open, dropped once it has ended. */
   write(id: number, data: string) {
     const entry = this.find(id);
@@ -778,6 +873,17 @@ export class Tabs {
     const { size, sentSize, session } = entry;
     if (!session || (size.cols === sentSize.cols && size.rows === sentSize.rows)) return;
     entry.sentSize = { ...size };
+    entry.watch?.resize(size);
     void session.resize(size).catch(() => {});
+  }
+
+  /** What `watch` says of the prompt now, onto the tab, if it's still the tab's watch. */
+  private promptChanged(entry: Entry, watch: PromptWatch) {
+    if (entry.watch !== watch || !this.find(entry.tab.id)) return;
+    const prompt = watch.prompt();
+    const was = entry.tab.prompt;
+    if (prompt?.line === was?.line && prompt?.elsewhere === was?.elsewhere && prompt?.marked === was?.marked) return;
+    entry.tab = { ...entry.tab, prompt };
+    this.changed();
   }
 }

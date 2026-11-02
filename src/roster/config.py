@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import yaml
 
 from .common import KEY_TAG, LEGACY_KEY_TAGS, NAME_RE, die, oneline, user_config_dir
+from .providers import NO_PASSWORD
 from .resources import load_resources
 
 HOST_DEFAULTS = {"user": None, "port": 22, "enroll": True, "auth": "prompt",
@@ -59,7 +60,7 @@ def parse_config(text, path):
         die(f"{path} is not valid YAML:\n{e}")
     defaults = {**HOST_DEFAULTS, **(raw.get("defaults") or {})}
     names = web_login_names(raw)
-    hosts, groups, mesh_dirs, seen_as = {}, {}, {}, {}
+    hosts, groups, mesh_dirs, seen_as, sudo_refs = {}, {}, {}, {}, {}
     for where, layer in (("defaults", raw.get("defaults") or {}),
                          *((f"group {g!r}", x or {}) for g, x in (raw.get("groups") or {}).items())):
         if isinstance(layer, dict) and "seen_as" in layer:
@@ -101,6 +102,9 @@ def parse_config(text, path):
             m.pop("mesh_dir", None)          # kept beside the Hosts, so serve's Host (and the Plugin API's) is as it was
             if md:
                 mesh_dirs[hname] = md
+            m.pop("sudo", None)              # kept beside the Hosts too: a vault reference only the prompt fill reads
+            if sudo := sudo_auth(hname, layers):
+                sudo_refs[hname] = sudo
             if seen := addresses_seen(hname, m.pop("seen_as", None)):
                 seen_as[hname] = seen
             for k in TEXT_FIELDS:
@@ -116,7 +120,7 @@ def parse_config(text, path):
     return {"path": path, "box": box, "tag": f"{KEY_TAG}:{box}", "tag_re": tag_re, "key": key,
             "pub": Path(str(key) + ".pub"), "workers": int(raw.get("workers") or 32),
             "inline_limit": int(raw.get("claude_inline_limit") or 60), "hosts": hosts, "groups": groups, "mesh_dirs": mesh_dirs,
-            "seen_as": seen_as,
+            "seen_as": seen_as, "sudo": sudo_refs,
             "resources": load_resources(raw, groups, hosts), "links": load_links(raw, hosts, groups),
             "providers": providers_conf(raw), "provider_dirs": list(raw.get("provider_dirs") or [])}
 
@@ -267,6 +271,22 @@ def resolve_ssh(hname, layers):
     flat = [x for layer in layers for x in (ssh_block(hname, layer), layer)] + [HOST_DEFAULTS]
     return {"port": check_port(f"host {hname!r} ssh", first(flat, "port")),
             "user": as_user(first(flat, "user")), "auth": as_auth(first(flat, "auth"))}
+
+
+def sudo_auth(hname, layers):
+    """The vault reference for a Host's own sudo (and su) password, from its most specific `sudo: {auth: REF}`
+    (host, group, defaults), or None: then a prompt fill (ticket 119, decision Q129) uses its ssh Login. A reference
+    only, never a value, and never `prompt`, `agent`, `key` or `none`, which have no password to fill."""
+    blk = first(layers, "sudo")
+    if blk is None:
+        return None
+    if not isinstance(blk, dict) or set(map(str, blk)) != {"auth"}:
+        die(f"host {hname!r}: sudo: must be a mapping with only auth (a vault reference, e.g. "
+            "sudo: {auth: \"bw:esx-02 sudo\"})")
+    ref = as_auth(blk["auth"]) or ""
+    if ref.partition(":")[0].strip() in ("prompt", "", *NO_PASSWORD):
+        die(f"host {hname!r}: sudo: auth must be a vault reference (bw:ITEM, op:ITEM, ...), not {ref!r}")
+    return ref
 
 
 def service_entry(v):

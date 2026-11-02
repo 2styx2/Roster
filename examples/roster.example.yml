@@ -46,6 +46,8 @@
 #   self-signed certificates, and login: basic|bearer|none for `roster web HOST [SERVICE] GET /path`
 #   (also vsphere, unifi, openvpnas, hub; see docs/cli-reference.md).
 #   ssh: and services: work in defaults and groups too.
+#   sudo: { auth: "bw:orion3 sudo" } is the Host's own sudo password, for the app's fill key
+#   (Leader then p at sudo's prompt in a Session); without it the key fills the ssh Login's.
 #
 # Bitwarden: run `bw login` once on the box (or set BW_CLIENTID / BW_CLIENTSECRET). A locked
 #   vault is unlocked once per run (master password prompt, BW_PASSWORD, or existing BW_SESSION).

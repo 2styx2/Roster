@@ -49,13 +49,14 @@ def check_user(h):
         raise no_user(h)
 
 
-def check_provider(h):
+def check_provider(h, auth=None, what="ssh"):
     """The password Login's provider exists on this box and can answer now (11 not logged in, 12 no CLI,
-    14 locked). Providers without a status (env, prompt, cmd) are left to try."""
-    auth = str(password_login(h)["auth"])
+    14 locked). Providers without a status (env, prompt, cmd) are left to try. AUTH: another of the Host's
+    references than its ssh Login (its sudo: one), named WHAT in errors."""
+    auth = str(password_login(h)["auth"] if auth is None else auth)
     name = auth.partition(":")[0].strip()
     if name not in PROVIDERS:
-        raise unknown_provider(h, auth)
+        raise unknown_provider(h, auth, what)
     try:
         status = providers.vault_status(name)
     except providers.SecretError as e:
@@ -66,19 +67,19 @@ def check_provider(h):
         return                  # the command line may unlock by itself (BW_PASSWORD, session file, prompt)
     if error:
         message = providers.status_message(name, status) or f"{name} vault is locked - unlock it first"
-        raise login_problem(error(message), h)
+        raise login_problem(error(message), h, what)
 
 
-def resolve_password(h):
+def resolve_password(h, auth=None, what="ssh"):
     """The Login's password, looked up now (into this process's memory only; never returned to the app).
     Raises a Problem: item not found, several match, no password/field, or the provider's own failure."""
-    login = password_login(h)
-    if str(login["auth"]).partition(":")[0].strip() not in PROVIDERS:
-        raise unknown_provider(h, login["auth"])
+    auth = password_login(h)["auth"] if auth is None else auth
+    if str(auth).partition(":")[0].strip() not in PROVIDERS:
+        raise unknown_provider(h, auth, what)
     try:
-        return providers.get_secret(login["auth"], h["group"])
+        return providers.get_secret(auth, h["group"])
     except providers.SecretError as e:
-        raise login_problem(e, h) from None
+        raise login_problem(e, h, what) from None
 
 
 def check_login(h):

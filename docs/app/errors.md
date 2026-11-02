@@ -319,6 +319,16 @@ What a Plugin running in `:tutor`'s demo gets instead of the real thing ([the tu
 | 135 | none (a Lua error, or `done`'s reason) | On the demo, the Plugin asked roster serve for a method other than `hosts.list` and `host.get` (`roster.serve.call`, `roster.serve.request`, or `roster.inventory`'s writes) | The demo | "coach: init.lua:12: roster.serve.call mesh.status: mesh.status isn't on the demo Inventory: the tutorial's demo answers only hosts.list and host.get (code 3)" | None needed: `:tutor quit` and use it on your own Inventory. A tutorial's author teaches what works on the demo's Hosts |
 | 136 | none (`done`'s reason) | On the demo, the Plugin made a `roster.http` request to a site it may reach (one it may not, or a bad header, body or timeout, is refused at once as on your Inventory: [A Plugin's network requests](#a-plugins-network-requests)) | The demo | "https://api.example.com/status wasn't sent: the tutorial's demo reaches no network (:tutor quit, then try it for real)" | None needed: `:tutor quit` and use it on your own Inventory |
 
+## Filling a password prompt
+
+`␣ p` (`fill`) types the Host's password at sudo's prompt for its login user ([security.md](security.md#filling-a-password-prompt)). Each refusal goes on the message line; nothing was typed but, for row 145, the probe, which leaves the prompt's line empty. A locked vault shows the lock screen (row 7); press the key again once it's unlocked.
+
+| # | Code | What happened | Where it lives | Message (short) | Fix offered |
+|---|---|---|---|---|---|
+| 143 | 130 | The prompt asks for another Host or account (`root@10.0.0.9's password:`, `[sudo] password for root:` on a Host whose Login is `ops`), doesn't say whose (su's bare `Password:`), isn't a password prompt at all, or the Host was edited since the Session connected (a new address, port or user) | the Host / `roster.yml` | "won't fill on esx-02: the prompt asks for root@10.0.0.9's password, not ops@esx-02's" | Type that password yourself: roster fills only sudo's prompt for the Session's own Host; after an edit, reconnect |
+| 144 | 131 | The Login that would answer has no saved password (`auth: agent`, `key`, `none` or `prompt`) | `roster.yml` | "esx-02's ssh Login has no saved password to fill (auth: agent)" | Add `sudo: {auth: "bw:esx-02 sudo"}` to the Host for its own sudo password, or type it |
+| 145 | none (the core's, or the app's) | The prompt echoed the probe, the Session printed something or a key was typed between the start of the fill and 800 ms after the probe, there's no sudo prompt for the login user on screen (or it was just tried), the shell's marks say the running command isn't sudo alone (an `ssh`, `docker exec`, `env`, a pipeline), it printed more than sudo's own lines, or a shell started inside a command, so it may be another machine's; a Quick Connect (no Login) | the Host / roster | "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it" | Type it yourself; for `ssh` running, once it has ended the key works again |
+
 ## See also
 
 [The error catalog](errors) · [`roster check HOST`](../cli-reference.md#roster-check-host) · [The roster serve API](../serve-api.md)

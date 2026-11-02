@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
-import { QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, type SessionEvents } from "../backend/types";
+import { BackendCallError, QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, SessionRefusal, type SessionEvents } from "../backend/types";
 import { IDLE_MS, hookLine } from "./shellHooks";
+import { PromptWatch } from "./prompt";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -943,6 +944,86 @@ describe("a held password, around the Session's life (iteration-4 review)", () =
   });
 });
 
+describe("filling a password prompt (ticket 119)", () => {
+  /** A tab whose Session shows a sudo prompt, and whose fill the test answers. */
+  async function atPrompt(fill: (prompt: string) => Promise<{ host: string }>) {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    let ev: SessionEvents | null = null;
+    const asked: string[] = [];
+    backend.openSession = async (_host, _size, events) => {
+      ev = events;
+      const done = async () => {};
+      return { id: 1, auth: "key", write: done, resize: done, close: done, fill: (p: string) => (asked.push(p), fill(p)) };
+    };
+    const tabs = new Tabs(backend);
+    tabs.setFillPrompts({ userOf: () => "admin", watch: (size, user) => new PromptWatch(size, user) });
+    const id = tabs.open(reviewed[0] ?? "");
+    await settle();
+    (ev as SessionEvents | null)?.output(new TextEncoder().encode("$ sudo -v\r\n[sudo] password for admin: "));
+    await settle();
+    const print = async (s: string) => {
+      (ev as SessionEvents | null)?.output(new TextEncoder().encode(s));
+      await settle();
+    };
+    return { tabs, id, asked, print };
+  }
+
+  it("sends only the prompt line, and the tab's prompt goes once the Host answers", async () => {
+    const { tabs, id, asked, print } = await atPrompt(async () => ({ host: "h" }));
+    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null, marked: false });
+    const filled = tabs.fill(id);
+    // Spent at once: no offer, and no second press, until a new prompt shows.
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+    await expect(filled).resolves.toBe("h");
+    expect(asked).toEqual(["[sudo] password for admin:"]);
+    await print("\r\nSorry, try again.\r\n[sudo] password for admin: ");
+    expect(tabs.snapshot().tabs[0]?.prompt?.line).toBe("[sudo] password for admin:");
+    await print("\r\n$ ");
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
+  });
+
+  it("shows the lock screen on a locked vault and says to press the key again", async () => {
+    const { tabs, id } = await atPrompt(async () => {
+      throw new BackendCallError("Bitwarden vault is locked - unlock it first", SessionRefusal.vaultLocked);
+    });
+    const locked = vi.fn();
+    tabs.setVaultLockedHandler(locked);
+    await expect(tabs.fill(id)).rejects.toThrow(/Unlock it, then press the fill key again/);
+    expect(locked).toHaveBeenCalledOnce();
+  });
+
+  it("offers the prompt again after a refusal that typed nothing: unlock, then the second press fills", async () => {
+    let locked = true;
+    const { tabs, id, asked } = await atPrompt(async () => {
+      if (locked) throw new BackendCallError("Bitwarden vault is locked - unlock it first", SessionRefusal.vaultLocked);
+      return { host: "h" };
+    });
+    tabs.setVaultLockedHandler(() => (locked = false));
+    await expect(tabs.fill(id)).rejects.toThrow(/Unlock it/);
+    expect(tabs.snapshot().tabs[0]?.prompt?.line).toBe("[sudo] password for admin:");
+    await expect(tabs.fill(id)).resolves.toBe("h");
+    expect(asked).toHaveLength(2);
+  });
+
+  it("keeps the prompt spent after a refusal where the core typed its probe", async () => {
+    const { tabs, id } = await atPrompt(async () => {
+      throw new BackendCallError("the prompt printed what roster typed to check it, so roster didn't fill it");
+    });
+    await expect(tabs.fill(id)).rejects.toThrow(/printed what roster typed/);
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+  });
+
+  it("watches nothing on an older roster, or a Quick Connect", async () => {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0] ?? "");
+    await settle();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+  });
+});
+
 describe("shell hooks (ticket 121, #210)", () => {
   const PROMPT = "Last login: today\r\nuser@web-01:~$ ";
   const A = "\x1b]133;A\x07";
@@ -970,6 +1051,18 @@ describe("shell hooks (ticket 121, #210)", () => {
     s.print(hookLine("posix") + "\r\n\x1b]7;file://web-01/srv/app\x07" + A + "user@web-01:~$ " + B);
     expect(screen()).toBe(PROMPT + "\r\x1b[J" + A + "user@web-01:~$ " + B);
     expect(tabs.snapshot().tabs[0]!.cwd).toBe("/srv/app");
+  });
+
+  it("never sends the line at a password prompt, and a fill isn't the user typing (ticket 119)", async () => {
+    const { s, typed, tabs, id } = await opened(() => true);
+    s.print("Last login: today\r\n[sudo] password for user: ");
+    await vi.advanceTimersByTimeAsync(IDLE_MS * 3);
+    expect(typed()).toBe("");
+    expect(await tabs.integrate(id)).toBe("no-prompt");
+    // The core types the fill (never through Tabs.write), so the hooks still send at the shell's prompt.
+    s.print("\r\nuser@web-01:~$ ");
+    await vi.advanceTimersByTimeAsync(IDLE_MS);
+    expect(typed()).toBe(hookLine("posix") + "\r");
   });
 
   it("sends nothing to a Host it's off for, or once the user has typed", async () => {

@@ -18,6 +18,8 @@ The first argument picks a behaviour:
   missing-item       session.prepare for a password Host refuses with 32 (no such vault item), data.near/fix
   notify             before answering inventory.watch, sends an inventory.changed notification
   bad-prepare        session.prepare for a password Host answers a numeric askpass token (a malformed result)
+  bad-fill           session.fill answers a numeric password (a malformed result)
+  old-login          session.prepare leaves out `login`, as serve before API 25
   hang               never answers host.get; a `$/cancel` (ticket 108) is echoed back as the notification
                      test.cancelled {params, had_id} so a test can see the client sent it
   checks             speaks API 21: host.check {background: true} starts a check job (counted in inventory.info's
@@ -53,10 +55,16 @@ PROMPTED = {"name": "pve", "ip": "10.19.1.9", "group": "lab", "type": "linux", "
 # shows up in Debug or errors, and that every open asks for a fresh one).
 TOKEN = "tok-3b1f9e2a7c-"
 minted = 0
+FILL_PASSWORD = "fill-pw-9d2e"   # session.fill's (ticket 119): tests check it's never in Debug or errors
 FINGERPRINT = "SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8"
 trusted = mode != "unknown-key"
 CHECKED = {"host": "esxi-02", "ok": True, "steps": [{"step": "inventory", "status": "ok", "message": "root@10.19.77.10"}]}
 checks, polls, stops = [], [], []
+
+
+def login_of(h):
+    """session.prepare's `login` (API 25): what the Session connects to; none from an old serve."""
+    return {} if mode == "old-login" else {"login": {"address": h["ip"], "port": 22, "user": "root"}}
 
 
 def answer(req):
@@ -168,10 +176,24 @@ def answer(req):
                 "env": {"SSH_ASKPASS": "/run/user/1000/roster-askpass-x1/askpass", "SSH_ASKPASS_REQUIRE": "force",
                         "ROSTER_ASKPASS_SOCKET": "/run/user/1000/roster-askpass-x1/sock",
                         "ROSTER_ASKPASS_TOKEN": f"{TOKEN}{minted}"},
-                "host": name, "auth": "password"}}
+                "host": name, "auth": "password", **login_of(h)}}
         return {"result": {"argv": ["/usr/bin/ssh", "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", name],
                            "env": {}, "host": name,
-                           "auth": "key"}}
+                           "auth": "key", **login_of(h)}}
+    if m == "session.fill":
+        # ticket 119: sw-core's Login answers a sudo prompt; anything else is 130, locked is 14
+        p = req.get("params", {})
+        if mode == "locked":
+            return {"error": {"code": 14, "message": "Bitwarden vault is locked - unlock it first"}}
+        if (p.get("address"), p.get("port"), p.get("user")) != ("10.19.1.2", 22, "root"):
+            return {"error": {"code": 130, "message": "won't fill on sw-core: sw-core changed since this Session connected",
+                              "data": {"prompt": None}}}
+        if p.get("host") != "sw-core" or not str(p.get("prompt", "")).startswith("[sudo]"):
+            return {"error": {"code": 130, "message": f"won't fill on {p.get('host')}: not a prompt roster fills",
+                              "data": {"prompt": None}}}
+        if mode == "bad-fill":
+            return {"result": {"host": "sw-core", "login": "ssh", "password": 31337}}
+        return {"result": {"host": "sw-core", "login": "ssh", "password": FILL_PASSWORD}}
     return {"error": {"code": -32601, "message": f"unknown method {m!r}"}}
 
 
