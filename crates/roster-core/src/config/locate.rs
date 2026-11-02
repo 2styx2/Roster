@@ -11,13 +11,9 @@ pub(crate) fn line_of(source: &str, path: &[String]) -> Option<u32> {
         if seg.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
-        match find_key(source, seg, pos) {
-            Some(at) => {
-                pos = at + seg.len();
-                line = Some(line_at(source, at));
-            }
-            None => return None,
-        }
+        let at = find_key(source, seg, pos)?;
+        pos = at + seg.len();
+        line = Some(line_at(source, at));
     }
     line
 }
