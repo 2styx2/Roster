@@ -2,13 +2,13 @@
 
 <!-- Generated from crates/roster-core/src/config/shape by `cargo run -p roster-core --example gen_config_options`: edit that, then run it. -->
 
-Every option `init.lua` takes, and every name of its `roster` table, one entry each, the way Neovim's `:help 'option'` lists its options: how it's written, its type, its default, the values it can have, what it does and an example. Each entry is a help topic: `:help terminal.size`, `:help roster.keymap.set`, `:help roster.config.Theme`. [The Config guide](config.md) says how `init.lua` works and what each option does in more words; `:options` lists every option with its value now and where it was set; `:config types` writes all of this as types for your editor ([Editor support](#editor-support)).
+Every option `init.lua` takes, and every name of its `roster` table, one entry each, the way Neovim's `:help 'option'` lists its options: how it's written, its type, its default, the values it can have, what it does and an example. Each entry is a help topic: `:help terminal.size`, `:help roster.keymap.set`, `:help roster.config.Theme`. In the app, `:help options` shows them with the value each option has now and where it was set, and `:options` finds one. [The Config guide](config.md) says how `init.lua` works, and more about each option. `:config types` writes all of this as types for your editor ([Editor support](#editor-support)).
 
 Types are written as [LuaCATS](https://luals.github.io/wiki/annotations/) writes them: `string[]` is a list of strings, `table<string, X>` a table of X by name, `"webgl"|"dom"` one of those strings, `roster.config.Theme` a table described under [Types](#types). An object (a table of named options, such as `terminal`) needs no setup: give only the options you change. A default of unset means nothing is set and the app, or a choice it keeps, decides; required is a field a spec can't leave out.
 
 ## The `roster` table
 
-A global in `init.lua` and its modules, and also `require("roster")`. A Plugin gets a bigger one ([The Plugin API](../plugin-api.md)).
+A global in `init.lua` and its modules, and also require(`"roster"`). A Plugin gets a bigger one: [the Plugin API](../plugin-api.md).
 
 ### `roster.os`
 
@@ -144,6 +144,10 @@ The UI's fonts.
 
 Options in it: [`ui`](#fontsui), [`mono`](#fontsmono), [`ui_size`](#fontsui_size).
 
+```lua
+roster.set("fonts", { ui = "IBM Plex Sans" })
+```
+
 ### `fonts.ui`
 
 `string` · default `"Inter"`
@@ -188,6 +192,10 @@ The rest of the UI's look.
 
 Options in it: [`hints`](#uihints), [`messages`](#uimessages).
 
+```lua
+roster.set("ui", { hints = false })
+```
+
 ### `ui.hints`
 
 `boolean` · default unset
@@ -204,8 +212,6 @@ roster.set("ui.hints", false)
 
 What the message line shows: errors, warnings and answers only (`"quiet"`), or routine confirmations too (`"all"`). Unset, :messages decides.
 
-Takes `"quiet"` or `"all"`.
-
 ```lua
 roster.set("ui.messages", "all")
 ```
@@ -217,6 +223,10 @@ roster.set("ui.messages", "all")
 The terminal's font, look and behaviour.
 
 Options in it: [`font`](#terminalfont), [`size`](#terminalsize), [`weight`](#terminalweight), [`bold_weight`](#terminalbold_weight), [`bold_is_bright`](#terminalbold_is_bright), [`line_height`](#terminalline_height), [`cell_height`](#terminalcell_height), [`renderer`](#terminalrenderer), [`cursor_style`](#terminalcursor_style), [`scrollback`](#terminalscrollback), [`copy_on_select`](#terminalcopy_on_select), [`right_click_paste`](#terminalright_click_paste), [`colors`](#terminalcolors), [`shell_hooks`](#terminalshell_hooks).
+
+```lua
+roster.set("terminal", { font = { "Fira Code", "Iosevka" } })
+```
 
 ### `terminal.font`
 
@@ -306,8 +316,6 @@ roster.set("terminal.cell_height", 1.1)
 
 WebGL (fast) or the DOM (the browser's own text rendering).
 
-Takes `"webgl"` or `"dom"`.
-
 ```lua
 roster.set("terminal.renderer", "dom")
 ```
@@ -317,8 +325,6 @@ roster.set("terminal.renderer", "dom")
 `"block"|"bar"|"underline"` · default `"block"`
 
 The cursor's shape.
-
-Takes `"block"`, `"bar"` or `"underline"`.
 
 ```lua
 roster.set("terminal.cursor_style", "bar")
@@ -409,6 +415,10 @@ roster.set("vim", false)
 Key bindings, per context: key or sequence → action.
 
 Options in it: [`leader`](#keysleader), [`list`](#keyslist), [`list_vim`](#keyslist_vim), [`picker`](#keyspicker), [`picker_vim`](#keyspicker_vim), [`cmdline`](#keyscmdline), [`terminal`](#keysterminal), [`global`](#keysglobal).
+
+```lua
+roster.set("keys", { leader = { ["d d"] = "close", ["Ctrl+n"] = false } })
+```
 
 ### `keys.leader`
 
@@ -514,8 +524,6 @@ roster.set("keys.global", { ["d d"] = "close", ["Ctrl+n"] = false })
 
 The view mode at start (read at start only).
 
-Takes `"standard"` or `"focus"`.
-
 ```lua
 roster.set("default_mode", "focus")
 ```
@@ -525,8 +533,6 @@ roster.set("default_mode", "focus")
 `"sidebar"|"tabs"` · default `"sidebar"`
 
 Open Sessions in the Sidebar, or in a tab strip.
-
-Takes `"sidebar"` or `"tabs"`.
 
 ```lua
 roster.set("sessions", "tabs")
@@ -540,6 +546,10 @@ Each view mode's layout.
 
 Options in it: [`standard`](#modesstandard), [`focus`](#modesfocus).
 
+```lua
+roster.set("modes", { standard = { titlebar = false } })
+```
+
 ### `modes.standard`
 
 `roster.config.Mode` · default `{}`
@@ -547,6 +557,10 @@ Options in it: [`standard`](#modesstandard), [`focus`](#modesfocus).
 The Standard mode's pieces; a piece left out keeps this mode's default.
 
 Options in it: [`titlebar`](#modesstandardtitlebar), [`sidebar`](#modesstandardsidebar), [`sessionbar`](#modesstandardsessionbar), [`statusbar`](#modesstandardstatusbar), [`fullscreen`](#modesstandardfullscreen), [`toolbar`](#modesstandardtoolbar).
+
+```lua
+roster.set("modes.standard", { titlebar = false })
+```
 
 ### `modes.standard.titlebar`
 
@@ -560,14 +574,38 @@ roster.set("modes.standard.titlebar", false)
 
 ### `modes.standard.sidebar`
 
-`boolean|{ side?: "left"|"right", sections?: string[] }` · default `{ side = "left" }`
+`boolean|roster.config.Sidebar` · default `{ side = "left" }`
 
-The Sidebar, the side it's on, and its sections in order (all, when left out).
+The Sidebar: shown or hidden, the side it's on, and its sections.
 
-Takes true, false, or { side = `"left"`|`"right"`, sections = { `"sessions"`, `"folders"`, `"inventory"` } }.
+Takes true, false, or a table of the options below (which shows it).
+
+Options in it: [`side`](#modesstandardsidebarside), [`sections`](#modesstandardsidebarsections).
 
 ```lua
 roster.set("modes.standard.sidebar", { side = "right", sections = { "sessions", "inventory" } })
+```
+
+### `modes.standard.sidebar.side`
+
+`"left"|"right"` · default `"left"`
+
+The side of the window it's on.
+
+```lua
+roster.set("modes.standard.sidebar.side", "right")
+```
+
+### `modes.standard.sidebar.sections`
+
+`string[]` · default unset
+
+Its sections, in order; all of them when left out.
+
+Takes section ids in order: `"sessions"`, `"folders"`, `"inventory"`, or a Plugin section's id.
+
+```lua
+roster.set("modes.standard.sidebar.sections", { "sessions", "inventory" })
 ```
 
 ### `modes.standard.sessionbar`
@@ -575,8 +613,6 @@ roster.set("modes.standard.sidebar", { side = "right", sections = { "sessions", 
 `false|"bottom"|"top"` · default `false`
 
 The thin tmux-style bar of open Sessions, and its edge.
-
-Takes false, `"bottom"` or `"top"`.
 
 ```lua
 roster.set("modes.standard.sessionbar", "top")
@@ -624,6 +660,10 @@ The Focus mode's pieces; a piece left out keeps this mode's default.
 
 Options in it: [`titlebar`](#modesfocustitlebar), [`sidebar`](#modesfocussidebar), [`sessionbar`](#modesfocussessionbar), [`statusbar`](#modesfocusstatusbar), [`fullscreen`](#modesfocusfullscreen), [`toolbar`](#modesfocustoolbar).
 
+```lua
+roster.set("modes.focus", { titlebar = true })
+```
+
 ### `modes.focus.titlebar`
 
 `boolean` · default `false`
@@ -636,14 +676,38 @@ roster.set("modes.focus.titlebar", true)
 
 ### `modes.focus.sidebar`
 
-`boolean|{ side?: "left"|"right", sections?: string[] }` · default `false`
+`boolean|roster.config.Sidebar` · default `false`
 
-The Sidebar, the side it's on, and its sections in order (all, when left out).
+The Sidebar: shown or hidden, the side it's on, and its sections.
 
-Takes true, false, or { side = `"left"`|`"right"`, sections = { `"sessions"`, `"folders"`, `"inventory"` } }.
+Takes true, false, or a table of the options below (which shows it).
+
+Options in it: [`side`](#modesfocussidebarside), [`sections`](#modesfocussidebarsections).
 
 ```lua
 roster.set("modes.focus.sidebar", { side = "right", sections = { "sessions", "inventory" } })
+```
+
+### `modes.focus.sidebar.side`
+
+`"left"|"right"` · default `"left"`
+
+The side of the window it's on.
+
+```lua
+roster.set("modes.focus.sidebar.side", "right")
+```
+
+### `modes.focus.sidebar.sections`
+
+`string[]` · default unset
+
+Its sections, in order; all of them when left out.
+
+Takes section ids in order: `"sessions"`, `"folders"`, `"inventory"`, or a Plugin section's id.
+
+```lua
+roster.set("modes.focus.sidebar.sections", { "sessions", "inventory" })
 ```
 
 ### `modes.focus.sessionbar`
@@ -651,8 +715,6 @@ roster.set("modes.focus.sidebar", { side = "right", sections = { "sessions", "in
 `false|"bottom"|"top"` · default `false`
 
 The thin tmux-style bar of open Sessions, and its edge.
-
-Takes false, `"bottom"` or `"top"`.
 
 ```lua
 roster.set("modes.focus.sessionbar", "top")
@@ -699,6 +761,10 @@ roster.set("modes.focus.toolbar", { "add", "find" })
 What every panel and view starts with.
 
 Options in it: [`width`](#panelwidth).
+
+```lua
+roster.set("panel", { width = 40 })
+```
 
 ### `panel.width`
 
@@ -748,6 +814,10 @@ This Box's own vault settings, over roster.yml's providers. Paths and choices, n
 
 Options in it: [`save_to`](#vaultsave_to), [`kp`](#vaultkp).
 
+```lua
+roster.set("vault", { save_to = { organization = "My Team", collection = "Infra logins" } })
+```
+
 ### `vault.save_to`
 
 `"personal"|{ organization: string, collection: string }|{ group: string }` · default unset
@@ -767,6 +837,10 @@ roster.set("vault.save_to", { organization = "My Team", collection = "Infra logi
 KeePassXC's files, on the Box roster runs on.
 
 Options in it: [`database`](#vaultkpdatabase), [`key_file`](#vaultkpkey_file).
+
+```lua
+roster.set("vault.kp", { database = "~/roster.kdbx" })
+```
 
 ### `vault.kp.database`
 
@@ -860,8 +934,6 @@ roster.set("auto_reload", true)
 
 What :config opens init.lua with: the desktop's app for .lua files, or $EDITOR inside WSL.
 
-Takes `"os"` or `"wsl"`.
-
 ```lua
 roster.set("editor", "wsl")
 ```
@@ -892,7 +964,7 @@ roster.set("roster_command", "uv run --project ~/work/roster roster")
 
 ## Types
 
-The tables some options hold, by the name `:config types` gives them.
+The tables some options hold, by the names `:config types` gives them.
 
 ### `roster.config.Theme`
 

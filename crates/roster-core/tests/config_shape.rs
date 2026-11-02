@@ -93,9 +93,17 @@ fn every_example_loads_and_changes_the_config() {
 fn every_default_is_the_schemas() {
     let base = base();
     assert_eq!(base, values(Config::default()));
+    // A field of an object that's also a shorthand (`sidebar = false`) sets the object too, so its
+    // default is only that object's own field's.
+    let shorthand_field = |o: &Opt| {
+        let segs = o.segments();
+        segs.len() > 1
+            && shape::get(&segs[..segs.len() - 1].join("."))
+                .is_some_and(|p| p.kind == Kind::Object && p.default != "{}")
+    };
     for o in shape::options()
         .iter()
-        .filter(|o| !o.in_item() && !matches!(o.default.as_str(), "unset" | "required"))
+        .filter(|o| !o.in_item() && !shorthand_field(o) && !matches!(o.default.as_str(), "unset" | "required"))
     {
         let lua = table_for(&o.path, &o.default);
         let c = load(&lua).unwrap_or_else(|e| panic!("{}: the default doesn't load: {lua}\n{e}", o.path));
@@ -128,7 +136,10 @@ fn unset_means_the_config_holds_nothing_there() {
         }
         out
     };
-    for o in shape::options().iter().filter(|o| !o.in_item() && o.default == "unset") {
+    for o in shape::options()
+        .iter()
+        .filter(|o| !o.in_item() && o.default == "unset" && !o.path.contains(".sidebar."))
+    {
         let mut v = &json;
         for seg in o.segments() {
             v = v.get(camel(seg)).unwrap_or(&serde_json::Value::Null);
@@ -324,4 +335,174 @@ fn config_types_never_writes_through_a_link() {
     std::os::unix::fs::symlink(&*elsewhere, dir.join("types")).unwrap();
     assert!(shape::write_types(&dir).unwrap_err().contains("is a link"));
     assert!(!elsewhere.join("roster-config.lua").exists());
+}
+
+// ---------------------------------------------------------------- coverage
+
+/// How the schema nests at a path, found by asking it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Found {
+    Object,
+    /// A map of tables (`themes`): its `*` holds the fields.
+    Map,
+    /// A list of tables (`folders`): its `[]` holds the fields.
+    List,
+    /// Anything else: a value, or a map or list of values.
+    Value,
+}
+
+const PROBE: &str = "zz_probe";
+
+/// JSON that puts `value` at `segs` (`*` a map key, `[]` a list's one item).
+fn json_at(segs: &[String], value: serde_json::Value) -> serde_json::Value {
+    let Some((seg, rest)) = segs.split_first() else {
+        return value;
+    };
+    let inner = json_at(rest, value);
+    match seg.as_str() {
+        "*" => serde_json::json!({ PROBE: inner }),
+        "[]" => serde_json::json!([inner]),
+        name => serde_json::json!({ name: inner }),
+    }
+}
+
+/// The struct's field names when `value` at `segs` is an unknown name in one: serde lists them in
+/// its error ("unknown field `zz_probe`, expected one of `a`, `b`").
+fn fields_named_by(segs: &[String], value: serde_json::Value) -> Option<Vec<String>> {
+    let err = serde_json::from_value::<Config>(json_at(segs, value))
+        .err()?
+        .to_string();
+    let rest = err.split_once(&format!("unknown field `{PROBE}`"))?.1;
+    if rest.contains("there are no fields") {
+        return Some(Vec::new());
+    }
+    let list = rest.split_once("expected")?.1;
+    Some(list.split('`').skip(1).step_by(2).map(str::to_string).collect())
+}
+
+/// Every path in the schema, by asking `Config`'s own Deserialize what it takes at each one: the
+/// real field names of each struct, and the maps and lists of structs between them.
+fn discover(segs: Vec<String>, out: &mut Vec<(String, Found)>) {
+    let probe = || serde_json::json!({ PROBE: 1 });
+    let path = |segs: &[String]| segs.join(".").replace(".[]", "[]");
+    let (found, fields, next) = if let Some(f) = fields_named_by(&segs, probe()) {
+        (Found::Object, f, segs.clone())
+    } else if let Some(f) = fields_named_by(&[segs.clone(), vec!["*".into()]].concat(), probe()) {
+        (Found::Map, f, [segs.clone(), vec!["*".into()]].concat())
+    } else if let Some(f) = fields_named_by(&[segs.clone(), vec!["[]".into()]].concat(), probe()) {
+        (Found::List, f, [segs.clone(), vec!["[]".into()]].concat())
+    } else {
+        (Found::Value, Vec::new(), segs.clone())
+    };
+    if !segs.is_empty() {
+        out.push((path(&segs), found));
+    }
+    if found == Found::Map || found == Found::List {
+        out.push((path(&next), Found::Object));
+    }
+    for f in fields {
+        discover([next.clone(), vec![f]].concat(), out);
+    }
+}
+
+fn schema_paths() -> Vec<(String, Found)> {
+    let mut out = Vec::new();
+    discover(Vec::new(), &mut out);
+    out
+}
+
+#[test]
+fn discovery_finds_the_whole_schema() {
+    let paths = schema_paths();
+    let has = |p: &str, f: Found| paths.iter().any(|(path, found)| path == p && *found == f);
+    assert!(has("terminal", Found::Object));
+    assert!(has("terminal.size", Found::Value));
+    assert!(has("themes", Found::Map) && has("themes.*.ansi.bright_white", Found::Value));
+    assert!(has("folders", Found::List) && has("folders[].hosts", Found::Value));
+    assert!(has("packages[].config", Found::Value));
+    assert!(has("modes.focus.sidebar.sections", Found::Value));
+    assert!(has("keys.picker_vim", Found::Value));
+    assert!(has("colors.syntax_command", Found::Value));
+    assert!(
+        !paths
+            .iter()
+            .any(|(p, _)| p == "lines" || p == "set" || p == "deprecated")
+    );
+}
+
+/// The acceptance check: a field added to the schema fails here until the shape declares it,
+/// with everything its entry needs, and the reference shows it.
+#[test]
+fn every_path_in_the_schema_is_declared_and_documented() {
+    let r = shape::reference();
+    let entries: Vec<&shape::Entry> = r.sections.iter().flat_map(|s| &s.entries).collect();
+    let documented = |o: &Opt| -> bool {
+        let segs = o.segments();
+        let last = segs.last().copied().unwrap_or_default();
+        let parent = segs[..segs.len() - 1].join(".").replace(".[]", "[]");
+        let parent_tag = shape::get(&parent).map(|p| {
+            if p.is_item() {
+                p.class.unwrap_or_default().to_string()
+            } else {
+                p.path.clone()
+            }
+        });
+        entries.iter().any(|e| e.tag == o.path || (o.is_item() && Some(e.tag.as_str()) == o.class))
+            || entries.iter().any(|e| {
+                Some(&e.tag) == parent_tag.as_ref()
+                    && (e.names.iter().any(|n| n == last) || e.rows.iter().any(|row| row.name == last))
+            })
+            || entries.iter().flat_map(|e| &e.rows).any(|row| row.name == shape::get(&parent).and_then(|p| p.segments().last().map(|s| s.to_string())).unwrap_or_default() && row.names.iter().any(|n| n == last))
+            // A map's keys or a list's items are described by their type's entry.
+            || (o.is_item() && entries.iter().any(|e| e.item.as_deref() == o.class))
+    };
+    let mut missing = Vec::new();
+    for (path, found) in schema_paths() {
+        let Some(o) = shape::get(&path) else {
+            missing.push(format!("{path}: in the schema, not declared in config/shape"));
+            continue;
+        };
+        let kind_ok = match found {
+            Found::Object => o.kind == Kind::Object,
+            Found::Map => o.kind == Kind::Map,
+            Found::List => o.kind == Kind::List,
+            Found::Value => o.kind != Kind::Object,
+        };
+        if !kind_ok {
+            missing.push(format!(
+                "{path}: the schema has a {found:?}, the shape says {:?}",
+                o.kind
+            ));
+        }
+        for (what, empty) in [
+            ("type", o.ty.is_empty()),
+            ("default", o.default.is_empty()),
+            ("summary", o.about.is_empty()),
+            ("example", o.example.is_empty()),
+        ] {
+            if empty {
+                missing.push(format!("{path}: no {what}"));
+            }
+        }
+        if !documented(o) {
+            missing.push(format!("{path}: no entry, row or name in the reference"));
+        }
+    }
+    assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+#[test]
+fn the_shape_declares_nothing_the_schema_lacks() {
+    let paths: Vec<String> = schema_paths().into_iter().map(|(p, _)| p).collect();
+    for o in shape::options() {
+        // A map's or list's plain items (a key binding) aren't structs to discover.
+        let segs = o.segments();
+        let under_collection = o.is_item() && !paths.contains(&o.path);
+        let parent_found = segs.len() > 1 && paths.contains(&segs[..segs.len() - 1].join(".").replace(".[]", "[]"));
+        assert!(
+            paths.contains(&o.path) || (under_collection && parent_found),
+            "{} isn't in the schema",
+            o.path
+        );
+    }
 }

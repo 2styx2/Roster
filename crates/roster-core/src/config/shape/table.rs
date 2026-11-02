@@ -432,13 +432,34 @@ pub(super) fn options() -> Vec<Opt> {
             "The title bar.",
             yes_no(!standard),
         );
+        {
+            let o = b.add(
+                p("sidebar"),
+                Kind::Object,
+                "boolean|roster.config.Sidebar",
+                if standard { "{ side = \"left\" }" } else { "false" },
+                Allowed::Form("true, false, or a table of the options below (which shows it)"),
+                "The Sidebar: shown or hidden, the side it's on, and its sections.",
+                "{ side = \"right\", sections = { \"sessions\", \"inventory\" } }",
+            );
+            o.class = Some("roster.config.Sidebar");
+        }
         b.leaf(
-            p("sidebar"),
-            "boolean|{ side?: \"left\"|\"right\", sections?: string[] }",
-            if standard { "{ side = \"left\" }" } else { "false" },
-            Allowed::Form("true, false, or { side = \"left\"|\"right\", sections = { \"sessions\", \"folders\", \"inventory\" } }"),
-            "The Sidebar, the side it's on, and its sections in order (all, when left out).",
-            "{ side = \"right\", sections = { \"sessions\", \"inventory\" } }",
+            p("sidebar.side"),
+            "\"left\"|\"right\"",
+            "\"left\"",
+            Allowed::OneOf(&["\"left\"", "\"right\""]),
+            "The side of the window it's on.",
+            "\"right\"",
+        );
+        b.add(
+            p("sidebar.sections"),
+            Kind::List,
+            "string[]",
+            UNSET,
+            Allowed::Form("section ids in order: \"sessions\", \"folders\", \"inventory\", or a Plugin section's id"),
+            "Its sections, in order; all of them when left out.",
+            "{ \"sessions\", \"inventory\" }",
         );
         b.leaf(
             p("sessionbar"),
@@ -719,6 +740,22 @@ pub(super) fn options() -> Vec<Opt> {
     );
     b.add("roster_command", Kind::List, "string|string[]", UNSET, Allowed::Form("roster itself: \"roster\", a path ending in /roster, or \"uv run --project <dir> roster\""), "The command that runs roster, for development: a command line (split on spaces) or a list of words. Unset, roster.", "\"uv run --project ~/work/roster roster\"");
 
+    // An object's example: its first field's, as a table.
+    for i in (0..b.out.len()).rev() {
+        if b.out[i].kind == Kind::Object && b.out[i].example.is_empty() {
+            let prefix = format!("{}.", b.out[i].path);
+            let child = b.out.iter().find(|c| {
+                c.path
+                    .strip_prefix(&prefix)
+                    .is_some_and(|rest| !rest.contains('.') && !rest.contains('['))
+                    && !c.example.is_empty()
+            });
+            if let Some(c) = child {
+                let name = c.path.rsplit('.').next().unwrap_or_default();
+                b.out[i].example = format!("{{ {name} = {} }}", c.example);
+            }
+        }
+    }
     b.out
 }
 

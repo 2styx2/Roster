@@ -179,11 +179,16 @@
 --- The Standard mode's pieces; a piece left out keeps this mode's default.
 ---@class roster.config.Mode
 ---@field titlebar? boolean The title bar. Default: `true`.
----@field sidebar? boolean|{ side?: "left"|"right", sections?: string[] } The Sidebar, the side it's on, and its sections in order (all, when left out). Default: `{ side = "left" }`. Takes true, false, or { side = "left"|"right", sections = { "sessions", "folders", "inventory" } }.
+---@field sidebar? boolean|roster.config.Sidebar The Sidebar: shown or hidden, the side it's on, and its sections. Default: `{ side = "left" }`. Takes true, false, or a table of the options below (which shows it).
 ---@field sessionbar? false|"bottom"|"top" The thin tmux-style bar of open Sessions, and its edge. Default: `false`.
 ---@field statusbar? boolean|string[] The status bar, and its segments. Default: `true`. Takes true, false, or segments in order: "backend", "box", "hosts", "path", "changes", "hints", "mode".
 ---@field fullscreen? boolean OS fullscreen. Default: `false`.
 ---@field toolbar? boolean|string[] The controls for common commands, in the title bar (or a bar of their own without one). Default: `true`. Takes true, false, or controls in order: "sidebar", "find", "quick", "add", "changes", "publish", "details", "cmdline", "keys", "help", "lock", "mode", or a Plugin control's id.
+
+--- The Sidebar: shown or hidden, the side it's on, and its sections.
+---@class roster.config.Sidebar
+---@field side? "left"|"right" The side of the window it's on. Default: `"left"`.
+---@field sections? string[] Its sections, in order; all of them when left out. Takes section ids in order: "sessions", "folders", "inventory", or a Plugin section's id.
 
 --- What every panel and view starts with.
 ---@class roster.config.Panel
@@ -318,6 +323,8 @@
 ---| "modes.standard"
 ---| "modes.standard.titlebar"
 ---| "modes.standard.sidebar"
+---| "modes.standard.sidebar.side"
+---| "modes.standard.sidebar.sections"
 ---| "modes.standard.sessionbar"
 ---| "modes.standard.statusbar"
 ---| "modes.standard.fullscreen"
@@ -325,6 +332,8 @@
 ---| "modes.focus"
 ---| "modes.focus.titlebar"
 ---| "modes.focus.sidebar"
+---| "modes.focus.sidebar.side"
+---| "modes.focus.sidebar.sections"
 ---| "modes.focus.sessionbar"
 ---| "modes.focus.statusbar"
 ---| "modes.focus.fullscreen"

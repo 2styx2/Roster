@@ -16,7 +16,10 @@
 mod render;
 mod table;
 
-pub use render::{COMMAND, DOC_PATH, JSON_PATH, STUBS_PATH, json_text, markdown, stubs, write_types};
+pub use render::{
+    COMMAND, DOC_PATH, Entry, JSON_PATH, Reference, Row, STUBS_PATH, Section, json_text, markdown, reference, stubs,
+    write_types,
+};
 
 use std::sync::LazyLock;
 
@@ -40,6 +43,18 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// What `roster.o` lets init.lua do with a value of this kind, besides assigning it: a map's
+    /// keys, a list's items, any value's reset to its default. The reference lists them once the
+    /// Neovim-style names are in.
+    pub fn methods(self) -> &'static [&'static str] {
+        match self {
+            Kind::Object => &["get", "set", "reset"],
+            Kind::Map => &["get", "set", "remove", "has", "keys", "reset"],
+            Kind::List => &["append", "prepend", "insert", "remove", "has", "clear", "reset"],
+            Kind::Leaf => &["get", "set", "reset"],
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Object => "object",
