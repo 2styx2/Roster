@@ -68,6 +68,7 @@ app/src-tauri/        thin Tauri shell: the window, and the commands the fronten
                       (+ `config-changed` events after each save of init.lua);
                       clipboard-manager plugin
 app/src/backend/      the one typed Backend client: types.ts (interface), tauri.ts (real), fake.ts (fixtures)
+                      fakePlugins.ts (the fake Plugin host), redact.ts (the core's cmd:/env: cut on what its Plugins get, Q92)
 app/src/picker/       the Picker: match.ts (fuzzy ranking), Picker.tsx (a user@address query offers Quick Connect first;
                       a row's ⓘ or Ctrl+I shows its Host details), timing.ts (its open time, for `:info`, Q86)
 app/src/details/      Host details (ticket 18, decision Q71): details.ts (roster info's fields and services as rows, which

@@ -32,8 +32,11 @@ fn plugin_dir(test: &str, permissions: &str, init: &str) -> common::Temp {
     dir
 }
 
+/// A host the app has told its built-in commands, as it does before any Plugin loads: none here.
 fn host() -> PluginHost {
-    PluginHost::new(Arc::new(NoServe), Limits::default())
+    let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    host.set_builtins([]);
+    host
 }
 
 fn handler(v: &Value) -> u64 {
@@ -311,6 +314,55 @@ fn roster_cmd_with_sessions_open_may_open_a_host() {
     let out = r.result.as_str().unwrap();
     assert!(out.contains("open esx-02 => ok"), "{out}");
     assert!(out.contains("connect esx-02 => ok"), "{out}");
+}
+
+/// A Plugin that names its commands after roster's own can't run them with `roster.cmd`: the app
+/// tells the core its built-in commands (`PluginHost::set_builtins`), and a word is the Plugin's
+/// own only if no built-in has it (issue #184). Until the app has said, none of its commands runs
+/// (the ones that change trust or writes, api.rs's ROSTER_ONLY, are refused as ever), and a list
+/// reaches a Plugin already running.
+#[test]
+fn a_plugins_command_named_after_one_of_rosters_isnt_its_own() {
+    let init = r#"
+    local roster = require("roster")
+    for _, name in ipairs({ "theme", "tutor", "publish", "alerts" }) do
+      roster.commands.add(name, { run = function() end })
+    end
+    roster.commands.add("go", { run = function(a)
+      local ok, err = pcall(roster.cmd, a.args)
+      return ok and "ok" or tostring(err)
+    end })
+    "#;
+    let host = PluginHost::new(Arc::new(NoServe), Limits::default());
+    let folder = plugin_dir("cmd-roster-only", "", init);
+    let (_, reply) = host.load(&Source::Dir(folder.to_path_buf()), &[]).unwrap();
+    assert!(reply.error.is_none(), "{:?}", reply.error);
+    let go = |name: &str| {
+        let r = host.call(
+            "mesh",
+            command(&reply.ops, "go"),
+            json!({ "args": name, "words": [name] }),
+        );
+        r.result.as_str().unwrap_or_default().to_string()
+    };
+    // Before the app has said: the floor refused as ever, and none of its own runs yet.
+    assert!(
+        go("publish").contains("isn't one a Plugin may run"),
+        "{}",
+        go("publish")
+    );
+    for name in ["theme", "alerts"] {
+        assert!(
+            go(name).contains("can't run yet: the app hasn't told roster its own commands"),
+            "{name}: {}",
+            go(name)
+        );
+    }
+    host.set_builtins(["theme", "tutor", "publish", "lock"].map(String::from));
+    for name in ["theme", "tutor", "publish"] {
+        assert!(go(name).contains("isn't one a Plugin may run"), "{name}: {}", go(name));
+    }
+    assert_eq!(go("alerts"), "ok", "its own command, which no built-in has");
 }
 
 #[test]

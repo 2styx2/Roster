@@ -211,6 +211,13 @@ pub const COMMANDS: &[CommandRule] = &[
     },
 ];
 
+/// roster's commands that change what it trusts or writes (grants, Packages, Publish, the config,
+/// the vault): never a Plugin's own, whatever it named its commands, even before the app has told
+/// the core its built-in commands (`PluginHost::set_builtins`, which covers every other one; issue
+/// #184). The app refuses a Plugin's command named after any of roster's too and checks every
+/// line again (`plugins/cmd.ts`).
+pub const ROSTER_ONLY: &[&str] = &["plugins", "packages", "publish", "source", "config", "vault"];
+
 const fn p(name: &'static str, ty: &'static str, doc: &'static str) -> Param {
     Param {
         name,
@@ -549,7 +556,11 @@ pub const FUNCTIONS: &[Function] = &[
             ("roster.cmd: which command? …", "an empty line"),
             (
                 "roster.cmd: :NAME isn't one a Plugin may run (its own commands, and …)",
-                "a command not in the list, or another Plugin's",
+                "a command not in the list, another Plugin's, or one of yours named after one of roster's",
+            ),
+            (
+                "roster.cmd: :NAME can't run yet: the app hasn't told roster its own commands",
+                "one of your commands, in the moment before the app has said which are roster's (it tries again)",
             ),
             (
                 "roster.cmd: :NAME needs the P permission",
@@ -604,6 +615,10 @@ pub const FUNCTIONS: &[Function] = &[
             (
                 "roster.cmdline: \"WORD\" isn't one of your commands …",
                 "the line starts with anything but one of the Plugin's commands",
+            ),
+            (
+                "roster.cmdline: :NAME can't run yet: the app hasn't told roster its own commands",
+                "as `roster.cmd`'s",
             ),
         ],
         refused: &[],
@@ -1729,7 +1744,7 @@ pub const FUNCTIONS: &[Function] = &[
             ),
             (
                 "roster.serve.call METHOD: more than 100 calls into roster serve in one go (roster.serve.request doesn't wait)",
-                "the call asked roster serve 100 times already (or waited 300 s in all: `waited more than 300 s for roster serve in one go`)",
+                "the call asked roster serve 100 times already (or waited 300 s in all: `waited 300 s or more for roster serve in one go`)",
             ),
             (
                 "roster.serve.call METHOD: MESSAGE (code N)",
@@ -4924,6 +4939,7 @@ pub fn json() -> Json {
         "functions": functions,
         "events": EVENTS.iter().map(|e| json!({ "name": e.name, "needs": e.needs, "payload": e.payload })).collect::<Vec<_>>(),
         "commands": COMMANDS.iter().map(|c| json!({ "name": c.name, "permission": match c.needs { Needs::Permission(p) => json!(p), _ => Json::Null } })).collect::<Vec<_>>(),
+        "roster_only": ROSTER_ONLY,
         "types": types,
         "tags": tags,
     })
@@ -4937,6 +4953,17 @@ pub fn json_text() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A command is one a Plugin may run or one never a Plugin's own, not both (issue #184).
+    #[test]
+    fn roster_only_and_the_commands_a_plugin_may_run_dont_overlap() {
+        let both: Vec<&str> = ROSTER_ONLY
+            .iter()
+            .copied()
+            .filter(|n| COMMANDS.iter().any(|c| c.name == *n))
+            .collect();
+        assert!(both.is_empty(), "{both:?}");
+    }
 
     #[test]
     fn slugs_are_githubs() {
