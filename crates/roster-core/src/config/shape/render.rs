@@ -135,6 +135,12 @@ fn item_of(o: &Opt) -> Option<&'static Opt> {
     children(o).find(|c| c.is_item() && c.class.is_some())
 }
 
+/// An object made only of options with entries of their own (`terminal`): it holds no value of
+/// its own for `:options` to list.
+fn only_entries(o: &Opt) -> bool {
+    o.kind == Kind::Object && children(o).next().is_some() && children(o).all(|c| c.is_entry())
+}
+
 fn option_entry(o: &Opt) -> Entry {
     let rows = children(o)
         .filter(|c| !c.brief && !c.is_entry() && !c.is_item())
@@ -190,8 +196,7 @@ fn option_entry(o: &Opt) -> Entry {
         } else {
             Vec::new()
         },
-        listed: !o.is_item()
-            && !(o.kind == Kind::Object && children(o).next().is_some() && children(o).all(|c| c.is_entry())),
+        listed: !o.is_item() && !only_entries(o),
     }
 }
 
