@@ -1061,7 +1061,7 @@
           "rows": [],
           "example": "roster.set(\"modes.standard.sidebar\", { side = \"right\", sections = { \"sessions\", \"inventory\" } })",
           "methods": [],
-          "listed": false
+          "listed": true
         },
         {
           "tag": "modes.standard.sidebar.side",
@@ -1233,7 +1233,7 @@
           "rows": [],
           "example": "roster.set(\"modes.focus.sidebar\", { side = \"right\", sections = { \"sessions\", \"inventory\" } })",
           "methods": [],
-          "listed": false
+          "listed": true
         },
         {
           "tag": "modes.focus.sidebar.side",

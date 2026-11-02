@@ -138,7 +138,7 @@ fn item_of(o: &Opt) -> Option<&'static Opt> {
 /// An object made only of options with entries of their own (`terminal`): it holds no value of
 /// its own for `:options` to list.
 fn only_entries(o: &Opt) -> bool {
-    o.kind == Kind::Object && children(o).next().is_some() && children(o).all(|c| c.is_entry())
+    o.kind == Kind::Object && o.default == "{}" && children(o).next().is_some() && children(o).all(|c| c.is_entry())
 }
 
 fn option_entry(o: &Opt) -> Entry {
