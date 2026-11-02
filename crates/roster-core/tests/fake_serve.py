@@ -188,6 +188,13 @@ def answer(req):
         if (p.get("address"), p.get("port"), p.get("user")) != ("10.19.1.2", 22, "root"):
             return {"error": {"code": 130, "message": "won't fill on sw-core: sw-core changed since this Session connected",
                               "data": {"prompt": None}}}
+        if p.get("hop") is not None:
+            # ticket 120: a nested ssh to esxi-02, as the app resolved it
+            if p["hop"] != {"host": "esxi-02", "address": "10.19.1.3", "port": 22, "user": "root"} or \
+                    not str(p.get("prompt", "")).startswith("root@esxi-02's"):
+                return {"error": {"code": 130, "message": "won't fill on esxi-02: changed since this ssh started",
+                                  "data": {"prompt": None}}}
+            return {"result": {"host": "esxi-02", "login": "ssh", "password": FILL_PASSWORD}}
         if p.get("host") != "sw-core" or not str(p.get("prompt", "")).startswith("[sudo]"):
             return {"error": {"code": 130, "message": f"won't fill on {p.get('host')}: not a prompt roster fills",
                               "data": {"prompt": None}}}

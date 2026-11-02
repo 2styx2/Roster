@@ -246,3 +246,42 @@ fn output_while_the_vault_answers_refuses_too() {
     assert!(matches!(err, FillError::Echoes), "{err:?}");
     m.close(id).unwrap();
 }
+
+/// A nested ssh's login prompt, as OpenSSH prints it, with echo off (ticket 120).
+const NESTED: &str =
+    "stty -echo; printf \"ops@esx-02's password: \"; read -r pw; stty echo; echo; echo \"got:[$pw]\"; sleep 5";
+
+#[test]
+fn a_nested_fill_types_only_at_a_prompt_the_session_printed() {
+    let m = SessionManager::new();
+    let (id, rx) = open(&m, host_sh(NESTED));
+    until(&rx, "password: ");
+    // A prompt the Session never printed (the frontend's word alone) is refused before the vault.
+    let mut asked = false;
+    match m.fill_printed(id, WAIT, "ops@esx-03's password:", |_| {
+        asked = true;
+        secret()
+    }) {
+        Err(FillError::NotPrinted) => {}
+        other => panic!("{other:?}"),
+    }
+    assert!(!asked);
+    m.fill_printed(id, WAIT, "ops@esx-02's password:", |_| secret())
+        .expect("filled");
+    let out = until(&rx, "got:") + &quiet_for(&rx, Duration::from_millis(200));
+    assert!(out.contains(&format!("got:[{SECRET}]")), "{out:?}");
+    m.close(id).unwrap();
+}
+
+#[test]
+fn a_nested_fill_looks_only_at_recent_output() {
+    // The prompt went by more than 4 KB ago: it's not the one the Session shows now.
+    let m = SessionManager::new();
+    let script =
+        "printf \"ops@esx-02's password: \\n\"; head -c 6000 /dev/zero | tr '\\0' x; echo; printf 'done '; sleep 5";
+    let (id, rx) = open(&m, host_sh(script));
+    until(&rx, "done ");
+    assert!(!m.printed(id, "ops@esx-02's password:").unwrap());
+    assert!(m.printed(id, "done").unwrap());
+    m.close(id).unwrap();
+}
