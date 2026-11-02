@@ -21,8 +21,9 @@ import { hostnameIn } from "../quick/hostname";
 import { formatQuickTarget, type QuickTarget } from "../quick/target";
 // Types only: the watch itself (xterm) comes from setFillPrompts, so this module loads without a
 // terminal (the docs site's generator reads tabs.ts's helpers in Node).
-import type { PasswordPrompt, PromptWatch } from "./prompt";
-import { ShellHooks, type IntegrateResult } from "./shellHooks";
+import type { Breadcrumb, FillHop, PasswordPrompt, PromptWatch } from "./prompt";
+import { ShellHooks, hasTyping, type IntegrateResult } from "./shellHooks";
+import { hopWords } from "./HopCrumb";
 
 export type TabStatus =
   | { state: "connecting" }
@@ -67,9 +68,12 @@ export interface Tab {
   prompt: PasswordPrompt | null;
   /** The folder the shell last said it's in (OSC 7, ticket 121); absent or null until it says. */
   cwd?: string | null;
+  /** Where a nested ssh took the Session (ticket 120): the Inventory Host it's on now, or a target
+   * roster can't resolve, until that ssh ends. Absent or null on the Session's own Host. */
+  hop?: Breadcrumb | null;
 }
 
-export type { PasswordPrompt };
+export type { Breadcrumb, FillHop, PasswordPrompt };
 
 /** How Tabs watches Host Sessions for sudo's prompt (ticket 119): `setFillPrompts`. */
 export interface FillPrompts {
@@ -79,10 +83,10 @@ export interface FillPrompts {
   watch(size: TermSize, user: string): PromptWatch;
 }
 
-/** What a tab's tooltip says about its Session: how it logged in, and the folder its shell is in
- * (OSC 7), a line each; empty when it knows neither yet. */
+/** What a tab's tooltip says about its Session: how it logged in, the Host a nested ssh took it to
+ * (ticket 120), and the folder its shell is in (OSC 7), a line each; empty when it knows none yet. */
 export function tabFacts(tab: Tab): string {
-  return [tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n");
+  return [tab.auth ? `${tab.auth} login` : "", tab.hop ? hopWords(tab.hop) : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n");
 }
 
 export interface SaveOffer {
@@ -497,7 +501,7 @@ export class Tabs {
     const fill = entry.tab.quick ? null : this.fillPrompts;
     const user = fill?.userOf(entry.tab.host) ?? null;
     const watch = (entry.watch = fill && user !== null ? fill.watch(entry.size, user) : null);
-    if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
+    if (entry.tab.prompt !== null || entry.tab.hop) entry.tab = { ...entry.tab, prompt: null, hop: null };
     entry.hooks?.stop();
     const hooks = (entry.hooks = this.hooksFor(entry, current));
     open(entry.size, {
@@ -520,7 +524,7 @@ export class Tabs {
           entry.session = null;
           watch?.dispose();
           if (entry.watch === watch) entry.watch = null;
-          if (entry.tab.prompt !== null) entry.tab = { ...entry.tab, prompt: null };
+          if (entry.tab.prompt !== null || entry.tab.hop) entry.tab = { ...entry.tab, prompt: null, hop: null };
           hooks.stop();
           // A Session that ends without saving: serve forgets the password it held for it.
           this.dropSave(entry);
@@ -586,6 +590,7 @@ export class Tabs {
         // Never while a password prompt is up or being filled (ticket 119): the hook line would
         // be taken for the password. The hooks try again at their next idle prompt.
         if (!current() || !entry.session || entry.tab.prompt !== null || entry.filling) return false;
+        entry.watch?.typed();
         void entry.session.write(line).catch(() => {});
         return true;
       },
@@ -835,7 +840,9 @@ export class Tabs {
     entry.tab = { ...entry.tab, prompt: null };
     this.changed();
     try {
-      return (await session.fill(prompt.line)).host;
+      // A nested ssh's prompt names the Host roster resolved it to (ticket 120); the core checks the
+      // Session printed it, and serve that the Host is still what it was resolved to.
+      return (await (prompt.hop ? session.fill(prompt.line, prompt.hop) : session.fill(prompt.line))).host;
     } catch (e) {
       if (watch && e instanceof BackendCallError && typeof e.code === "number") {
         watch.unspent();
@@ -856,6 +863,8 @@ export class Tabs {
     const entry = this.find(id);
     if (!entry) return;
     entry.hooks?.typed(data);
+    // A nested ssh's prompt after you've typed into it may not be its login's (ticket 120).
+    if (hasTyping(data)) entry.watch?.typed();
     if (entry.session) void entry.session.write(data).catch(() => {});
     else if (entry.tab.status.state === "connecting") entry.pending.push(data);
   }
@@ -881,9 +890,18 @@ export class Tabs {
   private promptChanged(entry: Entry, watch: PromptWatch) {
     if (entry.watch !== watch || !this.find(entry.tab.id)) return;
     const prompt = watch.prompt();
+    const hop = watch.hop();
     const was = entry.tab.prompt;
-    if (prompt?.line === was?.line && prompt?.elsewhere === was?.elsewhere && prompt?.marked === was?.marked) return;
-    entry.tab = { ...entry.tab, prompt };
+    const wasHop = entry.tab.hop ?? null;
+    const samePrompt =
+      prompt?.line === was?.line &&
+      prompt?.elsewhere === was?.elsewhere &&
+      prompt?.marked === was?.marked &&
+      prompt?.kind === was?.kind &&
+      prompt?.hop?.host === was?.hop?.host;
+    const sameHop = hop?.to === wasHop?.to && hop?.known === wasHop?.known;
+    if (samePrompt && sameHop) return;
+    entry.tab = { ...entry.tab, prompt, hop };
     this.changed();
   }
 }

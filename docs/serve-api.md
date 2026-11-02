@@ -179,7 +179,7 @@ A Host Session can ask for a password again once it's logged in. When the user p
 | Method | Params | Result | Errors | Since API |
 |---|---|---|---|---|
 | `session.fill` | `{host, address, port, user, prompt}` (exact Host name; what its Session connected to, from `session.prepare`'s `login`; the cursor's line) | `{host, login: "ssh"\|"sudo", password}` | `-32602`, `1`, `2`, `20`, `30`, `130`, `131`, `11`, `12`, `14`, `31`-`35` | 25 |
-| `session.fill` | `{host, address, port, user, prompt, hop: {host, address, port, user}}` (a nested ssh in the Session, ticket 120: the Inventory Host the app resolved it to, from the command line the shell's marks gave, and the address, port and user it resolved; the Session's own Host is still checked as above) | `{host, login, password}` for the `hop` Host: its ssh Login for its own `USER@HOST's password:`, its sudo for sudo's; 130 if that Host isn't reviewed-and-unchanged as the app resolved it | `-32602`, `2`, `20`, `30`, `130`, `131` | 26 |
+| `session.fill` | `{host, address, port, user, prompt, hop: {host, address, port, user}}` (a nested ssh in the Session: the Inventory Host the app resolved it to, from the command line the shell's marks gave, and the address, port and user it resolved; the Session's own Host is still checked as above) | `{host, login, password}` for the `hop` Host: its ssh Login for its own `USER@HOST's password:`, its sudo for sudo's; 130 if that Host isn't reviewed-and-unchanged as the app resolved it | `-32602`, `2`, `20`, `30`, `130`, `131` | 26 |
 
 <!-- END generated:methods -->
 

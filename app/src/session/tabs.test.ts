@@ -970,7 +970,7 @@ describe("filling a password prompt (ticket 119)", () => {
 
   it("sends only the prompt line, and the tab's prompt goes once the Host answers", async () => {
     const { tabs, id, asked, print } = await atPrompt(async () => ({ host: "h" }));
-    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null, marked: false });
+    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null, marked: false, kind: "sudo", hop: null });
     const filled = tabs.fill(id);
     // Spent at once: no offer, and no second press, until a new prompt shows.
     expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
@@ -1021,6 +1021,63 @@ describe("filling a password prompt (ticket 119)", () => {
     const id = tabs.open(reviewed[0] ?? "");
     await settle();
     await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+  });
+});
+
+describe("a nested ssh (ticket 120)", () => {
+  const A = "\x1b]133;A\x07";
+  const B = "\x1b]133;B\x07";
+  const C = "\x1b]133;C\x07";
+  const D = "\x1b]133;D;0\x07";
+  const to = hosts.hosts.find((h) => h.reviewed && h.ssh.auth.startsWith("bw:"))!;
+
+  /** A tab on another Host whose marked shell the test drives, and whose fill the test answers. */
+  async function onHost() {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    let ev: SessionEvents | null = null;
+    const asked: unknown[] = [];
+    const typed: string[] = [];
+    backend.openSession = async (_host, _size, events) => {
+      ev = events;
+      const done = async () => {};
+      const write = async (d: string) => void typed.push(d);
+      return { id: 1, auth: "key", write, resize: done, close: done, fill: async (...args: unknown[]) => (asked.push(args), { host: to.name }) };
+    };
+    const tabs = new Tabs(backend);
+    tabs.setFillPrompts({ userOf: () => "admin", watch: (size, user) => new PromptWatch(size, user, { hosts: () => hosts.hosts, fill: true }) });
+    const id = tabs.open(reviewed.find((n) => n !== to.name) ?? "");
+    await settle();
+    const print = async (s: string) => {
+      (ev as SessionEvents | null)?.output(new TextEncoder().encode(s));
+      await settle();
+    };
+    await print(`${A}$ ${B}`);
+    return { tabs, id, asked, print, typed };
+  }
+
+  it("puts the Host the ssh went to on the tab until that ssh ends", async () => {
+    const { tabs, print } = await onHost();
+    await print(`ssh ${to.name}\r\n${C}`);
+    expect(tabs.snapshot().tabs[0]?.hop).toEqual({ to: to.name, known: true });
+    await print(`logout\r\n${D}${A}$ ${B}`);
+    expect(tabs.snapshot().tabs[0]?.hop).toBeNull();
+  });
+
+  it("sends the Host it went to with the prompt, and nothing of it comes back but the name", async () => {
+    const { tabs, id, asked, print } = await onHost();
+    await print(`ssh ${to.name}\r\n${C}admin@${to.name}'s password: `);
+    expect(tabs.snapshot().tabs[0]?.prompt).toMatchObject({ kind: "ssh", elsewhere: null });
+    await expect(tabs.fill(id)).resolves.toBe(to.name);
+    expect(asked).toEqual([[`admin@${to.name}'s password:`, { host: to.name, address: to.ip, port: 22, user: "admin" }]]);
+  });
+
+  it("takes keys typed into the ssh as a reason not to fill its prompt", async () => {
+    const { tabs, id, print } = await onHost();
+    await print(`ssh ${to.name}\r\n${C}Are you sure you want to continue connecting (yes/no)? `);
+    tabs.write(id, "yes\r");
+    await print(`yes\r\nadmin@${to.name}'s password: `);
+    expect(tabs.snapshot().tabs[0]?.prompt?.elsewhere).toMatch(/typed/);
+    await expect(tabs.fill(id)).rejects.toThrow(/typed/);
   });
 });
 

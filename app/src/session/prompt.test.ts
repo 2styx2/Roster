@@ -283,7 +283,7 @@ describe("PromptWatch: sudo on the Host a nested ssh is on", () => {
   it.each([
     ["ssh esx-02", "sudo ssh other", "ops", /ssh other/],
     ["ssh root@esx-02", "sudo -v", "root", /root/],
-    ["ssh -J jump esx-02", "sudo -v", "ops", /can't tell where/],
+    ["ssh -J jump esx-02", "sudo -v", "ops", /`ssh -J jump esx-02` is running/],
   ])("refuses after %j, running %j there", async (command, there, user, why) => {
     const w = await hopping([...ran(command, inner), SUDO_THERE(there, user)]);
     expect(w.prompt()?.elsewhere).toMatch(why);

@@ -22,7 +22,7 @@
 // first command its own marked shell runs: once a command there ends, its marks can't be told from
 // the outer shell's (a shell that dies sends no D). Without marks, nothing nested is offered.
 import { Terminal } from "@xterm/xterm";
-import type { TermSize } from "../backend/types";
+import type { NestedHost, TermSize } from "../backend/types";
 import { resolveHop, type Hop, type HopHost } from "./sshTarget";
 
 /** sudo's prompt, whole; the user is checked against the Session's login user. */
@@ -92,12 +92,7 @@ export interface PasswordPrompt {
 }
 
 /** The Host a nested ssh went to, as roster resolved it from the Inventory at its `C` mark. */
-export interface FillHop {
-  host: string;
-  address: string;
-  port: number;
-  user: string;
-}
+export type FillHop = NestedHost;
 
 /** Where a nested ssh took the Session (ticket 120): an Inventory Host, or a target roster can't
  * resolve (`known: false`). */
@@ -280,7 +275,9 @@ export class PromptWatch {
   private innerSudo(state: HopState, line: string, who: string): PasswordPrompt | null {
     const { hop, inner } = state;
     const refuse = (why: string): PasswordPrompt => ({ line, elsewhere: why, marked: true, kind: "sudo", hop: null });
-    if (!hop.known) return refuse(`roster can't tell where this ssh went: ${hop.why}`);
+    if (!hop.known) {
+      return who === this.user ? refuse(`\`${this.outer.command}\` is running, not sudo itself, so this prompt may be another machine's`) : null;
+    }
     if (who !== hop.user) return null;
     if (!this.hops?.fill) return refuse(`filling ${hop.host}'s sudo prompt needs a newer roster (API 26)`);
     if (hop.sudoFill) return refuse(hop.sudoFill);

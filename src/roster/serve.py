@@ -336,8 +336,8 @@ def session_fill(state, params):
     Result: `{host, login: "ssh"|"sudo", password}`
     Errors: -32602, 1, 2, 20, 30, 130, 131, 11, 12, 14, 31-35
     Since: API 25
-    Params: `{host, address, port, user, prompt, hop: {host, address, port, user}}` (a nested ssh in the Session,
-        ticket 120: the Inventory Host the app resolved it to, from the command line the shell's marks gave, and the
+    Params: `{host, address, port, user, prompt, hop: {host, address, port, user}}` (a nested ssh in the Session:
+        the Inventory Host the app resolved it to, from the command line the shell's marks gave, and the
         address, port and user it resolved; the Session's own Host is still checked as above)
     Result: `{host, login, password}` for the `hop` Host: its ssh Login for its own `USER@HOST's password:`, its
         sudo for sudo's; 130 if that Host isn't reviewed-and-unchanged as the app resolved it
