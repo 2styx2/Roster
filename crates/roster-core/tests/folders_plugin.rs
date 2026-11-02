@@ -29,7 +29,10 @@ fn data(test: &str) -> common::Temp {
 }
 
 fn host(data: &Path) -> PluginHost {
-    PluginHost::new(Arc::new(FakeServe), Limits::default()).with_data(data)
+    let host = PluginHost::new(Arc::new(FakeServe), Limits::default()).with_data(data);
+    // As the app does before any Plugin loads (issue #184): Folders' `folder` is its own.
+    host.set_builtins(["open".to_string(), "connect".to_string()]);
+    host
 }
 
 fn read() -> Vec<Permission> {

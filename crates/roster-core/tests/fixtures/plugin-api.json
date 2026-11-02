@@ -1144,6 +1144,14 @@
       "since": 2
     }
   ],
+  "roster_only": [
+    "plugins",
+    "packages",
+    "publish",
+    "source",
+    "config",
+    "vault"
+  ],
   "tags": {
     "roster-Change": "plugin-api#change",
     "roster-ChangesDiff": "plugin-api#changesdiff",

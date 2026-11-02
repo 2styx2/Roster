@@ -57,6 +57,8 @@ fn plugin_dir(test: &str, permissions: &[&str], init: &str) -> common::Temp {
 
 fn listening(serve: &Arc<Recorded>, limits: Limits) -> (PluginHost, Receiver<Reply>) {
     let host = PluginHost::new(Arc::clone(serve) as Arc<dyn Serve>, limits);
+    // The app tells it its built-in commands before any Plugin loads (issue #184).
+    host.set_builtins([]);
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     host.set_listener(Arc::new(move |r: Reply| {

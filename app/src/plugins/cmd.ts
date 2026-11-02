@@ -14,6 +14,10 @@ interface CommandRule {
 
 export const PLUGIN_COMMANDS: readonly CommandRule[] = (api as { commands: CommandRule[] }).commands;
 
+/** roster's commands that change trust or writes (api.rs's ROSTER_ONLY): never a Plugin's own,
+ * even before the app has told the core its built-in commands (`pluginBuiltins`, issue #184). */
+export const ROSTER_ONLY: readonly string[] = api.roster_only;
+
 /** Why `plugin` (granted `granted`) may not run `line`, or null when it may. `sourceOf` is the
  * command table's: who registered the command named so (undefined: there's none). */
 export function lineRefused(line: string, plugin: string, granted: readonly string[], sourceOf: (name: string) => string | undefined): string | null {
