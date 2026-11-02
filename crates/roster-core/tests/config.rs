@@ -1430,3 +1430,43 @@ fn a_deprecated_option_applies_under_its_new_name_and_is_named() {
     // Without the rename, the old name is just unknown.
     assert!(config::load_source(&dir, lua, &config::Env::default()).is_err());
 }
+
+/// Ticket 138: init.lua runs as a block, so a one-line `require` of a module that returns
+/// nothing (the Neovim layout: `init.lua` → `lua/<name>/init.lua`) loads, with or without a
+/// leading comment.
+#[test]
+fn a_one_line_require_of_a_module_that_returns_nothing_loads() {
+    for (name, init) in [
+        ("plain", "require(\"me\")"),
+        ("comment", "-- my config\nrequire(\"me\")\n"),
+    ] {
+        let dir = with_init(&format!("block-{name}"), init);
+        std::fs::create_dir_all(dir.join("lua/me")).unwrap();
+        std::fs::write(
+            dir.join("lua/me/init.lua"),
+            "roster.set(\"terminal.size\", \"16pt\")\n",
+        )
+        .unwrap();
+        let config = config::load(&dir).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(config.terminal.size, config::FontSize::Pt(16.0), "{name}");
+    }
+}
+
+/// Ticket 138: `return require(...)` of a module that returns nothing returns `true`; the error
+/// says why.
+#[test]
+fn returning_true_from_require_gets_a_hint() {
+    let dir = with_init("block-return", "return require(\"me\")\n");
+    std::fs::write(dir.join("me.lua"), "roster.set(\"vim\", false)\n").unwrap();
+    let e = config::load(&dir).unwrap_err();
+    assert!(e.message.contains("returned true"), "{e}");
+    assert!(e.message.contains("leave out the `return`"), "{e}");
+}
+
+/// Ticket 138: a bare table with no `return` isn't a Config; it's a syntax error at its line.
+#[test]
+fn a_bare_table_without_return_is_a_syntax_error_at_its_line() {
+    let dir = with_init("block-bare", "-- config\n{ vim = false }\n");
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!((e.file.as_str(), e.line), ("init.lua", Some(2)), "{e}");
+}

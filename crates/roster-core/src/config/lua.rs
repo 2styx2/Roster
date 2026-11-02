@@ -90,11 +90,13 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
     let roster = roster_api(&lua, env, Rc::clone(&api), Rc::clone(&budget)).map_err(internal)?;
     set_api(&lua, roster).map_err(internal)?;
 
+    // A block, as Lua runs a file (ticket 138): `eval` would first try `return <file>`, so a
+    // one-line `require("x")` would return what the module returned (`true` for nothing).
     let value: Value = lua
         .load(source)
         .set_name(format!("@{FILE_NAME}"))
         .set_mode(ChunkMode::Text)
-        .eval()
+        .call(())
         .map_err(|e| from_lua_error(&e))?;
     if let Value::Table(t) = &value {
         let packages: Value = t.raw_get("packages").map_err(|e| from_lua_error(&e))?;
@@ -114,6 +116,14 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
             message: located_message(&e.path, &e.message),
             path: e.path,
         })?,
+        Value::Boolean(true) => {
+            return Err(ConfigError::new(
+                None,
+                "init.lua returned true (what `require` gives for a module that returns nothing): \
+                 leave out the `return`, or return a table"
+                    .into(),
+            ));
+        }
         other => {
             return Err(ConfigError::new(
                 None,
