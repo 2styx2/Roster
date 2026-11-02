@@ -820,21 +820,11 @@ button.danger { background: var(--danger); color: var(--danger-text); border-col
    Session's Host outward), the name fades in; both go at once when the ssh ends. Reduced motion
    keeps the fade and drops the draw. No accent: the live bar is the Session's own. Dashed and muted
    when roster can't resolve where the ssh went. */
-.hop { display: inline-flex; align-items: center; gap: 4px; margin-left: 5px; min-width: 0; vertical-align: bottom; font-family: var(--font-mono); color: var(--text); }
-.hop-edge {
-  flex: none; width: 10px; height: 0; border-top: 1px solid var(--muted); transform-origin: left center;
-  transition: transform var(--dur-draw) var(--ease-out);
-  @starting-style { transform: scaleX(0); }
-}
-.hop-name {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: isolate;
-  transition: opacity var(--dur-fade) ease;
-  @starting-style { opacity: 0; }
-}
+.hop { display: inline-flex; align-items: center; gap: 4px; margin-left: 5px; max-width: 18ch; font-family: var(--font-mono); }
+.hop-edge { width: 10px; border-top: 1px solid var(--muted); transform-origin: left; transition: transform var(--dur-draw) var(--ease-out); @starting-style { transform: scaleX(0); } }
+.hop-name { overflow: hidden; text-overflow: ellipsis; transition: opacity var(--dur-fade) ease; @starting-style { opacity: 0; } }
+.hop.unknown { color: var(--muted); }
 .hop.unknown .hop-edge { border-top-style: dashed; }
-.hop.unknown .hop-name { color: var(--muted); }
-.tab .hop { max-width: 22ch; }
-.sb-name .hop { max-width: 16ch; }
 /* State dots in the tab strip. */
 .st {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; vertical-align: 1px;
