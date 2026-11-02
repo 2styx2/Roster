@@ -122,8 +122,9 @@ CANT_ADD = 123              # discover.add: an address the scan didn't find, or 
                             #   data.addresses
 
 # Filling a password prompt in a Session (ticket 119, decision Q129): session.fill
-FILL_REFUSED = 130          # the prompt isn't one roster fills, or it asks for another Host or account than the
-                            #   Session's; data.prompt: what roster read it as (sudo, su, ssh), when it is one
+FILL_REFUSED = 130          # the prompt isn't provably this Host's own Login's (another Host or account, su's bare
+                            #   Password:), or the Host changed since the Session connected; data.prompt: what roster
+                            #   read it as (sudo, su, ssh), when it is one
 NOTHING_TO_FILL = 131       # the Login that would answer has no saved password (auth: agent, key, none, prompt)
 
 

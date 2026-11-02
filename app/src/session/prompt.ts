@@ -1,127 +1,220 @@
-// Whether a Session is waiting at a password prompt (ticket 119, decision Q129), read from its
-// output as it streams in: the text of the line at the cursor, with escape sequences gone, matched
-// against sudo's, su's and ssh's prompts. It only decides whether to *offer* the fill key: the
-// Host prints it all, so it can forge a prompt. What makes filling safe is checked elsewhere: serve
-// refuses a prompt naming another Host or account, and the core types the secret only after a
-// probe shows the prompt doesn't echo (crates/roster-core/src/session.rs, `fill`).
+// Whether a Host Session waits at sudo's password prompt for its login user (ticket 119, decision
+// Q129), read off a terminal's screen of its own (xterm's, never opened, as committed.ts does), so
+// what the line shows is what the user sees: colours, rewrites and redraws are the terminal's. It
+// only decides whether to *offer* the fill key; the Host prints all of it and can forge any of it.
+// What makes a fill safe is checked elsewhere too: serve refuses a prompt that isn't this Host's
+// own Login's, and a Host edited since the Session connected, and the core types the secret only
+// after a probe shows the prompt doesn't echo (crates/roster-core/src/session.rs, `fill`).
 //
-// OSC 133 marks (Q121), when the shell prints them, are advice on top: the shell's own prompt
-// (between `A` and `C`) is never a password prompt, and a command that leaves the Host (`ssh`,
-// `mosh`, `telnet`) or a marked shell starting inside a command means a prompt may be another
-// Host's, so roster refuses until that command's `D`, or for good when it can't pair them. Without
-// marks roster can't tell that you ssh'd elsewhere unless the prompt says so (T120 will).
+// The rule is to refuse whenever in doubt. Only sudo's own prompt naming the login user is offered
+// (`[sudo] password for ops:`): a bare `Password:` (su's, a login's) or ssh's says nothing roster
+// can check here. With the shell's OSC 133 marks (Q121, or roster's shell hooks, Q130), it's
+// offered only while the command running is sudo itself, running nothing that reaches another
+// machine, and has printed nothing but sudo's own lines; at the shell's own prompt nothing is
+// offered, and once a marked shell starts inside a command roster stays unsure for good. Without
+// marks roster can't tell whether you've left the Host, and the offer says so (T120 will tell).
+import { Terminal } from "@xterm/xterm";
+import type { TermSize } from "../backend/types";
 
-/** sudo's, su's (and login's, passwd's current one) and ssh's password prompts, whole. */
-const PROMPT = /^(?:\[sudo\] password for [^\s:]+|[^\s@']+@[^\s@']+'s password|password(?: for [^\s:]+)?):$/i;
-/** A command line that takes the terminal to another machine. */
-const HOP = /^\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*\/)?(ssh|mosh|telnet|rlogin|rsh|autossh|sshpass)\b/;
-/** The cursor's line is kept to this many characters (a prompt is short). */
-const LINE_MAX = 512;
+/** sudo's prompt, whole; the user is checked against the Session's login user. */
+const SUDO = /^\[sudo\] password for ([^\s:]+):$/;
+/** What sudo itself prints while it asks: its prompt (the password isn't echoed) and a retry. */
+const SUDO_OWN = /^(?:\[sudo\] password for [^\s:]+:|Sorry, try again\.|)$/;
+/** Programs that reach another machine, or run another program that may: sudo running any of
+ * them is not sudo alone. */
+const REMOTE = new Set([
+  "ssh", "slogin", "mosh", "telnet", "rlogin", "rsh", "autossh", "sshpass", "ssh-copy-id", "scp", "sftp", "rsync",
+  "ftp", "docker", "podman", "kubectl", "oc", "lxc", "lxc-attach", "incus", "nc", "ncat", "netcat", "socat", "virsh",
+  "machinectl", "nsenter", "chroot", "su", "sudo", "doas", "pdsh", "ansible", "salt", "vagrant", "multipass",
+  "screen", "tmux", "script", "expect", "env", "exec", "command", "time", "nice", "nohup", "stdbuf", "timeout",
+  "xargs", "watch", "eval",
+]); // prettier-ignore
+/** sudo's options that take a value. */
+const SUDO_ARG = new Set([
+  "-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group", "--host", "--prompt",
+  "--close-from", "--chdir", "--role", "--type", "--other-user", "--command-timeout",
+]); // prettier-ignore
+/** Shell syntax that runs more than one program, or one roster can't see. */
+const SHELL_SYNTAX = /[;&|`<>(){}]|\$\(/;
+/** Lines of the screen kept above it, so where `B` left the cursor survives a scroll. */
+const SCROLLBACK = 200;
+
+const base = (word: string) => word.replace(/^['"]+|['"]+$/g, "").split("/").pop() ?? "";
+
+/** Whether `command` runs sudo itself and nothing that reaches another machine: env assignments,
+ * then `sudo`, its options, and a program that isn't one of REMOTE (nor is any word after it). */
+export function sudoOnly(command: string): boolean {
+  if (SHELL_SYNTAX.test(command)) return false;
+  const words = command.trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i] ?? "")) i++;
+  if (base(words[i] ?? "") !== "sudo") return false;
+  i++;
+  while ((words[i] ?? "").startsWith("-")) {
+    const opt = words[i] ?? "";
+    i++;
+    if (opt === "--") break;
+    if (SUDO_ARG.has(opt)) i++;
+  }
+  return words.slice(i).every((w) => !REMOTE.has(base(w)));
+}
+
+export interface PasswordPrompt {
+  /** The prompt line, as the Host printed it. */
+  line: string;
+  /** Why roster won't fill it (the marks say it may be another machine's); null: it may. */
+  elsewhere: string | null;
+  /** The shell's marks told roster what runs; false: it can't tell whether you've left the Host. */
+  marked: boolean;
+}
 
 type Phase = "none" | "prompt" | "input" | "output" | "idle";
 
 export class PromptWatch {
-  private line = "";
-  /** An escape sequence cut off at the end of a chunk, finished by the next one. */
-  private pending = "";
+  private readonly term: Terminal;
+  private readonly user: string;
   private phase: Phase = "none";
-  /** The command line typed since `B` (escape sequences gone), read at `C`. */
-  private typed = "";
-  /** Why a prompt may be another Host's now; `sticky` when no `D` can end it. */
-  private hop: { why: string; sticky: boolean } | null = null;
+  /** Where `B` left the cursor: a line of the buffer (scrollback included) and a column. */
+  private start: { line: number; col: number } | null = null;
+  /** The running command's line, read at `C`; null when it couldn't be read. */
+  private command: string | null = null;
+  /** The running command printed a line that isn't sudo's own. */
+  private dirty = false;
+  /** The line a `C` came on before its line feed (pwsh's, and some shells'): the command line's,
+   * not the command's output. */
+  private cLine: number | null = null;
+  /** A marked shell started inside a command: roster can't pair the marks again. */
+  private nested = false;
+  private writes = 0;
+  /** A fill was tried at the prompt as it was after this many writes: not offered again until more. */
+  private spentAt = -1;
 
-  /** More of the Session's output, decoded. */
-  feed(text: string) {
-    const s = this.pending + text;
-    this.pending = "";
-    let i = 0;
-    while (i < s.length) {
-      const ch = s[i] ?? "";
-      if (ch === "\x1b") {
-        const end = escapeEnd(s, i);
-        if (end === null) {
-          this.pending = s.slice(i);
-          if (this.pending.length > 4096) this.pending = ""; // never a real sequence: drop it
-          return;
-        }
-        const seq = s.slice(i, end);
-        if (seq.startsWith("\x1b]133;")) this.mark(seq.slice(6, seq.endsWith("\x07") ? -1 : -2));
-        i = end;
-        continue;
-      }
-      i++;
-      if (ch === "\n" || ch === "\r") {
-        if (this.phase === "input" && ch === "\n") this.typed += "\n";
-        this.line = "";
-      } else if (ch === "\b") {
-        this.line = this.line.slice(0, -1);
-        if (this.phase === "input") this.typed = this.typed.slice(0, -1);
-      } else if (ch >= " " || ch === "\t") {
-        if (this.line.length < LINE_MAX) this.line += ch;
-        if (this.phase === "input" && this.typed.length < LINE_MAX) this.typed += ch;
-      }
+  /** A watch for a Session of `size` whose login user is `user`. */
+  constructor(size: TermSize, user: string) {
+    this.user = user;
+    this.term = new Terminal({ cols: size.cols, rows: size.rows, scrollback: SCROLLBACK, allowProposedApi: false });
+    this.term.onLineFeed(() => this.lineFeed());
+    this.term.parser.registerOscHandler(133, (data) => {
+      this.mark(data);
+      return true;
+    });
+  }
+
+  /** Feeds the terminal; resolves once it has taken in `data`. */
+  write(data: Uint8Array | string): Promise<void> {
+    this.writes++;
+    return new Promise((resolve) => this.term.write(data, resolve));
+  }
+
+  resize(size: TermSize) {
+    if (size.cols === this.term.cols && size.rows === this.term.rows) return;
+    this.term.resize(size.cols, size.rows);
+    this.start = null; // reflowed: rows aren't where they were
+  }
+
+  /** A fill was tried at this prompt: it isn't offered again until the Session prints more. */
+  spent() {
+    this.spentAt = this.writes;
+  }
+
+  dispose() {
+    this.term.dispose();
+  }
+
+  /** sudo's prompt for the login user at the cursor, and whether roster may fill it; null when
+   * there's none (or the marks say it's the shell's own prompt, or a fill was just tried). */
+  prompt(): PasswordPrompt | null {
+    if (this.writes === this.spentAt) return null;
+    const b = this.term.buffer.active;
+    if (b.type !== "normal") return null;
+    const row = b.getLine(b.baseY + b.cursorY);
+    const line = (row?.translateToString(false, 0, b.cursorX) ?? "").trim();
+    const rest = (row?.translateToString(true, b.cursorX) ?? "").trim();
+    const m = SUDO.exec(line);
+    if (!m || m[1] !== this.user || rest !== "") return null;
+    if (this.phase === "none") return { line, elsewhere: null, marked: false };
+    if (this.phase !== "output") return null;
+    return { line, elsewhere: this.why(), marked: true };
+  }
+
+  /** Why the marks leave roster unsure this prompt is the Host's own sudo's; null when they don't. */
+  private why(): string | null {
+    if (this.nested) return "a shell started inside a command in this Session, so roster can't tell what runs now";
+    if (this.command === null) return "roster couldn't read the running command";
+    if (!sudoOnly(this.command)) return `\`${this.command}\` is running, not sudo itself, so this prompt may be another machine's`;
+    if (this.dirty) return "the command has printed more than sudo's own lines, so this prompt may be another machine's";
+    return null;
+  }
+
+  private lineFeed() {
+    if (this.phase !== "output") return;
+    const b = this.term.buffer.active;
+    const y = b.baseY + b.cursorY - 1;
+    const start = this.lineStartOf(y);
+    let text = "";
+    if (start === this.cLine) {
+      this.cLine = null;
+      return;
     }
-  }
-
-  /** The password prompt at the cursor, trimmed, or null: none, or the marks say it's the
-   * shell's own prompt. */
-  prompt(): string | null {
-    if (this.phase === "prompt" || this.phase === "input") return null;
-    const line = this.line.trim();
-    return PROMPT.test(line) ? line : null;
-  }
-
-  /** Why a prompt now may be another Host's, as far as the marks tell; null when they don't. */
-  elsewhere(): string | null {
-    return this.hop?.why ?? null;
+    for (let r = start; r <= y; r++) text += b.getLine(r)?.translateToString(true) ?? "";
+    if (!SUDO_OWN.test(text.trim())) this.dirty = true;
   }
 
   private mark(data: string) {
-    const kind = data.split(";")[0];
-    switch (kind) {
+    const b = this.term.buffer.active;
+    if (b.type !== "normal") return;
+    switch (data.split(";")[0]) {
       case "A":
-        if (this.phase === "output") this.hop = { why: "a shell started inside a command in this Session", sticky: true };
+      case "N":
+        if (this.phase === "output") this.nested = true;
         this.phase = "prompt";
+        this.start = null;
         return;
       case "B":
         this.phase = "input";
-        this.typed = "";
+        this.start = { line: b.baseY + b.cursorY, col: b.cursorX };
         return;
-      case "C": {
+      case "C":
         if (this.phase === "output") return;
-        const command = (this.typed.split("\n").find((l) => l.trim()) ?? "").trim();
-        if (HOP.test(command) && !this.hop?.sticky) this.hop = { why: `\`${command}\` is running in this Session`, sticky: false };
+        this.command = this.phase === "input" ? this.commandLine() : null;
         this.phase = "output";
+        this.dirty = false;
+        this.start = null;
+        this.cLine = b.cursorX > 0 ? this.lineStartOf(b.baseY + b.cursorY) : null;
         return;
-      }
       case "D":
-        if (this.phase === "output" && this.hop && !this.hop.sticky) this.hop = null;
         this.phase = "idle";
+        this.command = null;
         return;
     }
   }
-}
 
-/** Where the escape sequence starting at `i` ends (exclusive), or null if `s` ends first. */
-function escapeEnd(s: string, i: number): number | null {
-  const next = s[i + 1];
-  if (next === undefined) return null;
-  if (next === "[") {
-    for (let j = i + 2; j < s.length; j++) {
-      const c = s.charCodeAt(j);
-      if (c >= 0x40 && c <= 0x7e) return j + 1;
-    }
-    return null;
+  /** The buffer line where the line through buffer line `y` starts (it may have wrapped). */
+  private lineStartOf(y: number): number {
+    const b = this.term.buffer.active;
+    while (y > 0 && b.getLine(y)?.isWrapped) y--;
+    return y;
   }
-  if (next === "]" || next === "P" || next === "_" || next === "^") {
-    for (let j = i + 2; j < s.length; j++) {
-      if (s[j] === "\x07") return j + 1;
-      if (s[j] === "\x1b" && s[j + 1] === "\\") return j + 2;
-      if (s[j] === "\x1b" && j + 1 >= s.length) return null;
+
+  /** The command line, from where `B` left the cursor to where it is at `C`, as the screen shows
+   * it; null if it scrolled away or was reflowed. */
+  private commandLine(): string | null {
+    const start = this.start;
+    const b = this.term.buffer.active;
+    if (!start || start.line < 0) return null;
+    let end = b.baseY + b.cursorY;
+    let endCol = b.cursorX;
+    if (endCol === 0 && end > start.line) {
+      end--;
+      endCol = this.term.cols;
     }
-    return null;
+    let text = "";
+    for (let y = start.line; y <= end; y++) {
+      const row = b.getLine(y);
+      if (!row) return null;
+      const last = y === end;
+      text += row.translateToString(false, y === start.line ? start.col : 0, last ? endCol : this.term.cols);
+    }
+    return text.trim() || null;
   }
-  // Two-character sequences (ESC 7, ESC =, ESC ( B takes three).
-  if (next === "(" || next === ")") return s.length > i + 2 ? i + 3 : null;
-  return i + 2;
 }

@@ -165,7 +165,7 @@ Commit and push the updated `roster.yml` to [yourteam/infra](https://example.com
 
 ## A separate sudo password
 
-The app's fill key (`␣ p`, [keyboard](app/keyboard.md)) types a Host's password at a `sudo`, `su` or nested `ssh` prompt in its Session. It uses the Host's ssh Login. When the Host's sudo (or su) password is a different one, or the Host logs in with a key and has no password in the vault, point `sudo:` at its own vault item, a reference like any `auth:`:
+The app's fill key (`␣ p`, [keyboard](app/keyboard.md)) types a Host's password at sudo's prompt in its Session. It uses the Host's ssh Login. When the Host's sudo password is a different one, or the Host logs in with a key and has no password in the vault, point `sudo:` at its own vault item, a reference like any `auth:`:
 
 ```yaml
       esx-02:
@@ -174,7 +174,7 @@ The app's fill key (`␣ p`, [keyboard](app/keyboard.md)) types a Host's passwor
         sudo: { auth: "bw:esx-02 sudo" }
 ```
 
-`sudo:` cascades from `defaults:` and groups like `ssh:`, and takes only `auth`. It must be a vault reference: `prompt`, `agent`, `key` and `none` have no password to fill. A nested ssh's prompt still takes the ssh Login. How the password travels, and when roster won't fill: [security.md](app/security.md#filling-a-password-prompt).
+`sudo:` cascades from `defaults:` and groups like `ssh:`, and takes only `auth`. It must be a vault reference: `prompt`, `agent`, `key` and `none` have no password to fill. `su` is never filled: its `Password:` doesn't say whose password it wants. How the password travels, and when roster won't fill: [security.md](app/security.md#filling-a-password-prompt).
 
 ## Things that aren't hosts
 

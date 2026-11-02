@@ -336,7 +336,8 @@ def test_session_prepare_for_an_enrolled_host(serve, write_config, capsys, fakes
     spec = serve().call("session.prepare", {"host": "box"})["result"]
     assert spec == {"argv": [shutil.which("ssh"), "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "box"],
                     "env": {},
-                    "host": "box", "auth": "key"}
+                    "host": "box", "auth": "key",
+                    "login": {"address": "10.0.0.5", "port": 22, "user": "ops"}}
     assert os.path.isabs(spec["argv"][0])
 
 

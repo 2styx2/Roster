@@ -77,7 +77,7 @@ A Host has `name`, `group`, `ip`, `ssh: {user, port, auth}`, `login: {user, auth
 
 | Method | Params | Result | Errors | Since API |
 |---|---|---|---|---|
-| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key"}`; password-only: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}` | `2`, `20`, `21`, `22`, `30`, `11`, `12`, `14`, `31`-`35`, `39`, `44` | 1 |
+| `session.prepare` | `{host}` (exact Host name) | key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", NAME], env: {}, host: NAME, auth: "key", login}`; password-only: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE: "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password", login}`. `login` (API 25) is `{address, port, user}`, what the Session connects to, for `session.fill` | `2`, `20`, `21`, `22`, `30`, `11`, `12`, `14`, `31`-`35`, `39`, `44` | 1 |
 | `session.prepare` | `{host, password, save?}` (an `auth: prompt` Host) | a password Session whose askpass token holds the typed `password`; with `save: true`, also `held`, the logged-in script as `LocalCommand` and `-o ControlPath=none` (below) | `-32602`, `22`, `61`, `44` | 13 |
 
 <!-- END generated:methods -->
@@ -172,22 +172,22 @@ A Host with `enroll: false` whose ssh Login is a vault reference (not `agent`/`k
 
 ### Filling a password prompt: `session.fill`
 
-A Host Session can ask for a password again once it's logged in: `sudo`, `su`, a nested `ssh` to the Host itself. When the user presses the fill key at such a prompt (ticket 119, decision Q129), the app's core asks serve which password answers it and types it into that Session's PTY. This is the one method whose result holds a secret: the core asks only for that key press, hands it to no one (not the frontend, a log or a Plugin; a Plugin's serve allow-list has no `session.*`), and types it only once it has checked that the prompt doesn't echo what's typed ([security.md](app/security.md#filling-a-password-prompt)).
+A Host Session can ask for a password again once it's logged in. When the user presses the fill key at sudo's prompt (ticket 119, decision Q129), the app's core asks serve which password answers it and types it into that Session's PTY. This is the one method whose result holds a secret: the core asks only for that key press, hands it to no one (not the frontend, a log or a Plugin; a Plugin's serve allow-list has no `session.*`), and types it only once it has checked that the prompt doesn't echo ([security.md](app/security.md#filling-a-password-prompt)).
 
 <!-- BEGIN generated:methods session.fill -->
 
 | Method | Params | Result | Errors | Since API |
 |---|---|---|---|---|
-| `session.fill` | `{host, prompt}` (exact Host name; the cursor's line) | `{host, login: "ssh"\|"sudo", password}` | `-32602`, `1`, `2`, `20`, `30`, `130`, `131`, `11`, `12`, `14`, `31`-`35` | 25 |
+| `session.fill` | `{host, address, port, user, prompt}` (exact Host name; what its Session connected to, from `session.prepare`'s `login`; the cursor's line) | `{host, login: "ssh"\|"sudo", password}` | `-32602`, `1`, `2`, `20`, `30`, `130`, `131`, `11`, `12`, `14`, `31`-`35` | 25 |
 
 <!-- END generated:methods -->
 
-`prompt` is the line at the Session's cursor, as the Host printed it, so it's the Host's word: it can narrow what's filled, never widen it. `[sudo] password for USER:`, `Password:` and `Password for USER:` (sudo, su, login) take the Host's `sudo: {auth: REF}` reference from `roster.yml` when it has one, else its ssh Login; `USER@HOST's password:` (a nested ssh) takes the ssh Login, and only when USER is the Login's user and HOST is the Host's name, its address or `localhost`. A prompt for another Host or account, or anything that isn't a password prompt (a key's passphrase, a code), is `130`; a Login with no saved password (`agent`, `key`, `none`, `prompt`) is `131`. The vault codes are `session.prepare`'s, naming the `sudo Login` when it's that one. serve's log names the method only.
+`prompt` is the line at the Session's cursor, as the Host printed it, so it's the Host's word: it can narrow what's filled, never widen it, and only a prompt that is provably this Host's own is filled. `[sudo] password for USER:` with USER the Host's ssh user takes its `sudo: {auth: REF}` from `roster.yml` when it has one, else its ssh Login; `USER@HOST's password:` (a nested ssh) takes the ssh Login only for the ssh user at the Host's own name or address (never `localhost`, which a tunnel can point anywhere). A bare `Password:` or `Password for USER:` (su asks for root's, a login for anyone's) says nothing roster can check, so it's `130` like a prompt for another Host or account and anything that isn't a password prompt (a key's passphrase, a code); a Login with no saved password (`agent`, `key`, `none`, `prompt`) is `131`. `address`, `port` and `user` are what the Session connected to, from `session.prepare`'s `login` (API 25): when the Host has been edited since, serve refuses with `130`, since it may be another box now. The vault codes are `session.prepare`'s, naming the `sudo Login` when it's that one. serve's log names the method only.
 
 | Code | Meaning |
 |---|---|
-| `130` | `session.fill`: the prompt isn't one roster fills (not a password prompt), or it asks for another Host or account than the Session's. `data.prompt`: `sudo`, `su`, `ssh` or `null`. Nothing was looked up |
-| `131` | `session.fill`: the Login that would answer has no saved password (`auth: agent`, `key`, `none` or `prompt`); a `sudo: {auth}` in `roster.yml` gives a Host one for sudo and su |
+| `130` | `session.fill`: the prompt isn't one roster fills (not sudo's for the ssh user or ssh's for that user at this Host; a bare `Password:`), it asks for another Host or account, or the Host changed since the Session connected. `data.prompt`: `sudo`, `su`, `ssh` or `null`. Nothing was looked up |
+| `131` | `session.fill`: the Login that would answer has no saved password (`auth: agent`, `key`, `none` or `prompt`); a `sudo: {auth}` in `roster.yml` gives a Host one for sudo's prompt |
 
 ## Diagnostics: `host.check`
 

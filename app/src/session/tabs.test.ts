@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FAKE_FINGERPRINT, FAKE_HOST_PASSWORD, fakeBackend, makeHosts, type FakeScenario } from "../backend/fake";
 import { BackendCallError, QUICK_CONNECT_API_VERSION, SAVE_TO_VAULT_API_VERSION, SessionRefusal, type SessionEvents } from "../backend/types";
 import { IDLE_MS, hookLine } from "./shellHooks";
+import { PromptWatch } from "./prompt";
 import { Tabs, type TabStatus } from "./tabs";
 
 const hosts = makeHosts(12);
@@ -955,20 +956,31 @@ describe("filling a password prompt (ticket 119)", () => {
       return { id: 1, auth: "key", write: done, resize: done, close: done, fill: (p: string) => (asked.push(p), fill(p)) };
     };
     const tabs = new Tabs(backend);
+    tabs.setFillPrompts({ userOf: () => "admin", watch: (size, user) => new PromptWatch(size, user) });
     const id = tabs.open(reviewed[0] ?? "");
     await settle();
     (ev as SessionEvents | null)?.output(new TextEncoder().encode("$ sudo -v\r\n[sudo] password for admin: "));
-    return { tabs, id, asked, print: (s: string) => (ev as SessionEvents | null)?.output(new TextEncoder().encode(s)) };
+    await settle();
+    const print = async (s: string) => {
+      (ev as SessionEvents | null)?.output(new TextEncoder().encode(s));
+      await settle();
+    };
+    return { tabs, id, asked, print };
   }
 
   it("sends only the prompt line, and the tab's prompt goes once the Host answers", async () => {
     const { tabs, id, asked, print } = await atPrompt(async () => ({ host: "h" }));
-    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null });
-    await expect(tabs.fill(id)).resolves.toBe("h");
-    expect(asked).toEqual(["[sudo] password for admin:"]);
-    print("\r\n$ ");
+    expect(tabs.snapshot().tabs[0]?.prompt).toEqual({ line: "[sudo] password for admin:", elsewhere: null, marked: false });
+    const filled = tabs.fill(id);
+    // Spent at once: no offer, and no second press, until a new prompt shows.
     expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
     await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+    await expect(filled).resolves.toBe("h");
+    expect(asked).toEqual(["[sudo] password for admin:"]);
+    await print("\r\nSorry, try again.\r\n[sudo] password for admin: ");
+    expect(tabs.snapshot().tabs[0]?.prompt?.line).toBe("[sudo] password for admin:");
+    await print("\r\n$ ");
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
   });
 
   it("shows the lock screen on a locked vault and says to press the key again", async () => {
@@ -981,13 +993,12 @@ describe("filling a password prompt (ticket 119)", () => {
     expect(locked).toHaveBeenCalledOnce();
   });
 
-  it("won't start a second fill while one is under way", async () => {
-    let finish: (v: { host: string }) => void = () => {};
-    const { tabs, id } = await atPrompt(() => new Promise((r) => (finish = r)));
-    const first = tabs.fill(id);
-    await expect(tabs.fill(id)).rejects.toThrow(/Already filling/);
-    finish({ host: "h" });
-    await expect(first).resolves.toBe("h");
+  it("watches nothing on an older roster, or a Quick Connect", async () => {
+    const backend = fakeBackend({ ...unlocked, hosts });
+    const tabs = new Tabs(backend);
+    const id = tabs.open(reviewed[0] ?? "");
+    await settle();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
   });
 });
 

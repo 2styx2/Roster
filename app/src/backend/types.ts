@@ -718,6 +718,10 @@ export interface QuickConnect extends QuickTarget {
   fingerprint: string;
 }
 
+/** Login references with no password behind them: roster's providers.NO_PASSWORD, kept in step by
+ * tests/test_prompt_fill.py. (`prompt` has none saved either, but it's a provider of its own.) */
+export const NO_PASSWORD_AUTHS = ["agent", "key", "none"] as const;
+
 /** The first `api_version` with `session.fill` (ticket 119): filling a password prompt. */
 export const FILL_API_VERSION = 25;
 

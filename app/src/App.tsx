@@ -129,6 +129,7 @@ import { useTheme } from "./theme/useTheme";
 import { Logo } from "./chrome/Logo";
 import { countOf } from "./ui/format";
 import { HintsChoice, HintsShown, registerHints } from "./ui/hints";
+import { PromptWatch } from "./session/prompt";
 import { MESSAGES_VIEW, MessageLog, MessagesChoice, logView, quiet, registerMessages, shownText, spokenText, type Message } from "./ui/messages";
 import { Keys } from "./ui/Keys";
 import {
@@ -907,6 +908,16 @@ function Workspace({
   // Pending changes (ticket 10): asked for once the Backend is up, and after every edit, discard
   // and pull. A roster older than API 5 has none to show.
   const apiVersion = conn.state === "ready" ? conn.info.inventory.api_version : 0;
+  // A prompt fill (ticket 119): Sessions to Hosts are watched for sudo's prompt for their login
+  // user, only on a roster that can fill one.
+  const canFill = apiVersion >= FILL_API_VERSION;
+  useEffect(
+    () =>
+      tabs.setFillPrompts(
+        canFill ? { userOf: (host) => hostByName.get(host)?.ssh.user ?? null, watch: (size, user) => new PromptWatch(size, user) } : null,
+      ),
+    [tabs, canFill, hostByName],
+  );
   const canEdit = apiVersion >= EDIT_API_VERSION;
   const canPublish = apiVersion >= PUBLISH_API_VERSION;
   const canAdd = apiVersion >= ADD_API_VERSION;
@@ -2193,7 +2204,7 @@ function Workspace({
               addressOf={(name) => hostByName.get(name)?.ip ?? null}
               canSave={canSave}
               saveKeys={hintFor(keymap, "save")}
-              canFill={apiVersion >= FILL_API_VERSION}
+              canFill={canFill}
               fillKeys={hintFor(keymap, "fill")}
               reveal={reveal}
             />

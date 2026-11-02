@@ -321,13 +321,13 @@ What a Plugin running in `:tutor`'s demo gets instead of the real thing ([the tu
 
 ## Filling a password prompt
 
-`␣ p` (`fill`) types the Host's password at a sudo, su or ssh prompt the Session shows ([security.md](security.md#filling-a-password-prompt)). Each refusal goes on the message line; nothing was typed but, for row 145, the probe, which leaves the prompt's line empty. A locked vault shows the lock screen (row 7); press the key again once it's unlocked.
+`␣ p` (`fill`) types the Host's password at sudo's prompt for its login user ([security.md](security.md#filling-a-password-prompt)). Each refusal goes on the message line; nothing was typed but, for row 145, the probe, which leaves the prompt's line empty. A locked vault shows the lock screen (row 7); press the key again once it's unlocked.
 
 | # | Code | What happened | Where it lives | Message (short) | Fix offered |
 |---|---|---|---|---|---|
-| 143 | 130 | The prompt asks for another Host or account (`root@10.0.0.9's password:`, `[sudo] password for root:` on a Host whose Login is `ops`), or isn't a password prompt at all | the Host | "won't fill on esx-02: the prompt asks for root@10.0.0.9's password, not ops@esx-02's" | Type that password yourself: roster fills only the Session's own Host |
+| 143 | 130 | The prompt asks for another Host or account (`root@10.0.0.9's password:`, `[sudo] password for root:` on a Host whose Login is `ops`), doesn't say whose (su's bare `Password:`), isn't a password prompt at all, or the Host was edited since the Session connected (a new address, port or user) | the Host / `roster.yml` | "won't fill on esx-02: the prompt asks for root@10.0.0.9's password, not ops@esx-02's" | Type that password yourself: roster fills only sudo's prompt for the Session's own Host; after an edit, reconnect |
 | 144 | 131 | The Login that would answer has no saved password (`auth: agent`, `key`, `none` or `prompt`) | `roster.yml` | "esx-02's ssh Login has no saved password to fill (auth: agent)" | Add `sudo: {auth: "bw:esx-02 sudo"}` to the Host for its own sudo password, or type it |
-| 145 | none (the core's, or the app's) | The prompt echoed the probe, or the Session printed something while roster checked (800 ms), or a key was typed meanwhile; no prompt on screen; the shell's marks say an `ssh` (or a nested shell) is running, so it may be another Host's; a Quick Connect (no Login) | the Host / roster | "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it" | Type it yourself; for `ssh` running, once it has ended the key works again |
+| 145 | none (the core's, or the app's) | The prompt echoed the probe, the Session printed something or a key was typed between the start of the fill and 800 ms after the probe, there's no sudo prompt for the login user on screen (or it was just tried), the shell's marks say the running command isn't sudo alone (an `ssh`, `docker exec`, `env`, a pipeline), it printed more than sudo's own lines, or a shell started inside a command, so it may be another machine's; a Quick Connect (no Login) | the Host / roster | "the prompt printed what roster typed to check it (it echoes, or it isn't a password prompt), so roster didn't fill it" | Type it yourself; for `ssh` running, once it has ended the key works again |
 
 ## See also
 

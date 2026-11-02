@@ -319,7 +319,7 @@ def session_prepare(state, params):
 
 
 def session_fill(state, params):
-    """The password for a prompt a Host Session shows (sudo, su, a nested ssh to the Host itself; ticket 119,
+    """The password for a prompt a Host Session shows (sudo's, or a nested ssh to the Host itself; ticket 119,
     decision Q129), for the app's core to type into that Session's PTY, and for nothing else: this is the one
     result that holds a secret. The core asks only when the user pressed the fill key at a detected prompt, never
     hands the result on (not to the frontend, a log or a Plugin, whose serve allow-list has no `session.*`), and

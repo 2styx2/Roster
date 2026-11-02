@@ -57,6 +57,7 @@ import {
   SessionRefusal,
   FILL_API_VERSION,
   FillRefusal,
+  NO_PASSWORD_AUTHS,
   HostKeyError,
   type QuickConnect,
   type QuickSave,
@@ -117,6 +118,8 @@ export interface FakeScenario {
   refusals?: Record<string, Refusal>;
   /** The fake shells print OSC 133 marks (Q121), and `ssh NAME` stays in NAME until `exit`. */
   shellMarks?: boolean;
+  /** Per Host: its `sudo: {auth}` in roster.yml (ticket 119), which a prompt fill uses first. */
+  sudoRefs?: Record<string, string>;
   /** Per Host: `session.fill` refuses with this (ticket 119: 130, 131, the vault's codes). */
   fillRefusals?: Record<string, Refusal>;
   /** Per Host: ssh prints this into the PTY and exits 255 (a refused port, a changed key…). */
@@ -340,7 +343,7 @@ const KP_WORDS = {
 
 /** Like roster: a Host that doesn't enroll a key and whose ssh Login is a vault reference. */
 export function authOf(h: Host): SessionAuth {
-  return !h.enroll && !["agent", "key", "none"].includes(h.ssh.auth) ? "password" : "key";
+  return !h.enroll && !(NO_PASSWORD_AUTHS as readonly string[]).includes(h.ssh.auth) ? "password" : "key";
 }
 
 /** `list` with its first reviewed Host's Login turned into `auth: prompt` (ticket 16). */
@@ -934,10 +937,12 @@ function fakeSession(
             continue;
           }
           if (line.trim() === "exit") return end(0, false);
-          if (extra.user && /^sudo\s/.test(line.trim())) {
+          if (extra.user && /^(sudo\s|su$)/.test(line.trim())) {
+            // su asks for root's password, and doesn't say whose: roster never fills it.
+            const asks = line.trim() === "su" ? "Password: " : `[sudo] password for ${extra.user}: `;
             line = "";
             password = true;
-            out(encode(`[sudo] password for ${extra.user}: `));
+            out(encode(asks));
             atPrompt = false;
             continue;
           }
@@ -1628,14 +1633,35 @@ export function fakeBackend(scenario: FakeScenario): FakeBackend {
         marks: scenario.shellMarks,
       });
       const { atPasswordPrompt, ...handle } = session;
-      // The core's prompt fill (ticket 119), as the Tauri build's: serve's refusals first, then the
-      // probe (an echoing prompt, or no prompt, refuses), then the password typed into the Session.
-      const fill = async () => {
+      // The core's prompt fill (ticket 119), as the Tauri build's: serve's refusals first (the Host
+      // changed since the Session connected, a prompt that isn't sudo's or ssh's for this Host's own
+      // Login, no saved password, the vault), then the probe (an echoing prompt, or no prompt,
+      // refuses), then the password typed into the Session.
+      const connected = { ip: h.ip, port: h.ssh.port, user: h.ssh.user };
+      const fill = async (prompt: string) => {
         await wait();
+        const now = hosts.find((x) => x.name === host);
+        if (!now) throw new BackendCallError(`unknown host '${host}'`, SessionRefusal.unknownHost);
+        if (now.ip !== connected.ip || now.ssh.port !== connected.port || now.ssh.user !== connected.user) {
+          throw new BackendCallError(`won't fill on ${host}: ${host} changed since this Session connected`, FillRefusal.refused, {
+            fix: "reconnect the Session, then fill",
+          });
+        }
         const refusal = scenario.fillRefusals?.[host];
         if (refusal) throw refuse(refusal);
-        if (["agent", "key", "none", "prompt"].includes(h.ssh.auth)) {
-          throw new BackendCallError(`${host}'s ssh Login has no saved password to fill (auth: ${h.ssh.auth})`, FillRefusal.nothingToFill, {
+        const line = prompt.trim();
+        const sudoFor = /^\[sudo\] password for ([^\s:]+):$/.exec(line)?.[1];
+        const sshFor = /^([^\s@']+)@([^\s@']+)'s password:$/.exec(line);
+        const own = sudoFor === now.ssh.user || (sshFor?.[1] === now.ssh.user && [now.name, now.ip].includes(sshFor[2] ?? ""));
+        if (!own) {
+          throw new BackendCallError(`won't fill on ${host}: '${line}' isn't a prompt roster fills for ${now.ssh.user}@${host}`, FillRefusal.refused, {
+            fix: "type that password yourself",
+          });
+        }
+        const sudoRef = sudoFor !== undefined ? scenario.sudoRefs?.[host] : undefined;
+        const ref = sudoRef ?? now.ssh.auth;
+        if (ref === "prompt" || (NO_PASSWORD_AUTHS as readonly string[]).includes(ref)) {
+          throw new BackendCallError(`${host}'s ssh Login has no saved password to fill (auth: ${ref})`, FillRefusal.nothingToFill, {
             fix: `add a sudo: {auth: VAULT-REFERENCE} to ${host} in roster.yml for its own sudo password, or type it yourself`,
           });
         }

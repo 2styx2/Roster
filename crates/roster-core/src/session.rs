@@ -485,7 +485,7 @@ impl SessionManager {
 }
 
 /// What a fill types at the prompt before the secret: Ctrl+U, a letter, Ctrl+U. At a prompt that
-/// doesn't echo (the terminal's line discipline with echo off, as sudo, su and ssh set it) the
+/// doesn't echo (the terminal's line discipline with echo off, as sudo sets it) the
 /// first Ctrl+U silently empties what was typed there, the letter is silently taken, and the
 /// last Ctrl+U silently takes it back: nothing is printed and the line is empty. At a prompt that
 /// echoes, the letter is printed, which is how roster tells.

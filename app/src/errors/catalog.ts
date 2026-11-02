@@ -615,7 +615,7 @@ export const builtinErrorRows: readonly ErrorRow[] = [
     row: 143,
     codes: [130],
     where: ["the Host"],
-    fix: () => "roster fills only the Session's own Host's sudo, su and ssh prompts: type this password yourself.",
+    fix: () => "roster fills only sudo's prompt for the Session's own Host's login user: type this password yourself, or reconnect if the Host was edited.",
     actions: [],
   }),
   row("fill-nothing-saved", {

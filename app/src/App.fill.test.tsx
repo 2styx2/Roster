@@ -57,11 +57,14 @@ describe("filling a password prompt", () => {
     await sudo(user);
     const note = await screen.findByRole("status", { name: "Password prompt" });
     expect(note).toHaveTextContent(`fill ${vaultHost}'s from the vault`);
+    // No shell marks here: the offer says roster can't tell where the Session is.
+    expect(note).toHaveTextContent(`can't tell whether you're still on ${vaultHost}`);
     expect(within(note).getByRole("button", { name: "Fill" })).toBeInTheDocument();
 
     await user.keyboard(`${LEADER}p`);
+    // Gone at once: a second press can't type it again.
+    expect(offer()).toBeNull();
     await within(output()).findByText(/\[sudo ok\]/);
-    await waitFor(() => expect(offer()).toBeNull());
     expect(document.body.innerHTML).not.toContain(FAKE_LOGIN_PASSWORD);
     // The keys go back to the shell, as after any command.
     expect(document.activeElement).toHaveAccessibleName("terminal input");
@@ -92,6 +95,25 @@ describe("filling a password prompt", () => {
     expect(output()).not.toHaveTextContent(/sudo ok/);
   });
 
+  it("fills a key-login Host's sudo prompt from its sudo: reference", async () => {
+    const user = await ready({ sudoRefs: { [keyHost]: `bw:${keyHost} sudo` } });
+    await connect(user, keyHost);
+    await sudo(user);
+    await user.keyboard(`${LEADER}p`);
+    await within(output()).findByText(/\[sudo ok\]/);
+  });
+
+  it("offers nothing at a prompt that doesn't say it's the login user's", async () => {
+    const user = await ready();
+    await connect(user, vaultHost);
+    await user.keyboard("su{Enter}");
+    await within(output()).findByText(/Password:/);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(offer()).toBeNull();
+    await user.keyboard(`${LEADER}p`);
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/No password prompt/));
+  });
+
   it("shows serve's refusal of a prompt for another Host", async () => {
     const user = await ready({
       fillRefusals: { [vaultHost]: { code: FillRefusal.refused, message: `won't fill on ${vaultHost}: the prompt asks for root@10.0.0.9's password` } },
@@ -110,9 +132,10 @@ describe("filling a password prompt", () => {
     await sudo(user);
     const note = await screen.findByRole("status", { name: "Password prompt" });
     expect(note).toHaveTextContent(/ssh other.*won't fill it/);
+    expect(note).not.toHaveTextContent(/can't tell/);
     expect(within(note).queryByRole("button")).toBeNull();
     await user.keyboard(`${LEADER}p`);
-    await waitFor(() => expect(messageLine()).toHaveTextContent(/may be another Host's/));
+    await waitFor(() => expect(messageLine()).toHaveTextContent(/may be another machine's/));
     expect(output()).not.toHaveTextContent(/sudo ok/);
   });
 

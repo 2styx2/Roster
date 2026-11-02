@@ -97,7 +97,7 @@ The focus state where keys drive the app (the Picker, tabs, panels, the command 
 _Avoid_: normal mode, command mode
 
 **Prompt fill**:
-Typing a Host's password from the vault at a sudo, su or ssh password prompt in its Session, when the user presses the fill key (`␣ p`); only at a prompt that doesn't echo, and only the Session's own Host's (decision Q129).
+Typing a Host's password from the vault at sudo's prompt for its login user in its Session, when the user presses the fill key (`␣ p`); only at a prompt that doesn't echo, and only one that's provably the Session's own Host's (decision Q129).
 _Avoid_: autofill, auto-type
 
 **Lock**:
