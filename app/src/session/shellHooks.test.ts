@@ -7,8 +7,10 @@ describe("promptShell: which shell an idle prompt is, from what it printed", () 
     ["root@web-01:~# ", "posix"],
     ["web-01% ", "posix"],
     ["bash-5.2$ ", "posix"],
+    ["[user@web-01 ~]$ ", "posix"],
     ["\x1b[01;32muser@web-01\x1b[00m:\x1b[01;34m~\x1b[00m$ ", "posix"],
     ["\x1b]0;user@web-01: ~\x07user@web-01:~$ ", "posix"],
+    ["[web-01 ~]\r\n$ ", "posix"],
     ["user@web-01 ~> ", "fish"],
     ["root@web-01 /etc# ", "fish"],
     ["PS C:\\Users\\admin> ", "pwsh"],
@@ -28,6 +30,11 @@ describe("promptShell: which shell an idle prompt is, from what it printed", () 
     ["", "nothing yet"],
     ["user@web-01:~$ ls", "a prompt with something typed"],
     ["Press any key to continue", "a banner"],
+    ["user@web-01:~ % ", "tcsh's default prompt"],
+    ["root@web-01:~ # ", "tcsh's root prompt"],
+    ["% ", "a bare %"],
+    ["Choice # ", "a menu asking for a number"],
+    ["Enter selection # ", "a menu"],
   ])("%j (%s) is nothing it knows", (out) => {
     expect(promptShell(out)).toBeNull();
   });
@@ -98,13 +105,23 @@ describe("ShellHooks: when roster sends the hook line, and what the screen shows
     expect(marked.sent).toEqual([]);
   });
 
-  it("doesn't count the terminal's own answers (a cursor report, focus) as typing", () => {
+  it("doesn't count the terminal's own answers (reports, focus, mouse, keyboard modes) as typing", () => {
     const { hooks, sent, print } = setup();
-    hooks.typed("\x1b[24;1R");
-    hooks.typed("\x1b[I");
+    for (const reply of [
+      "\x1b[24;1R", "\x1b[I", "\x1b[O", "\x1b[?62;22c", "\x1b[>0;276;0c", "\x1b[?2004;2$y", "\x1bP1$r0m\x1b\\",
+      "\x1b[?1u", "\x1b[<0;10;5M", "\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\", "\x1bOA",
+    ]) hooks.typed(reply);
     print(PROMPT);
     vi.advanceTimersByTime(IDLE_MS);
     expect(sent).toHaveLength(1);
+  });
+
+  it.each(["a", "\r", "\x03", "\t", "ls\x1b[D"])("counts %j as typing", (keys) => {
+    const { hooks, sent, print } = setup();
+    hooks.typed(keys);
+    print(PROMPT);
+    vi.advanceTimersByTime(IDLE_MS);
+    expect(sent).toEqual([]);
   });
 
   it("waits through a login that isn't at a prompt it knows, and gives up after a while", () => {
@@ -160,7 +177,7 @@ describe("ShellHooks: when roster sends the hook line, and what the screen shows
     expect(screen()).toBe("[web-01 ~]\r\n$ " + "\r\x1b[1A\x1b[J" + A + "[web-01 ~]\r\n$ " + B);
   });
 
-  it("shows everything as it came when the shell said something else, never marked, or the user typed", () => {
+  it("shows everything as it came when the shell said something else or the user typed, and clears a silent no-op", () => {
     const error = setup();
     error.print(PROMPT);
     vi.advanceTimersByTime(IDLE_MS);
@@ -175,7 +192,8 @@ describe("ShellHooks: when roster sends the hook line, and what the screen shows
     silent.print(echo + "user@web-01:~$ ");
     expect(silent.screen()).toBe(PROMPT);
     vi.advanceTimersByTime(HOLD_MS);
-    expect(silent.screen()).toBe(PROMPT + echo + "user@web-01:~$ ");
+    // A shell that ran the line and printed no marks (dash): its echo is cleared, the prompt stays.
+    expect(silent.screen()).toBe(PROMPT + "\r\x1b[Juser@web-01:~$ ");
     vi.useRealTimers();
 
     const typing = setup();
@@ -197,28 +215,94 @@ describe("ShellHooks: when roster sends the hook line, and what the screen shows
     expect(folders).toEqual(["/home/user/my src", "/etc", "/bad%zz"]);
   });
 
-  it("sends the line when asked (:integrate), or says why not", () => {
+  it("sends the line when asked (:integrate), and says whether the marks came back, or why not", async () => {
     const now = setup({ enabled: false });
     now.print(PROMPT);
     vi.advanceTimersByTime(IDLE_MS);
-    expect(now.hooks.integrate()).toBe("sent");
+    const on = now.hooks.integrate();
     expect(now.sent).toEqual([hookLine("posix") + "\r"]);
-    expect(now.hooks.integrate()).toBe("sent-already");
+    now.print(now.sent[0]!.slice(0, -1) + "\r\n" + A + "user@web-01:~$ " + B);
+    expect(await on).toBe("on");
+    expect(await now.hooks.integrate()).toBe("on");
+    vi.useRealTimers();
+
+    const never = setup({ enabled: false });
+    never.print(PROMPT);
+    const off = never.hooks.integrate();
+    never.print(never.sent[0]!.slice(0, -1) + "\r\nuser@web-01:~$ ");
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(await off).toBe("no-marks");
+    expect(await never.hooks.integrate()).toBe("no-marks");
     vi.useRealTimers();
 
     const busy = setup({ enabled: false });
     busy.print("user@web-01:~$ ls");
-    expect(busy.hooks.integrate()).toBe("no-prompt");
+    expect(await busy.hooks.integrate()).toBe("no-prompt");
     vi.useRealTimers();
 
     const marked = setup({ enabled: false });
     marked.print(`${A}$ ${B}`);
-    expect(marked.hooks.integrate()).toBe("marked");
+    expect(await marked.hooks.integrate()).toBe("marked");
     vi.useRealTimers();
 
     const closed = setup({ enabled: false, session: false });
     closed.print(PROMPT);
-    expect(closed.hooks.integrate()).toBe("not-open");
+    expect(await closed.hooks.integrate()).toBe("not-open");
+  });
+
+  it("clears the echo and the error of a shell that doesn't take the line (tcsh), leaving the prompt as it was", () => {
+    const { sent, print, screen } = setup();
+    print("[user@web-01 ~]$ ");
+    vi.advanceTimersByTime(IDLE_MS);
+    print(sent[0]!.slice(0, -1) + "\r\nBASH_VERSION: Undefined variable.\r\n[user@web-01 ~]$ ");
+    expect(screen()).toBe("[user@web-01 ~]$ ");
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(screen()).toBe("[user@web-01 ~]$ " + "\r\x1b[J[user@web-01 ~]$ ");
+  });
+
+  it("shows what a shell that didn't take the line printed when it isn't just an error and the same prompt", () => {
+    const { sent, print, screen } = setup();
+    print(PROMPT);
+    vi.advanceTimersByTime(IDLE_MS);
+    const rest = sent[0]!.slice(0, -1) + "\r\nsomething\r\nelse > ";
+    print(rest);
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(screen()).toBe(PROMPT + rest);
+  });
+
+  it("takes zsh's end-of-line mark (PROMPT_SP) before the new prompt as part of the echo", () => {
+    const { sent, print, screen } = setup();
+    print("web-01% ");
+    vi.advanceTimersByTime(IDLE_MS);
+    const sp = "\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m" + " ".repeat(79) + "\r \r";
+    print(sent[0]!.slice(0, -1) + "\r\n\x1b]133;D;0\x07" + sp + A + "web-01% " + B);
+    expect(screen()).toBe("web-01% " + "\r\x1b[J" + A + "web-01% " + B);
+  });
+
+  it("notices marks a shell already writes even when one comes split across two reads", () => {
+    const { sent, print } = setup();
+    print("\x1b]13");
+    print("3;A\x07user@web-01:~$ ");
+    vi.advanceTimersByTime(IDLE_MS);
+    expect(sent).toEqual([]);
+  });
+
+  it("puts the bytes back as they came, so a character split across reads stays whole", () => {
+    vi.useFakeTimers();
+    const shown: number[] = [];
+    const sent: string[] = [];
+    const hooks = new ShellHooks({ write: (l) => (sent.push(l), true), show: (d) => shown.push(...d), cwd: () => {}, enabled: () => true });
+    const decoder = new TextDecoder();
+    const feed = (bytes: Uint8Array) => {
+      const now = hooks.output(bytes, decoder.decode(bytes, { stream: true }));
+      if (now) shown.push(...now);
+    };
+    feed(enc.encode("user@web-01:~$ "));
+    vi.advanceTimersByTime(IDLE_MS);
+    const all = enc.encode(sent[0]!.slice(0, -1) + "\r\n" + A + "user@web-01:~$ " + B + "café");
+    feed(all.subarray(0, all.length - 1));
+    feed(all.subarray(all.length - 1));
+    expect(dec.decode(new Uint8Array(shown))).toBe("user@web-01:~$ \r\x1b[J" + A + "user@web-01:~$ " + B + "café");
   });
 });
 

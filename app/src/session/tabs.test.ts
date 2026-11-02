@@ -985,14 +985,16 @@ describe("shell hooks (ticket 121, #210)", () => {
     expect(busy.typed()).toBe("l");
   });
 
-  it("sends it on :integrate, and says why when it can't", async () => {
+  it("sends it on :integrate, answers once the marked prompt is back, and says why when it can't", async () => {
     const { s, typed, tabs, id } = await opened(() => false);
-    expect(tabs.integrate(id)).toBe("no-prompt");
+    expect(await tabs.integrate(id)).toBe("no-prompt");
     s.print(PROMPT);
-    expect(tabs.integrate(id)).toBe("sent");
+    const on = tabs.integrate(id);
     expect(typed()).toBe(hookLine("posix") + "\r");
+    s.print(hookLine("posix") + "\r\n" + A + "user@web-01:~$ " + B);
+    expect(await on).toBe("on");
     s.exit(0);
-    expect(tabs.integrate(id)).toBe("not-open");
-    expect(tabs.integrate(999)).toBe("not-open");
+    expect(await tabs.integrate(id)).toBe("not-open");
+    expect(await tabs.integrate(999)).toBe("not-open");
   });
 });

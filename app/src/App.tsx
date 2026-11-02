@@ -235,20 +235,20 @@ interface WorkspaceProps extends AppProps {
   suspended?: boolean;
 }
 
-/** The app: your workspace, and while a tutorial runs (`:tutor`, ticket 55, decision Q76), the demo
- * Inventory's in front of it. The workspace stays mounted behind, hidden and inert, so its
- * Sessions keep running and its vault and State are never touched; leaving the demo throws the
- * demo's workspace (its fake Backend, its State in memory) away and shows yours again. */
-
 /** What `:integrate` says (ticket 121). */
 const INTEGRATE_SAYS: Record<IntegrateResult, (label: string) => string> = {
-  sent: (t) => `Sent ${t}'s shell the hook line: its prompts are marked from now on.`,
-  "sent-already": (t) => `Already sent ${t}'s shell the hook line.`,
+  on: (t) => `Shell integration is on in ${t}: its prompts are marked.`,
+  "no-marks": (t) =>
+    `Sent ${t}'s shell the hook line, but no marked prompt came back: its shell or prompt framework doesn't take it (:help shell-hooks).`,
   marked: (t) => `${t}'s shell marks its prompts already: nothing to send.`,
   "no-prompt": (t) => `${t} isn't at an empty prompt roster knows (bash, zsh, fish, PowerShell): nothing sent.`,
   "not-open": (t) => `${t}'s Session isn't open: nothing sent.`,
 };
 
+/** The app: your workspace, and while a tutorial runs (`:tutor`, ticket 55, decision Q76), the demo
+ * Inventory's in front of it. The workspace stays mounted behind, hidden and inert, so its
+ * Sessions keep running and its vault and State are never touched; leaving the demo throws the
+ * demo's workspace (its fake Backend, its State in memory) away and shows yours again. */
 export function App(props: AppProps) {
   const [platform] = useState(() => props.platform ?? memoryPlatform());
   const [store] = useState(() => new StateStore(platform));
@@ -1612,7 +1612,7 @@ function Workspace({
     integrate: () => {
       const tab = sessions.tabs.find((t) => t.id === sessions.active);
       if (!tab) return setMessage("No Session to integrate: open one first.");
-      setMessage(INTEGRATE_SAYS[tabs.integrate(tab.id)](tab.label));
+      void tabs.integrate(tab.id).then((r) => setMessage(INTEGRATE_SAYS[r](tab.label)));
     },
     saveSession: () => {
       const tab = sessions.tabs.find((t) => t.id === sessions.active);

@@ -9,7 +9,7 @@ import { ErrorPanel, type ProblemActions } from "../errors/ErrorPanel";
 import type { CommandLine } from "../keymap";
 import type { TerminalEnv, TerminalViewComponent } from "../terminal/TerminalView";
 import { Keys } from "../ui/Keys";
-import type { Tab, Tabs, TabsSnapshot } from "./tabs";
+import { tabFacts, type Tab, type Tabs, type TabsSnapshot } from "./tabs";
 import type { QuickTarget } from "../quick/target";
 import { CloseGlyph } from "../ui/CloseGlyph";
 
@@ -90,7 +90,7 @@ export function TabStrip({ snapshot, run }: TabStripProps) {
               role="tab"
               aria-selected={selected}
               tabIndex={-1}
-              title={[tab.label, tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n")}
+              title={[tab.label, tabFacts(tab)].filter(Boolean).join("\n")}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => run(`session ${i + 1}`)}
             >

@@ -38,6 +38,32 @@ describe.each([
   });
 });
 
+describe("the hook line in bash, set up as people have it", () => {
+  const BASH = ["bash", "--norc", "--noprofile", "-i"];
+  const count = (out: string, mark: string) => out.split(`${ESC}]133;${mark}`).length - 1;
+
+  it("keeps marking prompts when a prompt framework sets PS1 again at every prompt", () => {
+    const out = run(BASH, ['PROMPT_COMMAND=\'PS1="fw-\\$ "\'', hookLine("posix"), "true", "true", "exit"]);
+    expect(count(out, "A")).toBeGreaterThanOrEqual(3);
+    expect(count(out, "B")).toBeGreaterThanOrEqual(3);
+    expect(out).toContain(`${ESC}]133;A${BEL}fw-$ ${ESC}]133;B${BEL}`);
+  });
+
+  it("works under set -u, with no PS0 set", () => {
+    const out = run(BASH, ["set -u", "unset PS0", hookLine("posix"), "false", "exit"]);
+    expect(out).not.toMatch(/unbound variable/);
+    expect(out).toContain(`${ESC}]133;C${BEL}`);
+    expect(out).toContain(`${ESC}]133;D;1${BEL}`);
+  });
+
+  it("leaves out the C mark in a bash older than 4.4, which has no PS0, and marks the rest", () => {
+    const out = run(BASH, ["BASH_VERSION=4.3.48", hookLine("posix"), "false", "exit"]);
+    expect(out).not.toContain(`${ESC}]133;C`);
+    expect(out).toContain(`${ESC}]133;A${BEL}`);
+    expect(out).toContain(`${ESC}]133;D;1${BEL}`);
+  });
+});
+
 describe("the POSIX hook line in a POSIX shell that isn't bash or zsh", () => {
   // bash in POSIX mode with its version variable unset stands in for dash or busybox ash.
   it("does nothing and says nothing", () => {

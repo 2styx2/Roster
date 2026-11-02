@@ -4,10 +4,11 @@
 // only. Nothing is written to the Host's files: the hook goes when the shell exits.
 //
 // It's careful about when: only once the login has gone quiet at a prompt it knows (a POSIX
-// shell's `$ `, `# ` or `% `, fish's `user@host ~> `, PowerShell's `PS …> `), never once the
-// user has typed, never when the shell already marks its prompts. A login that isn't a plain
-// shell (a forced command, a menu, a network CLI, ESXi's busybox prompt) shows no prompt it
-// knows, so nothing is sent.
+// shell's `host$ `, `host# ` or `host% `, fish's `user@host ~> `, PowerShell's `PS …> `), never
+// once the user has typed, never when the shell already marks its prompts. A login that isn't a
+// plain shell (a forced command, a menu, a network CLI, ESXi's busybox prompt, tcsh's `host:~ % `)
+// shows no prompt it knows, so nothing is sent. A shell that looks like bash but doesn't take the
+// line (tcsh with a bash-like prompt) prints at most an error; that's cleared with the echo.
 
 /** Which hook line fits the shell: one for bash and zsh (it checks which it's in, and does
  * nothing in another POSIX shell), one for fish, one for PowerShell. */
@@ -24,24 +25,41 @@ export function lastLine(out: string): string {
 
 const PWSH = /^PS \S.*> $/;
 const FISH = /^[^\s@[\]:]+@[^\s@[\]:]+ [~/]\S*(?: \([^)]*\))?[>#] $/;
-const POSIX = /[$#%] $/;
+/** `$`, `#` or `%` right after the prompt's text (`user@web-01:~$ `, `web-01% `), or a `$` on
+ * its own (a two-line prompt's second line). Not after a space, which is tcsh's (`web-01:~ % `)
+ * and a menu's (`Choice # `). */
+const POSIX = /(?:[^\s$#%][$#%]|^\$) $/;
 
 // The hook lines: the snippets in docs/plugins.md ("Shell integration"), squeezed to one line,
 // plus OSC 7 (the folder) at each prompt. Each starts with a space, so a shell set to leave such
 // lines out of its history (bash's HISTCONTROL=ignorespace or ignoreboth, zsh's
 // HIST_IGNORE_SPACE, fish always) does. docs/plugins.md shows them as sent; keep it in step.
 //
-// The POSIX one runs in bash and zsh: bash's half is plain POSIX syntax behind a test of
-// $BASH_VERSION; zsh's is a quoted string, eval'd behind $ZSH_VERSION, so another POSIX shell
-// (dash, busybox ash, ksh) parses both and runs neither. The PowerShell one uses [char]27, not
-// `e, so Windows PowerShell 5.1 gets marks and not stray letters.
+// The POSIX one runs in bash and zsh: each half is a single-quoted string, eval'd only behind a
+// test of $BASH_VERSION or $ZSH_VERSION, so another POSIX shell (dash, busybox ash, ksh) parses
+// it and runs neither. Both work under `set -u`. The marks go on from a hook that runs last at
+// each prompt and wraps PS1 again whenever it has lost them, so a prompt framework that builds
+// PS1 at every prompt (starship, oh-my-zsh, oh-my-bash) keeps them; the exit code comes from a
+// hook that runs first. bash before 4.4 has no PS0, so it gets no C mark (the rest still work).
+// The PowerShell one uses [char]27, not `e, so Windows PowerShell 5.1 gets marks and not stray
+// letters, and calls the history handler that was there (PSReadLine's default, or the user's)
+// rather than replacing it.
 const BASH =
-  '[ -n "$BASH_VERSION" ] && { __roster_d(){ local c=$?; printf "\\e]133;D;%s\\a\\e]7;file://%s%s\\a" $c "$HOSTNAME" "$PWD"; return $c; }; ' +
-  'PROMPT_COMMAND="__roster_d${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; PS1="\\[\\e]133;A\\a\\]$PS1\\[\\e]133;B\\a\\]"; PS0="\\e]133;C\\a$PS0"; }';
+  "[ -n \"${BASH_VERSION-}\" ] && eval '" +
+  '__roster_d(){ local c=$?; printf "\\e]133;D;%s\\a\\e]7;file://%s%s\\a" "$c" "${HOSTNAME-}" "$PWD"; return $c; }; ' +
+  '__roster_w(){ case $PS1 in *"]133;A"*) ;; *) PS1="\\[\\e]133;A\\a\\]$PS1\\[\\e]133;B\\a\\]";; esac; }; ' +
+  'case $BASH_VERSION in [1-4].*|5.0.*) PROMPT_COMMAND="__roster_d${PROMPT_COMMAND:+;$PROMPT_COMMAND};__roster_w";; ' +
+  '*) PROMPT_COMMAND=(__roster_d ${PROMPT_COMMAND[@]+"${PROMPT_COMMAND[@]}"} __roster_w);; esac; ' +
+  'case $BASH_VERSION in [1-3].*|4.[0-3].*) ;; *) PS0="\\e]133;C\\a${PS0-}";; esac' +
+  "'";
 const ZSH =
-  "[ -n \"$ZSH_VERSION\" ] && eval '__roster_d(){ printf \"\\e]133;D;%s\\a\\e]7;file://%s%s\\a\" $? \"$HOST\" \"$PWD\"; }; " +
-  '__roster_c(){ printf "\\e]133;C\\a"; }; precmd_functions=(__roster_d $precmd_functions); preexec_functions+=(__roster_c); ' +
-  "PS1=\"%{$(printf \"\\e]133;A\\a\")%}$PS1%{$(printf \"\\e]133;B\\a\")%}\"'";
+  "[ -n \"${ZSH_VERSION-}\" ] && eval '" +
+  "typeset -ga precmd_functions preexec_functions; " +
+  '__roster_d(){ printf "\\e]133;D;%s\\a\\e]7;file://%s%s\\a" $? "${HOST-}" "$PWD"; }; ' +
+  '__roster_c(){ printf "\\e]133;C\\a"; }; ' +
+  '__roster_w(){ [[ $PS1 == *"]133;A"* ]] || PS1="%{$(printf "\\e]133;A\\a")%}$PS1%{$(printf "\\e]133;B\\a")%}"; }; ' +
+  "precmd_functions=(__roster_d $precmd_functions __roster_w); preexec_functions+=(__roster_c)" +
+  "'";
 const FISH_HOOK =
   "function __roster_a --on-event fish_prompt; printf '\\e]7;file://%s%s\\a\\e]133;A\\a' $hostname $PWD; end; " +
   "functions -c fish_prompt __roster_p; function fish_prompt; __roster_p; printf '\\e]133;B\\a'; end; " +
@@ -51,8 +69,8 @@ const PWSH_HOOK =
   "$Global:__roster_p=$function:prompt; function Global:prompt { $c=if($?){0}elseif($LASTEXITCODE){$LASTEXITCODE}else{1}; " +
   "$e=[char]27; $b=[char]7; $d='/'+($PWD.ProviderPath -replace '\\\\','/').TrimStart('/'); " +
   '"$e]133;D;$c$b$e]7;file://$([Environment]::MachineName)$d$b$e]133;A$b$(& $Global:__roster_p)$e]133;B$b" }; ' +
-  'try { Set-PSReadLineOption -AddToHistoryHandler { param($l) [Console]::Write("$([char]27)]133;C$([char]7)"); ' +
-  "try { [Microsoft.PowerShell.PSConsoleReadLine]::GetDefaultAddToHistoryOption($l) } catch { $true } } } catch {}";
+  "try { $h=(Get-PSReadLineOption).AddToHistoryHandler; Set-PSReadLineOption -AddToHistoryHandler ({ param($l) " +
+  '[Console]::Write("$([char]27)]133;C$([char]7)"); if ($h) { $h.Invoke($l) } else { $true } }.GetNewClosure()) } catch {}';
 
 /** The one line roster sends (without the Enter) to turn the marks on in a `kind` shell. */
 export function hookLine(kind: ShellKind): string {
@@ -80,8 +98,9 @@ export const HOLD_MS = 2_000;
 const HOLD_MAX = 16 * 1024;
 const TAIL_MAX = 1024;
 
-/** What `:integrate` did: sent the line, or why not. */
-export type IntegrateResult = "sent" | "sent-already" | "marked" | "no-prompt" | "not-open";
+/** What `:integrate` found: the marks are on (`on`), the line went but no marked prompt came
+ * back (`no-marks`), or why nothing was sent. */
+export type IntegrateResult = "on" | "no-marks" | "marked" | "no-prompt" | "not-open";
 
 export interface ShellHooksIo {
   /** Writes `line` to the Session; false when it isn't open (yet). */
@@ -94,9 +113,11 @@ export interface ShellHooksIo {
   enabled(): boolean;
 }
 
-/** What the terminal answers by itself (a cursor or colour report, focus in or out, its
- * attributes): not typing. */
-const REPORT = /^(?:\x1b\[\d+;\d+R|\x1b\[[IO]|\x1b\[[?>][\d;]*c|\x1b\]\d+;[^\x07\x1b]*(?:\x07|\x1b\\))+$/;
+/** Escape sequences in what's typed: CSI (keys, and the terminal's reports: cursor, attributes,
+ * modes, keyboard protocol, mouse, focus), OSC and DCS answers, SS3 keys. What's left after them is
+ * typing. */
+const SEQUENCES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b[\]P_^][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bO.|\x1b[ -~]/g;
+const MARK = "\x1b]133;";
 const MARK_A = /\x1b\]133;A[^\x07\x1b]*(?:\x07|\x1b\\)/;
 const MARK_B = /\x1b\]133;B[^\x07\x1b]*(?:\x07|\x1b\\)/;
 const OSC7 = /\x1b\]7;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
@@ -118,6 +139,27 @@ function folderOf(url: string): string | null {
   return path.replace(/[\x00-\x1f\x7f]/g, "").slice(0, 1024);
 }
 
+/** The bytes as one array. */
+function joined(chunks: readonly Uint8Array[]): Uint8Array {
+  const all = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.length;
+  }
+  return all;
+}
+
+/** Where `needle` (ASCII) first starts in `bytes`, or -1. */
+function indexOf(bytes: Uint8Array, needle: string, from = 0): number {
+  const n = encoder.encode(needle);
+  outer: for (let i = from; i + n.length <= bytes.length; i++) {
+    for (let j = 0; j < n.length; j++) if (bytes[i + j] !== n[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+
 /** One Session attempt's shell hooks: watches its output for an idle prompt, sends the hook line
  * once, holds the echo back until the new prompt comes, and reads OSC 7. */
 export class ShellHooks {
@@ -127,6 +169,11 @@ export class ShellHooks {
   private typedYet = false;
   private marked = false;
   private sentLine: string | null = null;
+  /** The prompt line the line was sent at, as text. */
+  private sentAt = "";
+  /** What came of the line: null while it's out (or before it went). */
+  private outcome: "on" | "no-marks" | null = null;
+  private waiting: ((r: IntegrateResult) => void)[] = [];
   private held: Uint8Array[] | null = null;
   private heldText = "";
   private oscCarry = "";
@@ -142,7 +189,8 @@ export class ShellHooks {
     }, WINDOW_MS);
   }
 
-  /** The Session printed `data` (`text` decoded). Returns what to show now, or null: held. */
+  /** The Session printed `data` (`text`, decoded by a streaming decoder). Returns what to show
+   * now, or null: held. */
   output(data: Uint8Array, text: string): Uint8Array | null {
     this.scanFolder(text);
     if (this.held) {
@@ -151,8 +199,8 @@ export class ShellHooks {
       this.release();
       return null;
     }
-    if (text.includes("\x1b]133;")) this.marked = true;
     this.tail = (this.tail + text).slice(-TAIL_MAX);
+    if (this.tail.includes(MARK)) this.marked = true;
     if (this.armed && this.sentLine === null) {
       clearTimeout(this.idleTimer);
       this.idleTimer = setTimeout(() => this.idle(), IDLE_MS);
@@ -160,21 +208,25 @@ export class ShellHooks {
     return data;
   }
 
-  /** The user typed `data` into the Session. */
+  /** The user's terminal sent `data` to the Session: typing, unless it's only the terminal's own
+   * answers or keys that move the cursor (whose effect the prompt check sees). */
   typed(data: string) {
-    if (REPORT.test(data)) return;
+    if (data.replace(SEQUENCES, "") === "") return;
     this.typedYet = true;
     clearTimeout(this.idleTimer);
-    this.showHeld();
+    this.giveUp();
   }
 
-  /** `:integrate`: sends the line now if the shell is at a prompt roster knows. */
-  integrate(): IntegrateResult {
-    if (this.sentLine !== null) return "sent-already";
-    if (this.marked) return "marked";
+  /** `:integrate`: sends the line now if the shell is at a prompt roster knows, and answers once
+   * a marked prompt came back, or didn't. */
+  integrate(): Promise<IntegrateResult> {
+    if (this.outcome) return Promise.resolve(this.outcome);
+    if (this.sentLine !== null) return new Promise((resolve) => this.waiting.push(resolve));
+    if (this.marked) return Promise.resolve("marked");
     const kind = promptShell(this.tail);
-    if (!kind) return "no-prompt";
-    return this.send(kind) ? "sent" : "not-open";
+    if (!kind) return Promise.resolve("no-prompt");
+    if (!this.send(kind)) return Promise.resolve("not-open");
+    return new Promise((resolve) => this.waiting.push(resolve));
   }
 
   /** The Session ended or its tab closed: what's held shows, and nothing more is sent. */
@@ -182,7 +234,7 @@ export class ShellHooks {
     clearTimeout(this.windowTimer);
     clearTimeout(this.idleTimer);
     this.armed = false;
-    this.showHeld();
+    this.giveUp();
   }
 
   private idle() {
@@ -195,12 +247,18 @@ export class ShellHooks {
     const line = hookLine(kind);
     if (!this.io.write(line + "\r")) return false;
     this.sentLine = line;
+    this.sentAt = lastLine(this.tail);
     this.armed = false;
     clearTimeout(this.idleTimer);
     this.held = [];
     this.heldText = "";
-    this.holdTimer = setTimeout(() => this.showHeld(), HOLD_MS);
+    this.holdTimer = setTimeout(() => this.timedOut(), HOLD_MS);
     return true;
+  }
+
+  private settle(outcome: "on" | "no-marks") {
+    this.outcome = outcome;
+    for (const resolve of this.waiting.splice(0)) resolve(outcome);
   }
 
   /** The new prompt is in (its `A` and `B` marks) after nothing but the echo: the old prompt is
@@ -209,24 +267,58 @@ export class ShellHooks {
     const a = MARK_A.exec(this.heldText);
     const b = a ? MARK_B.exec(this.heldText.slice(a.index)) : null;
     if (!a || !b) {
-      if (this.heldText.length > HOLD_MAX) this.showHeld();
+      if (this.heldText.length > HOLD_MAX) this.giveUp();
       return;
     }
     const before = this.heldText.slice(0, a.index);
-    if (squash(before) !== squash(this.sentLine ?? "")) return this.showHeld();
+    if (!this.onlyEcho(before)) return this.giveUp("on");
     // The echo goes; a mode the shell set or reset meanwhile (bracketed paste) stays.
     const modes = (before.match(/\x1b\[\?[\d;]*[hl]/g) ?? []).join("");
     const up = (this.heldText.slice(a.index, a.index + b.index).match(/\n/g) ?? []).length;
-    const text = modes + "\r" + (up ? `\x1b[${up}A` : "") + "\x1b[J" + this.heldText.slice(a.index);
+    const bytes = joined(this.held ?? []);
     this.endHold();
-    this.io.show(encoder.encode(text));
+    // From the A mark on, the bytes as they came: a character cut at the end stays whole.
+    this.io.show(encoder.encode(modes + "\r" + (up ? `\x1b[${up}A` : "") + "\x1b[J"));
+    this.io.show(bytes.subarray(indexOf(bytes, MARK + "A")));
+    this.settle("on");
   }
 
-  private showHeld() {
+  /** Whether `text` is only the echo of the line, with zsh's end-of-line mark (PROMPT_SP: `%` or
+   * `#` and padding) after it, and escape sequences anywhere. */
+  private onlyEcho(text: string): boolean {
+    const echo = squash(this.sentLine ?? "");
+    const got = squash(text);
+    return got === echo || ((got === echo + "%" || got === echo + "#") && /\r/.test(text.slice(text.lastIndexOf("%"))));
+  }
+
+  /** No marked prompt in time. A shell that didn't take the line and printed only the echo, a
+   * short error and the same prompt again (tcsh with a bash-like prompt, dash) gets that cleared,
+   * so its prompt is as it was; anything else shows as it came. */
+  private timedOut() {
+    const text = this.heldText;
+    const bytes = joined(this.held ?? []);
+    const lf = bytes.lastIndexOf(10);
+    const between = text.slice(0, text.lastIndexOf("\n") + 1);
+    const clean =
+      lf >= 0 &&
+      squash(between).startsWith(squash(this.sentLine ?? "")) &&
+      lastLine(text) === this.sentAt &&
+      (between.match(/\n/g) ?? []).length <= 4 &&
+      squash(between).length - squash(this.sentLine ?? "").length <= 240;
+    if (!clean) return this.giveUp();
+    this.endHold();
+    this.io.show(encoder.encode("\r\x1b[J"));
+    this.io.show(bytes.subarray(lf + 1));
+    this.settle("no-marks");
+  }
+
+  /** Shows what's held as it came; `outcome` says what came of the line (no marks, by default). */
+  private giveUp(outcome: "on" | "no-marks" = "no-marks") {
     const held = this.held;
     if (!held) return;
     this.endHold();
     for (const chunk of held) this.io.show(chunk);
+    this.settle(outcome);
   }
 
   private endHold() {

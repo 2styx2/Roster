@@ -62,6 +62,12 @@ export interface Tab {
   cwd?: string | null;
 }
 
+/** What a tab's tooltip says about its Session: how it logged in, and the folder its shell is in
+ * (OSC 7), a line each; empty when it knows neither yet. */
+export function tabFacts(tab: Tab): string {
+  return [tab.auth ? `${tab.auth} login` : "", tab.cwd ? `in ${tab.cwd}` : ""].filter(Boolean).join("\n");
+}
+
 export interface SaveOffer {
   held: string;
   loggedIn: boolean;
@@ -257,10 +263,11 @@ export class Tabs {
     this.shellHooksOn = on;
   }
 
-  /** `:integrate`: sends the shell hook line to the tab's Session now, or says why not. */
-  integrate(id: number): IntegrateResult {
+  /** `:integrate`: sends the shell hook line to the tab's Session now; answers once a marked
+   * prompt came back or didn't, or at once with why nothing was sent. */
+  integrate(id: number): Promise<IntegrateResult> {
     const entry = this.find(id);
-    if (!entry?.hooks || !entry.session) return "not-open";
+    if (!entry?.hooks || !entry.session) return Promise.resolve("not-open");
     return entry.hooks.integrate();
   }
 
