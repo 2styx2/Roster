@@ -35,6 +35,26 @@ pub struct Prepared {
     pub host: String,
     /// "key" or "password".
     pub auth: String,
+    /// What the Session connects to (serve API 25): sent back with a prompt fill, so a Host edited
+    /// since isn't filled into this Session. Absent from an older serve (then nothing is filled).
+    #[serde(default)]
+    pub login: Option<LoginAs>,
+}
+
+/// The address, port and user a Session connected to, as `session.prepare` said.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct LoginAs {
+    pub address: String,
+    pub port: u16,
+    pub user: String,
+}
+
+/// The Inventory Host a Session is to, and what it connected to: all a prompt fill may ask serve
+/// about ([`SessionManager::fill`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FillTarget {
+    pub host: String,
+    pub login: LoginAs,
 }
 
 impl std::fmt::Debug for Prepared {
@@ -44,6 +64,7 @@ impl std::fmt::Debug for Prepared {
             .field("env", &self.env.keys().collect::<Vec<_>>())
             .field("host", &self.host)
             .field("auth", &self.auth)
+            .field("login", &self.login)
             .finish()
     }
 }
@@ -57,9 +78,10 @@ pub struct SessionCommand {
     pub env: Vec<(String, String)>,
     /// How the Session logs in, as `session.prepare` said: "key" or "password" (shown on the tab).
     pub auth: String,
-    /// The Inventory Host the Session is to, as `session.prepare` named it: the only Host a prompt
-    /// fill may ask serve about ([`SessionManager::fill`]). None for a Quick Connect or a stub.
-    pub host: Option<String>,
+    /// The Inventory Host the Session is to and what it connected to, as `session.prepare` said:
+    /// the only Host a prompt fill may ask serve about ([`SessionManager::fill`]). None for a
+    /// Quick Connect, a stub, or a serve too old to say what it connected to.
+    pub fill_as: Option<FillTarget>,
 }
 
 impl SessionCommand {
@@ -69,7 +91,7 @@ impl SessionCommand {
             argv,
             env,
             auth: "key".into(),
-            host: None,
+            fill_as: None,
         }
     }
 
@@ -96,7 +118,7 @@ impl std::fmt::Debug for SessionCommand {
             .field("argv", &self.argv)
             .field("env", &env)
             .field("auth", &self.auth)
-            .field("host", &self.host)
+            .field("fill_as", &self.fill_as)
             .finish()
     }
 }
@@ -137,7 +159,10 @@ pub fn session_command(target: &Target, prepared: &Prepared) -> SessionCommand {
         argv,
         env,
         auth: prepared.auth.clone(),
-        host: Some(prepared.host.clone()),
+        fill_as: prepared.login.clone().map(|login| FillTarget {
+            host: prepared.host.clone(),
+            login,
+        }),
     }
 }
 
@@ -217,8 +242,8 @@ struct Running {
     writer: Mutex<Option<Box<dyn Write + Send>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     closed: AtomicBool,
-    /// The Inventory Host it's to ([`SessionCommand::host`]).
-    host: Option<String>,
+    /// The Inventory Host it's to ([`SessionCommand::fill_as`]).
+    fill_as: Option<FillTarget>,
     /// Output chunks read so far, and writes sent: a fill types its secret only if neither moved
     /// while it checked the prompt.
     output: Arc<AtomicU64>,
@@ -301,7 +326,7 @@ impl SessionManager {
             master: Mutex::new(Some(pair.master)),
             writer: Mutex::new(Some(writer)),
             closed: AtomicBool::new(false),
-            host: cmd.host.clone(),
+            fill_as: cmd.fill_as.clone(),
             output: Arc::new(AtomicU64::new(0)),
             writes: AtomicU64::new(0),
         });
@@ -371,12 +396,14 @@ impl SessionManager {
 
     /// Fills the password prompt the Session shows (ticket 119, decision Q129), when the user
     /// pressed the fill key at one. In order: the Session must be to an Inventory Host (else
-    /// [`FillError::NoHost`], and nothing is asked); `lookup` gets that Host's name and returns
-    /// the secret (serve's `session.fill`), and a refusal there types nothing; then the probe,
+    /// [`FillError::NoHost`], and nothing is asked); what it has printed and been sent so far is
+    /// noted; `lookup` gets that Host and what the Session connected to, and returns the secret
+    /// (serve's `session.fill`), and a refusal there types nothing; then the probe,
     /// [`PROBE`], goes to the prompt: Ctrl+U (the line-kill key, which empties whatever was typed
     /// there already) around a letter. A prompt that doesn't echo, as sudo's, su's and ssh's
     /// don't, prints nothing for it; one that echoes prints the letter (and takes it back). So if
-    /// anything is printed within `wait`, or a key is sent meanwhile, the secret isn't typed
+    /// anything was printed since the lookup started (through `wait` after the probe), or a key was
+    /// sent meanwhile, the secret isn't typed
     /// ([`FillError::Echoes`], [`FillError::Typed`]). Otherwise the secret and Enter go to the PTY
     /// in one write, and the secret is wiped as it's dropped. Returns the Host's name.
     ///
@@ -385,15 +412,16 @@ impl SessionManager {
         &self,
         id: SessionId,
         wait: Duration,
-        lookup: impl FnOnce(&str) -> Result<Secret, E>,
+        lookup: impl FnOnce(&FillTarget) -> Result<Secret, E>,
     ) -> Result<String, FillError<E>> {
         let running = self.get(id).map_err(|_| FillError::NotFound(id))?;
-        let host = running.host.clone().ok_or(FillError::NoHost)?;
-        let secret = lookup(&host).map_err(FillError::Lookup)?;
+        let target = running.fill_as.clone().ok_or(FillError::NoHost)?;
+        // Before the lookup, which may wait on the vault: what's printed or typed meanwhile counts.
         let (output, writes) = (
             running.output.load(Ordering::SeqCst),
             running.writes.load(Ordering::SeqCst),
         );
+        let secret = lookup(&target).map_err(FillError::Lookup)?;
         {
             let mut w = running.writer.lock().unwrap();
             let w = w.as_mut().ok_or(FillError::NotFound(id))?;
@@ -413,7 +441,7 @@ impl SessionManager {
         line.0.push(b'\r');
         drop(secret);
         w.write_all(&line.0).and_then(|_| w.flush()).map_err(fill_io)?;
-        Ok(host)
+        Ok(target.host)
     }
 
     pub fn resize(&self, id: SessionId, size: Size) -> Result<(), SessionError> {

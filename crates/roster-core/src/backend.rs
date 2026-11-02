@@ -4,7 +4,7 @@
 use crate::detect::{Candidate, OVERRIDE_VAR, Target};
 use crate::error::{BackendError, ErrorKind};
 use crate::rpc::{CallError, Notify, RpcClient};
-use crate::session::{Prepared, Secret, SessionCommand, session_command};
+use crate::session::{FillTarget, LoginAs, Prepared, Secret, SessionCommand, session_command};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::process::Command;
@@ -321,7 +321,7 @@ impl Backend {
             })?
             .to_owned();
         let mut command = session_command(&self.target, &prepared);
-        command.host = None; // not an Inventory Host: no Login a prompt fill could use
+        command.fill_as = None; // not an Inventory Host: no Login a prompt fill could use
         Ok(QuickSession {
             command,
             quick,
@@ -333,8 +333,10 @@ impl Backend {
     /// 25, ticket 119): for [`crate::session::SessionManager::fill`] to type, and nothing else.
     /// The value is moved out of serve's answer into a [`Secret`] and never copied, logged or put
     /// in an error; serve's refusals (130, 131, the vault's) come back as they are.
-    pub fn fill_secret(&self, host: &str, prompt: &str) -> Result<Secret, CallError> {
-        let v = self.call("session.fill", json!({ "host": host, "prompt": prompt }))?;
+    pub fn fill_secret(&self, target: &FillTarget, prompt: &str) -> Result<Secret, CallError> {
+        let LoginAs { address, port, user } = &target.login;
+        let params = json!({ "host": target.host, "address": address, "port": port, "user": user, "prompt": prompt });
+        let v = self.call("session.fill", params)?;
         let Value::Object(mut answer) = v else {
             return Err(fill_shape_error());
         };

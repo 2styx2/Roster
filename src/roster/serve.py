@@ -277,10 +277,11 @@ def session_prepare(state, params):
 
     Params: `{host}` (exact Host name)
     Result: key-enrolled: `{argv: [/abs/path/ssh, "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes",
-        NAME], env: {}, host: NAME, auth: "key"}`; password-only: `{argv: [/abs/path/ssh, "-o",
+        NAME], env: {}, host: NAME, auth: "key", login}`; password-only: `{argv: [/abs/path/ssh, "-o",
         "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o",
         "PreferredAuthentications=password,keyboard-interactive", NAME], env: {SSH_ASKPASS, SSH_ASKPASS_REQUIRE:
-        "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password"}`
+        "force", ROSTER_ASKPASS_SOCKET, ROSTER_ASKPASS_TOKEN}, host: NAME, auth: "password", login}`. `login` (API
+        25) is `{address, port, user}`, what the Session connects to, for `session.fill`
     Errors: 2, 20, 21, 22, 30, 11, 12, 14, 31-35, 39, 44
     Since: API 1
     Params: `{host, password, save?}` (an `auth: prompt` Host)
@@ -302,16 +303,19 @@ def session_prepare(state, params):
     if not in_ssh_config(h["name"]):
         raise RpcError(NOT_SET_UP, f"{h['name']} isn't in this box's ssh config ({ssh_config_file()}) - "
                                    "run `roster sync`, or `roster setup` if this box isn't set up yet")
+    # What the Session connects to (API 25): the core sends it back with a prompt fill, so a Host edited since isn't
+    # filled into this Session (session.fill).
+    login = {"login": {"address": h["ip"], "port": h["ssh"]["port"], "user": h["ssh"]["user"]}}
     if not h["enroll"] and prompted(h):
-        return prompt_session(state, h, ssh, params)
+        return prompt_session(state, h, ssh, params) | login
     if params.get("password") is not None or params.get("save") is not None:
         raise RpcError(INVALID_PARAMS, f"params.password and params.save are only for a Host whose Login is auth: "
                                        f"prompt; {h['name']}'s password comes from its Login")
     if not h["enroll"] and diagnose.password_login(h):
-        return password_session(state, h, ssh)
+        return password_session(state, h, ssh) | login
     known_key(h)
     return {"argv": [ssh, *STRICT, "-o", "BatchMode=yes", h["name"]], "env": {},
-            "host": h["name"], "auth": "key"}
+            "host": h["name"], "auth": "key"} | login
 
 
 def session_fill(state, params):
@@ -321,16 +325,23 @@ def session_fill(state, params):
     hands the result on (not to the frontend, a log or a Plugin, whose serve allow-list has no `session.*`), and
     types it only after checking that the prompt doesn't echo. `prompt` is the line at the Session's cursor, as the
     Host printed it: it can narrow what's filled (a prompt for another Host or account is refused, 130) but never
-    widen it. Which Login: the Host's ssh Login, or its `sudo: {auth}` reference for a sudo or su prompt. Nothing
-    is logged but the method's name; serve keeps the value only in the providers' cache it already had.
+    widen it. Only sudo's prompt for the Host's ssh user, or ssh's for that user at the Host's own name or address, is
+    filled; a bare `Password:` (su's, a login's) is refused. The Host must still have the address, port and user its
+    Session connected to (130 if it was edited since). Which Login: its ssh Login, or its `sudo: {auth}` reference for
+    sudo's prompt. Nothing is logged but the method's name; serve keeps the value only in the providers' cache it
+    already had.
 
-    Params: `{host, prompt}` (exact Host name; the cursor's line)
+    Params: `{host, address, port, user, prompt}` (exact Host name; what its Session connected to, from
+        `session.prepare`'s `login`; the cursor's line)
     Result: `{host, login: "ssh"|"sudo", password}`
     Errors: -32602, 1, 2, 20, 30, 130, 131, 11, 12, 14, 31-35
     Since: API 25
     """
     name = text_param(params, "host")
-    prompt = params.get("prompt")
+    address, user = text_param(params, "address"), text_param(params, "user")
+    port, prompt = params.get("port"), params.get("prompt")
+    if isinstance(port, bool) or not isinstance(port, int):
+        raise RpcError(INVALID_PARAMS, "params.port must be a number")
     if not isinstance(prompt, str):
         raise RpcError(INVALID_PARAMS, "params.prompt must be a string")
     cfg = state.inventory()
@@ -340,6 +351,7 @@ def session_fill(state, params):
     if not h["reviewed"]:
         raise RpcError(NOT_REVIEWED, not_reviewed(h))
     diagnose.check_user(h)
+    fill.same_login(h, address, port, user)
     which, ref = fill.login_for(h, prompt, cfg.get("sudo", {}).get(name))
     diagnose.check_provider(h, ref, which)
     return {"host": h["name"], "login": which, "password": diagnose.resolve_password(h, ref, which)}

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import yaml
 
 from .common import KEY_TAG, LEGACY_KEY_TAGS, NAME_RE, die, oneline, user_config_dir
+from .providers import NO_PASSWORD
 from .resources import load_resources
 
 HOST_DEFAULTS = {"user": None, "port": 22, "enroll": True, "auth": "prompt",
@@ -283,7 +284,7 @@ def sudo_auth(hname, layers):
         die(f"host {hname!r}: sudo: must be a mapping with only auth (a vault reference, e.g. "
             "sudo: {auth: \"bw:esx-02 sudo\"})")
     ref = as_auth(blk["auth"]) or ""
-    if ref.partition(":")[0].strip() in ("prompt", "agent", "key", "none", ""):
+    if ref.partition(":")[0].strip() in ("prompt", "", *NO_PASSWORD):
         die(f"host {hname!r}: sudo: auth must be a vault reference (bw:ITEM, op:ITEM, ...), not {ref!r}")
     return ref
 

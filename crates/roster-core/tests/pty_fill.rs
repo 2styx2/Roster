@@ -4,7 +4,9 @@
 //! only, as pty.rs.
 #![cfg(unix)]
 
-use roster_core::session::{FillError, Secret, SessionCommand, SessionEvent, SessionManager, Size};
+use roster_core::session::{
+    FillError, FillTarget, LoginAs, Secret, SessionCommand, SessionEvent, SessionManager, Size,
+};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
@@ -14,7 +16,14 @@ const SECRET: &str = "s3cret-pw";
 
 fn host_sh(script: &str) -> SessionCommand {
     let mut cmd = SessionCommand::new(vec!["sh".into(), "-c".into(), script.into()], vec![]);
-    cmd.host = Some("esx".into());
+    cmd.fill_as = Some(FillTarget {
+        host: "esx".into(),
+        login: LoginAs {
+            address: "10.0.0.6".into(),
+            port: 22,
+            user: "ops".into(),
+        },
+    });
     cmd
 }
 
@@ -71,11 +80,17 @@ fn a_no_echo_prompt_gets_the_secret_and_enter() {
     let mut asked = None;
     let host = m
         .fill(id, WAIT, |h| {
-            asked = Some(h.to_string());
+            asked = Some(format!(
+                "{}@{}:{} ({})",
+                h.login.user, h.login.address, h.login.port, h.host
+            ));
             secret()
         })
         .expect("filled");
-    assert_eq!((host.as_str(), asked.as_deref()), ("esx", Some("esx")));
+    assert_eq!(
+        (host.as_str(), asked.as_deref()),
+        ("esx", Some("ops@10.0.0.6:22 (esx)"))
+    );
     let out = until(&rx, "got:");
     let out = out + &quiet_for(&rx, Duration::from_millis(200));
     assert!(out.contains(&format!("got:[{SECRET}]")), "{out:?}");
@@ -192,4 +207,42 @@ fn a_secret_never_prints() {
     assert!(!format!("{s:?}").contains(SECRET));
     let e: FillError<String> = FillError::Echoes;
     assert!(!format!("{e} {e:?}").contains(SECRET));
+}
+
+#[test]
+fn keys_sent_while_the_vault_answers_refuse() {
+    let m = SessionManager::new();
+    let (id, rx) = open(
+        &m,
+        host_sh("stty -echo; printf 'Password: '; read -r pw; echo \"got:[$pw]\"; sleep 5"),
+    );
+    until(&rx, "Password: ");
+    let err = m
+        .fill(id, WAIT, |_| {
+            // A key goes to the Session while the lookup waits on the vault.
+            m.write(id, b"").ok();
+            std::thread::sleep(Duration::from_millis(50));
+            secret()
+        })
+        .unwrap_err();
+    assert!(matches!(err, FillError::Typed), "{err:?}");
+    m.close(id).unwrap();
+}
+
+#[test]
+fn output_while_the_vault_answers_refuses_too() {
+    let m = SessionManager::new();
+    let script =
+        "stty -echo; printf 'Password: '; (sleep 0.1; echo late output) & read -r pw; echo \"got:[$pw]\"; sleep 5";
+    let (id, rx) = open(&m, host_sh(script));
+    until(&rx, "Password: ");
+    // The lookup outlasts the late output, which is over before the probe goes.
+    let err = m
+        .fill(id, WAIT, |_| {
+            std::thread::sleep(Duration::from_millis(400));
+            secret()
+        })
+        .unwrap_err();
+    assert!(matches!(err, FillError::Echoes), "{err:?}");
+    m.close(id).unwrap();
 }

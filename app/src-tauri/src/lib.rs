@@ -1054,7 +1054,7 @@ async fn session_fill(
     let sessions = Arc::clone(&sessions);
     blocking(move || {
         sessions
-            .fill(id, FILL_WAIT, |host| backend.fill_secret(host, &prompt))
+            .fill(id, FILL_WAIT, |target| backend.fill_secret(target, &prompt))
             .map(|host| json!({ "host": host }))
             .map_err(|e| match e {
                 FillError::Lookup(e) => e,

@@ -37,18 +37,16 @@ def fill(name, prompt, text=INVENTORY):
     return login_for(cfg["hosts"][name], prompt, cfg["sudo"].get(name))
 
 
-@pytest.mark.parametrize("prompt", ["[sudo] password for ops: ", "Password: ", "password:", "Password for ops:"])
-def test_a_sudo_or_su_prompt_takes_the_ssh_login_by_default(prompt):
-    assert fill("esx", prompt) == ("ssh", "bw:Network gear")
+def test_sudos_prompt_for_the_login_user_takes_the_ssh_login_by_default():
+    assert fill("esx", "[sudo] password for ops: ") == ("ssh", "bw:Network gear")
 
 
-@pytest.mark.parametrize("prompt", ["[sudo] password for ops: ", "Password: "])
-def test_a_sudo_override_answers_sudo_and_su(prompt):
-    assert fill("box", prompt) == ("sudo", "bw:Network gear (old)")
+def test_a_sudo_override_answers_sudo():
+    assert fill("box", "[sudo] password for ops: ") == ("sudo", "bw:Network gear (old)")
 
 
-@pytest.mark.parametrize("prompt", ["ops@esx's password: ", "ops@10.0.0.6's password:", "ops@localhost's password: "])
-def test_a_nested_ssh_to_the_same_host_and_user_takes_the_ssh_login(prompt):
+@pytest.mark.parametrize("prompt", ["ops@esx's password: ", "ops@10.0.0.6's password:"])
+def test_a_nested_ssh_to_the_hosts_own_name_or_address_and_user_takes_the_ssh_login(prompt):
     assert fill("esx", prompt) == ("ssh", "bw:Network gear")
 
 
@@ -57,16 +55,16 @@ def test_a_nested_ssh_takes_the_ssh_login_even_with_a_sudo_override():
 
 
 @pytest.mark.parametrize("prompt, says", [
-    ("root@10.0.0.6's password: ", "root@10.0.0.6"),
-    ("ops@10.0.0.99's password: ", "ops@10.0.0.99"),
-    ("ops@esx-02's password: ", "ops@esx-02"),
-    ("[sudo] password for root: ", "root's password"),
-    ("Password for admin: ", "admin's password"),
+    ("Password: ", "doesn't say whose"),               # su (root's), login, telnet, a nested keyboard-interactive
+    ("password:", "doesn't say whose"),
+    ("Password for ops: ", "doesn't say whose"),
+    ("ops@localhost's password: ", "ops@localhost"),   # a tunnel's localhost may be any machine
+    ("ops@127.0.0.1's password: ", "ops@127.0.0.1"),
 ])
-def test_a_prompt_for_another_host_or_account_is_refused(prompt, says):
+def test_a_prompt_that_isnt_provably_this_hosts_is_refused(prompt, says):
     with pytest.raises(Problem) as e:
-        fill("esx", prompt)
-    assert e.value.code == FILL_REFUSED and says in e.value.message and "esx" in e.value.message
+        fill("box", prompt)
+    assert e.value.code == FILL_REFUSED and says in e.value.message
 
 
 @pytest.mark.parametrize("prompt", ["Enter passphrase for key '/home/ops/.ssh/id_ed25519': ", "Username: ",
@@ -123,8 +121,19 @@ def test_a_bad_sudo_block_says_how(block, says):
 
 # ---------------------------------------------------------------- session.fill, as the app's core calls it
 
-def unlocked(serve, write_config):
-    write_config(INVENTORY)
+SUDO = "[sudo] password for ops: "
+# What each Session connected to, as session.prepare's `login` said: the core sends it back with the fill.
+AS = {"esx": ("10.0.0.6", 22, "ops"), "box": ("10.0.0.5", 22, "ops"), "keyed": ("10.0.0.7", 22, "ops"),
+      "keyed-sudo": ("10.0.0.8", 22, "ops"), "server-10-0-0-20": ("10.0.0.20", 22, "ops")}
+
+
+def params(host, prompt=SUDO, **over):
+    address, port, user = AS.get(host, ("10.0.0.99", 22, "ops"))
+    return {"host": host, "address": address, "port": port, "user": user, "prompt": prompt, **over}
+
+
+def unlocked(serve, write_config, text=INVENTORY):
+    write_config(text)
     s = serve()
     assert s.call("vault.unlock", {"password": "hunter2"})["result"]["status"] == "unlocked"
     return s
@@ -132,34 +141,73 @@ def unlocked(serve, write_config):
 
 def test_session_fill_hands_the_core_the_logins_password(serve, write_config, fakes):
     s = unlocked(serve, write_config)
-    assert s.call("session.fill", {"host": "esx", "prompt": "[sudo] password for ops: "})["result"] == {
-        "host": "esx", "login": "ssh", "password": PASSWORD}
-    assert s.call("session.fill", {"host": "box", "prompt": "Password: "})["result"] == {
-        "host": "box", "login": "sudo", "password": SUDO_PASSWORD}
+    assert s.call("session.fill", params("esx"))["result"] == {"host": "esx", "login": "ssh", "password": PASSWORD}
+    assert s.call("session.fill", params("box"))["result"] == {"host": "box", "login": "sudo", "password": SUDO_PASSWORD}
+    # A key Login's Host fills from its sudo: reference (the app's fake does the same).
+    assert s.call("session.fill", params("keyed-sudo"))["result"]["password"] == SUDO_PASSWORD
     code, _, err = s.close()
     assert code == 0 and PASSWORD not in err and SUDO_PASSWORD not in err
 
 
 def test_session_fill_refuses_before_looking_anything_up(serve, write_config, fakes):
     s = unlocked(serve, write_config)
-    refused = s.call("session.fill", {"host": "esx", "prompt": "root@10.0.0.9's password: "})["error"]
+    refused = s.call("session.fill", params("esx", "root@10.0.0.9's password: "))["error"]
     assert refused["code"] == FILL_REFUSED and PASSWORD not in json.dumps(refused)
-    assert s.call("session.fill", {"host": "keyed", "prompt": "Password: "})["error"]["code"] == NOTHING_TO_FILL
-    assert s.call("session.fill", {"host": "nope", "prompt": "Password: "})["error"]["code"] == 2
-    assert s.call("session.fill", {"host": "server-10-0-0-20", "prompt": "Password: "})["error"]["code"] == 20
-    assert s.call("session.fill", {"host": "esx"})["error"]["code"] == -32602
-    assert s.call("session.fill", {"host": "esx", "prompt": 3})["error"]["code"] == -32602
+    assert s.call("session.fill", params("esx", "Password: "))["error"]["code"] == FILL_REFUSED
+    assert s.call("session.fill", params("keyed"))["error"]["code"] == NOTHING_TO_FILL
+    assert s.call("session.fill", params("nope"))["error"]["code"] == 2
+    assert s.call("session.fill", params("server-10-0-0-20"))["error"]["code"] == 20
+    for missing in ("prompt", "address", "port", "user"):
+        p = params("esx")
+        del p[missing]
+        assert s.call("session.fill", p)["error"]["code"] == -32602, missing
+    assert s.call("session.fill", params("esx", 3))["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("change, says", [
+    ({"address": "10.0.0.66"}, "10.0.0.66"),
+    ({"port": 2222}, "2222"),
+    ({"user": "root"}, "root"),
+])
+def test_session_fill_refuses_a_host_that_changed_since_its_session_connected(serve, write_config, fakes,
+                                                                                change, says):
+    """The Session connected to what session.prepare said; a Host edited since (a new address, port or user) may be
+    another box now, so its password isn't filled into that Session."""
+    s = unlocked(serve, write_config)
+    err = s.call("session.fill", params("esx", **change))["error"]
+    assert err["code"] == FILL_REFUSED and "changed since" in err["message"] and says in err["message"]
+    assert PASSWORD not in json.dumps(err)
+
+
+def test_session_prepare_says_what_the_session_connects_to(serve, write_config, capsys, fakes):
+    from test_serve import synced
+    synced(write_config, capsys, INVENTORY)
+    s = serve()
+    s.call("vault.unlock", {"password": "hunter2"})
+    for host in ("esx", "keyed"):
+        login = s.call("session.prepare", {"host": host})["result"]["login"]
+        address, port, user = AS[host]
+        assert login == {"address": address, "port": port, "user": user}
 
 
 def test_session_fill_while_locked_says_unlock_first(serve, write_config, fakes):
     write_config(INVENTORY)
-    err = serve().call("session.fill", {"host": "esx", "prompt": "Password: "})["error"]
+    err = serve().call("session.fill", params("esx"))["error"]
     assert (err["code"], err["message"]) == (14, "bw vault is locked - unlock it first")
 
 
 def test_session_fill_names_the_sudo_login_when_its_item_is_missing(serve, write_config, fakes):
-    write_config(INVENTORY.replace("bw:Network gear (old)", "bw:no such item"))
-    s = serve()
-    s.call("vault.unlock", {"password": "hunter2"})
-    err = s.call("session.fill", {"host": "box", "prompt": "Password: "})["error"]
+    s = unlocked(serve, write_config, INVENTORY.replace("bw:Network gear (old)", "bw:no such item"))
+    err = s.call("session.fill", params("box"))["error"]
     assert err["code"] == 32 and "sudo Login of box" in err["message"]
+
+
+def test_the_apps_list_of_logins_without_a_password_is_roster_s():
+    """app/src/backend/types.ts keeps providers.NO_PASSWORD as NO_PASSWORD_AUTHS: one list, checked here."""
+    import re
+    from pathlib import Path
+
+    from roster import providers
+    ts = (Path(__file__).parents[1] / "app" / "src" / "backend" / "types.ts").read_text(encoding="utf-8")
+    m = re.search(r"export const NO_PASSWORD_AUTHS = \[([^\]]*)\]", ts)
+    assert m and tuple(re.findall(r'"([^"]+)"', m[1])) == providers.NO_PASSWORD
