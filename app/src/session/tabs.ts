@@ -827,13 +827,20 @@ export class Tabs {
     }
     if (entry.filling) throw new Error("Already filling this prompt");
     entry.filling = true;
-    // This prompt is spent, filled or not: no offer, and no second press, until a new one shows.
-    entry.watch?.spent();
+    // Spent while it's tried: no offer, and no second press, until a new prompt shows. A refusal
+    // from roster serve (a code: the vault, the prompt, the Host) typed nothing, so the prompt is
+    // offered again; the core's own refusals (no code) typed its probe, so it stays spent.
+    const watch = entry.watch;
+    watch?.spent();
     entry.tab = { ...entry.tab, prompt: null };
     this.changed();
     try {
       return (await session.fill(prompt.line)).host;
     } catch (e) {
+      if (watch && e instanceof BackendCallError && typeof e.code === "number") {
+        watch.unspent();
+        this.promptChanged(entry, watch);
+      }
       if (e instanceof BackendCallError && e.code === SessionRefusal.vaultLocked) {
         this.onVaultLocked();
         throw new BackendCallError("The vault is locked. Unlock it, then press the fill key again.", e.code, e.data);

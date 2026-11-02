@@ -993,6 +993,28 @@ describe("filling a password prompt (ticket 119)", () => {
     expect(locked).toHaveBeenCalledOnce();
   });
 
+  it("offers the prompt again after a refusal that typed nothing: unlock, then the second press fills", async () => {
+    let locked = true;
+    const { tabs, id, asked } = await atPrompt(async () => {
+      if (locked) throw new BackendCallError("Bitwarden vault is locked - unlock it first", SessionRefusal.vaultLocked);
+      return { host: "h" };
+    });
+    tabs.setVaultLockedHandler(() => (locked = false));
+    await expect(tabs.fill(id)).rejects.toThrow(/Unlock it/);
+    expect(tabs.snapshot().tabs[0]?.prompt?.line).toBe("[sudo] password for admin:");
+    await expect(tabs.fill(id)).resolves.toBe("h");
+    expect(asked).toHaveLength(2);
+  });
+
+  it("keeps the prompt spent after a refusal where the core typed its probe", async () => {
+    const { tabs, id } = await atPrompt(async () => {
+      throw new BackendCallError("the prompt printed what roster typed to check it, so roster didn't fill it");
+    });
+    await expect(tabs.fill(id)).rejects.toThrow(/printed what roster typed/);
+    expect(tabs.snapshot().tabs[0]?.prompt).toBeNull();
+    await expect(tabs.fill(id)).rejects.toThrow(/No password prompt/);
+  });
+
   it("watches nothing on an older roster, or a Quick Connect", async () => {
     const backend = fakeBackend({ ...unlocked, hosts });
     const tabs = new Tabs(backend);

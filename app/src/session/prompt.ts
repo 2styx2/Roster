@@ -117,6 +117,11 @@ export class PromptWatch {
     this.spentAt = this.writes;
   }
 
+  /** The fill tried at this prompt typed nothing (roster serve refused it): offer it again. */
+  unspent() {
+    this.spentAt = -1;
+  }
+
   dispose() {
     this.term.dispose();
   }
