@@ -1470,3 +1470,52 @@ fn a_bare_table_without_return_is_a_syntax_error_at_its_line() {
     let e = config::load(&dir).unwrap_err();
     assert_eq!((e.file.as_str(), e.line), ("init.lua", Some(2)), "{e}");
 }
+
+/// Ticket 139: among `roster.*` calls the last one wins (a base module, then an override), and
+/// the returned table still wins over every call.
+#[test]
+fn the_last_roster_call_wins() {
+    let dir = with_init(
+        "last-wins",
+        r##"roster.set("terminal.size", "13pt")
+roster.keymap.set("leader", "p", "close")
+roster.themes.define("mine", { base = "nord", colors = { accent = "#111111" } })
+roster.set("terminal.size", "16pt")
+roster.keymap.set("leader", "p", "next")
+roster.themes.define("mine", { base = "nord", colors = { accent = "#222222" } })
+roster.set("vim", false)
+roster.set("vim", true)
+return { vim = false }
+"##,
+    );
+    let config = config::load(&dir).unwrap();
+    assert_eq!(config.terminal.size, config::FontSize::Pt(16.0));
+    let p: Vec<_> = config
+        .keys
+        .0
+        .iter()
+        .filter(|b| b.context == config::KeyContext::Leader && b.keys == "p")
+        .map(|b| b.action.clone())
+        .collect();
+    assert_eq!(p, [config::KeyAction::Run("next".into())]);
+    assert_eq!(config.themes["mine"].colors.accent.as_deref(), Some("#222222"));
+    assert!(!config.vim, "the returned table wins over calls");
+    // The lines point at the calls that won.
+    assert_eq!(config.lines["terminal.size"].line, 4);
+    assert_eq!(config.lines["keys.leader.p"].line, 5);
+    assert_eq!(config.lines["themes.mine"].line, 6);
+}
+
+/// Ticket 139: a base module, then an override module (Neovim's habit): the override wins.
+#[test]
+fn an_override_module_required_later_wins() {
+    let dir = with_init("override", "require(\"base\")\nrequire(\"override\")\n");
+    std::fs::write(dir.join("base.lua"), "roster.set(\"terminal.size\", \"13pt\")\n").unwrap();
+    std::fs::write(dir.join("override.lua"), "\nroster.set(\"terminal.size\", \"16pt\")\n").unwrap();
+    let config = config::load(&dir).unwrap();
+    assert_eq!(config.terminal.size, config::FontSize::Pt(16.0));
+    assert_eq!(
+        (config.lines["terminal.size"].file.as_str(), config.lines["terminal.size"].line),
+        ("override.lua", 2)
+    );
+}
