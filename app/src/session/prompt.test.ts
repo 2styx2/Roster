@@ -153,7 +153,11 @@ const SSH_PROMPT = "ops@esx-02's password: ";
 async function hopping(chunks: string[], fill = true): Promise<PromptWatch> {
   const w = new PromptWatch({ cols: 80, rows: 24 }, "ops", { hosts: () => INVENTORY, fill });
   watches.push(w);
-  for (const c of chunks) await w.write(c);
+  for (const c of chunks) {
+    // You press Enter on the line the outer shell's C will run (the Host can't type for you).
+    if (c.startsWith(`\r\n${C}`)) w.typed("\r");
+    await w.write(c);
+  }
   return w;
 }
 /** The marked shell on esx-01 runs `command`, which prints `after`. */
@@ -235,7 +239,7 @@ describe("PromptWatch: a nested ssh's password prompt", () => {
 
   it("refuses once you've typed into the ssh (a host-key question answered, a command run there)", async () => {
     const w = await hopping(ran("ssh esx-02", "Are you sure you want to continue connecting (yes/no/[fingerprint])? "));
-    w.typed();
+    w.typed("yes\r");
     await w.write(`yes\r\nWarning: Permanently added 'esx-02' to the list of known hosts.\r\n${SSH_PROMPT}`);
     expect(w.prompt()?.elsewhere).toMatch(/typed/);
   });
@@ -249,6 +253,14 @@ describe("PromptWatch: a nested ssh's password prompt", () => {
   it("refuses once the ssh has printed more than its login's lines after the prompt", async () => {
     const w = await hopping(ran("ssh esx-02", `${SSH_PROMPT}\r\nLast login: today\r\n${SSH_PROMPT}`));
     expect(w.prompt()?.elsewhere).toMatch(/printed more/);
+  });
+
+  it("doesn't take a line the Host drew by itself, with no Enter from you, for an ssh you ran", async () => {
+    const w = new PromptWatch({ cols: 80, rows: 24 }, "ops", { hosts: () => INVENTORY, fill: true });
+    watches.push(w);
+    for (const c of ran("ssh esx-02", SSH_PROMPT)) await w.write(c);
+    expect(w.hop()).toEqual({ to: "esx-02", known: false });
+    expect(w.prompt()?.elsewhere).toMatch(/press Enter/);
   });
 
   it("says a roster serve too old to fill another Host's prompt is why", async () => {

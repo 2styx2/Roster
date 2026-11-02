@@ -1052,6 +1052,8 @@ describe("a nested ssh (ticket 120)", () => {
       await settle();
     };
     await print(`${A}$ ${B}`);
+    // You type the ssh line and press Enter; the Session echoes it and its shell marks C.
+    tabs.write(id, "\r");
     return { tabs, id, asked, print, typed };
   }
 

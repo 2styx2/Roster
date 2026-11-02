@@ -156,6 +156,9 @@ export class PromptWatch {
   /** A marked shell started inside a command: roster can't pair the marks again. */
   private nested = false;
   private hopState: HopState | null = null;
+  /** You pressed Enter since the outer shell's `B`: its `C` is a line you ran, not one the Host
+   * drew by itself. */
+  private entered = false;
   private writes = 0;
   /** A fill was tried at the prompt as it was after this many writes: not offered again until more. */
   private spentAt = -1;
@@ -179,10 +182,12 @@ export class PromptWatch {
     return new Promise((resolve) => this.term.write(data, resolve));
   }
 
-  /** The user sent the Session keys (typed, pasted, or the shell hook line): a nested ssh's prompt
-   * after that may not be its login's. A fill's own keys never come here. */
-  typed() {
+  /** The user sent the Session keys with typing in them (typed, pasted, or the shell hook line): a
+   * nested ssh's prompt after that may not be its login's, and an Enter at the shell's prompt is
+   * what makes its next `C` a command you ran. A fill's own keys never come here. */
+  typed(data: string) {
     if (this.hopState) this.hopState.typed = true;
+    else if (this.outer.phase === "input" && /[\r\n]/.test(data)) this.entered = true;
   }
 
   resize(size: TermSize) {
@@ -349,6 +354,7 @@ export class PromptWatch {
         return;
       case "B":
         if (state && !state.innerMarked) return;
+        if (!state) this.entered = false;
         lv.phase = "input";
         lv.start = { line: b.baseY + b.cursorY, col: b.cursorX };
         return;
@@ -364,7 +370,10 @@ export class PromptWatch {
           if (ENDS_SHELL.test(lv.command ?? "")) state.ending = true;
           return;
         }
-        const hop = this.hops && lv.command !== null ? resolveHop(lv.command, this.hops.hosts()) : null;
+        let hop = this.hops && lv.command !== null ? resolveHop(lv.command, this.hops.hosts()) : null;
+        if (hop?.known && !this.entered) {
+          hop = { known: false, label: hop.host, why: "roster didn't see you press Enter on that line, so the Host may have drawn it" };
+        }
         if (hop) this.hopState = newHop(hop);
         return;
       }

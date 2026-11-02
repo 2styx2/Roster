@@ -590,7 +590,7 @@ export class Tabs {
         // Never while a password prompt is up or being filled (ticket 119): the hook line would
         // be taken for the password. The hooks try again at their next idle prompt.
         if (!current() || !entry.session || entry.tab.prompt !== null || entry.filling) return false;
-        entry.watch?.typed();
+        entry.watch?.typed(line);
         void entry.session.write(line).catch(() => {});
         return true;
       },
@@ -864,7 +864,7 @@ export class Tabs {
     if (!entry) return;
     entry.hooks?.typed(data);
     // A nested ssh's prompt after you've typed into it may not be its login's (ticket 120).
-    if (hasTyping(data)) entry.watch?.typed();
+    if (hasTyping(data)) entry.watch?.typed(data);
     if (entry.session) void entry.session.write(data).catch(() => {});
     else if (entry.tab.status.state === "connecting") entry.pending.push(data);
   }
