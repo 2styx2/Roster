@@ -36,7 +36,13 @@ pub(crate) struct RunOutput {
     /// The returned table, as JSON (an empty object if the file returned nothing).
     pub value: Json,
     pub api: Vec<ApiEntry>,
+    /// Each module the run required, as (its path in the config dir, its text), in load order:
+    /// where a value the file didn't set itself may have come from (ticket 140).
+    pub modules: Vec<(String, String)>,
 }
+
+/// Where `require` writes down the modules a Config run reads (only a Config run sets it).
+struct Modules(RefCell<Vec<(String, String)>>);
 
 /// A Lua value that can't become Config data, with where it is in the table.
 pub(crate) struct ConvertError {
@@ -89,6 +95,7 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
     let budget = Rc::new(Cell::new(Budget::default()));
     let roster = roster_api(&lua, env, Rc::clone(&api), Rc::clone(&budget)).map_err(internal)?;
     set_api(&lua, roster).map_err(internal)?;
+    lua.set_app_data(Modules(RefCell::new(Vec::new())));
 
     // A block, as Lua runs a file (ticket 138): `eval` would first try `return <file>`, so a
     // one-line `require("x")` would return what the module returned (`true` for nothing).
@@ -132,7 +139,11 @@ fn run_here(dir: &Path, source: &str, env: &Env) -> Result<RunOutput, ConfigErro
         }
     };
     let api = std::mem::take(&mut *api.borrow_mut());
-    Ok(RunOutput { value, api })
+    let modules = lua
+        .remove_app_data::<Modules>()
+        .map(|m| m.0.into_inner())
+        .unwrap_or_default();
+    Ok(RunOutput { value, api, modules })
 }
 
 /// The run time a sandboxed Lua has left: a deadline checked every 1000 instructions. Plugins
@@ -557,6 +568,9 @@ fn require(lua: &Lua, root: &Path, name: &str, place: &str) -> mlua::Result<Valu
         .map_err(|_| mlua::Error::runtime(format!("require {name:?}: {shown} leads outside {place}")))?;
     let source = std::fs::read_to_string(&real)
         .map_err(|e| mlua::Error::runtime(format!("require {name:?}: can't read {shown}: {e}")))?;
+    if let Some(modules) = lua.app_data_ref::<Modules>() {
+        modules.0.borrow_mut().push((shown.clone(), source.clone()));
+    }
     let chunk = lua
         .load(&source)
         .set_name(format!("@{shown}"))

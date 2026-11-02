@@ -1442,11 +1442,7 @@ fn a_one_line_require_of_a_module_that_returns_nothing_loads() {
     ] {
         let dir = with_init(&format!("block-{name}"), init);
         std::fs::create_dir_all(dir.join("lua/me")).unwrap();
-        std::fs::write(
-            dir.join("lua/me/init.lua"),
-            "roster.set(\"terminal.size\", \"16pt\")\n",
-        )
-        .unwrap();
+        std::fs::write(dir.join("lua/me/init.lua"), "roster.set(\"terminal.size\", \"16pt\")\n").unwrap();
         let config = config::load(&dir).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(config.terminal.size, config::FontSize::Pt(16.0), "{name}");
     }
@@ -1515,7 +1511,82 @@ fn an_override_module_required_later_wins() {
     let config = config::load(&dir).unwrap();
     assert_eq!(config.terminal.size, config::FontSize::Pt(16.0));
     assert_eq!(
-        (config.lines["terminal.size"].file.as_str(), config.lines["terminal.size"].line),
+        (
+            config.lines["terminal.size"].file.as_str(),
+            config.lines["terminal.size"].line
+        ),
         ("override.lua", 2)
     );
+}
+
+/// Ticket 140: when the returned table wins over a call, an error in its value points at the
+/// table, not at the call whose value was discarded.
+#[test]
+fn a_bad_table_value_is_not_blamed_on_a_discarded_call() {
+    let dir = with_init(
+        "line-table-wins",
+        "roster.set(\"terminal.size\", \"14pt\")\nreturn {\n  terminal = {\n    size = \"900pt\",\n  },\n}\n",
+    );
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!((e.file.as_str(), e.line), ("init.lua", Some(4)), "{e}");
+}
+
+/// Ticket 140: a bad value in a table that a required module returns is reported at the
+/// module's line.
+#[test]
+fn a_bad_value_from_a_required_module_names_the_module_and_line() {
+    let dir = with_init("line-module", "-- config\nreturn require(\"opts\")\n");
+    std::fs::create_dir_all(dir.join("lua")).unwrap();
+    std::fs::write(
+        dir.join("lua/opts.lua"),
+        "return {\n  vim = false,\n  terminal = {\n    size = \"900pt\",\n  },\n}\n",
+    )
+    .unwrap();
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!((e.file.as_str(), e.line), ("lua/opts.lua", Some(4)), "{e}");
+    // `:help options` finds the module's lines too.
+    let dir = with_init("line-module-ok", "return require(\"opts\")\n");
+    std::fs::write(dir.join("opts.lua"), "return {\n  terminal = { size = \"16pt\" },\n}\n").unwrap();
+    let config = config::load(&dir).unwrap();
+    let at = &config.lines["terminal.size"];
+    assert_eq!((at.file.as_str(), at.line), ("opts.lua", 2));
+}
+
+/// Ticket 140: when roster can't tell where a value was set, it says so instead of naming the
+/// line of a parent key.
+#[test]
+fn a_value_roster_cannot_place_says_line_unknown() {
+    let dir = with_init("line-unknown", "return {\n  terminal = require(\"term\"),\n}\n");
+    std::fs::write(
+        dir.join("term.lua"),
+        "local t = {}\nt[\"si\" .. \"ze\"] = \"900pt\"\nreturn t\n",
+    )
+    .unwrap();
+    let e = config::load(&dir).unwrap_err();
+    assert_eq!(e.line, None, "{e}");
+    assert!(e.message.contains("line unknown"), "{e}");
+    assert!(e.message.starts_with("terminal.size:"), "{e}");
+}
+
+/// Ticket 139: a later call replaces what's at its path, a whole table included; a later call
+/// below an earlier table changes just that value.
+#[test]
+fn a_later_call_replaces_what_is_at_its_path() {
+    let dir = with_init(
+        "last-wins-tables",
+        r#"roster.set("terminal.size", "20pt")
+roster.set("terminal", { font = "Cascadia Mono" })
+roster.set("fonts", { ui = "Inter", ui_size = 16 })
+roster.set("fonts.ui_size", 12)
+"#,
+    );
+    let config = config::load(&dir).unwrap();
+    assert_eq!(
+        config.terminal.size,
+        config::FontSize::Pt(13.0),
+        "replaced with the table"
+    );
+    assert_eq!(config.terminal.font, "Cascadia Mono");
+    assert_eq!((config.fonts.ui.as_str(), config.fonts.ui_size), ("Inter", 12));
+    assert_eq!(config.lines["fonts.ui_size"].line, 4);
 }

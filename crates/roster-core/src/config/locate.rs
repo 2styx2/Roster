@@ -1,9 +1,9 @@
 //! Finding the line of a value in `init.lua` from its schema path, for errors and warnings. Lua
 //! keeps no line numbers for table fields, so this reads the source: each path segment is looked
-//! for as a key (`size =`, `["d d"] =`, `t.size =`) after the previous one. It's a best effort;
-//! a value built by code elsewhere (a loop, a required module) may get no line, or its key's.
+//! for as a key (`size =`, `["d d"] =`, `t.size =`) after the previous one. It's a best effort:
+//! a value built by code (a loop, a computed key) gets no line, never a parent key's (ticket 140).
 
-/// The 1-based line where `path` is set, or the deepest part of it that's found.
+/// The 1-based line where `path` is set, when every name in it is found in `source` as a key.
 pub(crate) fn line_of(source: &str, path: &[String]) -> Option<u32> {
     let mut pos = 0;
     let mut line = None;
@@ -16,7 +16,7 @@ pub(crate) fn line_of(source: &str, path: &[String]) -> Option<u32> {
                 pos = at + seg.len();
                 line = Some(line_at(source, at));
             }
-            None => break,
+            None => return None,
         }
     }
     line
