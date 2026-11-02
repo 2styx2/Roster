@@ -375,6 +375,10 @@ pub struct Terminal {
     pub bold_is_bright: bool,
     /// Terminal colours over the Theme's: background, cursor, the 16 ANSI colours…
     pub colors: TerminalColors,
+    /// Send each Session's shell the one-line hook that turns on OSC 133 marks and OSC 7 (ticket
+    /// 121, decision Q130). Unset: a Host's `shell_hooks: true` in roster.yml decides; `true`: every
+    /// Session but a Host's `shell_hooks: false`; `false`: none.
+    pub shell_hooks: Option<bool>,
 }
 
 impl Default for Terminal {
@@ -397,6 +401,7 @@ impl Default for Terminal {
             cursor_style: CursorStyle::Block,
             bold_is_bright: true,
             colors: TerminalColors::default(),
+            shell_hooks: None,
         }
     }
 }

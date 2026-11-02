@@ -107,6 +107,7 @@
       "renderer": "webgl",
       "rightClickPaste": true,
       "scrollback": 10000,
+      "shellHooks": null,
       "size": 17.333333333333332,
       "weight": 500
     },

@@ -116,6 +116,7 @@ For each host you're bringing in, set its login and mark it reviewed:
 ```
 
 - If your team has its own word for one of roster's `login:` types, map it once at the top of `roster.yml` and keep using it: `web_login_names: { appliance: hub }` makes `login: appliance` work exactly like `login: hub`. roster shows the type it resolved to (`hub`). Details in [cli-reference.md](cli-reference.md#web-apis-with-stored-logins-roster-web).
+- **`shell_hooks: true`** (on a host, its group or `defaults`) lets the roster app send the host's shell one line after login that marks its prompts and says its folder, in that shell only: nothing is written on the host. Off unless set; `shell_hooks: false` keeps a host out, say network gear. It must be `true` or `false`. What's sent, and when not: [Shell hooks](plugins.md#shell-hooks-roster-sets-it-up).
 - A typo in a service entry (a port, a url, a `login:` type) doesn't break the file for everyone: that one service is left out, and `roster hosts`, `check` and `auth-check` warn about it with the fix. `roster info HOST` lists it under `problems`.
 
 - Rename hosts to something people will search for, ideally the box's real hostname (`lab-hub3`, `esxi-02`). Set a real `title` and fix the guessed `type`. Don't shorten names: `hub2` and `lab-hub2` are different machines. Hosts you're not bringing in can stay `reviewed: false`. roster leaves them alone.

@@ -125,6 +125,11 @@ return {
     -- blue, magenta, cyan, white, bright_black, bright_red, bright_green, bright_yellow,
     -- bright_blue, bright_magenta, bright_cyan, bright_white.
     colors = {},
+    -- Send each Session's shell one line after login that turns on its prompt marks (OSC 133)
+    -- and folder (OSC 7) in that shell only, never in its rc files (:help shell-hooks). Unset: a
+    -- Host's `shell_hooks: true` in roster.yml decides; true: every Session but a Host's
+    -- `shell_hooks: false`; false: none.
+    -- shell_hooks = true,
   },
 
   -- Keys ---------------------------------------------------------------------------------------

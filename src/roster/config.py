@@ -94,6 +94,9 @@ def parse_config(text, path):
             m["mesh"] = first(layers, "mesh")
             if m["mesh"] is not None and not isinstance(m["mesh"], bool):
                 die(f"host {hname!r}: mesh: must be true or false")
+            # The app sends this Host's shell its hook line (ticket 121); roster only checks it.
+            if m.get("shell_hooks") is not None and not isinstance(m["shell_hooks"], bool):
+                die(f"host {hname!r}: shell_hooks: must be true or false")
             md = mesh_dir(hname, first(layers, "mesh_dir"))
             m.pop("mesh_dir", None)          # kept beside the Hosts, so serve's Host (and the Plugin API's) is as it was
             if md:
